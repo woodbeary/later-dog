@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- No compositor on a virtual display: it costs CPU and adds nothing over VNC. One workspace keeps the dog's windows in view. -->
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="use_compositing" type="bool" value="false"/>
+    <property name="workspace_count" type="int" value="1"/>
+  </property>
+</channel>

@@ -1,0 +1,40 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "laterdog-computers",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      // One container per DogComputer Durable Object. With this policy the Durable Object picks the image (or a snapshot)
+      // and the instance size each time it starts its computer; see src/computer.ts.
+      "class_name": "DogComputer",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "desktop": { "dockerfile": "./container/Dockerfile", "build_context": "./container" }
+      },
+      "observability": { "enabled": true }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "COMPUTER", "class_name": "DogComputer" },
+      { "name": "REGISTRY", "class_name": "ComputerRegistry" }
+    ]
+  },
+  "exports": {
+    "DogComputer": { "type": "durable-object", "storage": "sqlite" },
+    "ComputerRegistry": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "vars": {
+    // How many computers may exist at once, awake or asleep.
+    "MAX_COMPUTERS": "10",
+    // An awake computer with no API calls and no open viewer for this long is snapshotted and stopped.
+    "IDLE_SLEEP_MINUTES": "15",
+    // Backstop: any computer awake this long is snapshotted and stopped, even with a viewer open.
+    "MAX_AWAKE_HOURS": "8"
+  }
+  // Secrets (wrangler secret put, values piped on stdin):
+  // COMPUTERS_KEY_SHA256 - lowercase hex SHA-256 of the API key ("ldc_..."); the key itself is never stored here.
+  // DESKTOP_SIGNING_KEY  - random HMAC key for signed desktop viewer links.
+}

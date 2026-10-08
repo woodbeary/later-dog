@@ -1,0 +1,40 @@
+# later.dog
+
+> An open-source desktop home for AI agents that do real work. The app calls them dogs: each dog has its own computer,
+> browser and files, dogs message each other, run on a schedule, and turn big tasks into verified pull requests through a cloud workspace you
+> host on your own Cloudflare account. It runs on the subscriptions you already have (ChatGPT, Claude, Grok) through
+> their official sign-in flows. macOS app (Apple silicon), Apache-2.0.
+
+Repository: https://github.com/woodbeary/later-dog
+
+## Set it up (for an agent acting on a person's behalf)
+
+- [AGENTS.md](AGENTS.md): the rules every agent follows in this repo (pnpm only, Node 24, isolated fixtures, truthful limitations).
+- [skills/laterdog/setup-laterdog/SKILL.md](skills/laterdog/setup-laterdog/SKILL.md): clone, install, build the Mac app, start it, and what only the person can do (sign-ins, OS permissions, their GitHub token).
+- [README.md](README.md): install from a release, first run, what works today.
+
+## How it works
+
+- [docs/laterdog/deployment.md](docs/laterdog/deployment.md): desktop ↔ supervisor connection (`~/.laterdog/supervisor.json`), Docker, profiles, GitHub access.
+- [docs/laterdog/cloudflare.md](docs/laterdog/cloudflare.md): hosting the supervisor on Cloudflare Containers, budget, sleep/wake, runbook.
+- [docs/laterdog/claude-routine.md](docs/laterdog/claude-routine.md): Claude Code cloud execution through a routine.
+- [docs/laterdog/verification.md](docs/laterdog/verification.md): what each fixture proves and the live acceptance steps.
+- [docs/laterdog/token-battery.md](docs/laterdog/token-battery.md): several Claude accounts in a next-up order; a conversation continues on the next one when one runs out.
+- [docs/laterdog/bot-playbook.md](docs/laterdog/bot-playbook.md): how people run bot teams, the starter roster, the gaps.
+- [docs/laterdog/roadmap.md](docs/laterdog/roadmap.md): the direction (later.dog's own repository, a cloud computer per dog and any model through AI Gateway on your own Cloudflare, a one-command deploy), what exists, what is next, in order.
+- [docs/laterdog/cloud-computers.md](docs/laterdog/cloud-computers.md): how Grok Bot, Claude Code cloud and Codex Cloud give agents machines, and the per-dog Cloudflare computer design.
+- [docs/laterdog/motion.md](docs/laterdog/motion.md): motion tokens, the dog's state → ear motion table, reduced motion.
+- [docs/laterdog/support.md](docs/laterdog/support.md): how later.dog is funded and where sponsorships go.
+
+## What has been proven, and what has not
+
+- [docs/laterdog/acceptance-2026-10-06.md](docs/laterdog/acceptance-2026-10-06.md): the hosted supervisor's live record.
+- [docs/laterdog/acceptance-2026-10-08.md](docs/laterdog/acceptance-2026-10-08.md): the first real cloud job end to end through the hosted supervisor.
+- [docs/laterdog/ui-audit-2026-10-06.md](docs/laterdog/ui-audit-2026-10-06.md): the desktop audit with real providers (chat, browser, files, approvals, group chats, routines, the packaged app).
+
+## Code map
+
+- `server/laterdog/`: the SQLite supervisor (cloud jobs, publishing, verification, review, repair) and its MCP tools.
+- `deploy/laterdog/`: the supervisor container and the Cloudflare Worker that hosts it.
+- `src/`, `server/`, `electron/`: the desktop app. Its remaining inherited code is to be replaced module by module (roadmap, direction a).
+- `skills/laterdog/`: canonical skills exported to Codex, Cursor and Claude Code (`pnpm laterdog:skills`).

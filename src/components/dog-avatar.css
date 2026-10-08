@@ -1,0 +1,189 @@
+/* later.dog's dog (DogAvatar.tsx, looks in dog-breeds.ts). Every fill is a tone of the one colour the person picked,
+   so a breed reads from its shapes and markings in any colour. Poses use the individual `rotate` / `translate` /
+   `scale` properties with a transition, so a state change eases into place and a still dog still reads its state;
+   loops use `transform` keyframes on separate groups. Durations and easings come from the app's motion tokens
+   (docs/laterdog/motion.md). */
+
+.ld-dog {
+  overflow: visible;
+  --ld-ease: var(--ease-out-soft, cubic-bezier(0.22, 1, 0.36, 1));
+  --ld-loop: var(--ease-in-out-soft, cubic-bezier(0.45, 0, 0.55, 1));
+  --ld-enter: var(--motion-enter, 320ms);
+  --ld-base: var(--motion-base, 200ms);
+  --ear-flick: 9deg;
+  --ld-fur: var(--dog-ink);
+  --ld-shade: color-mix(in oklab, var(--dog-ink) 80%, #000);
+  --ld-dark: color-mix(in oklab, var(--dog-ink) 52%, #000);
+  --ld-deep: color-mix(in oklab, var(--dog-ink) 24%, #100d0c);
+  --ld-light: color-mix(in oklab, var(--dog-ink) 42%, #fff);
+  --ld-white: color-mix(in oklab, var(--dog-ink) 10%, #fffaf3);
+  --ld-inner: color-mix(in oklab, var(--dog-ink) 35%, #f4b4ae);
+  --ld-ink: #1c1816;
+}
+.ld-dog[data-ears="upright"] { --ear-flick: -8deg; }
+.ld-dog[data-ears="fold"] { --ear-flick: 7deg; }
+.ld-dog[data-ears="puff"] { --ear-flick: 5deg; }
+
+.ld-t-fur { fill: var(--ld-fur); }
+.ld-t-shade { fill: var(--ld-shade); }
+.ld-t-dark { fill: var(--ld-dark); }
+.ld-t-deep { fill: var(--ld-deep); }
+.ld-t-light { fill: var(--ld-light); }
+.ld-t-white { fill: var(--ld-white); }
+.ld-t-inner { fill: var(--ld-inner); }
+.ld-t-ink { fill: var(--ld-ink); }
+.ld-s-fur { stroke: var(--ld-fur); }
+.ld-s-shade { stroke: var(--ld-shade); }
+.ld-s-dark { stroke: var(--ld-dark); }
+.ld-s-deep { stroke: var(--ld-deep); }
+.ld-s-light { stroke: var(--ld-light); }
+.ld-s-white { stroke: var(--ld-white); }
+.ld-s-inner { stroke: var(--ld-inner); }
+.ld-s-ink { stroke: var(--ld-ink); }
+.ld-dog-glint { fill: #fff; }
+.ld-dog-muzzle { translate: calc(var(--gx, 0) * 1.6px) 0; transition: translate var(--ld-base) var(--ld-ease); }
+
+/* ---------- body: the whole dog bobs, tilts, hops and wags from its chin ---------- */
+.ld-dog-body {
+  transform-box: view-box;
+  transform-origin: 50px 84px;
+  transition: rotate var(--ld-enter) var(--ld-ease), translate var(--ld-enter) var(--ld-ease);
+}
+.ld-dog[data-mood="rest"] .ld-dog-body { animation: ld-dog-breathe 3.8s var(--ld-loop) infinite; }
+.ld-dog[data-mood="listen"] .ld-dog-body { rotate: -5deg; animation: ld-dog-sway 3.2s var(--ld-loop) infinite; }
+.ld-dog[data-mood="think"] .ld-dog-body { animation: ld-dog-tilt 3.4s var(--ld-loop) infinite; }
+.ld-dog[data-mood="work"] .ld-dog-body { animation: ld-dog-bob 0.72s var(--ld-loop) infinite; }
+.ld-dog[data-mood="search"] .ld-dog-body { animation: ld-dog-look 1.8s var(--ld-loop) infinite; }
+.ld-dog[data-mood="alert"] .ld-dog-body { animation: ld-dog-hop 0.7s var(--ld-ease) 1; }
+.ld-dog[data-mood="happy"] .ld-dog-body { animation: ld-dog-wag 0.5s var(--ld-loop) infinite; }
+.ld-dog[data-mood="sleep"] .ld-dog-body { translate: 0 1px; animation: ld-dog-sleep 5s var(--ld-loop) infinite; }
+.ld-dog[data-mood="sad"] .ld-dog-body { translate: 0 1.5px; animation: ld-dog-breathe 5s var(--ld-loop) infinite; }
+.ld-dog[data-mood="angry"] .ld-dog-body { animation: ld-dog-shake 2.2s var(--ld-loop) infinite; }
+.ld-dog[data-spin] .ld-dog-body { transform-origin: 50px 55px; animation: ld-dog-spin var(--dog-spin, 700ms) var(--ld-ease) 1; }
+
+@keyframes ld-dog-breathe { 0%, 100% { transform: translateY(0) scale(1, 1); } 50% { transform: translateY(-0.6px) scale(1.008, 0.992); } }
+@keyframes ld-dog-sway { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-2deg); } }
+@keyframes ld-dog-tilt { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
+@keyframes ld-dog-bob {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  35% { transform: translateY(-2.2px) scale(0.99, 1.01); }
+  70% { transform: translateY(0) scale(1.02, 0.975); }
+}
+@keyframes ld-dog-look { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+@keyframes ld-dog-hop {
+  0% { transform: translateY(0) scale(1, 1); }
+  30% { transform: translateY(-6px) scale(0.97, 1.04); }
+  60% { transform: translateY(0) scale(1.05, 0.95); }
+  80% { transform: translateY(-1px) scale(0.99, 1.01); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes ld-dog-wag {
+  0%, 100% { transform: rotate(-4deg) translateY(0); }
+  50% { transform: rotate(4deg) translateY(-1.4px); }
+}
+@keyframes ld-dog-sleep { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.012, 0.985); } }
+@keyframes ld-dog-shake {
+  0%, 30%, 100% { transform: translateX(0); }
+  6% { transform: translateX(-1.4px); } 12% { transform: translateX(1.4px); }
+  18% { transform: translateX(-1px); } 24% { transform: translateX(0.8px); }
+}
+@keyframes ld-dog-spin { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(200deg) scale(0.92); } 100% { transform: rotate(360deg) scale(1); } }
+
+/* ---------- ears: a pose per mood (eased), a loop on top for rest, work and play ---------- */
+.ld-dog-ear-pose, .ld-dog-ear-loop { transform-box: view-box; }
+.ld-dog-ear-pose { transition: rotate var(--ld-enter) var(--ld-ease), translate var(--ld-enter) var(--ld-ease); }
+
+.ld-dog[data-ears="floppy"]:is([data-mood="listen"], [data-mood="alert"]) .ld-dog-ear-pose { rotate: 14deg; translate: 0 -1px; }
+.ld-dog[data-ears="floppy"][data-mood="think"] .ld-dog-ear--l .ld-dog-ear-pose { rotate: 18deg; }
+.ld-dog[data-ears="floppy"][data-mood="happy"] .ld-dog-ear-pose { rotate: 9deg; }
+.ld-dog[data-ears="floppy"][data-mood="work"] .ld-dog-ear-pose { rotate: 4deg; }
+.ld-dog[data-ears="floppy"]:is([data-mood="sleep"], [data-mood="sad"]) .ld-dog-ear-pose { rotate: -8deg; translate: 0 1.5px; }
+.ld-dog[data-ears="floppy"][data-mood="angry"] .ld-dog-ear-pose { rotate: -12deg; }
+
+.ld-dog[data-ears="upright"]:is([data-mood="listen"], [data-mood="alert"]) .ld-dog-ear-pose { rotate: 3deg; translate: 0 -1.5px; }
+.ld-dog[data-ears="upright"][data-mood="think"] .ld-dog-ear--l .ld-dog-ear-pose { rotate: -10deg; }
+.ld-dog[data-ears="upright"][data-mood="happy"] .ld-dog-ear-pose { rotate: -5deg; }
+.ld-dog[data-ears="upright"]:is([data-mood="sleep"], [data-mood="sad"]) .ld-dog-ear-pose { rotate: -24deg; translate: 0 2px; }
+.ld-dog[data-ears="upright"][data-mood="angry"] .ld-dog-ear-pose { rotate: -30deg; translate: 0 1px; }
+
+.ld-dog[data-ears="fold"]:is([data-mood="listen"], [data-mood="alert"], [data-mood="happy"]) .ld-dog-ear-pose { rotate: 10deg; translate: 0 -0.5px; }
+.ld-dog[data-ears="fold"]:is([data-mood="sleep"], [data-mood="sad"], [data-mood="angry"]) .ld-dog-ear-pose { rotate: -12deg; translate: 0 1px; }
+
+.ld-dog[data-ears="puff"]:is([data-mood="listen"], [data-mood="alert"], [data-mood="happy"]) .ld-dog-ear-pose { rotate: 6deg; translate: 0 -1px; }
+.ld-dog[data-ears="puff"]:is([data-mood="sleep"], [data-mood="sad"]) .ld-dog-ear-pose { rotate: -4deg; translate: 0 2px; }
+
+.ld-dog[data-mood="rest"] .ld-dog-ear--r .ld-dog-ear-loop { animation: ld-dog-twitch 7s var(--ld-loop) infinite; }
+.ld-dog[data-mood="work"] .ld-dog-ear-loop { animation: ld-dog-flop 0.72s var(--ld-loop) infinite; }
+.ld-dog[data-mood="happy"] .ld-dog-ear-loop { animation: ld-dog-flop 0.5s var(--ld-loop) infinite; }
+
+@keyframes ld-dog-twitch {
+  0%, 84%, 100% { transform: rotate(0deg); }
+  87% { transform: rotate(var(--ear-flick)); } 90% { transform: rotate(0deg); }
+  92.5% { transform: rotate(calc(var(--ear-flick) * 0.6)); } 95% { transform: rotate(0deg); }
+}
+@keyframes ld-dog-flop { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(calc(var(--ear-flick) * 0.7)); } }
+
+/* ---------- eyes, brows, nose, mouth: the face follows the gaze a little; the nose and mouth a little more ---------- */
+.ld-dog-gaze {
+  translate: calc(var(--gx, 0) * 2.4px) calc(var(--gy, 0) * 1.8px);
+  transition: translate var(--ld-base) var(--ld-ease);
+}
+.ld-dog-nose {
+  translate: calc(var(--gx, 0) * 3px) calc(var(--gy, 0) * 1.2px);
+  transition: translate var(--ld-base) var(--ld-ease);
+}
+.ld-dog-eyes { transition: opacity 160ms var(--ld-ease); }
+.ld-dog-eyes--happy, .ld-dog-eyes--closed { opacity: 0; }
+.ld-dog[data-mood="happy"] .ld-dog-eyes--open, .ld-dog[data-mood="sleep"] .ld-dog-eyes--open { opacity: 0; }
+.ld-dog[data-mood="happy"] .ld-dog-eyes--happy { opacity: 1; }
+.ld-dog[data-mood="sleep"] .ld-dog-eyes--closed { opacity: 1; }
+
+.ld-dog-eyes--open, .ld-dog-blink, .ld-dog-eye, .ld-dog-brow { transform-box: fill-box; transform-origin: center; }
+.ld-dog-eyes--open { transition: opacity 160ms var(--ld-ease), scale var(--ld-base) var(--ld-ease), translate var(--ld-base) var(--ld-ease); }
+.ld-dog-eye { transition: rotate var(--ld-base) var(--ld-ease), scale var(--ld-base) var(--ld-ease); }
+.ld-dog:is([data-mood="listen"], [data-mood="alert"]) .ld-dog-eyes--open { scale: 1.1 1.12; }
+.ld-dog[data-mood="work"] .ld-dog-eyes--open { scale: 1 0.82; }
+.ld-dog[data-mood="think"] .ld-dog-eyes--open { translate: 1.6px -1.8px; }
+.ld-dog[data-mood="search"] .ld-dog-eyes--open { animation: ld-dog-scan 1.8s var(--ld-loop) infinite; }
+.ld-dog[data-mood="sad"] .ld-dog-eyes--open { translate: 0 0.8px; scale: 1 0.9; }
+.ld-dog[data-mood="angry"] .ld-dog-eyes--open { scale: 1 0.8; }
+
+.ld-dog-brows { opacity: 0; transition: opacity var(--ld-base) var(--ld-ease); }
+.ld-dog-brow { transition: rotate var(--ld-base) var(--ld-ease), translate var(--ld-base) var(--ld-ease); }
+.ld-dog:is([data-mood="sad"], [data-mood="angry"], [data-mood="think"]) .ld-dog-brows { opacity: 1; }
+.ld-dog[data-mood="sad"] .ld-dog-brow--l { rotate: -16deg; translate: 0 0.6px; }
+.ld-dog[data-mood="sad"] .ld-dog-brow--r { rotate: 16deg; translate: 0 0.6px; }
+.ld-dog[data-mood="angry"] .ld-dog-brow--l { rotate: 18deg; translate: 0 1.6px; }
+.ld-dog[data-mood="angry"] .ld-dog-brow--r { rotate: -18deg; translate: 0 1.6px; }
+.ld-dog[data-mood="think"] .ld-dog-brow--l { translate: 0 1px; }
+.ld-dog[data-mood="think"] .ld-dog-brow--r { rotate: -10deg; translate: 0 -1.6px; }
+
+.ld-dog-blink { animation: ld-dog-blink 5.4s linear infinite; }
+.ld-dog[data-blink] .ld-dog-blink { animation: ld-dog-blink-once 180ms var(--ld-ease) 1; }
+@keyframes ld-dog-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.12); } }
+@keyframes ld-dog-blink-once { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.12); } }
+@keyframes ld-dog-scan { 0%, 100% { transform: translateX(-2px); } 50% { transform: translateX(2px); } }
+
+.ld-dog-tongue {
+  fill: #ef7f93;
+  opacity: 0;
+  translate: 0 -3px;
+  transition: opacity var(--ld-base) var(--ld-ease), translate var(--ld-enter) var(--ld-ease);
+}
+.ld-dog[data-mood="happy"] .ld-dog-tongue { opacity: 1; translate: 0 0; }
+
+/* A paused dog holds its pose; reduced motion keeps every pose and drops every loop. */
+.ld-dog[data-paused], .ld-dog[data-paused] * { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .ld-dog, .ld-dog * { animation: none !important; transition-duration: 0.01ms !important; }
+}
+
+/* The "+1" that pops from a treat button (TreatButton.tsx). */
+.treat-pop { translate: -50% 0; animation: ld-treat-pop 0.9s var(--ease-out-soft, ease-out) forwards; }
+@keyframes ld-treat-pop {
+  0% { opacity: 0; transform: translateY(2px) scale(0.8); }
+  25% { opacity: 1; transform: translateY(-6px) scale(1.1); }
+  100% { opacity: 0; transform: translateY(-18px) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) { .treat-pop { animation: ld-treat-fade 0.9s linear forwards; } }
+@keyframes ld-treat-fade { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }

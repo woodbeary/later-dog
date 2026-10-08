@@ -1,0 +1,12 @@
+{
+  "id": "laterdog-architect",
+  "name": "later.dog architect",
+  "version": "0.1.0",
+  "description": "Plan a change before writing it: draft two or more designs that differ in who owns what, rule out the ones with structural problems, and pick the one that is right for the whole repository rather than the file you are in.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "architect",
+    "architect"
+  ],
+  "requiredCapabilities": []
+}

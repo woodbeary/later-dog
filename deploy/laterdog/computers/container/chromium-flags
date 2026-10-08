@@ -1,0 +1,12 @@
+# Read by Debian's chromium launcher. The computer is the dog's own; skip first-run prompts and keyring dialogs,
+# use disk instead of the container's small /dev/shm, and do not offer to restore a "crashed" session after a computer
+# wakes from a snapshot (the snapshot is taken while the browser runs).
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-first-run --no-default-browser-check --password-store=basic --disable-dev-shm-usage --hide-crash-restore-bubble"
+
+# Chromium's sandbox needs user namespaces. Where the runtime refuses them (Docker's default seccomp profile, for one)
+# Chromium exits with "No usable sandbox!", so it runs without its sandbox there. That is acceptable here because every
+# computer is its own single-tenant VM: the dog already has passwordless sudo, so the browser sandbox protects nothing
+# the VM boundary does not. Where namespaces work, the sandbox stays on.
+if ! unshare --user --map-root-user true 2>/dev/null; then
+  export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"
+fi

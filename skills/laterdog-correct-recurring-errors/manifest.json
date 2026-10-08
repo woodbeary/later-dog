@@ -1,0 +1,12 @@
+{
+  "id": "laterdog-correct-recurring-errors",
+  "name": "later.dog correct recurring errors",
+  "version": "0.1.0",
+  "description": "When the same failure has happened more than once and the evidence shows it, prevent it at the narrowest lasting place: a type or structural fix, a CI check or fixture, or a short rule in the canonical instructions.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "correct recurring errors",
+    "correct-recurring-errors"
+  ],
+  "requiredCapabilities": []
+}

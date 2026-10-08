@@ -1,0 +1,90 @@
+name: later.dog CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm laterdog:test && pnpm exec vitest run src/lib/analytics.test.ts src/lib/laterdog-privacy.test.ts scripts/mascot-bodies src/components/Avatar.test.ts server/drivers/acp/grok-device-auth.test.ts
+      - run: pnpm laterdog:skills && git diff --exit-code -- .agents/skills .cursor/skills .claude/skills skills/laterdog-* && test -z "$(git status --porcelain -- .agents/skills .cursor/skills .claude/skills skills/laterdog-*)"
+      - run: pnpm build
+      - run: pnpm laterdog:build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: laterdog-verification
+          path: .laterdog-evidence/
+          retention-days: 14
+  vitest:
+    # later.dog's whole vitest suite. CI once ran only the supervisor's tests and
+    # a few others, and renaming the data folder broke 132 server tests with CI
+    # still green. vitest splits the files deterministically, so a failing shard
+    # reproduces locally with the same --shard flag.
+    name: vitest (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare Electron test runtime
+        # Electron downloads its runtime on first import; do it before the
+        # fixtures' timeouts start.
+        run: node --input-type=commonjs -e "require('electron')"
+      - run: pnpm exec vitest run --shard=${{ matrix.shard }}/4 --reporter=default --reporter=github-actions
+      - name: Broker and Electron unit tests
+        if: matrix.shard == 1
+        run: pnpm broker:test && pnpm test:electron
+  supervisor-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: docker build -f deploy/laterdog/Dockerfile -t laterdog-supervisor:smoke .
+      - run: node scripts/smoke-laterdog-container.mjs
+  cloudflare-worker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: deploy/laterdog/cloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile --ignore-workspace
+      - run: pnpm exec wrangler types
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm exec wrangler deploy --dry-run --containers-rollout=none

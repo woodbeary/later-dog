@@ -1,0 +1,12 @@
+{
+  "id": "laterdog-benchmark-checklist",
+  "name": "later.dog benchmark checklist",
+  "version": "0.1.0",
+  "description": "Check any measured number before it is reported: label what kind of number it is, make the runs fair, clean and repeated, confirm the timer covered the real work, test the result against what limits it, and show it matters end to end.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "benchmark checklist",
+    "benchmark-checklist"
+  ],
+  "requiredCapabilities": []
+}

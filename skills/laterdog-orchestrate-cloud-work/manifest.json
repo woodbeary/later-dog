@@ -1,0 +1,14 @@
+{
+  "id": "laterdog-orchestrate-cloud-work",
+  "name": "later.dog orchestrate cloud work",
+  "version": "0.1.0",
+  "description": "Run a sustained program of repository work through later.dog's supervisor: split it into scoped cloud jobs with dependencies, follow their durable receipts, and carry each result to a verified, reviewed draft PR.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "orchestrate cloud work",
+    "orchestrate-cloud-work",
+    "delegate cloud",
+    "cloud jobs"
+  ],
+  "requiredCapabilities": []
+}

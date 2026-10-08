@@ -1,0 +1,12 @@
+{
+  "id": "laterdog-independent-review",
+  "name": "later.dog independent review",
+  "version": "0.1.0",
+  "description": "Have a separate cloud session review a published PR at its exact current commit, and treat its verdict as valid for that commit only.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "independent review",
+    "independent-review"
+  ],
+  "requiredCapabilities": []
+}

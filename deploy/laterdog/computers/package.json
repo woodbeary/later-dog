@@ -1,0 +1,23 @@
+{
+  "name": "laterdog-computers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "later.dog cloud computers: one Linux desktop per dog on Cloudflare Containers, driven over an API and watched in the browser.",
+  "scripts": {
+    "types": "wrangler types",
+    "check": "wrangler types && tsc --noEmit",
+    "test": "vitest run",
+    "dry-run": "wrangler deploy --dry-run",
+    "setup": "bash scripts/deploy.sh",
+    "deploy": "wrangler deploy",
+    "deploy:worker": "wrangler deploy --containers-rollout=none",
+    "smoke": "node scripts/smoke.mjs",
+    "tail": "wrangler tail laterdog-computers"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.148.0"
+  }
+}

@@ -1,0 +1,102 @@
+name: macOS preview build
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional new tag for an unsigned public preview release
+        type: string
+        default: ''
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  package:
+    permissions:
+      contents: write
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Load later.dog's signing identity
+        # A self-signed identity kept as repository secrets. macOS keys keychain access ("Always Allow") and privacy
+        # grants (Accessibility, Screen Recording) to an app's designated requirement, which an ad-hoc signature changes
+        # with every build; one identity for every build keeps them across updates. It is not Apple's: Gatekeeper still
+        # asks once on first open. Without the secrets (a fork) the build stays ad hoc.
+        env:
+          MAC_SIGNING_P12: ${{ secrets.MAC_SIGNING_P12 }}
+          MAC_SIGNING_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$MAC_SIGNING_P12" ]; then echo 'No signing identity configured; this build is signed ad hoc.'; exit 0; fi
+          KC="$RUNNER_TEMP/laterdog-signing.keychain-db"
+          KPW="$(openssl rand -hex 16)"
+          security create-keychain -p "$KPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KPW" "$KC"
+          printf '%s' "$MAC_SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KC" -P "$MAC_SIGNING_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security > /dev/null
+          rm -f "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPW" "$KC" > /dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | sed 's/"//g')
+          security find-certificate -c 'later.dog Developer' -p "$KC" > "$RUNNER_TEMP/signing.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing.pem"
+          security find-identity -v -p codesigning "$KC"
+          echo 'LATERDOG_MAC_IDENTITY=later.dog Developer' >> "$GITHUB_ENV"
+      - run: pnpm laterdog:package
+      - run: pnpm test:packaged-server
+      - name: Inspect application identity and bundled supervisor
+        run: |
+          APP='release/mac-arm64/later.dog.app'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist"
+          test -f "$APP/Contents/Resources/server/laterdog/main.js"
+          test -f "$APP/Contents/Resources/server/laterdog/mcp.js"
+          test -f "$APP/Contents/Resources/licenses/later.dog-NOTICE.txt"
+          # The designated requirement is what keychain access and privacy grants are keyed to: with the identity it
+          # names the certificate, and stays the same from build to build. A self-signed certificate is its own root, so
+          # codesign writes "certificate root" for it rather than "certificate leaf".
+          codesign --verify --deep --strict "$APP"
+          codesign -dr - "$APP" 2>&1 | grep designated
+          if [ -n "${LATERDOG_MAC_IDENTITY:-}" ]; then codesign -dr - "$APP" 2>&1 | grep -Eq 'certificate (leaf|root) = H"6ce7d3fb20195fbe66e9bb8dd1d272272977fae2"'; fi
+      - name: Publish the requested release
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          # vX.Y.Z publishes a release; vX.Y.Z-preview.N a prerelease. Anything else is refused.
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-preview\.[0-9]+)?$ ]]
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            echo 'Release already exists; refusing to replace its binaries.'
+            exit 1
+          fi
+          mkdir -p out
+          ditto -c -k --sequesterRsrc --keepParent release/mac-arm64/later.dog.app out/later.dog-macOS-arm64.zip
+          cd out
+          shasum -a 256 later.dog-macOS-arm64.zip > SHA256SUMS.txt
+          cd ..
+          cat > out/NOTES.md <<'EOF'
+          ## later.dog for macOS (Apple silicon)
+
+          **Install:** unzip, drag **later.dog** into Applications, then **right-click → Open** the first time. The app is signed with later.dog's own certificate, not Apple's, so macOS asks once; every release from this one on carries the same signature, so updates keep the keychain access and the Accessibility and Screen Recording permissions you grant. The welcome tour shows which AI providers it found, signs you in to Claude, Codex (your ChatGPT plan) or Cursor with their own flows, and makes your first dog. No API keys.
+
+          **New in 0.2.0**
+          - **later.dog's own repository**, starting from one commit, with later.dog's own names throughout.
+          - **Token battery for Codex too.** Sign in to several ChatGPT accounts as well as several Claude accounts (Settings → AI → Engines). When one runs out of usage, the conversation continues on the next account of the same engine, with its messages carried over, and comes back to your favourite when its limit resets.
+          - **Cloud computers on your own Cloudflare account.** Each dog gets a Linux desktop it drives, which you can watch live and take over. It sleeps when idle and wakes with its files. One command deploys it: `deploy/laterdog/computers`.
+          - First run in three steps; your first dog greets you; any dog can make a dog; Apps with real brand icons; Cloud jobs (formerly Workspace) in Advanced mode; clearer Permissions and Model providers settings.
+
+          **Verified before this release:** the full test suite in CI; the token battery on disposable servers with two fake Claude and two fake Codex accounts; the cloud computers live on Cloudflare (create, command, files, screenshot, live viewer with take-over, sleep and wake with files kept, idle sleep). **Not yet:** a real account reaching its limit with a real second account taking over, notarized builds, voice dictation in locally built apps, and connected apps that need a self-hosted broker. Details: `docs/laterdog/roadmap.md`.
+
+          SHA-256 of the zip is in `SHA256SUMS.txt`.
+          EOF
+          prerelease=()
+          [[ "$RELEASE_TAG" == *-preview.* ]] && prerelease=(--prerelease)
+          gh release create "$RELEASE_TAG" out/later.dog-macOS-arm64.zip out/SHA256SUMS.txt --target "$GITHUB_SHA" "${prerelease[@]}" --title "later.dog $RELEASE_TAG" --notes-file out/NOTES.md

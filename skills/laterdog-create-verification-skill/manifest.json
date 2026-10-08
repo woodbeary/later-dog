@@ -1,0 +1,14 @@
+{
+  "id": "laterdog-create-verification-skill",
+  "name": "later.dog create verification skill",
+  "version": "0.1.0",
+  "description": "Write a verification skill for a repository: how to start it in isolation, drive what a user really does, keep evidence that survives cleanup, and map its main features, proven by running it once.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "laterdog verification skill",
+    "laterdog-create-verification-skill"
+  ],
+  "requiredCapabilities": [
+    "skillAuthoring"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "laterdog-maintain-verification-skill",
+  "name": "later.dog maintain verification skill",
+  "version": "0.1.0",
+  "description": "Keep a repository's verification skill and feature map in step with the app: update them when the app changes or a recipe stops working, and re-prove what you touched.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "maintain verification skill",
+    "maintain-verification-skill"
+  ],
+  "requiredCapabilities": []
+}

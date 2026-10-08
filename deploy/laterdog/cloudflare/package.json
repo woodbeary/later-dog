@@ -1,0 +1,21 @@
+{
+  "name": "laterdog-cloudflare-supervisor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker + Container host for the later.dog publishing supervisor.",
+  "scripts": {
+    "types": "wrangler types",
+    "check": "wrangler types && tsc --noEmit",
+    "dry-run": "wrangler deploy --dry-run --containers-rollout=none",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail laterdog-supervisor"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "wrangler": "^4.148.0"
+  }
+}

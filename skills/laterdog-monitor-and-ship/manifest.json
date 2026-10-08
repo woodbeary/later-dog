@@ -1,0 +1,12 @@
+{
+  "id": "laterdog-monitor-and-ship",
+  "name": "later.dog monitor and ship",
+  "version": "0.1.0",
+  "description": "Take a published PR through its checks, current-commit verification and independent review to ready-to-merge, repair what fails, and hand the merge to the person.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "monitor and ship",
+    "monitor-and-ship"
+  ],
+  "requiredCapabilities": []
+}

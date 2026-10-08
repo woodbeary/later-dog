@@ -1,0 +1,62 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "laterdog-control-plane",
+  "main": "src/index.ts",
+  // Set "account_id" to your own Cloudflare account before deploying.
+  "compatibility_date": "2026-08-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "accounts.later.dog",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "BETTER_AUTH_URL": "https://accounts.later.dog",
+    "EMAIL_FROM": "noreply@later.dog",
+    "ALLOWED_ORIGINS": "",
+    // Your own account and the zone that holds COMPANION_HOST_SUFFIX.
+    "CLOUDFLARE_ACCOUNT_ID": "",
+    "CLOUDFLARE_ZONE_ID": "",
+    "COMPANION_HOST_SUFFIX": "later.dog",
+    // Managed endpoint capacity (see README "Tunnel capacity and idle
+    // reclaim"). The limits only drive the 90% usage alert and /healthz;
+    // they never block provisioning on their own.
+    "LATERDOG_TUNNEL_LIMIT": "1000",
+    "LATERDOG_DNS_RECORD_LIMIT": "1000",
+    // "on" marks idle tunnels for cleanup; "observe" only logs candidates.
+    "LATERDOG_TUNNEL_RECLAIM": "on",
+    // Days a tunnel must have been offline (and its installation quiet)
+    // before reclaim. Never-connected tunnels use a fixed seven days.
+    "LATERDOG_TUNNEL_OFFLINE_RECLAIM_DAYS": "14",
+    // Cleanup rows per five-minute cron run. 20 needs Workers Paid; use 4 on
+    // Workers Free (50 subrequests per invocation).
+    "LATERDOG_CLEANUP_SWEEP_LIMIT": "4"
+  },
+  "secrets": {
+    "required": ["BETTER_AUTH_SECRET", "CLOUDFLARE_API_TOKEN"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "laterdog-control-plane",
+      "database_id": "<your-d1-database-id>",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["noreply@later.dog"]
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  }
+}

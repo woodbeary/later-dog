@@ -1,0 +1,12 @@
+{
+  "id": "laterdog-verify-laterdog",
+  "name": "later.dog verify laterdog",
+  "version": "0.1.0",
+  "description": "Prove later.dog's workspace delegation, durable supervisor, remote publishing and conversation recovery on its own isolated fixtures, keeping the evidence and naming the limits.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "verify laterdog",
+    "verify-laterdog"
+  ],
+  "requiredCapabilities": []
+}

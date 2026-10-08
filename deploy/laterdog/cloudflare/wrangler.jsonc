@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "laterdog-supervisor",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "containers": [
+    {
+      "class_name": "SupervisorHost",
+      "image": "../Dockerfile",
+      "image_build_context": "../../..",
+      "instance_type": "standard-3",
+      "max_instances": 1,
+      "observability": { "enabled": true }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "SUPERVISOR", "class_name": "SupervisorHost" }]
+  },
+  "exports": {
+    "SupervisorHost": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "r2_buckets": [{ "binding": "STATE", "bucket_name": "laterdog-state" }],
+  // Optional: the always-on workspace server for conversational wakeups, once one is deployed.
+  "vars": { "LATERDOG_WORKSPACE_URL": "" }
+  // Secrets (set with `wrangler secret put` after the first Worker-only deploy, before the container deploy):
+  // LATERDOG_TOKEN, LATERDOG_BACKUP_KEY, GH_TOKEN, and optionally CLAUDE_ROUTINE_TOKEN_<REPO> values.
+}

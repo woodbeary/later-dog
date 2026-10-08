@@ -1,0 +1,12 @@
+{
+  "id": "laterdog-setup-laterdog",
+  "name": "later.dog setup laterdog",
+  "version": "0.1.0",
+  "description": "Clone, build, install and start later.dog on a Mac for the person you work for, hand them exactly the four steps only they can do, and prove the result.",
+  "defaultEnabled": true,
+  "triggerTerms": [
+    "setup laterdog",
+    "setup-laterdog"
+  ],
+  "requiredCapabilities": []
+}
