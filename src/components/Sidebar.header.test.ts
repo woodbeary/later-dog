@@ -13,7 +13,6 @@ import { StoreProvider } from "@/state/store";
 
 const fixture = vi.hoisted(() => ({
   density: "comfortable" as SidebarDensity,
-  advanced: true,
   windowChrome: undefined as "mac-inset" | "win-caption" | "native" | undefined,
   hostLabel: undefined as string | undefined,
 }));
@@ -22,7 +21,6 @@ vi.mock("@/lib/sidebar-preferences", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/sidebar-preferences")>(),
   useSidebarDensity: () => fixture.density,
 }));
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => fixture.advanced, setAdvancedMode: () => {} }));
 vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   ...await importOriginal<typeof import("./DesktopCapabilities")>(),
   useDesktopCapabilities: () => {
@@ -40,7 +38,6 @@ const render = () => renderToStaticMarkup(
 
 beforeEach(() => {
   fixture.density = "comfortable";
-  fixture.advanced = true;
   fixture.windowChrome = undefined;
   fixture.hostLabel = undefined;
   vi.stubGlobal("window", { innerWidth: 1280, location: { protocol: "http:", search: "" } });
@@ -53,30 +50,17 @@ afterEach(() => {
 });
 
 describe("sidebar header", () => {
-  it.each(["comfortable", "compact", "icons"] as const)(
-    "keeps collapse, activity and add but no density menu at %s density in Advanced mode",
-    (density) => {
-      fixture.density = density;
-      const html = render();
-      expect(html).toContain(density === "icons" ? 'aria-label="Expand sidebar"' : 'aria-label="Collapse sidebar to avatars"');
-      expect(html).toContain('aria-label="Active Threads"');
-      expect(html).toContain('aria-label="New or share"');
-      expect(html).not.toContain("Choose sidebar density");
-      expect(html).not.toContain('title="Sidebar density"');
-    },
-  );
-
-  it.each(["comfortable", "compact"] as const)("keeps only add in Simple mode at %s density", (density) => {
-    fixture.advanced = false;
+  it.each(["comfortable", "compact"] as const)("keeps only add at %s density, with no density menu", (density) => {
     fixture.density = density;
     const html = render();
     expect(html).not.toContain('aria-label="Collapse sidebar to avatars"');
     expect(html).not.toContain('aria-label="Active Threads"');
     expect(html).toContain('aria-label="New or share"');
+    expect(html).not.toContain("Choose sidebar density");
+    expect(html).not.toContain('title="Sidebar density"');
   });
 
-  it("still offers Expand on an icons rail in Simple mode, so the rail is never a dead end", () => {
-    fixture.advanced = false;
+  it("still offers Expand on an icons rail, so the rail is never a dead end", () => {
     fixture.density = "icons";
     const html = render();
     expect(html).toContain('aria-label="Expand sidebar"');
@@ -112,8 +96,7 @@ describe("sidebar top row", () => {
     buttons: row.indexOf("data-sidebar-top-buttons"),
   });
 
-  it.each([true, false])("puts the lights, a drag space, then the compact server switcher beside the buttons on one macOS row (advanced %s)", (advanced) => {
-    fixture.advanced = advanced;
+  it("puts the lights, a drag space, then the compact server switcher beside the buttons on one macOS row", () => {
     fixture.windowChrome = "mac-inset";
     desktop();
     const html = render();
@@ -127,8 +110,8 @@ describe("sidebar top row", () => {
     expect(spacer).toBeGreaterThan(slot);
     expect(switcher).toBeGreaterThan(spacer);
     expect(buttons).toBeGreaterThan(switcher);
-    // Simple keeps only "+", so the switcher sits right beside it.
-    expect(row.slice(buttons).match(/<button/g)).toHaveLength(advanced ? 3 : 1);
+    // Only "+", so the switcher sits right beside it.
+    expect(row.slice(buttons).match(/<button/g)).toHaveLength(1);
     // 16px in on the left like the lights; 8px on the right, so the last
     // button sits near the sidebar's edge. `relative` anchors the switcher's
     // error note to the row; without it the note drops to the sidebar's foot.
@@ -152,8 +135,8 @@ describe("sidebar top row", () => {
     // rather than spilling onto the buttons in the narrowest rows, and its
     // title and label keep the whole name.
     expect(row).toMatch(/aria-label="Switch server: Servers"[^>]*title="Servers"[^>]*class="[^"]*\bh-7\b[^"]*\boverflow-hidden\b[^"]*\btext-\[12\.5px\][^"]*" style="-webkit-app-region:no-drag"/);
-    // A slot narrower than 164px, the 140px cap plus a 24px drag gap (macOS
-    // Advanced at 320px leaves 121px), shows icon + chevron only, so the
+    // A slot narrower than 164px, the 140px cap plus a 24px drag gap, shows
+    // icon + chevron only, so the
     // switcher never fills the slot up to the lights.
     expect(row).toContain('<span class="min-w-0 truncate @max-[164px]/sidebar-top:hidden">Servers</span>');
     // No second, full-width switcher row beneath the header.
@@ -205,7 +188,7 @@ describe("sidebar top row", () => {
 
 describe("sidebar glass head and foot", () => {
   it.each(["comfortable", "compact", "icons"] as const)(
-    "puts the top row and search in the glass head, the places in the glass foot, and the list between at %s density",
+    "puts the top row and search in the glass head, Apps in the glass foot, and the list between at %s density",
     (density) => {
       fixture.density = density;
       const html = render();
@@ -219,12 +202,12 @@ describe("sidebar glass head and foot", () => {
       const search = at('aria-label="Search dogs and messages"');
       const list = at('class="glass-scroller ');
       const foot = at('data-glass-bar="bottom"');
-      const places = at('data-sidebar-nav="routines"');
+      const apps = at('data-sidebar-nav="apps"');
       expect(head).toBeLessThan(topRow);
       expect(topRow).toBeLessThan(search);
       expect(search).toBeLessThan(list);
       expect(list).toBeLessThan(foot);
-      expect(foot).toBeLessThan(places);
+      expect(foot).toBeLessThan(apps);
       // One frame holds both bars, so the list scrolls under each of them.
       expect(html.match(/data-glass-frame=""/g)).toHaveLength(1);
       expect(at("data-glass-frame")).toBeLessThan(head);
@@ -232,9 +215,8 @@ describe("sidebar glass head and foot", () => {
   );
 });
 
-describe("sidebar foot in Simple mode", () => {
+describe("sidebar foot", () => {
   it.each(["comfortable", "compact"] as const)("keeps only the profile row, with Apps at its end (%s)", (density) => {
-    fixture.advanced = false;
     fixture.density = density;
     const html = render();
     const foot = html.indexOf('data-glass-bar="bottom"');
@@ -242,13 +224,5 @@ describe("sidebar foot in Simple mode", () => {
     expect(html).not.toContain('data-sidebar-nav="triggers"');
     expect(html.match(/data-sidebar-nav="apps"/g)).toHaveLength(1);
     expect(html.indexOf('data-sidebar-nav="apps"')).toBeGreaterThan(foot);
-  });
-
-  it("keeps Routines and Triggers in Advanced mode, and still one Apps", () => {
-    fixture.advanced = true;
-    const html = render();
-    expect(html).toContain('data-sidebar-nav="routines"');
-    expect(html).toContain('data-sidebar-nav="triggers"');
-    expect(html.match(/data-sidebar-nav="apps"/g)).toHaveLength(1);
   });
 });

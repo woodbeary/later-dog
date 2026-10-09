@@ -1,6 +1,6 @@
 // App settings: four pages. General (accounts, appearance, this computer's
-// system switches), Computer (this Mac's permissions, the Local VM, the
-// built-in browser), Usage, and Updates. Per-bot settings (persona, model,
+// system switches), Computer (this Mac's permissions, the Local VM, cloud
+// computers, the built-in browser), Usage, and Updates. Per-bot settings (persona, model,
 // computer) live in BotSettingsDialog.
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
@@ -17,6 +17,7 @@ import { appVersion, openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { AccountsPanel } from "./AccountsPanel";
+import { CloudComputerRows } from "./CloudComputerRows";
 import { LocalVmRows } from "./LocalVmRows";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, Switch } from "./SettingsPrimitives";
@@ -336,6 +337,11 @@ function ComputerPage({ mac, remoteActive, cloudHome }: { mac: boolean; remoteAc
       {!remoteActive && !cloudHome && (
         <SettingsGroup label={t("vm.main.title")} testId="local-vm">
           <LocalVmRows />
+        </SettingsGroup>
+      )}
+      {!remoteActive && (
+        <SettingsGroup label={t("vm.cloud.title")} testId="cloud-computers">
+          <CloudComputerRows />
         </SettingsGroup>
       )}
       {!remoteActive && (

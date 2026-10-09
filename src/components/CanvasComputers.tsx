@@ -60,7 +60,7 @@ export function CanvasComputers({ open, createRequest, drop, sections, onClose, 
   }, [open, clearDrag]);
   useEffect(() => { heldHereRef.current = heldHere; }, [heldHere]);
   // The shelf mounts conditionally; a control lease this client took must
-  // not outlive it. Best-effort release, mirroring LocalVmWorkspace.
+  // not outlive it. Best-effort release.
   useEffect(() => () => {
     const held = heldHereRef.current;
     if (!held) return;

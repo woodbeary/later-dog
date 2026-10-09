@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   phoneMenuItems,
   profileInitials,
-  selectPhoneDestination,
   profileLabel,
   updateBusy,
   updateNoteworthy,
@@ -13,16 +12,8 @@ import {
   updatePhase,
 } from "./SidebarProfileMenu";
 import { APP_REPOSITORY, DOCS_URL, FEEDBACK_URL, HELP_CENTER_URL, platformLabel } from "@/lib/app-links";
-import {
-  cloudPhoneDestination,
-  connectPhoneEntry,
-  phoneDestinations,
-  type PhonePairingAccess,
-  type PhonePairingTarget,
-} from "@/lib/phone-pairing";
-import type { CloudAccountState } from "../../electron/cloud-account.mjs";
-import type { CloudMachine } from "../../electron/cloud-home.mjs";
 import { PhoneAppDialog, type PhoneAppConnect } from "./PhoneAppDialog";
+import { PhonePairingDialog } from "./PhonePairingDialog";
 import type { UpdaterState } from "@/lib/updater";
 
 const state = (patch: Partial<UpdaterState>): UpdaterState => ({ status: "idle", ...patch }) as UpdaterState;
@@ -179,112 +170,59 @@ describe("outward links", () => {
 });
 
 describe("the phone entries", () => {
-  const admin: PhonePairingAccess = { session: { kind: "session", id: "s", label: "Mac", scopes: ["admin", "client"], expiresAt: 1 }, pairingCodes: true };
-  const chatOnly: PhonePairingAccess = { session: { kind: "session", id: "s", label: "Phone", scopes: ["client"], expiresAt: 1 }, pairingCodes: true };
-  const signedIn = { status: "connected", account: { id: "a", email: "p@example.test" } } as const;
-  const paid = (tier: string, machine?: CloudMachine): CloudAccountState => ({ ...signedIn, entitlement: { plan: "pro", tier, status: "active", expiresAt: null, version: 1 }, ...(machine ? { machine } : {}) });
-  const ready: CloudMachine = { status: "ready", origin: "https://home-7f3k2.fly.dev" };
-  const free: CloudAccountState = { ...signedIn, entitlement: { plan: "free", status: "inactive", expiresAt: null, version: 1 } };
-  /** The menu as SidebarProfileMenu builds it: this window's pairing, plus the
-   * person's Cloud as the native snapshot reports it (only read on this computer). */
-  const items = (target: PhonePairingTarget, access: PhonePairingAccess | null, account: CloudAccountState | null = null) => {
+  const items = (canPair: boolean) => {
     const onConnect = vi.fn(), onGetApp = vi.fn();
-    const destinations = phoneDestinations(connectPhoneEntry(target, access), cloudPhoneDestination(account));
-    return { list: phoneMenuItems({ destinations, onConnect, onGetApp }), onConnect, onGetApp };
+    return { list: phoneMenuItems({ canPair, onConnect, onGetApp }), onConnect, onGetApp };
   };
-  const shown = (...args: Parameters<typeof items>) => items(...args).list.map((item) => [item.label, item.subtitle ?? null, ...(item.note ? [item.note] : [])]);
+  const shown = (canPair: boolean) => items(canPair).list.map((item) => [item.label, item.subtitle ?? null]);
   const APP = ["Use on your phone", null];
 
-  // This window's own pairing page (Settings → Remote access) is gone, so
-  // "to this computer" and "to this server" are no longer offered.
-  it("on this computer: only Get the phone app", () => {
-    expect(shown("computer", null)).toEqual([APP]);
+  it("in the desktop app on its own computer: Connect your phone to this computer, then Use on your phone", () => {
+    expect(shown(true)).toEqual([["Connect your phone", "to this computer"], APP]);
   });
 
-  it("on this computer with a paid Cloud that is Ready: the Cloud, then Get the phone app", () => {
-    for (const tier of ["personal", "pro", "max"]) {
-      expect(shown("computer", null, paid(tier, ready))).toEqual([
-        ["Connect your phone", "to My Cloud (always on)"],
-        APP,
-      ]);
-    }
-  });
-
-  it("on this computer, free or signed out: no pairing entry", () => {
-    for (const account of [free, { status: "signed-out" } as CloudAccountState, null]) {
-      expect(shown("computer", null, account)).toEqual([APP]);
-    }
-    // a lapsed plan, or one this app cannot verify right now, is not offered either
-    expect(shown("computer", null, { ...paid("pro", ready), entitlement: { plan: "pro", status: "inactive", expiresAt: null, version: 2 } }))
-      .toEqual([APP]);
-    expect(shown("computer", null, { status: "unavailable", lastPlan: { tier: "pro", active: true }, machine: ready }))
-      .toEqual([APP]);
-  });
-
-  it("on this computer with a paid Cloud that is not Ready: no pairing entry", () => {
-    for (const machine of [undefined, { status: "provisioning" }, { status: "stopped", origin: ready.origin }, { status: "failed", origin: ready.origin }] as Array<CloudMachine | undefined>) {
-      expect(shown("computer", null, paid("pro", machine))).toEqual([APP]);
-    }
-  });
-
-  it("on the person's own Cloud: unchanged, one Connect your phone to My Cloud", () => {
-    expect(shown("cloud", admin)).toEqual([["Connect your phone", "to My Cloud"], APP]);
-    // whatever the account says, the Cloud is never offered a second time from itself
-    expect(shown("cloud", admin, paid("max", ready))).toEqual([["Connect your phone", "to My Cloud"], APP]);
-    expect(shown("cloud", admin, paid("max"))).toEqual([["Connect your phone", "to My Cloud"], APP]);
-  });
-
-  it("on another server: no pairing entry", () => {
-    expect(shown("server", admin, paid("pro", ready))).toEqual([APP]);
-    expect(shown("server", chatOnly)).toEqual([APP]);
-    expect(shown("server", { ...admin, pairingCodes: false })).toEqual([APP]);
-    expect(shown("cloud", chatOnly)).toEqual([APP]);
+  // A Cloud or another server paired phones from Settings → Remote access,
+  // which is gone, so they offer no pairing entry.
+  it("anywhere else: only Use on your phone", () => {
+    expect(shown(false)).toEqual([APP]);
   });
 
   it("never offers the iOS-only entry it replaced", () => {
-    for (const target of ["computer", "server"] as const) {
-      expect(items(target, null).list.map((item) => item.label)).not.toContain("Get later.dog for iOS");
+    for (const canPair of [true, false]) {
+      expect(items(canPair).list.map((item) => item.label)).not.toContain("Get later.dog for iOS");
     }
   });
 
-  it("each line hands on its own destination", () => {
-    const { list, onConnect, onGetApp } = items("computer", null, paid("pro", ready));
+  it("each line hands on its own step", () => {
+    const { list, onConnect, onGetApp } = items(true);
     list[0]!.onSelect();
-    expect(onConnect).toHaveBeenLastCalledWith(expect.objectContaining({ id: "cloud" }));
+    expect(onConnect).toHaveBeenCalledOnce();
     expect(onGetApp).not.toHaveBeenCalled();
     list[1]!.onSelect();
     expect(onGetApp).toHaveBeenCalledOnce();
   });
 });
 
-describe("choosing where the phone connects", () => {
-  const destinations = (account: CloudAccountState | null) => phoneDestinations(connectPhoneEntry("computer", null), cloudPhoneDestination(account));
-  const readyCloud: CloudAccountState = { status: "connected", entitlement: { plan: "pro", status: "active", expiresAt: null, version: 1 }, machine: { status: "ready", origin: "https://home-7f3k2.fly.dev" } };
-  const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+describe("Connect your phone", () => {
+  const render = (open: boolean) => {
+    vi.stubGlobal("window", { addEventListener: () => {}, removeEventListener: () => {}, laterdog: undefined });
+    try {
+      return renderToStaticMarkup(createElement(PhonePairingDialog, { open, onClose: () => {} }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  };
 
-  it("to My Cloud opens the Cloud on its phone pairing, as Use My Cloud on your phone does, sending nothing", async () => {
-    const bridge = { connectHomeForPhone: vi.fn().mockResolvedValue({ status: "connected" }) };
-    const dispatch = vi.fn();
-    selectPhoneDestination(destinations(readyCloud)[0]!, { bridge, dispatch });
-    await flush();
-    expect(bridge.connectHomeForPhone).toHaveBeenCalledExactlyOnceWith();
-    expect(dispatch).not.toHaveBeenCalled();
+  it("opens the pairing flow in a dialog that can be closed", () => {
+    const html = render(true);
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-label="Connect your phone"');
+    expect(html).toContain("from another device");
+    expect(html).toContain('aria-label="Close"');
   });
 
-  it("when the Cloud cannot be opened, lands on Settings → General, where the accounts are", async () => {
-    const bridge = { connectHomeForPhone: vi.fn().mockRejectedValue(new Error("offline")) };
-    const dispatch = vi.fn();
-    selectPhoneDestination(destinations(readyCloud)[0]!, { bridge, dispatch });
-    await flush();
-    expect(dispatch).toHaveBeenCalledExactlyOnceWith({ type: "toggleAppSettings", open: true, section: "general" });
-  });
-
-  it("to this computer does nothing now that its pairing page is gone, and never touches the Cloud", () => {
-    const bridge = { connectHomeForPhone: vi.fn() };
-    const dispatch = vi.fn();
-    selectPhoneDestination(destinations(readyCloud)[1]!, { bridge, dispatch });
-    expect(dispatch).not.toHaveBeenCalled();
-    expect(bridge.connectHomeForPhone).not.toHaveBeenCalled();
+  it("is not drawn while closed", () => {
+    expect(render(false)).toBe("");
   });
 });
 
@@ -309,12 +247,6 @@ describe("Use on your phone", () => {
     // nothing to pair with here: the dialog only says where the app is not
     expect(render()).not.toContain("Connect your phone");
     expect(render([])).not.toContain("Connect your phone");
-  });
-
-  it("offers every destination the menu does, in the same order", () => {
-    const html = render([to("cloud", "to My Cloud (always on)"), to("here", "to this computer")]);
-    expect(html.indexOf('data-phone-app-connect="cloud"')).toBeGreaterThan(-1);
-    expect(html.indexOf('data-phone-app-connect="cloud"')).toBeLessThan(html.indexOf('data-phone-app-connect="here"'));
   });
 
   it("is not drawn while closed", () => {

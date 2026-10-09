@@ -10001,7 +10001,7 @@ describe("harness HTTP API", () => {
       expect(unavailableCloud.status).toBe(409);
       expect(await unavailableCloud.json()).toMatchObject({
         // The same words a failed cloud turn's row uses (shared/place-view.ts).
-        error: expect.stringMatching(/^A cloud computer here needs your own Boat key, a paid service\. Add a Boat key in Settings → API keys\./),
+        error: expect.stringMatching(/^A cloud computer here needs your own Boat key, a paid service\. Add a Boat key in Settings → Computer\./),
       });
 
       const proposed = await fetch(`${BASE}/api/internal/routine-requests`, {

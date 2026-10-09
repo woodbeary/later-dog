@@ -10,11 +10,10 @@
 // keeps the menu open and re-labels itself as it works.
 //
 // The phone has two entries: Connect your phone, which opens the pairing
-// this window can do and says where the phone will connect (this computer,
-// your Cloud, this server), and Use on your phone (no phone app exists yet;
-// a phone's browser opens the pairing link instead). On
-// this computer, a paid Cloud that is Ready adds a Connect your phone line
-// of its own, first: to your Cloud, always on.
+// flow in a dialog (only in the desktop app on its own computer, the one
+// place a phone can pair now that Settings has no Remote access page), and
+// Use on your phone (no phone app exists yet; a phone's browser opens the
+// pairing link instead).
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -32,27 +31,17 @@ import {
 import { InitialsAvatar } from "./Avatar";
 import { AboutDialog } from "./AboutDialog";
 import { PhoneAppDialog } from "./PhoneAppDialog";
+import { PhonePairingDialog } from "./PhonePairingDialog";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
-import { useStore, type Action } from "@/state/store";
-import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
+import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { brand } from "../lib/brand";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { FEEDBACK_URL, HELP_CENTER_URL, openExternalLink } from "@/lib/app-links";
-import {
-  cloudPhoneDestination,
-  connectPhoneEntry,
-  currentPhonePairingTarget,
-  loadPhonePairingAccess,
-  phoneDestinations,
-  type CloudPhoneDestination,
-  type ConnectPhoneEntry,
-  type PhoneDestination,
-  type PhonePairingAccess,
-} from "@/lib/phone-pairing";
+import { currentPhonePairingTarget } from "@/lib/phone-pairing";
 
 /** "Sam Reed" → "SR", "sam" → "S", "you@x.dev" → "Y", unset → "?" */
 export function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -215,73 +204,28 @@ export function useUpdateItem(): UpdateEntry | null {
   };
 }
 
-/** Connect your phone for this window, once it is known whether this
- * session may pair one. This computer's own phone flow needs no asking. */
-function useConnectPhoneEntry(cloudHome: boolean): ConnectPhoneEntry | null {
-  const target = currentPhonePairingTarget(cloudHome);
-  const [access, setAccess] = useState<PhonePairingAccess | null>(null);
-  useEffect(() => {
-    if (target === "computer") return;
-    let alive = true;
-    void loadPhonePairingAccess().then((next) => {
-      if (alive) setAccess(next);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [target]);
-  return connectPhoneEntry(target, access);
-}
-
-/** On this computer only: the person's Cloud as a phone destination, from
- * the verified native snapshot (null elsewhere, signed out, or no plan). */
-export function useCloudPhoneDestination(enabled: boolean): { cloud: CloudPhoneDestination; bridge?: CloudAccountBridge } {
-  const bridge = enabled && !window.laterdog?.remoteClient?.active ? window.laterdog?.cloudAccount : undefined;
-  const [account, setAccount] = useState<CloudAccountState | null>(null);
-  useEffect(() => {
-    if (!bridge) return;
-    let active = true, updated = false;
-    const unsubscribe = bridge.onState((next) => { updated = true; if (active) setAccount(next); });
-    // Reads the native snapshot only; never signs in, refreshes or connects.
-    void bridge.state().then((next) => { if (active && !updated) setAccount(next); }).catch(() => {});
-    return () => { active = false; unsubscribe(); };
-  }, [bridge]);
-  return bridge ? { cloud: cloudPhoneDestination(account), bridge } : { cloud: null };
-}
-
-/** What choosing a destination does. Cloud: open the Cloud in this window on
- * its phone pairing; if that fails, Settings → General, where the accounts
- * are. This window's own pairing page is gone, so its entry does nothing
- * (phoneMenuItems no longer offers it). */
-export function selectPhoneDestination(destination: PhoneDestination, { bridge, dispatch }: { bridge?: Pick<CloudAccountBridge, "connectHomeForPhone">; dispatch: (action: Action) => void }): void {
-  if (destination.id !== "cloud" || !bridge) return;
-  void bridge.connectHomeForPhone().catch(() => dispatch({ type: "toggleAppSettings", open: true, section: "general" }));
-}
-
-/** The phone entries at the top of the menu: a Connect your phone line per
- * destination, then Use on your phone. Connect your phone is absent where
- * this window cannot pair one (a chat-only session, a server whose people
- * sign in through their organization). */
+/** The phone entries at the top of the menu: Connect your phone where this
+ * window can pair one (the desktop app on its own computer), then Use on
+ * your phone. */
 export function phoneMenuItems({
-  destinations,
+  canPair,
   onConnect,
   onGetApp,
 }: {
-  destinations: PhoneDestination[];
-  onConnect: (destination: PhoneDestination) => void;
+  canPair: boolean;
+  onConnect: () => void;
   onGetApp: () => void;
 }): SidebarMenuItem[] {
   return [
-    // Only the Cloud pairs from here now; this window's own pairing page
-    // (Settings → Remote access) is gone, so its entry is not offered.
-    ...destinations.filter((destination) => destination.id === "cloud").map((destination) => ({
-      key: "connect-phone-cloud",
-      label: t("sidebar.menu.connectPhone"),
-      subtitle: t(destination.subtitleKey),
-      ...(destination.noteKey ? { note: t(destination.noteKey) } : {}),
-      icon: <Smartphone size={18} />,
-      onSelect: () => onConnect(destination),
-    } satisfies SidebarMenuItem)),
+    ...(canPair
+      ? [{
+          key: "connect-phone",
+          label: t("sidebar.menu.connectPhone"),
+          subtitle: t("sidebar.menu.connectPhone.computer"),
+          icon: <Smartphone size={18} />,
+          onSelect: onConnect,
+        } satisfies SidebarMenuItem]
+      : []),
     {
       key: "phone-app",
       label: t("sidebar.menu.getPhoneApp"),
@@ -293,22 +237,20 @@ export function phoneMenuItems({
 
 export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
-  const connectPhone = useConnectPhoneEntry(state.config?.cloudHome === true);
-  const cloudPhone = useCloudPhoneDestination(connectPhone?.target === "computer");
-  const destinations = phoneDestinations(connectPhone, cloudPhone.cloud);
+  const canPairPhone = currentPhonePairingTarget(state.config?.cloudHome === true) === "computer";
   const update = useUpdateItem();
   const [aboutOpen, setAboutOpen] = useState(false);
   const [phoneAppOpen, setPhoneAppOpen] = useState(false);
+  const [phonePairingOpen, setPhonePairingOpen] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
 
   const profile = state.config?.profile;
   const name = profileLabel(profile);
-  const connectTo = (destination: PhoneDestination) => selectPhoneDestination(destination, { bridge: cloudPhone.bridge, dispatch });
 
   const items: SidebarMenuItem[] = [
     ...phoneMenuItems({
-      destinations,
-      onConnect: connectTo,
+      canPair: canPairPhone,
+      onConnect: () => setPhonePairingOpen(true),
       onGetApp: () => setPhoneAppOpen(true),
     }),
     {
@@ -386,12 +328,9 @@ export function SidebarProfileMenu() {
       <PhoneAppDialog
         open={phoneAppOpen}
         onClose={() => setPhoneAppOpen(false)}
-        connect={destinations.map((destination) => ({
-          key: destination.id,
-          subtitle: t(destination.subtitleKey),
-          onSelect: () => connectTo(destination),
-        }))}
+        connect={canPairPhone ? [{ key: "here", subtitle: t("sidebar.menu.connectPhone.computer"), onSelect: () => setPhonePairingOpen(true) }] : []}
       />
+      <PhonePairingDialog open={phonePairingOpen} onClose={() => setPhonePairingOpen(false)} profileEmail={profile?.email ?? ""} />
     </>
   );
 }

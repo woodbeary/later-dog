@@ -29,6 +29,7 @@ const { marker } = vi.hoisted(() => ({ marker: (name: string) => () => `MARKER:$
 vi.mock("./AccountsPanel", () => ({ AccountsPanel: marker("accounts") }));
 vi.mock("./UsageSection", () => ({ UsageSection: marker("usage") }));
 vi.mock("./LocalVmRows", () => ({ LocalVmRows: marker("local-vm") }));
+vi.mock("./CloudComputerRows", () => ({ CloudComputerRows: marker("cloud-computers") }));
 vi.mock("./SkinPicker", () => ({ SkinPicker: marker("skin") }));
 vi.mock("./PermissionChecklist", () => ({
   PermissionChecklist: ({ permissions }: { permissions: readonly string[] }) => `MARKER:permissions=${permissions.join("+")};`,
@@ -131,26 +132,26 @@ describe("General", () => {
 describe("Computer", () => {
   beforeEach(() => { fixture.section = "computer"; });
 
-  it("shows this Mac's computer-control permissions, the Local VM and the built-in browser", () => {
+  it("shows this Mac's computer-control permissions, the Local VM, cloud computers and the built-in browser", () => {
     const html = render();
     expect(currentPage(html)).toBe("computer");
-    expect(groups(html)).toEqual(["this-mac", "local-vm", "browser"]);
-    expect(markers(html)).toEqual(["permissions=accessibility+screen", "local-vm"]);
+    expect(groups(html)).toEqual(["this-mac", "local-vm", "cloud-computers", "browser"]);
+    expect(markers(html)).toEqual(["permissions=accessibility+screen", "local-vm", "cloud-computers"]);
     expect(html).toContain("What macOS lets later.dog do on this Mac.");
     expect(html).toContain("data-built-in-browser");
     expect(html).toMatch(/aria-label="Enable the built-in browser"[^>]*role="switch" aria-checked="false"/);
-    // the Local VM's advanced controls left: no VPS, no alias, no cloud inventory
-    for (const gone of ["VPS", "alias", "Cloud computers"]) expect(html).not.toContain(gone);
+    // the Local VM's advanced controls left: no VPS, no alias
+    for (const gone of ["VPS", "alias"]) expect(html).not.toContain(gone);
   });
 
   it("has no Mac group in a browser or on another platform, and no Local VM on a Cloud home", () => {
     vi.stubGlobal("window", {});
-    expect(groups(render())).toEqual(["local-vm", "browser"]);
+    expect(groups(render())).toEqual(["local-vm", "cloud-computers", "browser"]);
     vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, platform: "linux" } });
-    expect(groups(render())).toEqual(["local-vm", "browser"]);
+    expect(groups(render())).toEqual(["local-vm", "cloud-computers", "browser"]);
     fixture.config = { ...fixture.config, cloudHome: true };
     vi.stubGlobal("window", MAC);
-    expect(groups(render())).toEqual(["this-mac", "browser"]);
+    expect(groups(render())).toEqual(["this-mac", "cloud-computers", "browser"]);
   });
 
   it("shows nothing of the server's computer from a paired remote client", () => {

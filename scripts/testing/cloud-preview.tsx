@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { LocalComputerSection } from "../../src/components/LocalComputerSection";
+import { LocalVmRows } from "../../src/components/LocalVmRows";
 import { ComputerPanel } from "../../src/components/ComputerPanel";
 import { BotSettingsDialog } from "../../src/components/BotSettingsDialog";
 import { RemoteDesktopPanel } from "../../src/components/remote-desktop-panel";
@@ -214,7 +214,7 @@ function Fixture() {
     {state.settingsOpen && bot && <BotSettingsDialog key={bot.id} bot={bot} />}
     {state.computerOpen && fixtureBot ? panel === "computer"
       ? <ComputerPanel key={generation} bot={fixtureBot} />
-      : panel === "settings" ? <div className="w-[720px] overflow-y-auto"><LocalComputerSection /></div>
+      : panel === "settings" ? <div className="w-[720px] overflow-y-auto"><LocalVmRows /></div>
       : <RemoteDesktopPanel key={generation} bot={fixtureBot} />
       : !state.settingsOpen && <button onClick={() => dispatch({ type: "toggleComputer", open: true })}>Open computer panel</button>}
   </div>;

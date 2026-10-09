@@ -15,7 +15,7 @@ import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
-  ActivityPanel, BotSettingsDialog, ComputerPanel, InspectorPanel, KeyboardShortcutsModal, LocalVmWorkspace, NewBotDialog,
+  ActivityPanel, BotSettingsDialog, ComputerPanel, InspectorPanel, KeyboardShortcutsModal, NewBotDialog,
   preloadScreens, RemoteAgentSettingsPanel, RemoteDesktopPanel, RoutinesPage, SettingsModal, TeamMapPage, TriggersPanel,
 } from "@/components/lazy-screens";
 import { WorkspaceBackupRecovery } from "@/components/WorkspaceBackupSettings";
@@ -90,8 +90,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     setLocale(language || globalThis.navigator?.language);
     setLocaleEpoch((epoch) => epoch + 1);
   }, [language]);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [localVmWorkspaceBotId, setLocalVmWorkspaceBotId] = useState<string | null>(null);
   // the Browser tab, expanded into the main column (the small preview in
   // the panel hands off to this and back)
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -187,26 +185,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     previousViewRef.current = state.activeView;
   }, [state.activeView]);
 
-  useEffect(() => {
-    if (
-      localVmWorkspaceBotId &&
-      (state.activeView !== "chat" || state.selectedId !== localVmWorkspaceBotId)
-    ) {
-      setLocalVmWorkspaceBotId(null);
-    }
-  }, [localVmWorkspaceBotId, state.activeView, state.selectedId]);
-
-  const openLocalVmWorkspace = (botId: string) => {
-    dispatch({ type: "toggleComputer", open: false });
-    setLocalVmWorkspaceBotId(botId);
-  };
-
-  const openComputerFromWorkspace = (botId: string) => {
-    setLocalVmWorkspaceBotId(null);
-    dispatch({ type: "select", id: botId });
-    dispatch({ type: "toggleComputer", open: true });
-  };
-
   const closeCalendar = useCallback(() => {
     if (calendarOriginRef.current === "workspace") {
       dispatch({ type: "showWorkspace" });
@@ -221,17 +199,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const openCalendarRoom = useCallback((id: string) => {
     dispatch({ type: "select", id });
   }, [dispatch]);
-
-  const nativeViewOverlayOpen =
-    drawerOpen ||
-    paletteOpen ||
-    state.settingsOpen ||
-    state.computerOpen ||
-    state.inspectorOpen ||
-    state.activityOpen ||
-    state.appSettingsOpen ||
-    state.pluginsOpen ||
-    state.triggersOpen;
 
   // The macOS app menu's Preferences… item lives in the desktop shell, so the
   // shell signals the request over the bridge (Cmd+, accelerates the item).
@@ -311,13 +278,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         <TeamMapPage />
       ) : state.activeView === "routines" ? (
         <RoutinesPage onBack={closeCalendar} onOpenRoom={openCalendarRoom} />
-      ) : !remoteClient && localVmWorkspaceBotId ? (
-        <LocalVmWorkspace
-          primaryBotId={localVmWorkspaceBotId}
-          overlayOpen={nativeViewOverlayOpen}
-          onClose={() => setLocalVmWorkspaceBotId(null)}
-          onOpenComputer={openComputerFromWorkspace}
-        />
       ) : cloudSignIn ? (
         <CloudEngineSignIn />
       ) : noEngines ? (
@@ -359,11 +319,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         remoteClient ? (
           <RemoteDesktopPanel key={`computer:${bot.id}`} bot={bot} />
         ) : (
-          <ComputerPanel
-            key={`computer:${bot.id}`}
-            bot={bot}
-            onOpenVmWorkspace={openLocalVmWorkspace}
-          />
+          <ComputerPanel key={`computer:${bot.id}`} bot={bot} />
         )
       )}
       {!remoteClient && state.inspectorOpen && bot && <InspectorPanel key={bot.threadId} bot={bot} />}
@@ -383,7 +339,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       )}
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the
           palette on top when one of them is open underneath */}
-      <CommandPalette onOpenChange={setPaletteOpen} />
+      <CommandPalette />
       </div>
       {/* Renderer-drawn caption buttons for the overlay-less frameless
           Windows window. Deliberately the LAST child of the shell: Blink

@@ -17,7 +17,7 @@ import { locales } from "./index";
 // - This computer: the device the app runs on.
 // - Plan page: the web page with the plan, payments and use.
 // "Local VM" keeps its name. "Cloud" alone never names a Works on choice, and
-// "Boat" names only the provider behind a person's own key (Settings → API keys).
+// "Boat" names only the provider behind a person's own key (Settings → Computer).
 const RETIRED: ReadonlyArray<readonly [string, RegExp, string]> = [
   ["Cloud box", /Cloud box/i, "Cloud computer"],
   ["Hosted desktop", /Hosted desktop/i, "Cloud computer"],
@@ -203,7 +203,7 @@ describe("one name per thing", () => {
     ]) expect(retiredIn(bad), bad).not.toEqual([]);
     for (const good of [
       "Sign in to later.dog Cloud", "Welcome to later.dog", "set LATERDOG_PUBLIC_IPV4", "Open My Cloud", "Choose Cloud computer to wake",
-      "Included with your Cloud plan", "Add a Boat API key in Settings → API keys", "Connect Boat", "Check boat.dev",
+      "Included with your Cloud plan", "Add a Boat key in Settings → Computer", "Connect Boat", "Check boat.dev",
       "Local VM", "Open your Plan page",
     ]) expect(retiredIn(good), good).toEqual([]);
   });
