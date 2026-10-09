@@ -77,12 +77,12 @@ describe("local computer UI eligibility", () => {
     // the driver's record, before the bridge answers
     expect(localComputerPermissionGap({ capabilities })).toEqual(["accessibility", "screen"]);
     expect(localComputerDisabledReason({ capabilities, providerSupportsLocal: true }))
-      .toBe("Accessibility and Screen Recording aren't allowed for later.dog yet. Allow them in Settings → Computers → Permissions.");
+      .toBe("Accessibility and Screen Recording aren't allowed for later.dog yet.");
     // the live checklist, once there is one, wins over the record
     const live = { microphone: "granted", accessibility: "granted", screen: "denied" } as const;
     expect(localComputerPermissionGap({ capabilities, permissions: live })).toEqual(["screen"]);
     expect(localComputerDisabledReason({ capabilities, providerSupportsLocal: true, permissions: live }))
-      .toBe("Screen Recording isn't allowed for later.dog yet. Allow it in Settings → Computers → Permissions.");
+      .toBe("Screen Recording isn't allowed for later.dog yet.");
     // everything granted but the driver not restarted: the old words, no grant blamed
     const granted = { microphone: "granted", accessibility: "granted", screen: "granted" } as const;
     expect(localComputerPermissionGap({ capabilities, permissions: granted })).toEqual([]);

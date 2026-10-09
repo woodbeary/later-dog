@@ -12,7 +12,6 @@ export type TourStepId =
   | "tour.composer"
   | "tour.model"
   | "tour.computer"
-  | "tour.computer-browser"
   | "tour.tools"
   | "tour.apps"
   | "tour.apps-panel"
@@ -24,8 +23,6 @@ export type TourStepId =
  * "open" effects press the real control when it is on screen, so the app
  * reacts exactly as it would to the user. */
 export type TourEffect =
-  | "openComputer"
-  | "closeComputer"
   | "openTools"
   | "openApps"
   | "closeApps"
@@ -34,7 +31,7 @@ export type TourEffect =
 
 /** Effects the anchor's own click already performs; when the user presses
  * the control instead of Next, the tour must not do it a second time. */
-export const ANCHOR_EFFECTS: ReadonlySet<TourEffect> = new Set<TourEffect>(["openComputer", "openTools", "openApps", "openAutomations"]);
+export const ANCHOR_EFFECTS: ReadonlySet<TourEffect> = new Set<TourEffect>(["openTools", "openApps", "openAutomations"]);
 
 export interface TourStep {
   id: TourStepId;
@@ -43,8 +40,8 @@ export interface TourStep {
   /** Skip silently when the anchor is not on screen (a Tools menu that
    * did not open, a browser that is switched off). */
   skipIfMissing?: boolean;
-  /** Pointed at instead when the anchor is not on screen: the Browser tab
-   * only exists in the desktop app, the row of tabs always does. */
+  /** Pointed at instead when the anchor is not on screen (a control only
+   * some builds draw, beside one every build draws). */
   fallbackAnchor?: string;
   placement: "above" | "below" | "right";
   onEnter?: TourEffect;
@@ -54,13 +51,15 @@ export interface TourStep {
 export const TOUR_STEPS: TourStep[] = [
   { id: "tour.composer", anchor: "composer", placement: "above" },
   { id: "tour.model", anchor: "model", placement: "below" },
-  { id: "tour.computer", anchor: "computer", placement: "below", onExit: "openComputer" },
-  // every step that lives inside something the previous step opened also
-  // opens it on enter, so a reload mid-tour rebuilds the scene
-  { id: "tour.computer-browser", anchor: "computer-browser", fallbackAnchor: "computer-tabs", skipIfMissing: true, placement: "below", onEnter: "openComputer", onExit: "closeComputer" },
+  // The Computer step only points. Opening the panel would start the screen
+  // capture, and with it the Screen Recording prompt, in the middle of the
+  // tour; a dog asks for that grant itself the first time it needs this Mac.
+  { id: "tour.computer", anchor: "computer", placement: "below" },
   // Simple mode has no place rows (only Apps, beside the profile), so the
   // places step and the automations pair skip themselves there.
   { id: "tour.tools", anchor: "tools", skipIfMissing: true, placement: "right", onExit: "openTools" },
+  // every step that lives inside something the previous step opened also
+  // opens it on enter, so a reload mid-tour rebuilds the scene
   { id: "tour.apps", anchor: "nav-apps", skipIfMissing: true, placement: "right", onEnter: "openTools", onExit: "openApps" },
   { id: "tour.apps-panel", anchor: "apps-panel", placement: "below", onEnter: "openApps", onExit: "closeApps" },
   { id: "tour.automations", anchor: "nav-automations", skipIfMissing: true, placement: "right", onEnter: "openTools", onExit: "openAutomations" },

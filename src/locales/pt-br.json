@@ -636,7 +636,6 @@
   "onboarding.perms.mic": "Microfone e fala",
   "onboarding.perms.micDetail": "Ditado por voz no campo de mensagem, transcrito no próprio aparelho.",
   "onboarding.perms.openSettings": "Abrir os Ajustes",
-  "onboarding.perms.enable": "Ativar",
   "onboarding.skip": "Pular por enquanto",
   "engineSetup.copyCommand": "Copiar o comando",
   "engineSetup.copied": "Copiado",

@@ -629,7 +629,6 @@
   "onboarding.perms.mic": "Micrófono y voz",
   "onboarding.perms.micDetail": "Dictado por voz en el cuadro de mensaje, transcrito en el propio equipo.",
   "onboarding.perms.openSettings": "Abrir Ajustes",
-  "onboarding.perms.enable": "Activar",
   "onboarding.skip": "Omitir por ahora",
   "engineSetup.copyCommand": "Copiar el comando",
   "engineSetup.copied": "Copiado",

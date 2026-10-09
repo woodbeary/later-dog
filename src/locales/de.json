@@ -636,7 +636,6 @@
   "onboarding.perms.mic": "Mikrofon & Sprache",
   "onboarding.perms.micDetail": "Sprachdiktat ins Eingabefeld, auf dem Gerät transkribiert.",
   "onboarding.perms.openSettings": "Einstellungen öffnen",
-  "onboarding.perms.enable": "Aktivieren",
   "onboarding.skip": "Vorerst überspringen",
   "engineSetup.copyCommand": "Befehl kopieren",
   "engineSetup.copied": "Kopiert",

@@ -68,13 +68,13 @@ describe("the permissions checklist", () => {
     const button = (permission: string, label: string) => rendered.buttons(permission).find((node) => text(node.props.children) === label)!;
     // the action already says the switch is off, so no status pill beside it
     expect(rendered.pill("microphone")).toBeUndefined();
-    expect(labels("microphone")).toEqual(["Enable"]);
-    button("microphone", "Enable").props.onClick!();
+    expect(labels("microphone")).toEqual(["Allow"]);
+    button("microphone", "Allow").props.onClick!();
     expect(handlers.onRequest).toHaveBeenCalledWith("microphone");
 
     // Accessibility's own prompt adds later.dog to the list and opens the pane: Enable alone
-    expect(labels("accessibility")).toEqual(["Enable"]);
-    button("accessibility", "Enable").props.onClick!();
+    expect(labels("accessibility")).toEqual(["Allow"]);
+    button("accessibility", "Allow").props.onClick!();
     expect(handlers.onRequest).toHaveBeenCalledWith("accessibility");
     expect(rendered.html).toContain("Already on in System Settings? Until later.dog is signed, macOS ties the switch to each build");
 
@@ -101,7 +101,7 @@ describe("the permissions checklist", () => {
 
   it("holds the other rows while one prompt is open", () => {
     const rendered = render({ checklist: checklist({ microphone: "notDetermined", screen: "notDetermined" }), busy: "screen" });
-    const enable = (permission: string) => rendered.buttons(permission).find((node) => text(node.props.children) === "Enable")!;
+    const enable = (permission: string) => rendered.buttons(permission).find((node) => text(node.props.children) === "Allow")!;
     expect(enable("microphone").props.disabled).toBe(true);
     expect(enable("screen").props.disabled).toBe(true);
     expect(rendered.html).toContain("animate-spin");
@@ -118,6 +118,13 @@ describe("the permissions checklist", () => {
     expect(other.html).toContain("this computer has none to flip");
     expect(other.pill("screen")).toBe("Not needed on this computer");
     expect(other.buttons("screen")).toEqual([]);
+  });
+
+  it("draws only the rows it is asked for, in their order", () => {
+    const rendered = render({ permissions: ["accessibility", "screen"], checklist: checklist({ accessibility: "denied" }) });
+    expect([...rendered.html.matchAll(/data-permission="([^"]+)"/g)].map((match) => match[1])).toEqual(["accessibility", "screen"]);
+    expect(rendered.html).not.toContain("Microphone");
+    expect(rendered.buttons("accessibility").map((node) => text(node.props.children))).toEqual(["Allow"]);
   });
 
   it("staggers the rows only where the welcome tour asks it to", () => {
