@@ -635,6 +635,7 @@ import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { DOG_CREATION_REFUSAL, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
+import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import {
   AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, backNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
@@ -24341,8 +24342,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const instances = persistableInstanceConfigs(result.config);
         if (!result.ok || !Object.hasOwn(instances, instanceId)) return json(res, 404, { error: `unknown instance "${instanceId}"` });
         const entry = instances[instanceId];
-        if ((body.displayName !== undefined || body.configDir !== undefined) && entry.driver !== "claudeAgent") {
-          return json(res, 400, { error: "Account settings are currently available for Claude only." });
+        if (body.configDir !== undefined && entry.driver !== "claudeAgent") {
+          return json(res, 400, { error: "A configuration directory applies to Claude accounts only." });
+        }
+        if (body.displayName !== undefined) {
+          const renamable = renamableAccount(instanceId, entry);
+          if (!renamable.ok) return json(res, 400, { error: renamable.error });
         }
         if (body.tools !== undefined) {
           if (!["openai-compat", "grok", "minimax", "mistral", "cerebras"].includes(entry.driver)) {
@@ -24375,9 +24380,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
       const instances = persistableInstanceConfigs(cfg);
       if (!Object.hasOwn(instances, instanceId)) return json(res, 404, { error: "unknown instance" });
-      if (instances[instanceId].driver !== "claudeAgent" || instanceId === "claude") {
-        return json(res, 400, { error: "Only added Claude accounts can be removed here." });
-      }
+      const removable = removableAccount(instanceId, instances[instanceId]);
+      if (!removable.ok) return json(res, 400, { error: removable.error });
       if (cfg.defaultModelSelection?.instanceId === instanceId || store.bots.some((bot) =>
         bot.modelSelection.instanceId === instanceId || bot.fallback?.some(candidate => candidate.instanceId === instanceId) || store.tasks(bot.id).some((task) => task.modelSelection?.instanceId === instanceId)) ||
         busyProviderSelections().some((selection) => selection.instanceId === instanceId)) {
