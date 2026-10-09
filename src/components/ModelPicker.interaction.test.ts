@@ -46,8 +46,6 @@ vi.mock("@/state/store", async (importOriginal) => ({
   }),
 }));
 
-// These cases cover the full picker, which opens from the plain-words pane's
-// Set up (or Sign in); the plain pane has its own file.
 const { LOCAL_PROBE_TIMEOUT_MS, ModelEngineRail, ModelPicker, offersLocalModels, probeLocalModels } = await import("./ModelPicker");
 const { SimpleModelPane } = await import("./SimpleModelPane");
 
@@ -103,7 +101,6 @@ function render(forBot: Bot) {
   return { html, nodes: nodes(tree) };
 }
 
-/** Open the menu, then go on to the full picker the way Set up does. */
 function open(forBot: Bot) {
   const trigger = render(forBot).nodes.find((node) => node.props["data-tour"] === "model")!;
   (trigger.props.onClick as () => void)();
@@ -195,7 +192,6 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
 });
 
 describe("the way into Settings", () => {
-  // Settings has no API keys page, so the picker offers no shortcut to one.
   it("offers no API keys shortcut, and its footer opens Settings on General", () => {
     fixture.instances = [codex];
     const opened = open(bot("codex", "gpt-5.6"));

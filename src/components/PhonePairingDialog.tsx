@@ -1,15 +1,19 @@
-// "Connect your phone", from the profile menu: the same pairing flow the
-// welcome tour offers, in a dialog of its own. Settings has no Remote access
-// page any more, so after the tour this is where a phone gets paired.
 import { useEffect } from "react";
 import { X } from "lucide-react";
 
 import { t } from "@/lib/i18n";
-import { PhoneSetupFlow } from "./PhoneSetupFlow";
+import type { PhonePairingTarget } from "@/lib/phone-pairing";
+import { PairedPhones } from "./PairedPhones";
+import { PhoneSetupFlowView, usePhoneSetupController } from "./PhoneSetupFlow";
+import { ServerPairingCard } from "./ServerPairingCard";
 
-export function PhonePairingDialog({ open, onClose, profileEmail }: { open: boolean; onClose: () => void; profileEmail?: string }) {
+export function PhonePairingDialog({ open, onClose, profileEmail, target = "computer" }: { open: boolean; onClose: () => void; profileEmail?: string; target?: PhonePairingTarget }) {
+  if (!open) return null;
+  return <OpenPhonePairingDialog onClose={onClose} profileEmail={profileEmail} target={target} />;
+}
+
+function OpenPhonePairingDialog({ onClose, profileEmail, target }: { onClose: () => void; profileEmail?: string; target: PhonePairingTarget }) {
   useEffect(() => {
-    if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
@@ -18,9 +22,7 @@ export function PhonePairingDialog({ open, onClose, profileEmail }: { open: bool
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
+  }, [onClose]);
 
   return (
     <div
@@ -43,8 +45,20 @@ export function PhonePairingDialog({ open, onClose, profileEmail }: { open: bool
         >
           <X size={16} />
         </button>
-        <PhoneSetupFlow variant="settings" profileEmail={profileEmail} onComplete={onClose} />
+        {target === "computer"
+          ? <ComputerPairing onClose={onClose} profileEmail={profileEmail} />
+          : <ServerPairingCard cloudHome={target === "cloud"} />}
       </div>
     </div>
+  );
+}
+
+function ComputerPairing({ onClose, profileEmail }: { onClose: () => void; profileEmail?: string }) {
+  const controller = usePhoneSetupController(profileEmail);
+  return (
+    <>
+      <PhoneSetupFlowView controller={controller} variant="settings" onComplete={onClose} />
+      {controller.phase === "intro" && <PairedPhones controller={controller} />}
+    </>
   );
 }

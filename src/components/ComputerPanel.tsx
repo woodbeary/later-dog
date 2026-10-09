@@ -32,7 +32,7 @@ import { api, ApiError, currentTaskBot, useStore, type Bot, type ConfigStatus } 
 import { ComputerFilesPane } from "./ComputerFilesPane";
 import { effectivePlace, isComputerPlace, placeLabelKey, placeOffered } from "@/lib/place";
 import type { CloudBackend } from "../../shared/wire";
-import { ApiKeyRow } from "./ApiKeys";
+import { ApiKeyRow, VpsConnection } from "./ApiKeys";
 import { cn } from "@/lib/cn";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import { usePageVisible } from "@/lib/page-visible";
@@ -372,9 +372,6 @@ export function ComputerPanel({
   const [viewerOpen, setViewerOpen] = useState(false);
   const [error, setError] = useState<Error | string | null>(null);
   const errorText = panelErrorText(error);
-  // The panel shows Computer | Browser | Files. A view stored by the old
-  // Advanced mode (Routines, Android) reads as the Computer tab instead of
-  // an empty pane.
   const [storedPanelView, setPanelView] = useState<ComputerPanelView>(() => readComputerPanelView(bot.id));
   const panelView: ComputerPanelView = storedPanelView === "routines" || storedPanelView === "android" ? "computer" : storedPanelView;
   // Keep installation reachable before the engine is ready. Actual browser
@@ -582,7 +579,7 @@ export function ComputerPanel({
             cloudBackend,
           });
           if (!status.configured) {
-            setError(new LocalizedPanelError("computer.err.vpsAlias"));
+            setError(new LocalizedPanelError(window.laterdog?.remoteClient?.active === true ? "computer.err.vpsAliasHost" : "computer.err.vpsAlias"));
             setPhase("vps-unconfigured");
             return;
           }
@@ -1157,9 +1154,6 @@ export function ComputerPanel({
     dispatch({ type: "toggleAppSettings", open: true, section: "computer" });
   };
 
-  // The Browser tab when the browser is off: the same installation switch as
-  // Settings → Computer → Built-in browser, plus this bot's own browser
-  // switch, turned on together.
   const browserCanTurnOn = browserAvailableHere || state.config?.browserEngine?.installable === true;
   const [browserTurningOn, setBrowserTurningOn] = useState(false);
   const turnOnBrowser = async () => {
@@ -1204,8 +1198,6 @@ export function ComputerPanel({
     </div>
   );
 
-  // The six Works-on places the grid offers, with their availability rules
-  // and selection actions.
   const managedPolicy = state.config?.managedPolicy;
   // While a turn holds this conversation's cloud computer: only one that is
   // really starting spins (busyBoatView).
@@ -1247,9 +1239,6 @@ export function ComputerPanel({
     // A place the enrolled organisation disallows is not offered.
     const managedKind = mode === "local" ? "thisComputer" : mode === "vm" ? "localVm" : mode === "cloud" ? (profileBot.cloudBackend === "vps" ? "vps" : "box") : null;
     const managedBy = managedPolicy && managedKind && !managedPolicy.computers[managedKind] ? t("policy.managedBy", { organization: managedPolicy.organizationName }) : undefined;
-    // The tile and a failed turn's row read the same view: a place no
-    // setting here can make work is not offered, and a place with a problem
-    // names it in its few words, its line on hover.
     const view = mode === null ? autoView : mode === "cloud" ? cloudView : viewOf(mode);
     const disabled = Boolean(managedBy) || placeBlocked(view);
     const issue = !managedBy && placeHasIssue(view);
@@ -1522,7 +1511,6 @@ export function ComputerPanel({
               </span>}
               {currentTeamComputer && placeActionButton(autoView)}
               {bot.computer === "cloud" && (phase === "unconfigured" || phase === "error") && cloudView.action?.id !== "add-boat-key" && placeActionButton(cloudView)}
-              {/* A stopped VPS computer starts the way a sleeping one wakes. */}
               {computerStatusCurrent && phase === "vps-stopped" && canManageCloud && (
                 <button
                   type="button"
@@ -1533,6 +1521,11 @@ export function ComputerPanel({
                   {pending === "provision" && <Loader2 size={13} className="mr-1.5 inline animate-spin" />}
                   {t("place.action.start")}
                 </button>
+              )}
+              {phase === "vps-unconfigured" && !state.config?.vps?.configured && window.laterdog?.remoteClient?.active !== true && (
+                <div data-vps-alias="" className="mt-2 w-full max-w-[320px] text-left">
+                  <VpsConnection />
+                </div>
               )}
               {phase === "local" && !isLinux && localMisses >= 3 && (
                 <button
@@ -1661,7 +1654,6 @@ export function ComputerPanel({
           <div className="mt-3 rounded-xl border border-accent/25 bg-accent/10 p-4">
             <div className="text-[13px] leading-relaxed text-ink">
               {t("computer.youHaveWheel")}
-              {/* The row below names its own button: Full screen. */}
               {cloudPreviewReady && ` ${t("computer.simple.useFullScreen")}`}
               {phase === "vm" && ` ${t("computer.simple.useFullScreenVm")}`}
             </div>
@@ -1678,7 +1670,6 @@ export function ComputerPanel({
             </button>
           </div>
         )}
-        {/* One row under the screen — Take control, Full screen, Sleep. */}
         {(cloudPreviewReady || phase === "vm") && (
           <div className="mt-3 flex gap-2" data-testid="computer-actions">
             {!control.held && !control.helpReason && (
@@ -1754,9 +1745,6 @@ export function ComputerPanel({
             {worksOnView.line}
             {placeActionButton(worksOnView, "mt-1 block font-medium text-accent hover:underline")}
           </div>
-          {/* The composer has no place chip, so a held pin is named here, in
-              the grid's words, with the way back to the grid's choice. An
-              auto pin gets no note: the person never set it. */}
           {heldPin && (
             <div className="mt-2 flex items-center gap-2">
               <p className="min-w-0 flex-1 text-[11.5px] leading-5 text-ink-secondary" data-testid="place-pinned-note">
@@ -1764,7 +1752,6 @@ export function ComputerPanel({
                   place: placeOptions.find(({ mode }) => mode === heldPin)?.simpleLabel ?? t(placeLabelKey(heldPin)),
                 })}
               </p>
-              {/* The server refuses a busy thread's place change (409). */}
               <button
                 type="button"
                 disabled={Boolean(bot.busy)}

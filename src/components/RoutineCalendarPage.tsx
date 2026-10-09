@@ -596,8 +596,6 @@ export function EventEditor({
     && !cron?.error,
   );
   const canSwitchKind = !routinesOnly && !existingRoutine && !existingCall && !lockedBotId;
-  // The editor keeps the basics up front. A schedule or setting the basics
-  // cannot show opens More options straight away, so nothing saved is hidden.
   const [moreOpen, setMoreOpen] = useState(() => !(["none", "daily", "weekdays", "weekly"] as RecurrenceChoice[]).includes(recurrence)
     || routineTarget === "room-goal"
     || attachments.length > 0
@@ -1874,8 +1872,6 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
     setSelected(null);
     setQuick({ kind: "routine", at: nextHour(), durationMinutes: 30, botIds: [], ...seed });
   }, []);
-  // New routine goes straight to the plain editor, which has a time and
-  // Repeat choices.
   const createRoutine = () => {
     setSelected(null);
     setEditor({ kind: "routine", at: nextHour(), durationMinutes: 30, botIds: botFilter !== "all" ? [botFilter] : [] });

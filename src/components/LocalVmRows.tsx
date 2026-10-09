@@ -1,7 +1,3 @@
-// Settings → Computer → Local VM: what the shared Local VM is doing, a way
-// to open its screen, and a reset. Everything else about it (per-dog
-// desktops, the idle timeout, VPS and cloud inventories) left Settings; the
-// server's /api/local-computer endpoints are unchanged.
 import { useEffect, useRef, useState } from "react";
 import { Check, Circle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -11,7 +7,6 @@ import { SettingRow } from "./SettingsPrimitives";
 
 export const LOCAL_VM_POLL_MS = 5000;
 
-/** The part of /api/local-computer's status these rows read. */
 export interface LocalVmStatus {
   ready: boolean;
   container: "running" | "stopped" | "missing";
@@ -44,7 +39,6 @@ async function post(action: "run" | "remove", signal: AbortSignal): Promise<Loca
   return body as LocalVmStatus;
 }
 
-/** The status line's words for a status, or while it is still being read. */
 export function localVmStatusLabel(status: LocalVmStatus | null, loading: boolean): string {
   if (loading) return t("common.checking");
   if (!status) return t("vm.main.statusUnavailable");
@@ -92,8 +86,6 @@ export function LocalVmRows() {
 
   const confirmAction = (message: string) => window.laterdog?.confirm ? window.laterdog.confirm(message) : window.confirm(message);
 
-  /** Reset: delete the VM and create it again from the pinned image. With no
-   * VM yet there is nothing to delete, so it only creates one. */
   const reset = async () => {
     if (pending !== null || actionController.current) return;
     const action: VmAction = status?.container === "missing" ? "run" : "recreate";

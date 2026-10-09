@@ -1,7 +1,3 @@
-// App settings: four pages. General (accounts, appearance, this computer's
-// system switches), Computer (this Mac's permissions, the Local VM, cloud
-// computers, the built-in browser), Usage, and Updates. Per-bot settings (persona, model,
-// computer) live in BotSettingsDialog.
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
@@ -15,7 +11,7 @@ import { t } from "@/lib/i18n";
 import { useUpdaterState } from "@/lib/updater";
 import { appVersion, openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
-import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
+import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { AccountsPanel } from "./AccountsPanel";
 import { CloudComputerRows } from "./CloudComputerRows";
 import { LocalVmRows } from "./LocalVmRows";
@@ -29,9 +25,6 @@ import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { setNotificationSounds, useNotificationSounds } from "@/lib/notification-preferences";
 import { effectiveLanguage, setLanguageChoice, useLanguageChoice } from "@/lib/language-preference";
 
-// `labelKey`, not a label: t() reads the active pack when it is called, so a
-// label resolved here at module scope would freeze the language the app booted
-// in.
 export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.computer" | "settings.section.usage" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }> }> = [
   { id: "general", labelKey: "settings.section.general", icon: SlidersHorizontal },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor },
@@ -39,7 +32,6 @@ export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "
   { id: "updates", labelKey: "settings.updates.title", icon: Download },
 ];
 
-/** A small label above one container of rows: no card in a card. */
 export function SettingsGroup({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
   return (
     <section data-settings-group={testId} className="flex flex-col gap-1.5">
@@ -49,12 +41,10 @@ export function SettingsGroup({ label, children, testId }: { label: string; chil
   );
 }
 
-/** The rows of a group, one container with hairlines between them. */
 export function SettingsRows({ children, ...rest }: { children: ReactNode } & Record<`data-${string}`, string | boolean | undefined>) {
   return <div {...rest} className="rounded-xl bg-card px-4">{children}</div>;
 }
 
-/** Your name, saved on blur. The email and shared context left Settings. */
 function NameRow() {
   const { state, dispatch } = useStore();
   const [name, setName] = useState(state.config?.profile?.name ?? "");
@@ -159,9 +149,6 @@ export function UpdatesRow() {
   );
 }
 
-/** Usage analytics, on by default and switchable here. Naming what is sent
- * matters more than the switch: people who cannot see the scope assume the
- * worst. Absent where no analytics key is built in. */
 function AnalyticsRow() {
   const [on, setOn] = useState(analyticsEnabled);
   if (!analyticsConfigured()) return null;
@@ -222,8 +209,6 @@ function NotificationSoundsRow() {
   );
 }
 
-/** The installation's built-in browser switch; the setting and its write are
- * the same `features.browser` it always was. */
 export function BuiltInBrowserRow() {
   const { state, dispatch } = useStore();
   const browser = builtInBrowserEnabled(state.config);
@@ -275,8 +260,6 @@ export function BuiltInBrowserRow() {
   );
 }
 
-/** What macOS lets this app do, as the native bridge reports it. Only on a
- * Mac with that bridge: elsewhere there is nothing to ask for. */
 function MacPermissions({ permissions, intro }: { permissions: readonly DesktopPermission[]; intro?: string }) {
   const host = "mac" as const;
   const { checklist, busy, request, openSettings } = useDesktopPermissions();
@@ -333,7 +316,6 @@ function ComputerPage({ mac, remoteActive, cloudHome }: { mac: boolean; remoteAc
           <MacPermissions permissions={COMPUTER_PERMISSIONS} intro={t("settings.computer.macIntro", { app: brand().name })} />
         </SettingsGroup>
       )}
-      {/* A later.dog Cloud home has no Local VM; a paired remote client's is the server's. */}
       {!remoteActive && !cloudHome && (
         <SettingsGroup label={t("vm.main.title")} testId="local-vm">
           <LocalVmRows />
@@ -364,6 +346,7 @@ function UpdatesPage() {
         {updater
           ? <UpdatesRow />
           : <SettingRow title={t("settings.updates.title")} subtitle={t("settings.updates.desktopOnly")}>{null}</SettingRow>}
+        <ReleaseCheckRow />
       </SettingsRows>
     </SettingsGroup>
   );
@@ -376,12 +359,9 @@ export function SettingsModal() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const remoteActive = window.laterdog?.remoteClient?.active === true;
   const cloudHome = state.config?.cloudHome === true;
-  // This Mac's grants: only in the desktop app on macOS, and not from a
-  // paired remote client, whose grants are its own desktop app's.
   const mac = !remoteActive && checklistHost(window.laterdog) === "mac";
 
   useEffect(() => {
-    // A new page starts at its top, not at the last page's scroll offset.
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [section]);
 

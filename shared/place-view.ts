@@ -402,7 +402,6 @@ export interface PlaceContext {
   server?: ServerKind;
   role: "admin" | "user";
   source?: PlaceSource;
-  /** A pin's way back is worded "Use {place}", the grid's own label. */
   worksOnLabel?: string;
   translate?: PlaceTranslate;
   locale?: string;
@@ -418,15 +417,12 @@ export function placeViewOf(state: PlaceState, params: PlaceParams, context: Pla
   // A failed row never offers what only the panel can do on the spot.
   if (context.source && (action === "start" || action === "wake" || action === "watch")) action = null;
   if (context.source === "auto-pin") line = `${line} ${translate("place.backOnAuto")}`;
-  // Local VM setup is not offered from a place's row.
   if (action === "open-vm-settings") action = null;
   if (action && context.role === "user" && ADMIN_SHORTCUT.has(action)) action = null;
   if (action && context.role === "user" && ADMIN_ONLY.has(action)) {
     action = null;
     line = `${line} ${translate("place.askAdmin")}`;
   }
-  // There is no composer chip, so a pin's way back is the grid's choice, by
-  // the grid's own name for it.
   const label = !action ? null
     : action === "clear-pin" && context.worksOnLabel
       ? translate("place.action.usePlace", { place: context.worksOnLabel })

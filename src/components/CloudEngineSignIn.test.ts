@@ -58,10 +58,10 @@ beforeEach(() => {
   setLocale("en");
 });
 
-it("offers the three ways in and says plainly whose plan limits apply", () => {
+it("offers the sign-ins and says plainly whose plan limits apply", () => {
   const { html } = render();
   expect(html).toContain("data-cloud-sign-in");
-  for (const label of ["Sign in to Claude", "Sign in to ChatGPT (Codex)", "Use an API key"]) expect(html).toContain(label);
+  for (const label of ["Sign in to Claude", "Sign in to ChatGPT (Codex)"]) expect(html).toContain(label);
   expect(html).toContain("plan&#x27;s limits apply to dogs that work around the clock");
   // later.dog Cloud sells a plan called Max too: the recommendation names Anthropic's.
   expect(html).toContain("Anthropic&#x27;s Claude Max plan or an API key works best");
@@ -80,7 +80,7 @@ it("opens the existing paste-code and device-code sign-ins on this server's own 
   expect(store.dispatch).not.toHaveBeenCalled();
 });
 
-it("no longer offers an API key choice: that Settings page is gone", () => {
+it("offers no API key choice", () => {
   expect(render().nodes.find((node) => node.props["data-cloud-choice"] === "api-key")).toBeUndefined();
 });
 
@@ -98,9 +98,8 @@ it("offers Grok as a third choice when this Cloud computer has the Grok CLI, and
   const grok = engine("grok", "grokAgent", "device-code");
   store.instances = [claude, codex, grok];
   const { html } = render();
-  for (const label of ["Sign in to Claude", "Sign in to ChatGPT (Codex)", "Sign in to Grok", "Use your grok.com subscription with Grok Build.", "Use an API key"]) expect(html).toContain(label);
+  for (const label of ["Sign in to Claude", "Sign in to ChatGPT (Codex)", "Sign in to Grok", "Use your grok.com subscription with Grok Build."]) expect(html).toContain(label);
   expect(html.indexOf("Sign in to Grok")).toBeGreaterThan(html.indexOf("Sign in to ChatGPT (Codex)"));
-  expect(html.indexOf("Sign in to Grok")).toBeLessThan(html.indexOf("Use an API key"));
   choose("grok");
   expect(render().html).toContain('data-engine-setup="grok"');
 });
@@ -110,5 +109,5 @@ it("leaves Grok out where this Cloud computer has no Grok CLI (an older image)",
   const { html } = render();
   expect(html).not.toContain("Sign in to Grok");
   expect(html).not.toContain('data-cloud-choice="grok"');
-  expect(html).toContain("Use an API key");
+  expect(html).toContain("Sign in to ChatGPT (Codex)");
 });

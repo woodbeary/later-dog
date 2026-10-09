@@ -1,6 +1,3 @@
-// The small menu in the sidebar header — New or share (+) — must close on
-// Escape and on a press outside it, and must not lay an invisible backdrop
-// over the window that eats the click the user aimed at something else.
 import { Children, isValidElement, type EffectCallback, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

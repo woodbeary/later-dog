@@ -1,7 +1,3 @@
-// App Settings has four pages: General, Computer, Usage and Updates. Each
-// page's own content has its own tests; here a marker says which ran, and
-// what each page shows depends on where the window is (this Mac with the
-// desktop bridge, a browser, a paired remote server, a Cloud home).
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +9,7 @@ const fixture = vi.hoisted(() => ({
   config: {} as Record<string, unknown>,
   dispatch: vi.fn(),
   analytics: false,
+  updater: { status: "idle" } as Record<string, unknown>,
 }));
 
 vi.mock("@/state/store", async (importOriginal) => ({
@@ -22,7 +19,7 @@ vi.mock("@/state/store", async (importOriginal) => ({
 }));
 vi.mock("@/lib/laterdog-analytics", () => ({ analyticsConfigured: () => fixture.analytics }));
 vi.mock("@/lib/analytics", () => ({ analyticsEnabled: () => false, setAnalyticsEnabled: vi.fn() }));
-vi.mock("@/lib/updater", () => ({ useUpdaterState: () => (window.laterdog?.updater ? { status: "idle" } : null) }));
+vi.mock("@/lib/updater", () => ({ useUpdaterState: () => (window.laterdog?.updater ? fixture.updater : null) }));
 vi.mock("@/lib/app-links", () => ({ appVersion: () => "1.2.3", openExternalLink: vi.fn() }));
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
 const { marker } = vi.hoisted(() => ({ marker: (name: string) => () => `MARKER:${name};` }));
@@ -40,7 +37,6 @@ vi.mock("@/lib/use-desktop-permissions", () => ({
 
 import { SETTINGS_PAGES, SettingsModal } from "./SettingsModal";
 
-/** This Mac, in the desktop app: the permission bridge and the updater. */
 const MAC = { laterdog: { platform: "darwin", permissions: { status: vi.fn(), request: vi.fn(), openSettings: vi.fn() }, updater: { check: vi.fn(), install: vi.fn(), onState: vi.fn() }, relaunch: vi.fn() } };
 
 beforeEach(() => {
@@ -48,6 +44,7 @@ beforeEach(() => {
   fixture.section = "general";
   fixture.config = { features: { browser: false }, browserEngine: { kind: "bundled", installable: true } };
   fixture.analytics = false;
+  fixture.updater = { status: "idle" };
   vi.stubGlobal("window", MAC);
   vi.stubGlobal("document", { documentElement: { dataset: {} } });
   setLocale("en");
@@ -77,7 +74,6 @@ describe("the Settings rail", () => {
     expect(picker).toContain(">Computer<");
     expect(picker).toContain(">Usage<");
     expect(picker).toContain(">Updates<");
-    // nothing from before: no search box, no Advanced switch, no old pages
     expect(html).not.toContain("data-settings-search");
     expect(html).not.toContain("Advanced mode");
     for (const gone of ["engines", "connections", "companion", "organization", "experimental", "appearance"]) expect(html).not.toContain(`data-settings-page="${gone}"`);
@@ -103,12 +99,10 @@ describe("General", () => {
     const html = render();
     expect(groups(html)).toEqual(["accounts", "appearance", "system"]);
     expect(markers(html)).toEqual(["accounts", "skin", "permissions=microphone"]);
-    // the group labels and row titles, each closed by its div (Language's own picker lists "System" too)
     const order = ["Accounts", "Appearance", "Theme", "Language", "Notification sounds", "System", "Your name"].map((word) => html.indexOf(`>${word}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toContain('aria-label="Your name"');
-    // the email and shared context left Settings
     expect(html).not.toContain("Email");
     expect(html).not.toContain("About you");
   });
@@ -140,7 +134,6 @@ describe("Computer", () => {
     expect(html).toContain("What macOS lets later.dog do on this Mac.");
     expect(html).toContain("data-built-in-browser");
     expect(html).toMatch(/aria-label="Enable the built-in browser"[^>]*role="switch" aria-checked="false"/);
-    // the Local VM's advanced controls left: no VPS, no alias
     for (const gone of ["VPS", "alias"]) expect(html).not.toContain(gone);
   });
 
@@ -181,6 +174,15 @@ describe("Updates", () => {
     expect(html).toMatch(/data-app-version[^>]*>1\.2\.3</);
     expect(html).toMatch(/<button[^>]*>Check for updates<\/button>/);
     expect(html).not.toContain("Updates come with the desktop app.");
+  });
+
+  it("keeps the switch that turns checking for new versions back on once it is off", () => {
+    fixture.updater = { status: "idle", releaseCheck: "off" };
+    vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, releaseCheck: { setEnabled: vi.fn() } } });
+    const html = render();
+    expect(html).toContain("Checking for new versions is off.");
+    expect(html).toContain("Check for new versions");
+    expect(html).toMatch(/role="switch" aria-checked="false"/);
   });
 
   it("without the updater, says the version and that updates come with the desktop app", () => {

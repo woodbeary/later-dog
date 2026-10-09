@@ -82,8 +82,6 @@ export function GuidedTour() {
           dispatch({ type: "togglePlugins", open: false });
           return;
         case "openAutomations":
-          // The sidebar offers no Routines entry, so the tour does not open
-          // the page either; its step then skips itself.
           press("nav-automations");
           return;
         case "backToChat":

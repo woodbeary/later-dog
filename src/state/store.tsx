@@ -643,7 +643,6 @@ export interface ConfigStatus {
     features: string[];
     license?: { expiresAt: string; expiresInDays: number; graceEndsAt?: string };
   };
-  /** a fleet agent exists on this server (Settings → Workspaces) */
   fleet?: { available: boolean };
   budgets?: { monthlyUsd?: number; warnAtPercent?: number };
   billing?: { currency?: string; prices?: Record<string, { inputPerMillion: number; outputPerMillion: number; cachedInputPerMillion?: number }> };
@@ -819,7 +818,6 @@ export interface EngineInstall {
   managed?: { label: string; downloadBytes: number };
   /** the server can install or update this engine itself, no terminal */
   server?: { package: string };
-  /** configured with a key in Settings → API keys, not in a terminal */
   settings?: "connections";
 }
 
@@ -895,7 +893,6 @@ export interface InstanceInfo {
   freeUpSpace?: boolean;
 }
 
-/** The four pages of app Settings. */
 export type AppSettingsSection = "general" | "computer" | "usage" | "updates";
 
 export type BotSettingsSection =
@@ -1462,8 +1459,6 @@ function optimisticUserMessage(
   };
 }
 
-/** Settings → General (Accounts) as opened by laterdog://cloud (the Cloud
- * page's "Open in the app"). */
 export const CLOUD_LINK_SETTINGS = { type: "toggleAppSettings", open: true, section: "general" } as const satisfies Action;
 
 export function reducer(state: AppState, action: Action): AppState {

@@ -57,7 +57,7 @@ import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_U
 import { BotAvatar } from "./Avatar";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
-import { showToolCallsEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
+import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { normalizeState, stateForBot } from "@/lib/mascot";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { showWorkingDots } from "@/lib/turn-tail";
@@ -68,9 +68,6 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
 import { ThreadChip } from "./ThreadChip";
-import { VerifyCard } from "./VerifyCard";
-import { askText, runSkill, runSteps, runSummary, showRun, skillPrompt } from "@/lib/verify-steps";
-import { useShowRunCard } from "@/lib/run-card-preferences";
 import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
@@ -114,7 +111,7 @@ import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
-import { appendComposerDraft, appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
+import { appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
 import { dayLabel, localDay, transcriptLookups, type TranscriptLookups } from "@/lib/transcript-derivations";
 import { citationPreviewText, splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
 import { highlightCitationSource } from "@/lib/citations-dom";
@@ -810,7 +807,6 @@ function EmptyChat({ bot }: { bot: Bot }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center">
       <BotAvatar bot={bot} state="idle" size={64} motion="none" motionKey={0} />
-      {/* Renaming lives in the bot's settings. */}
       <div className="text-[17px] font-semibold text-ink">{bot.name}</div>
       <div className="max-w-[360px] text-[14px] text-ink-secondary">
         {bot.description || t("chat.emptyPrompt")}
@@ -1090,7 +1086,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
   const { state, dispatch } = useStore();
   const remoteClient = window.laterdog?.remoteClient?.active === true;
-  // Other threads are reached from the sidebar; the header has no thread picker.
   // Windows has no native caption buttons (renderer-drawn, see
   // WindowCaptionButtons); this header is the window drag region, and the
   // icon row shifts below the 26px-tall corner the buttons occupy.
@@ -1127,24 +1122,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const messages = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
   // edit versions, reply targets, the Retry row: once per list, not per row
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
-  // The bot's run in the current ask — every command it ran, the control-CLI
-  // ones verified — for the run card. Saving mirrors the /learn gate: the
-  // flag, an engine with the agents tools, and a bot that can take a message
-  // now — plus a run with something to keep.
-  const recordedRun = useMemo(() => runSteps(messages), [messages]);
-  const recordedRunCounts = runSummary(recordedRun);
-  const engineSupportsAgents = Boolean(
-    state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId)?.capabilities?.agentsMcp,
-  );
-  const canSaveRun =
-    skillAuthoringEnabled(state.config) && engineSupportsAgents && recordedRunCounts.passed > 0 && recordedRunCounts.running === 0 && !bot.busy;
-  // A dismissal is pinned to the run's last step, per thread: the card comes
-  // back when the bot runs another command, not merely when a step settles,
-  // and stays away across a switch to another thread and back.
-  const [runDismissed, setRunDismissed] = useState<ReadonlyMap<string, string>>(() => new Map());
-  const lastRunStep = recordedRun.at(-1);
-  const showRunCard = useShowRunCard();
-
   // Only a tail of the thread mounts; everything derived below (lastBotTextId,
   // lastUserMessage, working dots) stays computed from the FULL list.
   const {
@@ -1544,28 +1521,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           selected one. ArrowUp-to-edit stays gated on busy because editing
           rewinds the thread, which a live turn forbids (the server 409s it). */}
       <div ref={composerDockRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]">
-      {/* The bot's run in this ask as a checklist, once it is worth one (a
-          verified step, or more than one command). Save fills this thread's
-          composer with the run and the person's request and hands the caret
-          over; the person adds context and sends — nothing is sent from
-          here. In the dock so its height is measured with the composer's:
-          the transcript pad, the jump pill and bottom-follow all move with
-          it. */}
-      {lastRunStep && showRun(recordedRun) && showRunCard && runDismissed.get(transcriptKey) !== lastRunStep.id && (
-        <div className="flex justify-end px-5 pb-2">
-          <VerifyCard
-            key={transcriptKey}
-            steps={recordedRun}
-            canSave={canSaveRun}
-            skill={runSkill(messages, recordedRun)}
-            onDismiss={() => setRunDismissed((current) => new Map(current).set(transcriptKey, lastRunStep.id))}
-            onSave={() => {
-              appendComposerDraft(`bot:${bot.id}:${bot.threadId}`, skillPrompt(recordedRun, askText(messages)));
-              composerDockRef.current?.querySelector("textarea")?.focus();
-            }}
-          />
-        </div>
-      )}
       {/* A Live call on this chat: its controls and captions sit above the
           composer so the transcript stays in view. In the dock, so the
           transcript pad grows with it. */}
@@ -1640,8 +1595,6 @@ function usageSummary(bot: Bot, instances: AppState["instances"]): { short: stri
   return { short: ctx ? `${short} · ${ctx}` : short, detail, tone: share?.tone === "danger" ? "danger" : share?.tone === "warning" ? "warning" : undefined };
 }
 
-/** The header's "more" menu: find, export, usage and activity, behind one
- * button that opens on hover. */
 function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
   bot: Bot;
   messages: readonly Message[];
@@ -1681,7 +1634,6 @@ function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
       disabled: !hasMessages,
       onSelect: () => downloadMarkdownTranscript(slugifyTranscriptFilename(bot.name), transcript()),
     },
-    // The thread's usage stays in reach; it opens Settings → Usage.
     ...(usage ? [{
       key: "usage",
       label: t("chat.usage.menu"),

@@ -1,8 +1,3 @@
-// The app's reading of shared/place-view.ts: the facts for a bot's place
-// from what the app already holds, its words in the person's language, and
-// what each next action does. The Computer panel's grid, a failed turn's row
-// and the dog editor's Computer tab all render through here, so for the same
-// facts they say the same thing.
 import { useEffect, useState } from "react";
 import type { CloudAccountState } from "../../electron/cloud-account.mjs";
 import { activeLocale, t } from "@/lib/i18n";
@@ -172,8 +167,6 @@ export function openPlaceAction(
   }
 }
 
-/** The Computer panel grid's own name for a Works on choice: the words "Use {place}"
- * names a pin's way back with, so it matches the tile the person sees. */
 export const SIMPLE_PLACE_LABEL = {
   auto: "vm.dest.auto",
   cloud: "place.cloud",

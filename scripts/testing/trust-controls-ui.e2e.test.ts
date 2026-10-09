@@ -19,7 +19,7 @@ describe("trust controls in the real renderer", () => {
     await waitForExit(child, { graceMs: 30_000 });
   });
 
-  (enabled ? it : it.skip)("refreshes receipts, saves intersecting limits and serializes memory edits", async () => {
+  (enabled ? it : it.skip)("refreshes receipts and saves intersecting limits", async () => {
     let output = "", errors = "";
     let info!: FixtureInfo;
     const launcher = new URL("./control-laterdog-ui.ts", import.meta.url).href;
@@ -57,7 +57,6 @@ describe("trust controls in the real renderer", () => {
     const bot = (await bots()).find(candidate => candidate.name === "Pepper")!;
     expect(bot).toBeDefined();
     const saved = async () => (await bots()).find(candidate => candidate.id === bot.id)!;
-    const memory = async () => (await fetch(`${info.url}/api/team-memory?section=`).then(response => response.json())).entries as Array<{ id: string; name: string; detail: string }>;
 
     await click("More");
     await click("Activity");
@@ -119,51 +118,5 @@ describe("trust controls in the real renderer", () => {
     await expect.poll(async () => (await saved()).fallback, { timeout: 10_000 }).toEqual([]);
     expect((await saved()).modelSelection).toEqual(bot.modelSelection);
     await ui("press", "--keys", "Escape");
-
-    await evaluate(`(() => { localStorage.setItem('laterdog-advanced-mode','1'); window.dispatchEvent(new StorageEvent('storage', {key:'laterdog-advanced-mode'})); return true; })()`);
-    await click("Pack map");
-    const openMemory = async () => {
-      await evaluate(`(() => { const menu = document.querySelector('[data-team-key=""] details'); if (!menu) throw new Error('No General team menu'); if (!menu.open) menu.querySelector('summary').click(); return true; })()`);
-      await click("General pack memory");
-    };
-    await openMemory();
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("Nothing shared yet.");
-    await click("Add an entry");
-    await type("Name", "MCHQ");
-    await type("Detail", "Mission Control HQ");
-    await click("Add");
-    await expect.poll(memory, { timeout: 10_000 }).toMatchObject([{ name: "MCHQ", detail: "Mission Control HQ" }]);
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("MCHQ detail");
-    await evaluate(`(() => {
-      const original = window.fetch.bind(window);
-      window.memoryEditRequests = 0;
-      window.fetch = (input, init) => {
-        if (String(input).startsWith('/api/team-memory/') && init?.method === 'PATCH') {
-          window.memoryEditRequests++;
-          return new Promise(resolve => { window.releaseMemoryEdit = () => { window.fetch = original; resolve(original(input, init)); }; });
-        }
-        return original(input, init);
-      };
-      return true;
-    })()`);
-    await type("MCHQ detail", "Reviewed HQ");
-    await ui("press", "--keys", "Tab");
-    await expect.poll(() => evaluate("window.memoryEditRequests"), { timeout: 10_000 }).toBe(1);
-    expect(await evaluate("document.querySelector('[aria-label=\"Remove MCHQ\"]')?.disabled")).toBe(true);
-    await evaluate("document.querySelector('[aria-label=\"Remove MCHQ\"]').click(); true");
-    expect(await memory()).toHaveLength(1);
-    await click("Close pack memory");
-    await openMemory();
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("MCHQ detail");
-    await evaluate("window.releaseMemoryEdit(); true");
-    await expect.poll(memory, { timeout: 10_000 }).toMatchObject([{ name: "MCHQ", detail: "Reviewed HQ" }]);
-    // An old dialog's completion must not write its response into the new
-    // dialog; reopen reads the current persisted value.
-    await click("Close pack memory");
-    await openMemory();
-    await expect.poll(() => evaluate("document.querySelector('[aria-label=\"MCHQ detail\"]')?.value"), { timeout: 10_000 }).toBe("Reviewed HQ");
-    await ui("screenshot", "--out", `${info.logPath}.team-memory.png`);
-    await click("Remove MCHQ");
-    await expect.poll(memory, { timeout: 10_000 }).toEqual([]);
   }, 420_000);
 });

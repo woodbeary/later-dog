@@ -1,7 +1,3 @@
-// The foot of the sidebar. Apps sits beside the profile (SidebarAppsButton),
-// except on the avatars-only rail, where it stays a row just above the
-// avatar. The builder rows that used to live here (Routines, Triggers, Team
-// map, Workspace) left with Advanced mode.
 import { Puzzle } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -78,8 +74,6 @@ export function SidebarFooterNav({ density }: { density: SidebarDensity }) {
   const iconSize = iconsOnly ? 20 : 18;
   const tone = (active: boolean) => (active ? "text-accent" : "text-ink-secondary");
 
-  // A full-width sidebar has no places here; render nothing, so the guided
-  // tour's "tools" step skips itself instead of pointing at an empty strip.
   if (!iconsOnly) return null;
   return (
     // `tools` is the guided tour's anchor for "the places down here".

@@ -1,7 +1,3 @@
-// Density is an occasional preference chosen in Settings → Appearance; the
-// sidebar header keeps only its frequent controls (collapse, activity, add),
-// and Simple mode keeps only add. The header is one row on the traffic
-// lights' line: [lights] [drag space] [server switcher] [buttons].
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -110,7 +106,6 @@ describe("sidebar top row", () => {
     expect(spacer).toBeGreaterThan(slot);
     expect(switcher).toBeGreaterThan(spacer);
     expect(buttons).toBeGreaterThan(switcher);
-    // Only "+", so the switcher sits right beside it.
     expect(row.slice(buttons).match(/<button/g)).toHaveLength(1);
     // 16px in on the left like the lights; 8px on the right, so the last
     // button sits near the sidebar's edge. `relative` anchors the switcher's
@@ -135,9 +130,6 @@ describe("sidebar top row", () => {
     // rather than spilling onto the buttons in the narrowest rows, and its
     // title and label keep the whole name.
     expect(row).toMatch(/aria-label="Switch server: Servers"[^>]*title="Servers"[^>]*class="[^"]*\bh-7\b[^"]*\boverflow-hidden\b[^"]*\btext-\[12\.5px\][^"]*" style="-webkit-app-region:no-drag"/);
-    // A slot narrower than 164px, the 140px cap plus a 24px drag gap, shows
-    // icon + chevron only, so the
-    // switcher never fills the slot up to the lights.
     expect(row).toContain('<span class="min-w-0 truncate @max-[164px]/sidebar-top:hidden">Servers</span>');
     // No second, full-width switcher row beneath the header.
     expect(html.match(/Switch server:/g)).toHaveLength(1);

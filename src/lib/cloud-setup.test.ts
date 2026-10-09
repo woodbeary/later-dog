@@ -67,14 +67,7 @@ describe("cloudSetupItems", () => {
     expect(moveStatus({ phase: "replacing", action: "restore", suggest: false }, record())).toBeNull();
   });
 
-  it("lending is listed only where it is offered, and done when the Cloud lists a lent computer", () => {
-    expect(steps(facts())).not.toContain("lend:todo");
-    expect(steps(facts({ lend: { lent: null } }))).toEqual(["engine:todo", "try:todo", "lend:todo"]);
-    expect(steps(facts({ lend: { lent: false } }))).toContain("lend:todo");
-    expect(steps(facts({ lend: { lent: true } }))).toContain("lend:done");
-  });
-
-  it("keeps the order: sign in, bring bots, try something, lend", () => {
-    expect(cloudSetupItems(facts({ move: idle, lend: { lent: false } })).map((item) => item.id)).toEqual(["engine", "move", "try", "lend"]);
+  it("keeps the order: sign in, bring bots, try something, and offers no lending step (its switch left with the Cloud settings page)", () => {
+    expect(cloudSetupItems(facts({ move: idle })).map((item) => item.id)).toEqual(["engine", "move", "try"]);
   });
 });

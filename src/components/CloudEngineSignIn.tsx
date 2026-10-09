@@ -1,11 +1,3 @@
-// Shown on a later.dog Cloud home in place of a chat until one of the person's own
-// engines is signed in (docs/cloud-pro.md; lib/onboarding cloudSignInDue).
-// Cloud Pro includes no AI: the person brings a Claude, ChatGPT or Grok
-// account, or an API key. Each choice opens the setup that already exists for
-// it: the paste-code Claude sign-in and the Codex and Grok device codes
-// (EngineSetup, the card the model picker shows), or the model-provider keys
-// in Settings → Connections. Grok is offered only where this Cloud computer
-// has the Grok CLI. Once an engine can run, the chat takes this screen's place.
 import { useState } from "react";
 import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { EngineSetup } from "@/components/EngineSetup";

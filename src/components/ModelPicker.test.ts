@@ -24,7 +24,6 @@ vi.mock("@/state/store", async (importOriginal) => ({
   }),
 }));
 
-
 const { ClaudeAccountSelect, EffortRow, ModelEngineRail, ModelPicker, ModelVariantRow, modelSelectionForPick } = await import("./ModelPicker");
 
 afterAll(() => vi.unstubAllGlobals());
@@ -307,7 +306,6 @@ describe("ModelPicker trigger", () => {
     const markup = renderTrigger("high");
 
     expect(markup).toContain("GPT-5.6");
-    // the chip speaks plainly; the tooltip keeps the engine's own word
     expect(effortChip(markup)).toBe("· Deep");
     expect(markup).toContain("Codex · GPT-5.6 · High effort");
   });

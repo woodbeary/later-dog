@@ -315,7 +315,6 @@ describe("Settings opened by the Cloud link", () => {
     const opened = reducer(initialState, CLOUD_LINK_SETTINGS);
     expect(opened).toMatchObject({ appSettingsOpen: true, appSettingsSection: "general" });
     expect(reducer(opened, { type: "toggleAppSettings", open: false })).toMatchObject({ appSettingsOpen: false, appSettingsSection: "general" });
-    // the page stays put when Settings is opened again without naming one
     expect(reducer({ ...opened, appSettingsSection: "computer" }, { type: "toggleAppSettings", open: true }).appSettingsSection).toBe("computer");
   });
 });

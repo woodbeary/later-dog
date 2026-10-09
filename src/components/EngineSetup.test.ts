@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { EngineSetup, EngineUpdateNotice, needsCli, needsSignIn } from "./EngineSetup";
+import { EngineSetup, EngineUpdateNotice, apiKeySection, needsCli, needsSignIn } from "./EngineSetup";
 import { engineStatus } from "./ModelPicker";
 import { StoreProvider, type InstanceInfo } from "@/state/store";
 
@@ -80,11 +80,11 @@ describe("managed engine setup errors", () => {
   });
 });
 
-describe("engines set up with a key in Settings", () => {
-  it("opens Settings → API keys instead of offering a terminal command", () => {
+describe("engines set up with a pasted key", () => {
+  it("takes the key, and the endpoint's address, in the card instead of offering a terminal command", () => {
     vi.stubGlobal("window", { laterdog: { platform: "darwin" } });
     const engine: InstanceInfo = {
-      ...instance({ state: "unavailable", reason: "No API key — open Settings → API keys." }),
+      ...instance({ state: "unavailable", reason: "No API key." }),
       instanceId: "openaiCompat",
       driverKind: "openai-compat",
       displayName: "Other (OpenAI-compatible)",
@@ -92,9 +92,27 @@ describe("engines set up with a key in Settings", () => {
     };
     const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(EngineSetup, { instance: engine })));
     expect(markup).toContain("Other (OpenAI-compatible) needs an API key");
-    expect(markup).toContain("Open API keys");
+    expect(markup).toContain("Paste your key below.");
+    expect(markup).toContain('data-api-key-row="openaiCompat"');
+    expect(markup).toContain('aria-label="OpenAI-compatible base URL"');
     expect(markup).not.toContain("Open install in Terminal");
     expect(markup).not.toContain("config.json");
+  });
+
+  it("knows which saved key reaches each engine", () => {
+    vi.stubGlobal("window", { laterdog: { platform: "darwin" } });
+    const engine = (driverKind: string, instanceId = driverKind) => ({ ...instance({ state: "unavailable" }), driverKind, instanceId });
+    expect(apiKeySection(engine("grok", "xaiApi"))).toBe("xai");
+    expect(apiKeySection(engine("claudeAgent", "claudeApi"))).toBe("anthropic");
+    expect(apiKeySection(engine("claudeAgent", "claude"))).toBeNull();
+    expect(apiKeySection(engine("openai-compat", "openai"))).toBe("openai");
+    expect(apiKeySection(engine("openai-compat", "openrouter"))).toBe("openrouter");
+    expect(apiKeySection(engine("openai-compat", "my-endpoint"))).toBe("openaiCompat");
+    expect(apiKeySection(engine("mistral"))).toBe("mistral");
+    expect(apiKeySection(engine("cerebras"))).toBe("cerebras");
+    expect(apiKeySection(engine("kimiAgent"))).toBeNull();
+    vi.stubGlobal("window", { laterdog: { platform: "darwin", remoteClient: { active: true } } });
+    expect(apiKeySection(engine("grok", "xaiApi"))).toBeNull();
   });
 });
 
@@ -216,11 +234,12 @@ describe("API-key engine setup", () => {
     return renderToStaticMarkup(createElement(StoreProvider, null, createElement(EngineSetup, { instance: engine })));
   };
 
-  it("sends a missing key to Settings → API keys, not to a config file", () => {
-    const html = render(keyEngine("grok", { state: "unavailable", reason: "No xAI API key — open Settings → API keys." }));
+  it("takes a missing key right in the card, not in a config file", () => {
+    const html = render(keyEngine("grok", { state: "unavailable", reason: "No xAI API key." }));
     expect(html).toContain("data-engine-setup-api-key");
     expect(html).toContain("Grok (API) needs an API key");
-    expect(html).toContain("Open API keys");
+    expect(html).toContain('data-api-key-row="xai"');
+    expect(html).not.toContain("Open API keys");
     expect(html).not.toContain("config.json");
   });
 
@@ -228,14 +247,14 @@ describe("API-key engine setup", () => {
     const html = render(keyEngine("grok", { state: "available", authenticated: false, reason: "The provider rejected this key." }));
     expect(html).toContain("data-engine-setup-api-key");
     expect(html).toContain("The provider rejected the saved key.");
-    expect(html).toContain("Open API keys");
+    expect(html).toContain('data-api-key-row="xai"');
     expect(render(keyEngine("grok", { state: "unavailable" }))).not.toContain("rejected");
   });
 
-  it("has no button on a remote client, whose settings hide the keys", () => {
+  it("has no key box on a remote client, whose keys are the host's", () => {
     const html = render(keyEngine("openai-compat", { state: "unavailable" }), { platform: "darwin", remoteClient: { active: true } });
     expect(html).toContain("on the computer running later.dog");
-    expect(html).not.toContain("Open API keys");
+    expect(html).not.toContain("data-api-key-row");
   });
 
   it("leaves CLI engines on their install card", () => {

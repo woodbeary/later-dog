@@ -8,12 +8,6 @@
 //
 // The update entry is the one item that reports progress in place, so it
 // keeps the menu open and re-labels itself as it works.
-//
-// The phone has two entries: Connect your phone, which opens the pairing
-// flow in a dialog (only in the desktop app on its own computer, the one
-// place a phone can pair now that Settings has no Remote access page), and
-// Use on your phone (no phone app exists yet; a phone's browser opens the
-// pairing link instead).
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -36,12 +30,24 @@ import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
 import { useStore } from "@/state/store";
+import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { brand } from "../lib/brand";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { FEEDBACK_URL, HELP_CENTER_URL, openExternalLink } from "@/lib/app-links";
-import { currentPhonePairingTarget } from "@/lib/phone-pairing";
+import {
+  cloudPhoneDestination,
+  connectPhoneEntry,
+  currentPhonePairingTarget,
+  loadPhonePairingAccess,
+  phoneDestinations,
+  type CloudPhoneDestination,
+  type ConnectPhoneEntry,
+  type PhoneDestination,
+  type PhonePairingAccess,
+  type PhonePairingTarget,
+} from "@/lib/phone-pairing";
 
 /** "Sam Reed" → "SR", "sam" → "S", "you@x.dev" → "Y", unset → "?" */
 export function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -204,28 +210,73 @@ export function useUpdateItem(): UpdateEntry | null {
   };
 }
 
-/** The phone entries at the top of the menu: Connect your phone where this
- * window can pair one (the desktop app on its own computer), then Use on
- * your phone. */
+/** Connect your phone for this window, once it is known whether this
+ * session may pair one. This computer's own phone flow needs no asking. */
+function useConnectPhoneEntry(cloudHome: boolean): ConnectPhoneEntry | null {
+  const target = currentPhonePairingTarget(cloudHome);
+  const [access, setAccess] = useState<PhonePairingAccess | null>(null);
+  useEffect(() => {
+    if (target === "computer") return;
+    let alive = true;
+    void loadPhonePairingAccess().then((next) => {
+      if (alive) setAccess(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [target]);
+  return connectPhoneEntry(target, access);
+}
+
+/** On this computer only: the person's Cloud as a phone destination, from
+ * the verified native snapshot (null elsewhere, signed out, or no plan). */
+export function useCloudPhoneDestination(enabled: boolean): { cloud: CloudPhoneDestination; bridge?: CloudAccountBridge } {
+  const bridge = enabled && !window.laterdog?.remoteClient?.active ? window.laterdog?.cloudAccount : undefined;
+  const [account, setAccount] = useState<CloudAccountState | null>(null);
+  useEffect(() => {
+    if (!bridge) return;
+    let active = true, updated = false;
+    const unsubscribe = bridge.onState((next) => { updated = true; if (active) setAccount(next); });
+    // Reads the native snapshot only; never signs in, refreshes or connects.
+    void bridge.state().then((next) => { if (active && !updated) setAccount(next); }).catch(() => {});
+    return () => { active = false; unsubscribe(); };
+  }, [bridge]);
+  return bridge ? { cloud: cloudPhoneDestination(account), bridge } : { cloud: null };
+}
+
+export function selectPhoneDestination(
+  destination: PhoneDestination,
+  { bridge, openHere }: { bridge?: Pick<CloudAccountBridge, "connectHomeForPhone" | "openDashboard">; openHere: (target: PhonePairingTarget) => void },
+): void {
+  if (destination.id === "here") {
+    openHere(destination.target);
+    return;
+  }
+  if (bridge) void bridge.connectHomeForPhone().catch(() => bridge.openDashboard().catch(() => {}));
+}
+
+/** The phone entries at the top of the menu: a Connect your phone line per
+ * destination, then Use on your phone. Connect your phone is absent where
+ * this window cannot pair one (a chat-only session, a server whose people
+ * sign in through their organization). */
 export function phoneMenuItems({
-  canPair,
+  destinations,
   onConnect,
   onGetApp,
 }: {
-  canPair: boolean;
-  onConnect: () => void;
+  destinations: PhoneDestination[];
+  onConnect: (destination: PhoneDestination) => void;
   onGetApp: () => void;
 }): SidebarMenuItem[] {
   return [
-    ...(canPair
-      ? [{
-          key: "connect-phone",
-          label: t("sidebar.menu.connectPhone"),
-          subtitle: t("sidebar.menu.connectPhone.computer"),
-          icon: <Smartphone size={18} />,
-          onSelect: onConnect,
-        } satisfies SidebarMenuItem]
-      : []),
+    ...destinations.map((destination) => ({
+      key: destination.id === "cloud" ? "connect-phone-cloud" : "connect-phone",
+      label: t("sidebar.menu.connectPhone"),
+      subtitle: t(destination.subtitleKey),
+      ...(destination.noteKey ? { note: t(destination.noteKey) } : {}),
+      icon: <Smartphone size={18} />,
+      onSelect: () => onConnect(destination),
+    } satisfies SidebarMenuItem)),
     {
       key: "phone-app",
       label: t("sidebar.menu.getPhoneApp"),
@@ -237,20 +288,23 @@ export function phoneMenuItems({
 
 export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
-  const canPairPhone = currentPhonePairingTarget(state.config?.cloudHome === true) === "computer";
+  const connectPhone = useConnectPhoneEntry(state.config?.cloudHome === true);
+  const cloudPhone = useCloudPhoneDestination(connectPhone?.target === "computer");
+  const destinations = phoneDestinations(connectPhone, cloudPhone.cloud);
   const update = useUpdateItem();
   const [aboutOpen, setAboutOpen] = useState(false);
   const [phoneAppOpen, setPhoneAppOpen] = useState(false);
-  const [phonePairingOpen, setPhonePairingOpen] = useState(false);
+  const [phonePairing, setPhonePairing] = useState<PhonePairingTarget | null>(null);
   const triggerRef = useRef<HTMLSpanElement>(null);
 
   const profile = state.config?.profile;
   const name = profileLabel(profile);
+  const connectTo = (destination: PhoneDestination) => selectPhoneDestination(destination, { bridge: cloudPhone.bridge, openHere: setPhonePairing });
 
   const items: SidebarMenuItem[] = [
     ...phoneMenuItems({
-      canPair: canPairPhone,
-      onConnect: () => setPhonePairingOpen(true),
+      destinations,
+      onConnect: connectTo,
       onGetApp: () => setPhoneAppOpen(true),
     }),
     {
@@ -328,9 +382,18 @@ export function SidebarProfileMenu() {
       <PhoneAppDialog
         open={phoneAppOpen}
         onClose={() => setPhoneAppOpen(false)}
-        connect={canPairPhone ? [{ key: "here", subtitle: t("sidebar.menu.connectPhone.computer"), onSelect: () => setPhonePairingOpen(true) }] : []}
+        connect={destinations.map((destination) => ({
+          key: destination.id,
+          subtitle: t(destination.subtitleKey),
+          onSelect: () => connectTo(destination),
+        }))}
       />
-      <PhonePairingDialog open={phonePairingOpen} onClose={() => setPhonePairingOpen(false)} profileEmail={profile?.email ?? ""} />
+      <PhonePairingDialog
+        open={phonePairing !== null}
+        target={phonePairing ?? undefined}
+        onClose={() => setPhonePairing(null)}
+        profileEmail={profile?.email ?? ""}
+      />
     </>
   );
 }

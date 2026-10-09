@@ -1,7 +1,3 @@
-// Settings → Computer → Cloud computers: the Boat key a cloud computer needs
-// (or the line saying this setup brings its own), then each cloud computer the
-// dogs have, with Delete. A Computer panel's "Add Boat key" and "Manage cloud
-// computers" land here. Sleep stays in each dog's own Computer panel.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useStore } from "@/state/store";
@@ -10,7 +6,6 @@ import { CloudComputersRow } from "./ApiKeys";
 import { pillButton } from "./LocalVmRows";
 import { SettingRow } from "./SettingsPrimitives";
 
-/** One row of GET /api/computers/boxes. */
 export interface CloudComputer {
   boxId: string;
   name: string;
@@ -28,10 +23,8 @@ export interface CloudComputerList {
   instances: CloudComputer[];
 }
 
-/** Boat's list catches up a few seconds after it accepts a delete. */
 const DELETE_RECHECKS_MS = [1_000, 2_000, 4_000] as const;
 
-/** A computer's state in a word or two. */
 export function cloudComputerState(computer: CloudComputer): string {
   if (computer.inUse) return t("vm.state.inUse");
   if (computer.state === "removing") return t("vm.state.removing");
@@ -42,9 +35,6 @@ export function cloudComputerState(computer: CloudComputer): string {
   return t("vm.state.attention");
 }
 
-/** The list after a fresh read. Only a read Boat calls authoritative replaces
- * the last one (an outage or a missing key never empties it), and a computer
- * whose delete is still settling reads as Removing until the list drops it. */
 export function mergeCloudComputers(list: CloudComputerList, previous: CloudComputer[], deleting: ReadonlySet<string>): CloudComputer[] {
   if (list.configured !== true || list.available !== true) return previous;
   return (Array.isArray(list.instances) ? list.instances : [])
@@ -77,7 +67,6 @@ export function CloudComputerRows() {
     setProblem(list.configured === true && list.available !== true ? list.problem ?? t("vm.err.cloudUnavailable") : null);
   }, []);
 
-  // Read again once a Boat key is saved above, so its computers show up.
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -108,7 +97,6 @@ export function CloudComputerRows() {
         await refresh().catch(() => {});
         if (!deleting.current.has(computer.boxId)) return;
       }
-      // Still listed after the rechecks: show its real state, so Delete can be tried again.
       deleting.current.delete(computer.boxId);
       await refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
     } catch (cause) {

@@ -1,9 +1,3 @@
-// The permissions checklist, one row per macOS grant, drawn wherever later.dog lists them (Settings → Computers →
-// Permissions; the Computer panel, the first time a dog needs this Mac) from one hook, so a grant reads the same
-// everywhere. Each row: plain words for what it lets a dog do, and one thing on the right — the action that moves it
-// forward (Allow, the real system prompt; or Open System Settings), or the status once there is nothing to do
-// (src/lib/desktop-permissions.ts rowActions says which). Rows sit on the surface they are placed on, separated by
-// hairlines, never as cards of their own.
 import type { CSSProperties } from "react";
 import { Accessibility, Check, Loader2, Mic, MonitorDot } from "lucide-react";
 import { brand } from "@/lib/brand";

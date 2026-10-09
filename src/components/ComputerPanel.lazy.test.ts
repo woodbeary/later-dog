@@ -37,8 +37,6 @@ vi.mock("./CloudScreenPreview", () => ({
   CloudScreenPreview: () => createElement("div", { "data-live-screen": "" }),
 }));
 vi.mock("./BrowserPanel", () => ({ BrowserPanel: () => null }));
-vi.mock("./CloudBackendPicker", () => ({ CloudBackendPicker: () => null }));
-vi.mock("./bot-settings/RoutinesSection", () => ({ RoutinesSection: () => null }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   api: async (path: string, init?: RequestInit) => {

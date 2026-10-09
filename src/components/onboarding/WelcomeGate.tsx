@@ -78,8 +78,6 @@ export function WelcomeGate({ viewer }: { viewer: WelcomeViewer | null }) {
       canSave: viewer.canSave,
       cloudHome: viewer.cloudHome,
     });
-  // Settings opened from the tour (the organisation row) steps it aside;
-  // closing Settings resumes the tour where it was.
   if (state.appSettingsOpen) return null;
   if (!state.welcomeOpen && !due) return null;
   const bot = state.bots.find((b) => !b.hidden) ?? null;

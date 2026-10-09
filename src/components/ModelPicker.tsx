@@ -501,8 +501,6 @@ export function ModelPicker({
   const [refreshing, setRefreshing] = useState(false);
   const [probingLocal, setProbingLocal] = useState<string | null>(null);
   const [scope, setScope] = useState<"bot" | "thread">("thread");
-  // The picker opens on the plain-words view; a provider's "Set up" shows
-  // the full picker in the same popover.
   const ownerOrAdmin = useOwnerOrAdmin();
   // Guests can choose a model for their own Cloud conversation, not change
   // the shared bot's default. Keep choices thread-only until authority loads.
@@ -519,8 +517,6 @@ export function ModelPicker({
   const lastClaudeIdRef = useRef<string | null>(null);
   const lastOpenaiIdRef = useRef<string | null>(null);
 
-  // The plain-words pane shows in the chat header's popover and inline where
-  // the picker is contained (the bot panel's Default model).
   const simpleView = !fullView;
   // The Simple view has its own, narrower width; the full picker keeps its.
   const popoverWidth = simpleView ? SIMPLE_POPOVER_WIDTH : POPOVER_WIDTH;

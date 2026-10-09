@@ -24,7 +24,7 @@ const fixture = vi.hoisted(() => {
     index: 0,
     own: 0,
     seed: {} as Record<string, unknown>,
-    config: {} as FeatureFlagConfig & { cloudHome?: boolean; box?: { configured: boolean } },
+    config: {} as FeatureFlagConfig & { cloudHome?: boolean; box?: { configured: boolean }; vps?: { configured: boolean; sshAlias: string } },
     instances: [] as InstanceInfo[],
     dispatch: (() => {}) as (...args: unknown[]) => void,
     api: (() => Promise.resolve({})) as (...args: unknown[]) => Promise<unknown>,
@@ -280,7 +280,6 @@ describe("Where the bot works", () => {
     expect(rendered.html).toContain("Where Scout works");
     expect(nodes(card.props.children).find((node) => node.props.role === "group")!.props.className).toContain("grid-cols-3");
     expect(grid(rendered).map((node) => text(node.props.children))).toEqual(["Auto", "Cloud computer", "Local VM", "This Mac", "Browser", "Off"]);
-    // The chosen place's one line, the same words a failed turn's row uses.
     expect(placeLine(rendered)).toBe("Uses the built-in browser, a private desktop on this computer, or this computer's screen, whichever the task needs.");
   });
 
@@ -478,5 +477,22 @@ describe("Technical controls", () => {
     const start = rendered.button("Start it now")!;
     (start.props.onClick as () => void)();
     expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout/computer/provision", { method: "POST" });
+  });
+
+  it("asks for the server's SSH alias right in the panel while a VPS computer has none", () => {
+    const vps = () => {
+      fixture.values = [];
+      phaseIndex = -1;
+      fixture.seed = { phase: "vps-unconfigured", resolved: { botId: "scout", threadId: "thread-scout", computer: "cloud", cloudBackend: "vps" } };
+      return render(makeBot({ computer: "cloud", cloudBackend: "vps" })).html;
+    };
+    expect(vps()).toContain('aria-label="Self-hosted VPS SSH config alias"');
+
+    fixture.config = { ...fixture.config, vps: { configured: true, sshAlias: "my-vps" } };
+    expect(vps()).not.toContain("data-vps-alias");
+
+    fixture.config = { ...fixture.config, vps: undefined };
+    fixture.laterdog.remoteClient = { active: true };
+    expect(vps()).not.toContain("data-vps-alias");
   });
 });

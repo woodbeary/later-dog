@@ -1,10 +1,4 @@
 // @vitest-environment happy-dom
-// Grok Build's setup card, wherever Grok is not ready: Settings → Engines,
-// My Cloud's sign-in and a failed turn's card all render this one. Signed out,
-// it is the in-app code, the same on the desktop, a server and My Cloud; the
-// `grok login` command stays behind "Prefer a terminal?" only where a
-// terminal runs on that machine. Where Grok cannot run and nobody here can
-// install it, it is one honest line and one action: an xAI key.
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -85,21 +79,22 @@ describe("Grok cannot run here: an xAI key instead", () => {
   it.each([
     ["a server's page in a browser", undefined, false],
     ["My Cloud in the desktop app's window", desktop, true],
-  ] as const)("says so in one line, with no action, on %s", (_where, laterdog, cloudHome) => {
+  ] as const)("says so in one line, with the xAI key box right there, on %s", (_where, laterdog, cloudHome) => {
     const html = render(missing, laterdog, cloudHome);
     expect(grokKeyInstead(missing, cloudHome)).toBe(true);
     expect(html).toContain("data-engine-setup-key-instead");
     expect(html).toContain(NOT_INSTALLED);
-    // the API keys page is gone from Settings, so there is no button to it
-    expect(html).not.toContain("<button");
+    expect(html).toContain('data-api-key-row="xai"');
+    expect(html).not.toContain("Open API keys");
     expect(html).not.toContain(CURL);
     expect(html).not.toContain("Install Grok");
     expect(html).not.toContain("Terminal");
   });
 
-  it("has no button on a paired desktop either", () => {
+  it("has no key box on a paired desktop, whose keys are the host's", () => {
     const html = render(missing, pairedDesktop);
     expect(html).toContain(NOT_INSTALLED);
+    expect(html).not.toContain("data-api-key-row");
     expect(html).not.toContain("<button");
   });
 

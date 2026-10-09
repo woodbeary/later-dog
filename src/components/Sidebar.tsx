@@ -1938,8 +1938,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
     restoreBot?: { id: string; name: string };
   } | null>(null);
   const [query, setQuery] = useState("");
-  // Chosen in Settings → Appearance; the header's collapse button only flips
-  // between the avatar rail and the last expanded density.
   const storedDensity = useSidebarDensity();
   const density = collapseToIcons ? "icons" : storedDensity;
   const defaultWidth = density === "compact" ? 272 : 320;
@@ -1981,8 +1979,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
     over: { id: string; place: SectionDropPlace } | null;
   }>({ from: null, over: null });
 
-  // The density can change here or from Settings, so react to the value
-  // rather than to either control.
   useEffect(() => {
     if (density !== "icons") setLastExpandedDensity(density);
     // Search is hidden in avatar-only mode. Keeping its value would silently
@@ -2285,11 +2281,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           </div>
         ) : null}
         {density !== "icons" && (
-          // Everything between the lights and the buttons; the switcher's
-          // pill reads this slot's width (container `sidebar-top`). Below
-          // 164px, its 140px cap plus a 24px drag gap, the pill drops its name
-          // for icon + chevron rather than fill the slot up to the lights. On
-          // macOS at 320px the slot is 121px in Advanced, 189px in Simple.
           <div data-sidebar-top-slot className="@container/sidebar-top flex min-w-0 flex-1 items-center">
             {/* Empty, so it stays a drag region; it takes the slack, which
                 keeps the switcher beside the buttons. */}
@@ -2306,7 +2297,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           className={cn("relative flex shrink-0 items-center", density === "icons" ? "flex-col gap-1" : "ml-0.5 gap-0.5")}
           style={windowNoDragStyle}
         >
-          {/* Only "+" here; Expand stays so an icons rail is never a dead end. */}
           {!collapseToIcons && density === "icons" && <button
             type="button"
             onClick={toggleCollapsed}
@@ -2649,14 +2639,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
             </button>
           </div>
         ) : (
-          // The place rows and the profile row are two different kinds of
-          // thing — places to go, versus who you are and what the app is —
-          // so they get clear space between them (none when Simple mode has
-          // no place rows and the profile row leads). A hairline lived here
-          // briefly and made it worse: full-bleed, it ran within a few pixels
-          // of the profile row's rounded hover pill, and the two hover states
-          // read as one crowded block rather than two rows. Apps sits at the
-          // end of the profile row.
           <div className="flex items-center gap-1 not-first:mt-3">
             <div className="min-w-0 flex-1">
               <SidebarProfileMenu />

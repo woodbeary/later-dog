@@ -1,7 +1,4 @@
 // @vitest-environment happy-dom
-// Settings → Computer → Cloud computers: each cloud computer the dogs have,
-// named by its dog, with Delete. A Computer panel's "Add Boat key" and
-// "Manage cloud computers" land on this list.
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";

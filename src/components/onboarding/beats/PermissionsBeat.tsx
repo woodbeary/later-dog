@@ -1,13 +1,3 @@
-// Beat: what this computer may let a bot do. One row per macOS grant — the
-// microphone for dictation, Accessibility so a bot can click and type here,
-// Screen Recording so it can see the screen — each read live from the
-// desktop bridge, with the real system prompt behind Allow and System
-// Settings behind the link macOS leaves after a denial. Screen Recording's
-// status is what macOS caches for this process (electron/mac-permissions.mjs),
-// so that row says a grant made in System Settings shows after a relaunch.
-// Without the bridge (a browser, the preview page) the rows say the desktop
-// app has them. Settings → Computers → Permissions shows the same rows again,
-// so skipping here loses nothing.
 import { useEffect } from "react";
 import { PermissionChecklist } from "@/components/PermissionChecklist";
 import { allGranted, checklistHost } from "@/lib/desktop-permissions";

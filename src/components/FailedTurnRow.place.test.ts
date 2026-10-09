@@ -1,7 +1,3 @@
-// A failed turn whose place could not be used, as the app shows it: the row's
-// stored state worded again (shared/place-view.ts) as one line and at most
-// one button, in the reader's role. The phones read only the row's
-// English words, so those carry the same line and the same action.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";

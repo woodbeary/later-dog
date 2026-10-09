@@ -32,7 +32,8 @@ import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
 import { botShowsUnread } from "@/lib/bot-unread";
-import { takePhonePairingRequest } from "@/lib/phone-pairing";
+import { currentPhonePairingTarget, takePhonePairingRequest } from "@/lib/phone-pairing";
+import { PhonePairingDialog } from "@/components/PhonePairingDialog";
 
 function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const { state, dispatch } = useStore();
@@ -60,20 +61,17 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       ((requestedSettings === "cloud" || requestedSettings === "cloud-settings") && window.laterdog.cloudAccount && !remoteClient)) {
       url.searchParams.delete("desktop-settings");
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-      // Organisation, the Cloud link and the lending menu-bar item all land on
-      // General, where the accounts are.
       if (requestedSettings === "workspaces") open();
       else dispatch(CLOUD_LINK_SETTINGS);
     }
     return window.laterdog.environments.onOpenSettings?.(open);
   }, [dispatch]);
-  // "Use your Cloud on your phone" once opened Settings at this window's
-  // phone pairing (/?desktop-settings=phone); that page is gone, so the
-  // request is only taken off the address.
+  const [phonePairingOpen, setPhonePairingOpen] = useState(false);
   useEffect(() => {
     const rest = takePhonePairingRequest(window.location.href);
     if (rest === null) return;
     window.history.replaceState(null, "", rest);
+    setPhonePairingOpen(true);
   }, []);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
@@ -204,9 +202,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   // shell signals the request over the bridge (Cmd+, accelerates the item).
   // Local-shell only: remote server pages never receive the channel, and laterdog
   // is absent in the browser.
-  // Every named destination (Organisation, laterdog://cloud, the lending
-  // menu-bar item) is on General now; the plain Preferences… item keeps the
-  // last page.
   useEffect(() => {
     return window.laterdog?.onOpenAppSettings?.(section => dispatch(section
       ? CLOUD_LINK_SETTINGS
@@ -325,6 +320,12 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       {!remoteClient && state.inspectorOpen && bot && <InspectorPanel key={bot.threadId} bot={bot} />}
       {!remoteClient && state.activityOpen && bot && <ActivityPanel key={`activity:${bot.id}`} bot={bot} />}
       {state.appSettingsOpen && <SettingsModal />}
+      <PhonePairingDialog
+        open={phonePairingOpen}
+        target={currentPhonePairingTarget(state.config?.cloudHome === true)}
+        onClose={() => setPhonePairingOpen(false)}
+        profileEmail={state.config?.profile?.email ?? ""}
+      />
       {/* On the person's Cloud: its setup checklist, and after it Move to
           Cloud's one-time card on an empty Cloud (desktop app only). */}
       <CloudSetup viewer={viewer} />

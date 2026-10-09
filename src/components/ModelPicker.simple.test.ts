@@ -465,7 +465,6 @@ describe("the model picker in Simple mode", () => {
     pane(open(forBot))!.props.onSetUp();
     const full = render(forBot);
     click(full.nodes.find((node) => node.type === "button" && node.props.children === "Thread + dog default"));
-    // closed and opened again: the plain pane is back
     click(full.nodes.find((node) => node.props["data-tour"] === "model"));
     pane(open(forBot))!.props.onPick("claude-sonnet-5-5");
     expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ updateBotDefault: false }));
