@@ -22,6 +22,9 @@ const fixture = vi.hoisted(() => {
     dispatch: (() => {}) as (...args: unknown[]) => void,
     refreshModels: (() => Promise.resolve()) as (instanceId: string) => Promise<void>,
     refreshInstances: (() => Promise.resolve()) as () => Promise<void>,
+    planUsage: null as unknown,
+    usageEnabled: undefined as boolean | undefined,
+    battery: undefined as unknown,
   };
 });
 vi.mock("react", async (original) => ({
@@ -40,14 +43,24 @@ vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => fixture.owne
 vi.mock("@/state/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/state/store")>()),
   useStore: () => ({
-    state: { instances: fixture.instances, bots: fixture.bots, modelVariantSessions: {}, config: { cloudHome: fixture.cloudHome } },
+    state: { instances: fixture.instances, bots: fixture.bots, modelVariantSessions: {}, config: { cloudHome: fixture.cloudHome, accountBattery: fixture.battery } },
     dispatch: fixture.dispatch,
     refreshInstances: fixture.refreshInstances,
     refreshModels: fixture.refreshModels,
   }),
 }));
 
-const { ClaudeAccountSelect, FollowBotModelRow, ModelEngineRail, ModelPicker, ModelVariantRow, SIMPLE_POPOVER_WIDTH } = await import("./ModelPicker");
+vi.mock("./PlanUsage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./PlanUsage")>()),
+  usePlanUsage: ({ enabled = true }: { enabled?: boolean } = {}) => {
+    fixture.usageEnabled = enabled;
+    return { report: fixture.planUsage, loading: false, error: "", now: NOW, reload: () => Promise.resolve() };
+  },
+}));
+
+const NOW = Date.UTC(2026, 9, 9, 12);
+const { FollowBotModelRow, ModelEngineRail, ModelPicker, ModelVariantRow, SIMPLE_POPOVER_WIDTH } = await import("./ModelPicker");
+const { AccountSwitcher, UsageRing } = await import("./AccountSwitcher");
 const { SimpleModelPane } = await import("./SimpleModelPane");
 const { EngineSetup } = await import("./EngineSetup");
 const { InstanceProviderMark } = await import("./ProviderIcons");
@@ -139,6 +152,13 @@ const inside = (rendered: ReturnType<typeof render>) => nodes(SimpleModelPane(pa
 const region = (html: string, marker: string, next?: string) =>
   html.slice(html.indexOf(marker), next ? html.indexOf(next) : undefined);
 const labels = (rendered: ReturnType<typeof render>) => pane(rendered)!.props.models.map((option) => option.label);
+const switcher = (rendered: ReturnType<typeof render>) =>
+  rendered.nodes.find((node) => node.type === AccountSwitcher) as ReactElement<ComponentProps<typeof AccountSwitcher>> | undefined;
+const usageFor = (id: string, fiveHour: number, weekly: number) => ({
+  id, name: id, driver: "claude", plan: "Max", ok: true, error: null, extra: [],
+  fiveHour: { available: true, remainingPercent: 100 - fiveHour, usedPercent: fiveHour, resetsAt: new Date(NOW + 80 * 60_000).toISOString() },
+  weekly: { available: true, remainingPercent: 100 - weekly, usedPercent: weekly, resetsAt: new Date(NOW + 3 * 24 * 3_600_000).toISOString() },
+});
 const click = (node: Node | undefined) => (node!.props.onClick as () => void)();
 
 beforeEach(() => {
@@ -152,6 +172,9 @@ beforeEach(() => {
   fixture.dispatch = vi.fn();
   fixture.refreshModels = vi.fn(() => Promise.resolve());
   fixture.refreshInstances = vi.fn(() => Promise.resolve());
+  fixture.planUsage = null;
+  fixture.usageEnabled = undefined;
+  fixture.battery = undefined;
 });
 
 describe("the model picker in Simple mode", () => {
@@ -597,40 +620,70 @@ describe("the model picker in Simple mode", () => {
     expect(fixture.refreshInstances).toHaveBeenCalled();
   });
 
-  it("reaches every Claude account from the one Claude row, through a select above its models", () => {
+  it("lists every account with its usage above the providers, and switches account in one tap", () => {
     const work: InstanceInfo = { ...claude(true, [{ id: "claude-sonnet-5-5", label: "Sonnet 5.5" }]), instanceId: "claude-work", displayName: "Work" };
     fixture.instances = [claude(), work];
+    fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 62, 40), usageFor("claude-work", 10, 95)] };
     const forBot = bot();
     const opened = open(forBot);
     expect(pane(opened)!.props.providers.map((provider) => provider.label)).toEqual(["Claude"]);
-    const account = pane(opened)!.props.account as ReactElement<ComponentProps<typeof ClaudeAccountSelect>>;
-    expect(account.type).toBe(ClaudeAccountSelect);
-    expect(account.props.accounts.map((instance) => instance.instanceId)).toEqual(["claude", "claude-work"]);
-    expect(account.props.selectedId).toBe("claude");
-    const html = region(menu(opened.html), "data-simple-models", "data-simple-effort-band");
-    expect(html.indexOf("data-simple-account")).toBeGreaterThan(-1);
-    expect(html.indexOf("data-simple-account")).toBeLessThan(html.indexOf("Opus 5.5<"));
-    expect(html).toContain('<option value="claude-work">Work</option>');
+    expect(switcher(opened)!.props.accounts.map((account) => account.instanceId)).toEqual(["claude", "claude-work"]);
+    expect(switcher(opened)!.props.currentId).toBe("claude");
+    const html = menu(opened.html);
+    expect(html.indexOf("data-account-switcher")).toBeGreaterThan(-1);
+    expect(html.indexOf("data-account-switcher")).toBeLessThan(html.indexOf("data-simple-providers"));
+    expect(region(html, "data-account-switcher", "data-simple-providers")).toContain("62% used · resets in 1h 20m");
+    expect(region(html, "data-account-switcher", "data-simple-providers")).toContain("95% used · resets in 3d");
+    expect(html).not.toContain("data-simple-account");
 
-    account.props.onSelect(work);
-    const browsed = render(forBot);
-    expect(labels(browsed)).toEqual(["Sonnet 5.5"]);
-    expect((pane(browsed)!.props.account as ReactElement<ComponentProps<typeof ClaudeAccountSelect>>).props.selectedId).toBe("claude-work");
-    expect(pane(browsed)!.props.providers[0].selected).toBe(true);
-    pane(browsed)!.props.onPick("claude-sonnet-5-5");
+    switcher(opened)!.props.onPick(work);
+    expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "setModel", selection: expect.objectContaining({ instanceId: "claude-work", model: "claude-sonnet-5-5" }),
+    }));
+    const switched = render(forBot);
+    expect(switched.html).toContain("data-model-picker-content");
+    expect(labels(switched)).toEqual(["Sonnet 5.5"]);
+    expect(pane(switched)!.props.providers[0].selected).toBe(true);
+  });
+
+  it("keeps the model when the new account offers it, and only browses the account already in use", () => {
+    const work: InstanceInfo = { ...claude(), instanceId: "claude-work", displayName: "Work" };
+    fixture.instances = [claude(), work];
+    const forBot = bot("high", "claude", "claude-sonnet-5-5");
+    const opened = open(forBot);
+    switcher(opened)!.props.onPick(claude());
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+    switcher(opened)!.props.onPick(work);
     expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
       type: "setModel", selection: expect.objectContaining({ instanceId: "claude-work", model: "claude-sonnet-5-5" }),
     }));
   });
 
-  it("shows no account select for a provider with one account", () => {
-    fixture.instances = [claude(), codex, grok];
+  it("lists a single account too, so its usage is always a tap away", () => {
+    fixture.instances = [claude(), grok];
+    fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 30, 20)] };
     const opened = open(bot());
-    expect(pane(opened)!.props.account).toBeUndefined();
-    expect(menu(opened.html)).not.toContain("data-simple-account");
+    expect(switcher(opened)!.props.accounts.map((account) => account.instanceId)).toEqual(["claude"]);
+    expect(region(menu(opened.html), "data-account-switcher", "data-simple-providers")).toContain("30% used");
+    expect(fixture.usageEnabled).toBe(true);
   });
 
-  it("reaches Codex and the ChatGPT plan from the one OpenAI row", () => {
+  it("asks for no usage without an account, and keeps a Cloud guest's numbers private", () => {
+    fixture.instances = [grok, local];
+    const away = open(bot(undefined, "grok", "grok-5"));
+    expect(switcher(away)).toBeUndefined();
+    expect(fixture.usageEnabled).toBe(false);
+
+    fixture.cloudHome = true;
+    fixture.ownerOrAdmin = false;
+    fixture.instances = [claude()];
+    expect(switcher(open(bot()))).toBeUndefined();
+    expect(fixture.usageEnabled).toBe(false);
+    fixture.instances = [claude(), { ...claude(), instanceId: "claude-work", displayName: "Work" }];
+    expect(switcher(open(bot()))!.props.accounts).toHaveLength(2);
+  });
+
+  it("reaches Codex and the ChatGPT plan from the one OpenAI row and the account list", () => {
     const plan: InstanceInfo = {
       ...engine("chatgpt", "codex", "ChatGPT plan", "subscription", [{ id: "gpt-5.6-plan", label: "GPT-5.6 (plan)" }]),
       snapshot: { state: "available", version: "1.0.0", authenticated: true, chatgptPlan: true },
@@ -643,16 +696,13 @@ describe("the model picker in Simple mode", () => {
     pane(opened)!.props.onProvider(openai[0].target);
     const browsed = render(forBot);
     expect(labels(browsed)).toEqual(["GPT-5.6"]);
-    const account = pane(browsed)!.props.account as ReactElement<ComponentProps<typeof ClaudeAccountSelect>>;
-    expect(account.props.accounts.map((instance) => instance.displayName)).toEqual(["Codex", "ChatGPT plan"]);
+    expect(switcher(browsed)!.props.accounts.map((instance) => instance.displayName)).toEqual(["Claude", "Codex", "ChatGPT plan"]);
 
-    account.props.onSelect(plan);
-    const onPlan = render(forBot);
-    expect(labels(onPlan)).toEqual(["GPT-5.6 (plan)"]);
-    pane(onPlan)!.props.onPick("gpt-5.6-plan");
+    switcher(browsed)!.props.onPick(plan);
     expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
       type: "setModel", selection: expect.objectContaining({ instanceId: "chatgpt", model: "gpt-5.6-plan" }),
     }));
+    expect(labels(render(forBot))).toEqual(["GPT-5.6 (plan)"]);
   });
 
   it("opens a sign-in family on an account that is ready, not on a signed-out first one", () => {
@@ -671,11 +721,35 @@ describe("the model picker in Simple mode", () => {
     expect(pane(browsed)!.props.needsSetup).toBeNull();
     expect(labels(browsed)).toEqual(["GPT-5.6 (plan)"]);
 
-    // The signed-out account is still a select away, and says what it needs.
-    (pane(browsed)!.props.account as ReactElement<ComponentProps<typeof ClaudeAccountSelect>>).props.onSelect(signedOutCodex);
-    const onCodex = render(forBot);
-    expect(pane(onCodex)!.props.needsSetup).toEqual({ name: "Codex" });
-    expect(region(menu(onCodex.html), "data-simple-models", "data-simple-effort-band")).toContain("data-simple-account");
+    expect(region(menu(browsed.html), "data-account-switcher", "data-simple-providers")).toContain("Not signed in");
+    switcher(browsed)!.props.onPick(signedOutCodex);
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+    expect(pane(render(forBot))!.props.needsSetup).toEqual({ name: "Codex" });
+  });
+
+  it("rings the chip with the binding limit and adds every window to its tooltip", () => {
+    fixture.instances = [claude(), grok];
+    fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 80, 30)] };
+    const closed = render(bot());
+    const trigger = closed.nodes.find((node) => node.props["data-tour"] === "model")!;
+    const ring = closed.nodes.find((node) => node.type === UsageRing)!;
+    expect(ring.props).toEqual(expect.objectContaining({ used: 80, tone: "warning" }));
+    expect(closed.html).toContain('data-usage-ring="80"');
+    expect(String(trigger.props.title).split("\n")).toEqual([
+      "Claude · Opus 5.5",
+      "5-hour · 80% used · resets in 1h 20m",
+      "Weekly · 30% used · resets in 3d",
+    ]);
+
+    fixture.battery = { enabled: true, order: {}, resting: { claude: { until: new Date(NOW + 3_600_000).toISOString() } } };
+    const resting = render(bot());
+    expect(resting.nodes.find((node) => node.type === UsageRing)!.props).toEqual(expect.objectContaining({ used: 100, tone: "danger" }));
+    expect(String(resting.nodes.find((node) => node.props["data-tour"] === "model")!.props.title)).toContain("\nResting until ");
+
+    expect(render(bot(undefined, "grok", "grok-5")).html).not.toContain("data-usage-ring");
+    fixture.battery = undefined;
+    fixture.planUsage = null;
+    expect(render(bot()).html).not.toContain("data-usage-ring");
   });
 
   it("dims a provider its organisation blocks and says why, with no setup to offer", () => {

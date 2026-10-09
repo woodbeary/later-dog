@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { api } from "@/state/store";
 import { activeLocale, t } from "@/lib/i18n";
@@ -138,6 +138,14 @@ export function refreshPlanUsageAfterTurn(): void {
   if (pollers > 0 && Date.now() - planUsage.fetchedAt >= PLAN_USAGE_AFTER_TURN_MS) void reloadPlanUsage();
 }
 
+export function useRefreshAfterTurn(busy: boolean | undefined): void {
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    if (wasBusy.current && !busy) refreshPlanUsageAfterTurn();
+    wasBusy.current = busy;
+  }, [busy]);
+}
+
 function pollPlanUsage() {
   if (document.visibilityState === "hidden") return;
   const now = Date.now();
@@ -194,19 +202,27 @@ export function usePlanUsage({ enabled = true }: { enabled?: boolean } = {}) {
   };
 }
 
+export type UsageTone = "accent" | "warning" | "danger";
+
+export function usageTone(used: number): UsageTone {
+  return used >= 90 ? "danger" : used >= 75 ? "warning" : "accent";
+}
+
+const BAR_TONE: Record<UsageTone, string> = { accent: "bg-accent", warning: "bg-warning", danger: "bg-danger" };
+
 export function UsageBar({ used, label }: { used: number; label: string }) {
   const clamped = Math.round(Math.min(100, Math.max(0, used)));
   return (
-    <div
-      className="h-1 w-full overflow-hidden rounded-full bg-control"
+    <span
+      className="block h-1 w-full overflow-hidden rounded-full bg-control"
       role="meter"
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={clamped}
     >
-      <div className={cn("h-full rounded-full", clamped >= 90 ? "bg-danger" : "bg-accent")} style={{ width: `${clamped}%` }} />
-    </div>
+      <span className={cn("block h-full rounded-full", BAR_TONE[usageTone(clamped)])} style={{ width: `${clamped}%` }} />
+    </span>
   );
 }
 
@@ -214,6 +230,28 @@ function windowLine(label: string, window: PlanWindow, now: number): string | nu
   if (!window.available || window.usedPercent == null) return null;
   const when = resetDistance(window.resetsAt, now);
   return [label, t("planUsage.used", { used: Math.round(window.usedPercent) }), when ? t("planUsage.resetsIn", { when }) : null].filter(Boolean).join(" · ");
+}
+
+export interface UsageReading {
+  used: number;
+  label: string;
+  resetsAt: string | null;
+}
+
+export function usageReading(provider: PlanProvider | undefined): UsageReading | null {
+  if (!provider?.ok) return null;
+  let reading: UsageReading | null = null;
+  for (const [label, window] of [[t("planUsage.fiveHour"), provider.fiveHour], [t("planUsage.weekly"), provider.weekly]] as const) {
+    if (!window.available || window.usedPercent == null) continue;
+    if (!reading || window.usedPercent > reading.used) reading = { used: window.usedPercent, label, resetsAt: window.resetsAt };
+  }
+  return reading;
+}
+
+export function usageLines(provider: PlanProvider | undefined, now: number): string[] {
+  if (!provider?.ok) return [];
+  return [windowLine(t("planUsage.fiveHour"), provider.fiveHour, now), windowLine(t("planUsage.weekly"), provider.weekly, now)]
+    .filter((line): line is string => line !== null);
 }
 
 export function AccountUsage({ provider, now, loading = false, resting }: {

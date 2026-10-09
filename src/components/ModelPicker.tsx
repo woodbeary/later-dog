@@ -28,6 +28,9 @@ import { t } from "@/lib/i18n";
 import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { threadsOnOwnModel } from "../../shared/thread-model";
 import { ThreadModelsLine } from "./ThreadModelsLine";
+import { subscriptionAccounts } from "./AccountsPanel";
+import { AccountSwitcher, accountUsageLines, activeRest, UsageRing, usageRingFor } from "./AccountSwitcher";
+import { usePlanUsage, useRefreshAfterTurn } from "./PlanUsage";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 const COMPACT_MODEL_COUNT = 5;
@@ -537,6 +540,11 @@ export function ModelPicker({
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const pickerInstances = configuredModelInstances(state.instances, selection.instanceId);
+  const battery = state.config?.accountBattery;
+  const switcherAccounts = subscriptionAccounts(state.instances, battery)
+    .filter((account) => pickerInstances.some((instance) => instance.instanceId === account.instanceId));
+  const usage = usePlanUsage({ enabled: simpleUpdatesBotDefault && switcherAccounts.length > 0 });
+  useRefreshAfterTurn(bot.busy);
   const selectedVariantLabel = selection.variant === undefined ? undefined : variantLabel(
     active?.models.options.find((option) => option.id === selection.model)?.variants?.find((option) => option.id === selection.variant)
       ?? { id: selection.variant, label: selection.variant },
@@ -684,7 +692,7 @@ export function ModelPicker({
     dispatch({ type: "setModel", botId: bot.id, threadId: threadId ?? bot.threadId, updateBotDefault: false, selection: profile.modelSelection });
   };
 
-  const pick = (instance: InstanceInfo, model: string) => {
+  const pick = (instance: InstanceInfo, model: string, keepOpen = false) => {
     if (instance.policy) return;
     const nextSelection = modelSelectionForPick(selection, instance, model);
     // Simple mode has no scope choice: an owner's pick is also the bot's
@@ -707,7 +715,7 @@ export function ModelPicker({
       selection: nextSelection,
     });
     if (updateBotDefault && threadId) setChangedBotModel(true);
-    setOpen(false);
+    if (!keepOpen) setOpen(false);
   };
 
   const official = railInstance?.models.options.filter((option) => !option.custom) ?? [];
@@ -735,11 +743,6 @@ export function ModelPicker({
     </span>
   );
 
-  // Simple mode lists every provider the picker knows, in the rail's order:
-  // sign-ins, then API keys, then local engines. A sign-in family's row opens
-  // on the account last browsed, else the bot's, else the first one ready to
-  // use, so a signed-out first account never hides a signed-in second one;
-  // the family's other accounts are a select away above its models.
   const simpleOpensOn = (accounts: InstanceInfo[], lastId: string | null) =>
     accounts.find((account) => account.instanceId === lastId)
       ?? accounts.find((account) => account.instanceId === selection.instanceId)
@@ -781,6 +784,14 @@ export function ModelPicker({
     selectRail(instance);
     lookForLocalIn(instance);
   };
+  const switchAccount = (account: InstanceInfo) => {
+    browseSimple(account);
+    if (account.instanceId === selection.instanceId || needsCli(account) || needsSignIn(account)) return;
+    const model = [selection.model, account.models.default].find((id) => account.models.options.some((option) => option.id === id))
+      ?? account.models.options.find((option) => !option.custom)?.id;
+    if (model) pick(account, model, true);
+  };
+  const showSwitcher = simpleView && switcherAccounts.length > (simpleUpdatesBotDefault ? 0 : 1);
   const activeLevels = active?.capabilities?.effortLevels ?? [];
   const simpleEffort = activeLevels.length > 0 ? {
     levels: simpleEffortLevels(activeLevels, selection.effort),
@@ -810,6 +821,11 @@ export function ModelPicker({
       }${selectedVariantLabel ? ` · ${selectedVariantLabel}` : selection.effort ? ` · ${effortLabel(selection.effort)} effort` : ""}`
     : selection.model;
   const followLine = follows === true ? `\n${t("model.followsBot", { name: profile.name })}` : follows === false ? `\n${t("model.ownModel")}` : "";
+  const activeProvider = usage.report?.providers.find((provider) => provider.id === active?.instanceId);
+  const activeRestNow = active ? activeRest(battery?.resting, active.instanceId, usage.now) : undefined;
+  const ring = active && switcherAccounts.some((account) => account.instanceId === active.instanceId)
+    ? usageRingFor(activeProvider, activeRestNow) : null;
+  const activeUsage = ring ? accountUsageLines(activeProvider, activeRestNow, usage.now) : [];
 
   const trigger = (
     <button data-tour="model"
@@ -835,9 +851,11 @@ export function ModelPicker({
         "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
         !contained && active && !showActiveAccount && COMPACT_SQUARE,
       )}
-      title={`${summary}${followLine}`}
+      title={[`${summary}${followLine}`, ...activeUsage].join("\n")}
     >
-      {active && <InstanceProviderMark instance={active} size={14} />}
+      {active && (ring ? (
+        <UsageRing used={ring.used} tone={ring.tone}><InstanceProviderMark instance={active} size={14} /></UsageRing>
+      ) : <InstanceProviderMark instance={active} size={14} />)}
       {!contained && active && showActiveAccount && (
         <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{active.displayName}</span>
       )}
@@ -904,16 +922,16 @@ export function ModelPicker({
           {follows !== undefined && (
             <FollowBotModelRow name={profile.name} model={botModelName} follows={follows} onPick={pickBotModel} />
           )}
+          {showSwitcher && (
+            <AccountSwitcher accounts={switcherAccounts} currentId={selection.instanceId} report={usage.report} loading={usage.loading}
+              now={usage.now} resting={battery?.resting} onPick={switchAccount} />
+          )}
           <div className="flex min-h-0 min-w-0 flex-1">
           {simpleView ? (
             <SimpleModelPane
               providers={simpleProviders}
               onProvider={browseSimple}
-              account={railInstance && simpleAccounts.length > 1 ? (
-                <ClaudeAccountSelect accounts={simpleAccounts} selectedId={railInstance.instanceId} onSelect={browseSimple} />
-              ) : undefined}
               managedBy={railInstance?.policy?.organizationName ?? null}
-              // With several accounts the select above names the one at issue.
               needsSetup={railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel } : null}
               signIn={railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
               onSetUp={() => {
