@@ -57,7 +57,7 @@ function Fixture() {
     setSaved(result.bots);
   };
   return <main className="min-h-screen bg-panel p-8 text-ink">
-    <h1 className="text-xl font-semibold">Isolated bot settings verification</h1>
+    <h1 className="text-xl font-semibold">Isolated dog editor verification</h1>
     <p className="my-3">Alt+1–9 switches bots; Alt+D toggles delayed reads, including while settings is open. All data is disposable.</p>
     <label><input type="checkbox" checked={delayReads} onChange={toggleDelay} /> Delay profile reads</label>
     <label className="ml-3">Read delay (ms) <input type="number" defaultValue={1500} min={0} className="w-24 bg-control" onChange={(event) => { readDelayMs = Number(event.target.value); }} /></label>
@@ -69,14 +69,14 @@ function Fixture() {
     {bot && <div className="flex flex-wrap gap-3">
       <button className="rounded bg-control px-3 py-2" onClick={() => dispatch({ type: "toggleSettings", open: true })}>Open settings</button>
       <button className="rounded bg-control px-3 py-2" onClick={() => dispatch({ type: "duplicateBot", botId: bot.id })}>Duplicate selected bot</button>
-      <button className="rounded bg-control px-3 py-2" onClick={() => void api(`/__fixture/drift/${bot.id}`, { method: "POST" })}>Edit SOUL file outside app</button>
+      <button className="rounded bg-control px-3 py-2" onClick={() => void api(`/__fixture/drift/${bot.id}`, { method: "POST" })}>Edit instructions file outside app</button>
       <button className="rounded bg-control px-3 py-2" onClick={() => void readSaved()}>Read saved profiles</button>
     </div>}
     <p className="my-3">Selected: {bot?.name ?? "Loading…"}</p>
     <button onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "general" })}>Open app settings</button>
     {state.appSettingsOpen && <SettingsModal />}
     <DefaultBotSettings />
-    <button className="rounded bg-control px-3 py-2" onClick={() => dispatch({ type: "toggleNewBot", open: true })}>Configure new bot</button>
+    <button className="rounded bg-control px-3 py-2" onClick={() => dispatch({ type: "toggleNewBot", open: true })}>New dog</button>
     {state.newBotOpen && <NewBotDialog />}
     {state.error && <p role="alert" className="text-danger">{state.error}</p>}
     <pre aria-label="Saved profiles" className="my-4 whitespace-pre-wrap">{JSON.stringify(saved.map(({ id, name, description, soul }) => ({ id, name, description, soul })), null, 2)}</pre>
