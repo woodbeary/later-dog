@@ -367,8 +367,7 @@ export function AccountsPanel() {
   };
 
   return (
-    <section className="flex flex-col gap-2" data-accounts-panel>
-      <h3 className="text-[12px] font-medium text-ink-secondary">{t("accounts.title")}</h3>
+    <section className="flex flex-col" data-accounts-panel>
       <div className="rounded-xl bg-card">
         {accounts.length === 0 ? (
           <p className="px-4 py-3 text-[13px] text-ink-secondary">{t("accounts.empty")}</p>

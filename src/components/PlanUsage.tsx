@@ -173,8 +173,8 @@ export function AccountUsage({ provider, now, loading = false, resting }: {
 export function PlanUsage() {
   const { report, loading, error, now, reload } = usePlanUsage();
   return (
-    <section className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
+    <section data-plan-usage="" className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between pl-4">
         <h3 className="text-[12px] font-medium text-ink-secondary">{t("accounts.title")}</h3>
         <button
           type="button"
