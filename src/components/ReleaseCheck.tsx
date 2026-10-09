@@ -1,10 +1,3 @@
-// A build with no update feed (later.dog's releases are unsigned) cannot
-// install updates itself, so the desktop app asks GitHub for the latest
-// release instead (electron/release-check.mjs) and the update UI offers its
-// page to download from. These are that offer's own pieces: the card that
-// tells the person once per version, the About dialog's line, and the switch
-// in Settings → General. The update entries in Settings and the profile menu
-// read the same state through releaseOffer.
 import { useState } from "react";
 import { ArrowDownToLine, Sparkles, X } from "lucide-react";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
@@ -112,8 +105,6 @@ export function AboutReleaseLine() {
   );
 }
 
-/** Settings → General → Check for new versions. Only on this computer's page,
- * and only where the desktop app checks GitHub (no update feed, not dev). */
 export function ReleaseCheckRow() {
   const state = useUpdaterState();
   const bridge = window.laterdog?.releaseCheck;

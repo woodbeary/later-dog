@@ -118,12 +118,7 @@ const __APP_VERSION__: string;
       platform: NodeJS.Platform;
       organization?: import("../../electron/managed-desktop.mjs").ManagedDesktopBridge;
       cloudAccount?: import("../../electron/cloud-account.mjs").CloudAccountBridge;
-      /** Copy this computer here: this computer's page names a saved server (or
-       * "cloud"); a server's own page is answered about itself only, and its
-       * Copy opens this computer's Settings on that copy (the verified Cloud's starts it). */
       cloudMove?: import("../../electron/cloud-move.mjs").CloudMoveBridge;
-      /** The Cloud's setup checklist: shows the lending switch in this app's
-       * own Settings → later.dog Cloud (leaving the Cloud's page). */
       cloudLending?: { open(): Promise<void> };
       /** Settings on the person's own Cloud: the plan, read only. */
       cloudPlan?: import("../../electron/cloud-account.mjs").CloudPlanBridge;
@@ -265,10 +260,6 @@ const __APP_VERSION__: string;
       };
       /** Receives a GitHub package URL opened through laterdog://install. */
       onPackageInstall?(cb: (url: string) => void): () => void;
-      /** The desktop shell's app-menu Preferences… item was activated; open
-       * app Settings. Local-shell only: remote server pages never receive
-       * the channel, and the bridge is absent in the browser. "cloud" is the
-       * laterdog://cloud link (Settings → later.dog Cloud, opened by the link). */
       onOpenAppSettings?(cb: (section?: "organization" | "cloud" | "cloud-settings") => void): () => void;
       /** Updates the native Dock/taskbar unread indicator. */
       setUnreadCount?(count: number): void;
@@ -327,9 +318,6 @@ const __APP_VERSION__: string;
         install(): Promise<void>;
         onState(cb: (s: UpdaterState) => void): () => void;
       };
-      /** Settings → General → Check for new versions, where the updater
-       * state carries `releaseCheck`. Resolves whether checking is now on.
-       * This computer's page only; absent on server pages and older builds. */
       releaseCheck?: {
         setEnabled(enabled: boolean): Promise<boolean>;
       };
@@ -384,8 +372,6 @@ export interface UpdaterState {
    * Offered while `status` is "idle".
    */
   available?: { version: string; url: string };
-  /** Whether that GitHub check is on (Settings → General → Check for new
-   * versions). Absent where an update feed is configured, and in dev. */
   releaseCheck?: "on" | "off";
 }
 

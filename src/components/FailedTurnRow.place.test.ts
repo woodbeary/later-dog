@@ -1,7 +1,3 @@
-// A failed turn whose place could not be used, as the app shows it: the row's
-// stored state worded again (shared/place-view.ts) as one line and at most
-// one button, in the reader's role and mode. The phones read only the row's
-// English words, so those carry the same line and the same action.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +8,7 @@ import { placeRowText, type PlaceRow } from "../../shared/place-view";
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
-  return { dispatch: vi.fn(), advanced: false, ownerOrAdmin: null as boolean | null, bots: [] as Bot[], config: {} as Record<string, unknown> };
+  return { dispatch: vi.fn(), ownerOrAdmin: null as boolean | null, bots: [] as Bot[], config: {} as Record<string, unknown> };
 });
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
@@ -25,10 +21,6 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   ...await importOriginal<typeof import("./DesktopCapabilities")>(),
   useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false }, host: { packaged: true, platform: "darwin" }, localComputer: { available: true } }, ready: true }),
   useCaptionChrome: () => ({}),
-}));
-vi.mock("@/lib/interface-mode", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/interface-mode")>(),
-  useAdvancedMode: () => fixture.advanced,
 }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => fixture.ownerOrAdmin }));
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
@@ -50,7 +42,6 @@ function show(tool: NonNullable<Message["tool"]>, onRetry?: () => void) {
 
 beforeEach(() => {
   fixture.dispatch = vi.fn();
-  fixture.advanced = false;
   fixture.ownerOrAdmin = null;
   fixture.config = {};
   fixture.bots = [{ id: "scout", name: "Scout", computer: "cloud", modelSelection: { instanceId: "claude", model: "m" } } as Bot];
@@ -74,11 +65,9 @@ describe("J11: a failed place's row", () => {
     expect(show(passing).buttons).toHaveLength(0);
   });
 
-  it("leads a person's pin back to the grid's choice in Simple, and to the composer's in Advanced", () => {
+  it("leads a person's pin back to the grid's choice", () => {
     const pinned = stored({ state: "cc-no-start", params: { bot: "Scout" }, source: "pin" });
     expect(show(pinned).buttons[0]).toContain("Use Cloud computer");
-    fixture.advanced = true;
-    expect(show(pinned).buttons[0]).toContain("Clear this conversation&#x27;s place");
   });
 
   it("gives a User no button that changes a setting, and says who can", () => {
@@ -91,7 +80,7 @@ describe("J11: a failed place's row", () => {
   it("reads Needs a Boat key as My Cloud's on a desktop with a paid plan", () => {
     const needsKey: PlaceRow = { state: "cc-needs-key", params: { bot: "Scout" }, source: "works-on" };
     expect(show(stored(needsKey)).html).toContain("A cloud computer here needs your own Boat key, a paid service.");
-    const seat = { server: "mac", plan: true, role: "admin", mode: "simple" } as const;
+    const seat = { server: "mac", plan: true, role: "admin" } as const;
     expect(placeRowViewFor(needsKey, seat)).toMatchObject({
       state: "cc-on-my-cloud", line: "Cloud computers from your plan work for dogs on My Cloud for now.", action: { id: "open-my-cloud" },
     });
@@ -114,7 +103,7 @@ describe("the phone row", () => {
       [{ state: "cc-unavailable", params: { bot: "Scout" }, source: "routine" },
         "Cloud computers can't start right now. It isn't anything you did. Change where this routine runs."],
       [{ state: "cc-at-once", params: { bot: "Bo", plan: "Personal", max: 1, holders: ["Ada"] }, source: "works-on" },
-        "Your Personal plan includes 1 cloud computer, and Ada has it. Manage your cloud computers in Settings → Local VM."],
+        "Your Personal plan includes 1 cloud computer, and Ada has it. Manage your cloud computers in Settings → Computer."],
     ];
     for (const [place, words] of rows) {
       const tool = stored(place);

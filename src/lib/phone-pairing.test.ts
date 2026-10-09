@@ -9,11 +9,10 @@ import {
   currentPhonePairingTarget,
   loadPhonePairingAccess,
   pairedDestination,
+  pairingCodesOn,
   phoneDestinations,
-  phonePairingSettingsAction,
   phonePairingTarget,
   resetPhonePairingAccess,
-  revealPhonePairing,
   takePhonePairingRequest,
   type PhonePairingAccess,
 } from "./phone-pairing";
@@ -109,6 +108,12 @@ describe("asking the server", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("reads whether pairing codes are on from the config, an older server's missing field meaning on", () => {
+    expect(pairingCodesOn({ membership: { authority: "portal", pairingCodes: false } })).toBe(false);
+    expect(pairingCodesOn({ membership: { authority: "local", pairingCodes: true } })).toBe(true);
+    for (const config of [{}, { membership: {} }, { membership: "odd" }, null, undefined, "odd"]) expect(pairingCodesOn(config)).toBe(true);
+  });
+
   it("a config it cannot read means codes on, as an older server's does; asked once per page", async () => {
     const fetchImpl = respond({ "/api/auth/session": {}, "/api/config": new Error("offline") });
     expect(await loadPhonePairingAccess(fetchImpl)).toEqual({ session: { kind: "loopback" }, pairingCodes: true });
@@ -117,49 +122,8 @@ describe("asking the server", () => {
   });
 });
 
-describe("opening Settings on the phone pairing", () => {
-  it("is Remote access, asking for the pairing to be revealed", () => {
-    expect(phonePairingSettingsAction()).toEqual({ type: "toggleAppSettings", open: true, section: "companion", phonePairing: true });
-  });
-
-  type Focusable = { focus: (options?: FocusOptions) => void };
-  const focusable = () => ({ focus: vi.fn<(options?: FocusOptions) => void>() });
-  const element = (action: Focusable | null) => ({
-    scrollIntoView: vi.fn<(options: ScrollIntoViewOptions) => void>(),
-    focus: vi.fn<(options?: FocusOptions) => void>(),
-    querySelector: vi.fn((_selector: string) => action),
-  });
-  const now = (callback: () => void) => callback();
-
-  it("scrolls the card into view and focuses the button that shows the code", () => {
-    const action = focusable();
-    const root = element(action);
-    expect(revealPhonePairing(root, now)).toBe(true);
-    expect(root.scrollIntoView).toHaveBeenCalledWith({ block: "start" });
-    expect(root.querySelector).toHaveBeenCalledWith("[data-phone-pairing-action]:not([disabled])");
-    expect(action.focus).toHaveBeenCalledWith({ preventScroll: true });
-    expect(root.focus).not.toHaveBeenCalled();
-  });
-
-  it("focuses the card itself when there is no button to press yet", () => {
-    const root = element(null);
-    revealPhonePairing(root, now);
-    expect(root.focus).toHaveBeenCalledWith({ preventScroll: true });
-  });
-
-  it("waits a frame, and reports a card that is not drawn yet", () => {
-    const root = element(focusable());
-    const frames: Array<() => void> = [];
-    revealPhonePairing(root, (callback) => frames.push(callback));
-    expect(root.scrollIntoView).not.toHaveBeenCalled();
-    frames[0]!();
-    expect(root.scrollIntoView).toHaveBeenCalled();
-    expect(revealPhonePairing(null, now)).toBe(false);
-  });
-});
-
 describe("the ?desktop-settings=phone request", () => {
-  it("is taken off the address, keeping everything else", () => {
+  it("is taken off the address, keeping everything else (the window opens Connect your phone)", () => {
     expect(takePhonePairingRequest("https://home.fly.dev/?desktop-settings=phone")).toBe("/");
     expect(takePhonePairingRequest("https://home.fly.dev/?a=1&desktop-settings=phone#x")).toBe("/?a=1#x");
     expect(takePhonePairingRequest("https://home.fly.dev/?desktop-settings=workspaces")).toBeNull();

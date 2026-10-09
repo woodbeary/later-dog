@@ -24,9 +24,6 @@ vi.mock("@/state/store", async (importOriginal) => ({
   }),
 }));
 
-// These cases cover the full picker; Simple mode has its own file.
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: () => {} }));
-
 const { ClaudeAccountSelect, EffortRow, ModelEngineRail, ModelPicker, ModelVariantRow, modelSelectionForPick } = await import("./ModelPicker");
 
 afterAll(() => vi.unstubAllGlobals());
@@ -309,7 +306,7 @@ describe("ModelPicker trigger", () => {
     const markup = renderTrigger("high");
 
     expect(markup).toContain("GPT-5.6");
-    expect(effortChip(markup)).toBe("· High");
+    expect(effortChip(markup)).toBe("· Deep");
     expect(markup).toContain("Codex · GPT-5.6 · High effort");
   });
 

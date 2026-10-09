@@ -55,7 +55,7 @@ it("About names the newer release beside its Download, and nothing otherwise", (
   expect(render(AboutReleaseLine, OFFERED, {})).toBe("");
 });
 
-it("Settings → General has the switch on this computer's page of a build that checks GitHub", () => {
+it("Settings → Updates has the switch on this computer's page of a build that checks GitHub", () => {
   const on = render(ReleaseCheckRow, OFFERED);
   expect(on).toContain("Check for new versions");
   expect(on).toContain("The request carries nothing about you.");

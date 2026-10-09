@@ -9,6 +9,7 @@ import { t } from "@/lib/i18n";
 import { copyText } from "@/lib/copy-text";
 import { DEVICE_SIGN_IN_COPY, DeviceSignIn, deviceSignInProvider } from "./DeviceSignIn";
 import { ClaudeSignIn } from "./ClaudeSignIn";
+import { ApiKeyRow, OpenAiCompatUrl, type ConfigSection, type TestableProvider } from "./ApiKeys";
 
 type Platform = "darwin" | "win32" | "linux";
 
@@ -409,9 +410,6 @@ function ManagedEngineSetup({ instance, signInOnly }: { instance: InstanceInfo; 
   );
 }
 
-/** Engines that run on a pasted API key. Their setup is the key row in
- * Settings → API keys, never a terminal command or a sign-in. Claude on the
- * workspace key still needs its CLI first, which the install card covers. */
 export function isApiKeyEngine(instance: InstanceInfo | undefined): boolean {
   if (!instance || instance.access !== "api" || instance.managed) return false;
   return instance.driverKind !== "claudeAgent" || Boolean(instance.snapshot.version);
@@ -423,14 +421,38 @@ export function hasSavedApiKey(instance: InstanceInfo): boolean {
   return isApiKeyEngine(instance) && instance.snapshot.authenticated === true;
 }
 
-/** Its setup is a key in Settings → API keys, and that is not done yet. */
 function apiKeySetup(instance: InstanceInfo): boolean {
   return (isApiKeyEngine(instance) || instance.install?.settings === "connections") && !instance.snapshot.authenticationUnavailableReason
     && (instance.snapshot.state !== "available" || instance.snapshot.authenticated === false);
 }
 
+export function apiKeySection(instance: InstanceInfo): (ConfigSection & TestableProvider) | null {
+  if (window.laterdog?.remoteClient?.active === true) return null;
+  switch (instance.driverKind) {
+    case "mistral":
+    case "cerebras":
+      return instance.driverKind;
+    case "grok":
+      return "xai";
+    case "claudeAgent":
+      return instance.instanceId === "claudeApi" ? "anthropic" : null;
+    case "openai-compat":
+      return instance.instanceId === "openai" || instance.instanceId === "openrouter" ? instance.instanceId : "openaiCompat";
+    default:
+      return null;
+  }
+}
+
+function KeyField({ section }: { section: ConfigSection & TestableProvider }) {
+  return (
+    <div data-engine-setup-key-field={section} className="mt-3 flex flex-col gap-3">
+      <ApiKeyRow section={section} testProvider={section} />
+      {section === "openaiCompat" && <OpenAiCompatUrl />}
+    </div>
+  );
+}
+
 function GrokKeyInstead({ className, unframed }: { className?: string; unframed: boolean }) {
-  const { dispatch } = useStore();
   const remote = window.laterdog?.remoteClient?.active === true;
   return (
     <div data-engine-setup-key-instead className={cn(!unframed && "rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
@@ -440,17 +462,7 @@ function GrokKeyInstead({ className, unframed }: { className?: string; unframed:
         </span>
         <p className="min-w-0 text-[12.5px] leading-relaxed text-ink">{t("engineSetup.grok.notInstalled")}</p>
       </div>
-      {/* a remote client's Settings has no API keys to open (ApiKeyEngineSetup) */}
-      {!remote && (
-        <button
-          type="button"
-          onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
-          className="mt-3 flex items-center gap-1.5 rounded-lg bg-raised px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-raised-hover"
-        >
-          <KeyRound size={13} aria-hidden="true" />
-          {t("engineSetup.grok.addKey")}
-        </button>
-      )}
+      {!remote && <KeyField section="xai" />}
     </div>
   );
 }
@@ -458,11 +470,11 @@ function GrokKeyInstead({ className, unframed }: { className?: string; unframed:
 /** `configured`: the key is saved, so the card offers to change it instead.
  * A typo'd key still counts as saved, and this is the way back to fix it. */
 function ApiKeyEngineSetup({ instance, className, unframed, configured = false }: { instance: InstanceInfo; className?: string; unframed: boolean; configured?: boolean }) {
-  const { dispatch } = useStore();
   const remote = window.laterdog?.remoteClient?.active === true;
+  const section = apiKeySection(instance);
   const copy = configured
-    ? { title: "engineSetup.apiKey.configuredTitle", description: remote ? "engineSetup.apiKey.configuredRemote" : "engineSetup.apiKey.configuredDescription", action: "engineSetup.apiKey.change" } as const
-    : { title: "engineSetup.apiKey.title", description: remote ? "engineSetup.apiKey.remote" : "engineSetup.apiKey.description", action: "engineSetup.apiKey.open" } as const;
+    ? { title: "engineSetup.apiKey.configuredTitle", description: remote ? "engineSetup.apiKey.configuredRemote" : section ? "engineSetup.apiKey.configuredDescription" : null } as const
+    : { title: "engineSetup.apiKey.title", description: remote ? "engineSetup.apiKey.remote" : section ? "engineSetup.apiKey.description" : null } as const;
   return (
     <div data-engine-setup-api-key={configured ? "configured" : ""} className={cn(!unframed && "rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
       <div className="flex items-start gap-2.5">
@@ -471,30 +483,18 @@ function ApiKeyEngineSetup({ instance, className, unframed, configured = false }
         </span>
         <div className="min-w-0">
           <div className="text-[13px] font-semibold text-ink">{t(copy.title, { name: instance.displayName })}</div>
-          <p className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{t(copy.description)}</p>
+          {copy.description && <p className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{t(copy.description)}</p>}
         </div>
       </div>
+      {section && <KeyField section={section} />}
       {/* a saved key the provider refused reads as installed but signed out */}
       {needsSignIn(instance) && (
         <p role="alert" className="mt-2 text-[12px] leading-relaxed text-danger">{t("engineSetup.apiKey.rejected")}</p>
-      )}
-      {!remote && (
-        <button
-          type="button"
-          onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
-          className="mt-3 flex items-center gap-1.5 rounded-lg bg-raised px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-raised-hover"
-        >
-          <KeyRound size={13} aria-hidden="true" />
-          {t(copy.action)}
-        </button>
       )}
     </div>
   );
 }
 
-/** A ready engine that runs on a pasted key: name the key and link to where it
- * is replaced or cleared. Without this, saving any key (even a wrong one)
- * left Model providers with no way back to it. */
 export function ApiKeyEngineManage({ instance, className }: { instance: InstanceInfo; className?: string }) {
   if (!hasSavedApiKey(instance)) return null;
   return <ApiKeyEngineSetup instance={instance} className={className} unframed={false} configured />;

@@ -4,7 +4,6 @@ import { approvalCardOutcome } from "./ApprovalCard";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import {
-  Activity,
   Archive,
   BellDot,
   Bot as BotIcon,
@@ -107,7 +106,6 @@ import {
 } from "@/lib/sidebar-layout";
 import { sidebarSectionAttention } from "@/lib/sidebar-attention";
 import { botListItemPointerIntent } from "@/lib/sidebar-selection";
-import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarAppsButton, SidebarFooterNav } from "./SidebarFooterNav";
 import { GlassBar, GlassScrollFrame, GlassScroller } from "./GlassScrollFrame";
 import { DesktopWorkspaceSwitcher } from "./DesktopWorkspaceSwitcher";
@@ -116,7 +114,7 @@ import { profileInitials, SidebarProfileMenu } from "./SidebarProfileMenu";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { useShowThreads } from "@/lib/thread-preferences";
 import { botShowsUnread } from "@/lib/bot-unread";
-import { attentionJumpAction, attentionUnpinAction, AttentionThreadRows, crossBotAttentionThreads, crossBotPinnedThreads, SidebarBotActivity, sidebarBotActivityTasks } from "./SidebarBotActivity";
+import { attentionJumpAction, attentionUnpinAction, crossBotAttentionThreads, crossBotPinnedThreads, SidebarBotActivity, sidebarBotActivityTasks } from "./SidebarBotActivity";
 import { SidebarAttentionPanel } from "./SidebarAttentionPanel";
 import { SidebarPinnedThreadsPanel } from "./SidebarPinnedThreadsPanel";
 import { useLiveMedia } from "@/lib/live-call-media";
@@ -124,7 +122,6 @@ import { LiveCallPill, liveBadgeFor } from "./LiveCallPill";
 import { ShortcutHint } from "./ShortcutHint";
 import { citationPreviewText } from "@/lib/citations";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
-import { useAdvancedMode } from "@/lib/interface-mode";
 
 /** Vertical centre of the macOS traffic lights, in CSS px from the window
  * top: electron/window-chrome.mjs sets trafficLightPosition.y = 16 and the
@@ -1925,9 +1922,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
   const deletingRoom = deletingRoomId ? state.groups.find((g) => g.id === deletingRoomId) : undefined;
   const [plusOpen, setPlusOpen] = useState(false);
   const plusMotion = useMenuMotion(plusOpen);
-  const advanced = useAdvancedMode();
-  const [attentionOpen, setAttentionOpen] = useState(false);
-  const attentionMotion = useMenuMotion(attentionOpen);
   const [attentionPinned, setAttentionPinnedState] = useState(() => loadSidebarAttentionPinned());
   const setAttentionPinned = (pinned: boolean) => {
     setAttentionPinnedState(pinned);
@@ -1944,8 +1938,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
     restoreBot?: { id: string; name: string };
   } | null>(null);
   const [query, setQuery] = useState("");
-  // Chosen in Settings → Appearance; the header's collapse button only flips
-  // between the avatar rail and the last expanded density.
   const storedDensity = useSidebarDensity();
   const density = collapseToIcons ? "icons" : storedDensity;
   const defaultWidth = density === "compact" ? 272 : 320;
@@ -1987,8 +1979,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
     over: { id: string; place: SectionDropPlace } | null;
   }>({ from: null, over: null });
 
-  // The density can change here or from Settings, so react to the value
-  // rather than to either control.
   useEffect(() => {
     if (density !== "icons") setLastExpandedDensity(density);
     // Search is hidden in avatar-only mode. Keeping its value would silently
@@ -2014,9 +2004,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
   }, [open, onClose, confirm, deletingRoom]);
 
   // Each header menu root wraps its trigger and its popover.
-  const attentionMenuRef = useRef<HTMLDivElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
-  usePopoverDismiss(attentionOpen, attentionMenuRef, () => setAttentionOpen(false));
   usePopoverDismiss(plusOpen, plusMenuRef, () => setPlusOpen(false));
 
   useEffect(() => {
@@ -2293,11 +2281,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           </div>
         ) : null}
         {density !== "icons" && (
-          // Everything between the lights and the buttons; the switcher's
-          // pill reads this slot's width (container `sidebar-top`). Below
-          // 164px, its 140px cap plus a 24px drag gap, the pill drops its name
-          // for icon + chevron rather than fill the slot up to the lights. On
-          // macOS at 320px the slot is 121px in Advanced, 189px in Simple.
           <div data-sidebar-top-slot className="@container/sidebar-top flex min-w-0 flex-1 items-center">
             {/* Empty, so it stays a drag region; it takes the slack, which
                 keeps the switcher beside the buttons. */}
@@ -2314,8 +2297,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           className={cn("relative flex shrink-0 items-center", density === "icons" ? "flex-col gap-1" : "ml-0.5 gap-0.5")}
           style={windowNoDragStyle}
         >
-          {/* Simple mode keeps only "+". Expand stays so an icons rail is never a dead end. */}
-          {!collapseToIcons && (advanced || density === "icons") && <button
+          {!collapseToIcons && density === "icons" && <button
             type="button"
             onClick={toggleCollapsed}
             aria-label={density === "icons" ? t("sidebar.density.expand") : t("sidebar.density.collapseAria")}
@@ -2324,48 +2306,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           >
             {density === "icons" ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
           </button>}
-          {advanced && <div ref={attentionMenuRef} className={density === "icons" ? "relative" : "contents"}>
-            <button
-              type="button"
-              onClick={() => setAttentionOpen((o) => !o)}
-              aria-label={t("attention.title")}
-              title={t("attention.title")}
-              className="relative flex size-8 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-            >
-              <Activity size={17} strokeWidth={2} />
-              {attention.length > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-accent px-0.5 text-[9.5px] font-semibold leading-4 text-ink">{attention.length > 9 ? "9+" : attention.length}</span>
-              )}
-            </button>
-            {attentionMotion.shown && (
-              <>
-                <div className={cn(
-                  "absolute top-full z-40 mt-1 overflow-hidden rounded-xl border border-hairline/50 bg-menu py-1.5 shadow-2xl shadow-black/60",
-                  density === "icons" ? "left-0" : "right-0",
-                  density === "icons" ? "w-72" : density === "compact" ? "w-60 md:w-[min(240px,calc(var(--sidebar-width)_-_32px))]" : "w-72 md:w-[min(288px,calc(var(--sidebar-width)_-_32px))]",
-                  attentionMotion.className,
-                )} {...attentionMotion.exitProps}>
-                  <div className="flex items-center gap-1 pb-1 pl-3.5 pr-2 pt-1.5">
-                    <span className="flex-1 text-[13px] font-medium text-ink">{t("attention.title")}</span>
-                    <button
-                      type="button"
-                      onClick={() => setAttentionPinned(!attentionPinned)}
-                      aria-label={t(attentionPinned ? "attention.unpin" : "attention.pin")}
-                      title={t(attentionPinned ? "attention.unpin" : "attention.pin")}
-                      className="flex size-6 items-center justify-center rounded text-ink-secondary hover:bg-raised hover:text-ink"
-                    >
-                      {attentionPinned ? <PinOff size={14} /> : <Pin size={14} />}
-                    </button>
-                  </div>
-                  {attention.length === 0 ? (
-                    <div className="px-3.5 py-2.5 text-[13px] text-ink-secondary">{t("attention.empty")}</div>
-                  ) : (
-                    <AttentionThreadRows entries={attention} onJump={(entry) => { setAttentionOpen(false); dispatch(attentionJumpAction(entry)); }} />
-                  )}
-                </div>
-              </>
-            )}
-          </div>}
           {/* `contents` keeps the popover anchored to the header row */}
           <div ref={plusMenuRef} className="contents">
           <button
@@ -2687,12 +2627,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
       {/* Footer */}
       <div className={cn("pb-3 pt-2", density === "icons" ? "px-2" : "px-3")}>
         <SidebarFooterNav density={density} />
-        {density === "icons" && (
-          <SidebarPhoneButton
-            density={density}
-            onOpen={() => dispatch(phoneSettingsAction())}
-          />
-        )}
         {density === "icons" ? (
           <div className="flex items-center justify-center">
             <button
@@ -2705,14 +2639,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
             </button>
           </div>
         ) : (
-          // The place rows and the profile row are two different kinds of
-          // thing — places to go, versus who you are and what the app is —
-          // so they get clear space between them (none when Simple mode has
-          // no place rows and the profile row leads). A hairline lived here
-          // briefly and made it worse: full-bleed, it ran within a few pixels
-          // of the profile row's rounded hover pill, and the two hover states
-          // read as one crowded block rather than two rows. Apps sits at the
-          // end of the profile row.
           <div className="flex items-center gap-1 not-first:mt-3">
             <div className="min-w-0 flex-1">
               <SidebarProfileMenu />

@@ -4,15 +4,6 @@ import type { LocaleKey } from "@/locales";
 import { activeLocale, t } from "@/lib/i18n";
 import { Card } from "./SettingsPrimitives";
 
-// Copy this computer here (electron/cloud-move.mjs, docs/copy-workspace.md):
-// this computer's workspace to a server the person added, their Cloud
-// included. It runs from Settings → Servers and Settings → later.dog Cloud (this
-// computer's own page names the server). A server's own page offers it (its
-// card while empty, the Cloud's setup checklist, its Settings → Backups), and
-// its Copy brings the person to that panel; only the verified Cloud's starts
-// the copy itself. Every one reads main's snapshot through one mapping,
-// moveView, and calls the bridge.
-
 const RUNNING = new Set<CloudMoveState["phase"]>(["preparing", "growing", "exporting", "uploading", "checking", "replacing", "restarting"]);
 // Until the destination starts replacing its workspace, a copy can still stop.
 const CANCELLABLE = new Set<CloudMoveState["phase"]>(["preparing", "growing", "exporting", "uploading", "checking"]);
@@ -49,7 +40,6 @@ type Destination = NonNullable<CloudMoveState["destination"]>;
 export type MoveActionKind = "start" | "cancel" | "open" | "check" | "dismiss";
 /** One state of a copy, as every place shows it: one sentence, and one next step. */
 export interface MoveView {
-  /** What `{server}` reads as: the name in Settings → Servers ("My Cloud" for the Cloud). */
   server: string;
   running: boolean;
   message: { text: string; tone: "status" | "done" | "error" | "note" } | null;
@@ -254,7 +244,6 @@ function moveButton(view: MoveView, move: CloudMoveHandle, onStart?: () => void)
     onClick={() => { if (action.kind === "start") onStart?.(); move.run(action.kind); }}>{action.label}</button>;
 }
 
-/** Settings → Servers (a saved server's id) and Settings → later.dog Cloud ("cloud"). */
 export function CloudMoveSettings({ destination, onClose }: { destination: string; onClose?: () => void }) {
   const bridge = window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudMove;
   const move = useCloudMove(bridge, destination);
@@ -287,12 +276,6 @@ export function CloudMoveSettings({ destination, onClose }: { destination: strin
   </Card>;
 }
 
-/** The offer on a server's own page, shared by its card, the Cloud's setup
- * checklist and its Settings → Backups: what comes and its size, that
- * sign-ins stay here, the one next step (and Not now where it is an offer),
- * then the copy's progress or what happened. Its Copy opens this computer's
- * Settings on this server, where the person starts the copy (main; the
- * verified Cloud's starts it). Called as a function so each keeps one element tree. */
 export function cloudMoveOffer(move: CloudMoveHandle, on: { start?: () => void; notNow?: () => void } = {}) {
   const { overview, state, pending } = move;
   const view = moveView(overview, state, { onServerPage: true });
@@ -328,10 +311,6 @@ export function CloudMoveSuggestion() {
   </aside>;
 }
 
-/** Settings → Backups on a server open in the desktop app: Import from this
- * computer, beside importing a file. The same copy as the offer; hidden where
- * it cannot happen (a browser, this computer's own server, a server shared
- * with other people). */
 export function CloudMoveImport() {
   const bridge = window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudMove;
   const move = useCloudMove(bridge);

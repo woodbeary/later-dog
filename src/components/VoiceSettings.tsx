@@ -21,6 +21,7 @@ import {
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { voiceKeyDraftValue, type VoiceKeyDraft } from "@/lib/voice-key-draft";
+import { ApiKeyRow } from "./ApiKeys";
 import { Switch } from "./SettingsPrimitives";
 
 const SAMPLE = "Morning. Overnight the tests went green, and I left two notes for you in the thread.";
@@ -90,6 +91,7 @@ export function VoiceSettings({
         : provider === "xai" ? t("voice.grok.host") : "Host voice";
   const systemVoicesAvailable = capabilities.host.platform === "darwin";
   const hostConfigured = Boolean(tts?.configured);
+  const hostKeysHere = !workspaceConfigurationLocked && window.laterdog?.remoteClient?.active !== true;
   // Cloud Pro's voice: it works with no saved key, and a key pasted here
   // replaces it.
   const included = Boolean(tts?.included);
@@ -358,9 +360,16 @@ export function VoiceSettings({
       )}
 
       {provider === "xai" && (
-        <p className="mt-4 text-[13px] text-ink-secondary">
-          {hostConfigured ? t("voice.grok.ready") : t("voice.grok.missingKey")}
-        </p>
+        <div className="mt-4">
+          <p className="text-[13px] text-ink-secondary">
+            {hostConfigured ? t("voice.grok.ready") : t(hostKeysHere ? "voice.grok.missingKey" : "voice.grok.missingKeyHost")}
+          </p>
+          {!hostConfigured && hostKeysHere && (
+            <div className="mt-3">
+              <ApiKeyRow section="xai" testProvider="xai" />
+            </div>
+          )}
+        </div>
       )}
 
       {!workspaceConfigurationLocked && provider === "chatterbox" && (

@@ -234,6 +234,30 @@ describe("voice set-up pop-up", () => {
     expect(needsVoice.indexOf(key)).toBeLessThan(needsVoice.indexOf(tag!));
   });
 
+  it("takes the xAI key for Grok voice right in the card, on the computer running later.dog", async () => {
+    const actual = await vi.importActual<typeof import("./VoiceSettings")>("./VoiceSettings");
+    const card = (locked = false) =>
+      renderToStaticMarkup(createElement(actual.VoiceSettings, { bot: pepper, onPatch: () => {}, workspaceConfigurationLocked: locked }));
+    const keyBox = 'data-api-key-row="xai"';
+
+    fixture.config = { tts: { configured: false, provider: "xai" } };
+    const needsKey = card();
+    expect(needsKey).toContain("Paste an xAI API key below to use Grok voice.");
+    expect(needsKey).toContain(keyBox);
+    expect(needsKey).not.toContain("Settings →");
+
+    expect(card(true)).toContain("Add an xAI API key on the computer running later.dog");
+    expect(card(true)).not.toContain(keyBox);
+    vi.stubGlobal("window", { laterdog: { remoteClient: { active: true } } });
+    expect(card()).not.toContain(keyBox);
+    vi.stubGlobal("window", {});
+
+    fixture.config = { tts: { configured: true, provider: "xai" } };
+    const ready = card();
+    expect(ready).toContain("The xAI key is saved.");
+    expect(ready).not.toContain(keyBox);
+  });
+
   it("keeps Tab inside, and brings focus back when it has fallen out", () => {
     const listeners = new Map<string, (event: KeyboardEvent) => void>();
     const body = new FakeElement();

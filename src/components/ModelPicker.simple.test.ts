@@ -12,7 +12,6 @@ const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
   return {
-    advanced: false,
     cloudHome: false,
     ownerOrAdmin: true as boolean | null,
     values: [] as unknown[],
@@ -37,7 +36,6 @@ vi.mock("react", async (original) => ({
   useEffect: () => {},
 }));
 vi.mock("./MenuMotion", () => ({ useMenuMotion: (open: boolean) => ({ shown: open, closing: false, className: "" }) }));
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => fixture.advanced, setAdvancedMode: () => {} }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => fixture.ownerOrAdmin }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/state/store")>()),
@@ -144,7 +142,6 @@ const labels = (rendered: ReturnType<typeof render>) => pane(rendered)!.props.mo
 const click = (node: Node | undefined) => (node!.props.onClick as () => void)();
 
 beforeEach(() => {
-  fixture.advanced = false;
   fixture.cloudHome = false;
   fixture.ownerOrAdmin = true;
   fixture.values = [];
@@ -422,8 +419,6 @@ describe("the model picker in Simple mode", () => {
 
   it("names the effort in plain words on the header chip", () => {
     expect(render(bot("high")).html).toContain("· Deep");
-    fixture.advanced = true;
-    expect(render(bot("high")).html).toContain("· High");
   });
 
   it("makes every pick the bot's default too, so new threads start on it, with no checkbox", () => {
@@ -466,12 +461,12 @@ describe("the model picker in Simple mode", () => {
   it("does not reuse the full picker's bot scope for a Cloud guest's Simple choice", () => {
     fixture.cloudHome = true;
     fixture.ownerOrAdmin = false;
-    fixture.advanced = true;
     const forBot = bot();
-    const full = open(forBot);
+    pane(open(forBot))!.props.onSetUp();
+    const full = render(forBot);
     click(full.nodes.find((node) => node.type === "button" && node.props.children === "Thread + dog default"));
-    fixture.advanced = false;
-    pane(render(forBot))!.props.onPick("claude-sonnet-5-5");
+    click(full.nodes.find((node) => node.props["data-tour"] === "model"));
+    pane(open(forBot))!.props.onPick("claude-sonnet-5-5");
     expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ updateBotDefault: false }));
   });
 
@@ -490,11 +485,12 @@ describe("the model picker in Simple mode", () => {
     });
   });
 
-  it("keeps the Advanced picker's own scope choice (this thread unless asked)", () => {
-    fixture.advanced = true;
-    const opened = open(bot());
-    expect(pane(opened)).toBeUndefined();
-    expect(opened.html).toContain("Only this thread");
+  it("keeps the full picker's own scope choice (this thread unless asked)", () => {
+    const forBot = bot();
+    pane(open(forBot))!.props.onSetUp();
+    const full = render(forBot);
+    expect(pane(full)).toBeUndefined();
+    expect(full.html).toContain("Only this thread");
   });
 
   it("shows the Simple pane inline for the bot panel's Default model and edits the bot's default", () => {
@@ -744,7 +740,7 @@ describe("the model picker in Simple mode", () => {
     const opened = open(bot());
     const manage = inside(opened).find((node) => node.props["data-simple-manage"] !== undefined)!;
     (manage.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleAppSettings", open: true, section: "engines" });
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
   });
 
   it("puts a full-width named-variants control in the band in place of the effort steps", () => {
@@ -765,13 +761,6 @@ describe("the model picker in Simple mode", () => {
     expect(bottom.indexOf(">Reasoning</span>")).toBeLessThan(bottom.indexOf("<select"));
     expect(bottom).not.toContain(">Quick</button>");
     expect(bottom).not.toContain("How hard should");
-  });
-
-  it("leaves Advanced mode on the full picker", () => {
-    fixture.advanced = true;
-    const opened = open(bot());
-    expect(pane(opened)).toBeUndefined();
-    expect(opened.nodes.some((node) => node.type === ModelEngineRail)).toBe(true);
   });
 });
 

@@ -8,13 +8,6 @@
 //
 // The update entry is the one item that reports progress in place, so it
 // keeps the menu open and re-labels itself as it works.
-//
-// The phone has two entries: Connect your phone, which opens the pairing
-// this window can do and says where the phone will connect (this computer,
-// your Cloud, this server), and Use on your phone (no phone app exists yet;
-// a phone's browser opens the pairing link instead). On
-// this computer, a paid Cloud that is Ready adds a Connect your phone line
-// of its own, first: to your Cloud, always on.
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -32,11 +25,11 @@ import {
 import { InitialsAvatar } from "./Avatar";
 import { AboutDialog } from "./AboutDialog";
 import { PhoneAppDialog } from "./PhoneAppDialog";
+import { PhonePairingDialog } from "./PhonePairingDialog";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
-import { useSidebarPhoneStatus } from "./SidebarPhoneButton";
-import { useStore, type Action } from "@/state/store";
+import { useStore } from "@/state/store";
 import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { brand } from "../lib/brand";
@@ -49,11 +42,11 @@ import {
   currentPhonePairingTarget,
   loadPhonePairingAccess,
   phoneDestinations,
-  phonePairingSettingsAction,
   type CloudPhoneDestination,
   type ConnectPhoneEntry,
   type PhoneDestination,
   type PhonePairingAccess,
+  type PhonePairingTarget,
 } from "@/lib/phone-pairing";
 
 /** "Sam Reed" → "SR", "sam" → "S", "you@x.dev" → "Y", unset → "?" */
@@ -251,16 +244,15 @@ export function useCloudPhoneDestination(enabled: boolean): { cloud: CloudPhoneD
   return bridge ? { cloud: cloudPhoneDestination(account), bridge } : { cloud: null };
 }
 
-/** What choosing a destination does. Here: Settings → Remote access on this
- * window's pairing. Cloud: open the Cloud in this window on its phone
- * pairing, as Settings → later.dog Cloud's Use your Cloud on your phone does; if
- * that fails, Settings → later.dog Cloud, which says what to do. */
-export function selectPhoneDestination(destination: PhoneDestination, { bridge, dispatch }: { bridge?: Pick<CloudAccountBridge, "connectHomeForPhone">; dispatch: (action: Action) => void }): void {
-  if (destination.id !== "cloud" || !bridge) {
-    dispatch(phonePairingSettingsAction());
+export function selectPhoneDestination(
+  destination: PhoneDestination,
+  { bridge, openHere }: { bridge?: Pick<CloudAccountBridge, "connectHomeForPhone" | "openDashboard">; openHere: (target: PhonePairingTarget) => void },
+): void {
+  if (destination.id === "here") {
+    openHere(destination.target);
     return;
   }
-  void bridge.connectHomeForPhone().catch(() => dispatch({ type: "toggleAppSettings", open: true, section: "cloudAccount" }));
+  if (bridge) void bridge.connectHomeForPhone().catch(() => bridge.openDashboard().catch(() => {}));
 }
 
 /** The phone entries at the top of the menu: a Connect your phone line per
@@ -269,13 +261,10 @@ export function selectPhoneDestination(destination: PhoneDestination, { bridge, 
  * sign in through their organization). */
 export function phoneMenuItems({
   destinations,
-  connected,
   onConnect,
   onGetApp,
 }: {
   destinations: PhoneDestination[];
-  /** a phone is connected to this computer right now */
-  connected: boolean;
   onConnect: (destination: PhoneDestination) => void;
   onGetApp: () => void;
 }): SidebarMenuItem[] {
@@ -286,10 +275,6 @@ export function phoneMenuItems({
       subtitle: t(destination.subtitleKey),
       ...(destination.noteKey ? { note: t(destination.noteKey) } : {}),
       icon: <Smartphone size={18} />,
-      trailing:
-        destination.id === "here" && destination.target === "computer" && connected ? (
-          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-success" />
-        ) : undefined,
       onSelect: () => onConnect(destination),
     } satisfies SidebarMenuItem)),
     {
@@ -303,23 +288,22 @@ export function phoneMenuItems({
 
 export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
-  const phone = useSidebarPhoneStatus();
   const connectPhone = useConnectPhoneEntry(state.config?.cloudHome === true);
   const cloudPhone = useCloudPhoneDestination(connectPhone?.target === "computer");
   const destinations = phoneDestinations(connectPhone, cloudPhone.cloud);
   const update = useUpdateItem();
   const [aboutOpen, setAboutOpen] = useState(false);
   const [phoneAppOpen, setPhoneAppOpen] = useState(false);
+  const [phonePairing, setPhonePairing] = useState<PhonePairingTarget | null>(null);
   const triggerRef = useRef<HTMLSpanElement>(null);
 
   const profile = state.config?.profile;
   const name = profileLabel(profile);
-  const connectTo = (destination: PhoneDestination) => selectPhoneDestination(destination, { bridge: cloudPhone.bridge, dispatch });
+  const connectTo = (destination: PhoneDestination) => selectPhoneDestination(destination, { bridge: cloudPhone.bridge, openHere: setPhonePairing });
 
   const items: SidebarMenuItem[] = [
     ...phoneMenuItems({
       destinations,
-      connected: phone.kind === "connected",
       onConnect: connectTo,
       onGetApp: () => setPhoneAppOpen(true),
     }),
@@ -403,6 +387,12 @@ export function SidebarProfileMenu() {
           subtitle: t(destination.subtitleKey),
           onSelect: () => connectTo(destination),
         }))}
+      />
+      <PhonePairingDialog
+        open={phonePairing !== null}
+        target={phonePairing ?? undefined}
+        onClose={() => setPhonePairing(null)}
+        profileEmail={profile?.email ?? ""}
       />
     </>
   );

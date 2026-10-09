@@ -311,30 +311,11 @@ describe("keyboard shortcuts dialog state", () => {
 });
 
 describe("Settings opened by the Cloud link", () => {
-  it("marks only the link's own opening, counts each link, and clears on any other Settings navigation", () => {
-    expect(initialState.appSettingsCloudLink).toBe(0);
-    const link = CLOUD_LINK_SETTINGS;
-    const opened = reducer(initialState, link);
-    expect(opened).toMatchObject({ appSettingsOpen: true, appSettingsSection: "cloudAccount", appSettingsCloudLink: 1 });
-    expect(reducer(opened, link).appSettingsCloudLink).toBe(2);
-    expect(reducer(opened, { type: "toggleAppSettings", open: true, section: "cloudAccount" }).appSettingsCloudLink).toBe(0);
-    expect(reducer(opened, { type: "toggleAppSettings", open: true, section: "general" }).appSettingsCloudLink).toBe(0);
-    expect(reducer(opened, { type: "toggleAppSettings", open: false })).toMatchObject({ appSettingsOpen: false, appSettingsCloudLink: 0 });
-    expect(reducer(opened, { type: "toggleAppSettings" }).appSettingsCloudLink).toBe(0);
-    expect(reducer(initialState, { ...link, open: false }).appSettingsCloudLink).toBe(0);
-  });
-});
-
-describe("Settings opened on the phone pairing", () => {
-  it("counts each request, and clears on any other Settings navigation", () => {
-    expect(initialState.appSettingsPhonePairing).toBe(0);
-    const phone = { type: "toggleAppSettings", open: true, section: "companion", phonePairing: true } as const;
-    const opened = reducer(initialState, phone);
-    expect(opened).toMatchObject({ appSettingsOpen: true, appSettingsSection: "companion", appSettingsPhonePairing: 1 });
-    expect(reducer(opened, phone).appSettingsPhonePairing).toBe(2);
-    expect(reducer(opened, { type: "toggleAppSettings", open: true, section: "companion" }).appSettingsPhonePairing).toBe(0);
-    expect(reducer(opened, { type: "toggleAppSettings", open: false }).appSettingsPhonePairing).toBe(0);
-    expect(reducer(initialState, { ...phone, open: false }).appSettingsPhonePairing).toBe(0);
+  it("opens Settings on General, where the accounts are", () => {
+    const opened = reducer(initialState, CLOUD_LINK_SETTINGS);
+    expect(opened).toMatchObject({ appSettingsOpen: true, appSettingsSection: "general" });
+    expect(reducer(opened, { type: "toggleAppSettings", open: false })).toMatchObject({ appSettingsOpen: false, appSettingsSection: "general" });
+    expect(reducer({ ...opened, appSettingsSection: "computer" }, { type: "toggleAppSettings", open: true }).appSettingsSection).toBe("computer");
   });
 });
 

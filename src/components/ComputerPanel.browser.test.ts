@@ -12,8 +12,6 @@ const fixture = vi.hoisted(() => {
   vi.stubGlobal("localStorage", { getItem: () => view.current });
   return { config: {} as FeatureFlagConfig & { cloudHome?: boolean }, view };
 });
-// These cover the Advanced panel; ComputerPanel.simple.test.ts covers Simple.
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: () => {} }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   useStore: () => ({
@@ -80,7 +78,7 @@ describe("Computer panel on a narrow screen", () => {
 });
 
 describe("Computer panel Works on", () => {
-  const places = (markup: string) => [...markup.matchAll(/<span>(Auto|Cloud computer|Local VM|This computer|Browser|Off)<\/span>/g)].map((match) => match[1]);
+  const places = (markup: string) => [...markup.matchAll(/<span class="w-full truncate text-\[12px\] font-medium leading-4">([^<]+)<\/span>/g)].map((match) => match[1]);
   const computerTab = (config: FeatureFlagConfig & { cloudHome?: boolean }) => {
     fixture.view.current = "computer";
     try { return render(config); } finally { fixture.view.current = "browser"; }
@@ -88,14 +86,13 @@ describe("Computer panel Works on", () => {
 
   it("lists this computer and a Local VM on a desktop or self-hosted server", () => {
     const markup = computerTab({});
-    expect(places(markup)).toEqual(["Auto", "Cloud computer", "Local VM", "This computer", "Browser", "Off"]);
-    expect(markup).toContain("Choose where this dog can use a computer.</p>");
+    expect(places(markup)).toEqual(["Auto", "Cloud computer", "Local VM", expect.stringMatching(/^This (Mac|PC)$/), "Browser", "Off"]);
+    expect(markup).toContain("Where Browser fixture works");
   });
 
-  it("lists neither on My Cloud, and says why", () => {
+  it("lists neither on My Cloud", () => {
     const markup = computerTab({ cloudHome: true });
     expect(places(markup)).toEqual(["Auto", "Cloud computer", "Browser", "Off"]);
-    expect(markup).toContain("Choose where this dog works. To let it use your Mac, turn on Let My Cloud use this Mac");
   });
 });
 

@@ -7,14 +7,14 @@
 // the person making it, so the chat header and the settings dialog render the
 // same row and write through the same action.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, KeyRound, Loader2, Plus, RefreshCw, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, KeyRound, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { useStore, currentTaskBot, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
 import type { ModelVariantOption } from "../../shared/runtime-events";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
 import { configuredModelInstances, isClaudeAccount, isCustomOnly, SIGN_IN_FAMILY_LABEL, signInFamily, splitEngineRail, type SignInFamily } from "@/lib/engine-rail";
 import { InstanceProviderMark } from "./ProviderIcons";
-import { EngineSetup, EngineUpdateNotice, hasSavedApiKey, needsCli, needsSignIn } from "./EngineSetup";
+import { EngineSetup, EngineUpdateNotice, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ChatGptPlanStatus } from "./ChatGptPlanStatus";
@@ -22,7 +22,6 @@ import { approvalModeFor, modelSwitchNeedsAsk } from "../../shared/approval-mode
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { repeatedModelLabels, SimpleModelPane } from "./SimpleModelPane";
-import { useAdvancedMode } from "@/lib/interface-mode";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { friendlyEffort, simpleEffortLevels } from "@/lib/model-friendly";
 import { t } from "@/lib/i18n";
@@ -403,21 +402,13 @@ export function railProviders(instances: InstanceInfo[], selectedInstance: Insta
   return { subscription: subscription.map(entry), api: api.map(entry), custom: custom.map(entry) };
 }
 
-/** Once any key is saved, the keys shortcut is also the way to fix one. */
-function apiKeysLabel(instances: InstanceInfo[]): string {
-  return t(instances.some(hasSavedApiKey) ? "model.addOrChangeApiKeys" : "model.addApiKeys");
-}
-
-export function ModelEngineRail({ instances, selectedInstance, claudeInstance, openaiInstance, onSelect, onAddApiKeys }: {
+export function ModelEngineRail({ instances, selectedInstance, claudeInstance, openaiInstance, onSelect }: {
   instances: InstanceInfo[];
   selectedInstance?: InstanceInfo;
   /** The account a folded button opens on (the last one browsed). */
   claudeInstance?: InstanceInfo;
   openaiInstance?: InstanceInfo;
   onSelect: (instance: InstanceInfo) => void;
-  /** Ends the API keys group with a way to add one; absent where Settings
-   * has no keys section (a remote client). */
-  onAddApiKeys?: () => void;
 }) {
   const { subscription, api, custom: local } = railProviders(instances, selectedInstance, claudeInstance, openaiInstance);
   const railButton = ({ instance, target, selected, label }: RailProvider) => {
@@ -448,20 +439,8 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
     <div className="flex w-14 shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/40 bg-panel p-2">
       {subscription.length > 0 && <EngineGroupLabel className="px-0 pb-0.5 pt-0.5 text-center text-[9px]">{t("model.rail.cloud")}</EngineGroupLabel>}
       {subscription.map(railButton)}
-      {(api.length > 0 || onAddApiKeys) && <EngineGroupLabel className={cn("px-0 pb-0.5 text-center text-[9px] leading-tight", subscription.length > 0 ? "pt-2" : "pt-0.5")}>{t("model.rail.apiKeys")}</EngineGroupLabel>}
+      {api.length > 0 && <EngineGroupLabel className={cn("px-0 pb-0.5 text-center text-[9px] leading-tight", subscription.length > 0 ? "pt-2" : "pt-0.5")}>{t("model.rail.apiKeys")}</EngineGroupLabel>}
       {api.map(railButton)}
-      {onAddApiKeys && (
-        <button
-          type="button"
-          data-rail-add-api-key
-          onClick={onAddApiKeys}
-          aria-label={apiKeysLabel(instances)}
-          title={apiKeysLabel(instances)}
-          className="flex size-9 items-center justify-center rounded-lg border border-dashed border-hairline text-ink-secondary hover:bg-control/60 hover:text-ink"
-        >
-          <Plus size={16} aria-hidden="true" />
-        </button>
-      )}
       {local.length > 0 && <EngineGroupLabel className="px-0 pb-0.5 pt-2 text-center text-[9px]">{t("model.rail.local")}</EngineGroupLabel>}
       {local.map(railButton)}
     </div>
@@ -522,9 +501,6 @@ export function ModelPicker({
   const [refreshing, setRefreshing] = useState(false);
   const [probingLocal, setProbingLocal] = useState<string | null>(null);
   const [scope, setScope] = useState<"bot" | "thread">("thread");
-  // Simple mode opens on the plain-words view; a provider's "Set up" (or
-  // Advanced mode) shows the full picker in the same popover.
-  const advanced = useAdvancedMode();
   const ownerOrAdmin = useOwnerOrAdmin();
   // Guests can choose a model for their own Cloud conversation, not change
   // the shared bot's default. Keep choices thread-only until authority loads.
@@ -541,9 +517,7 @@ export function ModelPicker({
   const lastClaudeIdRef = useRef<string | null>(null);
   const lastOpenaiIdRef = useRef<string | null>(null);
 
-  // Simple mode shows the plain-words pane in the chat header's popover and
-  // inline where the picker is contained (the bot panel's Default model).
-  const simpleView = !advanced && !fullView;
+  const simpleView = !fullView;
   // The Simple view has its own, narrower width; the full picker keeps its.
   const popoverWidth = simpleView ? SIMPLE_POPOVER_WIDTH : POPOVER_WIDTH;
   useLayoutEffect(() => {
@@ -678,11 +652,6 @@ export function ModelPicker({
     setPane("custom");
     resetList();
     lookForLocal(instance);
-  };
-
-  const openApiKeys = () => {
-    setOpen(false);
-    dispatch({ type: "toggleAppSettings", open: true, section: "connections" });
   };
 
   const selectRail = (instance: InstanceInfo) => {
@@ -900,7 +869,7 @@ export function ModelPicker({
           <span data-model-variant className="max-w-[120px] truncate text-ink-secondary">· {selectedVariantLabel}</span>
         ) : selection.effort && (
           <span data-model-effort className="shrink-0 text-ink-secondary">
-            · {advanced ? effortLabel(selection.effort) : friendlyEffort(selection.effort)}
+            · {friendlyEffort(selection.effort)}
           </span>
         )}
       </span>
@@ -998,13 +967,12 @@ export function ModelPicker({
               effort={simpleEffort}
               onManage={() => {
                 setOpen(false);
-                dispatch({ type: "toggleAppSettings", open: true, section: "engines" });
+                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
               }}
             />
           ) : (
           <>
-          {pickerInstances.length > 0 && <ModelEngineRail instances={pickerInstances} selectedInstance={railInstance} claudeInstance={claudeRailInstance} openaiInstance={openaiRailInstance} onSelect={selectRail}
-            onAddApiKeys={window.laterdog?.remoteClient?.active === true ? undefined : openApiKeys} />}
+          {pickerInstances.length > 0 && <ModelEngineRail instances={pickerInstances} selectedInstance={railInstance} claudeInstance={claudeRailInstance} openaiInstance={openaiRailInstance} onSelect={selectRail} />}
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
             {threadId && (
@@ -1255,18 +1223,10 @@ export function ModelPicker({
             <div className="flex shrink-0 border-t border-hairline/40">
               <button type="button" onClick={() => {
                 setOpen(false);
-                dispatch({ type: "toggleAppSettings", open: true, section: "engines" });
+                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
               }} className="flex-1 px-4 py-2 text-left text-[12px] text-ink-secondary hover:bg-control/60 hover:text-ink">
                 {t("settings.engines.title")}
               </button>
-              {/* A remote client's settings hide the keys section, so the
-                  shortcut would land somewhere else. */}
-              {window.laterdog?.remoteClient?.active !== true && (
-                <button type="button" data-model-add-api-keys onClick={openApiKeys} className="flex shrink-0 items-center gap-1.5 px-4 py-2 text-[12px] text-ink-secondary hover:bg-control/60 hover:text-ink">
-                  <KeyRound size={12} aria-hidden="true" />
-                  {apiKeysLabel(pickerInstances)}
-                </button>
-              )}
             </div>
           </div>
           </>

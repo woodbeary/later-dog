@@ -2,7 +2,7 @@
 // from /api/connectors/catalog — the full toolkit list with logos when a
 // Composio API key is configured, a curated set otherwise. Icons resolve
 // logo → favicon → monogram.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Check, Loader2, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
 import { api, useStore, type Bot, type InstanceInfo } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -15,6 +15,7 @@ import { mcpSignInLink } from "@/lib/mcp-sign-in";
 import { managedConnectorUnavailableReason } from "../../shared/connector-availability";
 import { connectorServiceAccess, isConnectorToolGrantShape } from "@/lib/connector-grants";
 import { MCP_CONNECTORS, connectorMatchesSearch } from "@/lib/mcp-connectors";
+import { ApiKeyRow } from "./ApiKeys";
 import { BotAvatar } from "./Avatar";
 import { McpConnectorCards } from "./McpConnectorCards";
 import { McpServersPanel } from "./McpServersPanel";
@@ -323,6 +324,7 @@ export function PluginsPanel() {
   const [source, setSource] = useState<"api" | "curated">("curated");
   const [pagination, setPagination] = useState<CatalogPagination | null>(null);
   const [configured, setConfigured] = useState(false);
+  const [catalogRead, readCatalogAgain] = useReducer((read: number) => read + 1, 0);
   const [mode, setMode] = useState<"managed" | "self-hosted" | "unavailable">("unavailable");
   const [setup, setSetup] = useState<ConnectorSetup | undefined>(undefined);
   // Paint what we last knew before any request goes out: the module cache if
@@ -471,7 +473,7 @@ export function PluginsPanel() {
     return () => {
       alive = false;
     };
-  }, [loadConnectionInventory]);
+  }, [loadConnectionInventory, catalogRead]);
 
   useEffect(() => {
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -756,20 +758,12 @@ export function PluginsPanel() {
                 setupNotice.tone === "warning" ? "bg-warning/10 text-warning" : "glass-card text-ink-secondary",
               )}
             >
-              {t(whopConnected ? "whop.otherAppsSetup" : setupNotice.key)}{" "}
-              <button
-                className={cn(
-                  "font-medium underline underline-offset-2",
-                  setupNotice.tone === "info" && "text-ink",
-                  remoteClient && "hidden",
-                )}
-                onClick={() => {
-                  close();
-                  dispatch({ type: "toggleAppSettings", open: true, section: "connections" });
-                }}
-              >
-                {t("connectors.openSettings")}
-              </button>
+              {t(whopConnected ? "whop.otherAppsSetup" : setupNotice.key)}
+              {setupNotice.key === "connectors.setupNeeded" && (
+                <div data-connectors-key className="mt-3 text-left">
+                  <ApiKeyRow section="composio" onSaved={(saved) => saved && readCatalogAgain()} />
+                </div>
+              )}
             </div>
           )}
           {botsWithoutApps.length > 0 && (
@@ -792,17 +786,7 @@ export function PluginsPanel() {
           )}
           {configured && !remoteClient && source === "curated" && mode === "self-hosted" && filter !== "mcp" && (
             <div className="mb-2 text-[12px] text-ink-secondary">
-              {t("connectors.featuredBefore")}{" "}
-              <button
-                className="underline underline-offset-2 hover:text-ink"
-                onClick={() => {
-                  close();
-                  dispatch({ type: "toggleAppSettings", open: true });
-                }}
-              >
-                {t("connectors.updateKey")}
-              </button>{" "}
-              {t("connectors.featuredAfter")}
+              {t("connectors.featuredBefore")}
             </div>
           )}
           {error && <div role="alert" className="mb-2 mt-1 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">{typeof error === "string" ? error : t(error.key)}</div>}

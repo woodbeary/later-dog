@@ -1,7 +1,3 @@
-// The Files tab of the bot's computer panel (Simple mode): where the bot
-// keeps its working files, and the files this conversation's turns created
-// or changed. The list is read from the turn digests the chat already
-// holds, so the tab costs no request of its own.
 import { FileText, FolderOpen } from "lucide-react";
 import { useStore, visibleMessages, type Bot } from "@/state/store";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -51,8 +47,6 @@ export function ComputerFilesPane({ bot }: { bot: Bot }) {
           <button
             type="button"
             onClick={() => {
-              // Same entry as the Advanced header's gear: the working folder
-              // lives in the bot's Access settings.
               dispatch({ type: "toggleComputer", open: false });
               dispatch({ type: "toggleSettings", open: true, section: "access" });
             }}
