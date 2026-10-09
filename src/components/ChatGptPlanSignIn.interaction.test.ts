@@ -55,7 +55,6 @@ it("starts only on request, opens the official page, and refreshes models after 
   expect(fixture.api).toHaveBeenCalledWith("/api/instances/chatgpt/auth/start", { method: "POST" });
   expect(fixture.openExternal).toHaveBeenCalledWith(waiting.authorizationUrl);
   render();
-  // the last effect polls; an earlier one only auto-starts the sheet
   const cleanup = fixture.effects.at(-1)!();
   await vi.advanceTimersByTimeAsync(2_000);
   expect(fixture.api).toHaveBeenCalledWith("/api/instances/chatgpt/auth/status?flowId=flow-one", expect.objectContaining({ signal: expect.any(AbortSignal) }));

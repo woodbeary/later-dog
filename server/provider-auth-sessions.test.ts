@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ProviderAuthSessions } from "./provider-auth-sessions.ts";
-import type { ProviderAuthenticationStart } from "./contracts.ts";
+import type { ProviderAuthenticationStart, ProviderAuthenticationStatus } from "./contracts.ts";
 
 function fixture() {
   const auth: ProviderAuthenticationStart = {
@@ -9,7 +9,7 @@ function fixture() {
   };
   const instance = {
     instanceId: "codex", startAuthentication: vi.fn(async () => auth),
-    getAuthentication: vi.fn(async () => auth),
+    getAuthentication: vi.fn(async (): Promise<ProviderAuthenticationStatus> => auth),
     cancelAuthentication: vi.fn(async () => {}),
     completeAuthentication: vi.fn(async () => {}),
     signOut: vi.fn(async () => {}),
@@ -169,9 +169,6 @@ describe("provider sign-out", () => {
 });
 
 describe("a completed sign-in's outcome", () => {
-  // The flow is gone once the code is accepted, so a client that asked for
-  // its status afterwards got a 404 and read success as failure. The
-  // completion itself must say how it ended.
   it("is returned by complete(), read before the flow is forgotten", async () => {
     const { sessions, instance, auth } = fixture();
     await sessions.start(instance, "owner");

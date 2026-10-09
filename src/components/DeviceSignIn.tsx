@@ -133,13 +133,9 @@ export interface DeviceSignInProps {
   instanceId: string;
   browserPkce?: boolean;
   provider?: DeviceSignInProvider;
-  /** Start the flow as soon as the card shows (the Add account sheet). */
   autoStart?: boolean;
-  /** The sheet's shape: "Waiting for the browser…", Reopen, Cancel. */
   compact?: boolean;
-  /** The account is signed in and the instance list refreshed. */
   onSignedIn?: () => void;
-  /** The person cancelled, or the flow ended without a sign-in. */
   onCancelled?: () => void;
 }
 

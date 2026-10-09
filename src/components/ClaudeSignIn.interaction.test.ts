@@ -49,8 +49,7 @@ it("takes the outcome from auth/complete, so a finished flow the server forgot s
   fixture.api.mockImplementation(async (path: string) => {
     if (path.endsWith("/auth/start")) return { auth: waiting };
     if (path.endsWith("/auth/complete")) return { ok: true, auth: { ...waiting, phase: "succeeded" } };
-    // the completed flow is gone: this is what the server answers today
-    throw new ApiError(404, "unknown sign-in flow");
+    throw new ApiError("unknown sign-in flow", 404);
   });
   render().find((node) => node.type === "button")!.props.onClick!();
   await flush();
@@ -72,7 +71,7 @@ it("shows the server's refusal of a wrong code without pretending the flow ended
   fixture.api.mockImplementation(async (path: string) => {
     if (path.endsWith("/auth/start")) return { auth: waiting };
     if (path.endsWith("/auth/complete")) return { ok: true, auth: { ...waiting, phase: "failed", message: "That code was not accepted." } };
-    throw new ApiError(404, "unknown sign-in flow");
+    throw new ApiError("unknown sign-in flow", 404);
   });
   render().find((node) => node.type === "button")!.props.onClick!();
   await flush();

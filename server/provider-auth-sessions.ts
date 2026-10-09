@@ -75,10 +75,6 @@ export class ProviderAuthSessions {
     return status;
   }
 
-  /** Finish a flow with the code or callback the browser produced, and say
-   * how it ended. The flow is forgotten here, so this is the one place its
-   * outcome can still be read: a later status request answers 404, which
-   * must never be mistaken for a failed sign-in. */
   async complete(instanceId: string, owner: string, flowId: string, callbackUrl: string): Promise<ProviderAuthenticationStatus> {
     const flow = this.owned(instanceId, owner, flowId);
     if (!flow.instance.completeAuthentication) throw failure("This provider does not use a callback URL.", 400);

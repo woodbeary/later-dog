@@ -24226,8 +24226,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // `code` for a pasted sign-in code (Claude), `callbackUrl` for a browser callback
           const callbackUrl = typeof body?.callbackUrl === "string" ? body.callbackUrl : typeof body?.code === "string" ? body.code : "";
           if (!flowId || !callbackUrl) return json(res, 400, { error: "flowId and a code or callbackUrl are required" });
-          // `auth` is how the sign-in ended: the flow is gone after this, so
-          // a status request can no longer say (src/components/ClaudeSignIn.tsx).
           const outcome = await providerAuthSessions.complete(instanceId, owner, flowId, callbackUrl);
           return json(res, 200, { ok: true, auth: outcome });
         }
@@ -24346,7 +24344,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 400, { error: "A configuration directory applies to Claude accounts only." });
         }
         if (body.displayName !== undefined) {
-          const renamable = renamableAccount(instanceId, entry);
+          const renamable = renamableAccount(entry);
           if (!renamable.ok) return json(res, 400, { error: renamable.error });
         }
         if (body.tools !== undefined) {

@@ -8,12 +8,10 @@ const grok = { driver: "grokAgent" as const };
 
 describe("Settings → Accounts edits", () => {
   it("renames Claude and ChatGPT plan accounts, added or default", () => {
-    expect(renamableAccount("claude", claude)).toEqual({ ok: true });
-    expect(renamableAccount("claude-1111", claude)).toEqual({ ok: true });
-    expect(renamableAccount("chatgpt", chatgpt)).toEqual({ ok: true });
-    expect(renamableAccount("chatgpt-2222", chatgpt)).toEqual({ ok: true });
-    expect(renamableAccount("codex", codexCli).ok).toBe(false);
-    expect(renamableAccount("grok", grok).ok).toBe(false);
+    expect(renamableAccount(claude)).toEqual({ ok: true });
+    expect(renamableAccount(chatgpt)).toEqual({ ok: true });
+    expect(renamableAccount(codexCli).ok).toBe(false);
+    expect(renamableAccount(grok).ok).toBe(false);
   });
 
   it("removes only added accounts, never a default", () => {
