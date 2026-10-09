@@ -42,8 +42,6 @@ import { answerResponse, dismissResponse } from "@/lib/card-answer";
 import { currentCall } from "@/lib/call";
 import { showNotification, type NotificationTarget } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
-import { roleProfilePatch, type BotRole } from "@/lib/bot-roles";
-import { t } from "@/lib/i18n";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
@@ -1213,7 +1211,7 @@ export type Action =
   /** Name the thread again from its conversation; the new title arrives with the bot event. */
   | { type: "regenerateTaskTitle"; botId: string; threadId: string; onSettled?: (ok: boolean) => void }
   | { type: "deleteTask"; botId: string; threadId: string }
-  | { type: "newBot"; role?: BotRole; visibility?: BotVisibility; section?: string; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
+  | { type: "newBot"; name?: string; title?: string; modelSelection?: ModelSelection; visibility?: BotVisibility; section?: string; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
   | { type: "botCreationPending"; on: boolean }
   | { type: "updateTask"; botId: string; threadId: string; patch: TaskUpdatePatch }
   | { type: "refreshTaskPermissions"; botId: string; threadId: string; acknowledgeLocalAuto?: boolean }
@@ -2536,26 +2534,29 @@ export class ApiError extends Error {
   }
 }
 
-/** Keep the created bot reachable even when applying its optional preset fails.
- * A restricted `visibility` rides the create itself, so the bot is never
- * announced to people who should not see it. */
-export async function createBotWithRole(role?: BotRole, request: typeof api = api, visibility?: BotVisibility, section?: string): Promise<{ bot: Bot; profileError?: string }> {
-  const restricted = visibility && visibility !== "everyone" ? { visibility } : {};
-  const fields = { ...(role ? { name: role.name, title: role.title, description: role.description } : {}), ...restricted,
-    ...(section !== undefined ? { section } : {}) };
+export interface NewDogFields {
+  name?: string;
+  title?: string;
+  modelSelection?: ModelSelection;
+  visibility?: BotVisibility;
+  section?: string;
+}
+
+export async function createDog(fields: NewDogFields = {}, request: typeof api = api): Promise<{ bot: Bot }> {
+  const name = fields.name?.trim();
+  const title = fields.title?.trim();
+  const body = {
+    ...(name ? { name } : {}),
+    ...(title ? { title } : {}),
+    ...(fields.modelSelection ? { modelSelection: fields.modelSelection, requireAvailableModel: true } : {}),
+    ...(fields.visibility && fields.visibility !== "everyone" ? { visibility: fields.visibility } : {}),
+    ...(fields.section !== undefined ? { section: fields.section } : {}),
+  };
   const { bot } = await request("/api/bots", {
     method: "POST",
-    ...(Object.keys(fields).length ? { body: JSON.stringify(fields) } : {}),
+    ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
   });
-  if (!role) return { bot };
-  try {
-    const { bot: patched } = await request(`/api/bots/${bot.id}`, {
-      method: "PATCH", body: JSON.stringify(roleProfilePatch(role)),
-    });
-    return { bot: { ...bot, ...patched, messages: bot.messages } };
-  } catch (error) {
-    return { bot, profileError: error instanceof Error ? error.message : String(error) };
-  }
+  return { bot };
 }
 
 /** Messages per thread in a snapshot, and per scrollback page.
@@ -3306,14 +3307,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (creatingBot) break;
           creatingBot = true;
           rawDispatch({ type: "botCreationPending", on: true });
-          void createBotWithRole(action.role, api, action.visibility, action.section)
-            .then(({ bot, profileError }) => {
+          void createDog({ name: action.name, title: action.title, modelSelection: action.modelSelection, visibility: action.visibility, section: action.section })
+            .then(({ bot }) => {
               rawDispatch({ type: "botAdded", bot, preserveSelection: action.preserveSelection });
               action.onCreated?.(bot);
-              if (profileError) {
-                showError(t("newBot.profileFailed", { error: profileError }));
-                rawDispatch({ type: "toggleSettings", open: true, section: "soul" });
-              }
+              void api(`/api/bots/${bot.id}/hello`, { method: "POST" }).catch(() => {});
             })
             .catch((error) => {
               if (action.onError) action.onError(error instanceof Error ? error.message : String(error));

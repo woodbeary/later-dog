@@ -11,22 +11,27 @@ export function personalGreeting(personName: string | undefined, dogName: string
   return person ? `Hi ${person}, I'm ${dogName}.` : `Hi, I'm ${dogName}.`;
 }
 
-/** The hidden instruction for the dog's first turn. It has already said hello; it asks one question and stops. */
-export function firstHelloPrompt(personName: string | undefined, dogName: string): string {
+export function firstHelloPrompt(personName: string | undefined, dogName: string, purpose?: string): string {
   const person = personName?.trim() || "the person";
+  const job = purpose?.trim();
+  const setUp = job
+    ? `${person} just finished setting you up, named you ${dogName} and wrote what you are for: "${job}".`
+    : `${person} just finished setting you up and named you ${dogName}.`;
+  const options = job
+    ? "that fit that purpose"
+    : "that fit a personal assistant who can also code (for example Code and GitHub, Research and writing, Email and calendar, Errands and bookings)";
   return [
-    `later.dog first meeting: ${person} just finished setting you up and named you ${dogName}. Your chat already shows`,
+    `later.dog first meeting: ${setUp} Your chat already shows`,
     `your hello ("${personalGreeting(personName, dogName)}"), so do not greet again. Ask one short question: what should you`,
     "help with first. Use your tool for asking the person a question with options if you have one, with four short options",
-    "that fit a personal assistant who can also code (for example Code and GitHub, Research and writing, Email and calendar,",
-    "Errands and bookings) and let them answer in their own words; without such a tool, ask in one short line with those",
+    `${options} and let them answer in their own words; without such a tool, ask in one short line with those`,
     "options. Do nothing else this turn: no tools besides the question, no setup, no files.",
   ].join(" ");
 }
 
 interface HelloMessage { id: string; role: string; kind?: string; text?: string }
 export interface FirstHelloDeps {
-  bot(id: string): { id: string; name: string; threadId: string; hidden?: boolean; modelSelection: { instanceId: string } } | undefined;
+  bot(id: string): { id: string; name: string; title?: string; threadId: string; hidden?: boolean; modelSelection: { instanceId: string } } | undefined;
   messages(threadId: string): HelloMessage[];
   patchMessage(threadId: string, messageId: string, patch: { text: string }): void;
   personName(): string | undefined;
@@ -46,6 +51,6 @@ export async function sayFirstHello(deps: FirstHelloDeps, botId: string): Promis
   if (seed) deps.patchMessage(bot.threadId, seed.id, { text: personalGreeting(person, bot.name) });
   // asked once: a second call (a replayed welcome) finds the question already there
   if (messages.length > 1 || !(await deps.canRun(bot.modelSelection.instanceId))) return { greeted: Boolean(seed), asked: false };
-  await deps.start(bot.id, bot.threadId, firstHelloPrompt(person, bot.name));
+  await deps.start(bot.id, bot.threadId, firstHelloPrompt(person, bot.name, bot.title));
   return { greeted: Boolean(seed), asked: true };
 }
