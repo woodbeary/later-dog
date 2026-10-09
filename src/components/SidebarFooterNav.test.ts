@@ -31,9 +31,9 @@ describe("sidebar footer places", () => {
     for (const gone of ["workspace", "routines", "triggers", "team-map"]) expect(html).not.toContain(`data-sidebar-nav="${gone}"`);
   });
 
-  it("keeps Apps on the avatars-only rail, as an icon with a tooltip, under the tour's anchors", () => {
+  it("keeps Apps on the avatars-only rail, as an icon with a tooltip, under the tour's Apps anchor", () => {
     const { html, tree } = render("icons");
-    expect(html).toContain('data-tour="tools"');
+    expect(html).not.toContain('data-tour="tools"');
     expect(html).toMatch(/data-tour="nav-apps" data-sidebar-nav="apps"/);
     expect(html).toContain('aria-label="Apps" title="Apps"');
     expect(html).not.toContain(">Apps</span>");

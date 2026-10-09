@@ -1088,9 +1088,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
   const { state, dispatch } = useStore();
   const remoteClient = window.laterdog?.remoteClient?.active === true;
-  // Windows has no native caption buttons (renderer-drawn, see
-  // WindowCaptionButtons); this header is the window drag region, and the
-  // icon row shifts below the 26px-tall corner the buttons occupy.
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);

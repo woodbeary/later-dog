@@ -22,10 +22,8 @@ import { updateMcpServers, useMcpServers } from "@/lib/mcp-servers";
 import { completeMcpSignIn, mcpSignInLink, type McpSignInStatus } from "@/lib/mcp-sign-in";
 import { api, useStore } from "@/state/store";
 
+import { AddServerToBots } from "./AddServerToBots";
 import { BrandIcon } from "./BrandIcon";
-
-/** How many dogs the "pick their own servers" line names before "+N more". */
-const NAMED_DOGS = 4;
 
 interface Active {
   id: string;
@@ -51,7 +49,7 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
   /** A card added, switched or signed out of a server. */
   onServersChange?: () => void;
 }) {
-  const { state: store, dispatch } = useStore();
+  const { state: store } = useStore();
   const policy = store.config?.managedPolicy;
   // Enrolled with custom servers off and nothing approved: nothing can be added.
   const locked = Boolean(policy && !policy.mcp.allowCustom && !policy.mcp.allowlist.length);
@@ -215,11 +213,6 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
     }
   };
 
-  const openSettings = (botId: string) => {
-    dispatch({ type: "togglePlugins", open: false });
-    dispatch({ type: "toggleSettings", open: true, section: "access", botId });
-  };
-
   // Connected ones lead, as connected apps do in the rest of the pop-up.
   const isConnected = (connector: McpConnector) => servers !== null && connectorState(connectorServer(connector, servers)) === "connected";
   const ordered = connectors
@@ -261,10 +254,6 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
             : state === "needs-sign-in"
               ? t("mcpConnectors.signInAria", { name: connector.name })
               : t("mcpConnectors.connectAria", { name: connector.name });
-        // Dogs with their own server list only get what is on that list.
-        const ownLists = state === "connected" && server
-          ? (store.bots ?? []).filter((bot) => !bot.hidden && Array.isArray(bot.mcpServers) && !bot.mcpServers.includes(server.name))
-          : [];
         return (
           <div key={connector.id} data-connector-tile={connector.id} className="flex min-w-0 items-start gap-3 py-2.5">
             {/* the name sits beside it, so the mark is not read out twice */}
@@ -371,23 +360,8 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
                   {callbackError && <p role="alert" className="text-danger">{callbackError}</p>}
                 </div>
               )}
-              {ownLists.length > 0 && (
-                <div className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary">
-                  <span>{t("mcpConnectors.ownLists", { count: ownLists.length })}</span>{" "}
-                  {ownLists.slice(0, NAMED_DOGS).map((bot, index) => (
-                    <span key={bot.id}>
-                      {index > 0 && ", "}
-                      <button
-                        type="button"
-                        onClick={() => openSettings(bot.id)}
-                        className="font-medium text-ink underline underline-offset-2 hover:text-accent-text"
-                      >
-                        {bot.name}
-                      </button>
-                    </span>
-                  ))}
-                  {ownLists.length > NAMED_DOGS && <span>{t("connectors.grants.more", { count: ownLists.length - NAMED_DOGS })}</span>}
-                </div>
+              {state === "connected" && server && (
+                <AddServerToBots server={server.name} className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary" />
               )}
             </div>
           </div>

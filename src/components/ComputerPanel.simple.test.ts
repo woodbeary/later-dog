@@ -355,6 +355,16 @@ describe("Where the bot works", () => {
     expect(user.nodes.some((node) => node.props["data-testid"] === "place-action")).toBe(false);
   });
 
+  it("lets a dog whose tools leave out the computer use it, in one click from here", async () => {
+    const api = vi.fn(async (..._args: unknown[]) => ({}));
+    fixture.api = api;
+    const rendered = render(makeBot({ computer: "cloud", toolScope: { deny: ["mcp:computer:*", "native:bash"] } }));
+    expect(placeLine(rendered)).toBe("What Scout can use doesn't include a computer.Let Scout use the computer");
+    (rendered.nodes.find((node) => node.props["data-testid"] === "place-action")!.props.onClick as () => void)();
+    await Promise.resolve();
+    expect(api).toHaveBeenCalledWith("/api/bots/scout", { method: "PATCH", body: JSON.stringify({ toolScope: { deny: ["native:bash"] } }) });
+  });
+
   it("saves each place as the dog's Works on, turning the browser on with Browser", () => {
     const expected = [
       { computer: null },

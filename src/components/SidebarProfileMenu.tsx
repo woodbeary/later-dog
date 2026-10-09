@@ -1,13 +1,3 @@
-// The profile row at the very bottom of the sidebar, and the menu it opens.
-//
-// Everything app-level used to sit in that row as unlabelled icons crowding
-// the name: a phone, an update arrow, a gear. Three icons is a guessing game
-// and there was nowhere to put a fourth. They are now a menu that the row
-// opens on click — the shape every desktop app uses for "this is about the
-// app, not about what you are looking at".
-//
-// The update entry is the one item that reports progress in place, so it
-// keeps the menu open and re-labels itself as it works.
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,

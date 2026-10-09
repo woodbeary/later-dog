@@ -27,7 +27,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   const store = await importOriginal<typeof import("@/state/store")>();
   return { ...store, api: fixture.api, useStore: () => ({ state: { ...store.initialState, ...fixture.storeState }, dispatch: fixture.dispatch }) };
 });
-import { DefaultBotSettings, NewBotDialog } from "./NewBotDialog";
+import { NewBotDialog } from "./NewBotDialog";
 
 type Node = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
 function nodes(value: ReactNode): Node[] {
@@ -119,9 +119,9 @@ describe("the new dog dialog", () => {
 
   it("carries the team and selection flags for callers that create inside a team", () => {
     const onCreated = vi.fn();
-    const rendered = render({ section: "Studio", preserveSelection: true, onCreated, defaultsMode: true });
+    const rendered = render({ section: "Studio", preserveSelection: true, onCreated });
     change(find(rendered, "id", "new-dog-name"), "Rex");
-    submit(render({ section: "Studio", preserveSelection: true, onCreated, defaultsMode: true }));
+    submit(render({ section: "Studio", preserveSelection: true, onCreated }));
     expect(lastNewBot()).toMatchObject({ name: "Rex", section: "Studio", preserveSelection: true });
   });
 
@@ -196,11 +196,5 @@ describe("the new dog dialog", () => {
     expect(last.focus).toHaveBeenCalledOnce();
     listeners.keydown!({ key: "Escape", target: first, preventDefault });
     expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleNewBot", open: false });
-  });
-});
-
-describe("DefaultBotSettings", () => {
-  it("renders nothing: the defaults editor is gone", () => {
-    expect(DefaultBotSettings()).toBeNull();
   });
 });

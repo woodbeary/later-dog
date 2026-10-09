@@ -7,7 +7,6 @@ import { t } from "@/lib/i18n";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 
 export interface NewBotDialogProps {
-  defaultsMode?: boolean;
   onClose?: () => void;
   section?: string;
   onCreated?: (bot: Bot) => void | Promise<void>;
@@ -161,8 +160,4 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
       </div>
     </div>
   );
-}
-
-export function DefaultBotSettings() {
-  return null;
 }

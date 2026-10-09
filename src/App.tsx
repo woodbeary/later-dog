@@ -198,10 +198,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     dispatch({ type: "select", id });
   }, [dispatch]);
 
-  // The macOS app menu's Preferences… item lives in the desktop shell, so the
-  // shell signals the request over the bridge (Cmd+, accelerates the item).
-  // Local-shell only: remote server pages never receive the channel, and laterdog
-  // is absent in the browser.
   useEffect(() => {
     return window.laterdog?.onOpenAppSettings?.(section => dispatch(section
       ? CLOUD_LINK_SETTINGS

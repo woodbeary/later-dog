@@ -93,7 +93,6 @@ describe("who gets the welcome flow", () => {
   it("leaves a later.dog Cloud home's first run to its engine sign-in", () => {
     vi.stubGlobal("window", REMOTE_PAGE);
     expect(gate({ hosted: false, canSave: true, cloudHome: true }).tree).toBeNull();
-    // Settings → Replay welcome tour still opens it there
     store.state = { ...store.state, welcomeOpen: true };
     expect(gate({ hosted: false, canSave: true, cloudHome: true }).tree?.type).toBe(WelcomeFlow);
   });
@@ -118,7 +117,6 @@ describe("who gets the welcome flow", () => {
     // once dismissed, a fresh visit in this browser does not show it again
     fixture.values = [];
     expect(render(() => SharedWorkspaceHint({ replay: false, onClose: vi.fn() })).html).toBe("");
-    // but Settings → Replay welcome tour shows it again
     fixture.values = [];
     expect(render(() => SharedWorkspaceHint({ replay: true, onClose: vi.fn() })).html).toContain("shared later.dog");
     // storage that throws (private window) still shows it and never breaks
@@ -143,7 +141,6 @@ describe("who gets the welcome flow", () => {
     const { tree, html } = gate({ hosted: false, canSave: false });
     expect(tree).toBeNull();
     expect(html).toBe("");
-    // an explicit Settings replay still opens the ordinary flow, as before
     store.state = { ...store.state, welcomeOpen: true };
     const replay = gate({ hosted: false, canSave: false }).tree!;
     expect(replay.type).toBe(WelcomeFlow);
@@ -191,7 +188,6 @@ describe("who gets the welcome flow", () => {
     store.state = { ...store.state, appSettingsOpen: false };
     const resumed = gate(LOCAL_VIEWER).tree!;
     expect(resumed.props.initialBeat).toBe("engines");
-    // finishing forgets it: a later Settings replay starts at the greeting
     (resumed.props.onDone as () => void)();
     store.state = { ...store.state, welcomeOpen: true };
     expect(gate(LOCAL_VIEWER).tree?.props.initialBeat).toBeUndefined();

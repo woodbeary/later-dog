@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SettingsModal } from "../components/SettingsModal";
 import { BotSettingsDialog } from "../components/BotSettingsDialog";
-import { DefaultBotSettings, NewBotDialog } from "../components/NewBotDialog";
+import { NewBotDialog } from "../components/NewBotDialog";
 import { StoreProvider, api, useStore, type Bot } from "../state/store";
 import { applySkin } from "../lib/skins";
 import { setLocale } from "../lib/i18n";
@@ -75,7 +75,6 @@ function Fixture() {
     <p className="my-3">Selected: {bot?.name ?? "Loading…"}</p>
     <button onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "general" })}>Open app settings</button>
     {state.appSettingsOpen && <SettingsModal />}
-    <DefaultBotSettings />
     <button className="rounded bg-control px-3 py-2" onClick={() => dispatch({ type: "toggleNewBot", open: true })}>New dog</button>
     {state.newBotOpen && <NewBotDialog />}
     {state.error && <p role="alert" className="text-danger">{state.error}</p>}

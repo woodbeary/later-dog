@@ -119,10 +119,6 @@ export function usePlaceSeat(config: Pick<ConfigStatus, "cloudHome"> | null | un
   return { server: serverKind(config, platform), plan, role: ownerOrAdmin === false ? "user" : "admin" };
 }
 
-/** What a place's next action does, for actions that open somewhere: the
- * same destination from the panel, the chip, a failed row or the Access
- * line. Actions that need the caller's own state (try again, start, wake,
- * turn on the browser) are the caller's. */
 export function openPlaceAction(
   id: PlaceActionId,
   target: { botId: string; threadId?: string; place?: Place },
@@ -132,7 +128,6 @@ export function openPlaceAction(
     dispatch({ type: "toggleAppSettings", open: true, section });
   switch (id) {
     case "choose-model": dispatch({ type: "toggleSettings", open: true, section: "model", botId: target.botId }); return true;
-    case "open-tools": dispatch({ type: "toggleSettings", open: true, section: "access", botId: target.botId }); return true;
     case "change-routine": dispatch({ type: "toggleSettings", open: true, section: "routines", botId: target.botId }); return true;
     case "sign-in": appSettings("general"); return true;
     case "manage-computers": appSettings("computer"); return true;
@@ -158,6 +153,7 @@ export function openPlaceAction(
       return true;
     case "watch":
     case "open-computer-panel":
+    case "allow-computer":
     case "turn-on-browser":
       writeComputerPanelView(target.botId, id === "turn-on-browser" ? "browser" : "computer");
       dispatch({ type: "toggleComputer", open: true });

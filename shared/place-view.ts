@@ -34,7 +34,7 @@ export type PlaceSource = "works-on" | "pin" | "auto-pin" | "routine" | "room";
 /** The next actions a place offers. Each is one button in the app and, on a
  * stored row, one sentence a phone can read. */
 export const PLACE_ACTIONS = [
-  "choose-model", "open-tools", "sign-in", "start", "wake", "watch", "see-plan", "manage-computers",
+  "choose-model", "allow-computer", "sign-in", "start", "wake", "watch", "see-plan", "manage-computers",
   "try-again", "open-my-cloud", "add-boat-key", "turn-on-browser", "open-team-map", "open-vm-settings",
   "clear-pin", "change-routine", "open-computer-panel",
 ] as const;
@@ -185,7 +185,7 @@ export const PLACE_EN = {
   "place.view.off.short": "No screen",
   "place.view.off.line": "{bot} has no screen. It can still chat and do anything that doesn't need one.",
   "place.action.chooseModel": "Choose a model",
-  "place.action.openTools": "Change what {bot} can use",
+  "place.action.allowComputer": "Let {bot} use the computer",
   "place.action.signIn": "Sign in",
   "place.action.start": "Start it now",
   "place.action.wake": "Wake it now",
@@ -212,7 +212,7 @@ export type PlaceKey = keyof typeof PLACE_EN;
  * the row it ends. */
 export const PLACE_WORDS: Record<PlaceActionId, string> = {
   "choose-model": "Choose another model in {bot}'s settings.",
-  "open-tools": "Change what {bot} can use in its settings.",
+  "allow-computer": "Let {bot} use the computer from the Computer panel.",
   "sign-in": "Sign in to {engine} in Settings.",
   start: "Start it from the Computer panel.",
   wake: "Wake it from the Computer panel.",
@@ -245,7 +245,7 @@ const STATE: Record<PlaceState, { key: string; action: PlaceActionId | null }> =
   auto: { key: "auto", action: null },
   "auto-team": { key: "autoTeam", action: "open-team-map" },
   "cc-cannot": { key: "ccCannot", action: "choose-model" },
-  "cc-tools-off": { key: "ccToolsOff", action: "open-tools" },
+  "cc-tools-off": { key: "ccToolsOff", action: "allow-computer" },
   "cc-sign-in": { key: "ccSignIn", action: "sign-in" },
   "cc-new": { key: "ccNew", action: "start" },
   "cc-starting": { key: "ccStarting", action: "watch" },
@@ -280,7 +280,7 @@ const PASSING: ReadonlySet<PlaceState> = new Set(["cc-unavailable", "cc-no-start
 /** Actions that change a setting, a sign-in or the plan: a User can't take
  * them, so the line ends "Ask an Admin to change it." instead. */
 const ADMIN_ONLY: ReadonlySet<PlaceActionId> = new Set([
-  "choose-model", "open-tools", "sign-in", "see-plan", "manage-computers", "open-my-cloud",
+  "choose-model", "allow-computer", "sign-in", "see-plan", "manage-computers", "open-my-cloud",
   "add-boat-key", "turn-on-browser", "open-team-map", "open-vm-settings", "change-routine",
 ]);
 /** Starting or waking a computer early: a User's own message does it, so
@@ -289,7 +289,7 @@ const ADMIN_SHORTCUT: ReadonlySet<PlaceActionId> = new Set(["start", "wake"]);
 
 const ACTION_KEY: Record<PlaceActionId, PlaceKey> = {
   "choose-model": "place.action.chooseModel",
-  "open-tools": "place.action.openTools",
+  "allow-computer": "place.action.allowComputer",
   "sign-in": "place.action.signIn",
   start: "place.action.start",
   wake: "place.action.wake",

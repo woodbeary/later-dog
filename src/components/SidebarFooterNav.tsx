@@ -76,8 +76,7 @@ export function SidebarFooterNav({ density }: { density: SidebarDensity }) {
 
   if (!iconsOnly) return null;
   return (
-    // `tools` is the guided tour's anchor for "the places down here".
-    <nav data-tour="tools" aria-label={t("sidebar.tools")} className="flex flex-col gap-0.5">
+    <nav aria-label={t("sidebar.tools")} className="flex flex-col gap-0.5">
       <NavRow
         id="apps"
         label={t("sidebar.nav.apps")}

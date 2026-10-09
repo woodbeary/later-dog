@@ -967,7 +967,6 @@ export interface AppState {
   appSettingsOpen: boolean;
   appSettingsSection: AppSettingsSection;
   shortcutsOpen: boolean;
-  /** the first-run welcome tour, also replayable from Settings → General */
   welcomeOpen: boolean;
   /** the guided tour on the live interface that follows the welcome flow */
   tourOpen: boolean;
@@ -2142,8 +2141,6 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "toggleWelcome": {
       const open = action.open ?? !state.welcomeOpen;
-      // The tour is a full-screen surface; nothing else should stay open
-      // underneath it, and Settings closes so the replay lands on the tour.
       return {
         ...state,
         welcomeOpen: open,

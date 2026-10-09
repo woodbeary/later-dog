@@ -135,7 +135,7 @@ it("after a copy: what came, what is not running yet there, and Done", async () 
   push({ phase: "done", action: "move", destination: CLOUD, moved: { bots: 4, rooms: 1, chats: 37 }, routines: 3 });
   const html = render(settings()).html;
   expect(html).toContain("Copied to My Cloud: 4 dogs and 37 chats.");
-  expect(html).toContain("Routines arrive paused: 3 were on here. Turn on the ones you want in each dog's Routines tab on My Cloud");
+  expect(html).toContain("Routines arrive paused: 3 were on here. Turn on the ones you want in each dog's settings on My Cloud");
   expect(html).toContain("To use My Cloud from your phone");
   expect(html.indexOf("Copied to My Cloud")).toBeLessThan(html.indexOf("Routines arrive paused: 3"));
   button(settings(), "Done")!.props.onClick!(); await flush();

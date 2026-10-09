@@ -63,7 +63,6 @@ const isSource = (name: string) => /\.(?:ts|tsx|mjs|cjs|js)$/.test(name) && !/\.
 /** Hard-coded strings that keep a retired word on purpose. A file with no
  * snippet keeps it everywhere; otherwise only literals containing a snippet. */
 const ALLOWED: ReadonlyArray<{ file: string; snippet?: string; why: string }> = [
-  { file: "src/components/CloudBackendPicker.tsx", why: "the own-key provider picker names its two providers, Boat and a VPS" },
   { file: "shared/credential-request.ts", snippet: "when Boat is selected", why: "the card that asks for a person's own Boat key" },
   { file: "server/boat-create-idempotency.ts", snippet: "unnamed Boat", why: "own-key repair: boat.dev's own name for a machine" },
 ];
@@ -163,21 +162,12 @@ describe("one name per thing", () => {
   it("copy that points at a control names it exactly as the control is labelled", () => {
     const e = en as Record<string, string>;
     const source = (file: string) => readFileSync(join(ROOT, file), "utf8");
-    const settings = `Settings → ${e["settings.section.cloudAccount"]}`;
     // The menus' own names for the two places: the Server menu and the sidebar switcher.
     const myCloud = /CLOUD_HOME_NAME = "([^"]+)"/.exec(source("electron/cloud-home.mjs"))?.[1];
     const thisComputer = /id: "workspace-local", label: "([^"]+)"/.exec(source("electron/environments.cjs"))?.[1];
     const serverMenuLocal = /\{ label: "([^"]+)", type: "radio", checked: !active/.exec(source("electron/menu.mjs"))?.[1];
     expect([myCloud, thisComputer, serverMenuLocal]).toEqual([e["cloudSetup.myCloud"], e["place.local"], e["place.local"]]);
     const pointers: Array<[string, string[]]> = [
-      ["cloudSetup.lend.hint", [e["cloudHome.connect"]!]],
-      ["cloudHome.connectHelp", [e["place.local"]!]],
-      ["cloudPhone.step1", [myCloud!]],
-      ["lending.status.connectFirst", [e["cloudHome.connect"]!]],
-      ["computer.worksOnHintCloudHome", [e["lending.title"]!, settings]],
-      ["cloudAccount.onCloudSignIn", [e["cloudAccount.signInAgain"]!, settings]],
-      ["cloudAccount.storageFailed", [e["cloudAccount.signOut"]!]],
-      ["cloudAccount.codeExpired", [e["cloudAccount.signIn"]!]],
       ["computer.routines.offWarning", [e["routines.runsOn.boat"]!]],
     ];
     const stale = pointers.flatMap(([key, labels]) => labels.filter((label) => !e[key]!.includes(label)).map((label) => `${key} → ${label}`));

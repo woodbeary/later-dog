@@ -10,7 +10,7 @@ import { UI_TOOLS_DIR } from "./control-laterdog-ui.ts";
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.env }));
 interface FixtureInfo { ui: string; url: string; logPath: string }
-interface SavedBot { id: string; name: string; modelSelection: { instanceId: string; model: string }; outbound?: unknown; connectorScopes?: unknown; fallback?: unknown }
+interface SavedBot { id: string; name: string }
 
 describe("trust controls in the real renderer", () => {
   let child: ChildProcess | undefined;
@@ -19,7 +19,7 @@ describe("trust controls in the real renderer", () => {
     await waitForExit(child, { graceMs: 30_000 });
   });
 
-  (enabled ? it : it.skip)("refreshes receipts and saves intersecting limits", async () => {
+  (enabled ? it : it.skip)("refreshes receipts in Activity", async () => {
     let output = "", errors = "";
     let info!: FixtureInfo;
     const launcher = new URL("./control-laterdog-ui.ts", import.meta.url).href;
@@ -38,25 +38,11 @@ describe("trust controls in the real renderer", () => {
     }, { timeout: 300_000, interval: 250 }).toBe(true);
 
     const ui = (verb: string, ...args: string[]) => runControlLaterDog(["ui", verb, "--ui", info.ui, ...args]) as Promise<Record<string, any>>;
-    const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
     const click = (name: string) => ui("click", "--name", name);
-    const type = async (name: string, text: string) => {
-      // The mapped browser "type" appends and refocuses the field. Clear
-      // through the native input setter first, including React's input event.
-      await evaluate(`(() => {
-        const input = [...document.querySelectorAll('input')].find(el => el.getAttribute('aria-label') === ${JSON.stringify(name)});
-        if (!input) throw new Error('No input to clear');
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '');
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        return true;
-      })()`);
-      await ui("type", "--name", name, "--text", text);
-    };
     const snapshot = async () => (await ui("snapshot")).snapshot as string;
     const bots = async (): Promise<SavedBot[]> => (await fetch(`${info.url}/api/bots`).then(response => response.json())).bots;
     const bot = (await bots()).find(candidate => candidate.name === "Pepper")!;
     expect(bot).toBeDefined();
-    const saved = async () => (await bots()).find(candidate => candidate.id === bot.id)!;
 
     await click("More");
     await click("Activity");
@@ -66,57 +52,5 @@ describe("trust controls in the real renderer", () => {
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Ran a command");
     await ui("screenshot", "--out", `${info.logPath}.activity.png`);
     await click("Close Activity");
-
-    const interactive = await ui("snapshot", "--interactive");
-    const profile = Object.entries(interactive.refs as Record<string, { role: string; name: string }>)
-      .find(([, entry]) => entry.role === "button" && entry.name === "Open Pepper's profile");
-    expect(profile).toBeDefined();
-    await ui("click", "--ref", `@${profile![0]}`);
-    await click("Permissions");
-    await click("Allow a daily amount");
-    await type("Daily outbound limit", "7");
-    await ui("press", "--keys", "Tab");
-    await expect.poll(async () => (await saved()).outbound, { timeout: 10_000 }).toEqual({ policy: "allow", dailyCap: 7 });
-    await click("Ask every time");
-    await expect.poll(async () => (await saved()).outbound, { timeout: 10_000 }).toEqual({ policy: "ask", dailyCap: 7 });
-
-    // Only this page's inventory reads are synthetic; policy writes still
-    // pass through the real bot queue and server validation.
-    await evaluate(`(async () => {
-      const original = window.fetch.bind(window);
-      window.fetch = (input, init) => String(input) === '/api/connectors/connected'
-        ? Promise.resolve(new Response(JSON.stringify({ services: { gmail: { connected: true } } }), { headers: {'content-type':'application/json'} }))
-        : String(input) === '/api/connectors/tools'
-          ? Promise.resolve(new Response(JSON.stringify({ configured: true, services: { gmail: [] } }), { headers: {'content-type':'application/json'} }))
-          : original(input, init);
-      await (await import('/src/components/PluginsPanel.tsx')).preloadConnectedApps(true);
-      return true;
-    })()`);
-    await click("Access");
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("Limit this dog to specific apps");
-    await click("Limit this dog to specific apps");
-    await expect.poll(async () => (await saved()).connectorScopes, { timeout: 10_000 }).toEqual({ apps: {} });
-    await click("Read");
-    await expect.poll(async () => (await saved()).connectorScopes, { timeout: 10_000 }).toEqual({ apps: { gmail: "read" } });
-    expect(await snapshot()).toContain("Per-app tools");
-    await click("Read & write");
-    await expect.poll(async () => (await saved()).connectorScopes, { timeout: 10_000 }).toEqual({ apps: { gmail: "write" } });
-    await click("Limit this dog to specific apps");
-    await expect.poll(async () => (await saved()).connectorScopes, { timeout: 10_000 }).toBeUndefined();
-    // Seed a saved chain without any real account/auth or execution. The
-    // actual Model control must remove it via the existing bot patch queue.
-    const seeded = await fetch(`${info.url}/api/bots/${bot.id}`, {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fallback: [{ instanceId: bot.modelSelection.instanceId, model: bot.modelSelection.model }] }),
-    });
-    expect(seeded.ok).toBe(true);
-    await click("Model");
-    expect(await snapshot()).toContain("Automatic recovery is off. This list stays inactive");
-    expect(await snapshot()).toContain("Work that may have run is not replayed");
-    await expect.poll(() => evaluate("Boolean(document.querySelector('button[aria-label$=\"from the fallback list\"]'))"), { timeout: 10_000 }).toBe(true);
-    await evaluate("document.querySelector('button[aria-label$=\"from the fallback list\"]').click(); true");
-    await expect.poll(async () => (await saved()).fallback, { timeout: 10_000 }).toEqual([]);
-    expect((await saved()).modelSelection).toEqual(bot.modelSelection);
-    await ui("press", "--keys", "Escape");
   }, 420_000);
 });

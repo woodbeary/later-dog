@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_ONBOARDING } from "./onboarding";
-import { ANCHOR_EFFECTS, currentStep, stepNumber, TOUR_STEPS, withTourFinished, withTourReset } from "./guided-tour";
+import { ANCHOR_EFFECTS, currentStep, stepNumber, TOUR_STEPS, withTourFinished } from "./guided-tour";
 
 const withDone = (ids: string[]) => ({ ...EMPTY_ONBOARDING, hintsSeen: ids });
 const step = (id: string) => TOUR_STEPS.find((s) => s.id === id)!;
@@ -10,6 +10,10 @@ describe("guided tour", () => {
     expect(currentStep(undefined)?.id).toBe("tour.composer");
     expect(TOUR_STEPS.at(-1)?.id).toBe("tour.done");
     expect(TOUR_STEPS.at(-1)?.anchor).toBe("composer");
+  });
+
+  it("visits only controls the simple app still draws", () => {
+    expect(TOUR_STEPS.map((s) => s.id)).toEqual(["tour.composer", "tour.model", "tour.computer", "tour.apps", "tour.apps-panel", "tour.done"]);
   });
 
   it("resumes at the first unfinished step", () => {
@@ -23,32 +27,25 @@ describe("guided tour", () => {
     expect(stepNumber(TOUR_STEPS.at(-1)!).current).toBe(TOUR_STEPS.length - 1);
   });
 
-  it("resets and finishes without touching other hints", () => {
+  it("finishes without touching other hints", () => {
     const record = withDone(["spot.approval", "tour.composer"]);
-    expect(withTourReset(record)).toEqual(["spot.approval"]);
     const finished = withTourFinished(record);
     expect(finished).toContain("spot.approval");
     for (const s of TOUR_STEPS) expect(finished).toContain(s.id);
     expect(new Set(finished).size).toBe(finished.length);
   });
 
-  it("goes through the Tools menu rather than straight to the pages", () => {
-    expect(step("tour.tools").onExit).toBe("openTools");
+  it("opens Apps from its sidebar button, and skips the button when it is not on screen", () => {
     expect(step("tour.apps").onExit).toBe("openApps");
-    expect(step("tour.automations").onEnter).toBe("openTools");
-    expect(step("tour.automations").onExit).toBe("openAutomations");
     for (const s of TOUR_STEPS.filter((x) => x.anchor?.startsWith("nav-"))) expect(s.skipIfMissing).toBe(true);
   });
 
   it("rebuilds the scene on enter so a reload mid-tour resumes cleanly", () => {
-    expect(step("tour.apps").onEnter).toBe("openTools");
     expect(step("tour.apps-panel").onEnter).toBe("openApps");
-    expect(step("tour.automations-page").onEnter).toBe("openAutomations");
   });
 
   it("closes everything it opened and returns to the chat", () => {
     expect(step("tour.apps-panel").onExit).toBe("closeApps");
-    expect(step("tour.automations-page").onExit).toBe("backToChat");
   });
 
   it("points at the Computer button without opening the panel, so no screen capture starts mid-tour", () => {

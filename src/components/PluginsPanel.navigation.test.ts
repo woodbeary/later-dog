@@ -332,6 +332,21 @@ describe("Apps pop-up", () => {
     expect(botsUsingService(fixture.bots as Bot[], fixture.instances as InstanceInfo[], "gmail").map((entry) => entry.id)).toEqual(["scout", "narrow"]);
   });
 
+  it("gives a dog with limited tools every tool of a connected app in one click", () => {
+    fixture.instances = [claude];
+    fixture.bots = [bot("scout"), bot("narrow", { connectorTools: { gmail: { tools: "*" } } })];
+    const { html, nodes: tree } = render();
+    expect(html).toContain("Dogs with limited tools: 1");
+    expect(html).toContain("Give narrow every tool");
+    expect(html).not.toContain("Give scout every tool");
+    tree.find((node) => node.props["data-allow-all-tools"] === "narrow")!.props.onClick!();
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({
+      type: "updateBot",
+      botId: "narrow",
+      patch: { connectorTools: { gmail: { tools: "*" }, slack: { tools: "*" } } },
+    });
+  });
+
   it("keeps each bot's avatar inside its round ring, whatever its shape", () => {
     fixture.instances = [claude];
     fixture.bots = [

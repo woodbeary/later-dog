@@ -1037,26 +1037,26 @@ export function PluginsPanel() {
         {(serviceStatus?.connected || included) && (() => {
           const limited = botsWithLimitedServiceTools(state.bots, state.instances, card.slug);
           if (!limited.length) return null;
-          const names = limited.slice(0, 4).map((candidate, index) => (
-            <span key={candidate.id}>
-              {index > 0 && ", "}
-              <button
-                type="button"
-                onClick={() => {
-                  close();
-                  dispatch({ type: "toggleSettings", open: true, botId: candidate.id, section: "access" });
-                }}
-                className="font-medium text-ink underline underline-offset-2 hover:text-accent-text"
-              >
-                {candidate.name}
-              </button>
-            </span>
-          ));
           return (
-            <div className="mt-2 text-[11px] leading-relaxed text-ink-secondary">
-              <span>{t("connectors.grants.limited", { count: limited.length })}</span>{" "}
-              {names}
-              {limited.length > 4 && <span>{t("connectors.grants.more", { count: limited.length - 4 })}</span>}
+            <div data-limited-tools={card.slug} className="mt-2 text-[11px] leading-relaxed text-ink-secondary">
+              <span>{t("connectors.grants.limited", { count: limited.length })}</span>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {limited.map((candidate) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    data-allow-all-tools={candidate.id}
+                    onClick={() => dispatch({
+                      type: "updateBot",
+                      botId: candidate.id,
+                      patch: { connectorTools: { ...candidate.connectorTools, [card.slug]: { tools: "*" } } },
+                    })}
+                    className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-raised-hover"
+                  >
+                    {t("connectors.grants.allowAll", { name: candidate.name })}
+                  </button>
+                ))}
+              </div>
             </div>
           );
         })()}

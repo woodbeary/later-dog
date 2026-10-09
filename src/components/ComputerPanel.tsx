@@ -67,6 +67,7 @@ import {
   type ComputerPanelView,
 } from "@/lib/computer-panel-view";
 import { approvalModeFor } from "../../shared/approval-mode";
+import { allowComputer } from "@/lib/allow-computer";
 import { openPlaceAction, placeBlocked, placeFacts, placeHasIssue, placeViewFor, usePlaceSeat, worksOnSimpleLabel } from "@/lib/place-view";
 import { cloudRefusal, type PlaceActionId, type PlaceFacts, type PlaceView } from "../../shared/place-view";
 import { t } from "@/lib/i18n";
@@ -1154,6 +1155,20 @@ export function ComputerPanel({
     dispatch({ type: "toggleAppSettings", open: true, section: "computer" });
   };
 
+  const [allowingComputer, setAllowingComputer] = useState(false);
+  const letUseComputer = async () => {
+    if (allowingComputer) return;
+    setAllowingComputer(true);
+    setError(null);
+    try {
+      await allowComputer(profileBot);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : String(cause));
+    } finally {
+      setAllowingComputer(false);
+    }
+  };
+
   const browserCanTurnOn = browserAvailableHere || state.config?.browserEngine?.installable === true;
   const [browserTurningOn, setBrowserTurningOn] = useState(false);
   const turnOnBrowser = async () => {
@@ -1247,13 +1262,11 @@ export function ComputerPanel({
   });
   /** The Works on choice's own line and action, under the cards and the grid. */
   const worksOnView = placeOptions.find(({ selected }) => selected)?.view ?? autoView;
-  /** A place's action from inside this panel: what the panel holds itself
-   * (start, wake, try again, the browser switch, Local VM setup) runs here;
-   * anything else opens where it is changed. */
   const runPlaceAction = (id: PlaceActionId) => {
     if (id === "start" || id === "wake") return startCloudComputer();
     if (id === "try-again") return setRetry((n) => n + 1);
     if (id === "turn-on-browser") return void turnOnBrowser();
+    if (id === "allow-computer") return void letUseComputer();
     if (id === "open-vm-settings") return openVmSettings();
     openPlaceAction(id, { botId: profileBot.id, threadId: profileBot.threadId }, dispatch);
   };

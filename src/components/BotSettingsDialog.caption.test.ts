@@ -4,9 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Bot } from "@/state/store";
 
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => false, setAdvancedMode: () => {} }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => false }));
-vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: () => ({}) }));
+vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: () => ({ botRoutines: [] }) }));
 vi.mock("./bot-settings/SkillsSection", () => ({
   useManagedSkills: () => ({ skills: [], loading: false, working: "", error: "", reviewing: null, libraryPool: [], addFromLibrary: "" }),
   SkillReviewDialog: () => null,
