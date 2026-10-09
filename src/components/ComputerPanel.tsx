@@ -1218,12 +1218,11 @@ export function ComputerPanel({
   };
 
   const openVmSettings = () => {
-    window.sessionStorage.setItem("laterdog.settings.section", "computer");
-    dispatch({ type: "toggleAppSettings", open: true });
+    dispatch({ type: "toggleAppSettings", open: true, section: "computer" });
   };
 
   const openConnectionSettings = () => {
-    dispatch({ type: "toggleAppSettings", open: true, section: "connections" });
+    dispatch({ type: "toggleAppSettings", open: true, section: "general" });
   };
 
   // Simple mode's Browser tab when the browser is off: the same installation

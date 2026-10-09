@@ -10,7 +10,6 @@ import {
   loadPhonePairingAccess,
   pairedDestination,
   phoneDestinations,
-  phonePairingSettingsAction,
   phonePairingTarget,
   resetPhonePairingAccess,
   revealPhonePairing,
@@ -117,11 +116,7 @@ describe("asking the server", () => {
   });
 });
 
-describe("opening Settings on the phone pairing", () => {
-  it("is Remote access, asking for the pairing to be revealed", () => {
-    expect(phonePairingSettingsAction()).toEqual({ type: "toggleAppSettings", open: true, section: "companion", phonePairing: true });
-  });
-
+describe("revealing the phone pairing", () => {
   type Focusable = { focus: (options?: FocusOptions) => void };
   const focusable = () => ({ focus: vi.fn<(options?: FocusOptions) => void>() });
   const element = (action: Focusable | null) => ({

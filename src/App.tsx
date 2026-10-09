@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAdvancedMode } from "@/lib/interface-mode";
 import { Loader2, Menu } from "lucide-react";
 import { CLOUD_LINK_SETTINGS, StoreProvider, useStore } from "@/state/store";
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
@@ -33,7 +32,7 @@ import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
 import { botShowsUnread } from "@/lib/bot-unread";
-import { phonePairingSettingsAction, takePhonePairingRequest } from "@/lib/phone-pairing";
+import { takePhonePairingRequest } from "@/lib/phone-pairing";
 
 function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const { state, dispatch } = useStore();
@@ -53,7 +52,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         target.searchParams.set(panel === "copy" ? "copy-to" : "share-computer", computerId);
         window.history.replaceState(null, "", `${target.pathname}${target.search}${target.hash}`);
       }
-      dispatch({ type: "toggleAppSettings", open: true, section: "desktopWorkspaces" });
+      dispatch({ type: "toggleAppSettings", open: true, section: "computer" });
     };
     const url = new URL(window.location.href);
     const requestedSettings = url.searchParams.get("desktop-settings");
@@ -61,23 +60,21 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       ((requestedSettings === "cloud" || requestedSettings === "cloud-settings") && window.laterdog.cloudAccount && !remoteClient)) {
       url.searchParams.delete("desktop-settings");
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-      if (requestedSettings === "organization") dispatch({ type: "toggleAppSettings", open: true, section: "organization" });
-      else if (requestedSettings === "cloud") dispatch(CLOUD_LINK_SETTINGS);
-      // The lending menu-bar item: Settings → later.dog Cloud, with no automatic action.
-      else if (requestedSettings === "cloud-settings") dispatch({ type: "toggleAppSettings", open: true, section: "cloudAccount" });
-      else open();
+      // Organisation, the Cloud link and the lending menu-bar item all land on
+      // General, where the accounts are.
+      if (requestedSettings === "workspaces") open();
+      else dispatch(CLOUD_LINK_SETTINGS);
     }
     return window.laterdog.environments.onOpenSettings?.(open);
   }, [dispatch]);
-  // "Use your Cloud on your phone" opens the Cloud in this window at
-  // /?desktop-settings=phone: its own phone pairing, in any window, on any
-  // server. It only opens Settings there; no code is made until a click.
+  // "Use your Cloud on your phone" once opened Settings at this window's
+  // phone pairing (/?desktop-settings=phone); that page is gone, so the
+  // request is only taken off the address.
   useEffect(() => {
     const rest = takePhonePairingRequest(window.location.href);
     if (rest === null) return;
     window.history.replaceState(null, "", rest);
-    dispatch(phonePairingSettingsAction());
-  }, [dispatch]);
+  }, []);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
   // cancelling them with md:, which would still emit a translate value and
@@ -108,11 +105,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const sidePanelOpen = Boolean(bot) && (state.settingsOpen || state.computerOpen || state.inspectorOpen || state.activityOpen);
   const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
   const calendarFocus = state.activeView === "routines";
-  // Turning Advanced mode off closes the inspector it no longer offers.
-  const advanced = useAdvancedMode();
-  useEffect(() => {
-    if (!advanced && state.inspectorOpen) dispatch({ type: "toggleInspector", open: false });
-  }, [advanced, state.inspectorOpen, dispatch]);
 
   // Nothing on this machine can run a bot. A missing cloud login does not
   // count — that CLI can still host a local model. Wait for the first
@@ -245,14 +237,13 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   // shell signals the request over the bridge (Cmd+, accelerates the item).
   // Local-shell only: remote server pages never receive the channel, and laterdog
   // is absent in the browser.
-  // "cloud" is laterdog://cloud (the Cloud page's "Open in the app"):
-  // later.dog Cloud, marked as opened by the link so that view signs in or connects.
+  // Every named destination (Organisation, laterdog://cloud, the lending
+  // menu-bar item) is on General now; the plain Preferences… item keeps the
+  // last page.
   useEffect(() => {
-    return window.laterdog?.onOpenAppSettings?.(section => dispatch(section === "cloud" && window.laterdog?.cloudAccount && !remoteClient
+    return window.laterdog?.onOpenAppSettings?.(section => dispatch(section
       ? CLOUD_LINK_SETTINGS
-      : section === "cloud-settings" && window.laterdog?.cloudAccount && !remoteClient
-        ? { type: "toggleAppSettings", open: true, section: "cloudAccount" }
-        : { type: "toggleAppSettings", open: true, ...(section === "organization" && window.laterdog?.organization && !remoteClient ? { section } : {}) }));
+      : { type: "toggleAppSettings", open: true }));
   }, [dispatch]);
 
   // The viewer outlives ComputerPanel and can target any bot, so release control

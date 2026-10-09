@@ -756,20 +756,7 @@ export function PluginsPanel() {
                 setupNotice.tone === "warning" ? "bg-warning/10 text-warning" : "glass-card text-ink-secondary",
               )}
             >
-              {t(whopConnected ? "whop.otherAppsSetup" : setupNotice.key)}{" "}
-              <button
-                className={cn(
-                  "font-medium underline underline-offset-2",
-                  setupNotice.tone === "info" && "text-ink",
-                  remoteClient && "hidden",
-                )}
-                onClick={() => {
-                  close();
-                  dispatch({ type: "toggleAppSettings", open: true, section: "connections" });
-                }}
-              >
-                {t("connectors.openSettings")}
-              </button>
+              {t(whopConnected ? "whop.otherAppsSetup" : setupNotice.key)}
             </div>
           )}
           {botsWithoutApps.length > 0 && (
@@ -792,17 +779,7 @@ export function PluginsPanel() {
           )}
           {configured && !remoteClient && source === "curated" && mode === "self-hosted" && filter !== "mcp" && (
             <div className="mb-2 text-[12px] text-ink-secondary">
-              {t("connectors.featuredBefore")}{" "}
-              <button
-                className="underline underline-offset-2 hover:text-ink"
-                onClick={() => {
-                  close();
-                  dispatch({ type: "toggleAppSettings", open: true });
-                }}
-              >
-                {t("connectors.updateKey")}
-              </button>{" "}
-              {t("connectors.featuredAfter")}
+              {t("connectors.featuredBefore")}
             </div>
           )}
           {error && <div role="alert" className="mb-2 mt-1 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">{typeof error === "string" ? error : t(error.key)}</div>}

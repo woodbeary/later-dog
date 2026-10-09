@@ -14,21 +14,10 @@
 import type { CloudAccountState } from "../../electron/cloud-account.mjs";
 import type { LocaleKey } from "@/locales";
 import { cloudPlanView } from "./cloud-plan";
-import type { Action } from "@/state/store";
 import { readMembership } from "./membership";
 import { isOwnerOrAdmin, readSessionState, type SessionState } from "./session";
 
 export type PhonePairingTarget = "computer" | "cloud" | "server";
-
-/** Settings → Remote access, on the phone pairing this window can do (this
- * computer's phone flow, or the server's pairing code), with focus on the
- * button that shows the code. */
-export const phonePairingSettingsAction = (): Extract<Action, { type: "toggleAppSettings" }> => ({
-  type: "toggleAppSettings",
-  open: true,
-  section: "companion",
-  phonePairing: true,
-});
 
 /** This window's target, from the bridges it has and the server it shows.
  * The desktop's phone bridge is only on the local app's own page, never a

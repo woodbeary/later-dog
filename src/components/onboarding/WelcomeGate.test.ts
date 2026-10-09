@@ -171,15 +171,13 @@ describe("who gets the welcome flow", () => {
     expect(gate(LOCAL_VIEWER).tree).toBeNull();
   });
 
-  it("steps aside for later.dog Cloud opened by the Cloud link, not for a normal visit there", () => {
+  it("steps aside while Settings is open, whichever page", () => {
     vi.stubGlobal("window", LOCAL_PAGE);
-    store.state = { ...store.state, appSettingsOpen: true, appSettingsSection: "cloudAccount", appSettingsCloudLink: 0 };
-    expect(gate(LOCAL_VIEWER).tree).not.toBeNull();
-    store.state = { ...store.state, appSettingsCloudLink: 1 };
+    store.state = { ...store.state, appSettingsOpen: true, appSettingsSection: "general" };
     expect(gate(LOCAL_VIEWER).tree).toBeNull();
-    store.state = { ...store.state, appSettingsSection: "general" };
-    expect(gate(LOCAL_VIEWER).tree).not.toBeNull();
-    store.state = { ...store.state, appSettingsOpen: false, appSettingsSection: "cloudAccount" };
+    store.state = { ...store.state, appSettingsSection: "computer" };
+    expect(gate(LOCAL_VIEWER).tree).toBeNull();
+    store.state = { ...store.state, appSettingsOpen: false };
     expect(gate(LOCAL_VIEWER).tree).not.toBeNull();
   });
 
@@ -187,8 +185,8 @@ describe("who gets the welcome flow", () => {
     vi.stubGlobal("window", LOCAL_PAGE);
     const first = gate(LOCAL_VIEWER).tree!;
     first.props.onOpenOrganisation!();
-    expect(store.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "organization" });
-    store.state = { ...store.state, appSettingsOpen: true, appSettingsSection: "organization" };
+    expect(store.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
+    store.state = { ...store.state, appSettingsOpen: true, appSettingsSection: "general" };
     expect(gate(LOCAL_VIEWER).tree).toBeNull();
     store.state = { ...store.state, appSettingsOpen: false };
     const resumed = gate(LOCAL_VIEWER).tree!;

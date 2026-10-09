@@ -85,25 +85,19 @@ describe("Grok cannot run here: an xAI key instead", () => {
   it.each([
     ["a server's page in a browser", undefined, false],
     ["My Cloud in the desktop app's window", desktop, true],
-  ] as const)("says so in one line with one action on %s", (_where, laterdog, cloudHome) => {
+  ] as const)("says so in one line, with no action, on %s", (_where, laterdog, cloudHome) => {
     const html = render(missing, laterdog, cloudHome);
     expect(grokKeyInstead(missing, cloudHome)).toBe(true);
     expect(html).toContain("data-engine-setup-key-instead");
     expect(html).toContain(NOT_INSTALLED);
-    expect(html.match(/<button/g)).toHaveLength(1);
-    expect(html).toContain("Add xAI key");
+    // the API keys page is gone from Settings, so there is no button to it
+    expect(html).not.toContain("<button");
     expect(html).not.toContain(CURL);
     expect(html).not.toContain("Install Grok");
     expect(html).not.toContain("Terminal");
   });
 
-  it("opens Settings → API keys", () => {
-    render(missing, undefined);
-    host.querySelector("button")!.click();
-    expect(dispatch).toHaveBeenCalledExactlyOnceWith({ type: "toggleAppSettings", open: true, section: "connections" });
-  });
-
-  it("has no button on a paired desktop, whose Settings hide the keys", () => {
+  it("has no button on a paired desktop either", () => {
     const html = render(missing, pairedDesktop);
     expect(html).toContain(NOT_INSTALLED);
     expect(html).not.toContain("<button");

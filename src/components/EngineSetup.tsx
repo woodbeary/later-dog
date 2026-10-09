@@ -430,8 +430,6 @@ function apiKeySetup(instance: InstanceInfo): boolean {
 }
 
 function GrokKeyInstead({ className, unframed }: { className?: string; unframed: boolean }) {
-  const { dispatch } = useStore();
-  const remote = window.laterdog?.remoteClient?.active === true;
   return (
     <div data-engine-setup-key-instead className={cn(!unframed && "rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
       <div className="flex items-start gap-2.5">
@@ -440,17 +438,6 @@ function GrokKeyInstead({ className, unframed }: { className?: string; unframed:
         </span>
         <p className="min-w-0 text-[12.5px] leading-relaxed text-ink">{t("engineSetup.grok.notInstalled")}</p>
       </div>
-      {/* a remote client's Settings has no API keys to open (ApiKeyEngineSetup) */}
-      {!remote && (
-        <button
-          type="button"
-          onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
-          className="mt-3 flex items-center gap-1.5 rounded-lg bg-raised px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-raised-hover"
-        >
-          <KeyRound size={13} aria-hidden="true" />
-          {t("engineSetup.grok.addKey")}
-        </button>
-      )}
     </div>
   );
 }
@@ -458,11 +445,10 @@ function GrokKeyInstead({ className, unframed }: { className?: string; unframed:
 /** `configured`: the key is saved, so the card offers to change it instead.
  * A typo'd key still counts as saved, and this is the way back to fix it. */
 function ApiKeyEngineSetup({ instance, className, unframed, configured = false }: { instance: InstanceInfo; className?: string; unframed: boolean; configured?: boolean }) {
-  const { dispatch } = useStore();
   const remote = window.laterdog?.remoteClient?.active === true;
   const copy = configured
-    ? { title: "engineSetup.apiKey.configuredTitle", description: remote ? "engineSetup.apiKey.configuredRemote" : "engineSetup.apiKey.configuredDescription", action: "engineSetup.apiKey.change" } as const
-    : { title: "engineSetup.apiKey.title", description: remote ? "engineSetup.apiKey.remote" : "engineSetup.apiKey.description", action: "engineSetup.apiKey.open" } as const;
+    ? { title: "engineSetup.apiKey.configuredTitle", description: remote ? "engineSetup.apiKey.configuredRemote" : "engineSetup.apiKey.configuredDescription" } as const
+    : { title: "engineSetup.apiKey.title", description: remote ? "engineSetup.apiKey.remote" : "engineSetup.apiKey.description" } as const;
   return (
     <div data-engine-setup-api-key={configured ? "configured" : ""} className={cn(!unframed && "rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
       <div className="flex items-start gap-2.5">
@@ -477,16 +463,6 @@ function ApiKeyEngineSetup({ instance, className, unframed, configured = false }
       {/* a saved key the provider refused reads as installed but signed out */}
       {needsSignIn(instance) && (
         <p role="alert" className="mt-2 text-[12px] leading-relaxed text-danger">{t("engineSetup.apiKey.rejected")}</p>
-      )}
-      {!remote && (
-        <button
-          type="button"
-          onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
-          className="mt-3 flex items-center gap-1.5 rounded-lg bg-raised px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-raised-hover"
-        >
-          <KeyRound size={13} aria-hidden="true" />
-          {t(copy.action)}
-        </button>
       )}
     </div>
   );

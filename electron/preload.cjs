@@ -15,9 +15,9 @@ ipcRenderer.on("package:install", (_event, url) => {
 });
 
 // Main can finish loading the document before React subscribes. Retain only
-// the fixed actions (Organisation, the laterdog://cloud link, and plain
-// Settings → later.dog Cloud from the lending menu-bar item), never a destination
-// supplied by a renderer.
+// the fixed actions (Organisation, the laterdog://cloud link, and the lending
+// menu-bar item; the renderer lands each on Settings → General), never a
+// destination supplied by a renderer.
 const FIXED_SETTINGS_ACTIONS = new Set(["organization", "cloud", "cloud-settings"]);
 let pendingSettingsAction = null;
 const appSettingsListeners = new Set();

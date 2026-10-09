@@ -17,7 +17,6 @@ import {
   cloudPhoneDestination,
   connectPhoneEntry,
   phoneDestinations,
-  phonePairingSettingsAction,
   type PhonePairingAccess,
   type PhonePairingTarget,
 } from "@/lib/phone-pairing";
@@ -188,45 +187,43 @@ describe("the phone entries", () => {
   const free: CloudAccountState = { ...signedIn, entitlement: { plan: "free", status: "inactive", expiresAt: null, version: 1 } };
   /** The menu as SidebarProfileMenu builds it: this window's pairing, plus the
    * person's Cloud as the native snapshot reports it (only read on this computer). */
-  const items = (target: PhonePairingTarget, access: PhonePairingAccess | null, account: CloudAccountState | null = null, connected = false) => {
+  const items = (target: PhonePairingTarget, access: PhonePairingAccess | null, account: CloudAccountState | null = null) => {
     const onConnect = vi.fn(), onGetApp = vi.fn();
     const destinations = phoneDestinations(connectPhoneEntry(target, access), cloudPhoneDestination(account));
-    return { list: phoneMenuItems({ destinations, connected, onConnect, onGetApp }), onConnect, onGetApp };
+    return { list: phoneMenuItems({ destinations, onConnect, onGetApp }), onConnect, onGetApp };
   };
   const shown = (...args: Parameters<typeof items>) => items(...args).list.map((item) => [item.label, item.subtitle ?? null, ...(item.note ? [item.note] : [])]);
   const APP = ["Use on your phone", null];
 
-  it("on this computer: Connect your phone, to this computer, then Get the phone app", () => {
-    expect(shown("computer", null)).toEqual([["Connect your phone", "to this computer"], APP]);
+  // This window's own pairing page (Settings → Remote access) is gone, so
+  // "to this computer" and "to this server" are no longer offered.
+  it("on this computer: only Get the phone app", () => {
+    expect(shown("computer", null)).toEqual([APP]);
   });
 
-  it("on this computer with a paid Cloud that is Ready: both, the Cloud first", () => {
+  it("on this computer with a paid Cloud that is Ready: the Cloud, then Get the phone app", () => {
     for (const tier of ["personal", "pro", "max"]) {
       expect(shown("computer", null, paid(tier, ready))).toEqual([
         ["Connect your phone", "to My Cloud (always on)"],
-        ["Connect your phone", "to this computer"],
         APP,
       ]);
     }
   });
 
-  it("on this computer, free or signed out: only this computer", () => {
+  it("on this computer, free or signed out: no pairing entry", () => {
     for (const account of [free, { status: "signed-out" } as CloudAccountState, null]) {
-      expect(shown("computer", null, account)).toEqual([["Connect your phone", "to this computer"], APP]);
+      expect(shown("computer", null, account)).toEqual([APP]);
     }
     // a lapsed plan, or one this app cannot verify right now, is not offered either
     expect(shown("computer", null, { ...paid("pro", ready), entitlement: { plan: "pro", status: "inactive", expiresAt: null, version: 2 } }))
-      .toEqual([["Connect your phone", "to this computer"], APP]);
+      .toEqual([APP]);
     expect(shown("computer", null, { status: "unavailable", lastPlan: { tier: "pro", active: true }, machine: ready }))
-      .toEqual([["Connect your phone", "to this computer"], APP]);
+      .toEqual([APP]);
   });
 
-  it("on this computer with a paid Cloud that is not Ready: only this computer, and a hint", () => {
+  it("on this computer with a paid Cloud that is not Ready: no pairing entry", () => {
     for (const machine of [undefined, { status: "provisioning" }, { status: "stopped", origin: ready.origin }, { status: "failed", origin: ready.origin }] as Array<CloudMachine | undefined>) {
-      expect(shown("computer", null, paid("pro", machine))).toEqual([
-        ["Connect your phone", "to this computer", "My Cloud shows here once it is ready."],
-        APP,
-      ]);
+      expect(shown("computer", null, paid("pro", machine))).toEqual([APP]);
     }
   });
 
@@ -237,8 +234,8 @@ describe("the phone entries", () => {
     expect(shown("cloud", admin, paid("max"))).toEqual([["Connect your phone", "to My Cloud"], APP]);
   });
 
-  it("on another server: to this server, and gone for a session that cannot make a pairing code", () => {
-    expect(shown("server", admin, paid("pro", ready))).toEqual([["Connect your phone", "to this server"], APP]);
+  it("on another server: no pairing entry", () => {
+    expect(shown("server", admin, paid("pro", ready))).toEqual([APP]);
     expect(shown("server", chatOnly)).toEqual([APP]);
     expect(shown("server", { ...admin, pairingCodes: false })).toEqual([APP]);
     expect(shown("cloud", chatOnly)).toEqual([APP]);
@@ -254,20 +251,9 @@ describe("the phone entries", () => {
     const { list, onConnect, onGetApp } = items("computer", null, paid("pro", ready));
     list[0]!.onSelect();
     expect(onConnect).toHaveBeenLastCalledWith(expect.objectContaining({ id: "cloud" }));
-    list[1]!.onSelect();
-    expect(onConnect).toHaveBeenLastCalledWith(expect.objectContaining({ id: "here", target: "computer" }));
     expect(onGetApp).not.toHaveBeenCalled();
-    list[2]!.onSelect();
+    list[1]!.onSelect();
     expect(onGetApp).toHaveBeenCalledOnce();
-  });
-
-  it("shows this computer's live phone on this computer's line only", () => {
-    expect(items("computer", null, null, true).list[0]!.trailing).toBeTruthy();
-    expect(items("computer", null, null, false).list[0]!.trailing).toBeUndefined();
-    const both = items("computer", null, paid("pro", ready), true).list;
-    expect(both[0]!.trailing).toBeUndefined();
-    expect(both[1]!.trailing).toBeTruthy();
-    expect(items("cloud", admin, null, true).list[0]!.trailing).toBeUndefined();
   });
 });
 
@@ -285,19 +271,19 @@ describe("choosing where the phone connects", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it("when the Cloud cannot be opened, lands on Settings → later.dog Cloud, which says what to do", async () => {
+  it("when the Cloud cannot be opened, lands on Settings → General, where the accounts are", async () => {
     const bridge = { connectHomeForPhone: vi.fn().mockRejectedValue(new Error("offline")) };
     const dispatch = vi.fn();
     selectPhoneDestination(destinations(readyCloud)[0]!, { bridge, dispatch });
     await flush();
-    expect(dispatch).toHaveBeenCalledExactlyOnceWith({ type: "toggleAppSettings", open: true, section: "cloudAccount" });
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith({ type: "toggleAppSettings", open: true, section: "general" });
   });
 
-  it("to this computer opens this computer's phone pairing and never touches the Cloud", () => {
+  it("to this computer does nothing now that its pairing page is gone, and never touches the Cloud", () => {
     const bridge = { connectHomeForPhone: vi.fn() };
     const dispatch = vi.fn();
     selectPhoneDestination(destinations(readyCloud)[1]!, { bridge, dispatch });
-    expect(dispatch).toHaveBeenCalledExactlyOnceWith(phonePairingSettingsAction());
+    expect(dispatch).not.toHaveBeenCalled();
     expect(bridge.connectHomeForPhone).not.toHaveBeenCalled();
   });
 });

@@ -35,7 +35,6 @@ import { PhoneAppDialog } from "./PhoneAppDialog";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
-import { useSidebarPhoneStatus } from "./SidebarPhoneButton";
 import { useStore, type Action } from "@/state/store";
 import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
@@ -49,7 +48,6 @@ import {
   currentPhonePairingTarget,
   loadPhonePairingAccess,
   phoneDestinations,
-  phonePairingSettingsAction,
   type CloudPhoneDestination,
   type ConnectPhoneEntry,
   type PhoneDestination,
@@ -251,16 +249,13 @@ export function useCloudPhoneDestination(enabled: boolean): { cloud: CloudPhoneD
   return bridge ? { cloud: cloudPhoneDestination(account), bridge } : { cloud: null };
 }
 
-/** What choosing a destination does. Here: Settings → Remote access on this
- * window's pairing. Cloud: open the Cloud in this window on its phone
- * pairing, as Settings → later.dog Cloud's Use your Cloud on your phone does; if
- * that fails, Settings → later.dog Cloud, which says what to do. */
+/** What choosing a destination does. Cloud: open the Cloud in this window on
+ * its phone pairing; if that fails, Settings → General, where the accounts
+ * are. This window's own pairing page is gone, so its entry does nothing
+ * (phoneMenuItems no longer offers it). */
 export function selectPhoneDestination(destination: PhoneDestination, { bridge, dispatch }: { bridge?: Pick<CloudAccountBridge, "connectHomeForPhone">; dispatch: (action: Action) => void }): void {
-  if (destination.id !== "cloud" || !bridge) {
-    dispatch(phonePairingSettingsAction());
-    return;
-  }
-  void bridge.connectHomeForPhone().catch(() => dispatch({ type: "toggleAppSettings", open: true, section: "cloudAccount" }));
+  if (destination.id !== "cloud" || !bridge) return;
+  void bridge.connectHomeForPhone().catch(() => dispatch({ type: "toggleAppSettings", open: true, section: "general" }));
 }
 
 /** The phone entries at the top of the menu: a Connect your phone line per
@@ -269,27 +264,22 @@ export function selectPhoneDestination(destination: PhoneDestination, { bridge, 
  * sign in through their organization). */
 export function phoneMenuItems({
   destinations,
-  connected,
   onConnect,
   onGetApp,
 }: {
   destinations: PhoneDestination[];
-  /** a phone is connected to this computer right now */
-  connected: boolean;
   onConnect: (destination: PhoneDestination) => void;
   onGetApp: () => void;
 }): SidebarMenuItem[] {
   return [
-    ...destinations.map((destination) => ({
-      key: destination.id === "cloud" ? "connect-phone-cloud" : "connect-phone",
+    // Only the Cloud pairs from here now; this window's own pairing page
+    // (Settings → Remote access) is gone, so its entry is not offered.
+    ...destinations.filter((destination) => destination.id === "cloud").map((destination) => ({
+      key: "connect-phone-cloud",
       label: t("sidebar.menu.connectPhone"),
       subtitle: t(destination.subtitleKey),
       ...(destination.noteKey ? { note: t(destination.noteKey) } : {}),
       icon: <Smartphone size={18} />,
-      trailing:
-        destination.id === "here" && destination.target === "computer" && connected ? (
-          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-success" />
-        ) : undefined,
       onSelect: () => onConnect(destination),
     } satisfies SidebarMenuItem)),
     {
@@ -303,7 +293,6 @@ export function phoneMenuItems({
 
 export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
-  const phone = useSidebarPhoneStatus();
   const connectPhone = useConnectPhoneEntry(state.config?.cloudHome === true);
   const cloudPhone = useCloudPhoneDestination(connectPhone?.target === "computer");
   const destinations = phoneDestinations(connectPhone, cloudPhone.cloud);
@@ -319,7 +308,6 @@ export function SidebarProfileMenu() {
   const items: SidebarMenuItem[] = [
     ...phoneMenuItems({
       destinations,
-      connected: phone.kind === "connected",
       onConnect: connectTo,
       onGetApp: () => setPhoneAppOpen(true),
     }),

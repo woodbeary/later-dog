@@ -7,7 +7,7 @@
 // in Settings → Connections. Grok is offered only where this Cloud computer
 // has the Grok CLI. Once an engine can run, the chat takes this screen's place.
 import { useState } from "react";
-import { ArrowUpRight, ChevronDown, KeyRound, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { EngineSetup } from "@/components/EngineSetup";
 import { ProviderMark } from "@/components/ProviderIcons";
 import { cn } from "@/lib/cn";
@@ -23,7 +23,7 @@ export function cloudEngine(instances: readonly InstanceInfo[], driverKind: Choi
 }
 
 export function CloudEngineSignIn() {
-  const { state, dispatch, refreshInstances } = useStore();
+  const { state, refreshInstances } = useStore();
   const [open, setOpen] = useState<Choice | null>(null);
   const [checking, setChecking] = useState(false);
   const recheck = async () => {
@@ -73,18 +73,6 @@ export function CloudEngineSignIn() {
               </div>
             );
           })}
-          <div data-cloud-choice="api-key">
-            <button type="button" onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })} className={row}>
-              <span className="flex size-[18px] shrink-0 items-center justify-center text-ink-secondary">
-                <KeyRound size={16} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13.5px] font-medium text-ink">{t("cloudSignIn.apiKey")}</span>
-                <span className="block text-[12px] text-ink-secondary">{t("cloudSignIn.apiKeyHint")}</span>
-              </span>
-              <ArrowUpRight size={14} className="shrink-0 text-ink-secondary" />
-            </button>
-          </div>
         </div>
 
         <button

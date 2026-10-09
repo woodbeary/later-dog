@@ -78,12 +78,9 @@ export function WelcomeGate({ viewer }: { viewer: WelcomeViewer | null }) {
       canSave: viewer.canSave,
       cloudHome: viewer.cloudHome,
     });
-  // Explicit desktop connection Settings need no local provider onboarding.
-  // Organisation remains optional; closing Settings resumes the normal tour.
-  // later.dog Cloud steps it aside too, but only when the Cloud page's "Open in the
-  // app" link opened it; a normal visit there keeps the tour as before.
-  if (state.appSettingsOpen && (["desktopWorkspaces", "organization"].includes(state.appSettingsSection) ||
-    (state.appSettingsSection === "cloudAccount" && state.appSettingsCloudLink > 0))) return null;
+  // Settings opened from the tour (the organisation row) steps it aside;
+  // closing Settings resumes the tour where it was.
+  if (state.appSettingsOpen) return null;
   if (!state.welcomeOpen && !due) return null;
   const bot = state.bots.find((b) => !b.hidden) ?? null;
   const replay = state.welcomeOpen && !due;
@@ -95,7 +92,7 @@ export function WelcomeGate({ viewer }: { viewer: WelcomeViewer | null }) {
       initialBeat={resumeAt}
       onOpenOrganisation={() => {
         setResumeAt("engines");
-        dispatch({ type: "toggleAppSettings", open: true, section: "organization" });
+        dispatch({ type: "toggleAppSettings", open: true, section: "general" });
       }}
       onDone={() => {
         setDismissed(true);

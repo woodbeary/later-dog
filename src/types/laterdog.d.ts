@@ -267,8 +267,9 @@ const __APP_VERSION__: string;
       onPackageInstall?(cb: (url: string) => void): () => void;
       /** The desktop shell's app-menu Preferences… item was activated; open
        * app Settings. Local-shell only: remote server pages never receive
-       * the channel, and the bridge is absent in the browser. "cloud" is the
-       * laterdog://cloud link (Settings → later.dog Cloud, opened by the link). */
+       * the channel, and the bridge is absent in the browser. A named
+       * section (Organisation, the laterdog://cloud link, the lending
+       * menu-bar item) lands on Settings → General, where the accounts are. */
       onOpenAppSettings?(cb: (section?: "organization" | "cloud" | "cloud-settings") => void): () => void;
       /** Updates the native Dock/taskbar unread indicator. */
       setUnreadCount?(count: number): void;

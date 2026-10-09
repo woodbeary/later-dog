@@ -137,31 +137,28 @@ export function openPlaceAction(
   target: { botId: string; threadId?: string; place?: Place },
   dispatch: (action: Action) => void,
 ): boolean {
-  const appSettings = (section: "engines" | "computer" | "connections" | "cloudAccount") =>
+  const appSettings = (section: "general" | "computer") =>
     dispatch({ type: "toggleAppSettings", open: true, section });
   switch (id) {
     case "choose-model": dispatch({ type: "toggleSettings", open: true, section: "model", botId: target.botId }); return true;
     case "open-tools": dispatch({ type: "toggleSettings", open: true, section: "access", botId: target.botId }); return true;
     case "change-routine": dispatch({ type: "toggleSettings", open: true, section: "routines", botId: target.botId }); return true;
-    case "sign-in": appSettings("engines"); return true;
+    case "sign-in": appSettings("general"); return true;
     case "manage-computers": appSettings("computer"); return true;
-    case "add-boat-key": appSettings("connections"); return true;
-    case "open-vm-settings":
-      window.sessionStorage?.setItem("laterdog.settings.section", "computer");
-      appSettings("computer");
-      return true;
+    case "add-boat-key": appSettings("general"); return true;
+    case "open-vm-settings": appSettings("computer"); return true;
     case "open-team-map": dispatch({ type: "showTeamMap" }); return true;
     case "see-plan": {
       const desktop = window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudAccount;
       if (desktop) { void desktop.openDashboard().catch(() => {}); return true; }
       if (window.laterdog?.cloudPlan) { void window.laterdog.cloudPlan.manage().catch(() => {}); return true; }
-      appSettings("cloudAccount");
+      appSettings("general");
       return true;
     }
     case "open-my-cloud": {
       const desktop = window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudAccount;
       if (desktop) void desktop.connectHome().catch(() => {});
-      else appSettings("cloudAccount");
+      else appSettings("general");
       return true;
     }
     case "clear-pin":

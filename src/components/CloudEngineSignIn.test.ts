@@ -80,9 +80,8 @@ it("opens the existing paste-code and device-code sign-ins on this server's own 
   expect(store.dispatch).not.toHaveBeenCalled();
 });
 
-it("sends an API key to the existing model-provider keys in Settings → API keys", () => {
-  choose("api-key");
-  expect(store.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "toggleAppSettings", open: true, section: "connections" });
+it("no longer offers an API key choice: that Settings page is gone", () => {
+  expect(render().nodes.find((node) => node.props["data-cloud-choice"] === "api-key")).toBeUndefined();
 });
 
 it("picks the person's own engine, never a local-model or read-only one, and says when there is none", () => {

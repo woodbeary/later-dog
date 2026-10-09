@@ -682,7 +682,7 @@ export function ModelPicker({
 
   const openApiKeys = () => {
     setOpen(false);
-    dispatch({ type: "toggleAppSettings", open: true, section: "connections" });
+    dispatch({ type: "toggleAppSettings", open: true, section: "general" });
   };
 
   const selectRail = (instance: InstanceInfo) => {
@@ -998,7 +998,7 @@ export function ModelPicker({
               effort={simpleEffort}
               onManage={() => {
                 setOpen(false);
-                dispatch({ type: "toggleAppSettings", open: true, section: "engines" });
+                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
               }}
             />
           ) : (
@@ -1255,7 +1255,7 @@ export function ModelPicker({
             <div className="flex shrink-0 border-t border-hairline/40">
               <button type="button" onClick={() => {
                 setOpen(false);
-                dispatch({ type: "toggleAppSettings", open: true, section: "engines" });
+                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
               }} className="flex-1 px-4 py-2 text-left text-[12px] text-ink-secondary hover:bg-control/60 hover:text-ink">
                 {t("settings.engines.title")}
               </button>
