@@ -5335,7 +5335,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("refuses paired model changes while the bot is working", async () => {
+  it("takes a paired model change while the bot is working and keeps the running turn on its engine", async () => {
     const instances = (await api("GET", "/api/instances")).body.instances;
     const claude = instances.find((instance: { instanceId: string }) => instance.instanceId === "claude");
     const selection = { instanceId: claude.instanceId, model: claude.models.default };
@@ -5352,16 +5352,16 @@ describe("harness HTTP API", () => {
         return current?.busy;
       }).toBe(true);
 
-      const blocked = await api("PATCH", `/api/bots/${bot.id}/model`, {
+      const changed = await api("PATCH", `/api/bots/${bot.id}/model`, {
         ...selection,
         effort: "high",
       });
-      expect(blocked.status).toBe(409);
-      expect(blocked.body.error).toMatch(/working.*stop it before changing models/i);
-      const unchanged = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+      expect(changed.status).toBe(200);
+      const after = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
       );
-      expect(unchanged.modelSelection).toEqual(selection);
+      expect(after.modelSelection).toEqual({ ...selection, effort: "high" });
+      expect(after.busy).toBe(true);
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`, {});
       await expect.poll(async () => {

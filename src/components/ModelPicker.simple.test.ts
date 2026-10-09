@@ -433,6 +433,16 @@ describe("the model picker in Simple mode", () => {
     }));
   });
 
+  it("takes a pick while the dog works and says it applies from the next reply", () => {
+    const opened = open({ ...bot(), busy: true });
+    expect(menu(opened.html)).toContain("Changes apply from the next reply");
+    pane(opened)!.props.onPick("claude-sonnet-5-5");
+    expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "setModel", selection: expect.objectContaining({ instanceId: "claude", model: "claude-sonnet-5-5" }),
+    }));
+    expect(menu(open(bot()).html)).not.toContain("Changes apply from the next reply");
+  });
+
   it.each([false, null])("keeps a Cloud guest's model and effort changes thread-only while owner status is %s", (ownerOrAdmin) => {
     fixture.cloudHome = true;
     fixture.ownerOrAdmin = ownerOrAdmin;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { api } from "@/state/store";
 import { activeLocale, t } from "@/lib/i18n";
@@ -79,45 +79,119 @@ export function dueResetDeadlines(report: PlanUsageReport, now: number, seen: Se
   return due;
 }
 
-export function usePlanUsage() {
-  const [report, setReport] = useState<PlanUsageReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [now, setNow] = useState(() => Date.now());
-  const refreshedDeadlines = useRef(new Set<string>());
+export const PLAN_USAGE_POLL_MS = 120_000;
+const PLAN_USAGE_AFTER_TURN_MS = 30_000;
+const LAST_GOOD_MS = 10 * 60_000;
 
-  const load = useCallback(async (refresh = false) => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await api<PlanUsageReport>(refresh ? "/api/plan-usage?refresh=1" : "/api/plan-usage");
-      setReport(data);
-      setNow(Date.now());
-    } catch (cause) {
-      setError(cause instanceof Error && cause.message ? cause.message : t("planUsage.fetchError"));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+interface PlanUsageSnapshot {
+  report: PlanUsageReport | null;
+  loading: boolean;
+  error: string;
+  fetchedAt: number;
+}
+
+let planUsage: PlanUsageSnapshot = { report: null, loading: false, error: "", fetchedAt: 0 };
+const planUsageListeners = new Set<() => void>();
+const lastGood = new Map<string, { provider: PlanProvider; at: number }>();
+const refreshedDeadlines = new Set<string>();
+let planUsageRequest: Promise<void> | null = null;
+let pollers = 0;
+let pollTimer: number | undefined;
+
+function setPlanUsage(next: Partial<PlanUsageSnapshot>) {
+  planUsage = { ...planUsage, ...next };
+  for (const listener of planUsageListeners) listener();
+}
+
+export function keepLastGood(report: PlanUsageReport, previous: ReadonlyMap<string, { provider: PlanProvider; at: number }>, now: number): PlanUsageReport {
+  return {
+    ...report,
+    providers: report.providers.map((provider) => {
+      const kept = previous.get(provider.id);
+      return !provider.ok && kept && now - kept.at < LAST_GOOD_MS ? kept.provider : provider;
+    }),
+  };
+}
+
+export function reloadPlanUsage(refresh = false): Promise<void> {
+  if (planUsageRequest && !refresh) return planUsageRequest;
+  setPlanUsage({ loading: true });
+  const request = api<PlanUsageReport>(refresh ? "/api/plan-usage?refresh=1" : "/api/plan-usage")
+    .then((report) => {
+      const now = Date.now();
+      const merged = keepLastGood(report, lastGood, now);
+      for (const provider of report.providers) if (provider.ok) lastGood.set(provider.id, { provider, at: now });
+      setPlanUsage({ report: merged, error: "", fetchedAt: now });
+    }, (cause: unknown) => {
+      setPlanUsage({ error: cause instanceof Error && cause.message ? cause.message : t("planUsage.fetchError") });
+    })
+    .finally(() => {
+      if (planUsageRequest !== request) return;
+      planUsageRequest = null;
+      setPlanUsage({ loading: false });
+    });
+  planUsageRequest = request;
+  return request;
+}
+
+export function refreshPlanUsageAfterTurn(): void {
+  if (pollers > 0 && Date.now() - planUsage.fetchedAt >= PLAN_USAGE_AFTER_TURN_MS) void reloadPlanUsage();
+}
+
+function pollPlanUsage() {
+  if (document.visibilityState === "hidden") return;
+  const now = Date.now();
+  const due = planUsage.report ? dueResetDeadlines(planUsage.report, now, refreshedDeadlines) : [];
+  if (due.length > 0) {
+    for (const deadline of due) refreshedDeadlines.add(deadline);
+    void reloadPlanUsage(true);
+  } else if (now - planUsage.fetchedAt >= PLAN_USAGE_POLL_MS) {
+    void reloadPlanUsage();
+  }
+}
+
+function listen(listener: () => void) {
+  planUsageListeners.add(listener);
+  return () => {
+    planUsageListeners.delete(listener);
+  };
+}
+
+function listenAndPoll(listener: () => void) {
+  const stop = listen(listener);
+  pollers += 1;
+  if (pollers === 1) {
+    pollTimer = window.setInterval(pollPlanUsage, 30_000);
+    document.addEventListener("visibilitychange", pollPlanUsage);
+  }
+  pollPlanUsage();
+  return () => {
+    stop();
+    pollers -= 1;
+    if (pollers > 0) return;
+    window.clearInterval(pollTimer);
+    document.removeEventListener("visibilitychange", pollPlanUsage);
+  };
+}
+
+const readPlanUsage = () => planUsage;
+
+export function usePlanUsage({ enabled = true }: { enabled?: boolean } = {}) {
+  const snapshot = useSyncExternalStore(enabled ? listenAndPoll : listen, readPlanUsage, readPlanUsage);
+  const [tick, setTick] = useState(() => Date.now());
 
   useEffect(() => {
-    void load(false);
-  }, [load]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    const timer = window.setInterval(() => setTick(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!report) return;
-    const due = dueResetDeadlines(report, now, refreshedDeadlines.current);
-    if (due.length === 0) return;
-    for (const deadline of due) refreshedDeadlines.current.add(deadline);
-    void load(true);
-  }, [report, now, load]);
-
-  return { report, loading, error, now, reload: load };
+  return {
+    report: snapshot.report,
+    loading: snapshot.loading || (enabled && snapshot.fetchedAt === 0 && !snapshot.error),
+    error: snapshot.error,
+    now: Math.max(tick, snapshot.fetchedAt),
+    reload: reloadPlanUsage,
+  };
 }
 
 export function UsageBar({ used, label }: { used: number; label: string }) {

@@ -501,8 +501,6 @@
   "model.provider": "Провайдер: {name}",
   "model.search": "Пошук моделей",
   "model.searchLocal": "Пошук локальних моделей",
-  "model.busy": "Зупиніть запит цього собаки, перш ніж змінювати модель",
-  "model.threadBusy": "Зупиніть запит цієї гілки, перш ніж змінювати модель",
   "model.choose": "Обрати модель",
   "model.account": "Акаунт",
   "model.refreshing": "Оновлюємо моделі {name}",

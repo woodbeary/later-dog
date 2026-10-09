@@ -282,24 +282,13 @@ describe("ModelPicker trigger", () => {
       .split(newline);
   };
 
-  it("names the thread in busy header help and the bot in profile settings", () => {
-    fixture.instances = [engine()];
-    for (const threadId of ["independent-thread", undefined]) {
-      const markup = renderToStaticMarkup(createElement(ModelPicker, { bot: { ...bot(), busy: true }, threadId }));
-      expect(tooltipLines(markup)).toEqual([
-        "Codex · GPT-5.6",
-        `Stop this ${threadId ? "thread" : "dog"}'s turn before changing its model`,
-      ]);
-    }
-  });
-
-  it("puts the current model and effort above the busy advisory", () => {
+  it("stays open to a working dog and names only the model", () => {
     fixture.instances = [engine(["low", "high"])];
-    const markup = renderToStaticMarkup(createElement(ModelPicker, { bot: { ...bot("high"), busy: true }, threadId: "independent-thread" }));
-    expect(tooltipLines(markup)).toEqual([
-      "Codex · GPT-5.6 · High effort",
-      "Stop this thread's turn before changing its model",
-    ]);
+    for (const threadId of ["independent-thread", undefined]) {
+      const markup = renderToStaticMarkup(createElement(ModelPicker, { bot: { ...bot("high"), busy: true }, threadId }));
+      expect(tooltipLines(markup)).toEqual(["Codex · GPT-5.6 · High effort"]);
+      expect(markup.match(/<button data-tour="model"[^>]*>/)?.[0]).not.toMatch(/\sdisabled/);
+    }
   });
 
   it("shows the model and its effort together in the header", () => {

@@ -106,7 +106,7 @@ const restSchema = z.object({
 const stateSchema = z.object({
   version: z.literal(1),
   resting: z.record(z.string(), restSchema).default({}),
-  away: z.record(z.string(), z.object({ from: z.string(), at: z.string(), to: z.string().optional(), ranOut: z.string().optional() })).default({}),
+  away: z.record(z.string(), z.object({ from: z.string(), at: z.string(), to: z.string().optional(), ranOut: z.string().optional(), pick: z.string().optional() })).default({}),
 });
 type BatteryState = z.output<typeof stateSchema>;
 
@@ -166,30 +166,30 @@ export function activeRest(
   return undefined;
 }
 
-/** The account a turn on `selection` should run on, or undefined when the
- * battery does not decide it: switched off, an account it does not manage,
- * or none in the order that can take the turn. */
-export function pickAccount(input: {
+interface PickInput {
   config: AccountBatteryConfig | undefined;
   selection: ModelSelection;
   accounts: readonly BatteryAccount[];
   resting: Readonly<Record<string, Rest>>;
   now: number;
-}): BatteryAccount | undefined {
-  const { config, selection, accounts, resting, now } = input;
+}
+
+function canTake(account: BatteryAccount | undefined, input: Omit<PickInput, "config">, listed: boolean): account is BatteryAccount {
+  if (!account?.eligible || !account.enabled || account.signedIn === false) return false;
+  if (listed && !account.models.includes(input.selection.model)) return false;
+  return !activeRest(account, input.selection.model, input.accounts, input.resting, input.now);
+}
+
+export function pickAccount(input: PickInput): BatteryAccount | undefined {
+  const { config, selection, accounts } = input;
   if (!config?.enabled) return undefined;
   const own = accounts.find((account) => account.instanceId === selection.instanceId);
   if (!own?.eligible) return undefined;
   const order = batteryOrder(config, accounts)[own.driverKind] ?? [];
-  // A custom model id the engine's own catalog does not list runs wherever
-  // the engine runs; a listed one only on accounts that list it too.
   const listed = own.models.includes(selection.model);
-  for (const id of order) {
+  for (const id of [own.instanceId, ...order.filter((id) => id !== own.instanceId)]) {
     const account = accounts.find((candidate) => candidate.instanceId === id);
-    if (!account?.eligible || !account.enabled || account.signedIn === false) continue;
-    if (listed && !account.models.includes(selection.model)) continue;
-    if (activeRest(account, selection.model, accounts, resting, now)) continue;
-    return account;
+    if (canTake(account, input, listed)) return account;
   }
   return undefined;
 }
@@ -335,18 +335,21 @@ export class AccountBattery {
   route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): ModelSelection {
     const chosen = threadId ? this.chosen(threadId, selection, accounts) : undefined;
     if (chosen) return { ...selection, instanceId: chosen };
-    return routeSelection({ config: this.options.config(), selection, accounts, resting: this.state.resting, now: this.now() });
+    const input = { selection, accounts, resting: this.state.resting, now: this.now() };
+    const own = accounts.find((account) => account.instanceId === selection.instanceId);
+    if (!own?.eligible || canTake(own, input, false)) return selection;
+    return routeSelection({ config: this.options.config(), ...input });
   }
 
-  choose(threadId: string, ranOut: string, to: string): void {
+  choose(threadId: string, ranOut: string, to: string, pick: string): void {
     const away = this.state.away[threadId];
-    this.state.away[threadId] = { from: away?.from ?? ranOut, at: new Date(this.now()).toISOString(), to, ranOut };
+    this.state.away[threadId] = { from: away?.from ?? ranOut, at: new Date(this.now()).toISOString(), to, ranOut, pick };
     this.save();
   }
 
   chosen(threadId: string, selection: ModelSelection, accounts: readonly BatteryAccount[]): string | undefined {
     const away = this.state.away[threadId];
-    if (!away?.to || !away.ranOut) return undefined;
+    if (!away?.to || !away.ranOut || (away.pick !== undefined && away.pick !== selection.instanceId)) return undefined;
     const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
     const own = find(selection.instanceId);
     const ranOut = find(away.ranOut);

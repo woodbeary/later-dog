@@ -606,8 +606,6 @@
   "model.provider": "提供方：{name}",
   "model.search": "搜索模型",
   "model.searchLocal": "搜索本地模型",
-  "model.busy": "更换模型前请先停止这只狗狗的轮次",
-  "model.threadBusy": "更换模型前请先停止这个对话的轮次",
   "model.choose": "选择模型",
   "model.providerSwitch.title": "切换模型并重置为“随行”？",
   "model.providerSwitch.threadBody": "将此对话切换为 {model}，并将其批准级别重置为“随行”（运行命令或改动文件前先征求你的同意）。现有的工具批准会被清除。你的狗狗的默认设置与其他对话不会变更。之后你可以检查新提供方的访问权限。",

@@ -3514,9 +3514,7 @@ function checkedModelSelection(
 function checkedTaskModelSwitch(current: BotRecord, raw: unknown, updateBotDefault: boolean,
   resetApprovalToAsk: boolean, requireAvailableModel = false, trusted = false) {
   if (current.approvalGrant) return { ok: false as const, status: 409, error: "Wait for the approval change to finish before switching models" };
-  const checked = checkedModelSelection(raw, {
-    selection: current.modelSelection, busy: threadBusy(current.id, current.threadId),
-  }, requireAvailableModel);
+  const checked = checkedModelSelection(raw, undefined, requireAvailableModel);
   if (!checked.ok) return checked;
   const profile = store.bot(current.id)!;
   if (updateBotDefault) {
@@ -21450,11 +21448,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (existing.approvalGrant) {
         return json(res, 409, { error: "wait for the approval-level change to finish before changing models" });
       }
-      const checked = checkedModelSelection(
-        body,
-        { selection: selected.modelSelection, busy: threadBusy(selected.id, selected.threadId) },
-        true,
-      );
+      const checked = checkedModelSelection(body, undefined, true);
       if (!checked.ok) return json(res, checked.status, { error: checked.error });
       if (activeGroupTurnForBot(existing.id)) {
         const groupChecked = checkedModelSelection(checked.selection, { selection: existing.modelSelection, busy: true });
@@ -21585,11 +21579,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       let normalizedSelection: ModelSelection | undefined;
       if (rawSelection !== undefined) {
-        const checked = checkedModelSelection(
-          rawSelection,
-          selectedTask ? { selection: selectedTask.modelSelection, busy: threadBusy(selectedTask.id, selectedTask.threadId) } : undefined,
-          body.requireAvailableModel === true,
-        );
+        const checked = checkedModelSelection(rawSelection, undefined, body.requireAvailableModel === true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         normalizedSelection = checked.selection;
         if (existingBot && activeGroupTurnForBot(existingBot.id)) {
@@ -22078,7 +22068,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (normalizedSelection && selectedTask) {
         const current = store.projectBotForTask(selectedTask.id, selectedTask.threadId);
         if (!current) return json(res, 404, { error: "no such task" });
-        const checked = checkedModelSelection(normalizedSelection, { selection: current.modelSelection, busy: threadBusy(current.id, current.threadId) });
+        const checked = checkedModelSelection(normalizedSelection);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         if (freshBrowserBot && activeGroupTurnForBot(freshBrowserBot.id)) {
           const groupChecked = checkedModelSelection(normalizedSelection, { selection: freshBrowserBot.modelSelection, busy: true });
@@ -23406,7 +23396,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (body.modelSelection !== undefined) {
         if (current.approvalGrant) return json(res, 409, { error: "the dog's approval level is still being confirmed" });
-        const checked = checkedModelSelection(body.modelSelection, { selection: current.modelSelection, busy: threadBusy(current.id, current.threadId) }, body.requireAvailableModel === true);
+        const checked = checkedModelSelection(body.modelSelection, undefined, body.requireAvailableModel === true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         patch.modelSelection = checked.selection;
       }

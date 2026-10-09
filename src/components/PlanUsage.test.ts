@@ -5,10 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const fixture = vi.hoisted(() => ({ report: null as unknown }));
 vi.mock("react", async (original) => ({
   ...await original<typeof import("react")>(),
-  useState: (initial: unknown) => [initial === null ? fixture.report : initial === true ? false : typeof initial === "function" ? (initial as () => unknown)() : initial, () => {}],
+  useSyncExternalStore: () => ({ report: fixture.report, loading: false, error: "", fetchedAt: 1 }),
 }));
 vi.mock("@/state/store", () => ({ api: vi.fn() }));
-import { AccountUsage, PlanUsage, resetDistance, type PlanProvider } from "./PlanUsage";
+import { AccountUsage, PlanUsage, keepLastGood, resetDistance, type PlanProvider } from "./PlanUsage";
 
 const HOUR = 60 * 60 * 1000;
 const provider = (overrides: Partial<PlanProvider> = {}): PlanProvider => ({
@@ -80,5 +80,24 @@ describe("Plan usage list", () => {
     expect(html).toContain('aria-label="Refresh"');
     expect(html.match(/role="meter"/g)).toHaveLength(1);
     expect((html.match(/rounded-xl bg-card/g) ?? []).length).toBe(1);
+  });
+});
+
+describe("Keeping the last good reading", () => {
+  it("keeps an account's last reading through a failed check for ten minutes", () => {
+    const now = Date.parse("2026-10-09T12:00:00Z");
+    const good = provider({ id: "work" });
+    const failed = provider({ id: "work", ok: false, error: "Could not reach Claude." });
+    const fresh = keepLastGood({ fetchedAt: "", providers: [failed] }, new Map([["work", { provider: good, at: now - 9 * 60_000 }]]), now);
+    expect(fresh.providers[0]).toBe(good);
+    const stale = keepLastGood({ fetchedAt: "", providers: [failed] }, new Map([["work", { provider: good, at: now - 11 * 60_000 }]]), now);
+    expect(stale.providers[0]).toBe(failed);
+  });
+
+  it("always shows a new good reading", () => {
+    const now = Date.parse("2026-10-09T12:00:00Z");
+    const next = provider({ id: "work", fiveHour: { available: true, remainingPercent: 10, usedPercent: 90, resetsAt: null } });
+    const merged = keepLastGood({ fetchedAt: "", providers: [next] }, new Map([["work", { provider: provider({ id: "work" }), at: now }]]), now);
+    expect(merged.providers[0]).toBe(next);
   });
 });

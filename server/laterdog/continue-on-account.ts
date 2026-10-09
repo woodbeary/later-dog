@@ -76,7 +76,7 @@ export function continueOnAccount(input: {
   });
   if (!check.ok) return { status: check.status, body: { error: check.error } };
   const { from, to } = check;
-  battery.choose(input.threadId, from.instanceId, to.instanceId);
+  battery.choose(input.threadId, from.instanceId, to.instanceId, selection.instanceId);
   const turn = battery.takeTurn(input.threadId, input.generation);
   const at = requestIndex(path);
   if (!turn?.rerun || at === -1 || path[at]!.id !== turn.requestMessageId) return { status: 200, body: { continued: false } };

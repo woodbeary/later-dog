@@ -493,7 +493,7 @@ export function ModelPicker({
 }) {
   const { state, dispatch, refreshInstances, refreshModels: refreshInstanceModels } = useStore();
   const [open, setOpen] = useState(false);
-  const motion = useMenuMotion(open && !bot.busy);
+  const motion = useMenuMotion(open);
   const [railId, setRailId] = useState<string | null>(null);
   const [pane, setPane] = useState<"main" | "custom">("main");
   const [query, setQuery] = useState("");
@@ -603,10 +603,6 @@ export function ModelPicker({
   }, [open, refreshLocalInstances]);
 
   useEffect(() => {
-    if (bot.busy) setOpen(false);
-  }, [bot.busy]);
-
-  useEffect(() => {
     if (!open) return;
     const closeOnOutsideClick = (event: MouseEvent) => {
       const clickedNode = event.target instanceof Node ? event.target : null;
@@ -676,7 +672,6 @@ export function ModelPicker({
   /** Back onto the bot's model: the server keeps no model of the thread's
    * own for a pick that is the bot's. */
   const pickBotModel = () => {
-    if (bot.busy) return;
     setOpen(false);
     if (follows !== false) return;
     const target = currentTaskBot(profile, threadId ?? bot.threadId);
@@ -690,7 +685,7 @@ export function ModelPicker({
   };
 
   const pick = (instance: InstanceInfo, model: string) => {
-    if (bot.busy || instance.policy) return;
+    if (instance.policy) return;
     const nextSelection = modelSelectionForPick(selection, instance, model);
     // Simple mode has no scope choice: an owner's pick is also the bot's
     // default, while a Cloud guest changes only their own conversation.
@@ -809,7 +804,6 @@ export function ModelPicker({
     />
   );
 
-  // The idle tooltip's whole text, and the busy tooltip's first line.
   const summary = active
     ? `${active.displayName} · ${modelLabel(active, selection.model)}${
         modelProvider(active, selection.model) ? ` · ${modelProvider(active, selection.model)}` : ""
@@ -820,9 +814,7 @@ export function ModelPicker({
   const trigger = (
     <button data-tour="model"
       type="button"
-      disabled={Boolean(bot.busy)}
       onClick={() => {
-        if (bot.busy) return;
         if (active && isClaudeAccount(active)) lastClaudeIdRef.current = active.instanceId;
         if (active && signInFamily(active) === "openai") lastOpenaiIdRef.current = active.instanceId;
         const initial = pickerInstances.find((instance) => instance.instanceId === selection.instanceId) ?? pickerInstances[0];
@@ -837,17 +829,13 @@ export function ModelPicker({
           return next;
         });
       }}
-      aria-expanded={open && !bot.busy}
+      aria-expanded={open}
       aria-haspopup="dialog"
       className={cn(
-        "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-control/60",
-        // in a narrow chat header fold to a rounded square with just the
-        // provider mark; the model name rides the tooltip (a bot with no
-        // resolved engine keeps its label — the mark is what would hide it).
-        // Multiple Claude accounts keep their name even in the compact chip.
+        "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
         !contained && active && !showActiveAccount && COMPACT_SQUARE,
       )}
-      title={bot.busy ? `${summary}${followLine}\n${t(threadId ? "model.threadBusy" : "model.busy")}` : `${summary}${followLine}`}
+      title={`${summary}${followLine}`}
     >
       {active && <InstanceProviderMark instance={active} size={14} />}
       {!contained && active && showActiveAccount && (
@@ -910,6 +898,9 @@ export function ModelPicker({
             motion.className,
           )}
         >
+          {bot.busy && (
+            <p data-model-next-reply className="shrink-0 border-b border-hairline/40 px-3 py-2 text-[12px] text-ink-secondary">{t("model.nextReply")}</p>
+          )}
           {follows !== undefined && (
             <FollowBotModelRow name={profile.name} model={botModelName} follows={follows} onPick={pickBotModel} />
           )}
@@ -1254,7 +1245,7 @@ export function ModelPicker({
         confirmLabel={t("model.providerSwitch.confirm")}
         onCancel={() => setPendingSwitch(null)}
         onConfirm={() => {
-          if (!pendingSwitch || bot.busy || pendingSwitch.botId !== bot.id || pendingSwitch.threadId !== (threadId ?? bot.threadId)) {
+          if (!pendingSwitch || pendingSwitch.botId !== bot.id || pendingSwitch.threadId !== (threadId ?? bot.threadId)) {
             setPendingSwitch(null); return;
           }
           dispatch({ type: "setModel", botId: pendingSwitch.botId, threadId: pendingSwitch.threadId,

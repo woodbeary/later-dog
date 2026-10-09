@@ -606,8 +606,6 @@
   "model.provider": "供應商：{name}",
   "model.search": "搜尋模型",
   "model.searchLocal": "搜尋本機模型",
-  "model.busy": "變更模型前，請先停止這隻狗狗的回合",
-  "model.threadBusy": "變更模型前，請先停止這個討論串的回合",
   "model.choose": "選擇模型",
   "model.providerSwitch.title": "要切換模型並重設為「隨行」嗎？",
   "model.providerSwitch.threadBody": "將此對話切換為 {model}，並將其核准層級重設為「隨行」（執行指令或變更檔案前會先徵詢你的同意）。現有的工具核准會清除。你的狗狗的預設值與其他對話不會變更。之後你可以檢查新供應商的存取權。",
