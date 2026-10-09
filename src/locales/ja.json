@@ -631,7 +631,6 @@
   "onboarding.perms.mic": "マイクと音声",
   "onboarding.perms.micDetail": "入力欄への音声入力です。文字起こしは端末内で行われます。",
   "onboarding.perms.openSettings": "設定を開く",
-  "onboarding.perms.enable": "有効にする",
   "onboarding.skip": "今はスキップ",
   "engineSetup.copyCommand": "コマンドをコピー",
   "engineSetup.copied": "コピーしました",

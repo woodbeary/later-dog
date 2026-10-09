@@ -325,18 +325,24 @@ describe("Where the bot works", () => {
     expect(placeLine(rendered)).not.toMatch(/Local VM|Boat|cloud box/i);
   });
 
-  it("names the grant This Mac is missing and opens Settings → Computers → Permissions for it", () => {
+  it("asks for the grants This Mac is missing in place of its screen: the two rows computer control needs, nothing more", () => {
+    fixture.laterdog.platform = "darwin";
+    fixture.laterdog.permissions = { status: vi.fn(), request: vi.fn(), openSettings: vi.fn() };
     fixture.localComputer = {
       available: false, support: "unsupported", enabled: false, status: "unavailable", reasonCode: "cua-driver-unavailable",
-      message: "Accessibility and Screen Recording required; grant access in System Settings and restart later.dog",
+      message: "Accessibility and Screen Recording required; later.dog asks for them when a dog first uses this Mac",
     } as DesktopCapabilities["localComputer"];
     fixture.seed = { phase: "local-unavailable" };
     const rendered = render(makeBot({ computer: "local" }));
-    expect(rendered.html).toContain("Accessibility and Screen Recording aren&#x27;t allowed for later.dog yet. Allow them in Settings → Computers → Permissions.");
-    const open = rendered.nodes.find((node) => node.props["data-testid"] === "open-permissions")!;
-    expect(text(open.props.children)).toBe("Open Permissions");
-    (open.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "permissions" });
+    expect(rendered.html).toContain('data-testid="local-computer-permissions"');
+    expect(rendered.html).toContain("Let Scout use this Mac");
+    expect(rendered.html).toContain("macOS asks for each one. Allow both and Scout can get going.");
+    expect([...rendered.html.matchAll(/data-permission="([^"]+)"/g)].map((match) => match[1])).toEqual(["accessibility", "screen"]);
+    expect(rendered.html).not.toContain("Microphone");
+    // the rows are where the grant is given now, so nothing points at Settings
+    expect(rendered.html).not.toContain("Settings → Computers → Permissions");
+    expect(rendered.html).not.toContain('data-testid="open-permissions"');
+    expect(rendered.html).not.toContain("animate-spin");
     // macOS keeps the tile pickable before the grant (localComputerSelectable), so the grid itself is not where it says so
     expect(grid(rendered).find((node) => text(node.props.children) === "This Mac")!.props.disabled).toBeFalsy();
   });

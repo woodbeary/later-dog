@@ -97,6 +97,9 @@ function desktopCapabilities({
   // The page asking is a remote server's UI: this computer's screen, voice
   // and local control are not on offer, whatever the host could do.
   remote = false,
+  // Whether this launch could unlock the keychain item that holds saved
+  // sign-ins ("ok" | "unavailable", electron/secure-credentials.mjs).
+  credentialStore = null,
 } = {}) {
   const hostPlatform = normalizedPlatform(platform);
   const isMac = hostPlatform === "darwin";
@@ -186,7 +189,7 @@ function desktopCapabilities({
     }, unavailable);
   }
 
-  return {
+  const capabilities = {
     remote: Boolean(remote),
     host: {
       platform: hostPlatform,
@@ -211,6 +214,12 @@ function desktopCapabilities({
     dictation,
     localComputer,
   };
+  // This computer's own page learns whether saved sign-ins unlocked, so it
+  // can say what to do; a remote server's page is told nothing about it.
+  if (!remote && (credentialStore === "ok" || credentialStore === "unavailable")) {
+    capabilities.credentialStore = credentialStore;
+  }
+  return capabilities;
 }
 
 function connectionEnabled(platform, connection) {

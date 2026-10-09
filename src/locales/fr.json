@@ -629,7 +629,6 @@
   "onboarding.perms.mic": "Micro et parole",
   "onboarding.perms.micDetail": "Dictée vocale dans la zone de saisie, transcrite sur l'appareil.",
   "onboarding.perms.openSettings": "Ouvrir les Réglages",
-  "onboarding.perms.enable": "Activer",
   "onboarding.skip": "Passer pour l'instant",
   "engineSetup.copyCommand": "Copier la commande",
   "engineSetup.copied": "Copié",

@@ -58,6 +58,8 @@ import { LinuxLocalControl } from "./LinuxLocalControl";
 import { MacLocalControl } from "./MacLocalControl";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { useDesktopPermissions } from "@/lib/use-desktop-permissions";
+import { checklistHost } from "@/lib/desktop-permissions";
+import { LocalComputerPermissions } from "./LocalComputerPermissions";
 import {
   busyBoatView,
   instanceSupportsLocalComputer,
@@ -264,10 +266,16 @@ export function ComputerPanel({
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const localAvailable = capabilities.localComputer.available;
   const isLinux = capabilities.host.platform === "linux";
-  // The live macOS permissions checklist, polled only while This PC is not
-  // ready here: its "Not ready" then names the grant still missing and opens
-  // Settings → Computers → Permissions, where it is given.
-  const { checklist: desktopPermissions } = useDesktopPermissions({ active: capabilities.host.platform === "darwin" && !localAvailable });
+  // The live macOS permissions checklist, polled only while This Mac is not
+  // ready here: its "Not ready" then names the grant still missing, and the
+  // panel asks for it in place of the screen (LocalComputerPermissions).
+  const {
+    checklist: desktopPermissions,
+    busy: permissionBusy,
+    request: requestPermission,
+    openSettings: openPermissionSettings,
+  } = useDesktopPermissions({ active: capabilities.host.platform === "darwin" && !localAvailable });
+  const permissionHost = checklistHost(typeof window === "undefined" ? undefined : window.laterdog);
   const localPermissionGap = localComputerPermissionGap({ capabilities, permissions: desktopPermissions });
   const providerSupportsLocal = instanceSupportsLocalComputer(state.instances, bot);
   // A later.dog Cloud home never offers this computer (shared/cloud-home.ts).
@@ -278,6 +286,8 @@ export function ComputerPanel({
   // from it (shared/place-view.ts), the same as the chip and a failed row.
   const placeSeat = usePlaceSeat(state.config, capabilities.host.platform);
   const [phase, setPhase] = useState<Phase>("checking");
+  // This Mac is chosen but a grant is missing: the screen area asks for it.
+  const askingForGrants = phase === "local-unavailable" && localPermissionGap.length > 0;
   const [persistedComputerSelection, setPersistedComputerSelection] = useState<{
     botId: string;
     computer: Bot["computer"];
@@ -904,11 +914,13 @@ export function ComputerPanel({
 
   // local preview: frames from the Electron main process. The FIRST capture
   // attempt is what makes macOS show the Screen Recording prompt (there is
-  // no reliable pre-grant flow on macOS 15+), so repeated empty frames mean
-  // the user denied — surface the Settings repair path instead of spinning.
+  // no reliable pre-grant flow on macOS 15+), so nothing is captured until
+  // This Mac is ready (the grants given where LocalComputerPermissions asks
+  // for them), and repeated empty frames after that mean the user denied —
+  // surface the Settings repair path instead of spinning.
   const [localMisses, setLocalMisses] = useState(0);
   useEffect(() => {
-    if (panelView !== "computer" || phase !== "local" || !computerStatusCurrent || !window.laterdog || isLinux || !pageVisible) return;
+    if (panelView !== "computer" || phase !== "local" || !localAvailable || !computerStatusCurrent || !window.laterdog || isLinux || !pageVisible) return;
     let alive = true;
     setLocalMisses(0);
     const shoot = async () => {
@@ -928,7 +940,7 @@ export function ComputerPanel({
       alive = false;
       clearInterval(timer);
     };
-  }, [panelView, phase, computerStatusCurrent, isLinux, pageVisible, bot.busy, bot.id, bot.threadId]);
+  }, [panelView, phase, localAvailable, computerStatusCurrent, isLinux, pageVisible, bot.busy, bot.id, bot.threadId]);
 
   const frameSrc = !computerStatusCurrent ? null :
     phase === "vm"
@@ -1592,14 +1604,14 @@ export function ComputerPanel({
             />
           ) : (
             <div className="flex flex-col items-center gap-2 px-6 text-center text-ink-secondary">
-              {phase === "checking" || phase === "starting" || (phase === "busy-boat" && busyBoat.spinner) || phase === "vm" || (phase === "local" && !isLinux) ? (
+              {askingForGrants ? null : phase === "checking" || phase === "starting" || (phase === "busy-boat" && busyBoat.spinner) || phase === "vm" || (phase === "local" && !isLinux) ? (
                 <Loader2 size={18} className="animate-spin" />
               ) : phase === "off" ? (
                 <Power size={22} />
               ) : (
                 <Monitor size={22} />
               )}
-              <span className="text-[12px]">
+              {!askingForGrants && <span className="text-[12px]">
                 {currentTeamComputer
                   ? autoView.line
                   : cloudPreviewReady
@@ -1617,7 +1629,7 @@ export function ComputerPanel({
                     : vmResumable
                       ? t(pending === "vm-start" ? "vm.setup.starting" : "computer.phase.vmStopped")
                       : emptyState[phase]}
-              </span>
+              </span>}
               {currentTeamComputer && placeActionButton(autoView)}
               {bot.computer === "cloud" && (phase === "unconfigured" || phase === "error") && cloudView.action?.id !== "add-boat-key" && placeActionButton(cloudView)}
               {phase === "local" && !isLinux && localMisses >= 3 && (
@@ -1628,15 +1640,16 @@ export function ComputerPanel({
                   {t("computer.openSettings")}
                 </button>
               )}
-              {phase === "local-unavailable" && localPermissionGap.length > 0 && (
-                <button
-                  type="button"
-                  data-testid="open-permissions"
-                  onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "permissions" })}
-                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover"
-                >
-                  {t("computer.local.openPermissions")}
-                </button>
+              {askingForGrants && (
+                <LocalComputerPermissions
+                  dogName={bot.name}
+                  host={permissionHost}
+                  checklist={desktopPermissions}
+                  busy={permissionBusy}
+                  onRequest={(permission) => void requestPermission(permission)}
+                  onOpenSettings={(permission) => void openPermissionSettings(permission)}
+                  onRelaunch={() => void window.laterdog?.relaunch?.()}
+                />
               )}
               {phase === "browser" && browserEnabled && (
                 <button

@@ -41,18 +41,20 @@ describe("guided tour", () => {
   });
 
   it("rebuilds the scene on enter so a reload mid-tour resumes cleanly", () => {
-    expect(step("tour.computer-browser").onEnter).toBe("openComputer");
-    expect(step("tour.computer-browser").fallbackAnchor).toBe("computer-tabs");
     expect(step("tour.apps").onEnter).toBe("openTools");
     expect(step("tour.apps-panel").onEnter).toBe("openApps");
     expect(step("tour.automations-page").onEnter).toBe("openAutomations");
   });
 
   it("closes everything it opened and returns to the chat", () => {
-    expect(step("tour.computer").onExit).toBe("openComputer");
-    expect(step("tour.computer-browser").onExit).toBe("closeComputer");
     expect(step("tour.apps-panel").onExit).toBe("closeApps");
     expect(step("tour.automations-page").onExit).toBe("backToChat");
+  });
+
+  it("points at the Computer button without opening the panel, so no screen capture starts mid-tour", () => {
+    expect(step("tour.computer").onEnter).toBeUndefined();
+    expect(step("tour.computer").onExit).toBeUndefined();
+    expect(TOUR_STEPS.some((s) => s.id.startsWith("tour.computer-"))).toBe(false);
   });
 
   it("knows which effects the control's own click performs", () => {

@@ -629,7 +629,6 @@
   "onboarding.perms.mic": "माइक्रोफ़ोन और स्पीच",
   "onboarding.perms.micDetail": "संदेश बॉक्स में बोलकर लिखना, जिसका लिप्यंतरण इसी डिवाइस पर होता है।",
   "onboarding.perms.openSettings": "सेटिंग्स खोलें",
-  "onboarding.perms.enable": "चालू करें",
   "onboarding.skip": "अभी छोड़ें",
   "engineSetup.copyCommand": "कमांड कॉपी करें",
   "engineSetup.copied": "कॉपी हुआ",

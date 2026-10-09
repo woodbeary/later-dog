@@ -41,6 +41,7 @@ import { collisionFreeDownloadPath, defaultSaveName, revealDownloadWhenDone, rev
 import { desktopViewerPermissionAllowed } from "./desktop-viewer-permissions.mjs";
 import { appPermissionHandlers, externalWebUrl } from "./app-permissions.mjs";
 import { permissionChecklist, requestPermission } from "./mac-permissions.mjs";
+import { cuaStartsAfterGrant } from "./cua-grant.mjs";
 import { writeClipboardText } from "./clipboard-write.mjs";
 import {
   ensureManagedComposioCredentials,
@@ -2696,8 +2697,25 @@ ipcMain.handle("perm:request-mic", localOnly("perm:request-mic", async () => {
 // to this app. mac-permissions.mjs says how each is read and what macOS
 // caches. Local-only: a remote server's page learns nothing about this Mac.
 const macPermissionHost = () => ({ platform: process.platform, systemPreferences, desktopCapturer });
-ipcMain.handle("perm:checklist", localOnly("perm:checklist", () => permissionChecklist(macPermissionHost())));
-ipcMain.handle("perm:request", localOnly("perm:request", (_event, permission) => requestPermission(permission, macPermissionHost())));
+// Computer control's daemon could not start at launch without Accessibility
+// and Screen Recording (cua.mjs reads them without prompting). The first
+// checklist read or prompt answer that shows both granted starts it here, in
+// the background and once at a time, so no relaunch is needed; cua-grant.mjs
+// says when a start is due, and a daemon the person stopped stays stopped.
+let cuaGrantStart = null;
+function startCuaWhenGranted(checklist) {
+  void (async () => {
+    if (cuaGrantStart) return;
+    const connection = await cuaReady;
+    if (cuaGrantStart || !cuaStartsAfterGrant({ platform: process.platform, remote: Boolean(desktopRemoteAccess), checklist, connection })) return;
+    cuaGrantStart = startCua()
+      .catch((error) => console.error("[cua] start after grant failed:", error))
+      .finally(() => { cuaGrantStart = null; });
+  })();
+  return checklist;
+}
+ipcMain.handle("perm:checklist", localOnly("perm:checklist", () => startCuaWhenGranted(permissionChecklist(macPermissionHost()))));
+ipcMain.handle("perm:request", localOnly("perm:request", async (_event, permission) => startCuaWhenGranted(await requestPermission(permission, macPermissionHost()))));
 
 // macOS never re-prompts a denied permission — the only path is System
 // Settings; deep-link straight to the right privacy pane.
@@ -3269,6 +3287,7 @@ ipcMain.handle("desktop:capabilities", async (event) =>
     env: process.env,
     packaged: app.isPackaged,
     localConnection: await cuaReady,
+    credentialStore: credentialStoreUnavailable ? "unavailable" : "ok",
   }),
 );
 
@@ -3343,7 +3362,14 @@ ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mo
 async function broadcastDesktopCapabilities() {
   const localConnection = await cuaReady;
   const build = (remote) =>
-    desktopCapabilities({ remote, platform: process.platform, env: process.env, packaged: app.isPackaged, localConnection });
+    desktopCapabilities({
+      remote,
+      platform: process.platform,
+      env: process.env,
+      packaged: app.isPackaged,
+      localConnection,
+      credentialStore: credentialStoreUnavailable ? "unavailable" : "ok",
+    });
   const local = build(false);
   let redacted = null;
   for (const window of BrowserWindow.getAllWindows()) {

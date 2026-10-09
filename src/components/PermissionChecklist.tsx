@@ -1,8 +1,9 @@
 // The permissions checklist, one row per macOS grant, drawn wherever later.dog lists them (Settings → Computers →
-// Permissions) from one hook, so a grant reads the same everywhere. Each row: plain words for what it lets a dog do,
-// and one thing on the right — the action that moves it forward (Enable, the real system prompt; or Open System
-// Settings), or the status once there is nothing to do (src/lib/desktop-permissions.ts rowActions says which). Rows sit
-// on the surface they are placed on, separated by hairlines, never as cards of their own.
+// Permissions; the Computer panel, the first time a dog needs this Mac) from one hook, so a grant reads the same
+// everywhere. Each row: plain words for what it lets a dog do, and one thing on the right — the action that moves it
+// forward (Allow, the real system prompt; or Open System Settings), or the status once there is nothing to do
+// (src/lib/desktop-permissions.ts rowActions says which). Rows sit on the surface they are placed on, separated by
+// hairlines, never as cards of their own.
 import type { CSSProperties } from "react";
 import { Accessibility, Check, Loader2, Mic, MonitorDot } from "lucide-react";
 import { brand } from "@/lib/brand";
@@ -53,6 +54,7 @@ export function PermissionChecklist({
   onRequest,
   onOpenSettings,
   onRelaunch,
+  permissions = DESKTOP_PERMISSIONS,
   stagger = false,
 }: {
   host: ChecklistHost;
@@ -63,6 +65,8 @@ export function PermissionChecklist({
   onOpenSettings: (permission: DesktopPermission) => void;
   /** Settings only: a Screen Recording grant applies after a relaunch. */
   onRelaunch?: () => void;
+  /** The rows to draw, in order; the Computer panel asks only for the two computer control needs. */
+  permissions?: readonly DesktopPermission[];
   /** The welcome tour's rows arrive one after another. */
   stagger?: boolean;
 }) {
@@ -74,7 +78,7 @@ export function PermissionChecklist({
           {host === "browser" ? t("permissions.browserNote", { app }) : t("permissions.otherDesktopNote")}
         </p>
       )}
-      {DESKTOP_PERMISSIONS.map((permission, index) => {
+      {permissions.map((permission, index) => {
         const status: DesktopPermissionStatus | null = host === "mac" ? (checklist?.[permission] ?? null) : "unavailable";
         const actions = rowActions(permission, status, host);
         const relaunch = actions.relaunchNote && onRelaunch;
@@ -84,7 +88,7 @@ export function PermissionChecklist({
           ? (
             <button type="button" disabled={busy !== null} onClick={() => onRequest(permission)} className={cn(actionClass, "inline-flex items-center gap-1.5")}>
               {busy === permission && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
-              {t("onboarding.perms.enable")}
+              {t("permissions.allow")}
             </button>
           )
           : actions.settings

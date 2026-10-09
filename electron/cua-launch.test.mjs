@@ -5,8 +5,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ home: "", script: "", socketReady: false, children: [], calls: [], embeddedDelays: [], hosts: [], handlers: new Map() }));
-vi.mock("electron", () => ({ app: { isPackaged: false, getPath: () => fixture.home }, ipcMain: { handle: (name, handler) => fixture.handlers.set(name, handler) } }));
+const fixture = vi.hoisted(() => ({ home: "", script: "", socketReady: false, children: [], calls: [], embeddedDelays: [], hosts: [], handlers: new Map(), permissionAsks: [] }));
+// The grants are read the way the renderer's checklist reads them (mac-permissions.mjs):
+// Accessibility through isTrustedAccessibilityClient, whose argument says whether macOS may
+// prompt, and Screen Recording through getMediaAccessStatus. Granted whenever a host is queued.
+vi.mock("electron", () => ({
+  app: { isPackaged: false, getPath: () => fixture.home },
+  ipcMain: { handle: (name, handler) => fixture.handlers.set(name, handler) },
+  systemPreferences: {
+    isTrustedAccessibilityClient: (prompt) => { fixture.permissionAsks.push(prompt); return fixture.embeddedDelays.length > 0; },
+    getMediaAccessStatus: () => (fixture.embeddedDelays.length > 0 ? "granted" : "denied"),
+  },
+}));
 vi.mock("@trycua/cua-driver/embedded", () => ({
   EmbeddedCuaDriverHost: class {
     constructor() { this.delay = fixture.embeddedDelays.shift(); fixture.hosts.push(this); }
@@ -21,10 +31,6 @@ vi.mock("@trycua/cua-driver/embedded", () => ({
     stop = vi.fn(async () => {});
     uniffiDestroy = vi.fn();
   },
-}));
-vi.mock("@trycua/cua-driver/electron", () => ({
-  requestMacOSPermissions: () => ({ accessibility: false, screenRecording: false }),
-  hasRequiredMacOSPermissions: () => fixture.embeddedDelays.length > 0,
 }));
 vi.mock("node:fs", async (original) => {
   const fs = await original();
@@ -79,6 +85,7 @@ beforeEach(async () => {
   fixture.embeddedDelays = [];
   fixture.hosts = [];
   fixture.handlers.clear();
+  fixture.permissionAsks = [];
   vi.stubEnv("LATERDOG_CUA_EMBEDDED", "1");
   vi.stubEnv("CUA_DRIVER_PATH", "/fixture/cua-driver");
   vi.resetModules();
@@ -108,6 +115,16 @@ describe.skipIf(process.platform !== "darwin")("async standalone CUA launch (iso
       expect(ticks).toBeGreaterThan(2);
       expect(fixture.calls[0]).toMatchObject({ command: "/usr/bin/open", args: ["-a", "CuaDriver"], options: { timeout: 8_000, killSignal: "SIGKILL" } });
     } finally { clearInterval(timer); }
+  });
+
+  it("reads the grants without prompting at start, and names the missing ones for the Computer panel", async () => {
+    fixture.script = "process.stderr.write('fixture launch failure'); process.exit(4)";
+    const result = await cua.startCua();
+    expect(result.mode).toBe("unavailable");
+    expect(result.reason).toContain("embedded host failed: Accessibility and Screen Recording required; later.dog asks for them when a dog first uses this Mac");
+    expect(result.reason).not.toMatch(/restart/i);
+    // macOS was asked what it already decided, never to show a dialog
+    expect(fixture.permissionAsks).toEqual([false]);
   });
 
   it("keeps the embedded and fallback launch failures visible", async () => {

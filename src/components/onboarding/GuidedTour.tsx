@@ -1,6 +1,6 @@
 // Runs the guided tour on the live interface. One spotlight at a time,
 // pointing at a real control, with Next on every step; the tour presses the
-// controls itself (the Tools menu, its items, the Computer button), so it
+// controls itself (the Tools menu, its items), so it
 // never waits on the user and the app reacts exactly as it would for them.
 // Clicking the pointed-at control counts as Next too. Every advance is
 // written to the server's hint list first, so a reload lands on the same
@@ -19,7 +19,6 @@ const MASCOT: Record<TourStep["id"], DogState> = {
   "tour.composer": "happy",
   "tour.model": "curious",
   "tour.computer": "working",
-  "tour.computer-browser": "curious",
   "tour.tools": "curious",
   "tour.apps": "happy",
   "tour.apps-panel": "proud",
@@ -71,12 +70,6 @@ export function GuidedTour() {
   const run = useCallback(
     (effect: TourEffect | undefined) => {
       switch (effect) {
-        case "openComputer":
-          if (!state.computerOpen) dispatch({ type: "toggleComputer", open: true });
-          return;
-        case "closeComputer":
-          dispatch({ type: "toggleComputer", open: false });
-          return;
         case "openTools": {
           // the menu is a toggle: only press it when it is closed
           const trigger = visible("tools");
@@ -101,7 +94,7 @@ export function GuidedTour() {
           return;
       }
     },
-    [dispatch, state.computerOpen],
+    [dispatch],
   );
 
   const save = useCallback(
@@ -140,13 +133,12 @@ export function GuidedTour() {
     if (closed.current) return;
     closed.current = true;
     setDismissed(true);
-    // leave nothing open behind: the panel, the menu, the Automations page
-    if (state.computerOpen) run("closeComputer");
+    // leave nothing open behind: the Apps panel, the Automations page
     if (state.pluginsOpen) run("closeApps");
     run("backToChat");
     void save(true).catch(() => {});
     dispatch({ type: "toggleTour", open: false });
-  }, [state.computerOpen, state.pluginsOpen, run, save, dispatch]);
+  }, [state.pluginsOpen, run, save, dispatch]);
 
   const active = !dismissed && Boolean(record?.completedAt) && !state.welcomeOpen && step !== null;
 
