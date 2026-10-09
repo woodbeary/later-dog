@@ -360,7 +360,8 @@ describe("independent bot tasks through the isolated control surface", () => {
     expect((await botState(botId)).tasks.filter((task: any) => task.busy)).toHaveLength(2);
     expect((await control(["wait", "--bot", botId, "--task", taskA, "--timeout", "1"])).status).toBe("timed-out");
     const changeBusy = await api("PATCH", `/api/bots/${botId}/tasks/${taskA}`, { modelSelection: { instanceId: "claude", model: models[1] } });
-    expect(changeBusy.status).toBe(409);
+    expect(changeBusy.status).toBe(200);
+    expect((await botState(botId)).tasks.find((task: any) => task.taskId === taskA)).toMatchObject({ busy: true, modelSelection: { model: models[1] } });
 
     const answerA = await permission(models[0], "approval-a");
     await expect.poll(async () => (await botState(botId)).tasks.find((task: any) => task.taskId === taskA)?.activity).toBe("waiting-on-you");
