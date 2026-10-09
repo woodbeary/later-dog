@@ -153,6 +153,7 @@ export const PICKABLE_STATES: DogState[] = [
 type MascotMessage = {
   kind: string;
   tool?: { ok?: boolean };
+  comm?: unknown;
 };
 
 export type MascotBotProfile = {
@@ -161,6 +162,7 @@ export type MascotBotProfile = {
   description?: string;
   mascotExpression?: string | null;
   busy?: boolean;
+  activity?: string;
   unread?: boolean;
   tasks?: Array<{ unread?: boolean; routineRunId?: string }> | null;
   messages?: MascotMessage[];
@@ -172,6 +174,8 @@ export type MascotBotProfile = {
  * visual identity stays stable while its title and description are edited.
  */
 export function stateForBot(bot: MascotBotProfile): DogState {
+  if (bot.activity === "waiting-on-you") return "curious";
+  if (bot.busy) return turnState(bot.messages);
   const pinned = normalizeState(bot.mascotExpression);
   if (pinned) return pinned;
 
@@ -180,10 +184,21 @@ export function stateForBot(bot: MascotBotProfile): DogState {
   const last = lastNonReceipt(bot.messages);
 
   if (last?.kind === "activity" && last.tool?.ok === false) return "alerting";
-  if (bot.busy) return "working";
   if (botShowsUnread(bot)) return "notifying";
   if (last?.kind === "options") return "curious";
+  return keywordState(bot);
+}
 
+export function turnState(messages: readonly MascotMessage[] | undefined): DogState {
+  const last = lastNonReceipt(messages);
+  return last?.kind === "activity" && last.tool && last.tool.ok === undefined && !last.comm ? "working" : "thinking";
+}
+
+export function restingStateForBot(bot: MascotBotProfile): DogState {
+  return normalizeState(bot.mascotExpression) ?? keywordState(bot);
+}
+
+function keywordState(bot: MascotBotProfile): DogState {
   const profile = `${bot.name} ${bot.title ?? ""} ${bot.description ?? ""}`.toLowerCase();
   const matches = (words: RegExp) => words.test(profile);
 

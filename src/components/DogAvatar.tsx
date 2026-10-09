@@ -4,7 +4,7 @@
 // (dog-avatar.css), so any colour still gives the breed. Motion is CSS on a few groups (body, ears, eyes, nose,
 // tongue) chosen by the mood on the root; every mood has a still pose too, so a paused or reduced-motion dog still
 // reads as what it is doing.
-import { forwardRef, useEffect, useId, useImperativeHandle, useState, type CSSProperties, type ReactNode } from "react";
+import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { DogState } from "@/lib/mascot";
 import { BREEDS, DOG_BREEDS, type BreedLook, type DogBreed, type Shape } from "./dog-breeds";
 import { mouthGeometry, nosePath, round, tonguePath } from "./dog-geometry";
@@ -54,6 +54,12 @@ export interface DogFaceProps {
 /** The drawing alone, for a look given as data (the avatar, the breed picker, the motion library). */
 export function DogFace({ look, breed, color, mood = "rest", size = 44, title, gaze, paused = false, blinking = false, spinMs = 0 }: DogFaceProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const svg = useRef<SVGSVGElement>(null);
+  useLayoutEffect(() => {
+    for (const animation of svg.current?.getAnimations?.({ subtree: true }) ?? []) {
+      if (animation.effect?.getTiming().iterations === Infinity) animation.startTime = 0;
+    }
+  }, [mood, paused, blinking, spinMs]);
   const clamp = (value: number | undefined) => Math.max(-1, Math.min(1, value ?? 0));
   const style = {
     "--dog-ink": color,
@@ -94,6 +100,7 @@ export function DogFace({ look, breed, color, mood = "rest", size = 44, title, g
 
   return (
     <svg
+      ref={svg}
       viewBox="0 0 100 100"
       width={`${size}px`}
       height={`${size}px`}

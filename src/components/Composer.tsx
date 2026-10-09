@@ -1156,7 +1156,7 @@ export function Composer({
           <div data-composer-actions className="flex items-center gap-1 @max-[30rem]/composer:ml-auto">
           {/* Stop stays a stop. Stop-then-steer is named beside the queued
               message above, where its effect is visible before activation. */}
-          {busy && !locked && (
+          {(busy || bot?.waitingForTeammates) && !locked && (
           <button
             onClick={interruptTurn}
             aria-label={t("chat.stopTurn")}

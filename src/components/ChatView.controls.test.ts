@@ -1,7 +1,7 @@
 import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import type { Bot, InstanceInfo } from "@/state/store";
+import type { Bot, InstanceInfo, Message, Task } from "@/state/store";
 import type { ApprovalModeSelector } from "./ApprovalModeSelector";
 import type { ModelPicker } from "./ModelPicker";
 
@@ -91,6 +91,37 @@ describe("header name", () => {
     expect(row).toContain("@min-[30rem]/chathead:grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]");
     expect(markup).toMatch(/data-chathead-identity="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-2[^"]*justify-self-center/);
     expect(markup).toMatch(/data-chathead-controls="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-3/);
+  });
+});
+
+describe("a working dog in the header and the chat", () => {
+  const inThread = (patch: Partial<Task>, messages: Message[] = []): Bot => ({ ...bot, messages, tasks: [{ ...bot.tasks![0]!, ...patch }] });
+  const working = (messages: Message[] = []) => inThread({ busy: true, activity: "working" }, messages);
+  const pill = (markup: string) => markup.match(/<button[^>]*data-chathead-pill="true"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
+  const moods = (markup: string) => [...markup.matchAll(/data-mood="([a-z]+)"/g)].map((match) => match[1]);
+
+  it("holds a still face in the header with a green dot, no dots, and leaves Stop to the composer", () => {
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot: working() }));
+    expect(pill(markup)).toContain('data-testid="working-dot"');
+    expect(pill(markup)).toContain("data-paused");
+    expect(pill(markup)).not.toContain("animate-status-pulse");
+    expect(markup.match(/Stop this turn/g)).toHaveLength(1);
+    expect(pill(renderToStaticMarkup(createElement(ChatView, { bot })))).not.toContain("working-dot");
+  });
+
+  it("stops a wait on other dogs from the composer as well", () => {
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot: inThread({ waitingForTeammates: true }) }));
+    expect(markup).toContain("Other dogs working");
+    expect(pill(markup)).not.toContain("working-dot");
+    expect(markup.match(/Stop this turn/g)).toHaveLength(1);
+  });
+
+  it("works in the chat while a tool runs and thinks between tools, the sidebar's rule", () => {
+    const asked: Message = { id: "q", role: "user", kind: "text", text: "go", at: 1 };
+    const tool = (ok?: boolean): Message => ({ id: "t", role: "bot", kind: "activity", at: 2, tool: { name: "Bash", ...(ok === undefined ? {} : { ok }) } });
+    expect(moods(renderToStaticMarkup(createElement(ChatView, { bot: working([asked, tool()]) })))).toEqual(["rest", "work"]);
+    expect(moods(renderToStaticMarkup(createElement(ChatView, { bot: working([asked, tool(true)]) })))).toEqual(["rest", "think"]);
+    expect(moods(renderToStaticMarkup(createElement(ChatView, { bot: working([asked]) })))).toEqual(["rest", "think"]);
   });
 });
 

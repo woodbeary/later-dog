@@ -19,7 +19,6 @@ import {
   PinOff,
   RefreshCw,
   Search,
-  Square,
   Webhook,
   X,
 } from "lucide-react";
@@ -59,7 +58,7 @@ import { BotAvatar } from "./Avatar";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
-import { normalizeState, stateForBot } from "@/lib/mascot";
+import { normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { showWorkingDots } from "@/lib/turn-tail";
 import { MOTION } from "@/lib/motion";
@@ -102,7 +101,6 @@ import { LiveCallChip } from "./LiveCallPill";
 import { effectivePlace, toolPlace, type EffectivePlace } from "@/lib/place";
 import { cn } from "@/lib/cn";
 import { activeLocale, t } from "@/lib/i18n";
-import { COMPACT_BUBBLE } from "@/lib/compact-chip";
 import { groupTranscript, isStatusActivity } from "@/lib/activity-runs";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
 import { ActivityRun } from "./ActivityRun";
@@ -1095,7 +1093,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const canWrite = useCanWriteIn(bot.threadId);
 
   const computerStarting = computerStartLine(state.computerStarts[bot.id], bot.name);
-  const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const [findOpen, setFindOpen] = useState(false);
   const { replyTo, selectReply, clearReply, consumeReply, restoreReply } = useReplyDraft(
     bot.threadId,
@@ -1158,9 +1155,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const localVoice = localSystemVoiceActive();
   const locale = activeLocale();
   const busy = Boolean(bot.busy);
-  // The header face moves only while the bot works or plays a motion beat,
-  // as in the sidebar: a resting face left open would redraw at display rate.
-  const headerAnimated = busy || (mascotMotion?.kind ?? "none") !== "none";
   // read when a citation is clicked, so the rows need not change per message
   const branch = useRef(messages);
   branch.current = messages;
@@ -1199,7 +1193,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   // Mascot while the turn works. Streaming stays invisible — when the reply
   // is finished, the whole bubble pops in above the mascot.
   const lastMessage = messages.at(-1);
-  const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const activityLabel = liveActivityLabel(lastMessage);
   const waiting = Boolean(
     bot.busy &&
@@ -1308,17 +1301,10 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             aria-label={t("chat.openProfileAria", { name: bot.name })}
             className={cn(CHATHEAD_PILL, "pr-3.5 hover:bg-raised-hover")}
           >
-            <BotAvatar
-              bot={bot}
-              state={stateForBot({ ...bot, messages })}
-              size={24}
-              motion={mascotMotion?.kind ?? "none"}
-              motionKey={mascotMotion?.nonce ?? 0}
-              animated={headerAnimated}
-            />
+            <BotAvatar bot={bot} state={restingStateForBot(bot)} size={24} animated={false} />
             <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
             {chiefOfStaffBadge(bot)}
-            {bot.busy && <WorkingDots className="text-ink-secondary" />}
+            {bot.busy && <span data-testid="working-dot" aria-hidden="true" title={t("chat.activity.working")} className="size-2 shrink-0 rounded-full bg-success" />}
           </button>
           {!bot.busy && bot.waitingForTeammates && <span className="truncate text-[12px] text-ink-secondary" role="status">Other dogs working</span>}
         </div>
@@ -1330,19 +1316,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           // buttons clear the 26px overlay while the rest of the layout stays.
           style={controlsShiftStyle}
         >
-          {(bot.busy || bot.waitingForTeammates) && (
-            <button
-              onClick={() => dispatch({ type: "interrupt", botId: bot.id, threadId: bot.threadId })}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink",
-                COMPACT_BUBBLE,
-              )}
-              title={t("chat.stopTurn")}
-            >
-              <Square size={12} className="fill-current" />
-              <span className="@max-4xl/chathead:hidden">{t("chat.stop")}</span>
-            </button>
-          )}
           {!remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} />}
           {/* below md the sidebar (and its Live call pill) is hidden */}
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openThread(dispatch, { botId, threadId }, state)} />
@@ -1486,7 +1459,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               // (and a chosen mascot body) must match the sidebar row.
               <BotAvatar
                 bot={bot}
-                state={toolInFlight ? "working" : "thinking"}
+                state={turnState(messages)}
                 size={36}
                 forward={false}
                 lookAround={1}
