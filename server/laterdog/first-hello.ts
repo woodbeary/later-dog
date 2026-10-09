@@ -11,10 +11,6 @@ export function personalGreeting(personName: string | undefined, dogName: string
   return person ? `Hi ${person}, I'm ${dogName}.` : `Hi, I'm ${dogName}.`;
 }
 
-/**
- * The hidden instruction for the dog's first turn. It has already said hello; it asks one question and stops.
- * `purpose` is the line the person wrote when creating the dog (its label): the options then fit that purpose.
- */
 export function firstHelloPrompt(personName: string | undefined, dogName: string, purpose?: string): string {
   const person = personName?.trim() || "the person";
   const job = purpose?.trim();

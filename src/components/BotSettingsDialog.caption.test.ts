@@ -4,8 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Bot } from "@/state/store";
 
-// Only the header's inset is under test: the tabs' contents are stubbed so
-// the dialog renders with a bare bot and no server.
 vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => false, setAdvancedMode: () => {} }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => false }));
 vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: () => ({}) }));

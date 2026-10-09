@@ -2569,21 +2569,14 @@ export class ApiError extends Error {
   }
 }
 
-/** Keep the created bot reachable even when applying its optional preset fails.
- * A restricted `visibility` rides the create itself, so the bot is never
- * announced to people who should not see it. */
 export interface NewDogFields {
   name?: string;
-  /** What the dog should help with: its label under the name, and the purpose its first hello speaks to. */
   title?: string;
-  /** The model GET /api/bot-defaults offered; sent with requireAvailableModel so creation fails rather than lands on an engine that is not signed in. */
   modelSelection?: ModelSelection;
   visibility?: BotVisibility;
   section?: string;
 }
 
-/** One POST /api/bots with only the fields that were given; the server fills
- * the rest from its defaults. */
 export async function createDog(fields: NewDogFields = {}, request: typeof api = api): Promise<{ bot: Bot }> {
   const name = fields.name?.trim();
   const title = fields.title?.trim();
@@ -3353,10 +3346,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .then(({ bot }) => {
               rawDispatch({ type: "botAdded", bot, preserveSelection: action.preserveSelection });
               action.onCreated?.(bot);
-              // The dog greets first: its seed greeting becomes a personal one
-              // and its first hidden turn starts (server/laterdog/first-hello.ts).
-              // Best effort — a guest cannot introduce a dog, and a turn that
-              // could not start leaves the seed greeting standing.
               void api(`/api/bots/${bot.id}/hello`, { method: "POST" }).catch(() => {});
             })
             .catch((error) => {

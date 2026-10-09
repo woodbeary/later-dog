@@ -1,10 +1,3 @@
-// The dog editor: a right-hand panel with the dog's face and three tabs.
-// Details is what a person changes about a dog (how it looks, its name and
-// label, its instructions, what it runs on, how much it decides alone);
-// Library is its tricks, what it made in chat, and its memory; Computer is
-// where it works. Every field writes through patch → updateBot → PATCH
-// /api/bots/:id. Which tab shows is the store's botSettingsSection folded
-// onto a tab, so older deep links from other panels still land somewhere.
 import { useEffect, useRef, useState } from "react";
 import { FileText, Image as ImageIcon, X } from "lucide-react";
 
@@ -61,8 +54,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const { padClass } = useCaptionChrome();
   const { capabilities } = useDesktopCapabilities();
   const placeSeat = usePlaceSeat(state.config, capabilities.host?.platform ?? "other");
-  // A bare open (the mascot, the header button) lands on Details; a deep
-  // link from another panel, or a tab press here, names a section.
   const tab = state.botSettingsExpandAccordion ? tabForSection(state.botSettingsSection) : "details";
   const skills = useManagedSkills(bot);
   const libraryOn = skillsLibraryEnabled(state.config);
@@ -72,15 +63,10 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
 
-  // Match the full selector's old rule: Antigravity's Auto still executes as
-  // Ask. Show that without changing the saved mode.
   const displayedApprovalMode = engine?.driverKind === "antigravityAgent" && approvalMode === "auto" ? "ask" : approvalMode;
-  // Heel (Ask) is always offered; Off-leash is the provider's own Auto,
-  // which a few engines do not have.
   const autoOffered = approvalModeOptionsFor(engine?.driverKind ?? "", trustedModesAvailable)
     .some((option) => option.mode === "auto");
   const chooseMode = (mode: Extract<ApprovalMode, "ask" | "auto">) => {
-    // No change while a turn runs, and Auto on this computer needs its warning first.
     if (bot.busy || mode === approvalMode) return;
     if (mode === "auto" && bot.computer === "local") {
       setLocalAutoWarning(bot.id);
@@ -117,14 +103,8 @@ export function BotSettingsDialog({ bot, overlay = false }: {
     dialog?.focus();
 
     const onKey = (event: KeyboardEvent) => {
-      // A dialog opened from inside this one (a skill review, the model
-      // picker, a computer warning) owns Escape while it is up — but only a
-      // *visible* one: a hidden or zero-size leftover must not trap the
-      // panel's own dismiss path.
       const nested = dialog?.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]');
       if (nested && nested.getClientRects().length > 0) return;
-      // A key pressed with focus outside this panel belongs to whatever
-      // holds focus, never to us.
       if (dialog && event.target instanceof Node && !dialog.contains(event.target)) return;
       if (event.key === "Escape") {
         event.preventDefault();
@@ -289,11 +269,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
               <div>
                 <span className={groupLabelCls}>{t("botSettings.simple.runsOn")}</span>
                 <div className={cardCls}>
-                  {/* The dog's engine, account and model in the same plain-words
-                      picker as the chat header, shown in place (a floating
-                      popover would be clipped by this scrolling panel). A pick
-                      is the dog's model: every thread without its own model
-                      moves with it, and the line below counts the ones that don't. */}
                   <div className={rowCls} data-simple-default-model>
                     <ModelPicker bot={bot} contained label={<span className="text-[14px] text-ink">{t("botSettings.simple.runsOn")}</span>} />
                     <ThreadModelsLine bot={bot} className="mt-2" />
@@ -465,9 +440,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             </div>
           )}
 
-          {/* Memory has its own Save button; it stays mounted (hidden on the
-              other tabs) so an unsaved draft survives a visit elsewhere, and
-              it fetches when it becomes the active tab. */}
           <div hidden={tab !== "library"} className="mt-5">
             <MemorySection bot={bot} active={tab === "library"} onToggle={(enabled) => patch({ memoryEnabled: enabled })} />
           </div>

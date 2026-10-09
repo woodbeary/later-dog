@@ -44,7 +44,6 @@ vi.mock("react", async (original) => ({
   },
   useEffect: () => {},
 }));
-// place-view's seat reads the interface mode; the dialog itself no longer does.
 vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => false, setAdvancedMode: () => {} }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => false }));
 vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: () => fixture.derived }));

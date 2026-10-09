@@ -4,9 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { MemoryCapacity, MemoryFileInfo, MemoryJournalRow } from "@/lib/memory";
 
-// DesktopCapabilities reads `window.laterdog` at module scope for its context
-// default; the src suite runs under vitest's "node" environment (no
-// window), so it is stubbed here.
 vi.mock("../DesktopCapabilities", () => ({
   useDesktopCapabilities: () => ({ capabilities: { host: { homeDir: undefined, platform: "other" } } }),
 }));

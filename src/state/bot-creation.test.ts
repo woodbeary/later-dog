@@ -86,7 +86,6 @@ describe("shared bot creation guard", () => {
     expect(JSON.parse(String(request.mock.calls[0]![1]?.body))).toEqual({ name: "Scout", title: "Trips" });
     post.resolve(response({ bot }));
     await flush();
-    // The dog greets first: one POST to its hello route, after botAdded.
     expect(request).toHaveBeenCalledTimes(2);
     expect(request.mock.calls[1]![0]).toBe("/api/bots/created/hello");
     expect(request.mock.calls[1]![1]?.method).toBe("POST");

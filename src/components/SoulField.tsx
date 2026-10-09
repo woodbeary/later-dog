@@ -1,8 +1,3 @@
-// The dog's instructions: byte-counted against the server cap, with a
-// banner when the mirror file on disk was edited outside the app. Edits go
-// to the record through the normal bot patch; the server writes the mirror.
-// A draft that is over the cap stays local and is never sent, so the
-// counter appears only then.
 import { useEffect, useState } from "react";
 
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
@@ -28,9 +23,6 @@ export function SoulField({ bot, onPatch }: { bot: Bot; onPatch: (patch: { soul?
     setDraft(bot.soul ?? "");
   }, [bot.id, bot.soul]);
 
-  // Mirror path, drift state, and file text don't depend on the text itself,
-  // so this must not key off bot.soul: onPatch updates it optimistically on
-  // every keystroke. resolve() refreshes explicitly after Apply/Discard.
   const refresh = () => {
     return flushBotPatches(bot.id)
       .then(() => api(`/api/bots/${bot.id}/soul`))

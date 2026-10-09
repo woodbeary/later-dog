@@ -1,4 +1,3 @@
-// What a dog has made in its open conversation, for the editor's Library tab.
 import { attachmentBasename } from "@/lib/composer-attachments";
 import { visibleMessages, type Bot } from "@/state/store";
 import { collectMessageFiles, splitMessageAttachments } from "../AttachmentGallery";
@@ -11,9 +10,6 @@ export interface LibraryItem {
   messageId: string;
 }
 
-/** Images and files the dog attached, plus local files its replies link
- * to — the same set the chat's attachment gallery shows under each
- * message. Newest first. */
 export function botLibraryItems(bot: Bot): LibraryItem[] {
   const groups: LibraryItem[][] = [];
   const seen = new Set<string>();
@@ -34,6 +30,5 @@ export function botLibraryItems(bot: Bot): LibraryItem[] {
     for (const image of attached.images) add(image, attachmentBasename(image), "image");
     for (const file of files) add(file.path, file.name || attachmentBasename(file.path), "file");
   }
-  // Newest message first; a message's own files keep the order it gave them.
   return groups.flat();
 }

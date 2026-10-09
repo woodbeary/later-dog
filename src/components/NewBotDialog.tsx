@@ -1,8 +1,3 @@
-// The new dog: a name, what it should help with, Create. Everything else
-// (its look, instructions, what it runs on, where it works) is the dog
-// editor's job once the dog exists. Create goes through the store's newBot
-// path — one POST /api/bots, then the dog greets first — so the sidebar,
-// the team dialog and the routine calendar all create the same way.
 import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 
@@ -12,10 +7,8 @@ import { t } from "@/lib/i18n";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 
 export interface NewBotDialogProps {
-  /** Obsolete: the defaults editor is gone. Accepted so older callers compile. */
   defaultsMode?: boolean;
   onClose?: () => void;
-  /** The team the dog is created in (TeamDialog, RoutineCalendarPage). */
   section?: string;
   onCreated?: (bot: Bot) => void | Promise<void>;
   preserveSelection?: boolean;
@@ -27,7 +20,6 @@ const rowInputCls = "mt-1 w-full bg-transparent text-[14px] text-ink placeholder
 
 export function NewBotDialog({ onClose, section, onCreated, preserveSelection = false }: NewBotDialogProps = {}) {
   const { state, dispatch } = useStore();
-  // Companion pairing permits creation but not reading host defaults.
   const companion = typeof window !== "undefined" && Boolean(window.laterdog?.remoteClient?.active);
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
@@ -42,9 +34,6 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
     else dispatch({ type: "toggleNewBot", open: false });
   };
 
-  // The host's suggested name and model: the name is prefilled so Create
-  // works at once, the model is sent back so creation fails rather than
-  // lands on an engine nobody is signed in to.
   useEffect(() => {
     if (companion) return;
     let cancelled = false;
@@ -54,7 +43,6 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
         setModelSelection(result.modelSelection);
         setName((current) => current || result.suggestedName || "");
       })
-      // Older servers and members: the server names the dog on POST.
       .catch(() => {});
     return () => { cancelled = true; };
   }, [companion]);
@@ -94,8 +82,6 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
       section,
       preserveSelection,
       onCreated: (bot) => {
-        // The caller's follow-up (the team dialog's placement, say) must not
-        // keep the dialog open or hide that the dog exists.
         Promise.resolve().then(() => onCreated?.(bot)).catch((cause: unknown) => {
           dispatch({ type: "error", message: cause instanceof Error ? cause.message : String(cause) });
         });
@@ -177,8 +163,6 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
   );
 }
 
-/** Obsolete: the "Defaults for new dogs" editor is gone. Kept as a no-op
- * until SettingsModal stops rendering it. */
 export function DefaultBotSettings() {
   return null;
 }

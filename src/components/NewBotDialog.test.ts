@@ -4,8 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Bot } from "@/state/store";
 
-// Hook-by-call-order harness (see BotSettingsDialog.simple.test.ts): state
-// survives between renders, effects are collected to run by hand.
 const fixture = vi.hoisted(() => ({
   values: [] as unknown[],
   index: 0,
