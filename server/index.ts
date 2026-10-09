@@ -9138,12 +9138,13 @@ function drainAsideLane() {
 /** Keep a person's words off the transcript until a direct-thread slot is
  * available. Reuse the existing cancellable, idempotent composer queue. */
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "call") {
+  const behindHeld = limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId);
   const decision = admit("direct", {}, {
     // A room turn holds the bot exactly like the sibling opened-thread queue
     // below: the drain's own block check waits it out, so the words queue
     // here rather than bounce off startTurn's 409.
     atCapacity: botAtThreadCapacity(botId),
-    threadBusy: threadBusy(botId, threadId),
+    threadBusy: threadBusy(botId, threadId) || behindHeld,
     groupTurn: Boolean(activeGroupTurnForBot(botId)),
     parksBehindCoordination: parksBehindCoordination(botId, threadId),
   });
@@ -9157,6 +9158,10 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
       trigger,
       via,
     });
+    if (behindHeld) {
+      limitHold.release(threadId);
+      queueMicrotask(drainQueuedSends);
+    }
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: decision.reason };
   }
   const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
