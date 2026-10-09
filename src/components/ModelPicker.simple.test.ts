@@ -744,7 +744,7 @@ describe("the model picker in Simple mode", () => {
     const opened = open(bot());
     const manage = inside(opened).find((node) => node.props["data-simple-manage"] !== undefined)!;
     (manage.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleAppSettings", open: true, section: "engines" });
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
   });
 
   it("puts a full-width named-variants control in the band in place of the effort steps", () => {

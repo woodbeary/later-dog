@@ -391,7 +391,7 @@ describe("Where the bot works", () => {
     const rendered = render(makeBot({ computer: "cloud" }));
     expect(placeLine(rendered)).toBe("A cloud computer here needs your own Boat key, a paid service.Add Boat key");
     (rendered.nodes.find((node) => node.props["data-testid"] === "place-action")!.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "connections" });
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
 
     fixture.ownerOrAdmin = false;
     fixture.values = [];

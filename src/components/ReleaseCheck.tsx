@@ -2,8 +2,8 @@
 // install updates itself, so the desktop app asks GitHub for the latest
 // release instead (electron/release-check.mjs) and the update UI offers its
 // page to download from. These are that offer's own pieces: the card that
-// tells the person once per version, the About dialog's line, and the switch
-// in Settings → General. The update entries in Settings and the profile menu
+// tells the person once per version and the About dialog's line. The update
+// entries in Settings and the profile menu
 // read the same state through releaseOffer.
 import { useState } from "react";
 import { ArrowDownToLine, Sparkles, X } from "lucide-react";
@@ -11,7 +11,6 @@ import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { openExternalLink } from "@/lib/app-links";
 import { t } from "@/lib/i18n";
 import { brand } from "../lib/brand";
-import { SettingRow, Switch } from "./SettingsPrimitives";
 
 export type ReleaseOffer = NonNullable<UpdaterState["available"]>;
 
@@ -109,33 +108,5 @@ export function AboutReleaseLine() {
         {t("releaseCheck.download")}
       </button>
     </p>
-  );
-}
-
-/** Settings → General → Check for new versions. Only on this computer's page,
- * and only where the desktop app checks GitHub (no update feed, not dev). */
-export function ReleaseCheckRow() {
-  const state = useUpdaterState();
-  const bridge = window.laterdog?.releaseCheck;
-  // The switch moves on the click; the state main sends back settles it.
-  const [saving, setSaving] = useState<boolean | null>(null);
-  if (!state?.releaseCheck || !bridge) return null;
-  const on = saving ?? state.releaseCheck === "on";
-  return (
-    <SettingRow title={t("releaseCheck.settings.title")} subtitle={t("releaseCheck.settings.subtitle")}>
-      <Switch
-        checked={on}
-        disabled={saving !== null}
-        aria-label={t("releaseCheck.settings.aria")}
-        onClick={() => {
-          const next = !on;
-          setSaving(next);
-          void bridge
-            .setEnabled(next)
-            .catch(() => {})
-            .finally(() => setSaving(null));
-        }}
-      />
-    </SettingRow>
   );
 }

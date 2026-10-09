@@ -198,7 +198,7 @@ describe("the way into API keys", () => {
     const entry = opened.nodes.find((node) => node.props["data-model-add-api-keys"]);
     expect(opened.html).toContain("Add API keys");
     (entry!.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "connections" });
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
   });
 
   // MOCA-292: once a key is saved, this shortcut is also how a mistyped key gets fixed.
@@ -220,7 +220,7 @@ describe("the way into API keys", () => {
     expect(opened.html).toContain(">API keys<");
     const add = rail(opened)!.props as { onAddApiKeys?: () => void };
     add.onAddApiKeys!();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "connections" });
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
   });
 });
 
