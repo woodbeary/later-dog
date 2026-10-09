@@ -219,6 +219,70 @@ describe("AccountBattery", () => {
     expect(JSON.parse(readFileSync(file, "utf8")).away).toEqual({});
   });
 
+  it("keeps a conversation on the account the person picked while the one that ran out rests", () => {
+    const file = join(scratch(), "account-battery.json");
+    const off = () => ({ ...ON, enabled: false });
+    let now = NOW;
+    const instance = new AccountBattery({ config: off, file, now: () => now });
+    expect(instance.routes("thread-1")).toBe(false);
+    instance.markExhausted("claude", { resetsAt: at(HOUR), kind: "session" });
+    instance.choose("thread-1", "claude", "claude-c");
+    expect(instance.routes("thread-1")).toBe(true);
+    expect(instance.routes("thread-2")).toBe(false);
+    expect(instance.routes()).toBe(false);
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toEqual({ ...SELECTION, instanceId: "claude-c" });
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-2")).toBe(SELECTION);
+    expect(instance.route(SELECTION, ACCOUNTS)).toBe(SELECTION);
+    expect(new AccountBattery({ config: off, file, now: () => now }).route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-c");
+    const unusable = [
+      [account("claude"), account("claude-c", { signedIn: false })],
+      [account("claude"), account("claude-c", { enabled: false })],
+      [account("claude"), account("claude-c", { eligible: false })],
+      [account("claude"), account("claude-c", { models: ["claude-opus-5"] })],
+      [account("claude"), account("claude-c", { driverKind: "codex" })],
+      [account("claude", { eligible: false }), account("claude-c")],
+      [account("claude")],
+    ];
+    for (const accounts of unusable) expect(instance.chosen("thread-1", SELECTION, accounts)).toBeUndefined();
+    expect(instance.chosen("thread-1", { ...SELECTION, instanceId: "codex" }, [...ACCOUNTS, account("codex", { driverKind: "codex" })])).toBeUndefined();
+    instance.markExhausted("claude-c", { resetsAt: at(HOUR) });
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
+    expect(instance.recovered("claude-c", NOW + 1)).toBe(true);
+    instance.choose("thread-1", "claude", "claude-b");
+    expect(JSON.parse(readFileSync(file, "utf8")).away["thread-1"]).toMatchObject({ from: "claude", to: "claude-b", ranOut: "claude" });
+    expect(instance.takeBack("thread-1", "claude-b")).toBe(false);
+    now += HOUR + 1;
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
+    expect(instance.takeBack("thread-1", "claude")).toBe(true);
+    expect(instance.routes("thread-1")).toBe(false);
+  });
+
+  it("holds a pick over the battery's own choice until the favourite that ran out is back", () => {
+    let now = NOW;
+    const instance = new AccountBattery({ config: () => ON, now: () => now });
+    instance.markExhausted("claude-b", { resetsAt: at(HOUR) });
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude");
+    instance.choose("thread-1", "claude-b", "claude-c");
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-c");
+    now += HOUR + 1;
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-b");
+    expect(instance.takeBack("thread-1", "claude-b")).toBe(true);
+  });
+
+  it("drops a pick when either account in it is removed, and the whole move when the account it left is", () => {
+    const off = () => ({ ...ON, enabled: false });
+    const instance = new AccountBattery({ config: off, now: () => NOW });
+    instance.markExhausted("claude", { resetsAt: at(HOUR) });
+    instance.choose("thread-1", "claude", "claude-c");
+    instance.forget("claude-c");
+    expect(instance.routes("thread-1")).toBe(false);
+    expect(instance.takeBack("thread-1", "claude")).toBe(true);
+    instance.choose("thread-2", "claude", "claude-b");
+    instance.forget("claude");
+    expect(instance.routes("thread-2")).toBe(false);
+    expect(instance.takeBack("thread-2", "claude")).toBe(false);
+  });
+
   it("starts empty from a missing or damaged file", () => {
     const dir = scratch();
     expect(new AccountBattery({ config: () => ON, file: join(dir, "missing.json") }).status(ACCOUNTS).resting).toEqual({});
@@ -228,14 +292,16 @@ describe("AccountBattery", () => {
 
 describe("words and times", () => {
   it("says where the conversation went and until when the other account rests", () => {
-    const resting = rest(Date.parse("2026-10-07T22:00:00Z") - NOW, { kind: "session" });
-    expect(switchNotice({ to: "Work", from: "Personal", rest: resting, now: NOW, timeZone: "America/Los_Angeles" }))
-      .toBe("Switched to Work — Personal is out of usage until 3:00 PM.");
+    const notice = (resting: Rest | undefined) => switchNotice({ to: "Work", from: "Personal", rest: resting, now: NOW, timeZone: "America/Los_Angeles" });
+    expect(notice(rest(Date.parse("2026-10-07T22:00:00Z") - NOW, { kind: "session" })))
+      .toBe("Switched to Work — Personal hit its 5-hour limit, resets at 3:00 PM.");
     const weekly = { until: "2026-10-10T00:00:00.000Z", since: at(0) };
-    expect(switchNotice({ to: "Work", from: "Personal", rest: weekly, now: NOW, timeZone: "America/Los_Angeles" }))
-      .toBe("Switched to Work — Personal is out of usage until Oct 9, 5:00 PM.");
-    expect(switchNotice({ to: "Work", from: "Personal", rest: { ...weekly, estimated: true }, now: NOW }))
-      .toBe("Switched to Work — Personal is out of usage for now.");
+    expect(notice({ ...weekly, kind: "weekly" })).toBe("Switched to Work — Personal hit its weekly limit, resets Oct 9 at 5:00 PM.");
+    expect(notice({ ...weekly, kind: "opus", estimated: true })).toBe("Switched to Work — Personal hit its Opus limit.");
+    expect(notice(weekly)).toBe("Switched to Work — Personal is out of usage until Oct 9, 5:00 PM.");
+    expect(notice({ ...weekly, kind: "constructor" })).toBe("Switched to Work — Personal is out of usage until Oct 9, 5:00 PM.");
+    expect(notice({ ...weekly, estimated: true })).toBe("Switched to Work — Personal is out of usage for now.");
+    expect(notice(undefined)).toBe("Switched to Work — Personal is out of usage for now.");
     expect(backNotice("Personal")).toBe("Back on Personal.");
     expect(resetLabel("2026-10-07T22:00:00.000Z", NOW, "UTC")).toBe("10:00 PM");
   });

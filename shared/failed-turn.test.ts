@@ -31,6 +31,14 @@ describe("a failed turn's row", () => {
     expect(Object.keys(failedTurnTool("rate limited", { setup: false }))).toEqual(["name", "ok"]);
   });
 
+  it("keeps which account ran out, which limit and when it resets", () => {
+    const tool = failedTurnTool("You've hit your limit", { terminal: true, quota: { kind: "weekly", resetsAt: "2026-10-09T17:00:00.000Z", instanceId: "work" } });
+    expect(tool.quota).toEqual({ kind: "weekly", resetsAt: "2026-10-09T17:00:00.000Z", instanceId: "work" });
+    expect(JSON.parse(JSON.stringify(tool))).toEqual(tool);
+    expect(failedTurnTool("limit", { quota: { kind: "", instanceId: "work", plan: "max" } as never }).quota).toEqual({ instanceId: "work" });
+    expect(failedTurnTool("limit", {})).not.toHaveProperty("quota");
+  });
+
   it("is the only way the server writes one", () => {
     // a hand-written row is how one path ended up with its own cut
     const dir = new URL("../server/", import.meta.url);

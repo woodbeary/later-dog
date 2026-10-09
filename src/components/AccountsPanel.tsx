@@ -67,6 +67,28 @@ export async function pollSignedIn(isSignedIn: () => boolean, fetchSignedIn: () 
   return false;
 }
 
+export function useCarryOn() {
+  const { state, dispatch } = useStore();
+  const battery = state.config?.accountBattery;
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = async (enabled: boolean) => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const order = accountOrder(subscriptionAccounts(state.instances, battery));
+      const config = await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { enabled, order } }) });
+      dispatch({ type: "configStatus", config });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("accounts.carryOnError"));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return { on: battery?.enabled === true, saving, error, set };
+}
+
 function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {
   return kind === "codex" ? <CodexMark size={size} /> : <ClaudeMark size={size} />;
 }
@@ -330,26 +352,11 @@ export function AccountsPanel() {
   const accounts = subscriptionAccounts(state.instances, battery);
   const { report, loading, now } = usePlanUsage();
   const [sheet, setSheet] = useState<SheetStep | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const carryOn = useCarryOn();
   const instancesRef = useRef(state.instances);
   instancesRef.current = state.instances;
 
   useEffect(() => subscribeAddAccount(() => setSheet({ step: "pick" })), []);
-
-  const setCarryOn = async (enabled: boolean) => {
-    if (saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const config = await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { enabled, order: accountOrder(accounts) } }) });
-      dispatch({ type: "configStatus", config });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("accounts.carryOnError"));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const finished = async (instanceId: string) => {
     const isSignedIn = (instances: readonly InstanceInfo[]) => instances.some((candidate) => candidate.instanceId === instanceId && signedIn(candidate));
@@ -394,9 +401,9 @@ export function AccountsPanel() {
             <div className="text-[13px] text-ink">{t("accounts.carryOn")}</div>
             <div className="text-[12px] text-ink-secondary">{t("accounts.carryOnHint")}</div>
           </div>
-          <Switch checked={battery?.enabled === true} disabled={saving} aria-label={t("accounts.carryOn")} onClick={() => void setCarryOn(!(battery?.enabled === true))} />
+          <Switch checked={carryOn.on} disabled={carryOn.saving} aria-label={t("accounts.carryOn")} onClick={() => void carryOn.set(!carryOn.on)} />
         </div>
-        {error && <p role="alert" className="px-4 pb-3 text-[12px] text-danger">{error}</p>}
+        {carryOn.error && <p role="alert" className="px-4 pb-3 text-[12px] text-danger">{carryOn.error}</p>}
       </div>
       {sheet && (
         <AddAccountSheet sheet={sheet} instances={state.instances} onStep={setSheet} onClose={() => setSheet(null)} onSignedIn={(instanceId) => void finished(instanceId)} />
