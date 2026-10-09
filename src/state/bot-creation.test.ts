@@ -1,8 +1,7 @@
 import { createElement, type Dispatch } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { botRole, roleProfilePatch } from "@/lib/bot-roles";
-import { createBotWithRole, initialState, reducer, StoreProvider, useStore, type Action, type Bot } from "./store";
+import { createDog, initialState, reducer, StoreProvider, useStore, type Action, type Bot } from "./store";
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const deferred = () => {
@@ -24,54 +23,47 @@ function mount(request: typeof fetch) {
 }
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-describe("bot presets", () => {
+describe("createDog", () => {
   const bot = { id: "created", name: "Scout", messages: [] };
 
-  it("creates a blank bot with just one request", async () => {
+  it("creates a dog with one bare request when nothing is chosen", async () => {
     const request = vi.fn().mockResolvedValue({ bot });
-    expect(await createBotWithRole(undefined, request)).toEqual({ bot });
+    expect(await createDog({}, request)).toEqual({ bot });
     expect(request).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST" });
   });
 
-  it("applies a preset only to the bot returned by creation", async () => {
-    const role = botRole("research")!;
-    const request = vi.fn().mockResolvedValueOnce({ bot }).mockResolvedValueOnce({ bot: { ...roleProfilePatch(role) } });
-    const created = await createBotWithRole(role, request);
-    expect(JSON.parse(request.mock.calls[0]![1].body)).toEqual({ name: role.name, title: role.title, description: role.description });
-    expect(request).toHaveBeenLastCalledWith("/api/bots/created", { method: "PATCH", body: JSON.stringify(roleProfilePatch(role)) });
-    expect(created.bot).toMatchObject({ id: "created", soul: role.soul, messages: [] });
+  it("sends the name and purpose trimmed, and the host model with requireAvailableModel", async () => {
+    const request = vi.fn().mockResolvedValue({ bot });
+    const modelSelection = { instanceId: "claude", model: "claude-sonnet-5" };
+    await createDog({ name: " Scout ", title: " Trips ", modelSelection }, request);
+    expect(JSON.parse(request.mock.calls[0]![1].body)).toEqual({ name: "Scout", title: "Trips", modelSelection, requireAvailableModel: true });
   });
 
-  it("creates directly in the selected team in the first POST", async () => {
+  it("leaves blank fields to the server's own defaults", async () => {
+    const request = vi.fn().mockResolvedValue({ bot });
+    await createDog({ name: "  ", title: "" }, request);
+    expect(request).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST" });
+  });
+
+  it("creates directly in the selected team in the one POST", async () => {
     const request = vi.fn().mockResolvedValue({ bot: { ...bot, section: "Studio" } });
-    const created = await createBotWithRole(undefined, request, undefined, "Studio");
+    const created = await createDog({ section: "Studio" }, request);
     expect(request).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST", body: JSON.stringify({ section: "Studio" }) });
     expect(created.bot.section).toBe("Studio");
   });
 
-  it("retains the already-created bot if its optional preset fails, without creating another", async () => {
-    const request = vi.fn().mockResolvedValueOnce({ bot }).mockRejectedValueOnce(new Error("profile unavailable"));
-    expect(await createBotWithRole(botRole("research"), request)).toEqual({ bot, profileError: "profile unavailable" });
-    expect(request).toHaveBeenCalledTimes(2);
-  });
-
-  it("creates a restricted bot already restricted, in the one create request", async () => {
+  it("creates a restricted dog already restricted; everyone is the default and is not sent", async () => {
     const request = vi.fn().mockResolvedValue({ bot });
-    await createBotWithRole(undefined, request, "admins");
+    await createDog({ visibility: "admins" }, request);
     expect(request).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST", body: JSON.stringify({ visibility: "admins" }) });
-    const role = botRole("research")!;
-    const withRole = vi.fn().mockResolvedValueOnce({ bot }).mockResolvedValueOnce({ bot: { ...roleProfilePatch(role) } });
-    await createBotWithRole(role, withRole, { people: ["ada@example.test"] });
-    expect(JSON.parse(withRole.mock.calls[0]![1].body)).toEqual({ name: role.name, title: role.title, description: role.description, visibility: { people: ["ada@example.test"] } });
-    // "everyone" is the default: nothing extra is sent
     const open = vi.fn().mockResolvedValue({ bot });
-    await createBotWithRole(undefined, open, "everyone");
+    await createDog({ visibility: "everyone" }, open);
     expect(open).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST" });
   });
 
-  it("does not apply a profile after failed creation", async () => {
+  it("surfaces a failed creation as is", async () => {
     const request = vi.fn().mockRejectedValue(new Error("offline"));
-    await expect(createBotWithRole(botRole("research"), request)).rejects.toThrow("offline");
+    await expect(createDog({ name: "Scout" }, request)).rejects.toThrow("offline");
     expect(request).toHaveBeenCalledTimes(1);
   });
 });
@@ -79,30 +71,32 @@ describe("bot presets", () => {
 describe("shared bot creation guard", () => {
   const bot = { id: "created", name: "Scout", messages: [] };
 
-  it.each([false, true])("blocks duplicates across dismissal through preset completion (profile failure: %s)", async (profileFails) => {
+  it.each([false, true])("blocks duplicates across dismissal until creation settles; the hello follows and may fail (%s)", async (helloFails) => {
     const post = deferred();
-    const profile = deferred();
-    const request = vi.fn<typeof fetch>().mockReturnValueOnce(post.promise).mockReturnValueOnce(profile.promise).mockResolvedValue(response({ bot }));
+    const hello = deferred();
+    const request = vi.fn<typeof fetch>().mockReturnValueOnce(post.promise).mockReturnValueOnce(hello.promise).mockResolvedValue(response({ bot }));
     const dispatch = mount(request);
     const onCreated = vi.fn();
     const onError = vi.fn();
-    dispatch({ type: "newBot", role: botRole("research"), onCreated, onError });
+    dispatch({ type: "newBot", name: "Scout", title: "Trips", onCreated, onError });
     dispatch({ type: "toggleNewBot", open: false });
     dispatch({ type: "toggleNewBot", open: true });
     dispatch({ type: "newBot" });
     expect(request).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(request.mock.calls[0]![1]?.body))).toEqual({ name: "Scout", title: "Trips" });
     post.resolve(response({ bot }));
     await flush();
+    // The dog greets first: one POST to its hello route, after botAdded.
     expect(request).toHaveBeenCalledTimes(2);
-    dispatch({ type: "newBot" });
-    expect(request).toHaveBeenCalledTimes(2);
-    profile.resolve(response(profileFails ? { error: "profile unavailable" } : { bot }, profileFails ? 500 : 200));
+    expect(request.mock.calls[1]![0]).toBe("/api/bots/created/hello");
+    expect(request.mock.calls[1]![1]?.method).toBe("POST");
+    expect(onCreated).toHaveBeenCalledExactlyOnceWith(bot);
+    hello.resolve(response(helloFails ? { error: "guests cannot introduce a dog" } : { ok: true }, helloFails ? 403 : 200));
     await flush();
-    expect(onCreated).toHaveBeenCalledOnce();
     expect(onError).not.toHaveBeenCalled();
     dispatch({ type: "newBot" });
     await flush();
-    expect(request).toHaveBeenCalledTimes(3);
+    expect(request).toHaveBeenCalledTimes(4);
   });
 
   it("releases the guard after POST failure so a fresh attempt can succeed", async () => {
@@ -118,7 +112,6 @@ describe("shared bot creation guard", () => {
     expect(onCreated).not.toHaveBeenCalled();
     dispatch({ type: "newBot", onCreated });
     await flush();
-    expect(request).toHaveBeenCalledTimes(2);
     expect(onCreated).toHaveBeenCalledOnce();
   });
 });
@@ -147,6 +140,14 @@ describe("setup navigation", () => {
     const next = reducer(start, { type: "toggleNewBot", open: true });
     expect(next).toMatchObject({ newBotOpen: true, settingsOpen: false, appSettingsOpen: false, pluginsOpen: false, shortcutsOpen: false, computerOpen: true });
     expect(reducer(next, { type: "toggleNewBot", open: false })).toMatchObject({ settingsOpen: false, pluginsOpen: false });
+  });
+
+  it("lands the dog editor on Details for a bare open and on the named section for a deep link", () => {
+    const bare = reducer(initialState, { type: "toggleSettings", open: true });
+    expect(bare.botSettingsExpandAccordion).toBe(false);
+    const linked = reducer(initialState, { type: "toggleSettings", open: true, section: "skills" });
+    expect(linked).toMatchObject({ settingsOpen: true, botSettingsSection: "skills", botSettingsExpandAccordion: true });
+    expect(reducer(linked, { type: "toggleSettings", open: false })).toMatchObject({ settingsOpen: false, botSettingsExpandAccordion: false });
   });
 
   it("opens the requested Plugins surface and remembers it on reopen", () => {

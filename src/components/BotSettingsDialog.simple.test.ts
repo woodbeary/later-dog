@@ -12,11 +12,11 @@ const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
   return {
-    advanced: false,
     values: [] as unknown[],
     index: 0,
     own: 0,
     dispatch: (() => {}) as (...args: unknown[]) => void,
+    request: (() => Promise.resolve({})) as (...args: unknown[]) => Promise<unknown>,
     storeState: {} as Record<string, unknown>,
     skills: {
       skills: [] as ManagedSkill[],
@@ -24,7 +24,11 @@ const fixture = vi.hoisted(() => {
       working: "",
       error: "",
       reviewing: null as null | { skill: ManagedSkill; text: string },
+      libraryPool: [] as { name: string }[],
+      addFromLibrary: "",
       toggle: (() => Promise.resolve()) as (skill: ManagedSkill) => Promise<void>,
+      refresh: (() => Promise.resolve()) as () => Promise<void>,
+      addToBot: (() => Promise.resolve()) as () => Promise<void>,
     },
     derived: {} as Record<string, unknown>,
   };
@@ -40,10 +44,11 @@ vi.mock("react", async (original) => ({
   },
   useEffect: () => {},
 }));
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => fixture.advanced, setAdvancedMode: () => {} }));
+// place-view's seat reads the interface mode; the dialog itself no longer does.
+vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => false, setAdvancedMode: () => {} }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => false }));
-vi.mock("./bot-settings/useSlackManagement", () => ({ useSlackManagementUrl: () => null }));
 vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: () => fixture.derived }));
+vi.mock("./bot-settings/BotEditorContext", () => ({ useBotEditor: () => ({ request: fixture.request }) }));
 vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./DesktopCapabilities")>()),
   useCaptionChrome: () => ({ padClass: "" }),
@@ -51,10 +56,13 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
 vi.mock("./Avatar", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./Avatar")>()),
   BotAvatar: () => null,
+  DogAvatar: () => null,
 }));
 vi.mock("./bot-settings/SkillsSection", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./bot-settings/SkillsSection")>()),
-  useManagedSkills: () => ({ ...fixture.skills, setReviewing: () => {}, enableReviewed: () => Promise.resolve() }),
+  useManagedSkills: () => ({
+    ...fixture.skills, setReviewing: () => {}, setError: () => {}, setAddFromLibrary: () => {}, enableReviewed: () => Promise.resolve(),
+  }),
 }));
 vi.mock("@/state/store", async (importOriginal) => {
   const store = await importOriginal<typeof import("@/state/store")>();
@@ -69,12 +77,12 @@ vi.mock("@/state/store", async (importOriginal) => {
 });
 
 const { BotSettingsDialog } = await import("./BotSettingsDialog");
-const { SimpleBotPanel, botLibraryItems } = await import("./bot-settings/SimpleBotPanel");
+const { botLibraryItems } = await import("./bot-settings/library");
+const { BOT_SECTIONS, tabForSection } = await import("./bot-settings/sections");
 const { SoulField } = await import("./SoulField");
 const { LocalComputerAutoWarning } = await import("./LocalComputerAutoWarning");
 const { ModelPicker } = await import("./ModelPicker");
-const { ThreadModelsLine } = await import("./ThreadModelsLine");
-const { ModelSection } = await import("./bot-settings/ModelSection");
+const { MemorySection } = await import("./bot-settings/MemorySection");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -110,24 +118,28 @@ function capture(component: () => ReactNode) {
 }
 
 const patch = vi.fn();
-const panelProps = { onClose: vi.fn(), onAllSettings: vi.fn(), onAddSkill: vi.fn() };
-const panel = (bot: Bot) => capture(() => SimpleBotPanel({ bot, derived: fixture.derived as never, ...panelProps }));
 const dialog = (bot: Bot) => capture(() => BotSettingsDialog({ bot }));
 const find = (rendered: { nodes: Node[] }, attr: string, value: unknown = true) =>
   rendered.nodes.find((node) => node.props[attr] === value)!;
 const click = (node: Node) => (node.props.onClick as () => void)();
-const isSimple = (rendered: { nodes: Node[] }) => rendered.nodes.some((node) => node.type === SimpleBotPanel);
+const change = (node: Node, value: string) => (node.props.onChange as (e: unknown) => void)({ target: { value } });
+const openTab = (section: string) => {
+  fixture.storeState = { settingsOpen: true, botSettingsSection: section, botSettingsExpandAccordion: true };
+};
 
 const skill = (name: string, enabled: boolean): ManagedSkill => ({ name, description: `${name} helper`, enabled, source: "github:x/y", warnings: [] });
 
 beforeEach(() => {
-  fixture.advanced = false;
   fixture.values = [];
   fixture.index = 0;
   fixture.own = 0;
   fixture.dispatch = vi.fn();
+  fixture.request = vi.fn(() => Promise.resolve({}));
   fixture.storeState = { settingsOpen: true, botSettingsSection: "overview", botSettingsExpandAccordion: false };
-  fixture.skills = { skills: [], loading: false, working: "", error: "", reviewing: null, toggle: vi.fn(() => Promise.resolve()) };
+  fixture.skills = {
+    skills: [], loading: false, working: "", error: "", reviewing: null, libraryPool: [], addFromLibrary: "",
+    toggle: vi.fn(() => Promise.resolve()), refresh: vi.fn(() => Promise.resolve()), addToBot: vi.fn(() => Promise.resolve()),
+  };
   patch.mockReset();
   fixture.derived = {
     patch, approvalMode: "ask", engine: { driverKind: "claudeAgent" }, trustedModesAvailable: false, activeState: "idle",
@@ -135,78 +147,135 @@ beforeEach(() => {
   };
 });
 
-describe("the bot settings panel in Simple mode", () => {
-  it("shows the avatar header, Details and Library tabs, and the plain fields", () => {
-    const { html } = panel(makeBot());
+describe("the dog editor's tabs", () => {
+  it("has exactly Details, Library and Computer, and lands on Details when opened bare", () => {
+    expect(BOT_SECTIONS.map((entry) => entry.id)).toEqual(["details", "library", "computer"]);
+    const { html, nodes: tree } = dialog(makeBot());
     expect(html).toContain(">Details</button>");
     expect(html).toContain(">Library</button>");
+    expect(html).toContain(">Computer</button>");
+    expect(find({ nodes: tree }, "data-simple-tab", "details").props["aria-selected"]).toBe(true);
+    for (const gone of ["All settings", "Search settings", "SOUL.md", "Advanced", "Slack", "Who can see it", "History", "Usage"]) {
+      expect(html).not.toContain(gone);
+    }
+  });
+
+  it("names a section through the store when a tab is pressed, so deep links and taps share one path", () => {
+    const rendered = dialog(makeBot());
+    click(find(rendered, "data-simple-tab", "library"));
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: true, section: "skills" });
+    click(find(rendered, "data-simple-tab", "computer"));
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: true, section: "access" });
+  });
+
+  it("folds the old section ids onto the three tabs", () => {
+    expect(tabForSection("skills")).toBe("library");
+    expect(tabForSection("memory")).toBe("library");
+    expect(tabForSection("access")).toBe("computer");
+    for (const section of ["overview", "identity", "soul", "model", "permissions", "voice", "history", "usage"] as const) {
+      expect(tabForSection(section)).toBe("details");
+    }
+    openTab("memory");
+    expect(find(dialog(makeBot()), "data-simple-tab", "library").props["aria-selected"]).toBe(true);
+    openTab("model");
+    expect(find(dialog(makeBot()), "data-simple-tab", "details").props["aria-selected"]).toBe(true);
+  });
+
+  it("closes from the header button and names it for screen readers", () => {
+    const rendered = dialog(makeBot());
+    const close = find(rendered, "aria-label", "Close settings");
+    expect(close.props.title).toBe("Close settings");
+    click(close);
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: false });
+  });
+});
+
+describe("Details", () => {
+  it("shows the look, the plain fields, what it runs on and the ask/decide control", () => {
+    const { html } = dialog(makeBot());
+    expect(html).toContain(">Look</span>");
+    expect(html).toContain('aria-label="Breed"');
+    expect(html).toContain('aria-label="Color"');
     expect(html).toContain(">Name</label>");
-    expect(html).toContain(">Job</label>");
+    expect(html).toContain(">Add a label</label>");
     expect(html).toContain("value=\"Scout\"");
     expect(html).toContain("value=\"Researcher\"");
     expect(html).toContain(">Instructions</label>");
     expect(html).toContain("Be brief.");
+    expect(html).toContain(">Runs on</span>");
     expect(html).toContain("Before Scout acts");
     expect(html).toContain("Heel");
     expect(html).toContain("Off-leash");
-    expect(html).toContain("All settings");
-    expect(html).not.toContain("SOUL.md");
+    for (const gone of ["Shape", "Expression", "Upload", "Generate with AI", "Image provider", "Job"]) {
+      expect(html).not.toContain(gone);
+    }
   });
 
-  it("sets the bot's default model between Instructions and Before acts, in the inline picker", () => {
-    const bot = makeBot();
-    const rendered = panel(bot);
-    const picker = rendered.nodes.find((node) => node.type === ModelPicker)!;
-    expect(picker).toBeDefined();
-    // Contained (in place, never clipped by the scrolling panel) and on the
-    // bot itself, with no thread: a pick is the bot's default.
-    expect(picker.props.contained).toBe(true);
-    expect(picker.props.bot).toBe(bot);
-    expect(picker.props.threadId).toBeUndefined();
-    const { html } = rendered;
-    const at = (text: string) => html.indexOf(text);
-    expect(at(">Instructions</label>")).toBeLessThan(at("Default model"));
-    expect(at("Default model")).toBeLessThan(at("Before Scout acts"));
+  it("picks the breed and colour as mascotBody and color, one radio per choice", () => {
+    const rendered = dialog(makeBot({ mascotBody: "beagle" }));
+    const breeds = rendered.nodes.filter((node) => node.props["data-breed"] !== undefined);
+    expect(breeds.length).toBeGreaterThan(3);
+    expect(breeds.every((node) => node.props.role === "radio")).toBe(true);
+    expect(find(rendered, "data-breed", "beagle").props["aria-checked"]).toBe(true);
+    const other = breeds.find((node) => node.props["data-breed"] !== "beagle")!;
+    click(other);
+    expect(patch).toHaveBeenLastCalledWith({ mascotBody: other.props["data-breed"] });
+
+    expect(find(rendered, "data-color", "green").props["aria-checked"]).toBe(true);
+    expect(find(rendered, "data-color", "blue").props["aria-label"]).toBe("Color: blue");
+    click(find(rendered, "data-color", "blue"));
+    expect(patch).toHaveBeenLastCalledWith({ color: "blue" });
   });
 
-  it("saves name, job and instructions through the same bot patch", () => {
-    const rendered = panel(makeBot());
-    (find(rendered, "id", "simple-bot-name-scout").props.onChange as (e: unknown) => void)({ target: { value: "Nova" } });
+  it("saves name, label and instructions through the same bot patch", () => {
+    const rendered = dialog(makeBot());
+    change(find(rendered, "id", "simple-bot-name-scout"), "Nova");
     expect(patch).toHaveBeenLastCalledWith({ name: "Nova" });
-    (find(rendered, "id", "simple-bot-job-scout").props.onChange as (e: unknown) => void)({ target: { value: "Writer" } });
+    change(find(rendered, "id", "simple-bot-label-scout"), "Writer");
     expect(patch).toHaveBeenLastCalledWith({ title: "Writer" });
     const soul = rendered.nodes.find((node) => node.type === SoulField)!;
     expect(soul.props.onPatch).toBe(patch);
   });
 
-  it("maps the two cards onto Ask and Approve for me", () => {
-    const rendered = panel(makeBot());
+  it("sets what the dog runs on in the contained picker, on the dog itself", () => {
+    const bot = makeBot();
+    const rendered = dialog(bot);
+    const picker = rendered.nodes.find((node) => node.type === ModelPicker)!;
+    expect(picker.props.contained).toBe(true);
+    expect(picker.props.bot).toBe(bot);
+    expect(picker.props.threadId).toBeUndefined();
+    const at = (text: string) => rendered.html.indexOf(text);
+    expect(at(">Instructions</label>")).toBeLessThan(at("data-simple-default-model"));
+    expect(at("data-simple-default-model")).toBeLessThan(at("Before Scout acts"));
+  });
+
+  it("maps the two choices onto Ask and Decide for the dog", () => {
+    const rendered = dialog(makeBot());
     expect(find(rendered, "data-approval-choice", "ask").props["aria-pressed"]).toBe(true);
     expect(find(rendered, "data-approval-choice", "auto").props["aria-pressed"]).toBe(false);
     click(find(rendered, "data-approval-choice", "auto"));
     expect(patch).toHaveBeenLastCalledWith({ approvalMode: "auto" });
 
     fixture.derived.approvalMode = "auto";
-    const onAuto = panel(makeBot());
-    click(find(onAuto, "data-approval-choice", "ask"));
+    click(find(dialog(makeBot()), "data-approval-choice", "ask"));
     expect(patch).toHaveBeenLastCalledWith({ approvalMode: "ask" });
   });
 
   it("shows legacy Antigravity Auto as Ask without changing the saved mode", () => {
-    fixture.derived.engine = { ...fixture.derived.engine!, driverKind: "antigravityAgent" };
+    fixture.derived.engine = { driverKind: "antigravityAgent" };
     fixture.derived.approvalMode = "auto";
-    const rendered = panel(makeBot({ approvalMode: "auto" }));
+    const rendered = dialog(makeBot({ approvalMode: "auto" }));
     expect(find(rendered, "data-approval-choice", "ask").props["aria-pressed"]).toBe(true);
     expect(find(rendered, "data-approval-choice", "auto").props["aria-pressed"]).toBe(false);
     expect(find(rendered, "data-approval-choice", "auto").props.disabled).toBe(true);
     expect(patch).not.toHaveBeenCalled();
   });
 
-  it("warns before Decide for me on this computer, as Permissions does", () => {
+  it("warns before Decide on this computer", () => {
     const bot = makeBot({ computer: "local" });
-    click(find(panel(bot), "data-approval-choice", "auto"));
+    click(find(dialog(bot), "data-approval-choice", "auto"));
     expect(patch).not.toHaveBeenCalled();
-    const warning = panel(bot).nodes.find((node) => node.type === LocalComputerAutoWarning)!;
+    const warning = dialog(bot).nodes.find((node) => node.type === LocalComputerAutoWarning)!;
     expect(warning.props.open).toBe(true);
     (warning.props.onConfirm as () => void)();
     expect(fixture.dispatch).toHaveBeenLastCalledWith({
@@ -214,31 +283,32 @@ describe("the bot settings panel in Simple mode", () => {
     });
   });
 
-  it("selects neither card and says so when another level is in use", () => {
+  it("selects neither choice and says so when another level is in use", () => {
     fixture.derived.approvalMode = "full";
-    const rendered = panel(makeBot());
+    const rendered = dialog(makeBot());
     expect(find(rendered, "data-approval-choice", "ask").props["aria-pressed"]).toBe(false);
     expect(find(rendered, "data-approval-choice", "auto").props["aria-pressed"]).toBe(false);
-    expect(rendered.html).toContain("A custom setting is in use.");
+    expect(find(rendered, "data-approval-custom").props.children).toBe("A custom setting is in use. Pick one above to replace it.");
     expect(patch).not.toHaveBeenCalled();
   });
+});
 
-  it("lists skills with the Skills section's on/off switch", () => {
+describe("Library", () => {
+  beforeEach(() => openTab("skills"));
+
+  it("lists tricks with an on/off switch and a quiet line when there are none", () => {
+    expect(dialog(makeBot()).html).toContain("No tricks yet.");
     const off = skill("summarise", false);
     fixture.skills.skills = [skill("triage", true), off];
-    const rendered = panel(makeBot());
+    const rendered = dialog(makeBot());
     expect(rendered.html).toContain("triage");
     expect(rendered.html).toContain("summarise helper");
     click(find(rendered, "aria-label", "Use summarise"));
     expect(fixture.skills.toggle).toHaveBeenCalledWith(off);
-    click(find(rendered, "data-simple-add-skill"));
-    expect(panelProps.onAddSkill).toHaveBeenCalled();
   });
 
-  it("disables every skill switch until a pending toggle settles", async () => {
-    const first = skill("triage", true);
-    const second = skill("summarise", false);
-    fixture.skills.skills = [first, second];
+  it("disables every switch until a pending toggle settles", async () => {
+    fixture.skills.skills = [skill("triage", true), skill("summarise", false)];
     let finish!: () => void;
     const pending = new Promise<void>((resolve) => { finish = resolve; });
     fixture.skills.toggle = vi.fn(async (selected) => {
@@ -246,35 +316,64 @@ describe("the bot settings panel in Simple mode", () => {
       await pending;
       fixture.skills.working = "";
     });
-
-    click(find(panel(makeBot()), "aria-label", "Use triage"));
-    const busy = panel(makeBot());
+    click(find(dialog(makeBot()), "aria-label", "Use triage"));
+    const busy = dialog(makeBot());
     expect(find(busy, "aria-label", "Use triage").props.disabled).toBe(true);
     expect(find(busy, "aria-label", "Use summarise").props.disabled).toBe(true);
-
     finish();
     await pending;
-    const settled = panel(makeBot());
+    const settled = dialog(makeBot());
     expect(find(settled, "aria-label", "Use triage").props.disabled).toBe(false);
-    expect(find(settled, "aria-label", "Use summarise").props.disabled).toBe(false);
   });
 
-  it("has a quiet line when there are no skills", () => {
-    expect(panel(makeBot()).html).toContain("No tricks yet.");
+  it("teaches a trick from a source in place, then refreshes the list", async () => {
+    const bot = makeBot();
+    const closed = dialog(bot);
+    expect(closed.nodes.some((node) => node.props["data-simple-teach"] !== undefined)).toBe(false);
+    click(find(closed, "data-simple-add-skill"));
+    const open = dialog(bot);
+    expect(find(open, "data-simple-add-skill").props["aria-expanded"]).toBe(true);
+    change(find(open, "aria-label", "Teach a trick"), " github:acme/skill ");
+    fixture.request = vi.fn(() => Promise.resolve({ installed: [{ name: "skill" }] }));
+    const form = find(dialog(bot), "data-simple-teach");
+    await (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault: () => {} });
+    expect(fixture.request).toHaveBeenCalledWith("/api/bots/scout/skills", { method: "POST", body: JSON.stringify({ source: "github:acme/skill" }) });
+    expect(fixture.skills.refresh).toHaveBeenCalled();
+    expect(dialog(bot).html).toContain("Imported 1. Switch it on below.");
   });
 
-  it("shows the Library empty state, and what the bot made when there is some", () => {
-    const empty = makeBot();
-    click(find(panel(empty), "data-simple-tab", "library"));
-    expect(panel(empty).html).toContain("Pages, files, and apps Scout makes show up here.");
+  it("offers the library pool instead when the skills library is on", () => {
+    fixture.storeState = { ...fixture.storeState, config: { features: { skillsLibrary: true } } };
+    fixture.skills.libraryPool = [{ name: "triage" }];
+    fixture.skills.addFromLibrary = "triage";
+    const bot = makeBot();
+    click(find(dialog(bot), "data-simple-add-skill"));
+    const rendered = dialog(bot);
+    expect(rendered.html).toContain("Pick a trick from the library");
+    click(rendered.nodes.find((node) => node.type === "button" && node.props.children === "Add")!);
+    expect(fixture.skills.addToBot).toHaveBeenCalled();
+  });
 
+  it("keeps memory mounted on every tab and lets it be switched off", () => {
+    const rendered = dialog(makeBot());
+    const memory = rendered.nodes.find((node) => node.type === MemorySection)!;
+    expect(memory.props.active).toBe(true);
+    (memory.props.onToggle as (enabled: boolean) => void)(false);
+    expect(patch).toHaveBeenLastCalledWith({ memoryEnabled: false });
+    openTab("identity");
+    const details = dialog(makeBot());
+    expect(details.nodes.find((node) => node.type === MemorySection)!.props.active).toBe(false);
+  });
+
+  it("shows the empty state, and what the dog made when there is some", () => {
+    expect(dialog(makeBot()).html).toContain("Pages, files, and apps Scout makes show up here.");
     const message = {
       id: "m1", role: "bot", kind: "text", at: Date.UTC(2026, 8, 30), text: "Done",
       attachments: [{ path: "/tmp/chart.png", kind: "image" }, { path: "/tmp/report.pdf", kind: "file", name: "report.pdf" }],
     } as Message;
     const made = makeBot({ messages: [message] });
     expect(botLibraryItems(made).map((item) => item.name)).toEqual(["chart.png", "report.pdf"]);
-    const rendered = panel(made);
+    const rendered = dialog(made);
     expect(rendered.html).toContain("report.pdf");
     click(find(rendered, "data-library-item", "m1"));
     expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "focusMessage", threadId: "thread-scout", messageId: "m1" });
@@ -301,83 +400,25 @@ describe("the bot settings panel in Simple mode", () => {
   });
 });
 
-describe("the bot settings dialog", () => {
-  it("opens on the Simple panel and reaches every section through All settings", () => {
-    const bot = makeBot();
-    const simple = dialog(bot);
-    expect(isSimple(simple)).toBe(true);
-    expect(simple.html).not.toContain("Search settings");
+describe("Computer", () => {
+  beforeEach(() => openTab("access"));
 
-    const panelNode = simple.nodes.find((node) => node.type === SimpleBotPanel)!;
-    (panelNode.props.onAllSettings as () => void)();
-    const full = dialog(bot);
-    expect(isSimple(full)).toBe(false);
-    expect(full.html).toContain("Search settings");
-    for (const label of ["Overview", "Identity", "Soul", "Tricks", "Memory", "Routines", "Access", "Model", "Permissions", "Voice &amp; alerts", "History", "Usage"]) {
-      expect(full.html).toContain(`>${label}</span>`);
-    }
-
-    click(find(full, "data-bot-settings-back"));
-    expect(isSimple(dialog(bot))).toBe(true);
-  });
-
-  it("opens the full Skills row from Add skill", () => {
-    const bot = makeBot();
-    const panelNode = dialog(bot).nodes.find((node) => node.type === SimpleBotPanel)!;
-    (panelNode.props.onAddSkill as () => void)();
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: true, section: "skills" });
-    expect(isSimple(dialog(bot))).toBe(false);
-  });
-
-  it("follows a deep link to a section the Simple panel does not cover", () => {
-    fixture.storeState = { settingsOpen: true, botSettingsSection: "model", botSettingsExpandAccordion: true };
-    expect(isSimple(dialog(makeBot()))).toBe(false);
-  });
-
-  it("keeps Edit profile on the Simple panel", () => {
-    fixture.storeState = { settingsOpen: true, botSettingsSection: "identity", botSettingsExpandAccordion: true };
-    expect(isSimple(dialog(makeBot()))).toBe(true);
-  });
-
-  it("leaves Advanced mode on today's panel", () => {
-    fixture.advanced = true;
+  it("says where the dog works in place words, Auto when nothing is chosen, and opens the panel", () => {
     const rendered = dialog(makeBot());
-    expect(isSimple(rendered)).toBe(false);
-    expect(rendered.html).toContain("Search settings");
-    expect(rendered.nodes.some((node) => node.props["data-bot-settings-back"])).toBe(false);
-  });
-});
-
-describe("Switch them too beside the bot's model", () => {
-  const opus = { instanceId: "claude", model: "claude-opus-5-5" };
-  const onOwn = (count: number): Partial<Bot> => ({ tasks: [
-    { threadId: "thread-scout", title: "Follows", createdAt: 1, modelSelection: opus, followsBotModel: true },
-    ...Array.from({ length: count }, (_, index) => ({
-      threadId: `own-${index}`, title: `Own ${index}`, createdAt: 1, modelSelection: { instanceId: "codex", model: "gpt-5.6" }, followsBotModel: false,
-    })),
-  ] });
-
-  it("shows the line and its button under the Simple panel's model only while a thread runs on its own model", () => {
-    expect(panel(makeBot(onOwn(0))).html).not.toContain("use their own model");
-    const { html } = panel(makeBot(onOwn(1)));
-    expect(html).toContain("1 thread uses its own model.");
-    expect(html).toContain("Switch it too");
-    expect(html.indexOf("Default model")).toBeLessThan(html.indexOf("1 thread uses its own model."));
-    expect(html.indexOf("1 thread uses its own model.")).toBeLessThan(html.indexOf("Before Scout acts"));
+    const row = find(rendered, "data-testid", "access-works-on");
+    expect(rendered.html).toContain("Where Scout works:");
+    expect(rendered.html).not.toContain("Cloud backend");
+    expect(rendered.html).not.toContain("Start VPS");
+    const open = nodes(row).find((node) => node.type === "button")!;
+    expect(open.props.children).toBe("Open Computer panel");
+    click(open);
+    expect(fixture.dispatch).toHaveBeenNthCalledWith(1, { type: "toggleSettings", open: false });
+    expect(fixture.dispatch).toHaveBeenNthCalledWith(2, { type: "toggleComputer", open: true });
   });
 
-  it("shows it in the full Model section too, and its button switches them", () => {
-    fixture.storeState = { settingsOpen: true, botSettingsSection: "model", botSettingsExpandAccordion: true };
-    expect(dialog(makeBot(onOwn(0))).html).not.toContain("data-thread-models");
-    const rendered = dialog(makeBot(onOwn(3)));
-    expect(rendered.html).toContain("3 threads use their own model.");
-    expect(rendered.html).toContain("Switch them too");
-    // A fresh hook record: the section is captured on its own.
-    fixture.values = [];
-    fixture.own = 0;
-    const section = capture(() => ModelSection({ bot: makeBot(onOwn(3)) }));
-    const line = section.nodes.find((node) => node.type === ThreadModelsLine)!;
-    click(capture(() => ThreadModelsLine(line.props as never)).nodes.find((node) => node.props["data-switch-them-too"] !== undefined)!);
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "followBotModel", botId: "scout" });
+  it("reads the chosen computer's words when one is set", () => {
+    const auto = dialog(makeBot()).html.match(/Where Scout works: ([^<]*)/)![1];
+    const local = dialog(makeBot({ computer: "local" })).html.match(/Where Scout works: ([^<]*)/)![1];
+    expect(local).not.toBe(auto);
   });
 });

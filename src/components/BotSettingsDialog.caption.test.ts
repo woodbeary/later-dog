@@ -4,11 +4,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Bot } from "@/state/store";
 
-// The full fold-out panel this checks is Advanced mode's.
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: () => {} }));
+// Only the header's inset is under test: the tabs' contents are stubbed so
+// the dialog renders with a bare bot and no server.
+vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => false, setAdvancedMode: () => {} }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => false }));
-vi.mock("./bot-settings/useSlackManagement", () => ({ useSlackManagementUrl: () => null }));
 vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: () => ({}) }));
+vi.mock("./bot-settings/SkillsSection", () => ({
+  useManagedSkills: () => ({ skills: [], loading: false, working: "", error: "", reviewing: null, libraryPool: [], addFromLibrary: "" }),
+  SkillReviewDialog: () => null,
+}));
+vi.mock("./bot-settings/MemorySection", () => ({ MemorySection: () => null }));
+vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
+vi.mock("./SoulField", () => ({ SoulField: () => null }));
+vi.mock("./Avatar", () => ({ BotAvatar: () => null, DogAvatar: () => null }));
 vi.mock("@/state/store", async (importOriginal) => {
   const store = await importOriginal<typeof import("@/state/store")>();
   return { ...store, useStore: () => ({ state: store.initialState, dispatch: vi.fn(), flushBotPatches: vi.fn() }) };
@@ -16,7 +24,7 @@ vi.mock("@/state/store", async (importOriginal) => {
 import { BotSettingsDialog } from "./BotSettingsDialog";
 import { DesktopCapabilitiesProvider } from "./DesktopCapabilities";
 
-const bot = { id: "bot-1", name: "Maily" } as never as Bot;
+const bot = { id: "bot-1", name: "Maily", title: "", color: "green", messages: [] } as never as Bot;
 // The provider reads window.laterdog.platform on render, so each case sees its stub.
 const header = () => {
   const html = renderToStaticMarkup(createElement(DesktopCapabilitiesProvider, null, createElement(BotSettingsDialog, { bot })));
