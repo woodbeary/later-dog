@@ -20,6 +20,7 @@ describe("admission golden tables", () => {
     expect(admit("direct-busy", { ...plain, carriesImages: true })).toEqual({ action: "queue" });
     expect(admit("direct-busy", { ...plain, pendingComputerSelection: true })).toEqual({ action: "queue" });
     expect(admit("direct-busy", { ...plain, engineCanSteer: false })).toEqual({ action: "queue" });
+    expect(admit("direct-busy", { ...plain, waitsForTurn: true })).toEqual({ action: "queue" });
     expect(admit("direct-busy", {})).toEqual({ action: "queue" });
   });
 

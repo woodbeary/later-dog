@@ -643,6 +643,7 @@ import {
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold } from "./laterdog/limit-hold.ts";
+import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
@@ -2950,6 +2951,16 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
   // generation fence so a replacement turn's approvals are never closed here.
   await (owner ? runningTurnInstance(owner, threadId) : null)?.adapter.interruptTurn(threadId);
   if (directTurnGenerationByThread.get(threadId) === generation) closeOpenApprovals(threadId);
+}
+
+async function stopThreadTurn(botId: string, threadId: string): Promise<void> {
+  const routine = routines!.activeBotRunForBot(botId);
+  if (routine?.threadId === threadId) {
+    await routines!.cancelRun(routine.id);
+    return;
+  }
+  handoffs.stoppedByPerson(threadId);
+  await interruptDirectThread(botId, threadId);
 }
 
 /** Stop left teammates mid-turn: say so in the transcript, name them, and
@@ -9251,10 +9262,11 @@ async function acceptDirectSend(
     /** A person is proven present (a paired session, or the desktop's owner
      * capability): steering their words in clears the unattended mark. */
     personPresent: boolean;
+    deliver?: SendDelivery;
   },
   guardedStart?: (currentAtStart: BotRecord) => Promise<DirectSendReceipt>,
 ): Promise<DirectSendReceipt> {
-  const { botId, threadId, text, sendId, replyTo, sender, trigger, via, personPresent } = input;
+  const { botId, threadId, text, sendId, replyTo, sender, trigger, via, personPresent, deliver } = input;
   const refused = directSendRefusal(botId, threadId);
   if (refused) throw refused;
   return sendSequencer.run(
@@ -9308,6 +9320,7 @@ async function acceptDirectSend(
         const carriesImages = extractTurnImages(text).images.length > 0;
         const steerTarget = handoffs.current(threadId);
         const busyAdmission = admit("direct-busy", {
+          waitsForTurn: waitsForTurn(deliver),
           carriesImages,
           pendingComputerSelection: Boolean(computerSelectionTurns.get(threadId)?.selected),
           engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
@@ -9370,6 +9383,9 @@ async function acceptDirectSend(
           trigger,
           via,
         });
+        if (deliver === "stop") {
+          void stopThreadTurn(current.id, threadId).catch((error) => console.warn("stop and send: the running turn did not stop", error));
+        }
         return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
       }
       return startOrQueueDirectMessage(botId, threadId, text, replyTo, sendId, sender, trigger, via);
@@ -22677,6 +22693,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const sendId = parseSendId(body.sendId);
       const replyTo = resolveReplyTarget(threadId, body.replyToId);
       const sender = messageSender(auth);
+      const deliver = z.enum(SEND_DELIVERIES).optional().safeParse(body.deliver);
+      if (!deliver.success) return json(res, 400, { error: "deliver must be steer, queue or stop" });
       const guardedStart = guarded
         ? async (currentAtStart: BotRecord): Promise<DirectSendReceipt> => {
             // There is no await between these checks and startTurn's
@@ -22718,6 +22736,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // owner capability, which every mutation there has already shown)
           // clears the mark.
           personPresent: auth.kind === "session" || DESKTOP_MANAGED,
+          deliver: deliver.data,
         }, guardedStart);
         return json(res, 202, receipt);
       } catch (error) {
@@ -23165,12 +23184,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // Explicit thread targets never fall through to another routine or
       // channel just because it belongs to the same bot.
       if (typeof expectedThreadId === "string" && store.taskByThread(bot.id, expectedThreadId)) {
-        const routine = routines!.activeBotRunForBot(bot.id);
-        if (routine?.threadId === expectedThreadId) await routines!.cancelRun(routine.id);
-        else {
-          handoffs.stoppedByPerson(expectedThreadId);
-          await interruptDirectThread(bot.id, expectedThreadId);
-        }
+        await stopThreadTurn(bot.id, expectedThreadId);
         return json(res, 200, { ok: true });
       }
       const directClaim = directTurnDispatchClaims.get(bot.threadId);

@@ -30,6 +30,7 @@ import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { GroupGoalRunCardData } from "../../shared/group-goal-run";
 import type { PlaceRow } from "../../shared/place-view";
 import type { FailedTurnQuota } from "../../shared/failed-turn";
+import type { SendDelivery } from "../../shared/send-delivery";
 import {
   reviewedSkillSha256,
   skillRequestBehavior,
@@ -1164,6 +1165,7 @@ export type Action =
       sendId?: string;
       replyToId?: string;
       threadId?: string;
+      deliver?: SendDelivery;
       onError?: () => void;
     }
   | { type: "pendingQueued"; threadId: string; queueId: string; text: string; reason?: SteerQueueReason }
@@ -3144,7 +3146,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           void waitForExecutionSettings(botBeforeSend ? [botBeforeSend] : [], threadId)
             .then(() => api(`/api/bots/${action.botId}/messages`, {
                 method: "POST",
-                body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
+                body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId, deliver: action.deliver }),
               }))
             .then((body) => {
               if (body?.message && typeof body.threadId === "string") {

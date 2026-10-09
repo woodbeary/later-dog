@@ -33,6 +33,8 @@ import { FullAccessWarning } from "./FullAccessWarning";
 import { ApprovalModeSelector } from "./ApprovalModeSelector";
 import { CommandAllowlistDialog } from "./CommandAllowlistDialog";
 import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode";
+import { waitsForTurn, type SendDelivery } from "../../shared/send-delivery";
+import { SendChoiceMenu } from "./SendChoiceMenu";
 import {
   appendPastedText,
   handoffAttachmentImagePreview,
@@ -595,7 +597,7 @@ export function Composer({
       dispatch({ type: "send", botId: bot.id, ...retry });
     }
   };
-  const send = () => {
+  const send = (delivery?: SendDelivery) => {
     if (locked || attachmentPending) return;
     if (
       attachments.some((attachment) => attachment.kind === "image") &&
@@ -641,9 +643,10 @@ export function Composer({
         sendId: sentDraft.sendId,
         replyToId: replyTo?.id,
         threadId,
+        deliver: delivery,
         onError: () => restoreDraft(sentDraft),
       });
-      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && !canSteer });
+      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && (delivery ? waitsForTurn(delivery) : !canSteer), delivery });
     }
     setText("");
     setAttachments([]);
@@ -1187,7 +1190,7 @@ export function Composer({
         {bot && !group && <CallButton bot={bot} placement="composer" />}
         {hasContent && !locked && (
           <button
-            onClick={send}
+            onClick={() => send()}
             disabled={attachmentPending}
             aria-label={
               busy && canSteer
@@ -1212,6 +1215,17 @@ export function Composer({
           >
             {busy && !canSteer ? <Clock size={15} /> : <ArrowUp size={17} />}
           </button>
+          )}
+          {busy && bot && !group && hasContent && !locked && (
+            <SendChoiceMenu
+              name={busyName}
+              canSteer={canSteer}
+              disabled={attachmentPending}
+              onChoose={(delivery) => {
+                inputRef.current?.focus();
+                send(delivery);
+              }}
+            />
           )}
           </div>
         </div>
