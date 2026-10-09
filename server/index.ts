@@ -24225,8 +24225,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // `code` for a pasted sign-in code (Claude), `callbackUrl` for a browser callback
           const callbackUrl = typeof body?.callbackUrl === "string" ? body.callbackUrl : typeof body?.code === "string" ? body.code : "";
           if (!flowId || !callbackUrl) return json(res, 400, { error: "flowId and a code or callbackUrl are required" });
-          await providerAuthSessions.complete(instanceId, owner, flowId, callbackUrl);
-          return json(res, 200, { ok: true });
+          // `auth` is how the sign-in ended: the flow is gone after this, so
+          // a status request can no longer say (src/components/ClaudeSignIn.tsx).
+          const outcome = await providerAuthSessions.complete(instanceId, owner, flowId, callbackUrl);
+          return json(res, 200, { ok: true, auth: outcome });
         }
         const body = await readBody(req, 4096);
         await providerAuthSessions.cancel(instanceId, owner, typeof body?.flowId === "string" ? body.flowId : "");

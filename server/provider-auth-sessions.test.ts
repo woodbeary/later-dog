@@ -167,3 +167,24 @@ describe("provider sign-out", () => {
     await expect(sessions.signOut(plain, "owner")).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe("a completed sign-in's outcome", () => {
+  // The flow is gone once the code is accepted, so a client that asked for
+  // its status afterwards got a 404 and read success as failure. The
+  // completion itself must say how it ended.
+  it("is returned by complete(), read before the flow is forgotten", async () => {
+    const { sessions, instance, auth } = fixture();
+    await sessions.start(instance, "owner");
+    instance.getAuthentication.mockResolvedValueOnce({ ...auth, phase: "succeeded" });
+    await expect(sessions.complete("codex", "owner", "random-flow", "pasted-code")).resolves.toMatchObject({ phase: "succeeded", flowId: "random-flow" });
+    expect(instance.completeAuthentication).toHaveBeenCalledWith("random-flow", "pasted-code");
+    await expect(sessions.status("codex", "owner", "random-flow")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("reports a code the provider rejected without pretending it worked", async () => {
+    const { sessions, instance, auth } = fixture();
+    await sessions.start(instance, "owner");
+    instance.getAuthentication.mockResolvedValueOnce({ ...auth, phase: "failed", message: "That code was not accepted." });
+    await expect(sessions.complete("codex", "owner", "random-flow", "wrong")).resolves.toMatchObject({ phase: "failed", message: "That code was not accepted." });
+  });
+});
