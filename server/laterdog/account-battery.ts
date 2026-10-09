@@ -24,6 +24,14 @@ export const CONTINUE_AFTER_SWITCH =
   "but its tool results are not in this session. Check the current state, then continue the user's last request from " +
   "where it stopped. Do not redo what was already done.]";
 
+export const CONTINUE_AFTER_RESET =
+  "[later.dog: your last turn stopped partway because this conversation ran out of usage on every account it can use. " +
+  "A limit has reset, so it carries on now. Anything that turn already did (files written, commands run) is still in place, " +
+  "though its tool results may not be in this session. Check the current state, then continue the user's last request from " +
+  "where it stopped. Do not redo what was already done.]";
+
+export const MAX_BATTERY_RERUNS = 8;
+
 export interface AccountBatteryConfig {
   enabled: boolean;
   /** Per engine (driver kind): account instance ids, favourite first. */
@@ -66,7 +74,6 @@ export interface Quota {
   kind?: string;
 }
 
-/** A dispatched direct turn, kept so it can run once more elsewhere. */
 export interface BatteryTurn {
   /** The dispatch generation that owns the conversation. */
   generation: string;
@@ -75,9 +82,6 @@ export interface BatteryTurn {
   /** The person's message it answers; a re-run is dropped once a newer one
    * arrives. */
   requestMessageId?: string;
-  /** Starts the turn again: the same message when `continuation` is null,
-   * else that prompt. Absent for a turn that must not run twice (a backup
-   * attempt already, a routine run, coordinated or delegated work). */
   rerun?: (continuation: string | null) => Promise<unknown>;
 }
 
@@ -297,6 +301,10 @@ export function backNotice(name: string): string {
   return `Back on ${name}.`;
 }
 
+export function carryOnNotice(name: string): string {
+  return `Picking up where it stopped, on ${name}.`;
+}
+
 export interface AccountBatteryOptions {
   /** The saved setting (config.json `accountBattery`), read at each use. */
   config: () => AccountBatteryConfig | undefined;
@@ -306,7 +314,6 @@ export interface AccountBatteryOptions {
   /** Ask the provider when an account's limit resets, for an error that did
    * not say. Best effort: the estimate stands if it fails. */
   planReset?: (instanceId: string, kind: string | undefined) => Promise<string | undefined>;
-  /** Rests changed: the Settings card shows them. */
   onChange?: () => void;
 }
 
@@ -424,7 +431,26 @@ export class AccountBattery {
     return activeRest(account, model, accounts, this.state.resting, this.now());
   }
 
-  /** What the Settings card shows. */
+  readyAt(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): string | undefined {
+    const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
+    const own = find(selection.instanceId);
+    if (!own) return undefined;
+    const away = threadId ? this.state.away[threadId] : undefined;
+    const listed = own.models.includes(selection.model);
+    const others = [
+      ...(away?.to && (away.pick === undefined || away.pick === own.instanceId) ? [away.to] : []),
+      ...(this.enabled && own.eligible ? batteryOrder(this.options.config(), accounts)[own.driverKind] ?? [] : []),
+    ].map(find).filter((account): account is BatteryAccount => Boolean(account && account !== own && account.eligible && account.enabled &&
+      account.signedIn !== false && account.driverKind === own.driverKind && (!listed || account.models.includes(selection.model))));
+    let soonest = Infinity;
+    for (const account of [own, ...others]) {
+      const rest = this.restOf(account, accounts, selection.model);
+      if (!rest) return undefined;
+      soonest = Math.min(soonest, Date.parse(rest.until));
+    }
+    return new Date(soonest).toISOString();
+  }
+
   status(accounts: readonly BatteryAccount[]): BatteryStatus {
     const config = this.options.config();
     const resting: BatteryStatus["resting"] = {};
@@ -436,7 +462,6 @@ export class AccountBattery {
     return { enabled: config?.enabled === true, order: batteryOrder(config, accounts), resting };
   }
 
-  /** Keep a dispatched turn so it can run once more on the next account. */
   trackTurn(threadId: string, turn: BatteryTurn): void {
     this.turns.delete(threadId);
     this.turns.set(threadId, turn);
@@ -463,12 +488,15 @@ export class AccountBattery {
     return { turn, from, to, rest: this.restOf(from, input.accounts, input.selection.model) };
   }
 
-  /** Take a kept turn for its one re-run; never returned twice. */
   takeTurn(threadId: string, generation: string | undefined): BatteryTurn | undefined {
-    const turn = this.turns.get(threadId);
-    if (!turn || turn.generation !== generation) return undefined;
-    this.turns.delete(threadId);
+    const turn = this.keptTurn(threadId, generation);
+    if (turn) this.turns.delete(threadId);
     return turn;
+  }
+
+  keptTurn(threadId: string, generation: string | undefined): BatteryTurn | undefined {
+    const turn = this.turns.get(threadId);
+    return turn && turn.generation === generation ? turn : undefined;
   }
 
   /** This conversation moved off `from` because it ran out of usage. */

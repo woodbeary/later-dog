@@ -92,14 +92,9 @@ describe("the account list", () => {
     expect(onPick).toHaveBeenCalledWith(work);
   });
 
-  it("offers carry-on only where an engine has two accounts, and saves the flip", () => {
+  it("offers carry-on with any accounts, and saves the flip", () => {
     show({ accounts: [personal, codex] });
-    expect(carryOnSwitch()).toBeNull();
-    flushSync(() => root!.unmount());
-    document.body.innerHTML = "";
-
-    show({ accounts: [personal, work] });
-    expect(carryOnSwitch()!.getAttribute("aria-label")).toBe("When an account runs out, carry on with the next");
+    expect(carryOnSwitch()!.getAttribute("aria-label")).toBe("Keep going when an account runs out");
     expect(carryOnSwitch()!.getAttribute("aria-checked")).toBe("false");
     carryOnSwitch()!.click();
     expect(fixture.carryOn.set).toHaveBeenCalledWith(true);

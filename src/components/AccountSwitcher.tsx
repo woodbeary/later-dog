@@ -49,8 +49,6 @@ export function AccountSwitcher({ accounts, currentId, report, loading, now, res
   onPick: (account: InstanceInfo) => void;
 }) {
   const carryOn = useCarryOn();
-  const kinds = accounts.map((account) => account.driverKind);
-  const canCarryOn = kinds.some((kind, index) => kinds.indexOf(kind) !== index);
   return (
     <section data-account-switcher aria-label={t("accounts.title")} className="shrink-0 border-b border-hairline/40 py-1">
       <ul>
@@ -87,12 +85,10 @@ export function AccountSwitcher({ accounts, currentId, report, loading, now, res
           );
         })}
       </ul>
-      {canCarryOn && (
-        <div className="flex items-center justify-between gap-3 px-3 pb-1.5 pt-1">
-          <span className="min-w-0 text-[12px] text-ink-secondary">{t("accounts.carryOn")}</span>
-          <Switch checked={carryOn.on} disabled={carryOn.saving} aria-label={t("accounts.carryOn")} onClick={() => void carryOn.set(!carryOn.on)} />
-        </div>
-      )}
+      <div className="flex items-center justify-between gap-3 px-3 pb-1.5 pt-1">
+        <span className="min-w-0 text-[12px] text-ink-secondary">{t("accounts.carryOn")}</span>
+        <Switch checked={carryOn.on} disabled={carryOn.saving} aria-label={t("accounts.carryOn")} onClick={() => void carryOn.set(!carryOn.on)} />
+      </div>
       {carryOn.error && <p role="alert" className="px-3 pb-1.5 text-[12px] text-danger">{carryOn.error}</p>}
     </section>
   );

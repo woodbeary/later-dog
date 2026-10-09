@@ -209,7 +209,7 @@ describe("the limit message", () => {
     publish({ instances: [claude("claude", "Personal"), chatgpt("chatgpt", "ChatGPT")] });
     await render(limit({ kind: "session" }));
     expect(words()).toContain("Add another account to keep going.");
-    expect(toggle()).toBeNull();
+    expect(toggle()?.getAttribute("aria-checked")).toBe("false");
     await click(button("Add account"));
     expect(fixture.dispatched).toContainEqual({ type: "toggleAppSettings", open: true, section: "general" });
     const open = vi.fn();
@@ -236,6 +236,26 @@ describe("the limit message", () => {
       method: "PUT", body: JSON.stringify({ accountBattery: { enabled: true, order: { claudeAgent: ["claude", "claude-work"], codex: ["chatgpt"] } } }),
     });
     expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("says when it picks up by itself, and leaves that to the messages waiting when there are some", async () => {
+    publish({
+      instances: [claude("claude", "Personal"), claude("claude-work", "Work")],
+      config: { accountBattery: {
+        ...battery({ claude: { until: inHours(2), kind: "session" }, "claude-work": { until: inHours(4), kind: "session" } }, true),
+        waiting: { "thread-scout": inHours(2), other: inHours(1) },
+      } },
+    });
+    await render(limit({ kind: "session" }));
+    expect(words()).toContain("Picks up where it stopped at 3:00 PM.");
+    expect(words()).not.toContain("can't take over");
+    expect(button("Add account")).toBeTruthy();
+    expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+    publish({ pendingQueued: { "thread-scout": [{ queueId: "q1", text: "one" }] } });
+    await settle();
+    expect(words()).not.toContain("Picks up");
+    expect(words()).toContain("Your other accounts can't take over right now.");
+    expect(words()).toContain("1 message(s) waiting.");
   });
 
   it("counts the messages waiting for this conversation", async () => {

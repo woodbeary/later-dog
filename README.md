@@ -40,9 +40,10 @@ versions turns that off.
 - **Put it on a clock.** Ask a dog to make itself a routine; you confirm the schedule once and it runs in its own thread.
 - **Switch models any time.** Codex on your ChatGPT plan, Claude Code, Grok — per dog or per conversation, with the
   reasoning effort you want.
-- **Never run dry.** Sign in to several Claude accounts and several ChatGPT (Codex) accounts, and order each engine's in
-  Settings → AI → Token battery. When one hits its usage limit, the conversation continues on the next account of the
-  same engine and comes back to your favourite when it resets ([how it works](docs/laterdog/token-battery.md)).
+- **Never run dry.** Sign in to several Claude accounts and several ChatGPT (Codex) accounts in Settings → General →
+  Accounts and switch on Keep going when an account runs out. When one hits its usage limit, the conversation continues
+  on your next account of the same engine and comes back when the limit resets; when every account is out, it waits and
+  picks up where it stopped ([how it works](docs/laterdog/token-battery.md)).
 - **Give a treat.** The bone under a dog's reply makes it happy and counts on its profile. It does nothing else.
 
 ## Cloud work: tasks in, verified pull requests out

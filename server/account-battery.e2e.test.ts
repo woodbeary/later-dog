@@ -249,6 +249,37 @@ it("tries the next account once: when it is out of usage too, the limit stays th
   });
 }, 120_000);
 
+it("waits when every account is out of usage, then picks up where it stopped once a limit resets", async () => {
+  await withBatteryFixture({ secondOutOfUsage: true, resetsIn: 20 }, async (fixture) => {
+    const { api, firstPrompts, secondPrompts, gate, bookedTo, evidence } = fixture;
+    const chat = await batteryBot(fixture, "Battery walk away");
+    writeFileSync(gate, "out of usage");
+    const text = "WALK_AWAY_7K";
+    await chat.send(text);
+    await chat.settled((rows) => switches(rows).length === 1 && limitRows(rows).length === 1);
+    const waiting = (await api("GET", "/api/config")).accountBattery.waiting;
+    evidence.push({ waiting });
+    expect(Object.keys(waiting)).toEqual([chat.threadId]);
+    expect(Date.parse(waiting[chat.threadId])).toBeGreaterThan(Date.now());
+    rmSync(gate);
+    await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 60_000, interval: 500 }).toBe("hello from fake claude");
+    await chat.settled((rows) => lastReply(rows)?.text === "hello from fake claude");
+    const rows = await chat.messages();
+    evidence.push({ rows });
+    expect(firstPrompts()).toHaveLength(2);
+    expect(secondPrompts()).toHaveLength(1);
+    expect(promptText(firstPrompts()[1])).toContain(text);
+    expect(rows.filter((row) => row.role === "user")).toHaveLength(1);
+    expect(rows.find((row) => row.role === "user" && row.text === text).requestPending).toBe(false);
+    expect(switches(rows)).toHaveLength(1);
+    expect(rows.filter((row) => row.tool?.name === "recovery: Picking up where it stopped, on Claude account 1.")).toHaveLength(1);
+    expect(limitRows(rows)).toHaveLength(0);
+    expect(rows.some((row) => row.tool?.name === "notice: Back on Claude account 1.")).toBe(false);
+    expect((await api("GET", "/api/config")).accountBattery.waiting).toEqual({});
+    await expect.poll(() => bookedTo(chat.threadId), { timeout: 10_000 }).toEqual(["claude", "claude-two", "claude"]);
+  });
+}, 150_000);
+
 it("changes nothing while the battery is off, beyond reporting the limit as a failed turn", async () => {
   await withBatteryFixture({ enabled: false }, async (fixture) => {
     const { firstPrompts, secondPrompts, gate, api, evidence } = fixture;

@@ -110,7 +110,7 @@ until observed; secrets are entered by the operator in the app or `wrangler secr
   after every change (`benchmark-checklist` skill).
 - **Spend tokens frugally.** The app adds context to every turn (system prompt, memory, tricks, tool schemas). Measure
   the overhead per turn and per bot, show it in the usage meter, and cut what does not earn its place; a harness that
-  makes people hit their limits early is not one anybody wants. The token battery (user-arranged account order with
+  makes people hit their limits early is not one anybody wants. The token battery (account rotation with
   carry-over) is the complement, not a substitute. Built 2026-10-07 and proven against a fake Claude CLI
   ([token-battery.md](token-battery.md)); still to observe: two real Claude accounts reaching their limits in one day.
 - **Keep the whole suite in CI.** CI once ran only the supervisor's tests and a few others, so renaming the data folder

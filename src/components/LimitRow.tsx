@@ -64,6 +64,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   const free = others.filter((account) => signedIn(account) && offers(account) && !resting(account));
   const chosen = free.find((account) => account.instanceId === pick) ?? free[0];
   const waiting = threadId ? state.pendingQueued[threadId]?.length ?? 0 : 0;
+  const picksUpAt = threadId && waiting === 0 ? battery?.waiting?.[threadId] : undefined;
 
   const continueOn = async (account: InstanceInfo) => {
     if (sending || !botId || !threadId) return;
@@ -128,11 +129,14 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
           </div>
         ) : (
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <span className="text-[12.5px] text-ink-secondary">{others.length > 0 ? t("chat.limit.noneFree") : t("chat.limit.noOther")}</span>
+            <span className="text-[12.5px] text-ink-secondary">
+              {picksUpAt ? t("chat.limit.carriesOn", { time: resetClock(picksUpAt, now) })
+                : others.length > 0 ? t("chat.limit.noneFree") : t("chat.limit.noOther")}
+            </span>
             <button type="button" onClick={addAccount} className={pill}>{t("accounts.add")}</button>
           </div>
         ))}
-        {actionable && others.length > 0 && (
+        {actionable && limited && (
           <div className="mt-2.5 flex items-center justify-between gap-3">
             <span className="text-[12.5px] text-ink-secondary">{t("accounts.carryOn")}</span>
             <Switch checked={carryOn.on} disabled={carryOn.saving} aria-label={t("accounts.carryOn")} onClick={() => void carryOn.set(!carryOn.on)} />

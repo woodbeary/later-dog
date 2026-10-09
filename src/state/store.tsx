@@ -658,13 +658,11 @@ export interface ConfigStatus {
   newBots?: { effort?: EffortLevel };
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };
   automaticRecovery?: { enabled: boolean; backup?: ModelSelection };
-  /** The token battery (server/laterdog/account-battery.ts): on or off, per
-   * engine the accounts in the order turns use them (favourite first), and
-   * the accounts resting until their usage limit resets. */
   accountBattery?: {
     enabled: boolean;
     order: Record<string, string[]>;
     resting?: Record<string, { until: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
+    waiting?: Record<string, string>;
   };
   localVm: { mode: "shared" | "per-bot" | "pool"; maxInstances: number; idleTimeoutMinutes?: number };
   /** `providerKeys`: names of the keys saved for OpenCode's other

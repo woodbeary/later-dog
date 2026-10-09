@@ -199,13 +199,45 @@ describe("AccountBattery", () => {
     expect(ask()).toBeNull();
     expect(instance.recovered("claude", NOW + 1)).toBe(true);
     expect(ask()).toMatchObject({ to: { instanceId: "claude" } });
+    expect(instance.keptTurn("thread-1", "g2")).toBeUndefined();
+    expect(instance.keptTurn("thread-1", "g1")?.rerun).toBe(rerun);
     expect(instance.takeTurn("thread-1", "g2")).toBeUndefined();
     expect(instance.takeTurn("thread-1", "g1")?.rerun).toBe(rerun);
     expect(instance.takeTurn("thread-1", "g1")).toBeUndefined();
+    expect(instance.keptTurn("thread-1", "g1")).toBeUndefined();
     expect(ask()).toBeNull();
     // a turn kept without a re-run (a backup run, a routine) never gets one
     instance.trackTurn("thread-2", { generation: "g3", instanceId: "claude-b" });
     expect(ask({ threadId: "thread-2", generation: "g3" })).toBeNull();
+  });
+
+  it("tells when a conversation out of usage on every account it can use can run again", () => {
+    const { instance, advance } = battery();
+    expect(instance.readyAt(SELECTION, ACCOUNTS, "thread-1")).toBeUndefined();
+    instance.markExhausted("claude", { resetsAt: at(3 * HOUR), kind: "session" });
+    expect(instance.readyAt(SELECTION, ACCOUNTS, "thread-1")).toBeUndefined();
+    instance.markExhausted("claude-b", { resetsAt: at(HOUR), kind: "session" });
+    instance.markExhausted("claude-c", { resetsAt: at(2 * HOUR), kind: "session" });
+    expect(instance.readyAt(SELECTION, ACCOUNTS, "thread-1")).toBe(at(HOUR));
+    expect(instance.readyAt(SELECTION, [account("claude"), account("claude-b", { signedIn: false }), account("claude-c")])).toBe(at(2 * HOUR));
+    const unusable = [account("claude"), account("claude-b", { models: ["claude-opus-5"] }), account("claude-c", { driverKind: "codex" })];
+    expect(instance.readyAt(SELECTION, unusable)).toBe(at(3 * HOUR));
+    expect(instance.readyAt(SELECTION, [account("claude", { eligible: false }), account("claude-b"), account("claude-c")])).toBe(at(3 * HOUR));
+    expect(instance.readyAt({ ...SELECTION, instanceId: "gone" }, ACCOUNTS)).toBeUndefined();
+    advance(HOUR);
+    expect(instance.readyAt(SELECTION, ACCOUNTS, "thread-1")).toBeUndefined();
+  });
+
+  it("counts only the conversation's own account, and the one picked for it, while the battery is off", () => {
+    const { instance } = battery({ config: () => ({ ...ON, enabled: false }) });
+    instance.markExhausted("claude", { resetsAt: at(3 * HOUR) });
+    instance.markExhausted("claude-b", { resetsAt: at(HOUR) });
+    instance.markExhausted("claude-c", { resetsAt: at(2 * HOUR) });
+    expect(instance.readyAt(SELECTION, ACCOUNTS, "thread-1")).toBe(at(3 * HOUR));
+    instance.choose("thread-1", "claude", "claude-c", "claude");
+    expect(instance.readyAt(SELECTION, ACCOUNTS, "thread-1")).toBe(at(2 * HOUR));
+    expect(instance.readyAt(SELECTION, ACCOUNTS, "thread-2")).toBe(at(3 * HOUR));
+    expect(instance.readyAt({ ...SELECTION, instanceId: "claude-b" }, ACCOUNTS, "thread-1")).toBe(at(HOUR));
   });
 
   it("says once that a conversation is back on the account it left first", () => {

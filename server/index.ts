@@ -637,9 +637,10 @@ import { DOG_CREATION_REFUSAL, greetNewDog, mayCreateDogs } from "./laterdog/dog
 import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, backNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, MAX_BATTERY_RERUNS, backNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
+import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold } from "./laterdog/limit-hold.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
@@ -869,9 +870,6 @@ const supportsApprovalMode = createApprovalModeSupport(registry);
 // any other copy on PATH.
 registerEnginesBinDir();
 
-// later.dog token battery (server/laterdog/account-battery.ts): with it on,
-// a turn runs on the first of the person's subscription accounts, in their
-// order, that is not out of usage; this file only routes and re-runs.
 const accountBattery = new AccountBattery({
   config: () => cfg.accountBattery,
   file: join(DATA_DIR, "account-battery.json"),
@@ -907,12 +905,16 @@ function onBatteryAccount<T extends BotRecord | null | undefined>(bot: T, thread
   return modelSelection === bot.modelSelection ? bot : { ...bot, modelSelection };
 }
 const limitHold = new LimitHold({
-  restsUntil: (instanceId) => {
-    const accounts = batteryAccounts();
-    const account = accounts.find((candidate) => candidate.instanceId === instanceId);
-    return account ? accountBattery.restOf(account, accounts)?.until : undefined;
+  readyAt: (threadId) => {
+    const owner = store.botByThread(threadId);
+    const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+    return selection ? accountBattery.readyAt(selection, batteryAccounts(), threadId) : undefined;
   },
-  wake: () => drainQueuedSends(),
+  wake: (threadId) => {
+    drainQueuedSends();
+    pickUpAfterReset(threadId);
+  },
+  onChange: () => broadcast({ kind: "config", ...configStatus() }),
 });
 
 // Who asked for the turn running (or last run) on each thread, read by the
@@ -7372,6 +7374,38 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
   });
 }
 
+function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | undefined {
+  const owner = store.botByThread(threadId);
+  const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+  if (!owner || !selection || directRequestOwners.get(threadId)?.stopped) return undefined;
+  return {
+    botId: owner.id, battery: accountBattery, accounts: batteryAccounts(), threadId, selection,
+    generation: directTurnGenerationByThread.get(threadId), path: store.activePath(threadId),
+  };
+}
+
+function pickUpAfterReset(threadId: string): void {
+  const input = carryOnInput(threadId);
+  if (!input || threadBusy(input.botId, threadId) || hasQueuedSteeredMessages(input.botId, threadId)) return;
+  const outcome = carryOnAfterReset({
+    ...input,
+    full: botAtThreadCapacity(input.botId) || Boolean(activeGroupTurnForBot(input.botId)) || parksBehindCoordination(input.botId, threadId),
+    write: (tool, replaceId) => {
+      if (!store.botByThread(threadId)) return;
+      if (replaceId) store.patchMessage(threadId, replaceId, { tool });
+      else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
+    },
+  });
+  if (outcome === "full") limitHold.retry(threadId);
+}
+
+function carryOnWaiting(): Record<string, string> {
+  return Object.fromEntries(Object.entries(limitHold.waiting()).filter(([threadId]) => {
+    const input = carryOnInput(threadId);
+    return input !== undefined && carriesOn(input);
+  }));
+}
+
 /** The engine that dispatched each live turn. A bot's settings may change
  * mid-turn; an interrupt or steer must reach the engine actually running. */
 const runningTurnEngines = new Map<string, NonNullable<ReturnType<typeof registry.get>>>();
@@ -8118,7 +8152,7 @@ bus.subscribe((event: RuntimeEvent) => {
         threadId: event.threadId, generation: directTurnGenerationByThread.get(event.threadId), stopReason: event.stopReason,
         ranOn: event.providerInstanceId, selection: store.projectBotForTask(bot.id, event.threadId)?.modelSelection, accounts: batteryAccounts(),
       }) : null;
-      if (bot && event.stopReason === "usage_limit" && !nextAccount && event.providerInstanceId) limitHold.hold(event.threadId, event.providerInstanceId);
+      if (bot && event.stopReason === "usage_limit" && !nextAccount) limitHold.hold(event.threadId);
       if (!event.ok && event.stopReason !== "interrupted" && !lazyClaimAlreadyReported && !computerParked && !nextAccount && !routines?.runForThread(event.threadId)) {
         const broken = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
         if (broken) reportIncident({ kind: "failed", bot: broken, threadId: event.threadId, detail: event.stopReason?.trim() || "the run ended without a result" });
@@ -9707,9 +9741,7 @@ async function startTurn(
     compactOnly?: boolean;
     /** Harness-only: never follow a backup failure with another attempt. */
     automaticRecoveryAttempted?: boolean;
-    /** Harness-only: this turn is the token battery's one run on the next
-     * account after the last one ran out of usage; it never runs again. */
-    accountBatteryAttempted?: boolean;
+    accountBatteryReruns?: number;
     /** Cursor into this bot's ordered startup-only backups. */
     automaticRecoveryIndex?: number;
     /** Queue receipts outlive the dispatch acknowledgment until this exact turn settles. */
@@ -9937,19 +9969,15 @@ async function startTurn(
   directTurnDispatchClaims.set(threadId, { id: dispatchClaimId, botId, threadId, phase: "setup" });
   directTurnBots.set(threadId, bot);
   limitHold.release(threadId);
-  // later.dog token battery: say so when this conversation is back on an
-  // account it left for lack of usage, and keep what one run on the next
-  // account needs should this turn run out (continueOnNextAccount). A backup
-  // run, a routine run and coordinated or delegated work never run twice.
   if (!opts?.compactOnly && accountBattery.takeBack(threadId, instanceId)) {
     store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `notice: ${backNotice(instance.displayName || instance.driverKind)}`, ok: true } });
   }
   {
     const asked = userMessage;
     const request = opts?.cardContinuation ? opts.requestMessageId : asked.id;
-    const once = opts?.accountBatteryAttempted || opts?.compactOnly || opts?.automationSource || continuingRoutine || opts?.coordination || commsDepth > 0 || !request;
+    const once = (opts?.accountBatteryReruns ?? 0) >= MAX_BATTERY_RERUNS || opts?.compactOnly || opts?.automationSource || continuingRoutine || opts?.coordination || commsDepth > 0 || !request;
     accountBattery.trackTurn(threadId, { generation: dispatchClaimId, instanceId, requestMessageId: request, ...(once ? {} : {
-      rerun: (continuation: string | null) => startTurn(bot.id, continuation ?? text, { ...opts, threadId, editedMessageId: undefined, accountBatteryAttempted: true,
+      rerun: (continuation: string | null) => startTurn(bot.id, continuation ?? text, { ...opts, threadId, editedMessageId: undefined, accountBatteryReruns: (opts?.accountBatteryReruns ?? 0) + 1,
         // A continuation is control-plane words, not the person's: it rides a
         // card continuation of the same request, with the whole branch replayed.
         ...(continuation
@@ -12677,8 +12705,6 @@ async function runGroupMemberTurn(
     return false;
   }
   const group = store.group(groupId);
-  // With the token battery on, on the first of the person's accounts that
-  // is not out of usage (the same pick again for readyBot below).
   const bot = onBatteryAccount(store.bot(botId));
   const ownsThread = group?.dm
     ? group.threadId === threadId
@@ -15622,8 +15648,7 @@ function configStatus() {
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     mcp: { callTimeoutMinutes: mcpCallTimeoutMinutes(cfg) },
     automaticRecovery: cfg.automaticRecovery ?? { enabled: false },
-    // the token battery: on or off, the order turns use, and who is resting
-    accountBattery: accountBattery.status(batteryAccounts()),
+    accountBattery: { ...accountBattery.status(batteryAccounts()), waiting: carryOnWaiting() },
     // absent effort = no level is sent, so clients can tell it from any level
     newBots: cfg.newBots?.effort ? { effort: cfg.newBots.effort } : {},
     threads: {
@@ -15688,6 +15713,7 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
     vps: { configured: status.vps.configured, sshAlias: "" },
     opencodeGo: { configured: status.opencodeGo.configured, providerKeys: [] },
     profile: { name: status.profile.name, email: "" },
+    accountBattery: { ...status.accountBattery, waiting: {} },
     browserProfiles: status.browserProfiles.map((profile) => Object.fromEntries(Object.entries(profile).filter(([key]) => key !== "partitionId"))),
   };
 }
@@ -25160,6 +25186,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           const status = configStatus();
           broadcast({ kind: "config", ...status });
+          if (patch.accountBattery) limitHold.recheck();
           if (patch.threads !== undefined) {
             drainQueuedSends();
             drainDelegationWakes();
