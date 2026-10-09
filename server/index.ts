@@ -635,10 +635,13 @@ import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { DOG_CREATION_REFUSAL, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
+import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import {
   AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, backNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
+import { continueOnAccount } from "./laterdog/continue-on-account.ts";
+import { LimitHold } from "./laterdog/limit-hold.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
@@ -898,12 +901,19 @@ function batteryAccounts(): BatteryAccount[] {
     };
   });
 }
-/** `bot` as its next turn runs it: on the account the battery picks. */
-function onBatteryAccount<T extends BotRecord | null | undefined>(bot: T): T {
-  if (!bot || !accountBattery.enabled) return bot;
-  const modelSelection = accountBattery.route(bot.modelSelection, batteryAccounts());
+function onBatteryAccount<T extends BotRecord | null | undefined>(bot: T, threadId?: string): T {
+  if (!bot || !accountBattery.routes(threadId)) return bot;
+  const modelSelection = accountBattery.route(bot.modelSelection, batteryAccounts(), threadId);
   return modelSelection === bot.modelSelection ? bot : { ...bot, modelSelection };
 }
+const limitHold = new LimitHold({
+  restsUntil: (instanceId) => {
+    const accounts = batteryAccounts();
+    const account = accounts.find((candidate) => candidate.instanceId === instanceId);
+    return account ? accountBattery.restOf(account, accounts)?.until : undefined;
+  },
+  wake: () => drainQueuedSends(),
+});
 
 // Who asked for the turn running (or last run) on each thread, read by the
 // usage ledger when it settles. It is set when a turn is ADMITTED, from the
@@ -8001,7 +8011,7 @@ bus.subscribe((event: RuntimeEvent) => {
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: failedTurnTool(event.message, event),
+        tool: failedTurnTool(event.message, { ...event, quota: event.quota && { ...event.quota, instanceId: event.providerInstanceId } }),
       });
       // a setup error means the engine could not even start: the bot is
       // dead until something changes, not merely idle. The next successful
@@ -8110,6 +8120,7 @@ bus.subscribe((event: RuntimeEvent) => {
         threadId: event.threadId, generation: directTurnGenerationByThread.get(event.threadId), stopReason: event.stopReason,
         ranOn: event.providerInstanceId, selection: store.projectBotForTask(bot.id, event.threadId)?.modelSelection, accounts: batteryAccounts(),
       }) : null;
+      if (bot && event.stopReason === "usage_limit" && !nextAccount && event.providerInstanceId) limitHold.hold(event.threadId, event.providerInstanceId);
       if (!event.ok && event.stopReason !== "interrupted" && !lazyClaimAlreadyReported && !computerParked && !nextAccount && !routines?.runForThread(event.threadId)) {
         const broken = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
         if (broken) reportIncident({ kind: "failed", bot: broken, threadId: event.threadId, detail: event.stopReason?.trim() || "the run ended without a result" });
@@ -9068,7 +9079,7 @@ function drainQueuedSends() {
     // Provider completion can precede its dispatch promise: keep the queue
     // intact until that exact handshake releases its runtime-only claim.
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId),
+      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId),
   );
   // Asides always drain after person follow-ups (see drainAsideLane): the
   // steer drain above can make a thread busy again, deferring its asides
@@ -9127,12 +9138,13 @@ function drainAsideLane() {
 /** Keep a person's words off the transcript until a direct-thread slot is
  * available. Reuse the existing cancellable, idempotent composer queue. */
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "call") {
+  const behindHeld = limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId);
   const decision = admit("direct", {}, {
     // A room turn holds the bot exactly like the sibling opened-thread queue
     // below: the drain's own block check waits it out, so the words queue
     // here rather than bounce off startTurn's 409.
     atCapacity: botAtThreadCapacity(botId),
-    threadBusy: threadBusy(botId, threadId),
+    threadBusy: threadBusy(botId, threadId) || behindHeld,
     groupTurn: Boolean(activeGroupTurnForBot(botId)),
     parksBehindCoordination: parksBehindCoordination(botId, threadId),
   });
@@ -9146,6 +9158,10 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
       trigger,
       via,
     });
+    if (behindHeld) {
+      limitHold.release(threadId);
+      queueMicrotask(drainQueuedSends);
+    }
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: decision.reason };
   }
   const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
@@ -9722,9 +9738,7 @@ async function startTurn(
   }
   // A thread whose own model can't run runs on its bot's from now on.
   healThreadModel(botId, threadId);
-  // With the token battery on, on the first account in the person's order
-  // that is not out of usage. Never saved: the thread keeps its own model.
-  const bot = onBatteryAccount(store.projectBotForTask(botId, threadId));
+  const bot = onBatteryAccount(store.projectBotForTask(botId, threadId), threadId);
   if (!bot) throw Object.assign(new Error("no such task"), { status: 404 });
   // Routines and legacy peer delivery already have their own completion
   // owners. Only ordinary chats opt into this scheduler; its child turns
@@ -9924,6 +9938,7 @@ async function startTurn(
   directFollowupSettlers.set(dispatchClaimId, { threadId, settle: opts?.onTurnSettled });
   directTurnDispatchClaims.set(threadId, { id: dispatchClaimId, botId, threadId, phase: "setup" });
   directTurnBots.set(threadId, bot);
+  limitHold.release(threadId);
   // later.dog token battery: say so when this conversation is back on an
   // account it left for lack of usage, and keep what one run on the next
   // account needs should this turn run out (continueOnNextAccount). A backup
@@ -22800,6 +22815,26 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 202, { ok: true, threadId: bot.threadId });
     }
 
+    m = path.match(/^\/api\/bots\/([\w-]+)\/continue-on$/);
+    if (m && method === "POST") {
+      const body = await readBody(req);
+      requirePinnedClientThread(m[1], body?.threadId);
+      const bot = requestedTaskBot(m[1], body.threadId);
+      const notYours = cloudThreadRefusal(auth, bot.threadId);
+      if (notYours) return json(res, 403, { error: notYours });
+      const threadId = bot.threadId;
+      const outcome = continueOnAccount({
+        battery: accountBattery, accounts: batteryAccounts(), threadId, selection: bot.modelSelection,
+        busy: threadBusy(bot.id, threadId), generation: directTurnGenerationByThread.get(threadId), path: store.activePath(threadId),
+        instanceId: body.instanceId,
+        write: (tool, replaceId) => {
+          if (!store.botByThread(threadId)) return;
+          if (replaceId) store.patchMessage(threadId, replaceId, { tool });
+          else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
+        },
+      });
+      return json(res, outcome.status, outcome.body);
+    }
     // edit a user message → fork the conversation there and rerun the turn.
     // Rewinding a live thread is refused, exactly like switching versions
     // below: interrupting mid-flight and branching under the dying turn is
@@ -24225,8 +24260,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // `code` for a pasted sign-in code (Claude), `callbackUrl` for a browser callback
           const callbackUrl = typeof body?.callbackUrl === "string" ? body.callbackUrl : typeof body?.code === "string" ? body.code : "";
           if (!flowId || !callbackUrl) return json(res, 400, { error: "flowId and a code or callbackUrl are required" });
-          await providerAuthSessions.complete(instanceId, owner, flowId, callbackUrl);
-          return json(res, 200, { ok: true });
+          const outcome = await providerAuthSessions.complete(instanceId, owner, flowId, callbackUrl);
+          return json(res, 200, { ok: true, auth: outcome });
         }
         const body = await readBody(req, 4096);
         await providerAuthSessions.cancel(instanceId, owner, typeof body?.flowId === "string" ? body.flowId : "");
@@ -24339,8 +24374,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const instances = persistableInstanceConfigs(result.config);
         if (!result.ok || !Object.hasOwn(instances, instanceId)) return json(res, 404, { error: `unknown instance "${instanceId}"` });
         const entry = instances[instanceId];
-        if ((body.displayName !== undefined || body.configDir !== undefined) && entry.driver !== "claudeAgent") {
-          return json(res, 400, { error: "Account settings are currently available for Claude only." });
+        if (body.configDir !== undefined && entry.driver !== "claudeAgent") {
+          return json(res, 400, { error: "A configuration directory applies to Claude accounts only." });
+        }
+        if (body.displayName !== undefined) {
+          const renamable = renamableAccount(entry);
+          if (!renamable.ok) return json(res, 400, { error: renamable.error });
         }
         if (body.tools !== undefined) {
           if (!["openai-compat", "grok", "minimax", "mistral", "cerebras"].includes(entry.driver)) {
@@ -24373,9 +24412,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
       const instances = persistableInstanceConfigs(cfg);
       if (!Object.hasOwn(instances, instanceId)) return json(res, 404, { error: "unknown instance" });
-      if (instances[instanceId].driver !== "claudeAgent" || instanceId === "claude") {
-        return json(res, 400, { error: "Only added Claude accounts can be removed here." });
-      }
+      const removable = removableAccount(instanceId, instances[instanceId]);
+      if (!removable.ok) return json(res, 400, { error: removable.error });
       if (cfg.defaultModelSelection?.instanceId === instanceId || store.bots.some((bot) =>
         bot.modelSelection.instanceId === instanceId || bot.fallback?.some(candidate => candidate.instanceId === instanceId) || store.tasks(bot.id).some((task) => task.modelSelection?.instanceId === instanceId)) ||
         busyProviderSelections().some((selection) => selection.instanceId === instanceId)) {

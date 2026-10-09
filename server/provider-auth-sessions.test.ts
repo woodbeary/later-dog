@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ProviderAuthSessions } from "./provider-auth-sessions.ts";
-import type { ProviderAuthenticationStart } from "./contracts.ts";
+import type { ProviderAuthenticationStart, ProviderAuthenticationStatus } from "./contracts.ts";
 
 function fixture() {
   const auth: ProviderAuthenticationStart = {
@@ -9,7 +9,7 @@ function fixture() {
   };
   const instance = {
     instanceId: "codex", startAuthentication: vi.fn(async () => auth),
-    getAuthentication: vi.fn(async () => auth),
+    getAuthentication: vi.fn(async (): Promise<ProviderAuthenticationStatus> => auth),
     cancelAuthentication: vi.fn(async () => {}),
     completeAuthentication: vi.fn(async () => {}),
     signOut: vi.fn(async () => {}),
@@ -165,5 +165,23 @@ describe("provider sign-out", () => {
     await expect(sessions.start(instance, "owner")).resolves.toMatchObject({ phase: "waiting" });
     const { signOut: _unsupported, ...plain } = instance;
     await expect(sessions.signOut(plain, "owner")).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("a completed sign-in's outcome", () => {
+  it("is returned by complete(), read before the flow is forgotten", async () => {
+    const { sessions, instance, auth } = fixture();
+    await sessions.start(instance, "owner");
+    instance.getAuthentication.mockResolvedValueOnce({ ...auth, phase: "succeeded" });
+    await expect(sessions.complete("codex", "owner", "random-flow", "pasted-code")).resolves.toMatchObject({ phase: "succeeded", flowId: "random-flow" });
+    expect(instance.completeAuthentication).toHaveBeenCalledWith("random-flow", "pasted-code");
+    await expect(sessions.status("codex", "owner", "random-flow")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("reports a code the provider rejected without pretending it worked", async () => {
+    const { sessions, instance, auth } = fixture();
+    await sessions.start(instance, "owner");
+    instance.getAuthentication.mockResolvedValueOnce({ ...auth, phase: "failed", message: "That code was not accepted." });
+    await expect(sessions.complete("codex", "owner", "random-flow", "wrong")).resolves.toMatchObject({ phase: "failed", message: "That code was not accepted." });
   });
 });

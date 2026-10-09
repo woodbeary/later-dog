@@ -1,6 +1,6 @@
 // Provider credentials are server-wide, but an in-progress login belongs to
 // the admin session that started it. Never put its device code on global SSE.
-import type { ProviderAuthenticationStart, ProviderInstance } from "./contracts.ts";
+import type { ProviderAuthenticationStart, ProviderAuthenticationStatus, ProviderInstance } from "./contracts.ts";
 
 type LoginInstance = Pick<ProviderInstance, "instanceId" | "startAuthentication" | "getAuthentication" | "completeAuthentication" | "cancelAuthentication" | "signOut">;
 type Flow = {
@@ -75,13 +75,15 @@ export class ProviderAuthSessions {
     return status;
   }
 
-  async complete(instanceId: string, owner: string, flowId: string, callbackUrl: string) {
+  async complete(instanceId: string, owner: string, flowId: string, callbackUrl: string): Promise<ProviderAuthenticationStatus> {
     const flow = this.owned(instanceId, owner, flowId);
     if (!flow.instance.completeAuthentication) throw failure("This provider does not use a callback URL.", 400);
     flow.busy = true;
     try {
       await flow.instance.completeAuthentication(flowId, callbackUrl);
+      const status = flow.instance.getAuthentication ? await flow.instance.getAuthentication(flowId) : null;
       if (this.flows.get(instanceId) === flow) this.flows.delete(instanceId);
+      return status ?? { phase: "succeeded", flowId, authorizationUrl: null, expiresAt: null };
     } finally { flow.busy = false; }
   }
 

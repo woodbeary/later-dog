@@ -160,7 +160,7 @@ it("continues on account 2 with the conversation carried over, switches once, an
     expect(limitRows(rows)).toHaveLength(0);
     expect(rows.some((row) => row.role === "bot" && row.kind === "text" && /hit your/.test(row.text ?? ""))).toBe(false);
     expect(switches(rows).map((row) => row.tool.name)).toEqual([
-      expect.stringMatching(/^recovery: Switched to Claude account 2 — Claude account 1 is out of usage until .*\d:\d\d [AP]M\.$/),
+      expect.stringMatching(/^recovery: Switched to Claude account 2 — Claude account 1 hit its 5-hour limit, resets (?:[A-Z][a-z]{2} \d{1,2} )?at \d{1,2}:\d\d [AP]M\.$/),
     ]);
     expect(lastReply(rows)).toMatchObject({ text: "hello from account 2", turnSucceeded: true });
     // Never saved: the conversation still names account 1.
@@ -272,3 +272,45 @@ it("changes nothing while the battery is off, beyond reporting the limit as a fa
     expect(saved.accountBattery).toMatchObject({ enabled: true, order: { claudeAgent: ["claude-two", "claude"] } });
   });
 }, 120_000);
+
+it("continues on the account the person picks with the battery off, stays there while the first rests, then comes back", async () => {
+  await withBatteryFixture({ enabled: false, resetsIn: 25 }, async (fixture) => {
+    const { api, firstPrompts, secondPrompts, gate, bookedTo, evidence } = fixture;
+    const chat = await batteryBot(fixture, "Continue on");
+    writeFileSync(gate, "out of usage");
+    const text = "CONTINUE_ON_PICK_4P";
+    await chat.send(text);
+    await chat.settled((rows) => limitRows(rows).length === 1);
+    expect(limitRows(await chat.messages())[0].tool.quota).toMatchObject({ kind: "session", instanceId: "claude", resetsAt: expect.any(String) });
+    const continueOn = (instanceId: string, status?: number) =>
+      api("POST", `/api/bots/${chat.bot.id}/continue-on`, { threadId: chat.threadId, instanceId }, status);
+    expect((await continueOn("claude", 409)).error).toBe("That's the account that ran out.");
+    expect(await continueOn("claude-two")).toEqual({ continued: true });
+    await chat.settled((rows) => lastReply(rows)?.text === "hello from account 2");
+    expect(firstPrompts()).toHaveLength(1);
+    expect(secondPrompts()).toHaveLength(1);
+    expect(promptText(secondPrompts()[0]).split(text)).toHaveLength(2);
+    const rows = await chat.messages();
+    evidence.push({ afterContinue: rows });
+    expect(limitRows(rows)).toHaveLength(0);
+    expect(rows.filter((row) => row.role === "user" && row.text === text)).toHaveLength(1);
+    expect(switches(rows).map((row) => row.tool.name)).toEqual([
+      expect.stringMatching(/^recovery: Switched to Claude account 2 — Claude account 1 hit its 5-hour limit, resets (?:[A-Z][a-z]{2} \d{1,2} )?at \d{1,2}:\d\d [AP]M\.$/),
+    ]);
+    expect((await api("GET", "/api/config")).accountBattery.enabled).toBe(false);
+
+    await chat.send("STAYS_ON_PICK_5Q");
+    await chat.settled((rows) => rows.at(-1)?.role === "bot" && secondPrompts().length === 2);
+    expect(firstPrompts()).toHaveLength(1);
+
+    rmSync(gate);
+    await expect.poll(async () => Object.keys((await api("GET", "/api/config")).accountBattery.resting), { timeout: 40_000, interval: 500 }).toEqual([]);
+    await chat.send("BACK_AFTER_PICK_6R");
+    await chat.settled((rows) => rows.at(-1)?.role === "bot" && firstPrompts().length === 2);
+    const final = await chat.messages();
+    evidence.push({ final });
+    expect(secondPrompts()).toHaveLength(2);
+    expect(final.filter((row) => row.tool?.name === "notice: Back on Claude account 1.")).toHaveLength(1);
+    await expect.poll(() => bookedTo(chat.threadId), { timeout: 10_000 }).toEqual(["claude", "claude-two", "claude-two", "claude"]);
+  });
+}, 150_000);

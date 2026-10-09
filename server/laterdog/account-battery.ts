@@ -1,20 +1,3 @@
-// later.dog token battery (docs/laterdog/token-battery.md).
-//
-// A person signs in to several subscription accounts of one engine and puts
-// them in a "next up" order, favourite first. A turn runs on the first
-// account in that order that can take it: enabled, signed in, not resting,
-// and offering the turn's model. An account rests from the moment its usage
-// limit is reported (runtime.error.quota) until the limit resets, and the
-// favourite takes over again after that. Nothing here changes a turn unless
-// the person switched the battery on.
-//
-// What a switch carries over is decided elsewhere: another account is
-// another provider instance, so its turn starts a fresh session with the
-// conversation replayed into it (server/turn-context.ts, engineIsFresh).
-//
-// The harness glue (server/index.ts) routes each turn through `route`, marks
-// accounts from runtime errors, and asks `nextAccount` whether a turn that
-// ran out of usage should run once more on the next account.
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
@@ -123,7 +106,7 @@ const restSchema = z.object({
 const stateSchema = z.object({
   version: z.literal(1),
   resting: z.record(z.string(), restSchema).default({}),
-  away: z.record(z.string(), z.object({ from: z.string(), at: z.string() })).default({}),
+  away: z.record(z.string(), z.object({ from: z.string(), at: z.string(), to: z.string().optional(), ranOut: z.string().optional() })).default({}),
 });
 type BatteryState = z.output<typeof stateSchema>;
 
@@ -263,20 +246,25 @@ export function planResetAt(row: PlanProviderRow | undefined, kind: string | und
   return full.length ? resetInstant(full.at(-1), now) : undefined;
 }
 
-/** "3:00 PM" today, "Oct 9, 5:00 PM" on another day, in this machine's time
- * zone unless one is given. */
 export function resetLabel(until: string, now: number, timeZone?: string): string {
-  const at = new Date(until);
-  const day = (value: Date) => new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" }).format(value);
-  const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(at);
-  const label = day(at) === day(new Date(now))
-    ? time
-    : `${new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric" }).format(at)}, ${time}`;
-  // ICU puts a narrow no-break space before AM/PM; a notice reads plainer without.
-  return label.replace(/[  ]/g, " ");
+  const { day, time } = resetParts(until, now, timeZone);
+  return day ? `${day}, ${time}` : time;
 }
 
-/** The status line a conversation gets when it moves to the next account. */
+function resetPhrase(until: string, now: number, timeZone?: string): string {
+  const { day, time } = resetParts(until, now, timeZone);
+  return day ? `${day} at ${time}` : `at ${time}`;
+}
+
+function resetParts(until: string, now: number, timeZone?: string): { day?: string; time: string } {
+  const at = new Date(until);
+  const plain = (text: string) => text.replace(/[\u202f\u00a0]/g, " ");
+  const date = (value: Date) => new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" }).format(value);
+  const time = plain(new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(at));
+  if (date(at) === date(new Date(now))) return { time };
+  return { day: plain(new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric" }).format(at)), time };
+}
+
 /** The row a switch notice takes the place of: the failed-turn row (the
  * usage limit) that the request's attempt on the last account left, after
  * the request message. A limit the battery already handled is not something
@@ -292,10 +280,16 @@ export function limitRowToReplace<M extends { id: string; role: string; kind: st
     message.tool?.ok === false && (message.tool.name ?? "").startsWith("error:")) ?? null;
 }
 
+const LIMIT_NAMES: ReadonlyMap<string, string> = new Map([
+  ["session", "5-hour"], ["daily", "daily"], ["weekly", "weekly"], ["monthly", "monthly"], ["opus", "Opus"], ["sonnet", "Sonnet"],
+]);
+
 export function switchNotice(input: { to: string; from: string; rest?: Rest; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
-  const when = rest && !rest.estimated && Date.parse(rest.until) > now ? ` until ${resetLabel(rest.until, now, timeZone)}` : " for now";
-  return `Switched to ${to} — ${from} is out of usage${when}.`;
+  const limit = rest?.kind ? LIMIT_NAMES.get(rest.kind) : undefined;
+  const known = rest && !rest.estimated && Date.parse(rest.until) > now ? rest.until : undefined;
+  if (limit) return `Switched to ${to} — ${from} hit its ${limit} limit${known ? `, resets ${resetPhrase(known, now, timeZone)}` : ""}.`;
+  return `Switched to ${to} — ${from} is out of usage${known ? ` until ${resetLabel(known, now, timeZone)}` : " for now"}.`;
 }
 
 /** The status line a conversation gets when it is back on that account. */
@@ -334,11 +328,34 @@ export class AccountBattery {
     return this.options.config()?.enabled === true;
   }
 
-  /** The selection a turn runs on: the first account in the person's order
-   * that can take it, or `selection` itself (the same object) when the
-   * battery is off, does not manage that account, or has none to give. */
-  route(selection: ModelSelection, accounts: readonly BatteryAccount[]): ModelSelection {
+  routes(threadId?: string): boolean {
+    return this.enabled || Boolean(threadId && this.state.away[threadId]?.to);
+  }
+
+  route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): ModelSelection {
+    const chosen = threadId ? this.chosen(threadId, selection, accounts) : undefined;
+    if (chosen) return { ...selection, instanceId: chosen };
     return routeSelection({ config: this.options.config(), selection, accounts, resting: this.state.resting, now: this.now() });
+  }
+
+  choose(threadId: string, ranOut: string, to: string): void {
+    const away = this.state.away[threadId];
+    this.state.away[threadId] = { from: away?.from ?? ranOut, at: new Date(this.now()).toISOString(), to, ranOut };
+    this.save();
+  }
+
+  chosen(threadId: string, selection: ModelSelection, accounts: readonly BatteryAccount[]): string | undefined {
+    const away = this.state.away[threadId];
+    if (!away?.to || !away.ranOut) return undefined;
+    const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
+    const own = find(selection.instanceId);
+    const ranOut = find(away.ranOut);
+    const to = find(away.to);
+    if (!own?.eligible || !ranOut || !to?.eligible || !to.enabled || to.signedIn === false) return undefined;
+    if (ranOut.driverKind !== own.driverKind || to.driverKind !== own.driverKind) return undefined;
+    if (own.models.includes(selection.model) && !to.models.includes(selection.model)) return undefined;
+    if (!this.restOf(ranOut, accounts, selection.model) || this.restOf(to, accounts, selection.model)) return undefined;
+    return to.instanceId;
   }
 
   /** An account reported its usage limit: it rests until the reported reset,
@@ -391,8 +408,9 @@ export class AccountBattery {
     let changed = Boolean(this.state.resting[instanceId]);
     delete this.state.resting[instanceId];
     for (const [threadId, away] of Object.entries(this.state.away)) {
-      if (away.from !== instanceId) continue;
-      delete this.state.away[threadId];
+      if (away.from === instanceId) delete this.state.away[threadId];
+      else if (away.to === instanceId || away.ranOut === instanceId) this.state.away[threadId] = { from: away.from, at: away.at };
+      else continue;
       changed = true;
     }
     if (changed) this.save();

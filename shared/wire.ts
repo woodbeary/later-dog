@@ -19,6 +19,7 @@ import type { TeamSetupRequest } from "./team-setup.ts";
 import type { RoutineRequestCardData } from "./routine-request.ts";
 import type { ProfileRequestCardData } from "./profile-request.ts";
 import type { PlaceRow } from "./place-view.ts";
+import type { FailedTurnQuota } from "./failed-turn.ts";
 import type { ModelRequestCardData } from "./model-request.ts";
 import type { SkillRequestCardData } from "./skill-request.ts";
 import type { QuestionRequestCardData } from "./ask-question.ts";
@@ -432,6 +433,7 @@ export interface WireMessage {
     claudeUpdate?: boolean;
     /** error rows: the place this turn could not use (shared/place-view.ts). */
     place?: PlaceRow;
+    quota?: FailedTurnQuota;
     /** Provider item identity, scoped to the owning turn. */
     itemId?: string;
     /** Whether the harness captured the full redacted result. Private

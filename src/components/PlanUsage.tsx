@@ -1,32 +1,29 @@
-// Settings → Usage: remaining subscription allowance. This is not the token
-// ledger below it — each provider reports its own 5-hour and weekly windows.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { api } from "@/state/store";
-import { t } from "@/lib/i18n";
+import { activeLocale, t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { Card } from "./SettingsPrimitives";
 
-interface PlanWindow {
+export interface PlanWindow {
   available: boolean;
   remainingPercent: number | null;
   usedPercent: number | null;
   resetsAt: string | null;
 }
 
-interface PlanExtra {
+export interface PlanExtra {
   label: string;
   remainingPercent: number;
   usedPercent: number;
   resetsAt: string | null;
 }
 
-interface PlanModelUsage {
+export interface PlanModelUsage {
   name: string;
   windows: PlanExtra[];
 }
 
-interface PlanProvider {
+export interface PlanProvider {
   id: string;
   name: string;
   driver: string;
@@ -39,34 +36,39 @@ interface PlanProvider {
   models?: PlanModelUsage[];
 }
 
-interface PlanUsageReport {
+export interface PlanUsageReport {
   fetchedAt: string;
   providers: PlanProvider[];
 }
 
-function formatResetDistance(resetsAt: string | null, now: number): string | null {
+export function resetDistance(resetsAt: string | null | undefined, now: number): string | null {
   if (!resetsAt) return null;
   const at = Date.parse(resetsAt);
   if (!Number.isFinite(at) || at <= now) return null;
   const minutes = Math.floor((at - now) / 60_000);
-  if (minutes < 1) return "less than a minute";
+  if (minutes < 1) return t("planUsage.lessThanMinute");
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor((minutes % 1440) / 60);
   const mins = minutes % 60;
-  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-  if (hours > 0) return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-  return `${mins}m`;
+  if (days > 0) return hours > 0 ? t("planUsage.daysHours", { days, hours }) : t("planUsage.days", { days });
+  if (hours > 0) return mins > 0 ? t("planUsage.hoursMinutes", { hours, minutes: mins }) : t("planUsage.hours", { hours });
+  return t("planUsage.minutes", { minutes: mins });
 }
 
-function dueResetDeadlines(report: PlanUsageReport, now: number, seen: Set<string>): string[] {
+export function resetClock(until: string, now: number): string {
+  const at = new Date(until);
+  return at.toDateString() === new Date(now).toDateString()
+    ? at.toLocaleTimeString(activeLocale(), { hour: "numeric", minute: "2-digit" })
+    : at.toLocaleString(activeLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+export function dueResetDeadlines(report: PlanUsageReport, now: number, seen: Set<string>): string[] {
   const due: string[] = [];
   for (const provider of report.providers) {
     if (!provider.ok) continue;
     const stamps = [
       provider.fiveHour.available ? provider.fiveHour.resetsAt : null,
       provider.weekly.available ? provider.weekly.resetsAt : null,
-      ...provider.extra.map((extra) => extra.resetsAt),
-      ...(provider.models ?? []).flatMap((model) => model.windows.map((entry) => entry.resetsAt)),
     ];
     for (const resetsAt of stamps) {
       if (!resetsAt || seen.has(resetsAt) || due.includes(resetsAt)) continue;
@@ -77,62 +79,7 @@ function dueResetDeadlines(report: PlanUsageReport, now: number, seen: Set<strin
   return due;
 }
 
-function usageTone(used: number): string {
-  if (used >= 90) return "bg-danger";
-  if (used >= 70) return "bg-warning";
-  return "bg-success";
-}
-
-function windowLabel(label: string): string {
-  if (label === "5-hour") return t("planUsage.fiveHour");
-  if (label === "Weekly") return t("planUsage.weekly");
-  return label;
-}
-
-function WindowRow({
-  label,
-  window,
-  now,
-  usedHeadline = false,
-}: {
-  label: string;
-  window: PlanWindow;
-  now: number;
-  usedHeadline?: boolean;
-}) {
-  const when = window.available ? formatResetDistance(window.resetsAt, now) : null;
-  const used = window.usedPercent ?? 0;
-  const headline = usedHeadline
-    ? window.usedPercent == null ? null : t("planUsage.used", { used: Math.round(window.usedPercent) })
-    : window.remainingPercent == null ? null : t("planUsage.left", { remaining: Math.round(window.remainingPercent) });
-  return (
-    <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
-      <div className="text-[12px] text-ink-secondary">{label}</div>
-      {window.available && headline ? (
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-baseline gap-x-2 text-[13px] text-ink">
-            <span className="tabular-nums">{headline}</span>
-            {when && <span className="text-[12px] text-ink-secondary">{t("planUsage.resetsIn", { when })}</span>}
-          </div>
-          <div
-            className="mt-1 h-1.5 overflow-hidden rounded-full bg-inset"
-            role="meter"
-            aria-label={label}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(Math.min(100, Math.max(0, used)))}
-          >
-            <div className={cn("h-full rounded-full", usageTone(used))} style={{ width: `${Math.min(100, Math.max(0, used))}%` }} />
-          </div>
-        </div>
-      ) : (
-        <div className="text-[12px] text-ink-secondary">{t("planUsage.notReported")}</div>
-      )}
-    </div>
-  );
-}
-
-export function PlanUsage() {
+export function usePlanUsage() {
   const [report, setReport] = useState<PlanUsageReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -170,82 +117,90 @@ export function PlanUsage() {
     void load(true);
   }, [report, now, load]);
 
+  return { report, loading, error, now, reload: load };
+}
+
+export function UsageBar({ used, label }: { used: number; label: string }) {
+  const clamped = Math.round(Math.min(100, Math.max(0, used)));
   return (
-    <Card title={t("planUsage.title")} subtitle={t("planUsage.subtitle")}>
-      <div className="mb-3 flex justify-end">
+    <div
+      className="h-1 w-full overflow-hidden rounded-full bg-control"
+      role="meter"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={clamped}
+    >
+      <div className={cn("h-full rounded-full", clamped >= 90 ? "bg-danger" : "bg-accent")} style={{ width: `${clamped}%` }} />
+    </div>
+  );
+}
+
+function windowLine(label: string, window: PlanWindow, now: number): string | null {
+  if (!window.available || window.usedPercent == null) return null;
+  const when = resetDistance(window.resetsAt, now);
+  return [label, t("planUsage.used", { used: Math.round(window.usedPercent) }), when ? t("planUsage.resetsIn", { when }) : null].filter(Boolean).join(" · ");
+}
+
+export function AccountUsage({ provider, now, loading = false, resting }: {
+  provider: PlanProvider | undefined;
+  now: number;
+  loading?: boolean;
+  resting?: { until: string } | undefined;
+}) {
+  const quiet = "text-[12px] text-ink-secondary";
+  if (resting && Date.parse(resting.until) > now) {
+    return <p className={cn(quiet, "text-warning")}>{t("accounts.resting", { time: resetClock(resting.until, now) })}</p>;
+  }
+  if (!provider) return <p className={quiet}>{loading ? t("planUsage.loading") : t("planUsage.none")}</p>;
+  if (!provider.ok) return <p className={quiet}>{provider.error || t("planUsage.none")}</p>;
+  const session = windowLine(t("planUsage.fiveHour"), provider.fiveHour, now);
+  const weekly = windowLine(t("planUsage.weekly"), provider.weekly, now);
+  if (!session && !weekly) return <p className={quiet}>{t("planUsage.none")}</p>;
+  return (
+    <div className="flex flex-col gap-1">
+      {session && provider.fiveHour.usedPercent != null && (
+        <>
+          <UsageBar used={provider.fiveHour.usedPercent} label={t("planUsage.fiveHour")} />
+          <p className={cn(quiet, "tabular-nums")}>{session}</p>
+        </>
+      )}
+      {weekly && <p className={cn(quiet, "tabular-nums")}>{weekly}</p>}
+    </div>
+  );
+}
+
+export function PlanUsage() {
+  const { report, loading, error, now, reload } = usePlanUsage();
+  return (
+    <section data-plan-usage="" className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between pl-4">
+        <h3 className="text-[12px] font-medium text-ink-secondary">{t("accounts.title")}</h3>
         <button
           type="button"
-          onClick={() => void load(true)}
+          onClick={() => void reload(true)}
           disabled={loading}
           aria-label={t("planUsage.refresh")}
           title={t("planUsage.refresh")}
-          className="rounded-md p-2 text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-50"
+          className="rounded-md p-1.5 text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-45"
         >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
         </button>
       </div>
-      {loading && !report && <p role="status" className="text-[13px] text-ink-secondary">{t("planUsage.loading")}</p>}
-      {error && <p role="alert" className="mb-3 text-[13px] text-danger">{error}</p>}
-      {report && report.providers.length === 0 && (
-        <p className="text-[13px] text-ink-secondary">{t("planUsage.empty")}</p>
-      )}
-      {report && report.providers.length > 0 && (
-        <div className="flex flex-col gap-4">
-          {report.providers.map((provider) => (
-            <div key={provider.id} className="border-t border-hairline/30 pt-3 first:border-t-0 first:pt-0">
-              <div className="mb-2 flex min-w-0 items-baseline gap-2">
-                <span className="truncate text-[14px] font-medium text-ink">{provider.name}</span>
-                {provider.plan && <span className="truncate text-[12px] text-ink-secondary">{provider.plan}</span>}
-              </div>
-              {provider.ok ? (
-                <div className="flex flex-col gap-2">
-                  <WindowRow label={t("planUsage.fiveHour")} window={provider.fiveHour} now={now} />
-                  <WindowRow label={t("planUsage.weekly")} window={provider.weekly} now={now} />
-                  {provider.extra.map((extra, index) => (
-                    <WindowRow
-                      key={`${extra.label}-${index}`}
-                      label={windowLabel(extra.label)}
-                      now={now}
-                      window={{
-                        available: true,
-                        remainingPercent: extra.remainingPercent,
-                        usedPercent: extra.usedPercent,
-                        resetsAt: extra.resetsAt,
-                      }}
-                    />
-                  ))}
-                  {(provider.models ?? []).length > 0 && (
-                    <div className="mt-1 flex flex-col gap-2">
-                      <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">{t("planUsage.byModel")}</div>
-                      {(provider.models ?? []).map((model) => (
-                        <div key={model.name} className="flex flex-col gap-1">
-                          <div className="truncate text-[13px] font-medium text-ink">{model.name}</div>
-                          {model.windows.map((entry, index) => (
-                            <WindowRow
-                              key={`${model.name}-${entry.label}-${index}`}
-                              label={windowLabel(entry.label)}
-                              now={now}
-                              usedHeadline
-                              window={{
-                                available: true,
-                                remainingPercent: entry.remainingPercent,
-                                usedPercent: entry.usedPercent,
-                                resetsAt: entry.resetsAt,
-                              }}
-                            />
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-[13px] text-danger">{provider.error}</p>
-              )}
+      <div className="rounded-xl bg-card">
+        {error && <p role="alert" className="px-4 py-3 text-[13px] text-danger">{error}</p>}
+        {!error && loading && !report && <p role="status" className="px-4 py-3 text-[13px] text-ink-secondary">{t("planUsage.loading")}</p>}
+        {!error && report && report.providers.length === 0 && <p className="px-4 py-3 text-[13px] text-ink-secondary">{t("planUsage.empty")}</p>}
+        {report && report.providers.map((provider, index) => (
+          <div key={provider.id} className={cn("flex flex-col gap-2 px-4 py-3", index > 0 && "border-t border-hairline/40")}>
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="truncate text-[13px] font-medium text-ink">{provider.name}</span>
+              {provider.plan && <span className="truncate text-[12px] text-ink-secondary">{provider.plan}</span>}
             </div>
-          ))}
-        </div>
-      )}
-    </Card>
+            <AccountUsage provider={provider} now={now} />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

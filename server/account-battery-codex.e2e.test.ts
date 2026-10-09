@@ -106,7 +106,7 @@ it("continues a Codex conversation on ChatGPT account 2 with the conversation ca
     expect(rows.filter((row) => row.role === "user" && row.text === text)).toHaveLength(1);
     expect(rows.some((row) => row.role === "bot" && row.kind === "text" && /hit your usage limit/.test(row.text ?? ""))).toBe(false);
     expect(switches(rows).map((row) => row.tool.name)).toEqual([
-      expect.stringMatching(/^recovery: Switched to Codex account 2 — Codex account 1 is out of usage until .*\d:\d\d [AP]M\.$/),
+      expect.stringMatching(/^recovery: Switched to Codex account 2 — Codex account 1 hit its 5-hour limit, resets (?:[A-Z][a-z]{2} \d{1,2} )?at \d{1,2}:\d\d [AP]M\.$/),
     ]);
     // Rested until the full window's reset, read from the account's rate limits; never saved on the conversation.
     const battery = (await api("GET", "/api/config")).accountBattery;
