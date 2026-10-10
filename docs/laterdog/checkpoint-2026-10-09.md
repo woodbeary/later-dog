@@ -6,7 +6,7 @@ The newest version that builds and passes its local checks. Saved so Jacob can r
 
 - **Branch:** `biscuit/simplify-wording`, in the worktree `~/code/dog-biscuit-settings`. It sits on PR #1 (`biscuit/launch-no-prompts`, launch without permission prompts).
 - **Tag:** `checkpoint-2026-10-09`
-- **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1), then 0.3.3 (unreleased) with the update icon, pictures while a dog works, the × on a question, the 4-picture limit and Profiles. Not merged and not released.
+- **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1), then 0.3.3 (unreleased) with the update icon, pictures while a dog works, the × on a question, the 4-picture limit, Profiles, the free trial (off until deployed), the restart of a server that ended, and the fixes from a run with real Claude. Not merged and not released.
 - **Draft PR:** stacked on PR #1. The CI build is a workflow artifact, not a public release.
 - **Changes:** [CHANGELOG.md](../../CHANGELOG.md)
 
@@ -71,7 +71,8 @@ CI on the draft PR runs the whole vitest suite in four shards plus the broker, e
 
 ## Not verified
 
-- **None of this has run in the real app yet.** The installed app is v0.2.0, from before this work. The 0.3.0 build from this checkpoint is the first chance to see it.
+- **0.3.3 hasn't run in the real app yet.** The installed app is 0.3.2.
+- Real Claude ran only in a throwaway copy with test dogs (TODO 18).
 - No real Claude or ChatGPT sign-in through the new Add account sheet.
 - No real usage limit has triggered the Continue on message or the walk-away pickup. Fixture success does not qualify a live provider.
 - Not tried against a real device or service:
@@ -114,19 +115,13 @@ Local-only failures, seen on 2026-10-09:
      - `organization-branding.md`, `byo-vps.md`, `desktop-companion.md`
      - `cloud-pro.md` (it still describes lending), `copy-workspace.md`, `ios-companion.md` (these two also still send people to Connect your phone)
      - `docs/verification/server-settings.md`, `codex-account.md`, `organization-settings.md`, `engines.md`
-3. **Fix words on screen and in errors that point at removed pages.**
-   - **Settings → Tricks:** the dog's Library tab (`src/components/bot-settings/SkillsSection.tsx`).
-   - **Settings → Remote access:**
-     - `server/cli.ts`
-     - `server/cloud-owner.ts`
-     - `remote.client.hostHint` in `en.json`
-   - **Settings → later.dog Cloud:**
-     - `server/system-prompt.ts`
-     - `server/index.ts`
-     - `src/pair/PairPage.tsx`
-   - **Settings → Computers / App Settings:** `server/cli.ts` and `server/index.ts`.
-   - **Phone control (`server/index.ts`):** the error says to "Select Per dog in Settings → Computers", and that choice no longer exists anywhere. This needs a real fix, not new wording.
-   - **The cloud sign-in note** still recommends an API key, but that screen no longer accepts one.
+3. **Fix words on screen and in errors that point at removed pages:** done for 0.3.3 (26b74d437).
+   - Errors, hints and prompts name what's there now: Settings → Computer, its Built-in browser and Cloud computers groups, or a dog's Library tab. The cloud home's one-time note points at the sessions API (`GET /api/auth/sessions`, `DELETE /api/auth/sessions/ID`).
+   - **The cloud sign-in note:** My Cloud's sign-in screen offers **Use an Anthropic API key** again, as the Claude (API key) engine's own key card, so "an API key works best" is true again.
+   - **Phone control:** the error now says why it can't run here (dogs share Local VMs). A real fix needs a decision: see Decisions waiting on Jacob.
+   - **Left as they are:**
+     - The My Cloud lending text in `server/system-prompt.ts` and `server/index.ts`. Only Macs on 0.3.2 or older can lend, and for them it names the right page.
+     - `shared/place-view.ts` says "Open My Cloud from the menu at the top of the sidebar", which no menu offers. Only Cloud plan users see it.
 4. **Run the full browser e2e suite** and compare it file by file with `main`.
 5. **Remove dead leftovers:**
    - `laterdog-show-run-card` in the backup and preload key lists
@@ -139,9 +134,9 @@ Local-only failures, seen on 2026-10-09:
    - the unused server `bot-presets` route
    - `src/lib/interface-mode.ts`
    - `CloudBackendPicker` and `RoutinesSection`
-   - unused locale keys
+   - unused locale keys: 47 that no code names as written, among them the backup sidebar (6), Profiles (5), routine results (3) and the connectors tab (3). Some may be built at run time, so check each. `settings.section.cloudAccount` joined them in 26b74d437.
 6. **Translations.** 118 new and 35 reworded English strings show in English in the other nine languages. `main` is already about 60% untranslated, so this is low priority.
-7. **`macos.yml` release notes** still describe 0.2.0. Rewrite them before any public release.
+7. **`macos.yml` release notes:** done (ecabdcb53). A release's notes are its CHANGELOG section, and publishing refuses a version still marked unreleased.
 8. **Two account-switching edge cases** were left on purpose (details in the accounts report):
    - **A second Continue on with the battery off.** The conversation goes back to the first account when the second resets, even if the first is still resting. The limit message then shows again.
    - **The picker hides more than it must.** Its "resting" filter treats the whole account as resting, while the server lets Sonnet run during an Opus-only limit.
@@ -268,6 +263,22 @@ Local-only failures, seen on 2026-10-09:
       - The window after the restart. ShipIt starts the new app through launchd, so in the test it started under the real account, found Jacob's later.dog already running, and exited at the single-instance lock. With one copy installed, the restarted app is the only one.
       - An app in `/Applications`. macOS App Management may treat it differently from one in a test folder.
       - A real GitHub release as the feed.
+16. **Free cloud computer trial:** built for 0.3.3, off until deployed. 30 minutes to use within 7 days, no card and no account. Details: [the computers README](../../deploy/laterdog/computers/README.md#free-trials).
+    - **Waiting on Jacob:** deploying the computers Worker with trials on, its Turnstile keys and trial secrets, then the Worker's address in the app (`DEFAULT_TRIAL_API`).
+    - **Tried in tests only:** the Worker against a fake Cloudflare, and the app against a fake Worker.
+17. **A background server that ends without telling the app:** fixed for 0.3.3 (0e5f1a327).
+    - **What happened:** on 2026-10-10 at 09:35, 0.3.2's server stopped. The window stayed open with nothing behind it until a new server started at 11:39. Why it stopped is unknown.
+    - **Fix:** the app checks every 15 seconds and restarts a server that has really ended, for each profile.
+    - **Tried:** with fake and real ended processes. Not yet in the installed app.
+18. **A run with real Claude**, on 2026-10-10, in a throwaway copy with its own folder, port and test dogs. Six fixes:
+    - a message sent mid-turn no longer folds the answer into Worked for (4d282aead)
+    - the sidebar and the "finished" notification show plain words (b2d5467e6)
+    - write and edit approvals show the file's path and the change (25c003be4)
+    - an answered question shows once (052222ede)
+    - the lettered question card names the dog (42ecbb8ef)
+    - screen readers hear a dog's question (7cc1ad4a7)
+
+    Four questions from it are in Decisions waiting on Jacob.
 
 ## Decisions waiting on Jacob
 
@@ -277,9 +288,19 @@ Local-only failures, seen on 2026-10-09:
 - adding an API-key engine such as Mistral or OpenRouter from scratch
 - the master remote-access switch
 - the per-dog browser and apps switches
-- later.dog Cloud sign-in
+- later.dog Cloud sign-in, **Open My Cloud** and lending this Mac to My Cloud. In 0.3.3, My Cloud opens only from a dog's fix-it button. The My Cloud lending text still describes 0.3.2's page.
 - the Pack map's sidebar row
 - phone pairing: Connect your phone, Use on your phone, and the list of paired devices. Without that list, signing out a lost phone takes `laterdog sessions revoke ID`; a short list in Settings could come back on its own.
+- a paired phone's **Allow computer view**, which went with that list. No phone can be given it now, and taking control needs it (read in the code, not tried).
+- phone control of a Local VM. It needs a Local VM for each dog, but every computer starts with one shared Local VM, and no screen offers the per-dog choice any more. So it always refuses.
+- importing tricks while the tricks library is switched on. The import was on the removed Settings → Tricks page.
+
+**Four questions from the run with real Claude** (TODO 18):
+
+- **Stop leaves no trace.** Stopping while a dog shows "Thinking" removes the row, so the chat ends at your message. Add a quiet "Stopped" line?
+- **Worked for counts waiting time.** A turn that waited about 4 minutes for an answer said "Worked for 5m 01s". Leave the waiting out?
+- **An opened Worked for shows only the dog's in-between words.** Tool steps show only with Tool calls on. Show steps inside it?
+- **Single line breaks inside a quote join up.** That's standard Markdown, and changing it changes every message.
 
 **Safety controls the app no longer shows.** The server keeps each one, and this branch didn't change their server tests, but nobody can see or change them in the app any more. The dog editor sends only the fields you change, so a dog that already has one keeps it (read in the code, not tried).
 
