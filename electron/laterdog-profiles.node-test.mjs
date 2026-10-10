@@ -211,6 +211,49 @@ test("adding a profile starts its own server in the background", async () => {
   await runner.stopAll();
 });
 
+test("a new profile starts with the open profile's name and tour progress, and nothing else", async () => {
+  const setup = harness();
+  const personal = path.join(setup.root, ".laterdog");
+  fs.mkdirSync(personal, { recursive: true });
+  fs.writeFileSync(path.join(personal, "config.json"), JSON.stringify({
+    profile: { name: "Anthony", email: "a@example.com", aboutMe: "Private notes" },
+    onboarding: { completedAt: "2026-10-01T09:00:00.000Z", version: 2, hintsSeen: ["composer"] },
+    xai: { key: "xai-secret" },
+  }));
+  const runner = setup.runner({ mainDataDir: personal });
+  await runner.start();
+  const business = await runner.add("Business");
+  const seeded = path.join(setup.options.dataRoot, business.id, "config.json");
+  assert.deepEqual(JSON.parse(fs.readFileSync(seeded, "utf8")), {
+    profile: { name: "Anthony", email: "a@example.com" },
+    onboarding: { completedAt: "2026-10-01T09:00:00.000Z", version: 2, hintsSeen: ["composer"] },
+  });
+  assert.equal(fs.statSync(seeded).mode & 0o777, 0o600);
+  fs.writeFileSync(seeded, JSON.stringify({ profile: { name: "Anthony at work" }, onboarding: { completedAt: "2026-10-02T09:00:00.000Z", version: 2 } }));
+  await runner.switchTo(business.id);
+  const second = await runner.add("Business 2");
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(setup.options.dataRoot, second.id, "config.json"), "utf8")), {
+    profile: { name: "Anthony at work" },
+    onboarding: { completedAt: "2026-10-02T09:00:00.000Z", version: 2 },
+  });
+  await runner.stopAll();
+});
+
+test("a new profile starts fresh when there is nothing to carry over", async () => {
+  const setup = harness();
+  const personal = path.join(setup.root, ".laterdog");
+  const runner = setup.runner({ mainDataDir: personal });
+  await runner.start();
+  const first = await runner.add("Business");
+  assert.equal(fs.existsSync(path.join(setup.options.dataRoot, first.id, "config.json")), false);
+  fs.mkdirSync(personal, { recursive: true });
+  fs.writeFileSync(path.join(personal, "config.json"), "{ not json");
+  const second = await runner.add("Business 2");
+  assert.equal(fs.existsSync(path.join(setup.options.dataRoot, second.id, "config.json")), false);
+  assert.equal(second.ready, true);
+  await runner.stopAll();
+});
+
 test("switching opens the profile and is remembered for next time", async () => {
   const setup = harness();
   const runner = setup.runner();

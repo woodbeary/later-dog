@@ -1989,6 +1989,7 @@ async function startProfiles() {
     profiles = createProfileRunner({
       file: path.join(userData, "profiles.json"),
       dataRoot: profilesDataRoot(),
+      mainDataDir: desktopDataDir(),
       credentialsRoot: path.join(userData, "profiles"),
       launch: () => serverChildLaunch({ resourcesPath: process.resourcesPath, userData }),
       baseEnvironment: () => ({

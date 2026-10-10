@@ -14,6 +14,7 @@ const {
   parseProfiles,
   profileList,
   profileOrigin,
+  profileSeed,
   serializeProfiles,
   withActive,
   withName,
@@ -63,6 +64,7 @@ export function portFree(port, host = "127.0.0.1") {
 export function createProfileRunner({
   file,
   dataRoot,
+  mainDataDir = null,
   credentialsRoot,
   launch,
   baseEnvironment,
@@ -361,10 +363,31 @@ export function createProfileRunner({
     })();
   }
 
+  function seed(id, source) {
+    if (!source) return;
+    let raw;
+    try {
+      raw = fs.readFileSync(path.join(source, "config.json"), "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT") log(`profile ${id} starts with a fresh config: ${error?.message ?? error}`);
+      return;
+    }
+    const start = profileSeed(raw);
+    if (!start) return;
+    try {
+      fs.mkdirSync(dataDirFor(id), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(dataDirFor(id), "config.json"), JSON.stringify(start, null, 2), { mode: 0o600, flag: "wx" });
+    } catch (error) {
+      log(`profile ${id} starts with a fresh config: ${error?.message ?? error}`);
+    }
+  }
+
   async function add(name) {
     if (closed) throw new Error("later.dog is closing");
     const { state: next, profile } = withProfile(state, name, makeId);
+    const source = activeDataDir() ?? mainDataDir;
     save(next);
+    seed(profile.id, source);
     const ready = await startRun(profile.id);
     return { id: profile.id, ready };
   }

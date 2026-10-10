@@ -108,6 +108,33 @@ test("a profile moves only to a free valid port", () => {
   assert.equal(profiles.withPort(state, "p00000000000a", 8815).profiles[0].port, 8815);
 });
 
+test("a new profile starts with only the person's name, email and tour progress", () => {
+  const seed = profiles.profileSeed(JSON.stringify({
+    profile: { name: "  Anthony Reed ", email: "a@example.com", aboutMe: "Private notes" },
+    onboarding: { completedAt: "2026-10-01T09:00:00.000Z", version: 2, reelSeen: true, hintsSeen: ["composer", " composer ", "", 7, "x".repeat(61)], firstTurnAt: "2026-10-01T09:05:00.000Z" },
+    xai: { key: "xai-secret" },
+    rooms: { enabled: true },
+  }));
+  assert.deepEqual(seed, {
+    profile: { name: "Anthony Reed", email: "a@example.com" },
+    onboarding: { completedAt: "2026-10-01T09:00:00.000Z", version: 2, reelSeen: true, hintsSeen: ["composer"] },
+  });
+});
+
+test("a profile seed drops anything malformed and is nothing when nothing is left", () => {
+  for (const raw of ["", "{", "null", "[]", "42", JSON.stringify({ xai: { key: "secret" } }), JSON.stringify({ profile: { name: "   " }, onboarding: { version: 2.5, reelSeen: "yes", hintsSeen: "composer" } })]) {
+    assert.equal(profiles.profileSeed(raw), null);
+  }
+  assert.deepEqual(
+    profiles.profileSeed(JSON.stringify({ profile: { name: "n".repeat(321), email: 5 }, onboarding: { completedAt: "c".repeat(41), version: 3 } })),
+    { onboarding: { version: 3 } },
+  );
+  assert.equal(
+    profiles.profileSeed(JSON.stringify({ onboarding: { hintsSeen: Array.from({ length: 150 }, (_, index) => `hint-${index}`) } })).onboarding.hintsSeen.length,
+    100,
+  );
+});
+
 test("the list the window sees has no ports and marks Personal", () => {
   const { state } = profiles.withProfile(profiles.emptyProfiles(), "Business", ids("p00000000000a"));
   assert.deepEqual(profiles.profileList(profiles.withActive(state, "p00000000000a"), () => "starting"), {

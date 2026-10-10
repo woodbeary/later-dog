@@ -4,6 +4,8 @@ const MAX_PROFILES = 8;
 const FIRST_PORT = 8811;
 const LAST_PORT = 8899;
 const ID_PATTERN = /^p[a-f0-9]{12}$/;
+const MAX_SEED_TEXT = 320;
+const MAX_HINTS = 100;
 
 function cleanName(value) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, MAX_NAME).trim() : "";
@@ -107,6 +109,41 @@ function profileOrigin(profile) {
   return `http://127.0.0.1:${profile.port}`;
 }
 
+function seedText(value, max) {
+  if (typeof value !== "string") return "";
+  const clean = value.trim();
+  return clean.length <= max ? clean : "";
+}
+
+function profileSeed(raw) {
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const seed = {};
+  const person = {};
+  const name = seedText(value.profile?.name, MAX_SEED_TEXT);
+  const email = seedText(value.profile?.email, MAX_SEED_TEXT);
+  if (name) person.name = name;
+  if (email) person.email = email;
+  if (Object.keys(person).length) seed.profile = person;
+  const tour = value.onboarding;
+  const onboarding = {};
+  const completedAt = seedText(tour?.completedAt, 40);
+  if (completedAt) onboarding.completedAt = completedAt;
+  if (Number.isInteger(tour?.version) && tour.version >= 0 && tour.version <= 1000) onboarding.version = tour.version;
+  if (typeof tour?.reelSeen === "boolean") onboarding.reelSeen = tour.reelSeen;
+  if (Array.isArray(tour?.hintsSeen)) {
+    const hints = [...new Set(tour.hintsSeen.map((hint) => seedText(hint, 60)).filter(Boolean))].slice(0, MAX_HINTS);
+    if (hints.length) onboarding.hintsSeen = hints;
+  }
+  if (Object.keys(onboarding).length) seed.onboarding = onboarding;
+  return Object.keys(seed).length ? seed : null;
+}
+
 function profileList(state, status = () => "running") {
   return {
     activeId: state.activeId,
@@ -132,6 +169,7 @@ module.exports = {
   parseProfiles,
   profileList,
   profileOrigin,
+  profileSeed,
   serializeProfiles,
   validPort,
   withActive,
