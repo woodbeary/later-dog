@@ -20,6 +20,24 @@
 - A phone or browser you already paired keeps working. The app no longer lists paired devices: `laterdog sessions` lists them, and `laterdog sessions revoke ID` signs one out.
 - Tried in the browser fixture: the menu has five lines and is 212px tall. The fixture has no updater, so its update line didn't show. Not tried yet in the installed app.
 
+### Profiles
+- Keep separate setups, such as Personal, Business and Business 2, and switch between them with **Switch profile** in the menu under your name. Each profile has its own dogs, chats and saved keys. Profiles you're not looking at keep running, so a dog working in Business carries on while you're in Personal.
+- **Add profile** asks for a name and sets the profile up, which takes a few seconds. **Edit profiles** renames or removes one. Removing a profile deletes its saved keys and moves its dogs and chats to the Trash. Personal and the profile you're in can't be removed. You can have up to 8 profiles.
+- Once you have more than one, the profile you're in shows under your name in the sidebar.
+- A new profile starts with your name, your email and how far you got through the tour, copied from the profile you're in. It doesn't ask your name or show the welcome again. Nothing else is copied: its dogs, chats, keys and settings start fresh.
+- If a profile doesn't start, its line in the menu says so: choose it again to try again. If the profile you're in stops, later.dog shows Personal and says why.
+- Limits for now:
+  - Only the profile you're looking at sends notifications and counts unread messages.
+  - Cloud, servers, backups, sharing, waking the Mac for routines, managed connected apps and Local VM viewers stay with Personal. In another profile, connected apps need that profile's own Composio key.
+  - Control of this Mac is shared by every profile.
+  - Each profile runs its own copy of later.dog's server, so each one uses its own memory.
+  - A new profile starts with this Mac's own Claude and ChatGPT sign-ins. Accounts you add in a profile stay in that profile.
+  - Profiles keep your setups apart. They don't keep people who share this Mac apart.
+  - Appearance and other choices kept in the window, such as theme, fonts, language, notifications and the sidebar, start at their defaults in a new profile.
+  - Profiles are in the Mac app only.
+  - A profile's data is in `~/.laterdog-profiles`. A removed profile's browser data stays in `~/.agent-browser`.
+- Tried for real in a test copy of the 0.3.3 Mac app: adding Business opened it in about 2 seconds with its own first dog, Business kept running after switching back to Personal, and renaming and removing worked. Starting with your name, and the tour fix under Fixes, aren't in a build yet.
+
 ### Computer panel
 - The Computer panel is one view now, like Grok Bot's: **Computer**, a green dot while the dog is working there, and a close button. The Computer, Browser and Files tabs are gone.
 - It shows the one place the dog works. A dog set to Browser shows the browser there; a dog on a cloud computer, a Local VM or this computer shows that screen. A dog uses one place per message, so there's nothing to switch between.
@@ -39,6 +57,7 @@
 - The message box works like Grok Bot's. It is one slim line until you need more. Long messages get the full width, with the buttons underneath. Pictures, files, the 4-picture note and the message you're answering all sit inside the box instead of floating above it.
 - The 4-picture note goes away once the message is sent.
 - Pictures you send sit in their own row on the right, side by side at one height, like Grok Bot. Your words get a bubble that fits them, and a message that's only pictures has no bubble. Before, one picture sat at the left of a wide empty box, and pictures with words made a very wide bubble. Rooms show them the same way.
+- The tour's tip no longer shows on top of other windows, such as Edit profiles or Settings. It steps aside while one is open and comes back when it closes. Pressing Escape to close a window no longer ends the tour as well.
 - About, the Full access and computer warnings, and the allowed commands list now cover the whole window. Before, **Jump to latest** could show on top of them and hide About's Support link.
 
 ## 0.3.2 — 2026-10-09

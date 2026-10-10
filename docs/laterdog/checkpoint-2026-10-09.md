@@ -6,7 +6,7 @@ The newest version that builds and passes its local checks. Saved so Jacob can r
 
 - **Branch:** `biscuit/simplify-wording`, in the worktree `~/code/dog-biscuit-settings`. It sits on PR #1 (`biscuit/launch-no-prompts`, launch without permission prompts).
 - **Tag:** `checkpoint-2026-10-09`
-- **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1), then 0.3.3 (unreleased) with the update icon, pictures while a dog works, the × on a question, and the 4-picture limit. Not merged and not released.
+- **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1), then 0.3.3 (unreleased) with the update icon, pictures while a dog works, the × on a question, the 4-picture limit and Profiles. Not merged and not released.
 - **Draft PR:** stacked on PR #1. The CI build is a workflow artifact, not a public release.
 - **Changes:** [CHANGELOG.md](../../CHANGELOG.md)
 
@@ -80,8 +80,7 @@ CI on the draft PR runs the whole vitest suite in four shards plus the broker, e
   - the Local VM Start button on a real VM
   - Windows and Linux
 - No side-by-side comparison with Grok Bot.
-- The browser e2e suite (`scripts/testing/*.e2e.test.ts`) has only had a partial local rerun since the cleanup (see Known failing).
-  - At its last full run, 17 of 25 files failed; 9 of those fail on `main` too.
+- The browser e2e suite (`scripts/testing/*.e2e.test.ts`) ran in full on 2026-10-10 and still has failures (see Known failing).
 
 ## Known failing
 
@@ -90,7 +89,11 @@ Fixed in 0.3.2: `scripts/testing/verification-docs.test.ts` and `scripts/brand-l
 Local-only failures, seen on 2026-10-09:
 
 - `server/control-laterdog.test.ts` ("drives a real fake-engine turn") expects only the fake Claude engine. On a Mac with the Codex CLI on its PATH it also finds ChatGPT. It fails the same way on 0.3.1.
-- With the pinned test browser installed, the `scripts/testing/*-ui.e2e.test.ts` files run instead of skipping. A partial run failed 9 of them; the usage details one was rerun on 0.3.1 and fails the same way. CI has no such browser and skips them (TODO 4).
+- With the pinned test browser installed, or later.dog in `/Applications`, the `scripts/testing/*-ui.e2e.test.ts` files run instead of skipping. CI has no such browser and skips them (TODO 4). Full run on 2026-10-10, one file at a time, on this branch and on `main` (082fce401):
+  - 8 fail on both: cron-routines, direct-coordination, org-library, team-canvas, team-computers, team-lifecycle, trust-controls and usage-details. Their first errors here: no **Tools** button (3), text the app no longer shows (**Teammates working**, **Ran a command**, the old skills wording), no **Open confirmation** button, and a usage check.
+  - 1 fails only here: bot-draft-visibility. It chooses **Who can see it** in New dog, which this branch removed. Left failing on purpose: see Decisions waiting on Jacob.
+  - team-share failed on both because it still said skills and team. Updated to tricks and pack; it passes.
+  - cloud-preview, control-laterdog, reply-focus, team-template and thinking-timer pass; routine-run-feedback skips. `main`'s bot-tools and presets files fail there too; this branch removed them.
 
 ## TODO, in order
 
@@ -229,7 +232,26 @@ Local-only failures, seen on 2026-10-09:
       - **Fix:** the four open at the page root (`createPortal` to `document.body`), as ConfirmDialog already did. The room members panel looked similar but was never covered: nothing caps its z-index of 40, so it stays as it was.
       - **Measured in the fixture (1280×720):** with About open, a click where **Jump to latest** sits lands on About's backdrop, and all six About buttons, Support included, can be clicked. The links row wraps in a narrow window instead of overflowing.
       - Test: `src/components/dialogs.layer.test.ts` (all four fail on the old code).
-    - **Profiles:** named setups such as "personal", "business" and "business 2" that switch back and forth without interrupting a dog that is working.
+    - **Profiles:** done for 0.3.3; tried in a test copy of the Mac app.
+      - **Jacob's ask:** "personal", "business" and "business 2" setups to switch back and forth, without interrupting what's running.
+      - **What it does:** **Switch profile** is the first line of the menu under your name. It turns the menu into the profile list: Personal, each profile, **Add profile** and **Edit profiles**. Choosing a profile opens it in the same window. Add asks for a name. Edit renames a profile or removes one other than Personal and the open one. Up to 8. With more than one, the open profile shows under your name.
+      - **How it works:** each profile is its own later.dog server, started by the Mac app with its own data folder (`~/.laterdog-profiles/<id>`) and port (8811 to 8899). Switching points the window at another server, so dogs in the other profiles keep working. A profile's saved keys are kept in the app's own storage, one set per profile. A new profile starts with your name, email and tour progress from the profile you're in, and nothing else.
+      - **Code:** `electron/profiles.cjs` (the list, ids, ports and what a new profile starts with), `electron/laterdog-profiles.mjs` (starting, switching, renaming and removing the servers), `electron/laterdog-profile-ipc.mjs`, `electron/local-origin.cjs`, `electron/preload.cjs`, a few lines in `electron/main.mjs`, `src/components/ProfileSwitcher.tsx` and `src/components/SidebarProfileMenu.tsx`.
+      - **Tests:** `electron/profiles.node-test.mjs`, `electron/laterdog-profiles.node-test.mjs`, `electron/laterdog-profiles-main.node-test.mjs`, `electron/laterdog-profile-ipc.node-test.mjs`, `electron/profiles-preload.node-test.mjs`, `src/components/ProfileSwitcher.test.ts`, `src/components/SidebarProfileMenu.profiles.test.ts`, `src/components/SidebarPopoverMenu.focus.test.ts`.
+      - **Tried for real on 2026-10-10** in a test copy of the signed 0.3.3 build from CI run 38060115484, with its own home folder:
+        - Adding "Business" opened it on its own server in about 2 seconds, with its own first dog.
+        - Back in Personal, Business kept running: the same process, still answering.
+        - Renaming it to "Work" stuck without a restart.
+        - Adding and removing "Business 2" worked. Its server stopped and its folder went to the Trash a few seconds later.
+      - **Found in that run and fixed since, not yet in a build:**
+        - A new profile showed the welcome again and asked your name. It now starts with your name, email and tour progress.
+        - The tour's tip showed on top of the Edit profiles window, and pressing Escape there ended the tour as well. Fixed for every window in `src/components/onboarding/Spotlight.tsx`. Test: `src/components/onboarding/Spotlight.test.ts` (5 of its 6 cases fail on the old code).
+      - **Not verified:**
+        - The two fixes above in a build.
+        - A profile that fails to start, and a dog working in one profile while you switch.
+        - Late in the run the Mac's load went very high, and the test copy's window stopped answering and had to be force-quit. Found afterwards: the disk was full (187 MB free of 228 GB) and dozens of system services were restarting every few seconds. Deleting my 3.1 GB of test copies and stopping my tests brought the load from about 200 to 5 within minutes. The likely cause is the full disk, made worse by two of my typechecks running at once. Not proven: the app hasn't been profiled under normal load yet.
+      - **Testing note:** a removed profile goes to the real account's Trash even when the app runs with a test home folder.
+      - **Limits:** listed in the CHANGELOG.
 14. **Study Grok Bot's domain transfer flow**, which asks for a Cloudflare sign-in:
     - how it's presented, when it calls its tools, and how it updates as it goes
     - then finish a real transfer with Jacob so later.dog's version has good data behind it
@@ -258,6 +280,15 @@ Local-only failures, seen on 2026-10-09:
 - later.dog Cloud sign-in
 - the Pack map's sidebar row
 - phone pairing: Connect your phone, Use on your phone, and the list of paired devices. Without that list, signing out a lost phone takes `laterdog sessions revoke ID`; a short list in Settings could come back on its own.
+
+**Safety controls the app no longer shows.** The server keeps each one, and this branch didn't change their server tests, but nobody can see or change them in the app any more. The dog editor sends only the fields you change, so a dog that already has one keeps it (read in the code, not tried).
+
+- **Who can see it** for a dog, in New dog and the dog editor
+- a dog's outbound limit: **Ask every time** or **Allow a daily amount**
+- a dog's app access: **Limit this dog to specific apps**, read or read and write
+- People, Organization, companion connections and server pairing in Settings
+
+Their renderer tests went with them. `trust-controls-ui.e2e.test.ts` lost its outbound limit, app access, fallback and memory steps (115 lines), and the Access, People, Organization, Companion and server pairing component tests were deleted with their components. `bot-draft-visibility-ui.e2e.test.ts` still chooses Who can see it, so it fails here. For each control that comes back, its test comes back too.
 
 ## Try it, roll it back
 
