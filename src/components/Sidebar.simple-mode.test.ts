@@ -194,6 +194,19 @@ describe("group preview", () => {
     expect(markup).toContain("Atlas: Plan drafted.");
     expect(markup).not.toContain("[digest]");
   });
+
+  it("previews a markdown reply as plain words", () => {
+    const group: Group = {
+      id: "group", name: "Planning", threadId: "group-thread", memberIds: [], defaultResponder: { kind: "mentions" }, bulletin: "", unread: false, createdAt: 0,
+      messages: [
+        { id: "b1", role: "bot", kind: "text", text: "### Plan\n\n1. **Draft** the [brief](https://example.com)\n2. Ship it", at: 2, from: { botId: "atlas", name: "Atlas", color: "green" } },
+      ] as Group["messages"],
+      tasks: [{ threadId: "group-thread", title: "Group conversation", createdAt: 1 }],
+    };
+    const markup = renderToStaticMarkup(createElement(GroupListItem, { group, density: "comfortable", onMenu: vi.fn() }));
+    expect(markup).toContain("Atlas: Plan 1. Draft the brief 2. Ship it");
+    expect(markup).not.toContain("###");
+  });
 });
 
 describe("activity-only escape hatch", () => {

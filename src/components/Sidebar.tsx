@@ -122,6 +122,7 @@ import { useLiveMedia } from "@/lib/live-call-media";
 import { LiveCallPill, liveBadgeFor } from "./LiveCallPill";
 import { ShortcutHint } from "./ShortcutHint";
 import { citationPreviewText } from "@/lib/citations";
+import { markdownPreview } from "../../shared/markdown-preview";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
 
 /** Vertical centre of the macOS traffic lights, in CSS px from the window
@@ -165,8 +166,9 @@ function preview(bot: Bot, visible: Message[], instances: InstanceInfo[]): strin
   if (last.kind === "screen") return t("sidebar.preview.screenFrame");
   if (last.kind === "connector" && last.connector) return sidebarConnectorPreview(last.connector, t);
   const peer = peerLine(last);
-  if (peer) return `${peer.name}: ${peer.body}`;
-  return citationPreviewText(last.text ?? "");
+  if (peer) return `${peer.name}: ${markdownPreview(peer.body)}`;
+  const text = citationPreviewText(last.text ?? "");
+  return last.role === "user" ? text : markdownPreview(text);
 }
 
 interface MenuState {
@@ -190,14 +192,13 @@ function groupPreview(group: Group, bots: Bot[], instances: InstanceInfo[]): str
   if (group.working) return t("sidebar.preview.teamWorking");
   const last = lastNonReceipt(group.messages);
   if (!last) return t("sidebar.preview.noMessages");
-  const text = last.kind === "activity" && last.tool
+  const readable = last.kind === "activity" && last.tool
     ? activityPreview(last.tool, botEngine(bots.find((bot) => bot.id === last.from?.botId), instances))
     : last.kind === "goal.run" && last.goalRun
       ? sidebarGoalRunPreview(last.goalRun)
       : last.kind === "connector" && last.connector
         ? sidebarConnectorPreview(last.connector, t)
-        : (last.text ?? "");
-  const readable = citationPreviewText(text);
+        : markdownPreview(citationPreviewText(last.text ?? ""));
   if (last.role === "user") return t("sidebar.preview.you", { text: readable });
   return last.from ? `${last.from.name}: ${readable}` : readable;
 }
