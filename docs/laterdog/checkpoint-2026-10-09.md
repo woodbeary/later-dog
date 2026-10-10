@@ -110,11 +110,15 @@ Local-only failures, seen on 2026-10-09:
      - **Tests:** `server/laterdog/turn-images.test.ts`, `server/laterdog/turn-images.e2e.test.ts` (a real server and the fake Claude CLI, including Stop), two in `server/store.test.ts`, one in `src/lib/activity-runs.test.ts`. The end-to-end test fails on 0.3.1: the screenshot never shows while the dog works.
 2. **Finish the docs.**
    - The nine verification docs: done in 0.3.2.
-   - These guides still send people to Settings pages that are gone:
-     - `docs/custom-engines.md`, `self-hosting.md`, `composio.md`, `custom-mcp-servers.md`
-     - `organization-branding.md`, `byo-vps.md`, `desktop-companion.md`
-     - `cloud-pro.md` (it still describes lending), `copy-workspace.md`, `ios-companion.md` (these two also still send people to Connect your phone)
-     - `docs/verification/server-settings.md`, `codex-account.md`, `organization-settings.md`, `engines.md`
+   - `docs/composio.md`: done for 0.3.3. The Composio key now goes in **Apps** in the sidebar, which asks for it until one is saved. Its section on each dog's tool access still describes a hidden safety control.
+   - The rest describe pages that are gone, not moved, so they wait on Decisions waiting on Jacob:
+     - **Adding an engine:** `docs/custom-engines.md`
+     - **Organization:** `organization-branding.md`, and one section of `custom-mcp-servers.md`
+     - **Remote access, People, Servers, Installations, Backups and Activity:** `self-hosting.md`, `desktop-companion.md`
+     - **Your own VPS as a cloud computer:** `byo-vps.md`. The app's VPS row links to it, but 0.3.3 asks for the alias only in the Computer panel of a dog already set to a VPS, from an older version or through the API. No screen chooses a VPS.
+     - **My Cloud lending and phone pairing:** `cloud-pro.md`, `copy-workspace.md`, `ios-companion.md`
+   - **Verification recipes** that still open Settings → Engines: `docs/verification/codex-account.md`, `engines.md` and `server-settings.md`. Accounts moved to Settings → General → Accounts, so each needs its steps rewritten and a fixture run. `organization-settings.md` waits on Organization.
+   - **The Help Center** opens `docs/laterdog/` on GitHub. It holds notes for building later.dog (acceptance records, audits, this checkpoint), not a guide for people using it.
 3. **Fix words on screen and in errors that point at removed pages:** done for 0.3.3 (26b74d437).
    - Errors, hints and prompts name what's there now: Settings → Computer, its Built-in browser and Cloud computers groups, or a dog's Library tab. The cloud home's one-time note points at the sessions API (`GET /api/auth/sessions`, `DELETE /api/auth/sessions/ID`).
    - **The cloud sign-in note:** My Cloud's sign-in screen offers **Use an Anthropic API key** again, as the Claude (API key) engine's own key card, so "an API key works best" is true again.
