@@ -15,6 +15,11 @@
 - An account that isn't signed in stays out of the menu unless a dog is using it. It's still in Settings, General, Accounts.
 - Tried in the browser fixture with three Claude accounts: dragging one to the top and Alt+↓ both saved the new order. Not tried yet in the installed app.
 
+### Menu under your name
+- **Connect your phone** and **Use on your phone** are gone. There's no phone app yet, so the phone features are hidden for now. The menu is Settings, Keyboard shortcuts, the update line, About, Help Center and Send Feedback. The note after a copy to My Cloud doesn't mention your phone any more either.
+- A phone or browser you already paired keeps working. The app no longer lists paired devices: `laterdog sessions` lists them, and `laterdog sessions revoke ID` signs one out.
+- Tried in the browser fixture: the menu has five lines and is 212px tall. The fixture has no updater, so its update line didn't show. Not tried yet in the installed app.
+
 ### Fixes
 - A picture you add while a dog works goes into the running turn, the same as words. Claude and ChatGPT dogs see it right away; Steer on a queued picture works too. Before, any message with a picture waited for the turn to end, and its queue row showed a file path instead of the picture.
 - A queued picture shows as a small thumbnail with "A picture" or "2 pictures" when there are no words.

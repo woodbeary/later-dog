@@ -109,7 +109,7 @@ Local-only failures, seen on 2026-10-09:
    - These guides still send people to Settings pages that are gone:
      - `docs/custom-engines.md`, `self-hosting.md`, `composio.md`, `custom-mcp-servers.md`
      - `organization-branding.md`, `byo-vps.md`, `desktop-companion.md`
-     - `cloud-pro.md` (it still describes lending), `copy-workspace.md`, `ios-companion.md`
+     - `cloud-pro.md` (it still describes lending), `copy-workspace.md`, `ios-companion.md` (these two also still send people to Connect your phone)
      - `docs/verification/server-settings.md`, `codex-account.md`, `organization-settings.md`, `engines.md`
 3. **Fix words on screen and in errors that point at removed pages.**
    - **Settings → Tricks:** the dog's Library tab (`src/components/bot-settings/SkillsSection.tsx`).
@@ -184,7 +184,12 @@ Local-only failures, seen on 2026-10-09:
         - The message box stayed empty. Focus lands on **‹ Accounts** on the Models page, and back on the Model line after going back.
       - **Limits:** dragging needs a mouse or trackpad. On a touch screen it's untested and the grip stays hidden, and Settings → Accounts can't reorder. The "Drag to reorder" hint is English only, like the other account strings.
       - Code: `src/components/AccountSwitcher.tsx`, `src/components/ModelPicker.tsx`, and `useCarryOn` and `shownOrder` in `src/components/AccountsPanel.tsx`. Tests: `src/components/AccountSwitcher.test.ts`, `src/components/AccountsPanel.test.ts`, and the two-page cases in `src/components/ModelPicker.simple.test.ts`.
-    - **Remove the Phone features.**
+    - **Remove the Phone features:** done for 0.3.3; checked in the browser fixture, not yet in the installed app.
+      - **What went:** the menu under your name lost **Connect your phone** (a line each for this computer and My Cloud) and **Use on your phone**. Move to My Cloud's done note lost its phone line. The menu is now Settings, Keyboard shortcuts, the update line, About, Help Center and Send Feedback.
+      - **What stays, hidden:** the pairing code. A link asking for phone pairing (`?desktop-settings=phone`, which 0.3.2 sends when it opens My Cloud for a phone) still opens the pairing dialog, so an older app doesn't land on a dead end. The welcome tour's phone step was already unused.
+      - **Limit:** the app no longer lists paired devices. `laterdog sessions` lists them and `laterdog sessions revoke ID` signs one out.
+      - **Measured in the fixture (1280×720):** five lines, 212px tall. The fixture has no updater, so the update line doesn't show there.
+      - Code: `src/components/SidebarProfileMenu.tsx`, `moveNextSteps` in `src/components/CloudMove.tsx`; `src/components/PhoneAppDialog.tsx` removed. Tests: `src/components/SidebarProfileMenu.test.ts`, `src/components/PhonePairingDialog.test.ts`, `src/components/CloudMove.test.ts`.
     - **"Jump to latest" stays under dialogs, and About's links row isn't cut off:** done for 0.3.3; checked in the browser fixture, not yet in the installed app.
       - **Cause:** one bug. About opens from the menu under your name, inside the sidebar's bar, which is a layer of its own (`isolation: isolate`, z-index 10). Nothing inside that bar can rise above it, so **Jump to latest**, at the same level and later in the page, showed on top of About and covered its Support link. The Full access and computer warnings and the allowed commands list had the same problem inside the message box's layer (z-index 2).
       - **Fix:** the four open at the page root (`createPortal` to `document.body`), as ConfirmDialog already did. The room members panel looked similar but was never covered: nothing caps its z-index of 40, so it stays as it was.
@@ -218,6 +223,7 @@ Local-only failures, seen on 2026-10-09:
 - the per-dog browser and apps switches
 - later.dog Cloud sign-in
 - the Pack map's sidebar row
+- phone pairing: Connect your phone, Use on your phone, and the list of paired devices. Without that list, signing out a lost phone takes `laterdog sessions revoke ID`; a short list in Settings could come back on its own.
 
 ## Try it, roll it back
 

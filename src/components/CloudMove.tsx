@@ -104,11 +104,9 @@ function fitNote(overview: CloudMoveOverview | null, server: string, cloud: bool
     ...(fit.maxBytes ? { maxBytes: fit.maxBytes } : {}), ...(fit.largest ? { largest: true as const } : {}), ...(fit.volumeBytes ? { volumeBytes: fit.volumeBytes } : {}) }, server, cloud);
 }
 
-/** After a copy: what is not running yet there, and the phone. */
 export function moveNextSteps(state: CloudMoveState): string[] {
-  if (state.phase !== "done" || state.action === "restore") return [];
-  const server = state.destination?.name || t("cloudMove.thisServer");
-  return [...(state.routines ? [t("cloudMove.doneRoutines", { count: state.routines, server })] : []), t("cloudMove.donePhone", { server })];
+  if (state.phase !== "done" || state.action === "restore" || !state.routines) return [];
+  return [t("cloudMove.doneRoutines", { count: state.routines, server: state.destination?.name || t("cloudMove.thisServer") })];
 }
 
 /** The only state → view mapping. `overview` is main's snapshot about one

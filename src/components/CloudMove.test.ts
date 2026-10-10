@@ -136,11 +136,12 @@ it("after a copy: what came, what is not running yet there, and Done", async () 
   const html = render(settings()).html;
   expect(html).toContain("Copied to My Cloud: 4 dogs and 37 chats.");
   expect(html).toContain("Routines arrive paused: 3 were on here. Turn on the ones you want in each dog's settings on My Cloud");
-  expect(html).toContain("To use My Cloud from your phone");
+  expect(html).not.toMatch(/phone/i);
   expect(html.indexOf("Copied to My Cloud")).toBeLessThan(html.indexOf("Routines arrive paused: 3"));
   button(settings(), "Done")!.props.onClick!(); await flush();
   expect(vi.mocked(bridge.dismiss).mock.calls).toEqual([["cloud"]]);
-  expect(moveNextSteps({ phase: "done", action: "move", destination: VPS, moved: { bots: 1, rooms: 0, chats: 1 } })).toEqual([expect.stringContaining("To use bots.example.test from your phone")]);
+  expect(moveNextSteps({ phase: "done", action: "move", destination: VPS, moved: { bots: 1, rooms: 0, chats: 1 } })).toEqual([]);
+  expect(moveNextSteps({ phase: "done", action: "move", destination: VPS, moved: { bots: 1, rooms: 0, chats: 1 }, routines: 2 })).toEqual([expect.stringContaining("Turn on the ones you want in each dog's settings on bots.example.test")]);
   expect(moveNextSteps({ phase: "done", action: "restore" })).toEqual([]);
   expect(moveNextSteps({ phase: "failed", action: "move" })).toEqual([]);
 });
