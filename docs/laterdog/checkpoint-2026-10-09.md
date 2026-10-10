@@ -4,8 +4,8 @@ The newest version that builds and passes its local checks. Saved so Jacob can r
 
 ## Where it is
 
-- **Branch:** `biscuit/simplify-wording`, in the worktree `~/code/dog-biscuit-settings`. It sits on PR #1 (`biscuit/launch-no-prompts`, launch without permission prompts).
-- **Tag:** `checkpoint-2026-10-09`
+- **Branch:** `biscuit/simplify-wording`, in the worktree `~/code/dog-biscuit-settings`. It sits on PR #1 (`biscuit/launch-no-prompts`, launch without permission prompts). TODO 20's fixes are on `biscuit/grok-parity`, which sits on this branch.
+- **Tags:** `checkpoint-2026-10-09`, and `checkpoint-2026-10-10` before TODO 20.
 - **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1), then 0.3.3 (unreleased) with the update icon, pictures while a dog works, the × on a question, the 4-picture limit, Profiles, the free trial (off until deployed), the restart of a server that ended, the fixes from a run with real Claude, and two fixes from a check of a 0.3.3 preview build. Not merged and not released.
 - **Draft PR:** stacked on PR #1. The CI build is a workflow artifact, not a public release.
 - **Changes:** [CHANGELOG.md](../../CHANGELOG.md)
@@ -80,7 +80,7 @@ CI on the draft PR runs the whole vitest suite in four shards plus the broker, e
   - pairing with a real later.dog Cloud
   - the Local VM Start button on a real VM
   - Windows and Linux
-- No side-by-side comparison with Grok Bot.
+- The side by side with Grok Bot (TODO 20) ran later.dog with the fake Claude, not a real sign-in.
 - The browser e2e suite (`scripts/testing/*.e2e.test.ts`) ran in full on 2026-10-10 and still has failures (see Known failing).
 
 ## Known failing
@@ -300,6 +300,20 @@ Local-only failures, seen on 2026-10-09:
       - **A force-quit server:** the app started a new one in about a second, the window picked it up by itself, and Business's server kept running. This is the older recovery path, not TODO 17's 15-second check.
       - **Profiles:** see TODO 13.
     - **Not verified:** the installed app.
+
+20. **Side by side with Grok Bot 0.68.1**, on 2026-10-10. Grok Bot ran on Jacob's profile with its calls logged; later.dog ran in an isolated copy with the fake Claude. Compared: every Settings page, the account menu, Connect apps, a new dog, a turn, an approval, the profile panel, the sidebar and search.
+    - **Already as simple, or simpler:** the four Settings pages, Escape to close, accounts (later.dog also names each one and shows its usage), a new dog's first hello and question, Updates, search (later.dog also finds messages).
+    - **To fix, on `biscuit/grok-parity`:**
+      - Theme is 9 cards squeezed into a narrow column. Make it a menu: System, Light, Dark.
+      - Your messages take the dog's colour, as in Grok Bot.
+      - An account says "Signed in" over "Sign in again in Claude".
+      - Usage lists the API-key engine and says "Codex". List only the accounts you sign in to.
+      - Computer says "Install a supported container runtime first", and shows a Boat key field with an OPTIONAL tag and an orange warning.
+      - Apps shows later.dog's own server with its node path, the Composio key first, and "older SSE connection" notes. Grok Bot has no custom servers at all; later.dog keeps them, under a plainer name.
+      - A message has seven hover buttons, one of them a disabled Read aloud. Grok Bot has three.
+      - Search cuts a dog's name to "A…".
+      - The working line goes away after a dog's in-between words, while it's still working.
+      - Language and Notification sounds have two lines of help each, and say "agent".
 
 ## Decisions waiting on Jacob
 
