@@ -48,6 +48,12 @@
 - Gone for now: the note about a chat held to a different place (a message that fails there still offers to switch back), opening the built-in browser for a dog that works somewhere else, and the Files tab's list of changed files. The working folder is in the dog's settings, and each finished message's summary in the chat still counts the files it changed.
 - Tried in the browser fixture: Browser, Off and Auto in the panel, and the list in the dog's settings. Not tried yet in the installed app.
 
+### Free trial
+- A free trial of a cloud computer: 30 minutes, to use within 7 days, with no card and no account. It shows in Settings, Computer, Cloud computers, only while no cloud computers are set up. **Start free trial** opens a quick check in your browser. Once it passes, the trial is your cloud computer and Settings counts the minutes left. **End trial** asks first, then deletes the trial's computer.
+- Each installation gets one trial, and each network one a week. A computer whose trial is used up or ended stops at once instead of retrying.
+- The trial runs on later.dog's computers Worker, which keeps it off until it's switched on. This version offers no trial yet: it needs the Worker deployed with trials on, and its address in the app (see [the computers README](deploy/laterdog/computers/README.md#free-trials)).
+- Tried in tests only: the Worker with a fake Cloudflare, and the app with a fake Worker. Not tried yet against a deployed Worker or a real Turnstile check.
+
 ### Fixes
 - A picture you add while a dog works goes into the running turn, the same as words. Claude and ChatGPT dogs see it right away; Steer on a queued picture works too. Before, any message with a picture waited for the turn to end, and its queue row showed a file path instead of the picture.
 - A queued picture shows as a small thumbnail with "A picture" or "2 pictures" when there are no words.

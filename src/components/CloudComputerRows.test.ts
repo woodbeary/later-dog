@@ -12,6 +12,7 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: { config: { box: { configured: true } } } }) }));
 vi.mock("./ApiKeys", () => ({ CloudComputersRow: () => createElement("div", { "data-key-row": "" }) }));
+vi.mock("./CloudTrial", () => ({ CloudTrialRow: () => null }));
 
 const { CloudComputerRows, cloudComputerState, mergeCloudComputers } = await import("./CloudComputerRows");
 

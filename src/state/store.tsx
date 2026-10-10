@@ -650,7 +650,7 @@ export interface ConfigStatus {
   composio: { configured: boolean; mode?: "managed" | "self-hosted" | "unavailable" };
   /** `included`: cloud computers come with Cloud Pro, no key is saved. */
   /** `provider: "laterdog"`: later.dog's own cloud computers on the person's Cloudflare account, so no Boat key is asked for. */
-  box: { configured: boolean; included?: boolean; provider?: "laterdog" };
+  box: { configured: boolean; included?: boolean; provider?: "laterdog"; trial?: boolean };
   vps: { configured: boolean; sshAlias: string };
   rooms: { turnTimeoutMinutes: number };
   /** Per-call ceiling (minutes) for a bot's MCP tools. Absent from servers

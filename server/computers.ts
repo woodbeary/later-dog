@@ -14,7 +14,7 @@ import { DATA_DIR, type AppConfig } from "./config.ts";
 import { loadEnvironmentId } from "./environment.ts";
 import type { ServiceCredential } from "./included-services.ts";
 import {
-  COMPUTER_ID, ComputersApiError, ComputersClient, computersConnection, computersKey, computersSelected, type Computer,
+  COMPUTER_ID, ComputersApiError, ComputersClient, computersConnection, computersKey, computersSelected, ownComputersChosen, trialInUse, type Computer,
 } from "./laterdog/cloud-computers.ts";
 
 // What the Boat key, the Boat deletion journal and shell quoting need is Boat's alone, or the same for both services.
@@ -34,6 +34,7 @@ const JOIN_BUDGET_MS = 90_000;
 const EXEC_BUDGET_MS = 60_000;
 const POLL_MS = 1_500;
 const MAX_CREATE_HOPS = 10;
+const TRIAL_STOPS = new Set(["trial_used_up", "trial_ended", "trials_off"]);
 // boat.ts quiesces Chrome the same way before Boat archives a computer; its copy is private to it.
 const QUIESCE_BROWSER = [
   'for name in chrome google-chrome chromium chromium-browser; do pid=$(pgrep -o -x "$name" 2>/dev/null || true); [ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null || true; done',
@@ -133,6 +134,7 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
             if (!(error instanceof ComputersApiError)) throw error;
             // 409 is a race with a sleep or wake already under way: the next poll sees where it went. A plan limit or a
             // rejected key is final; a service error is retried on the next poll, and reported if the budget runs out.
+            if (TRIAL_STOPS.has(error.code ?? "")) throw refusal(error);
             if (error.httpStatus !== 409) {
               if (error.httpStatus > 0 && error.httpStatus < 500) throw refusal(error);
               failure = refusal(error);
@@ -252,6 +254,8 @@ async function revalidateOwn(client: ComputersClient, owners: ManagedBoatOwner[]
 
 export function boatConfigured(cfg: AppConfig): boolean { return computersSelected() || boat.boatConfigured(cfg); }
 
+export function otherComputersConfigured(cfg: AppConfig): boolean { return ownComputersChosen() || boat.boatConfigured(cfg); }
+
 /** The credential a request uses. later.dog's computers are always the person's own, never a Cloud plan's included ones. */
 export function boatAccount(cfg: AppConfig): ServiceCredential | null {
   if (!computersSelected()) return boat.boatAccount(cfg);
@@ -262,8 +266,10 @@ export function boatAccount(cfg: AppConfig): ServiceCredential | null {
 }
 
 /** What Settings shows. `provider` says the cloud computers are later.dog's own, so Settings can stop asking for a Boat key. */
-export function describeBoatAccount(cfg: AppConfig): { configured: boolean; included?: true; provider?: "laterdog" } {
-  return computersSelected() ? { configured: true, provider: "laterdog" } : boat.describeBoatAccount(cfg);
+export function describeBoatAccount(cfg: AppConfig): { configured: boolean; included?: true; provider?: "laterdog"; trial?: true } {
+  if (ownComputersChosen()) return { configured: true, provider: "laterdog" };
+  if (trialInUse()) return { configured: true, provider: "laterdog", trial: true };
+  return boat.describeBoatAccount(cfg);
 }
 
 export async function findBoat(cfg: AppConfig, botId: string) {

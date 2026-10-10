@@ -253,7 +253,7 @@ export function CloudComputersRow() {
     <div data-api-key-row="box" className="flex items-center gap-2 text-[13px] text-ink-secondary">
       <span className="size-1.5 rounded-full bg-success" />
       <span>{t("keys.ownComputers.label")}</span>
-      <span className="text-[11px]">{t("keys.ownComputers.status")}</span>
+      <span className="text-[11px]">{state.config.box.trial ? t("keys.ownComputers.trial") : t("keys.ownComputers.status")}</span>
     </div>
   );
 }

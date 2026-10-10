@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StoreProvider } from "@/state/store";
 import * as store from "@/state/store";
-import { AnthropicEveryClaudeBot, ApiKeyRow, looksLikeKey, OpenAiCompatUrl, OpenCodeProviderKeys } from "./ApiKeys";
+import { AnthropicEveryClaudeBot, ApiKeyRow, CloudComputersRow, looksLikeKey, OpenAiCompatUrl, OpenCodeProviderKeys } from "./ApiKeys";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -78,6 +78,27 @@ describe("provider key rows", () => {
     const own = render(createElement(ApiKeyRow, { section: "box" }));
     expect(own).toContain("Configured");
     expect(own).not.toContain("Included with your Cloud plan");
+  });
+
+  it("says whose later.dog cloud computers are in use: the person's own, or the free trial", () => {
+    const withBox = (box: store.ConfigStatus["box"]) => vi.spyOn(store, "useStore").mockReturnValue({
+      state: { ...store.initialState, config: { ...store.initialState.config, box } as store.ConfigStatus },
+      dispatch: vi.fn(),
+      flushBotPatches: vi.fn(),
+      refreshInstances: vi.fn(),
+      refreshModels: vi.fn(),
+    });
+    withBox({ configured: true, provider: "laterdog" });
+    const own = render(createElement(CloudComputersRow));
+    expect(own).toContain("Your own, on your Cloudflare account");
+    expect(own).not.toContain("Free trial");
+    expect(own).not.toContain("Paste your Boat API key");
+
+    withBox({ configured: true, provider: "laterdog", trial: true });
+    const trial = render(createElement(CloudComputersRow));
+    expect(trial).toContain("Free trial");
+    expect(trial).not.toContain("Your own, on your Cloudflare account");
+    expect(trial).not.toContain("Paste your Boat API key");
   });
 
   it("warns about per-token billing only while the Anthropic key runs every Claude bot", () => {

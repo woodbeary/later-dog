@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { CloudComputersRow } from "./ApiKeys";
+import { CloudTrialRow } from "./CloudTrial";
 import { pillButton } from "./LocalVmRows";
 import { SettingRow } from "./SettingsPrimitives";
 
@@ -109,6 +110,7 @@ export function CloudComputerRows() {
   return (
     <div data-cloud-computer-rows="" className="rounded-xl bg-card px-4">
       <div className="py-4"><CloudComputersRow /></div>
+      <CloudTrialRow />
       {loading && computers.length === 0 ? (
         <div className="flex items-center gap-2 border-t border-hairline/40 py-4 text-[13px] text-ink-secondary">
           <Loader2 size={13} className="animate-spin" /> {t("vm.cloud.checkingList")}

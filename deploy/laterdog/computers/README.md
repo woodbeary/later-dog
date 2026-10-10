@@ -184,6 +184,26 @@ hours of `standard` a day on average. That is about 57 cents (CPU idle) to $1.30
 $40 a month, plus snapshot storage, which has no published price. Several days' trials can spend their minutes on the
 same day, and a computer whose snapshot keeps failing can run 10 minutes over.
 
+### In the app
+
+Settings shows the trial under Computer, Cloud computers. later.dog asks `GET /v1/trials` only while no cloud computers
+are set up: no `computers.json`, no `LATERDOG_COMPUTERS_API` and no Boat key. It asks the service in
+`DEFAULT_TRIAL_API` (`server/laterdog/cloud-trial.ts`). That is empty, so the app offers no trial until a release sets
+it. `LATERDOG_TRIAL_API` overrides it, for testing.
+
+- **Start free trial** writes the key to `~/.laterdog/computers-trial-key` and the trial's state to
+  `~/.laterdog/computers-trial.json`, both mode 600, and opens the page. While Settings is open, it checks every 3
+  seconds until the trial starts, then every 30 seconds. A trial started with Settings closed is picked up the next
+  time Settings opens.
+- Once `GET /v1/trial` answers, the trial is this installation's cloud computers until it ends. `computers.json` and
+  `LATERDOG_COMPUTERS_API` come first whenever they are set.
+- **End trial** asks first, then calls `DELETE /v1/trial`. A 401 means the trial has already ended. Either way it is
+  marked ended and the key file is deleted. The app offers no second trial. Deleting both files offers it again, but
+  the network limit still applies.
+- A trial computer that answers `trial_used_up`, `trial_ended` or `trials_off` stops waking at once.
+- later.dog handles trial requests one at a time, so a check still waiting for the service finishes before a Cancel or
+  **End trial** runs.
+
 ## Costs
 
 Containers bill only while running, per 10 ms, on Workers Paid. Cloudflare's rates (pricing page updated 2026-10-05):
@@ -249,6 +269,9 @@ Trials stay off until all of this is done. Nothing here prints a secret.
    known is then refused.
 4. Set `TRIALS_ENABLED` to `"true"` and run `pnpm run deploy:worker`.
 5. `curl -s https://laterdog-computers.<subdomain>.workers.dev/v1/trials` should answer `{"offered":true,...}`.
+6. To offer trials in the app, set `DEFAULT_TRIAL_API` in `server/laterdog/cloud-trial.ts` to
+   `https://laterdog-computers.<subdomain>.workers.dev/v1`, change the test that expects it to be empty, and release.
+   To try it first, start later.dog with `LATERDOG_TRIAL_API` set to that address.
 
 `TrialRegistry` is declared in `exports` like the other classes. Wrangler 4.149 treats `exports` as the Durable Object
 declaration and refuses `migrations` alongside it, so no migration is written. That was read in wrangler's code, not
