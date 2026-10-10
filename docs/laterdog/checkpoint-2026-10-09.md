@@ -72,7 +72,7 @@ CI on the draft PR runs the whole vitest suite in four shards plus the broker, e
 ## Not verified
 
 - **0.3.3 hasn't run in the real app yet.** The installed app is 0.3.2. Test copies of signed 0.3.3 preview builds have run, each with its own home folder (TODO 13, 15 and 19).
-- Real Claude ran only in a throwaway copy with test dogs (TODO 18).
+- Real Claude ran only in throwaway copies with test dogs (TODO 12 and 18).
 - No real Claude or ChatGPT sign-in through the new Add account sheet.
 - No real usage limit has triggered the Continue on message or the walk-away pickup. Fixture success does not qualify a live provider.
 - Not tried against a real device or service:
@@ -152,12 +152,13 @@ Local-only failures, seen on 2026-10-09:
     - **What it does:** every open question card, a new dog's first one included, has an × in its corner. Closing it tells the dog the question was closed, so the dog stops waiting, hides the card, and puts the cursor in the message box. A question still showing after its turn ended, or after a restart, closes without starting a new turn.
     - **Code:** `server/laterdog/close-question.ts`, used by both respond routes in `server/index.ts`, and `src/components/QuestionCard.tsx`.
     - **Tests:** `server/laterdog/close-question.test.ts`, `server/laterdog/close-question.e2e.test.ts` (a real server and the fake Claude CLI; it fails on the old code), `src/components/QuestionCard.dom.test.ts`.
-12. **Adding a picture while a dog works:** fixed for 0.3.3; checked in the browser fixture, not yet in the installed app.
+12. **Adding a picture while a dog works:** fixed for 0.3.3; checked in the browser fixture and with real Claude, not yet in the installed app.
     - **Symptom:** a picture added while a dog worked couldn't steer, and its queue row showed a file path.
     - **Cause:** the server queued every message with a picture on purpose, because a steer could only carry words. Steer on a queued picture was refused the same way.
     - **Fix:** Claude and ChatGPT (Codex) take pictures mid-turn (`server/laterdog/steer-images.ts`, `steerImages` in each driver's capabilities). Sending, Steer on a queued row, and a room's Steer all pass the picture along. Engines that still can't take one mid-turn (OpenAI-compatible, Pi) keep the queue, and the composer offers Stop and send instead of a steer that can't work. A queued picture shows as a thumbnail.
     - **Tests:** `server/laterdog/steer-images.test.ts`, `server/laterdog/steer-images.e2e.test.ts` (a real server and the fake Claude CLI; it fails on 0.3.2), two updated cases in `server/steer-e2e.test.ts`, `server/admission-golden.test.ts`, `src/components/ComposerQueuedMessages.test.ts`.
-    - **Not verified:** a real Claude or Codex taking a picture mid-turn. Each gets the same picture input it already takes when a turn starts (Claude image blocks, Codex `localImage`).
+    - **Checked with real Claude** on 2026-10-10 (Sonnet 5, a throwaway copy driven through its API): a picture sent while Claude wrote a story went into the running turn, and so did a queued one after **Steer**. Both times Claude finished the story, then named the picture's colors correctly.
+    - **Not verified:** a real Codex taking a picture mid-turn. It gets the same picture input it already takes when a turn starts (`localImage`).
 13. **Jacob's UI list from 2026-10-09:**
     - **The composer should look like Grok Bot's:** done for 0.3.3; checked in the browser fixture, not yet in the installed app.
       - It is one 44px line when empty: attach on the left, the words, then permissions and send on the right. Two lines of words, a picture or file, the 4-picture note, or a reply make it grow: the words get the full width and the buttons go underneath. It stays big while there are words and shrinks back once they're gone.

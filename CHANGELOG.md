@@ -55,7 +55,7 @@
 - Tried in tests only: the Worker with a fake Cloudflare, and the app with a fake Worker. Not tried yet against a deployed Worker or a real Turnstile check. In a test copy of this version, which has no trial address, Settings shows no trial row.
 
 ### Fixes
-- A picture you add while a dog works goes into the running turn, the same as words. Claude and ChatGPT dogs see it right away; Steer on a queued picture works too. Before, any message with a picture waited for the turn to end, and its queue row showed a file path instead of the picture.
+- A picture you add while a dog works goes into the running turn, the same as words. Claude and ChatGPT dogs see it right away; Steer on a queued picture works too. Before, any message with a picture waited for the turn to end, and its queue row showed a file path instead of the picture. Tried with real Claude: a picture sent while it wrote, and a queued one after Steer, each reached the running turn, and Claude named its colors. Not tried yet with a real ChatGPT dog.
 - A queued picture shows as a small thumbnail with "A picture" or "2 pictures" when there are no words.
 - A dog's question has an × in its corner. Close it to skip the question and type your own message instead. A new dog's first question has one too. The dog is told you closed it and stops waiting for an answer. Closing works after a restart as well.
 - A message takes up to 4 pictures, and the message box now stops there. Picking, pasting or dropping more adds the first 4 and says so. Before, they all went in and sending failed.
