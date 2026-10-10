@@ -1083,7 +1083,7 @@ export function boatErrorMessage(status: number, what: string, body?: any, inclu
   }
   if (status === 401 || status === 403) {
     if (included) return INCLUDED_BOAT_UNAVAILABLE;
-    return "your box token was rejected by boat.dev — open App Settings and paste a current token (it starts with box_)";
+    return "your box token was rejected by boat.dev — open Settings → Computer and paste a current token under Cloud computers (it starts with box_)";
   }
   if (status === 429) {
     return theirs || "boat.dev is rate-limiting this account — wait a minute and try again";

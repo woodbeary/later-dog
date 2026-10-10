@@ -72,6 +72,9 @@
 - An answered question shows the question once. Before, a card with one question showed it again as "Q: …" above your answer. A card with several questions now lists each one with its answer, without the tabs. Tried for real with Claude, with one question and with two.
 - A dog's lettered question card now says who is asking, such as "Pepper has a question", the same as its other question card. Before, it said "Your dog has a question". Tried for real with Claude.
 - A screen reader now hears "Pepper has a question" when a dog asks you something, the same way it hears that a dog needs your approval. Before, it heard nothing, and it could still be holding the line about an earlier approval. Tried in tests only so far.
+- My Cloud's sign-in screen offers **Use an Anthropic API key** again. It opens the same key card as the model picker. Before, this version had dropped the choice along with the old API keys page, while the screen still said an API key works best. Tried in tests only.
+- Messages that sent you to Settings pages this version removed now point at what's there: the built-in browser (Settings, Computer, Built-in browser), a rejected Boat token (Settings, Computer, Cloud computers), a Local VM that isn't ready (Settings, Computer), a dog's tricks (the Library tab in its settings), and an expired My Cloud link. Phone control on a shared Local VM now says why it can't run, instead of naming a setting that no longer exists.
+- Phone setup no longer says you can come back to it from the menu under your name, and a phone asking to take control no longer sends you to Connect your phone. Both left that menu in this version.
 
 ## 0.3.2 — 2026-10-09
 

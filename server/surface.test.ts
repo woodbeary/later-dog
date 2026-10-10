@@ -27,7 +27,7 @@ describe("resolveSurface", () => {
     const plan = resolveSurface({ destination: "browser", browserOn: false });
     expect(plan.computer).toBe("off");
     expect(plan.browser).toBe(false);
-    expect(plan.note).toMatch(/switched off in App Settings/);
+    expect(plan.note).toMatch(/switched off in Settings → Computer/);
     expect(plan.note).toMatch(/no browser and no computer/);
   });
 

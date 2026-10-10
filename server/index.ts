@@ -10399,7 +10399,7 @@ async function startTurn(
         }
         if (!localVm.ready || !localVm.runtime) {
           dropLease();
-          throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (App Settings → Computers)`);
+          throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (Settings → Computer)`);
         }
         // The readiness walk can wait minutes for the desktop, and the group
         // path re-validates its lease afterwards; the direct path needs the
@@ -23786,7 +23786,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const action = z.enum(["run", "start", "stop", "remove"]).parse(m[2]);
       const target = localVmTargetForBot(bot.id);
       if (target.key === SHARED_LOCAL_VM_TARGET.key) {
-        return json(res, 409, { error: "Shared mode manages this desktop in App Settings → Computers" });
+        return json(res, 409, { error: "Shared mode manages this desktop in Settings → Computer" });
       }
       if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(target.key)) {
         return json(res, 409, { error: "this dog's Local VM setup action is still running" });
@@ -23813,7 +23813,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const count = await existingPerBotLocalVmCount(before.runtime);
             if (count >= localVmMaxInstances(cfg)) {
               return json(res, 409, {
-                error: `The per-dog Local VM limit is ${localVmMaxInstances(cfg)} — delete an unused dog's VM or raise the limit in App Settings`,
+                error: `The per-dog Local VM limit is ${localVmMaxInstances(cfg)} — delete an unused dog's VM`,
               });
             }
           }
@@ -23879,7 +23879,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // A bot's human-control hold does not reserve a shared desktop or pool
       // seat. Another bot could drive it while the phone is holding this bot.
       if (localVmMode(cfg) !== "per-bot") {
-        return json(res, 409, { error: "Phone control requires a per-dog Local VM. Select Per dog in Settings → Computers." });
+        return json(res, 409, { error: "Phone control requires a per-dog Local VM; on this computer, dogs share Local VMs." });
       }
       const lease = controlLeaseIdSchema.safeParse(url.searchParams.get("controlLeaseId") ?? undefined);
       if (!lease.success) return json(res, 400, { error: "controlLeaseId is required" });

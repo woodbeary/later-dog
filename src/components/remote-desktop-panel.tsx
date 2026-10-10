@@ -258,7 +258,7 @@ export function RemoteDesktopPanel({ bot }: { bot: Bot }) {
           </div>
         )}
         <p className="text-[11px] leading-relaxed text-ink-secondary">
-          Taking control needs computer view allowed for this phone. On the computer, open the menu under your name, choose Connect your phone, and turn on Allow computer view.
+          Taking control needs computer view allowed for this phone on the computer.
         </p>
 
         <div className="w-full rounded-xl bg-card p-4 text-left">

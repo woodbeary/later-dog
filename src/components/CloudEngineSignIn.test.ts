@@ -18,7 +18,8 @@ vi.mock("@/state/store", () => ({
   useStore: () => ({ state: { instances: store.instances }, dispatch: store.dispatch, refreshInstances: store.refreshInstances }),
 }));
 // The sign-in cards themselves have their own tests (ClaudeSignIn, DeviceSignIn, EngineSetup).
-vi.mock("@/components/EngineSetup", () => ({
+vi.mock("@/components/EngineSetup", async (original) => ({
+  ...(await original<typeof import("@/components/EngineSetup")>()),
   EngineSetup: ({ instance }: { instance: InstanceInfo }) => createElement("div", { "data-engine-setup": instance.instanceId }),
 }));
 import { CloudEngineSignIn, cloudEngine } from "./CloudEngineSignIn";
@@ -48,6 +49,7 @@ const engine = (instanceId: string, driverKind: string, method: "paste-code" | "
 } as InstanceInfo);
 const claude = engine("claude", "claudeAgent", "paste-code");
 const codex = engine("codex", "codex", "device-code");
+const claudeKey = engine("claudeApi", "claudeAgent", "paste-code", { access: "api", displayName: "Claude (API key)", snapshot: { state: "unavailable", version: "2.1.0", reason: "no key" } });
 
 beforeEach(() => {
   f.values = [];
@@ -80,8 +82,24 @@ it("opens the existing paste-code and device-code sign-ins on this server's own 
   expect(store.dispatch).not.toHaveBeenCalled();
 });
 
-it("offers no API key choice", () => {
-  expect(render().nodes.find((node) => node.props["data-cloud-choice"] === "api-key")).toBeUndefined();
+it("opens the Claude API key card, after the sign-ins, where a key can be typed", () => {
+  store.instances = [claude, codex, claudeKey];
+  const { html } = render();
+  expect(html).toContain("Use an Anthropic API key");
+  expect(html.indexOf("Use an Anthropic API key")).toBeGreaterThan(html.indexOf("Sign in to ChatGPT (Codex)"));
+  expect(html).not.toContain("data-engine-setup");
+  choose("api-key");
+  expect(render().html).toContain('data-engine-setup="claudeApi"');
+  choose("claude");
+  expect(render().html).toContain('data-engine-setup="claude"');
+  expect(store.dispatch).not.toHaveBeenCalled();
+});
+
+it("leaves the API key choice out without a key engine, and in a window on another computer", () => {
+  expect(render().html).not.toContain('data-cloud-choice="api-key"');
+  store.instances = [claude, codex, claudeKey];
+  vi.stubGlobal("window", { laterdog: { remoteClient: { active: true } } });
+  expect(render().html).not.toContain('data-cloud-choice="api-key"');
 });
 
 it("picks the person's own engine, never a local-model or read-only one, and says when there is none", () => {

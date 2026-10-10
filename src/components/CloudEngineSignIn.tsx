@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
-import { EngineSetup } from "@/components/EngineSetup";
+import { ChevronDown, KeyRound, Loader2, RefreshCw } from "lucide-react";
+import { EngineSetup, apiKeySection, isApiKeyEngine } from "@/components/EngineSetup";
 import { ProviderMark } from "@/components/ProviderIcons";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { useStore, type InstanceInfo } from "@/state/store";
 
-type Choice = "claude" | "codex" | "grok";
+type Choice = "claude" | "codex" | "grok" | "api-key";
 type ChoiceKind = "claudeAgent" | "codex" | "grokAgent";
 
 /** The person's own engine of that kind: not a local-model or read-only one. */
@@ -26,13 +26,15 @@ export function CloudEngineSignIn() {
       setChecking(false);
     }
   };
-  const choices: Array<{ id: Choice; driverKind: ChoiceKind; label: string; hint: string }> = [
+  const keyEngine = state.instances.find((instance) => isApiKeyEngine(instance) && apiKeySection(instance) === "anthropic");
+  const choices: Array<{ id: Choice; driverKind: ChoiceKind; label: string; hint: string; instance?: InstanceInfo }> = [
     { id: "claude", driverKind: "claudeAgent", label: t("cloudSignIn.claude"), hint: t("cloudSignIn.claudeHint") },
     { id: "codex", driverKind: "codex", label: t("cloudSignIn.codex"), hint: t("cloudSignIn.codexHint") },
     // Grok Build needs its CLI on this Cloud computer; an older image has none.
     ...(cloudEngine(state.instances, "grokAgent")?.snapshot.state === "available"
       ? [{ id: "grok" as const, driverKind: "grokAgent" as const, label: t("cloudSignIn.grok"), hint: t("cloudSignIn.grokHint") }]
       : []),
+    ...(keyEngine ? [{ id: "api-key" as const, driverKind: "claudeAgent" as const, label: t("cloudSignIn.apiKey"), hint: t("cloudSignIn.apiKeyHint"), instance: keyEngine }] : []),
   ];
   const row = "flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-raised/40";
 
@@ -45,13 +47,13 @@ export function CloudEngineSignIn() {
 
         <div className="mt-5 divide-y divide-hairline/40 rounded-xl border border-hairline/40 bg-card">
           {choices.map((choice) => {
-            const instance = cloudEngine(state.instances, choice.driverKind);
+            const instance = choice.instance ?? cloudEngine(state.instances, choice.driverKind);
             const expanded = open === choice.id;
             return (
               <div key={choice.id} data-cloud-choice={choice.id}>
                 <button type="button" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : choice.id)} className={row}>
                   <span className="flex size-[18px] shrink-0 items-center justify-center">
-                    <ProviderMark driverKind={choice.driverKind} size={18} />
+                    {choice.id === "api-key" ? <KeyRound size={16} className="text-ink-secondary" /> : <ProviderMark driverKind={choice.driverKind} size={18} />}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13.5px] font-medium text-ink">{choice.label}</span>
