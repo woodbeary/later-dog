@@ -1901,8 +1901,6 @@ function refreshApplicationMenu() {
       activeId: environmentsState.activeId,
       onSwitch: (id) => void workspaceMenuAction(() => switchEnvironment(id)),
       onAddFromClipboard: () => void addServerFromClipboard(),
-      onConnect: () => void workspaceMenuAction(openWorkspaceSettings),
-      onOrganizationSignIn: () => queueOrganizationEntry("laterdog://organization"),
       onForget: (id) => void workspaceMenuAction(() => forgetEnvironment(id)),
       onOpenSettings: () => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("app:open-settings");
@@ -2052,7 +2050,7 @@ async function addServerFromClipboard() {
   try {
     return await connectHostedWorkspace(clipboard.readText());
   } catch (error) {
-    await dialog.showMessageBox({ type: "info", message: "Could not connect to the server", detail: `${error.message}\nYou can also choose Connect to a server to enter an address in Settings.` });
+    await dialog.showMessageBox({ type: "info", message: "Could not connect to the server", detail: error.message });
     return false;
   }
 }
@@ -2697,11 +2695,6 @@ ipcMain.handle("perm:request-mic", localOnly("perm:request-mic", async () => {
 // to this app. mac-permissions.mjs says how each is read and what macOS
 // caches. Local-only: a remote server's page learns nothing about this Mac.
 const macPermissionHost = () => ({ platform: process.platform, systemPreferences, desktopCapturer });
-// Computer control's daemon could not start at launch without Accessibility
-// and Screen Recording (cua.mjs reads them without prompting). The first
-// checklist read or prompt answer that shows both granted starts it here, in
-// the background and once at a time, so no relaunch is needed; cua-grant.mjs
-// says when a start is due, and a daemon the person stopped stays stopped.
 let cuaGrantStart = null;
 function startCuaWhenGranted(checklist) {
   void (async () => {
@@ -3271,7 +3264,7 @@ ipcMain.handle("workspaces:menu", workspaceOnly(async () => {
   try {
     const menu = Menu.buildFromTemplate(workspaceMenuTemplate(environmentsState, {
       onSwitch: (id) => void workspaceMenuAction(() => switchEnvironment(id)),
-      onConnect: () => void workspaceMenuAction(openWorkspaceSettings),
+      onAddFromClipboard: () => void addServerFromClipboard(),
       onForget: (id) => void workspaceMenuAction(() => forgetEnvironment(id)),
     }));
     await new Promise((resolve) => menu.popup({ window: mainWindow, callback: resolve }));

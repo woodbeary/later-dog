@@ -51,12 +51,11 @@ describe("buildApplicationMenu", () => {
     }
   });
 
-  it.each(["darwin", "linux", "win32"])("offers native organisation sign-in while a hosted workspace is active on %s", platform => {
-    const onOrganizationSignIn = vi.fn();
-    const template = build(platform, { onOrganizationSignIn });
-    const item = template.find(entry => entry.label === "Server").submenu.find(entry => entry.id === "organization-sign-in");
-    expect(item.label).toBe("Sign in with your organization…");
-    item.click();
-    expect(onOrganizationSignIn).toHaveBeenCalledOnce();
+  it.each(["darwin", "linux", "win32"])("adds a server only from a copied pairing link on %s", platform => {
+    const onAddFromClipboard = vi.fn();
+    const submenu = build(platform, { onAddFromClipboard }).find(entry => entry.label === "Server").submenu;
+    expect(submenu.map(entry => entry.label)).toEqual(["This computer", "X — localhost", undefined, "Add Server from Copied Pairing Link…", "Forget “X”"]);
+    submenu.find(entry => entry.label === "Add Server from Copied Pairing Link…").click();
+    expect(onAddFromClipboard).toHaveBeenCalledOnce();
   });
 });
