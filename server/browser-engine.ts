@@ -19,6 +19,7 @@ import { DATA_DIR } from "./config.ts";
 import { browserBundlePaths } from "./browser-bundle-release.ts";
 import { BROWSER_VIEWPORT_ARGS, browserRuntimeEnv, ownsBrowserViewport } from "./browser-runtime.ts";
 import { SIGN_IN_PROMPT } from "./system-prompt.ts";
+import { desktopProfileSession } from "./laterdog/browser-session.ts";
 import {
   AGENT_BROWSER_VERSION,
   agentBrowserReleaseUrl,
@@ -546,7 +547,7 @@ export function agentBrowserFrame(input: {
 /** Session ids are file-system and shell safe: a bot id or a profile partition. */
 export function browserSessionId(botId: string, partitionId: string): string {
   if (partitionId === "guest") return `guest-${randomUUID()}`;
-  const raw = partitionId || `bot-${botId}`;
+  const raw = partitionId ? desktopProfileSession(partitionId) : `bot-${botId}`;
   return raw.replace(/[^A-Za-z0-9_.-]/gu, "_").slice(0, 96);
 }
 

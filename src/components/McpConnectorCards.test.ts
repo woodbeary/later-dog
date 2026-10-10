@@ -50,6 +50,7 @@ vi.mock("@/lib/mcp-servers", () => ({
   useMcpServers: () => ({ servers: null, error: false, refresh: vi.fn() }),
 }));
 vi.mock("@/lib/app-links", () => ({ openExternalLink: fixture.open }));
+import { AddServerToBots } from "./AddServerToBots";
 import { McpConnectorCards } from "./McpConnectorCards";
 
 // state slots, in the order McpConnectorCards declares them
@@ -197,7 +198,7 @@ describe("connector rows", () => {
     expect(props.onConnected).toHaveBeenCalledWith(["linear", "neon"]);
   });
 
-  it("names the dogs whose own server list leaves a connected connector out", () => {
+  it("offers to add a connected connector to each dog whose own server list leaves it out", () => {
     props.connectors = [byId("linear")];
     fixture.values[SERVERS] = [row({ name: "tracker", url: "https://mcp.linear.app/mcp", enabled: true, auth: "signed-in" })];
     fixture.bots = [
@@ -208,12 +209,9 @@ describe("connector rows", () => {
     ];
     const linear = render().tile("linear");
     expect(linear.html).toContain("Dogs that pick their own servers need it added: 1");
-    expect(linear.button("Scout")).toBeUndefined();
-    click(linear.button("Rex"));
-    expect(fixture.dispatch.mock.calls).toEqual([
-      [{ type: "togglePlugins", open: false }],
-      [{ type: "toggleSettings", open: true, section: "access", botId: "rex" }],
-    ]);
+    expect(linear.html).toContain("Add to Rex");
+    for (const name of ["Scout", "Pip", "Ghost"]) expect(linear.html).not.toContain(`Add to ${name}`);
+    expect(linear.inside.find((node) => node.type === AddServerToBots)?.props.server).toBe("tracker");
   });
 });
 

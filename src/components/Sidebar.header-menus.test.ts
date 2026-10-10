@@ -1,7 +1,3 @@
-// The small menus in the sidebar header — New or share (+) and Active
-// Threads — must close on Escape and on a press outside them, and
-// must not lay an invisible backdrop over the window that eats the click the
-// user aimed at something else.
 import { Children, isValidElement, type EffectCallback, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,8 +31,6 @@ vi.mock("./DesktopCapabilities", async () => {
   return { useDesktopCapabilities: () => ({ capabilities: initialDesktopCapabilities() }) };
 });
 vi.mock("@/lib/thread-preferences", () => ({ useShowThreads: () => true }));
-// The Active Threads menu is an Advanced-mode control; Simple hides it.
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: () => {} }));
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, useStore: () => ({ state: original.initialState, dispatch: vi.fn() }) };
@@ -81,7 +75,6 @@ function press(target: unknown) {
 
 const menus = [
   { name: "New or share", label: "New or share", item: "Create a pack" },
-  { name: "Active Threads", label: "Active Threads", item: "No active threads" },
 ];
 const text = (tree: ReactElement<Props>[]) => tree.map((node) => Children.toArray(node.props.children).filter((child) => typeof child === "string").join(" ")).join(" ");
 

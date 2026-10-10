@@ -1,5 +1,4 @@
 import { Component, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
-import { useAdvancedMode } from "@/lib/interface-mode";
 import { useCopyFeedback } from "@/lib/copy-text";
 import {
   AlertTriangle,
@@ -7,7 +6,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Bug,
   Copy,
   Crown,
   Download,
@@ -21,7 +19,6 @@ import {
   PinOff,
   RefreshCw,
   Search,
-  Square,
   Webhook,
   X,
 } from "lucide-react";
@@ -33,7 +30,6 @@ import { computerStartLine } from "@/lib/computer-start";
 import { useCaptionChrome, useDesktopCapabilities } from "@/components/DesktopCapabilities";
 import { contextChip, contextDetail, contextShare, costCaption, formatUsd, hasFiniteCost, lastTurnDetail, usageChip, usageDetail } from "@/lib/usage";
 import {
-  api,
   currentTaskBot,
   useStore,
   formatTime,
@@ -51,6 +47,7 @@ import { EngineSetup } from "./EngineSetup";
 import { CHATGPT_USAGE_URL } from "./ChatGptPlanStatus";
 import { openExternalLink } from "@/lib/app-links";
 import { ClaudeUpdatePrompt } from "./ClaudeUpdatePrompt";
+import { LimitRow } from "./LimitRow";
 import { MacCuaRecoveryActions } from "./MacCuaRecoveryActions";
 import { macCuaPermissionMessage, missingMacCuaPermissions } from "@/lib/mac-cua-permissions";
 import { failedTurnCause, signedOutEngine } from "@/lib/failed-turn";
@@ -60,8 +57,8 @@ import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_U
 import { BotAvatar } from "./Avatar";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
-import { showToolCallsEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
-import { normalizeState, stateForBot } from "@/lib/mascot";
+import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { showWorkingDots } from "@/lib/turn-tail";
 import { MOTION } from "@/lib/motion";
@@ -71,9 +68,6 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
 import { ThreadChip } from "./ThreadChip";
-import { VerifyCard } from "./VerifyCard";
-import { askText, runSkill, runSteps, runSummary, showRun, skillPrompt } from "@/lib/verify-steps";
-import { useShowRunCard } from "@/lib/run-card-preferences";
 import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
@@ -88,7 +82,6 @@ import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { AttachmentGallery, collectMessageFiles, splitMessageAttachments } from "./AttachmentGallery";
 import { ScreenFrame } from "./ScreenFrame";
 import { CompactionChip, DigestChip } from "./DigestChip";
-import { RenameTitle } from "./RenameTitle";
 import { BotActivityPicker } from "./TaskPicker";
 import { ModelPicker } from "./ModelPicker";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
@@ -108,7 +101,6 @@ import { LiveCallChip } from "./LiveCallPill";
 import { effectivePlace, toolPlace, type EffectivePlace } from "@/lib/place";
 import { cn } from "@/lib/cn";
 import { activeLocale, t } from "@/lib/i18n";
-import { COMPACT_BUBBLE } from "@/lib/compact-chip";
 import { groupTranscript, isStatusActivity } from "@/lib/activity-runs";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
 import { ActivityRun } from "./ActivityRun";
@@ -118,12 +110,13 @@ import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
-import { appendComposerDraft, appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
+import { appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
 import { dayLabel, localDay, transcriptLookups, type TranscriptLookups } from "@/lib/transcript-derivations";
 import { citationPreviewText, splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
 import { highlightCitationSource } from "@/lib/citations-dom";
 import { useCanWriteIn } from "@/lib/cloud-guest";
 import { latestReply, type TranscriptSnapshot } from "@/lib/transcript-announcer";
+import { openQuestion } from "@/lib/open-question";
 import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
 
@@ -343,6 +336,7 @@ export function FailedTurnRow({ tool, engine, onRetry, botId, threadId }: {
   threadId?: string;
 }) {
   if (tool.place && botId) return <PlaceFailedRow place={tool.place} botId={botId} threadId={threadId} onRetry={onRetry} />;
+  if (tool.quota) return <LimitRow tool={tool} onRetry={onRetry} botId={botId} threadId={threadId} />;
   const signedOut = signedOutEngine(tool, engine);
   return (
     <ErrorRow
@@ -494,6 +488,10 @@ const Bubble = memo(function Bubble({
   const attachments = user && !webhookView ? splitTranscriptAttachments(cited?.display ?? text) : null;
   const visibleText = webhookView?.task ?? attachments?.display ?? text;
   const hasAttachments = Boolean(cited?.citations.length || (attachments && (attachments.images.length || attachments.files.length)));
+  const sentImages = attachments?.images ?? [];
+  const sentFiles = attachments?.files ?? [];
+  const sentAttachments = sentImages.length + sentFiles.length > 0;
+  const sentAbove = sentAttachments && Boolean(visibleText.trim());
   // A message that is only attachments is just the files: no bubble around them.
   const attachmentsOnly = !webhookView && !replyTarget && !visibleText.trim() &&
     (user ? hasAttachments : generatedPaths.length + linkedFiles.length > 0);
@@ -524,6 +522,9 @@ const Bubble = memo(function Bubble({
   return (
     <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
       {peer && <PeerLabel peer={peer} />}
+      {sentAbove && (
+        <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
+      )}
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
           <MessageActions side="user">
@@ -602,7 +603,9 @@ const Bubble = memo(function Bubble({
             </div>
           ) : user ? (
             <>
-              {attachments && <AttachmentGallery images={attachments.images} files={attachments.files} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className={!visibleText ? "mb-0" : undefined} />}
+              {sentAttachments && !sentAbove && (
+                <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} />
+              )}
               {visibleText && (
                 <div
                   className={cn("chat-text", collapsible && "max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]")}
@@ -811,26 +814,10 @@ function RoutineRunRow({ message, botId }: { message: Message; botId: string }) 
 
 /** A conversation with nothing in it yet: who it is with, and a prompt. */
 function EmptyChat({ bot }: { bot: Bot }) {
-  const { dispatch } = useStore();
-  const advanced = useAdvancedMode();
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center">
       <BotAvatar bot={bot} state="idle" size={64} motion="none" motionKey={0} />
-      {/* Simple mode renames in the bot's settings only. */}
-      {!advanced ? <div className="text-[17px] font-semibold text-ink">{bot.name}</div> : <RenameTitle
-        value={bot.name}
-        onCommit={(name) => {
-          if (window.laterdog?.remoteClient?.active) {
-            void api(`/api/bots/${bot.id}/profile`, { method: "PATCH", body: JSON.stringify({ name }) })
-              .then(({ bot: updated }) => dispatch({ type: "botPatched", bot: updated }))
-              .catch((cause) => dispatch({ type: "error", message: cause instanceof Error ? cause.message : String(cause) }));
-          } else {
-            dispatch({ type: "updateBot", botId: bot.id, patch: { name } });
-          }
-        }}
-        className="text-[17px] font-semibold text-ink"
-        inputClassName="rounded bg-inset px-1.5 py-0.5 text-center text-[17px] font-semibold"
-      />}
+      <div className="text-[17px] font-semibold text-ink">{bot.name}</div>
       <div className="max-w-[360px] text-[14px] text-ink-secondary">
         {bot.description || t("chat.emptyPrompt")}
       </div>
@@ -1109,19 +1096,13 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
   const { state, dispatch } = useStore();
   const remoteClient = window.laterdog?.remoteClient?.active === true;
-  // Simple mode reaches other threads from the sidebar; the header picker is Advanced only.
-  // Windows has no native caption buttons (renderer-drawn, see
-  // WindowCaptionButtons); this header is the window drag region, and the
-  // icon row shifts below the 26px-tall corner the buttons occupy.
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
-  const advanced = useAdvancedMode();
   // A guest on a later.dog Cloud home writes only in conversations it opened.
   const canWrite = useCanWriteIn(bot.threadId);
 
   const computerStarting = computerStartLine(state.computerStarts[bot.id], bot.name);
-  const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const [findOpen, setFindOpen] = useState(false);
   const { replyTo, selectReply, clearReply, consumeReply, restoreReply } = useReplyDraft(
     bot.threadId,
@@ -1147,24 +1128,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const messages = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
   // edit versions, reply targets, the Retry row: once per list, not per row
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
-  // The bot's run in the current ask — every command it ran, the control-CLI
-  // ones verified — for the run card. Saving mirrors the /learn gate: the
-  // flag, an engine with the agents tools, and a bot that can take a message
-  // now — plus a run with something to keep.
-  const recordedRun = useMemo(() => runSteps(messages), [messages]);
-  const recordedRunCounts = runSummary(recordedRun);
-  const engineSupportsAgents = Boolean(
-    state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId)?.capabilities?.agentsMcp,
-  );
-  const canSaveRun =
-    skillAuthoringEnabled(state.config) && engineSupportsAgents && recordedRunCounts.passed > 0 && recordedRunCounts.running === 0 && !bot.busy;
-  // A dismissal is pinned to the run's last step, per thread: the card comes
-  // back when the bot runs another command, not merely when a step settles,
-  // and stays away across a switch to another thread and back.
-  const [runDismissed, setRunDismissed] = useState<ReadonlyMap<string, string>>(() => new Map());
-  const lastRunStep = recordedRun.at(-1);
-  const showRunCard = useShowRunCard();
-
   // Only a tail of the thread mounts; everything derived below (lastBotTextId,
   // lastUserMessage, working dots) stays computed from the FULL list.
   const {
@@ -1202,9 +1165,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const localVoice = localSystemVoiceActive();
   const locale = activeLocale();
   const busy = Boolean(bot.busy);
-  // The header face moves only while the bot works or plays a motion beat,
-  // as in the sidebar: a resting face left open would redraw at display rate.
-  const headerAnimated = busy || (mascotMotion?.kind ?? "none") !== "none";
   // read when a citation is clicked, so the rows need not change per message
   const branch = useRef(messages);
   branch.current = messages;
@@ -1243,7 +1203,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   // Mascot while the turn works. Streaming stays invisible — when the reply
   // is finished, the whole bubble pops in above the mascot.
   const lastMessage = messages.at(-1);
-  const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const activityLabel = liveActivityLabel(lastMessage);
   const waiting = Boolean(
     bot.busy &&
@@ -1280,10 +1239,12 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const presenceVisible = waiting || popping !== null;
   const announcement = useMemo((): TranscriptSnapshot => {
     const approval = pendingApprovals(messages)[0];
+    const question = openQuestion(messages);
     return {
       busy: Boolean(bot.busy),
       reply: latestReply(messages, () => bot.name),
       approval: approval ? { id: approval.requestId, name: bot.name } : undefined,
+      question: question ? { id: question.id, name: bot.name } : undefined,
     };
   }, [messages, bot.busy, bot.name]);
   // Wall-clock anchor for the working row's elapsed readout — the server
@@ -1342,70 +1303,21 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         <div data-chathead-row className="flex items-center justify-between @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:gap-y-1 @min-[30rem]/chathead:grid @min-[30rem]/chathead:grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(max-content,1fr)]">
         <div data-chathead-identity className="flex min-w-0 items-center gap-2 @max-[30rem]/chathead:basis-full @min-[30rem]/chathead:col-start-2 @min-[30rem]/chathead:justify-self-center" style={headerNoDragStyle}>
           {/* The bot as one pill, the same shape as the model chip across the
-              header: avatar and name together, opening the bot's settings.
-              Simple mode makes the whole pill that one button; Advanced keeps
-              the rename pencil inside it, so the avatar and the name stay
-              their own buttons (a button cannot hold another). */}
-          {advanced ? (
-            <div data-chathead-pill className={cn(CHATHEAD_PILL, "pr-1")}>
-              <button
-                type="button"
-                onClick={() => dispatch({ type: "toggleSettings", open: true })}
-                className="flex shrink-0 items-center justify-center rounded-full"
-                title={t("chat.openProfile")}
-                aria-label={t("chat.openProfileAria", { name: bot.name })}
-              >
-                <BotAvatar
-                  bot={bot}
-                  state={stateForBot({ ...bot, messages })}
-                  size={24}
-                  motion={mascotMotion?.kind ?? "none"}
-                  motionKey={mascotMotion?.nonce ?? 0}
-                  animated={headerAnimated}
-                />
-              </button>
-              <RenameTitle
-                value={bot.name}
-                onCommit={(name) => {
-                  if (window.laterdog?.remoteClient?.active) {
-                    void api(`/api/bots/${bot.id}/profile`, { method: "PATCH", body: JSON.stringify({ name }) })
-                      .then(({ bot: updated }) => dispatch({ type: "botPatched", bot: updated }))
-                      .catch((cause) => dispatch({ type: "error", message: cause instanceof Error ? cause.message : String(cause) }));
-                  } else {
-                    dispatch({ type: "updateBot", botId: bot.id, patch: { name } });
-                  }
-                }}
-                onActivate={() => dispatch({ type: "toggleSettings", open: true })}
-                showEditButton
-                className="truncate text-[14px] font-semibold text-ink"
-                editButtonClassName="size-6 rounded-full"
-                inputClassName="max-w-[220px] rounded-full bg-inset px-2 py-0.5 text-[14px] font-semibold"
-              />
-              {chiefOfStaffBadge(bot)}
-              {bot.busy && <WorkingDots className="pr-2 text-ink-secondary" />}
-            </div>
-          ) : (
-            <button
-              type="button"
-              data-chathead-pill
-              onClick={() => dispatch({ type: "toggleSettings", open: true })}
-              title={t("chat.openProfile")}
-              aria-label={t("chat.openProfileAria", { name: bot.name })}
-              className={cn(CHATHEAD_PILL, "pr-3.5 hover:bg-raised-hover")}
-            >
-              <BotAvatar
-                bot={bot}
-                state={stateForBot({ ...bot, messages })}
-                size={24}
-                motion={mascotMotion?.kind ?? "none"}
-                motionKey={mascotMotion?.nonce ?? 0}
-                animated={headerAnimated}
-              />
-              <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
-              {chiefOfStaffBadge(bot)}
-              {bot.busy && <WorkingDots className="text-ink-secondary" />}
-            </button>
-          )}
+              header: avatar and name together, one button opening the bot's
+              settings (renaming lives there). */}
+          <button
+            type="button"
+            data-chathead-pill
+            onClick={() => dispatch({ type: "toggleSettings", open: true })}
+            title={t("chat.openProfile")}
+            aria-label={t("chat.openProfileAria", { name: bot.name })}
+            className={cn(CHATHEAD_PILL, "pr-3.5 hover:bg-raised-hover")}
+          >
+            <BotAvatar bot={bot} state={restingStateForBot(bot)} size={24} animated={false} />
+            <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
+            {chiefOfStaffBadge(bot)}
+            {bot.busy && <span data-testid="working-dot" aria-hidden="true" title={t("chat.activity.working")} className="size-2 shrink-0 rounded-full bg-success" />}
+          </button>
           {!bot.busy && bot.waitingForTeammates && <span className="truncate text-[12px] text-ink-secondary" role="status">Other dogs working</span>}
         </div>
         <div
@@ -1416,19 +1328,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           // buttons clear the 26px overlay while the rest of the layout stays.
           style={controlsShiftStyle}
         >
-          {(bot.busy || bot.waitingForTeammates) && (
-            <button
-              onClick={() => dispatch({ type: "interrupt", botId: bot.id, threadId: bot.threadId })}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink",
-                COMPACT_BUBBLE,
-              )}
-              title={t("chat.stopTurn")}
-            >
-              <Square size={12} className="fill-current" />
-              <span className="@max-4xl/chathead:hidden">{t("chat.stop")}</span>
-            </button>
-          )}
           {!remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} />}
           {/* below md the sidebar (and its Live call pill) is hidden */}
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openThread(dispatch, { botId, threadId }, state)} />
@@ -1572,7 +1471,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               // (and a chosen mascot body) must match the sidebar row.
               <BotAvatar
                 bot={bot}
-                state={toolInFlight ? "working" : "thinking"}
+                state={turnState(messages)}
                 size={36}
                 forward={false}
                 lookAround={1}
@@ -1606,28 +1505,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           selected one. ArrowUp-to-edit stays gated on busy because editing
           rewinds the thread, which a live turn forbids (the server 409s it). */}
       <div ref={composerDockRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]">
-      {/* The bot's run in this ask as a checklist, once it is worth one (a
-          verified step, or more than one command). Save fills this thread's
-          composer with the run and the person's request and hands the caret
-          over; the person adds context and sends — nothing is sent from
-          here. In the dock so its height is measured with the composer's:
-          the transcript pad, the jump pill and bottom-follow all move with
-          it. */}
-      {lastRunStep && showRun(recordedRun) && showRunCard && runDismissed.get(transcriptKey) !== lastRunStep.id && (
-        <div className="flex justify-end px-5 pb-2">
-          <VerifyCard
-            key={transcriptKey}
-            steps={recordedRun}
-            canSave={canSaveRun}
-            skill={runSkill(messages, recordedRun)}
-            onDismiss={() => setRunDismissed((current) => new Map(current).set(transcriptKey, lastRunStep.id))}
-            onSave={() => {
-              appendComposerDraft(`bot:${bot.id}:${bot.threadId}`, skillPrompt(recordedRun, askText(messages)));
-              composerDockRef.current?.querySelector("textarea")?.focus();
-            }}
-          />
-        </div>
-      )}
       {/* A Live call on this chat: its controls and captions sit above the
           composer so the transcript stays in view. In the dock, so the
           transcript pad grows with it. */}
@@ -1702,8 +1579,6 @@ function usageSummary(bot: Bot, instances: AppState["instances"]): { short: stri
   return { short: ctx ? `${short} · ${ctx}` : short, detail, tone: share?.tone === "danger" ? "danger" : share?.tone === "warning" ? "warning" : undefined };
 }
 
-/** The header's "more" menu: find, export, usage and the inspector, behind
- * one button that opens on hover. */
 function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
   bot: Bot;
   messages: readonly Message[];
@@ -1713,10 +1588,6 @@ function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
   const { state, dispatch } = useStore();
   const remoteClient = window.laterdog?.remoteClient?.active === true;
   const usage = usageSummary(bot, state.instances);
-  // Simple mode keeps these in sight but locked, so people know where they
-  // live without being handed builder tools by default.
-  const advanced = useAdvancedMode();
-  const advancedOnly = advanced ? undefined : t("chat.advancedOnly");
   const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
   const hasMessages = messages.length > 0;
   const transcript = () => formatTranscriptMarkdown({ title: bot.name, messages, botName: bot.name, isGroup: false });
@@ -1752,10 +1623,8 @@ function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
       label: t("chat.usage.menu"),
       icon: <Gauge size={16} />,
       separatorBefore: true,
-      heading: advancedOnly,
-      disabled: !advanced,
       trailing: <span title={usage.detail} data-testid="usage-chip" className={cn("tabular-nums text-[12px]", usage.tone === "danger" ? "text-danger" : usage.tone === "warning" ? "text-warning" : "text-ink-secondary")}>{usage.short}</span>,
-      onSelect: () => dispatch({ type: "toggleSettings", open: true, section: "usage" }),
+      onSelect: () => dispatch({ type: "toggleAppSettings", open: true, section: "usage" }),
     } satisfies SidebarMenuItem] : []),
     ...(remoteClient ? [] : [{
       key: "activity",
@@ -1764,15 +1633,6 @@ function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
       active: state.activityOpen,
       separatorBefore: !usage,
       onSelect: () => dispatch({ type: "toggleActivity" }),
-    } satisfies SidebarMenuItem, {
-      key: "inspector",
-      label: t("chat.inspector"),
-      icon: <Bug size={16} />,
-      active: advanced && state.inspectorOpen,
-      separatorBefore: true,
-      heading: usage ? undefined : advancedOnly,
-      disabled: !advanced,
-      onSelect: () => dispatch({ type: "toggleInspector" }),
     } satisfies SidebarMenuItem]),
   ];
   return (

@@ -227,13 +227,6 @@ async function startEmbedded(binary, signal) {
   // excludes general node_modules, so a bare package import only works in dev.
   const sdk = await loadEmbeddedSdk();
   signal.throwIfAborted();
-  // CUA's embedding contract requires both grants before the child daemon
-  // starts. They are read here without prompting (mac-permissions.mjs, the
-  // same read as the renderer's checklist): the system dialogs belong to the
-  // moment a dog first uses this Mac, asked for in the Computer panel, not to
-  // app launch. Once both are granted, main.mjs starts the daemon from the
-  // checklist itself (cua-grant.mjs), so a launch without them stays quiet
-  // and nothing has to be restarted.
   if (process.platform === "darwin") {
     const checklist = permissionChecklist({ platform: process.platform, systemPreferences });
     const missing = [

@@ -101,7 +101,7 @@ function workspaceSenderAllowed(event, contents, state, localOrigin) {
 }
 
 /** Native menu choices, never renderer-supplied destinations or callbacks. */
-function workspaceMenuTemplate(state, { onSwitch, onConnect, onForget }) {
+function workspaceMenuTemplate(state, { onSwitch, onAddFromClipboard, onForget }) {
   const active = activeEnvironment(state);
   return [
     { id: "workspace-local", label: "This computer", type: "radio", checked: !active, click: () => onSwitch(LOCAL_ID) },
@@ -110,7 +110,7 @@ function workspaceMenuTemplate(state, { onSwitch, onConnect, onForget }) {
       type: "radio", checked: entry.id === state.activeId, click: () => onSwitch(entry.id),
     })),
     { type: "separator" },
-    { id: "workspace-connect", label: "Connect to a server…", click: onConnect },
+    { id: "workspace-add-from-link", label: "Add Server from Copied Pairing Link…", click: onAddFromClipboard },
     ...(active ? [{ id: "workspace-forget", label: `Forget “${active.name}”…`, click: () => onForget(active.id) }] : []),
   ];
 }

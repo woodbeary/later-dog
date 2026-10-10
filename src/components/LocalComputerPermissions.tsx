@@ -1,10 +1,3 @@
-// What the Computer panel shows in place of This Mac's screen while a grant
-// is missing: the two rows computer control needs, with the real system
-// prompt behind each Allow. Nothing asks at launch (electron/cua.mjs reads
-// the grants without prompting); the dog asks here, the first time it needs
-// this Mac, and the driver starts by itself once both are given
-// (electron/cua-grant.mjs). Pure, so ComputerPanel.simple.test.ts renders it
-// as it is.
 import { COMPUTER_PERMISSIONS, type ChecklistHost, type DesktopPermission, type DesktopPermissionChecklist } from "@/lib/desktop-permissions";
 import { t } from "@/lib/i18n";
 import { PermissionChecklist } from "./PermissionChecklist";
@@ -20,12 +13,10 @@ export function LocalComputerPermissions({
 }: {
   dogName: string;
   host: ChecklistHost;
-  /** Null while the bridge has not answered. */
   checklist: DesktopPermissionChecklist | null;
   busy: DesktopPermission | null;
   onRequest: (permission: DesktopPermission) => void;
   onOpenSettings: (permission: DesktopPermission) => void;
-  /** A Screen Recording grant applies after a relaunch. */
   onRelaunch?: () => void;
 }) {
   return (

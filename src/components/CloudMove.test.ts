@@ -135,12 +135,13 @@ it("after a copy: what came, what is not running yet there, and Done", async () 
   push({ phase: "done", action: "move", destination: CLOUD, moved: { bots: 4, rooms: 1, chats: 37 }, routines: 3 });
   const html = render(settings()).html;
   expect(html).toContain("Copied to My Cloud: 4 dogs and 37 chats.");
-  expect(html).toContain("Routines arrive paused: 3 were on here. Turn on the ones you want in each dog's Routines tab on My Cloud");
-  expect(html).toContain("To use My Cloud from your phone");
+  expect(html).toContain("Routines arrive paused: 3 were on here. Turn on the ones you want in each dog's settings on My Cloud");
+  expect(html).not.toMatch(/phone/i);
   expect(html.indexOf("Copied to My Cloud")).toBeLessThan(html.indexOf("Routines arrive paused: 3"));
   button(settings(), "Done")!.props.onClick!(); await flush();
   expect(vi.mocked(bridge.dismiss).mock.calls).toEqual([["cloud"]]);
-  expect(moveNextSteps({ phase: "done", action: "move", destination: VPS, moved: { bots: 1, rooms: 0, chats: 1 } })).toEqual([expect.stringContaining("To use bots.example.test from your phone")]);
+  expect(moveNextSteps({ phase: "done", action: "move", destination: VPS, moved: { bots: 1, rooms: 0, chats: 1 } })).toEqual([]);
+  expect(moveNextSteps({ phase: "done", action: "move", destination: VPS, moved: { bots: 1, rooms: 0, chats: 1 }, routines: 2 })).toEqual([expect.stringContaining("Turn on the ones you want in each dog's settings on bots.example.test")]);
   expect(moveNextSteps({ phase: "done", action: "restore" })).toEqual([]);
   expect(moveNextSteps({ phase: "failed", action: "move" })).toEqual([]);
 });
@@ -151,12 +152,9 @@ it("every state reads as one sentence and one next step, for the Cloud and any o
   // Ready.
   expect(view({}, { destination: VPS })).toMatchObject({ server: "bots.example.test", message: null, action: { kind: "start", label: "Copy to bots.example.test" } });
   expect(view({}, { destination: VPS }, { onServerPage: true }).action).toEqual({ kind: "start", label: "Copy" });
-  // A server's own page: its Copy opens this computer's Settings on it (main),
-  // where Replace is, whatever it holds. The Cloud's own page copies only
-  // into an empty Cloud, and says where replacing it is done.
   expect(view({}, { destination: VPS, cloud: { ...emptyCloud, empty: false } }, { onServerPage: true })).toMatchObject({ message: null, action: { kind: "start", label: "Copy" } });
   expect(view({}, { destination: CLOUD, cloud: { ...emptyCloud, empty: false } }, { onServerPage: true })).toMatchObject({
-    action: null, message: { tone: "note", text: expect.stringContaining("open Settings → Servers in this computer's window and choose Copy this computer here") } });
+    action: null, message: { tone: "note", text: "My Cloud already has its own dogs and chats, so nothing gets copied over them." } });
   // Blocked before it starts.
   const blocked = (reason: CloudMoveOverview["blocked"], extra: Partial<CloudMoveOverview> = {}) => view({}, { destination: VPS, blocked: reason, ...extra });
   expect(blocked("owner_needed")).toMatchObject({ message: { text: "This app isn't signed in to bots.example.test as its owner. Pair it again with an owner code (laterdog pair), then copy." }, action: { kind: "open", label: "Open bots.example.test" } });
@@ -323,10 +321,10 @@ it("Settings → Backups on a server: Import from this computer is the same copy
   expect(render(backups).html).toContain("from this computer to bots.example.test");
   button(backups, "Copy")!.props.onClick!(); await flush();
   expect(vi.mocked(bridge.start).mock.calls).toEqual([[undefined]]);
-  // The Cloud with work: its own page does not copy over it, and says where that is done.
   f.values = [];
   await ready(backups, overview({ destination: CLOUD, cloud: { ...emptyCloud, empty: false } }));
-  expect(render(backups).html).toContain("open Settings → Servers in this computer's window");
+  expect(render(backups).html).toContain("already has its own dogs and chats, so nothing gets copied over them");
+  expect(render(backups).html).not.toContain("Settings →");
   expect(button(backups, "Copy")).toBeUndefined();
   // No desktop bridge (a browser): nothing, and nothing asked.
   f.values = []; vi.mocked(bridge.state).mockClear();

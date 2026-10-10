@@ -1,18 +1,12 @@
-// App settings → Usage → History: what this workspace spent over a period,
-// by bot, model, person, day, engine or routine, from the server's month-by-month
-// ledger (server/usage-ledger.ts). The card above it sums live tasks; this
-// one survives restarts and exports for an invoice.
 import { useEffect, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { api } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { cachedUsageNote, formatTokens, formatUsd, hasFiniteCost, headlineTokens, tokensColumnLabel } from "@/lib/usage";
-import { Card } from "./SettingsPrimitives";
-import { UsageBudgetCards, type BudgetState } from "./UsageBudget";
+import { formatTokens, formatUsd, hasFiniteCost, headlineTokens, tokensColumnLabel } from "@/lib/usage";
 
-export type UsageGroupBy = "bot" | "model" | "user" | "day" | "engine" | "routine";
-export const USAGE_GROUPINGS: readonly UsageGroupBy[] = ["bot", "model", "user", "day", "engine", "routine"];
+export type UsageGroupBy = "bot" | "model" | "day";
+export const USAGE_GROUPINGS: readonly UsageGroupBy[] = ["bot", "model", "day"];
 export type UsagePeriod = "month" | "lastMonth" | "days30";
 
 export interface UsageGroup {
@@ -22,14 +16,9 @@ export interface UsageGroup {
   input: number;
   output: number;
   cachedInput: number;
-  /** reported and estimated cost together; null when nothing had a price */
   costUsd: number | null;
-  /** the part of costUsd that is an estimate (absent from older servers) */
   estimatedUsd?: number | null;
-  /** turns on a model with no known price */
   unpriced: number;
-  /** the operator's own price, when a list is set and the server is entitled */
-  billableUsd?: number | null;
 }
 
 export interface UsageSummary {
@@ -38,11 +27,8 @@ export interface UsageSummary {
   groupBy: UsageGroupBy;
   groups: UsageGroup[];
   total: UsageGroup;
-  budget?: BudgetState | null;
-  billing?: { currency: string } | null;
 }
 
-/** Inclusive day bounds (UTC) for a preset period. */
 export function usagePeriodRange(period: UsagePeriod, now = new Date()): { from: string; to: string } {
   const day = (date: Date) => date.toISOString().slice(0, 10);
   const year = now.getUTCFullYear();
@@ -52,32 +38,16 @@ export function usagePeriodRange(period: UsagePeriod, now = new Date()): { from:
   return { from: day(new Date(now.getTime() - 29 * 24 * 60 * 60_000)), to: day(now) };
 }
 
-/** The server can only describe the non-person triggers in English; the
- * app names them itself by key. */
-export function usageGroupLabel(groupBy: UsageGroupBy, group: UsageGroup): string {
-  if (groupBy === "routine") return group.key === "manual" ? t("usage.history.notRoutine") : group.label;
-  if (groupBy !== "user") return group.label;
-  if (group.key === "owner") return t("usage.history.owner");
-  if (group.key === "bot") return t("usage.history.botToBot");
-  if (group.key.startsWith("routine:")) return t("usage.history.routine", { name: group.label.replace(/^Routine: /, "") });
-  return group.label;
-}
-
 export function usageExportHref(range: { from: string; to: string }): string {
   return `/api/usage.csv?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`;
 }
 
-const GROUP_LABEL_KEYS: Record<UsageGroupBy, "usage.history.byBot" | "usage.history.byModel" | "usage.history.byUser" | "usage.history.byDay" | "usage.history.byEngine" | "usage.history.byRoutine"> = {
+const GROUP_LABEL_KEYS: Record<UsageGroupBy, "usage.history.byBot" | "usage.history.byModel" | "usage.history.byDay"> = {
   bot: "usage.history.byBot",
   model: "usage.history.byModel",
-  user: "usage.history.byUser",
   day: "usage.history.byDay",
-  engine: "usage.history.byEngine",
-  routine: "usage.history.byRoutine",
 };
 
-/** A cost cell: "~" in front when part of it is an estimate, a dash when
- * nothing in the group had a price. */
 function CostCell({ group, strong = false }: { group: UsageGroup; strong?: boolean }) {
   if (!hasFiniteCost(group.costUsd)) return <span className={cn("text-right tabular-nums", strong ? "" : "text-ink-secondary")}>—</span>;
   const estimated = hasFiniteCost(group.estimatedUsd) && group.estimatedUsd > 0;
@@ -90,15 +60,11 @@ function CostCell({ group, strong = false }: { group: UsageGroup; strong?: boole
   );
 }
 
-/** The table alone, so it renders the same from a fetch or a fixture. */
 export function UsageHistoryTable({ summary }: { summary: UsageSummary }) {
   if (summary.groups.length === 0) {
     return <div className="text-[13px] text-ink-secondary">{t("usage.history.empty")}</div>;
   }
-  const billable = Boolean(summary.billing);
-  const cachedNote = cachedUsageNote(summary.total);
-  const columns = billable ? "grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-x-5" : "grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-5";
-  const money = (value: number | null | undefined) => (hasFiniteCost(value) ? formatUsd(value) : "—");
+  const columns = "grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-5";
   return (
     <div className="flex flex-col">
       <div className={cn(columns, "border-b border-hairline/40 pb-2 text-[11.5px] font-medium uppercase tracking-wide text-ink-secondary")}>
@@ -106,17 +72,15 @@ export function UsageHistoryTable({ summary }: { summary: UsageSummary }) {
         <span className="text-right">{t("usage.colTurns")}</span>
         <span className="text-right">{tokensColumnLabel(summary.total)}</span>
         <span className="text-right">{t("usage.colCost")}</span>
-        {billable && <span className="text-right">{t("usage.history.colBillable")}</span>}
       </div>
       {summary.groups.map((group) => (
         <div key={group.key} className={cn(columns, "border-b border-hairline/20 py-2 text-[13px]")}>
-          <span className="truncate text-ink" title={group.label}>{usageGroupLabel(summary.groupBy, group)}</span>
+          <span className="truncate text-ink" title={group.label}>{group.label}</span>
           <span className="text-right tabular-nums text-ink-secondary">{group.turns}</span>
           <span className="text-right tabular-nums text-ink" title={t("usage.history.tokenSplit", { input: formatTokens(group.input), output: formatTokens(group.output), cached: formatTokens(group.cachedInput) })}>
             {formatTokens(headlineTokens(group))}
           </span>
           <CostCell group={group} />
-          {billable && <span className="text-right tabular-nums text-ink">{money(group.billableUsd)}</span>}
         </div>
       ))}
       <div className={cn(columns, "pt-2.5 text-[13px] font-medium text-ink")}>
@@ -124,11 +88,7 @@ export function UsageHistoryTable({ summary }: { summary: UsageSummary }) {
         <span className="text-right tabular-nums">{summary.total.turns}</span>
         <span className="text-right tabular-nums">{formatTokens(headlineTokens(summary.total))}</span>
         <CostCell group={summary.total} strong />
-        {billable && <span className="text-right tabular-nums">{money(summary.total.billableUsd)}</span>}
       </div>
-      {cachedNote && (
-        <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">{cachedNote}</div>
-      )}
       {hasFiniteCost(summary.total.estimatedUsd) && summary.total.estimatedUsd > 0 && (
         <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">{t("usage.history.estimated", { amount: formatUsd(summary.total.estimatedUsd) })}</div>
       )}
@@ -163,52 +123,52 @@ export function UsageHistory({ load = fetchUsage }: { load?: typeof fetchUsage }
   }, [period, groupBy, load]);
 
   return (
-    <>
-    <UsageBudgetCards budget={summary?.budget ?? null} />
-    <Card title={t("usage.history.title")} subtitle={t("usage.history.subtitle")}>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <select
-          value={period}
-          onChange={(event) => setPeriod(event.target.value as UsagePeriod)}
-          aria-label={t("usage.history.period")}
-          className="rounded-lg border border-hairline/40 bg-inset px-2 py-1.5 text-[12.5px] text-ink focus:outline-none"
-        >
-          <option value="month">{t("usage.history.thisMonth")}</option>
-          <option value="lastMonth">{t("usage.history.lastMonth")}</option>
-          <option value="days30">{t("usage.history.last30Days")}</option>
-        </select>
-        <div role="tablist" aria-label={t("usage.history.groupBy")} className="flex flex-wrap gap-1">
-          {USAGE_GROUPINGS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              role="tab"
-              aria-selected={groupBy === option}
-              onClick={() => setGroupBy(option)}
-              className={cn(
-                "rounded-lg px-2.5 py-1 text-[12px]",
-                groupBy === option ? "bg-accent/15 text-accent" : "text-ink-secondary hover:bg-raised/50 hover:text-ink",
-              )}
-            >
-              {t(GROUP_LABEL_KEYS[option])}
-            </button>
-          ))}
+    <section data-usage-history="" className="flex flex-col gap-1.5">
+      <h3 className="px-4 text-[12px] font-medium text-ink-secondary">{t("usage.history.title")}</h3>
+      <div className="rounded-xl bg-card px-4 py-3">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <select
+            value={period}
+            onChange={(event) => setPeriod(event.target.value as UsagePeriod)}
+            aria-label={t("usage.history.period")}
+            className="rounded-lg border border-hairline/40 bg-inset px-2 py-1.5 text-[12.5px] text-ink focus:outline-none"
+          >
+            <option value="month">{t("usage.history.thisMonth")}</option>
+            <option value="lastMonth">{t("usage.history.lastMonth")}</option>
+            <option value="days30">{t("usage.history.last30Days")}</option>
+          </select>
+          <div role="tablist" aria-label={t("usage.history.groupBy")} className="flex flex-wrap gap-1">
+            {USAGE_GROUPINGS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="tab"
+                aria-selected={groupBy === option}
+                onClick={() => setGroupBy(option)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1 text-[12px]",
+                  groupBy === option ? "bg-accent/15 text-accent" : "text-ink-secondary hover:bg-raised/50 hover:text-ink",
+                )}
+              >
+                {t(GROUP_LABEL_KEYS[option])}
+              </button>
+            ))}
+          </div>
+          <a
+            href={usageExportHref(range)}
+            download
+            className="ml-auto flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink"
+          >
+            <Download size={13} />{t("usage.history.export")}
+          </a>
         </div>
-        <a
-          href={usageExportHref(range)}
-          download
-          className="ml-auto flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink"
-        >
-          <Download size={13} />{t("usage.history.export")}
-        </a>
+        {error && <p role="alert" className="mb-2 text-[12px] text-danger">{error}</p>}
+        {loading && !summary ? (
+          <div className="flex items-center gap-2 text-[13px] text-ink-secondary"><Loader2 size={14} className="animate-spin" />{t("common.checking")}</div>
+        ) : summary ? (
+          <UsageHistoryTable summary={summary} />
+        ) : null}
       </div>
-      {error && <p role="alert" className="mb-2 text-[12px] text-danger">{error}</p>}
-      {loading && !summary ? (
-        <div className="flex items-center gap-2 text-[13px] text-ink-secondary"><Loader2 size={14} className="animate-spin" />{t("common.checking")}</div>
-      ) : summary ? (
-        <UsageHistoryTable summary={summary} />
-      ) : null}
-    </Card>
-    </>
+    </section>
   );
 }

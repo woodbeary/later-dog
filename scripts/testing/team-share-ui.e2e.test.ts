@@ -92,14 +92,14 @@ describe("Share team in the real renderer", () => {
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Starter notes are included");
     // 31 ticked on one bot cannot fit: a sentence, the boxes stay, no Save.
     await click("fill-01");
-    await expect.poll(snapshot, { timeout: 20_000 }).toContain("Scout has more than 30 skills. Choose fewer skills and try again.");
+    await expect.poll(snapshot, { timeout: 20_000 }).toContain("Scout has more than 30 tricks. Choose fewer tricks and try again.");
     dialog = await snapshot();
     expect(dialog).toContain("fill-02");
     expect(dialog).not.toContain("What's in the file");
     expect(await saveDisabled()).toBe(true);
     await click("fill-02");
     await expect.poll(snapshot, { timeout: 20_000 }).toContain("What's in the file");
-    expect(await snapshot()).not.toContain("Scout has more than 30 skills");
+    expect(await snapshot()).not.toContain("Scout has more than 30 tricks");
     expect(await saveDisabled()).toBe(false);
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Removed what looked like a key or password from:");
     await ui("screenshot", "--out", join(ROOT, ".laterdog-scratch", "verify-evidence", "share-team-dialog.png"));
@@ -122,7 +122,7 @@ describe("Share team in the real renderer", () => {
     // Add the saved file back through Import: the preview names every part.
     await click("Import");
     await evaluate(`(() => { const input = document.querySelector('[role=dialog] input[type=file]'); const transfer = new DataTransfer(); transfer.items.add(new File([window.__shareText], 'sales-desk-1.0.0.laterdog.json', { type: 'application/json' })); input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("2 bots · shared team");
+    await expect.poll(snapshot, { timeout: 10_000 }).toContain("2 dogs · shared pack");
     const preview = await snapshot();
     for (const line of ["Shared instructions", "Routines: 1 · paused", "Starter notes: 1", "Included tricks — added switched off"]) {
       expect(preview).toContain(line);

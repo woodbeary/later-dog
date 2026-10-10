@@ -6,14 +6,6 @@ protocols:
   - name: later.dog package install
     schemes: [laterdog]
 
-# In-app auto-update reads latest-mac.yml + the .zip (macOS) or latest.yml +
-# the NSIS .exe (Windows) from the PUBLIC releases in this source repo.
-# Public → no token on users' machines. Baked into
-# app-update.yml; both metadata files are emitted here even with
-# --publish never, and must be uploaded to the GitHub release alongside the
-# artifacts — a release missing latest.yml leaves every Windows install
-# stranded on its installed version.
-
 directories:
   buildResources: build
   output: release
@@ -40,6 +32,7 @@ files:
   - "!electron/resources/recorder-helper.swift"
   - "!electron/resources/recorder-helper-Info.plist"
   - "!electron/resources/later.dog Recorder.app/**"
+  - "!electron/resources/app-update.yml"
   - "!**/node_modules/**"
   - package.json
 
@@ -111,6 +104,8 @@ mac:
       to: cloudflared/cloudflared
     - from: dist-native/browser/darwin-${arch}
       to: browser-engine
+    - from: electron/resources/app-update.yml
+      to: app-update.yml
   extendInfo:
     NSMicrophoneUsageDescription: later.dog uses the microphone for voice dictation into the composer.
     NSSpeechRecognitionUsageDescription: later.dog transcribes your voice on-device to type messages for you.

@@ -1,20 +1,3 @@
-// later.dog token battery (docs/laterdog/token-battery.md).
-//
-// A person signs in to several subscription accounts of one engine and puts
-// them in a "next up" order, favourite first. A turn runs on the first
-// account in that order that can take it: enabled, signed in, not resting,
-// and offering the turn's model. An account rests from the moment its usage
-// limit is reported (runtime.error.quota) until the limit resets, and the
-// favourite takes over again after that. Nothing here changes a turn unless
-// the person switched the battery on.
-//
-// What a switch carries over is decided elsewhere: another account is
-// another provider instance, so its turn starts a fresh session with the
-// conversation replayed into it (server/turn-context.ts, engineIsFresh).
-//
-// The harness glue (server/index.ts) routes each turn through `route`, marks
-// accounts from runtime errors, and asks `nextAccount` whether a turn that
-// ran out of usage should run once more on the next account.
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
@@ -40,6 +23,14 @@ export const CONTINUE_AFTER_SWITCH =
   "so it continues on another account. Anything that turn already did (files written, commands run) is still in place, " +
   "but its tool results are not in this session. Check the current state, then continue the user's last request from " +
   "where it stopped. Do not redo what was already done.]";
+
+export const CONTINUE_AFTER_RESET =
+  "[later.dog: your last turn stopped partway because this conversation ran out of usage on every account it can use. " +
+  "A limit has reset, so it carries on now. Anything that turn already did (files written, commands run) is still in place, " +
+  "though its tool results may not be in this session. Check the current state, then continue the user's last request from " +
+  "where it stopped. Do not redo what was already done.]";
+
+export const MAX_BATTERY_RERUNS = 8;
 
 export interface AccountBatteryConfig {
   enabled: boolean;
@@ -83,7 +74,6 @@ export interface Quota {
   kind?: string;
 }
 
-/** A dispatched direct turn, kept so it can run once more elsewhere. */
 export interface BatteryTurn {
   /** The dispatch generation that owns the conversation. */
   generation: string;
@@ -92,9 +82,6 @@ export interface BatteryTurn {
   /** The person's message it answers; a re-run is dropped once a newer one
    * arrives. */
   requestMessageId?: string;
-  /** Starts the turn again: the same message when `continuation` is null,
-   * else that prompt. Absent for a turn that must not run twice (a backup
-   * attempt already, a routine run, coordinated or delegated work). */
   rerun?: (continuation: string | null) => Promise<unknown>;
 }
 
@@ -123,7 +110,7 @@ const restSchema = z.object({
 const stateSchema = z.object({
   version: z.literal(1),
   resting: z.record(z.string(), restSchema).default({}),
-  away: z.record(z.string(), z.object({ from: z.string(), at: z.string() })).default({}),
+  away: z.record(z.string(), z.object({ from: z.string(), at: z.string(), to: z.string().optional(), ranOut: z.string().optional(), pick: z.string().optional() })).default({}),
 });
 type BatteryState = z.output<typeof stateSchema>;
 
@@ -183,30 +170,30 @@ export function activeRest(
   return undefined;
 }
 
-/** The account a turn on `selection` should run on, or undefined when the
- * battery does not decide it: switched off, an account it does not manage,
- * or none in the order that can take the turn. */
-export function pickAccount(input: {
+interface PickInput {
   config: AccountBatteryConfig | undefined;
   selection: ModelSelection;
   accounts: readonly BatteryAccount[];
   resting: Readonly<Record<string, Rest>>;
   now: number;
-}): BatteryAccount | undefined {
-  const { config, selection, accounts, resting, now } = input;
+}
+
+function canTake(account: BatteryAccount | undefined, input: Omit<PickInput, "config">, listed: boolean): account is BatteryAccount {
+  if (!account?.eligible || !account.enabled || account.signedIn === false) return false;
+  if (listed && !account.models.includes(input.selection.model)) return false;
+  return !activeRest(account, input.selection.model, input.accounts, input.resting, input.now);
+}
+
+export function pickAccount(input: PickInput): BatteryAccount | undefined {
+  const { config, selection, accounts } = input;
   if (!config?.enabled) return undefined;
   const own = accounts.find((account) => account.instanceId === selection.instanceId);
   if (!own?.eligible) return undefined;
   const order = batteryOrder(config, accounts)[own.driverKind] ?? [];
-  // A custom model id the engine's own catalog does not list runs wherever
-  // the engine runs; a listed one only on accounts that list it too.
   const listed = own.models.includes(selection.model);
-  for (const id of order) {
+  for (const id of [own.instanceId, ...order.filter((id) => id !== own.instanceId)]) {
     const account = accounts.find((candidate) => candidate.instanceId === id);
-    if (!account?.eligible || !account.enabled || account.signedIn === false) continue;
-    if (listed && !account.models.includes(selection.model)) continue;
-    if (activeRest(account, selection.model, accounts, resting, now)) continue;
-    return account;
+    if (canTake(account, input, listed)) return account;
   }
   return undefined;
 }
@@ -263,20 +250,25 @@ export function planResetAt(row: PlanProviderRow | undefined, kind: string | und
   return full.length ? resetInstant(full.at(-1), now) : undefined;
 }
 
-/** "3:00 PM" today, "Oct 9, 5:00 PM" on another day, in this machine's time
- * zone unless one is given. */
 export function resetLabel(until: string, now: number, timeZone?: string): string {
-  const at = new Date(until);
-  const day = (value: Date) => new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" }).format(value);
-  const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(at);
-  const label = day(at) === day(new Date(now))
-    ? time
-    : `${new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric" }).format(at)}, ${time}`;
-  // ICU puts a narrow no-break space before AM/PM; a notice reads plainer without.
-  return label.replace(/[  ]/g, " ");
+  const { day, time } = resetParts(until, now, timeZone);
+  return day ? `${day}, ${time}` : time;
 }
 
-/** The status line a conversation gets when it moves to the next account. */
+function resetPhrase(until: string, now: number, timeZone?: string): string {
+  const { day, time } = resetParts(until, now, timeZone);
+  return day ? `${day} at ${time}` : `at ${time}`;
+}
+
+function resetParts(until: string, now: number, timeZone?: string): { day?: string; time: string } {
+  const at = new Date(until);
+  const plain = (text: string) => text.replace(/[\u202f\u00a0]/g, " ");
+  const date = (value: Date) => new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" }).format(value);
+  const time = plain(new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(at));
+  if (date(at) === date(new Date(now))) return { time };
+  return { day: plain(new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric" }).format(at)), time };
+}
+
 /** The row a switch notice takes the place of: the failed-turn row (the
  * usage limit) that the request's attempt on the last account left, after
  * the request message. A limit the battery already handled is not something
@@ -292,15 +284,25 @@ export function limitRowToReplace<M extends { id: string; role: string; kind: st
     message.tool?.ok === false && (message.tool.name ?? "").startsWith("error:")) ?? null;
 }
 
+const LIMIT_NAMES: ReadonlyMap<string, string> = new Map([
+  ["session", "5-hour"], ["daily", "daily"], ["weekly", "weekly"], ["monthly", "monthly"], ["opus", "Opus"], ["sonnet", "Sonnet"],
+]);
+
 export function switchNotice(input: { to: string; from: string; rest?: Rest; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
-  const when = rest && !rest.estimated && Date.parse(rest.until) > now ? ` until ${resetLabel(rest.until, now, timeZone)}` : " for now";
-  return `Switched to ${to} — ${from} is out of usage${when}.`;
+  const limit = rest?.kind ? LIMIT_NAMES.get(rest.kind) : undefined;
+  const known = rest && !rest.estimated && Date.parse(rest.until) > now ? rest.until : undefined;
+  if (limit) return `Switched to ${to} — ${from} hit its ${limit} limit${known ? `, resets ${resetPhrase(known, now, timeZone)}` : ""}.`;
+  return `Switched to ${to} — ${from} is out of usage${known ? ` until ${resetLabel(known, now, timeZone)}` : " for now"}.`;
 }
 
 /** The status line a conversation gets when it is back on that account. */
 export function backNotice(name: string): string {
   return `Back on ${name}.`;
+}
+
+export function carryOnNotice(name: string): string {
+  return `Picking up where it stopped, on ${name}.`;
 }
 
 export interface AccountBatteryOptions {
@@ -312,7 +314,6 @@ export interface AccountBatteryOptions {
   /** Ask the provider when an account's limit resets, for an error that did
    * not say. Best effort: the estimate stands if it fails. */
   planReset?: (instanceId: string, kind: string | undefined) => Promise<string | undefined>;
-  /** Rests changed: the Settings card shows them. */
   onChange?: () => void;
 }
 
@@ -334,11 +335,37 @@ export class AccountBattery {
     return this.options.config()?.enabled === true;
   }
 
-  /** The selection a turn runs on: the first account in the person's order
-   * that can take it, or `selection` itself (the same object) when the
-   * battery is off, does not manage that account, or has none to give. */
-  route(selection: ModelSelection, accounts: readonly BatteryAccount[]): ModelSelection {
-    return routeSelection({ config: this.options.config(), selection, accounts, resting: this.state.resting, now: this.now() });
+  routes(threadId?: string): boolean {
+    return this.enabled || Boolean(threadId && this.state.away[threadId]?.to);
+  }
+
+  route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): ModelSelection {
+    const chosen = threadId ? this.chosen(threadId, selection, accounts) : undefined;
+    if (chosen) return { ...selection, instanceId: chosen };
+    const input = { selection, accounts, resting: this.state.resting, now: this.now() };
+    const own = accounts.find((account) => account.instanceId === selection.instanceId);
+    if (!own?.eligible || canTake(own, input, false)) return selection;
+    return routeSelection({ config: this.options.config(), ...input });
+  }
+
+  choose(threadId: string, ranOut: string, to: string, pick: string): void {
+    const away = this.state.away[threadId];
+    this.state.away[threadId] = { from: away?.from ?? ranOut, at: new Date(this.now()).toISOString(), to, ranOut, pick };
+    this.save();
+  }
+
+  chosen(threadId: string, selection: ModelSelection, accounts: readonly BatteryAccount[]): string | undefined {
+    const away = this.state.away[threadId];
+    if (!away?.to || !away.ranOut || (away.pick !== undefined && away.pick !== selection.instanceId)) return undefined;
+    const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
+    const own = find(selection.instanceId);
+    const ranOut = find(away.ranOut);
+    const to = find(away.to);
+    if (!own?.eligible || !ranOut || !to?.eligible || !to.enabled || to.signedIn === false) return undefined;
+    if (ranOut.driverKind !== own.driverKind || to.driverKind !== own.driverKind) return undefined;
+    if (own.models.includes(selection.model) && !to.models.includes(selection.model)) return undefined;
+    if (!this.restOf(ranOut, accounts, selection.model) || this.restOf(to, accounts, selection.model)) return undefined;
+    return to.instanceId;
   }
 
   /** An account reported its usage limit: it rests until the reported reset,
@@ -391,8 +418,9 @@ export class AccountBattery {
     let changed = Boolean(this.state.resting[instanceId]);
     delete this.state.resting[instanceId];
     for (const [threadId, away] of Object.entries(this.state.away)) {
-      if (away.from !== instanceId) continue;
-      delete this.state.away[threadId];
+      if (away.from === instanceId) delete this.state.away[threadId];
+      else if (away.to === instanceId || away.ranOut === instanceId) this.state.away[threadId] = { from: away.from, at: away.at };
+      else continue;
       changed = true;
     }
     if (changed) this.save();
@@ -403,7 +431,26 @@ export class AccountBattery {
     return activeRest(account, model, accounts, this.state.resting, this.now());
   }
 
-  /** What the Settings card shows. */
+  readyAt(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): string | undefined {
+    const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
+    const own = find(selection.instanceId);
+    if (!own) return undefined;
+    const away = threadId ? this.state.away[threadId] : undefined;
+    const listed = own.models.includes(selection.model);
+    const others = [
+      ...(away?.to && (away.pick === undefined || away.pick === own.instanceId) ? [away.to] : []),
+      ...(this.enabled && own.eligible ? batteryOrder(this.options.config(), accounts)[own.driverKind] ?? [] : []),
+    ].map(find).filter((account): account is BatteryAccount => Boolean(account && account !== own && account.eligible && account.enabled &&
+      account.signedIn !== false && account.driverKind === own.driverKind && (!listed || account.models.includes(selection.model))));
+    let soonest = Infinity;
+    for (const account of [own, ...others]) {
+      const rest = this.restOf(account, accounts, selection.model);
+      if (!rest) return undefined;
+      soonest = Math.min(soonest, Date.parse(rest.until));
+    }
+    return new Date(soonest).toISOString();
+  }
+
   status(accounts: readonly BatteryAccount[]): BatteryStatus {
     const config = this.options.config();
     const resting: BatteryStatus["resting"] = {};
@@ -415,7 +462,6 @@ export class AccountBattery {
     return { enabled: config?.enabled === true, order: batteryOrder(config, accounts), resting };
   }
 
-  /** Keep a dispatched turn so it can run once more on the next account. */
   trackTurn(threadId: string, turn: BatteryTurn): void {
     this.turns.delete(threadId);
     this.turns.set(threadId, turn);
@@ -442,12 +488,15 @@ export class AccountBattery {
     return { turn, from, to, rest: this.restOf(from, input.accounts, input.selection.model) };
   }
 
-  /** Take a kept turn for its one re-run; never returned twice. */
   takeTurn(threadId: string, generation: string | undefined): BatteryTurn | undefined {
-    const turn = this.turns.get(threadId);
-    if (!turn || turn.generation !== generation) return undefined;
-    this.turns.delete(threadId);
+    const turn = this.keptTurn(threadId, generation);
+    if (turn) this.turns.delete(threadId);
     return turn;
+  }
+
+  keptTurn(threadId: string, generation: string | undefined): BatteryTurn | undefined {
+    const turn = this.turns.get(threadId);
+    return turn && turn.generation === generation ? turn : undefined;
   }
 
   /** This conversation moved off `from` because it ran out of usage. */

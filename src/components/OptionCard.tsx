@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { isPersistentQuestionCard, parseChoices } from "../../shared/ask-question";
 import { ExpandableText } from "./ExpandableText";
+import { optionCardTitle } from "@/lib/option-card-title";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 
@@ -49,7 +50,7 @@ export function OptionCard({
   // later user message that means they already talked past this quiz.
   if (!card || shouldHideOnboardingCard(message, transcript) || (card.requestId && card.dismissed && card.answered)) return null;
 
-  const title = card.title;
+  const title = optionCardTitle(card, bot?.name);
   const subtitle = card.subtitle;
   // Cards saved before the server flattened `ask_user` choices can still hold
   // `{ label }` rows; a label is drawable, an object as a React child is not.

@@ -270,7 +270,7 @@ fleet   many client workspaces on one Linux server, each its own account,
         --dry-run always prints. Install the package permanently first.
         init --operator USER also installs the fleet agent, a root service
         on a Unix socket only USER may open, so the workspace running as
-        USER manages the others from Settings → Installations.
+        USER manages the others through its /api/fleet routes.
 
 --tailscale  serve over your tailnet: Tailscale terminates HTTPS and the
              link uses this machine's MagicDNS name (needs Tailscale signed in
@@ -343,7 +343,7 @@ async function api(port: number, path: string, init: { method?: string; body?: s
 
 /** What to do when a server treats this command as a local service rather
  * than its owner (LATERDOG_LOOPBACK_TRUST=service, or a hosted workspace). */
-export const SERVICE_TRUST_HELP = "This server does not treat commands on this computer as its owner (LATERDOG_LOOPBACK_TRUST=service, or a hosted workspace), so it will not pair devices or list sessions for them. Sign in as an admin and use Settings → Remote access, let people sign in with their email (laterdog access add you@example.com), or restart the server with LATERDOG_LOOPBACK_TRUST=owner.";
+export const SERVICE_TRUST_HELP = "This server does not treat commands on this computer as its owner (LATERDOG_LOOPBACK_TRUST=service, or a hosted workspace), so it will not pair devices or list sessions for them. Let people sign in with their email (laterdog access add you@example.com), or restart the server with LATERDOG_LOOPBACK_TRUST=owner.";
 
 function refusedAsService(status: number, body: any): boolean {
   return status === 403 && typeof body?.error === "string" && /shared server|Sign in through the workspace portal/.test(body.error);
@@ -807,7 +807,7 @@ export async function runBrowser(options: CliOptions, io: CliIo = defaultIo()): 
     if (process.platform === "linux" && !options.withDeps) io.error("on Linux, install Chrome's system libraries with `sudo laterdog browser install --with-deps`, then retry `laterdog browser install` as the user running serve");
     return 1;
   }
-  io.log("browser installed for this user and data directory; run serve as the same user, then enable it under Settings → Computers and per dog");
+  io.log("browser installed for this user and data directory; run serve as the same user, then turn it on under Settings → Computer → Built-in browser and choose it on a dog's Computer tab");
   if (process.platform === "linux" && options.withDeps) io.log("if serve runs as another user, run `laterdog browser install` from that user's login shell too");
   return 0;
 }

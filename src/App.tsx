@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAdvancedMode } from "@/lib/interface-mode";
 import { Loader2, Menu } from "lucide-react";
 import { CLOUD_LINK_SETTINGS, StoreProvider, useStore } from "@/state/store";
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
@@ -16,11 +15,10 @@ import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
-  ActivityPanel, BotSettingsDialog, ComputerPanel, InspectorPanel, KeyboardShortcutsModal, LocalVmWorkspace, NewBotDialog,
+  ActivityPanel, BotSettingsDialog, ComputerPanel, InspectorPanel, KeyboardShortcutsModal, NewBotDialog,
   preloadScreens, RemoteAgentSettingsPanel, RemoteDesktopPanel, RoutinesPage, SettingsModal, TeamMapPage, TriggersPanel,
 } from "@/components/lazy-screens";
 import { WorkspaceBackupRecovery } from "@/components/WorkspaceBackupSettings";
-import { UpdateBanner } from "@/components/UpdateBanner";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
 import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
 import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
@@ -33,7 +31,9 @@ import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
 import { botShowsUnread } from "@/lib/bot-unread";
-import { phonePairingSettingsAction, takePhonePairingRequest } from "@/lib/phone-pairing";
+import { currentPhonePairingTarget, takePhonePairingRequest } from "@/lib/phone-pairing";
+import { PhonePairingDialog } from "@/components/PhonePairingDialog";
+import { acknowledgeOrganizationSettings } from "@/lib/organization-settings-ack";
 
 function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const { state, dispatch } = useStore();
@@ -53,7 +53,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         target.searchParams.set(panel === "copy" ? "copy-to" : "share-computer", computerId);
         window.history.replaceState(null, "", `${target.pathname}${target.search}${target.hash}`);
       }
-      dispatch({ type: "toggleAppSettings", open: true, section: "desktopWorkspaces" });
+      dispatch({ type: "toggleAppSettings", open: true, section: "computer" });
     };
     const url = new URL(window.location.href);
     const requestedSettings = url.searchParams.get("desktop-settings");
@@ -61,23 +61,19 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       ((requestedSettings === "cloud" || requestedSettings === "cloud-settings") && window.laterdog.cloudAccount && !remoteClient)) {
       url.searchParams.delete("desktop-settings");
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-      if (requestedSettings === "organization") dispatch({ type: "toggleAppSettings", open: true, section: "organization" });
-      else if (requestedSettings === "cloud") dispatch(CLOUD_LINK_SETTINGS);
-      // The lending menu-bar item: Settings → later.dog Cloud, with no automatic action.
-      else if (requestedSettings === "cloud-settings") dispatch({ type: "toggleAppSettings", open: true, section: "cloudAccount" });
-      else open();
+      if (requestedSettings === "workspaces") open();
+      else dispatch(CLOUD_LINK_SETTINGS);
+      acknowledgeOrganizationSettings(requestedSettings, window.laterdog.organization, remoteClient);
     }
     return window.laterdog.environments.onOpenSettings?.(open);
   }, [dispatch]);
-  // "Use your Cloud on your phone" opens the Cloud in this window at
-  // /?desktop-settings=phone: its own phone pairing, in any window, on any
-  // server. It only opens Settings there; no code is made until a click.
+  const [phonePairingOpen, setPhonePairingOpen] = useState(false);
   useEffect(() => {
     const rest = takePhonePairingRequest(window.location.href);
     if (rest === null) return;
     window.history.replaceState(null, "", rest);
-    dispatch(phonePairingSettingsAction());
-  }, [dispatch]);
+    setPhonePairingOpen(true);
+  }, []);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
   // cancelling them with md:, which would still emit a translate value and
@@ -93,8 +89,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     setLocale(language || globalThis.navigator?.language);
     setLocaleEpoch((epoch) => epoch + 1);
   }, [language]);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [localVmWorkspaceBotId, setLocalVmWorkspaceBotId] = useState<string | null>(null);
   // the Browser tab, expanded into the main column (the small preview in
   // the panel hands off to this and back)
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -108,11 +102,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const sidePanelOpen = Boolean(bot) && (state.settingsOpen || state.computerOpen || state.inspectorOpen || state.activityOpen);
   const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
   const calendarFocus = state.activeView === "routines";
-  // Turning Advanced mode off closes the inspector it no longer offers.
-  const advanced = useAdvancedMode();
-  useEffect(() => {
-    if (!advanced && state.inspectorOpen) dispatch({ type: "toggleInspector", open: false });
-  }, [advanced, state.inspectorOpen, dispatch]);
 
   // Nothing on this machine can run a bot. A missing cloud login does not
   // count — that CLI can still host a local model. Wait for the first
@@ -195,26 +184,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     previousViewRef.current = state.activeView;
   }, [state.activeView]);
 
-  useEffect(() => {
-    if (
-      localVmWorkspaceBotId &&
-      (state.activeView !== "chat" || state.selectedId !== localVmWorkspaceBotId)
-    ) {
-      setLocalVmWorkspaceBotId(null);
-    }
-  }, [localVmWorkspaceBotId, state.activeView, state.selectedId]);
-
-  const openLocalVmWorkspace = (botId: string) => {
-    dispatch({ type: "toggleComputer", open: false });
-    setLocalVmWorkspaceBotId(botId);
-  };
-
-  const openComputerFromWorkspace = (botId: string) => {
-    setLocalVmWorkspaceBotId(null);
-    dispatch({ type: "select", id: botId });
-    dispatch({ type: "toggleComputer", open: true });
-  };
-
   const closeCalendar = useCallback(() => {
     if (calendarOriginRef.current === "workspace") {
       dispatch({ type: "showWorkspace" });
@@ -230,29 +199,11 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     dispatch({ type: "select", id });
   }, [dispatch]);
 
-  const nativeViewOverlayOpen =
-    drawerOpen ||
-    paletteOpen ||
-    state.settingsOpen ||
-    state.computerOpen ||
-    state.inspectorOpen ||
-    state.activityOpen ||
-    state.appSettingsOpen ||
-    state.pluginsOpen ||
-    state.triggersOpen;
-
-  // The macOS app menu's Preferences… item lives in the desktop shell, so the
-  // shell signals the request over the bridge (Cmd+, accelerates the item).
-  // Local-shell only: remote server pages never receive the channel, and laterdog
-  // is absent in the browser.
-  // "cloud" is laterdog://cloud (the Cloud page's "Open in the app"):
-  // later.dog Cloud, marked as opened by the link so that view signs in or connects.
   useEffect(() => {
-    return window.laterdog?.onOpenAppSettings?.(section => dispatch(section === "cloud" && window.laterdog?.cloudAccount && !remoteClient
-      ? CLOUD_LINK_SETTINGS
-      : section === "cloud-settings" && window.laterdog?.cloudAccount && !remoteClient
-        ? { type: "toggleAppSettings", open: true, section: "cloudAccount" }
-        : { type: "toggleAppSettings", open: true, ...(section === "organization" && window.laterdog?.organization && !remoteClient ? { section } : {}) }));
+    return window.laterdog?.onOpenAppSettings?.(section => {
+      dispatch(section ? CLOUD_LINK_SETTINGS : { type: "toggleAppSettings", open: true });
+      acknowledgeOrganizationSettings(section, window.laterdog?.organization, remoteClient);
+    });
   }, [dispatch]);
 
   // The viewer outlives ComputerPanel and can target any bot, so release control
@@ -281,8 +232,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* fixed-position popups, bottom-left — outside the layout flow */}
-      <UpdateBanner />
       <CredentialStoreNotice />
       <div className="relative flex min-h-0 flex-1">
       {!calendarFocus && <button
@@ -320,13 +269,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         <TeamMapPage />
       ) : state.activeView === "routines" ? (
         <RoutinesPage onBack={closeCalendar} onOpenRoom={openCalendarRoom} />
-      ) : !remoteClient && localVmWorkspaceBotId ? (
-        <LocalVmWorkspace
-          primaryBotId={localVmWorkspaceBotId}
-          overlayOpen={nativeViewOverlayOpen}
-          onClose={() => setLocalVmWorkspaceBotId(null)}
-          onOpenComputer={openComputerFromWorkspace}
-        />
       ) : cloudSignIn ? (
         <CloudEngineSignIn />
       ) : noEngines ? (
@@ -368,16 +310,18 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         remoteClient ? (
           <RemoteDesktopPanel key={`computer:${bot.id}`} bot={bot} />
         ) : (
-          <ComputerPanel
-            key={`computer:${bot.id}`}
-            bot={bot}
-            onOpenVmWorkspace={openLocalVmWorkspace}
-          />
+          <ComputerPanel key={`computer:${bot.id}`} bot={bot} />
         )
       )}
       {!remoteClient && state.inspectorOpen && bot && <InspectorPanel key={bot.threadId} bot={bot} />}
       {!remoteClient && state.activityOpen && bot && <ActivityPanel key={`activity:${bot.id}`} bot={bot} />}
       {state.appSettingsOpen && <SettingsModal />}
+      <PhonePairingDialog
+        open={phonePairingOpen}
+        target={currentPhonePairingTarget(state.config?.cloudHome === true)}
+        onClose={() => setPhonePairingOpen(false)}
+        profileEmail={state.config?.profile?.email ?? ""}
+      />
       {/* On the person's Cloud: its setup checklist, and after it Move to
           Cloud's one-time card on an empty Cloud (desktop app only). */}
       <CloudSetup viewer={viewer} />
@@ -392,7 +336,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       )}
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the
           palette on top when one of them is open underneath */}
-      <CommandPalette onOpenChange={setPaletteOpen} />
+      <CommandPalette />
       </div>
       {/* Renderer-drawn caption buttons for the overlay-less frameless
           Windows window. Deliberately the LAST child of the shell: Blink

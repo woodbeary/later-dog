@@ -9,15 +9,12 @@ not read the user's later.dog data or connect a real mail account.
 pnpm exec vitest run shared/tool-scope.test.ts server/mcp-gate.test.ts server/mcp-gate-config.test.ts server/mcp-remote-proxy.test.ts
 pnpm exec vitest run server/store.test.ts server/tool-scope.e2e.test.ts server/drivers/tool-scope-coverage.test.ts server/drivers/acp/tool-scope.test.ts
 pnpm exec vitest run server/drivers/pi.test.ts server/drivers/pi-mcp-extension.test.ts server/drivers/chat-mcp-tools.test.ts server/drivers/openai-chat.test.ts server/openai-tools.e2e.test.ts
-pnpm exec vitest run src/components/bot-settings/AccessSection.test.ts src/state/store.test.ts src/lib/create-configured-bot.test.ts src/lib/bot-creation-draft.test.ts
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/tool-selection-ui.e2e.test.ts
+pnpm exec vitest run src/state/store.test.ts
 ```
 
-The UI check opens the actual bot settings and saves, clears, rejects invalid
-input, retries a failed save, switches bots during a pending save, checks busy
-state, and duplicates a restricted bot atomically. It uses the shared
-verification launcher and the real renderer. These are workflow checks with
-a fake engine, not live-model planning checks.
+Bot settings no longer have an Access page, so there is no control for
+choosing a bot's tools. A bot's saved selection keeps applying. The
+screenshots show the Access page the original contribution verified.
 
 ![Before: Access settings](tool-selection-before.jpg)
 ![After: saved tool selection](tool-selection-after.jpg)

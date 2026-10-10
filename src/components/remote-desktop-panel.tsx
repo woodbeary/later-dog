@@ -258,7 +258,7 @@ export function RemoteDesktopPanel({ bot }: { bot: Bot }) {
           </div>
         )}
         <p className="text-[11px] leading-relaxed text-ink-secondary">
-          The host must enable cloud desktop access for this paired device in Settings → Remote access.
+          Taking control needs computer view allowed for this phone on the computer.
         </p>
 
         <div className="w-full rounded-xl bg-card p-4 text-left">

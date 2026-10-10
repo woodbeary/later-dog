@@ -54,6 +54,7 @@ import { PluginsPanel } from "./PluginsPanel";
 // state slots, in the order PluginsPanel declares them
 const CARDS = 0;
 const CONFIGURED = 3;
+const SETUP = 5;
 const STATUS = 6;
 const PHASE = 13;
 const SEARCH = 15;
@@ -98,6 +99,24 @@ beforeEach(() => {
   ]);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe("setting up connected apps", () => {
+  beforeEach(() => fixture.overrides.set(SETUP, "needs-setup"));
+
+  it("takes the Composio key right in the notice, with no Settings page to visit", () => {
+    const { html } = render();
+    expect(html).toContain("Paste a Composio project key below");
+    expect(html).toContain('data-api-key-row="composio"');
+    expect(html).not.toContain("Settings →");
+  });
+
+  it("drops the notice and its key box once the key is in", () => {
+    fixture.overrides.set(CONFIGURED, true);
+    const { html } = render();
+    expect(html).not.toContain("data-connectors-key");
+    expect(html).not.toContain('data-api-key-row="composio"');
+  });
+});
 
 describe("connectors in the Apps pop-up", () => {
   it("lead the apps section as rows of their own, every one of them, with no Composio key", () => {

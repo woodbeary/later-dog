@@ -36,13 +36,37 @@ export const computersConnectionFile = (): string => join(dataDir(), "computers.
 const defaultKeyFile = () => join(dataDir(), "computers-key");
 const savedSchema = z.object({ api: z.string().min(1).max(2048),
   keyFile: z.string().min(1).transform((file) => file.replace(/^~(?=\/)/, homedir())).refine(isAbsolute, "keyFile must be an absolute path").optional() }).strict();
-export interface ComputersConnection { api: string; keyFile: string; source: "environment" | "file" }
+export interface ComputersConnection { api: string; keyFile: string; source: "environment" | "file" | "trial" }
+export const TRIAL_KEY = /^ldt_[A-Za-z0-9_-]{43}$/;
+export const trialKeyFile = (): string => join(dataDir(), "computers-trial-key");
+export const trialStateFile = (): string => join(dataDir(), "computers-trial.json");
+const trialSchema = z.object({ api: z.string().min(1).max(2048), confirmed: z.literal(true).optional(), ended: z.literal(true).optional() }).strict();
+export type SavedTrial = z.infer<typeof trialSchema>;
+
+export function savedTrial(): SavedTrial | null {
+  let raw: unknown;
+  try { raw = JSON.parse(readFileSync(trialStateFile(), "utf8")); } catch { return null; }
+  const saved = trialSchema.safeParse(raw);
+  if (!saved.success) return null;
+  try { return { ...saved.data, api: serviceApi(saved.data.api) }; } catch { return null; }
+}
+
+function usableTrial(): SavedTrial | null {
+  const saved = savedTrial();
+  return saved?.confirmed === true && saved.ended !== true && existsSync(trialKeyFile()) ? saved : null;
+}
+
+export const trialInUse = (): boolean => usableTrial() !== null;
+
+export function ownComputersChosen(): boolean {
+  return Boolean(process.env.LATERDOG_COMPUTERS_API?.trim()) || existsSync(computersConnectionFile());
+}
 
 /** Whether this installation chose later.dog's own computers: the environment names a service, or computers.json
  * exists. A choice that turns out broken still counts, so it fails where the person can see it instead of quietly
  * sending every dog back to Boat. */
 export function computersSelected(): boolean {
-  return Boolean(process.env.LATERDOG_COMPUTERS_API?.trim()) || existsSync(computersConnectionFile());
+  return ownComputersChosen() || trialInUse();
 }
 
 /** Which computers service this installation uses, or null for none. As with supervisor.json (config.ts):
@@ -56,7 +80,10 @@ export function computersConnection(): ComputersConnection | null {
     return { api: serviceApi(api), keyFile, source: "environment" };
   }
   const file = computersConnectionFile();
-  if (!existsSync(file)) return null;
+  if (!existsSync(file)) {
+    const trial = usableTrial();
+    return trial ? { api: trial.api, keyFile: trialKeyFile(), source: "trial" } : null;
+  }
   let raw: unknown;
   try { raw = JSON.parse(readFileSync(file, "utf8")); } catch { throw new ComputersConfigError(`${file} is not valid JSON`); }
   // Issue messages name keys and expected types, never values: a key pasted into the wrong field stays out of them.
@@ -67,7 +94,7 @@ export function computersConnection(): ComputersConnection | null {
 
 /** HTTPS, or HTTP to this machine for a local stub; never credentials, a query or a fragment, which logs would keep.
  * The raw value is never echoed, since it may hold exactly such a credential. */
-function serviceApi(raw: string): string {
+export function serviceApi(raw: string): string {
   let url: URL | null = null;
   try { url = new URL(raw); } catch { /* refused below */ }
   if (!url || url.username || url.password || url.search || url.hash || !httpsOrLoopback(url)) {
@@ -86,7 +113,9 @@ export function computersKey(connection: ComputersConnection): string {
     const missing = (error as NodeJS.ErrnoException)?.code === "ENOENT";
     throw new ComputersConfigError(`The later.dog computers key file ${connection.keyFile} ${missing ? "does not exist" : "could not be read"}`);
   }
-  if (!/^ldc_[!-~]{8,1024}$/.test(key)) throw new ComputersConfigError(`${connection.keyFile} does not hold a later.dog computers key (they start with ldc_)`);
+  if (connection.source === "trial") {
+    if (!TRIAL_KEY.test(key)) throw new ComputersConfigError(`${connection.keyFile} does not hold a later.dog free trial key`);
+  } else if (!/^ldc_[!-~]{8,1024}$/.test(key)) throw new ComputersConfigError(`${connection.keyFile} does not hold a later.dog computers key (they start with ldc_)`);
   return key;
 }
 
@@ -98,13 +127,16 @@ const execBody = z.object({ exitCode: z.number().int().nullable(), stdout: z.str
 export type ExecResult = z.infer<typeof execBody>;
 const desktopBody = z.object({ url: z.string().min(1).max(8192), expiresAt: z.union([z.string(), z.number()]).optional() });
 const errorBody = z.object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }) });
+const trialBody = z.object({ trial: z.object({ state: z.enum(["active", "used_up"]), minutes: z.number().int().min(1).max(600),
+  minutesLeft: z.number().int().min(0).max(600), expiresAt: z.string().min(1).max(64) }) });
+export type TrialView = z.infer<typeof trialBody>["trial"];
 
 const unexpected = (what = "an unexpected answer") => new ComputersApiError(`later.dog's computers service returned ${what}`, 502, "invalid_response");
 
 /** The provider's own words are better than anything invented here (boat.ts boatErrorMessage), except for a rejected
  * key, where the fix is a file on this machine. */
-function refusalMessage(status: number, theirs: string, keyFile: string): string {
-  if (status === 401 || status === 403) return `later.dog's computers service rejected the key in ${keyFile}`;
+function refusalMessage(status: number, theirs: string, keyFile: string, trial: boolean): string {
+  if ((status === 401 || status === 403) && !trial) return `later.dog's computers service rejected the key in ${keyFile}`;
   if (theirs) return theirs;
   if (status === 404 || status === 410) return "that cloud computer no longer exists";
   if (status === 429) return "later.dog's computers service is rate-limiting this installation — wait a minute and try again";
@@ -122,7 +154,7 @@ function filesPath(id: string, path: string): string {
 }
 
 /** Buffer at most `maxBytes` of a body, whatever its Content-Length claims, so one answer cannot exhaust memory. */
-async function readCapped(response: Response, maxBytes: number, tooLarge: () => Error): Promise<Buffer> {
+export async function readCapped(response: Response, maxBytes: number, tooLarge: () => Error): Promise<Buffer> {
   const declared = response.headers.get("content-length");
   if (declared !== null && Number(declared) > maxBytes) { await response.body?.cancel().catch(() => {}); throw tooLarge(); }
   if (!response.body) return Buffer.alloc(0);
@@ -144,9 +176,10 @@ export class ComputersClient {
   readonly api: string;
   readonly keyFile: string;
   readonly #key: string;
+  readonly #trial: boolean;
   readonly #fetch: typeof fetch;
   constructor(connection: ComputersConnection, options: { fetch?: typeof fetch } = {}) {
-    this.api = connection.api; this.keyFile = connection.keyFile; this.#key = computersKey(connection); this.#fetch = options.fetch ?? fetch;
+    this.api = connection.api; this.keyFile = connection.keyFile; this.#key = computersKey(connection); this.#trial = connection.source === "trial"; this.#fetch = options.fetch ?? fetch;
   }
 
   /** Every request has a deadline: a service that accepts a connection and stalls must not hold a turn for minutes. */
@@ -166,7 +199,7 @@ export class ComputersClient {
     const parsed = errorBody.safeParse(failure);
     const code = parsed.success && /^[a-z0-9_]{1,64}$/.test(parsed.data.error.code ?? "") ? parsed.data.error.code : undefined;
     const theirs = parsed.success ? (parsed.data.error.message ?? "").trim().slice(0, 300) : "";
-    throw new ComputersApiError(refusalMessage(response.status, theirs, this.keyFile), response.status, code);
+    throw new ComputersApiError(refusalMessage(response.status, theirs, this.keyFile, this.#trial), response.status, code);
   }
 
   async #read<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
@@ -259,5 +292,19 @@ export class ComputersClient {
     try { url = new URL(body.url); } catch { /* refused below */ }
     if (!url || url.username || url.password || !httpsOrLoopback(url)) throw unexpected("an unusable desktop link");
     return body;
+  }
+
+  async trial(): Promise<TrialView | null> {
+    let response: Response;
+    try { response = await this.#send("/trial", { timeoutMs: 15_000 }); }
+    catch (error) { if (error instanceof ComputersApiError && error.httpStatus === 401) return null; throw error; }
+    return (await this.#read(response, trialBody)).trial;
+  }
+
+  async endTrial(): Promise<void> {
+    let response: Response;
+    try { response = await this.#send("/trial", { method: "DELETE", timeoutMs: 30_000 }); }
+    catch (error) { if (error instanceof ComputersApiError && error.httpStatus === 401) return; throw error; }
+    await this.#read(response, z.object({ ended: z.literal(true) }));
   }
 }

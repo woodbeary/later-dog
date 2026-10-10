@@ -377,7 +377,7 @@ export function createProxyHandler(options: ProxyOptions) {
     // The computer owner enables this capability per device, off by default.
     if (isCloudDesktopAccess(method, path) && !device?.cloudDesktopAccess) {
       return sendJson(res, 403, {
-        error: "computer access is off for this device — enable it in later.dog → Settings → Remote access",
+        error: "computer access is off for this device — enable it in later.dog: open the menu under your name and choose Connect your phone",
       });
     }
 

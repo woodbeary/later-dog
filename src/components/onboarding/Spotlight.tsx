@@ -52,6 +52,15 @@ function cutout(r: Rect | null): string {
   return `polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${x1}px ${y1}px, ${x1}px ${y2}px, ${x2}px ${y2}px, ${x2}px ${y1}px, ${x1}px ${y1}px)`;
 }
 
+const WINDOWS = '[aria-modal="true"], [role="dialog"], [role="alertdialog"], [role="menu"]';
+
+function otherWindowOpen(anchor: string | null): boolean {
+  const targets = anchor ? Array.from(document.querySelectorAll(`[data-tour="${anchor}"]`)) : [];
+  return Array.from(document.querySelectorAll(WINDOWS)).some(
+    (other) => !other.closest("[data-tour-card]") && !targets.some((target) => other.contains(target)),
+  );
+}
+
 interface Action {
   label: string;
   onClick: () => void;
@@ -82,6 +91,7 @@ export function Spotlight({
 }) {
   const [rect, setRect] = useState<Rect | null>(null);
   const [settled, setSettled] = useState(false);
+  const [covered, setCovered] = useState(() => otherWindowOpen(anchor));
 
   // Follow the anchor: layout, scroll, resize, and the anchor's own size.
   // A new anchor that is not on screen yet (a menu still opening) keeps
@@ -132,12 +142,27 @@ export function Spotlight({
   }, []);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDone();
+    setCovered(otherWindowOpen(anchor));
+    const observer = new MutationObserver(() => setCovered(otherWindowOpen(anchor)));
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-modal"] });
+    return () => observer.disconnect();
+  }, [anchor]);
+
+  useEffect(() => {
+    let behindWindow = false;
+    const onPress = () => {
+      behindWindow = otherWindowOpen(anchor);
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !behindWindow) onDone();
+    };
+    window.addEventListener("keydown", onPress, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onDone]);
+    return () => {
+      window.removeEventListener("keydown", onPress, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [anchor, onDone]);
 
   // an anchored step whose control is not on screen yet shows nothing; the
   // observers above will find it when it appears
@@ -183,7 +208,7 @@ export function Spotlight({
 
   return createPortal(
     <div
-      className="pointer-events-none fixed inset-0 z-[60]"
+      className={cn("pointer-events-none fixed inset-0 z-[60]", covered && "invisible")}
       aria-live="polite"
     >
       <div

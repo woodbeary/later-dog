@@ -24,12 +24,19 @@ export interface FailedTurnTool {
   claudeUpdate?: boolean;
   /** the place this turn could not use, and where that place came from */
   place?: PlaceRow;
+  quota?: FailedTurnQuota;
+}
+
+export interface FailedTurnQuota {
+  kind?: string;
+  resetsAt?: string;
+  instanceId?: string;
 }
 
 /** The activity row a failed turn is stored as. */
 export function failedTurnTool(
   cause: string,
-  flags: { setup?: boolean; terminal?: boolean; claudeUpdate?: boolean; place?: PlaceRow } = {},
+  flags: { setup?: boolean; terminal?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota } = {},
 ): FailedTurnTool {
   const words = cause.length > FAILED_TURN_MAX_CHARS ? `${cause.slice(0, FAILED_TURN_MAX_CHARS - 1)}…` : cause;
   return {
@@ -39,8 +46,15 @@ export function failedTurnTool(
     ...(flags.terminal ? { terminal: true } : {}),
     ...(flags.claudeUpdate ? { claudeUpdate: true } : {}),
     ...(flags.place ? { place: flags.place } : {}),
+    ...(flags.quota ? { quota: quotaOf(flags.quota) } : {}),
   };
 }
+
+const quotaOf = (quota: FailedTurnQuota): FailedTurnQuota => ({
+  ...(typeof quota.kind === "string" && quota.kind ? { kind: quota.kind } : {}),
+  ...(typeof quota.resetsAt === "string" && quota.resetsAt ? { resetsAt: quota.resetsAt } : {}),
+  ...(typeof quota.instanceId === "string" && quota.instanceId ? { instanceId: quota.instanceId } : {}),
+});
 
 /** The cause a failed-turn row carries, without its marker; null for any
  * other activity row. */

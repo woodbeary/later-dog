@@ -27,7 +27,7 @@ describe("resolveSurface", () => {
     const plan = resolveSurface({ destination: "browser", browserOn: false });
     expect(plan.computer).toBe("off");
     expect(plan.browser).toBe(false);
-    expect(plan.note).toMatch(/switched off in App Settings/);
+    expect(plan.note).toMatch(/switched off in Settings → Computer/);
     expect(plan.note).toMatch(/no browser and no computer/);
   });
 
@@ -97,7 +97,7 @@ describe("surfacePrompt", () => {
     expect(text).toMatch(/Web tasks → the built-in browser/);
     expect(text).toMatch(/Desktop apps, files and shell → the cloud computer tools/);
     expect(text).toMatch(/Pick one surface for a task and stay on it/);
-    expect(text).toMatch(/say which surface — the Browser tab or the cloud computer/);
+    expect(text).toMatch(/say which surface — the built-in browser or the cloud computer/);
   });
 
   it("names only the computer when it is the only surface", () => {
@@ -109,11 +109,12 @@ describe("surfacePrompt", () => {
     expect(surfacePrompt({ computer: "local", browser: false })).toMatch(/tell them it is on this computer/);
   });
 
-  it("names only the browser tab when it is the only surface", () => {
+  it("names only the built-in browser when it is the only surface", () => {
     const text = surfacePrompt({ computer: null, browser: true });
-    expect(text).toMatch(/happens in the built-in browser tab/);
+    expect(text).toMatch(/happens in the built-in browser;/);
     expect(text).toMatch(/no desktop, file or shell computer/);
-    expect(text).toMatch(/Browser tab of the Computer panel/);
+    expect(text).toMatch(/in the built-in browser, in the Computer panel/);
+    expect(text).not.toMatch(/Browser tab/);
     expect(text).toMatch(/say in one short sentence where you are working/);
     expect(text).not.toMatch(/happens on the cloud computer/);
   });
@@ -235,7 +236,7 @@ describe("computerToolsRefusal", () => {
   it("refuses a Tool selection without the computer with one action: the setting that changes it", () => {
     const refused = computerToolsRefusal({ deny: ["mcp:computer:*"] }, "works-on", "Scout")!;
     expect(refused).toMatchObject({ name: "PlaceUnavailableError", place: "cloud", row: { state: "cc-tools-off", params: { bot: "Scout" }, source: "works-on" } });
-    const line = "What Scout can use doesn't include a computer. Change what Scout can use in its settings.";
+    const line = "What Scout can use doesn't include a computer. Let Scout use the computer from the Computer panel.";
     expect(refused.message).toBe(line);
     // The same one action whatever chose the place: never a second one, and
     // never "Set Works on to Auto".
@@ -244,7 +245,7 @@ describe("computerToolsRefusal", () => {
     }
     // An Auto-recorded pin is cleared by the dispatch, and the line says so.
     expect(computerToolsRefusal({ allow: ["native:*"] }, "auto-pin", "Scout")?.message)
-      .toBe("What Scout can use doesn't include a computer. This conversation is back on Auto. Change what Scout can use in its settings.");
+      .toBe("What Scout can use doesn't include a computer. This conversation is back on Auto. Let Scout use the computer from the Computer panel.");
   });
 
   it("lets every selection that keeps a computer tool through", () => {

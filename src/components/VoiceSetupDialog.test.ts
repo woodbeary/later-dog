@@ -9,7 +9,6 @@ import type { Bot } from "@/state/store";
 const fixture = vi.hoisted(() => ({
   effects: [] as EffectCallback[],
   dispatch: vi.fn(),
-  selectedId: "pepper" as string | null,
   config: { tts: { configured: false, provider: "elevenlabs" } } as Record<string, unknown> | null,
   voiceSettings: [] as Array<{ bot: { id: string }; onPatch: (patch: Record<string, unknown>) => void }>,
 }));
@@ -23,7 +22,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   return {
     ...store,
     useStore: () => ({
-      state: { ...store.initialState, selectedId: fixture.selectedId, config: fixture.config },
+      state: { ...store.initialState, config: fixture.config },
       dispatch: fixture.dispatch,
     }),
   };
@@ -39,8 +38,6 @@ vi.mock("./Avatar", () => ({
 }));
 
 const { VoiceSetupDialog } = await import("./VoiceSetupDialog");
-const { VoiceSection } = await import("./bot-settings/VoiceSection");
-const { useBotSettingsDerived } = await import("./bot-settings/useBotSettingsDerived");
 
 const pepper: Bot = {
   id: "pepper", threadId: "t", name: "Pepper", title: "", description: "", color: "green",
@@ -93,7 +90,6 @@ function paneWith(fields: { voicePicker?: FakeElement; firstField?: FakeElement 
 beforeEach(() => {
   fixture.effects = [];
   fixture.voiceSettings = [];
-  fixture.selectedId = "pepper";
   fixture.config = { tts: { configured: false, provider: "elevenlabs" } };
   fixture.dispatch.mockClear();
   vi.stubGlobal("window", {});
@@ -112,39 +108,15 @@ describe("voice set-up pop-up", () => {
     expect(html).toContain("Choose an engine, add its key if it needs one, then pick a voice.");
     expect(html).toContain('data-voice-settings="pepper"');
     expect(html).toContain('aria-label="Close voice set-up"');
-    expect(html).toContain("All voice settings");
+    expect(html).not.toContain("All voice settings");
     expect(html).not.toContain("Voice is ready");
     expect(fixture.voiceSettings.at(-1)!.bot).toBe(pepper);
   });
 
-  it("saves through the same patch the bot settings' Voice section uses", () => {
+  it("saves the chosen voice on the bot itself", () => {
     render();
     fixture.voiceSettings.at(-1)!.onPatch({ voice: "voice-2" });
-    const fromPopUp = fixture.dispatch.mock.calls.at(-1)![0];
-    expect(fromPopUp).toEqual({ type: "updateBot", botId: "pepper", patch: { voice: "voice-2" } });
-
-    function Section() {
-      return VoiceSection({ bot: pepper, derived: useBotSettingsDerived(pepper) });
-    }
-    renderToStaticMarkup(createElement(Section));
-    fixture.voiceSettings.at(-1)!.onPatch({ voice: "voice-2" });
-    expect(fixture.dispatch.mock.calls.at(-1)![0]).toEqual(fromPopUp);
-  });
-
-  it("opens the bot's full settings at Voice from All voice settings, closing itself", () => {
-    const view = render();
-    click(byAttribute(view, "data-voice-setup-all-settings"));
-    expect(view.props.onClose).toHaveBeenCalledOnce();
-    expect(fixture.dispatch.mock.calls).toEqual([[{ type: "toggleSettings", open: true, section: "voice" }]]);
-  });
-
-  it("opens a room member's chat first, as the call help always did", () => {
-    fixture.selectedId = "room-1";
-    click(byAttribute(render(), "data-voice-setup-all-settings"));
-    expect(fixture.dispatch.mock.calls).toEqual([
-      [{ type: "select", id: "pepper" }],
-      [{ type: "toggleSettings", open: true, section: "voice" }],
-    ]);
+    expect(fixture.dispatch.mock.calls.at(-1)![0]).toEqual({ type: "updateBot", botId: "pepper", patch: { voice: "voice-2" } });
   });
 
   it("closes from the close button and from a click on the scrim, not from inside", () => {
@@ -232,6 +204,30 @@ describe("voice set-up pop-up", () => {
     expect(tag).toContain('aria-label="Pepper&#x27;s voice"');
     expect(needsVoice.indexOf(key)).toBeGreaterThan(-1);
     expect(needsVoice.indexOf(key)).toBeLessThan(needsVoice.indexOf(tag!));
+  });
+
+  it("takes the xAI key for Grok voice right in the card, on the computer running later.dog", async () => {
+    const actual = await vi.importActual<typeof import("./VoiceSettings")>("./VoiceSettings");
+    const card = (locked = false) =>
+      renderToStaticMarkup(createElement(actual.VoiceSettings, { bot: pepper, onPatch: () => {}, workspaceConfigurationLocked: locked }));
+    const keyBox = 'data-api-key-row="xai"';
+
+    fixture.config = { tts: { configured: false, provider: "xai" } };
+    const needsKey = card();
+    expect(needsKey).toContain("Paste an xAI API key below to use Grok voice.");
+    expect(needsKey).toContain(keyBox);
+    expect(needsKey).not.toContain("Settings →");
+
+    expect(card(true)).toContain("Add an xAI API key on the computer running later.dog");
+    expect(card(true)).not.toContain(keyBox);
+    vi.stubGlobal("window", { laterdog: { remoteClient: { active: true } } });
+    expect(card()).not.toContain(keyBox);
+    vi.stubGlobal("window", {});
+
+    fixture.config = { tts: { configured: true, provider: "xai" } };
+    const ready = card();
+    expect(ready).toContain("The xAI key is saved.");
+    expect(ready).not.toContain(keyBox);
   });
 
   it("keeps Tab inside, and brings focus back when it has fallen out", () => {

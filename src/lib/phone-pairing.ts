@@ -1,34 +1,9 @@
-// "Connect your phone": one entry in the account menu that opens the phone
-// pairing this window can actually do. A Cloud customer once found only this
-// computer's pairing and could not see how to reach their Cloud from the
-// phone, so the entry names where the phone will connect.
-//
-// - this computer (the desktop app on its own computer): the phone flow in
-//   Settings → Remote access, which pairs with this computer's companion;
-// - the person's own later.dog Cloud (open in this window, or a browser): that
-//   Cloud's own Remote access pairing code;
-// - any other server: its pairing code, only for a session that may make one.
-//
-// On this computer, someone with a paid Cloud that is Ready is offered both:
-// their Cloud first (always on), then this computer.
 import type { CloudAccountState } from "../../electron/cloud-account.mjs";
 import type { LocaleKey } from "@/locales";
 import { cloudPlanView } from "./cloud-plan";
-import type { Action } from "@/state/store";
-import { readMembership } from "./membership";
 import { isOwnerOrAdmin, readSessionState, type SessionState } from "./session";
 
 export type PhonePairingTarget = "computer" | "cloud" | "server";
-
-/** Settings → Remote access, on the phone pairing this window can do (this
- * computer's phone flow, or the server's pairing code), with focus on the
- * button that shows the code. */
-export const phonePairingSettingsAction = (): Extract<Action, { type: "toggleAppSettings" }> => ({
-  type: "toggleAppSettings",
-  open: true,
-  section: "companion",
-  phonePairing: true,
-});
 
 /** This window's target, from the bridges it has and the server it shows.
  * The desktop's phone bridge is only on the local app's own page, never a
@@ -48,11 +23,13 @@ export function phonePairingTarget(input: { companion: boolean; remoteClient: bo
   return input.companion && !input.remoteClient ? "computer" : "server";
 }
 
-/** What Settings → Remote access would let this session do. */
+export function pairingCodesOn(config: unknown): boolean {
+  const membership = config && typeof config === "object" ? (config as { membership?: unknown }).membership : undefined;
+  return !(membership && typeof membership === "object" && (membership as { pairingCodes?: unknown }).pairingCodes === false);
+}
+
 export interface PhonePairingAccess {
   session: SessionState | null;
-  /** False where the server refuses pairing codes: a hosted installation
-   * whose people sign in through the organization's Admin. */
   pairingCodes: boolean;
 }
 
@@ -89,9 +66,6 @@ export function cloudPhoneDestination(account: CloudAccountState | null | undefi
   return account?.status === "connected" && account.machine?.status === "ready" ? "ready" : "not-ready";
 }
 
-/** One "Connect your phone" line. `id` "cloud": open the person's Cloud in
- * this window on its phone pairing (the Settings card's Use your Cloud on
- * your phone); "here": this window's own pairing. */
 export interface PhoneDestination extends ConnectPhoneEntry {
   id: "cloud" | "here";
   /** a quiet third line: why the Cloud is not offered yet */
@@ -111,16 +85,13 @@ export function phoneDestinations(entry: ConnectPhoneEntry | null, cloud: CloudP
 
 let pending: Promise<PhonePairingAccess> | null = null;
 
-/** Asked once per page load, as Settings → Remote access asks it: a config
- * that cannot be read means what an older server's means (codes on), and the
- * card itself says so if the server refuses. */
 export function loadPhonePairingAccess(fetchImpl: typeof fetch = fetch): Promise<PhonePairingAccess> {
   pending ??= readSessionState(fetchImpl).then(async (session): Promise<PhonePairingAccess> => {
     if (!isOwnerOrAdmin(session)) return { session, pairingCodes: false };
     const config: unknown = await fetchImpl("/api/config", { credentials: "same-origin" })
       .then((res) => (res.ok ? res.json() : null))
       .catch(() => null);
-    return { session, pairingCodes: readMembership(config).pairingCodes };
+    return { session, pairingCodes: pairingCodesOn(config) };
   });
   return pending;
 }
@@ -130,37 +101,6 @@ export function resetPhonePairingAccess(): void {
   pending = null;
 }
 
-/** The button that makes a code (Create pairing code, Pair your phone)
- * carries `data-phone-pairing-action`; focus lands there, never on a Sign
- * out beside it. */
-const PHONE_PAIRING_ACTION = "data-phone-pairing-action";
-
-interface PairingRoot {
-  scrollIntoView?: (options: ScrollIntoViewOptions) => void;
-  querySelector: (selector: string) => { focus: (options?: FocusOptions) => void } | null;
-  focus: (options?: FocusOptions) => void;
-}
-
-/** Bring a pairing card into view and put focus on the action that shows
- * the code, so the QR is one click (or Enter) away; the card itself when
- * there is none to press yet. Deferred a frame: Settings settles its own
- * scroll position after its sections' effects run. */
-export function revealPhonePairing(
-  root: PairingRoot | null,
-  schedule: (callback: () => void) => unknown = (callback) => window.requestAnimationFrame(callback),
-): boolean {
-  if (!root) return false;
-  schedule(() => {
-    root.scrollIntoView?.({ block: "start" });
-    (root.querySelector(`[${PHONE_PAIRING_ACTION}]:not([disabled])`) ?? root).focus({ preventScroll: true });
-  });
-  return true;
-}
-
-/** `?desktop-settings=phone`: open Settings on the phone pairing. Main adds
- * it when "Use your Cloud on your phone" opens the Cloud in this window; it
- * asks only for a page to be shown and never makes a code by itself. Returns
- * the address without it, or null when it is not there. */
 export function takePhonePairingRequest(href: string): string | null {
   const url = new URL(href);
   if (url.searchParams.get("desktop-settings") !== "phone") return null;

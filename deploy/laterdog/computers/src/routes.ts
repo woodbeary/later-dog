@@ -3,6 +3,7 @@
 import { isComputerId } from "./ids";
 
 export type CollectionOp = "list" | "create";
+export type TrialOp = "status" | "end";
 export type ComputerOp = "get" | "rename" | "delete" | "wake" | "sleep" | "exec" | "readFile" | "writeFile" | "screenshot" | "desktop";
 
 /** What a signed desktop link may reach: the viewer page, its status probe, the VNC WebSocket and noVNC's own modules. */
@@ -14,10 +15,14 @@ export type Route =
   | { kind: "computer"; op: ComputerOp; id: string }
   | { kind: "desktop"; id: string; token: string; resource: DesktopResource }
   | { kind: "redirect"; location: string }
+  | { kind: "trial_page" }
+  | { kind: "trial"; op: TrialOp }
+  | { kind: "trial_offer" }
   | { kind: "not_found"; api: boolean }
   | { kind: "method_not_allowed"; allow: string[] };
 
 const COLLECTION: Record<string, CollectionOp> = { GET: "list", POST: "create" };
+const TRIAL: Record<string, TrialOp> = { GET: "status", DELETE: "end" };
 
 const ACTIONS: Record<string, Record<string, ComputerOp>> = {
   "": { GET: "get", PATCH: "rename", DELETE: "delete" },
@@ -41,6 +46,12 @@ function allow(table: Record<string, string>, method: string): string | undefine
 
 export function route(method: string, pathname: string): Route {
   if (pathname === "/healthz") return method === "GET" ? { kind: "health" } : { kind: "method_not_allowed", allow: ["GET"] };
+  if (pathname === "/trial") return method === "GET" || method === "POST" ? { kind: "trial_page" } : { kind: "method_not_allowed", allow: ["GET", "POST"] };
+  if (pathname === "/v1/trials") return method === "GET" ? { kind: "trial_offer" } : { kind: "method_not_allowed", allow: ["GET"] };
+  if (pathname === "/v1/trial") {
+    const op = allow(TRIAL, method) as TrialOp | undefined;
+    return op ? { kind: "trial", op } : { kind: "method_not_allowed", allow: Object.keys(TRIAL) };
+  }
 
   const api = API_PATH.exec(pathname);
   if (api) {

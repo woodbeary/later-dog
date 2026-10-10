@@ -1450,21 +1450,6 @@ describe("harness HTTP API", () => {
       expect(afterSubsequentQuestion.answered).toBeUndefined();
       expect(afterSubsequentQuestion.dismissed).toBeUndefined();
 
-      const refusedDismiss = await isolatedApi("POST", `/api/bots/${bot.id}/respond`, {
-        requestId,
-        behavior: "answer",
-        dismiss: true,
-      });
-      expect(refusedDismiss).toMatchObject({
-        status: 409,
-        body: { error: "answer this question before dismissing it" },
-      });
-      const afterRefusedDismiss = (await isolatedApi("GET", `/api/threads/${bot.threadId}/messages`)).body.messages
-        .find((message: { id: string }) => message.id === cardId)?.card;
-      expect(afterRefusedDismiss).toMatchObject({ requestType: "question", requestId });
-      expect(afterRefusedDismiss.answered).toBeUndefined();
-      expect(afterRefusedDismiss.dismissed).toBeUndefined();
-
       const completionsBeforeAnswer = (await isolatedApi("GET", `/api/threads/${bot.threadId}/messages`)).body.messages
         .filter((message: { role?: string; kind?: string; text?: string }) =>
           message.role === "bot" && message.kind === "text" && message.text === "fixture turn completed").length;
@@ -5335,7 +5320,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("refuses paired model changes while the bot is working", async () => {
+  it("takes a paired model change while the bot is working and keeps the running turn on its engine", async () => {
     const instances = (await api("GET", "/api/instances")).body.instances;
     const claude = instances.find((instance: { instanceId: string }) => instance.instanceId === "claude");
     const selection = { instanceId: claude.instanceId, model: claude.models.default };
@@ -5352,16 +5337,16 @@ describe("harness HTTP API", () => {
         return current?.busy;
       }).toBe(true);
 
-      const blocked = await api("PATCH", `/api/bots/${bot.id}/model`, {
+      const changed = await api("PATCH", `/api/bots/${bot.id}/model`, {
         ...selection,
         effort: "high",
       });
-      expect(blocked.status).toBe(409);
-      expect(blocked.body.error).toMatch(/working.*stop it before changing models/i);
-      const unchanged = (await api("GET", "/api/bots?messages=0")).body.bots.find(
+      expect(changed.status).toBe(200);
+      const after = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
       );
-      expect(unchanged.modelSelection).toEqual(selection);
+      expect(after.modelSelection).toEqual({ ...selection, effort: "high" });
+      expect(after.busy).toBe(true);
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`, {});
       await expect.poll(async () => {
@@ -7372,21 +7357,6 @@ describe("harness HTTP API", () => {
     expect(question).toMatchObject({ requestType: "question", requestId: "cancel-question-request" });
     expect(question.answered).toBeUndefined();
     expect(question.dismissed).toBeUndefined();
-
-    const dismissed = await api("POST", "/api/threads/test-cancel-room-thread/respond", {
-      requestId: "cancel-question-request",
-      behavior: "answer",
-      message: "The user closed this question without answering. Use your best judgment and continue.",
-      dismiss: true,
-    });
-    expect(dismissed.status).toBe(409);
-
-    const reread = (await api("GET", "/api/bots")).body.groups.find(
-      (group: { id: string }) => group.id === "test-cancel-room",
-    );
-    const stillOpen = reread.messages.find((message: { id: string }) => message.id === "cancel-question-card").card;
-    expect(stillOpen.answered).toBeUndefined();
-    expect(stillOpen.dismissed).toBeUndefined();
 
     try {
       const answered = await api("POST", "/api/threads/test-cancel-room-thread/respond", {
@@ -10001,7 +9971,7 @@ describe("harness HTTP API", () => {
       expect(unavailableCloud.status).toBe(409);
       expect(await unavailableCloud.json()).toMatchObject({
         // The same words a failed cloud turn's row uses (shared/place-view.ts).
-        error: expect.stringMatching(/^A cloud computer here needs your own Boat key, a paid service\. Add a Boat key in Settings → API keys\./),
+        error: expect.stringMatching(/^A cloud computer here needs your own Boat key, a paid service\. Add a Boat key in Settings → Computer\./),
       });
 
       const proposed = await fetch(`${BASE}/api/internal/routine-requests`, {

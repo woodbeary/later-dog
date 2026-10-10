@@ -12,11 +12,13 @@ export interface TranscriptSnapshot {
   reply?: { id: string; name: string; text: string };
   /** The first open approval, if any. */
   approval?: { id: string; name: string };
+  question?: { id: string; name: string };
 }
 
 export interface AnnouncerMemory {
   replyId?: string;
   approvalId?: string;
+  questionId?: string;
   /** A turn has run since the last reply was announced. History loading
    * into an idle thread never sets it, so old replies are never read out. */
   sawBusy: boolean;
@@ -24,17 +26,30 @@ export interface AnnouncerMemory {
 
 /** What is already on screen when a thread opens: nothing to announce. */
 export function announcerBaseline(snapshot: TranscriptSnapshot): AnnouncerMemory {
-  return { replyId: snapshot.reply?.id, approvalId: snapshot.approval?.id, sawBusy: snapshot.busy };
+  return {
+    replyId: snapshot.reply?.id,
+    approvalId: snapshot.approval?.id,
+    questionId: snapshot.question?.id,
+    sawBusy: snapshot.busy,
+  };
 }
 
 export function nextAnnouncement(
   snapshot: TranscriptSnapshot,
   memory: AnnouncerMemory,
 ): { memory: AnnouncerMemory; text?: string } {
-  const next: AnnouncerMemory = { ...memory, approvalId: snapshot.approval?.id, sawBusy: memory.sawBusy || snapshot.busy };
+  const next: AnnouncerMemory = {
+    ...memory,
+    approvalId: snapshot.approval?.id,
+    questionId: snapshot.question?.id,
+    sawBusy: memory.sawBusy || snapshot.busy,
+  };
   const said: string[] = [];
   if (snapshot.approval && snapshot.approval.id !== memory.approvalId) {
     said.push(t("chat.announce.approval", { name: snapshot.approval.name }));
+  }
+  if (snapshot.question && snapshot.question.id !== memory.questionId) {
+    said.push(t("question.card.named", { name: snapshot.question.name }));
   }
   // Only once the turn is over: a reply between tool calls is not the answer.
   if (!snapshot.busy && next.sawBusy) {

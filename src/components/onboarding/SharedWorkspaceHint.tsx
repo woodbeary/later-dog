@@ -30,7 +30,6 @@ export function SharedWorkspaceHint({
   replay,
   onClose,
 }: {
-  /** Settings → Replay welcome tour: show it again even if dismissed. */
   replay: boolean;
   onClose: () => void;
 }) {

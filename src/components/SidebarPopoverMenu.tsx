@@ -6,7 +6,7 @@
 // More opens on hover. The profile menu opens on click only, because a menu
 // that appears under the cursor when you are aiming at nothing in particular
 // is startling on a row you pass over constantly.
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
@@ -53,6 +53,7 @@ export function SidebarPopoverMenu({
   openOnHover = false,
   placement = "above",
   renderTrigger,
+  onOpenChange,
 }: {
   /** "above" stretches over the trigger's width and opens upward (the
    * sidebar's profile menu); "below" hangs a fixed-width sheet under the
@@ -62,10 +63,16 @@ export function SidebarPopoverMenu({
   ariaLabel: string;
   openOnHover?: boolean;
   renderTrigger: (state: { open: boolean }) => React.ReactNode;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const openChange = useRef(onOpenChange);
+  openChange.current = onOpenChange;
+  const itemKeys = items.map((item) => item.key).join("\n");
+  const shownKeys = useRef(itemKeys);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const menuId = useId();
@@ -96,6 +103,16 @@ export function SidebarPopoverMenu({
   };
 
   usePopoverDismiss(open, rootRef, close);
+
+  useLayoutEffect(() => openChange.current?.(open), [open]);
+  useEffect(() => {
+    const changed = shownKeys.current !== itemKeys;
+    shownKeys.current = itemKeys;
+    if (!changed || !open) return;
+    const focused = document.activeElement;
+    if (focused && focused !== document.body) return;
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+  }, [itemKeys, open]);
 
   return (
     <div
@@ -131,6 +148,7 @@ export function SidebarPopoverMenu({
 
       {motion.shown && (
         <div
+          ref={menuRef}
           id={menuId}
           role="menu"
           aria-label={ariaLabel}

@@ -82,10 +82,7 @@ switching and Stop can be exercised without a real provider or account.
     returns. Timed snoozes also return when due without a new server snapshot.
     Pinned, selected, unread, queued, and working threads remain reachable.
     Snooze is a display preference, not a pause or cancellation of work.
-16. Open **Active Threads** while a channel is working. Its entry should name
-    the channel and open that channel's exact thread, not a member's direct
-    chat. Direct-chat and channel activity can appear together.
-17. In compact/quiet rows, idle message previews disappear but working,
+16. In compact/quiet rows, idle message previews disappear but working,
     approval, teammate-wait, and queued status remain. One-thread bots and
     channels have no duplicate child row until search makes it useful;
     **New thread** stays on the owner row and **All threads** in the header.
@@ -131,7 +128,7 @@ This renderer fixture does not test a native mobile device or real computer use.
 ## Permanent regression checks
 
 ```sh
-pnpm exec vitest run server/independent-threads-api.test.ts server/paired-thread-targets-api.test.ts server/direct-screen-settlement-api.test.ts server/bot-projects-api.test.ts server/thread-capacity-api.test.ts src/components/BotThreads.test.ts src/components/BotProjects.test.ts src/components/ThreadConcurrencySettings.test.ts src/components/ComposerQueuedMessages.test.ts src/lib/folder-order.test.ts src/state/store.test.ts
+pnpm exec vitest run server/independent-threads-api.test.ts server/paired-thread-targets-api.test.ts server/direct-screen-settlement-api.test.ts server/bot-projects-api.test.ts server/thread-capacity-api.test.ts src/components/BotThreads.test.ts src/components/BotProjects.test.ts src/components/ComposerQueuedMessages.test.ts src/lib/folder-order.test.ts src/state/store.test.ts
 ```
 
 These cover thread-pinned tools and permissions, stale legacy phone requests,

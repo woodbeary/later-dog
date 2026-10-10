@@ -60,7 +60,6 @@ const __APP_VERSION__: string;
       session?: "x11" | "wayland" | "headless" | "unknown";
       compositor?: "gnome-mutter";
     };
-    /** Whether saved sign-ins unlocked at launch (electron/secure-credentials.mjs); only this computer's own page is told. */
     credentialStore?: "ok" | "unavailable";
   };
 
@@ -112,18 +111,24 @@ const __APP_VERSION__: string;
     serverName?: string;
     deviceId?: string;
   }
+  interface DesktopProfile {
+    id: string;
+    name: string;
+    main: boolean;
+    status: "starting" | "running" | "failed" | "stopped";
+  }
+  interface DesktopProfileList {
+    activeId: string;
+    canAdd: boolean;
+    profiles: DesktopProfile[];
+  }
 
   interface Window {
     laterdog?: {
       platform: NodeJS.Platform;
       organization?: import("../../electron/managed-desktop.mjs").ManagedDesktopBridge;
       cloudAccount?: import("../../electron/cloud-account.mjs").CloudAccountBridge;
-      /** Copy this computer here: this computer's page names a saved server (or
-       * "cloud"); a server's own page is answered about itself only, and its
-       * Copy opens this computer's Settings on that copy (the verified Cloud's starts it). */
       cloudMove?: import("../../electron/cloud-move.mjs").CloudMoveBridge;
-      /** The Cloud's setup checklist: shows the lending switch in this app's
-       * own Settings → later.dog Cloud (leaving the Cloud's page). */
       cloudLending?: { open(): Promise<void> };
       /** Settings on the person's own Cloud: the plan, read only. */
       cloudPlan?: import("../../electron/cloud-account.mjs").CloudPlanBridge;
@@ -141,6 +146,14 @@ const __APP_VERSION__: string;
       workspaces?: {
         state: () => Promise<{ local: boolean; name: string; origin?: string }>;
         menu: () => Promise<void>;
+      };
+      profiles?: {
+        list(): Promise<DesktopProfileList>;
+        add(name: string): Promise<DesktopProfileList & { added: { id: string; ready: boolean } }>;
+        switch(id: string): Promise<DesktopProfileList>;
+        rename(id: string, name: string): Promise<DesktopProfileList>;
+        remove(id: string): Promise<DesktopProfileList>;
+        onChanged(callback: (state: DesktopProfileList) => void): () => void;
       };
       /** Saved servers and the active one (desktop Server menu). Present on
        * the local server's UI; a remote server's page sees a reduced bridge. */
@@ -265,10 +278,6 @@ const __APP_VERSION__: string;
       };
       /** Receives a GitHub package URL opened through laterdog://install. */
       onPackageInstall?(cb: (url: string) => void): () => void;
-      /** The desktop shell's app-menu Preferences… item was activated; open
-       * app Settings. Local-shell only: remote server pages never receive
-       * the channel, and the bridge is absent in the browser. "cloud" is the
-       * laterdog://cloud link (Settings → later.dog Cloud, opened by the link). */
       onOpenAppSettings?(cb: (section?: "organization" | "cloud" | "cloud-settings") => void): () => void;
       /** Updates the native Dock/taskbar unread indicator. */
       setUnreadCount?(count: number): void;
@@ -327,9 +336,6 @@ const __APP_VERSION__: string;
         install(): Promise<void>;
         onState(cb: (s: UpdaterState) => void): () => void;
       };
-      /** Settings → General → Check for new versions, where the updater
-       * state carries `releaseCheck`. Resolves whether checking is now on.
-       * This computer's page only; absent on server pages and older builds. */
       releaseCheck?: {
         setEnabled(enabled: boolean): Promise<boolean>;
       };
@@ -363,6 +369,7 @@ export interface UpdaterState {
     | "handed-off"
     | "error";
   version?: string;
+  notes?: string;
   percent?: number;
   message?: string;
   /** native work may still be running; recovery requires an app restart */
@@ -378,14 +385,12 @@ export interface UpdaterState {
   /** hand-off only: whether a terminal was opened to paste it into */
   terminalOpened?: boolean;
   /**
-   * A build with no update feed cannot install updates itself (later.dog's
-   * releases are unsigned), so it asks GitHub for the latest release
-   * instead: a newer one's version and the page to download it from.
+   * A build with no update feed cannot install updates itself, so it asks
+   * GitHub for the latest release instead: a newer one's version and the
+   * page to download it from.
    * Offered while `status` is "idle".
    */
   available?: { version: string; url: string };
-  /** Whether that GitHub check is on (Settings → General → Check for new
-   * versions). Absent where an update feed is configured, and in dev. */
   releaseCheck?: "on" | "off";
 }
 

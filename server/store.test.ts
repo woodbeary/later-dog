@@ -743,6 +743,36 @@ describe("Store", () => {
     expect(new Store(selection).messagesFor(bot.threadId).find((message) => message.id === final.id)?.turnTerminal).toBe(true);
   });
 
+  it("keeps the turn's written answer terminal when an image lands after it", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({}, { seedMessages: false });
+    const answer = store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "Here is the page.", turnId: "turn-img" });
+    const shot = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "text",
+      text: "",
+      turnId: "turn-img",
+      attachments: [{ kind: "image", path: "/attachments/shot.png", mime: "image/png" }],
+    });
+
+    expect(store.markTerminalAssistantMessage(bot.threadId, "turn-img")?.id).toBe(answer.id);
+    expect(store.messagesFor(bot.threadId).find((message) => message.id === shot.id)?.turnTerminal).toBeUndefined();
+  });
+
+  it("makes an image the terminal answer of a turn that wrote nothing", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({}, { seedMessages: false });
+    const shot = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "text",
+      text: "",
+      turnId: "turn-only-image",
+      attachments: [{ kind: "image", path: "/attachments/shot.png", mime: "image/png" }],
+    });
+
+    expect(store.markTerminalAssistantMessage(bot.threadId, "turn-only-image")?.id).toBe(shot.id);
+  });
+
   it("createBot with seedMessages:false starts with an empty transcript", () => {
     const store = new Store(selection);
     const bot = store.createBot({ name: "Imported" }, { seedMessages: false });

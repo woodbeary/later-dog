@@ -52,7 +52,7 @@ function main() {
   const context = vm.createContext({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: (channel, handler) => handlers.set(channel, handler) },
     localOnly: localOrigin.localOnly, workspaceSenderAllowed: environments.workspaceSenderAllowed,
-    mainWindow: { webContents: contents }, rendererOrigin: () => ORIGIN, environmentsState: { environments: [], activeId: "local" },
+    mainWindow: { webContents: contents }, rendererOrigin: () => ORIGIN, localPageOrigin: () => ORIGIN, environmentsState: { environments: [], activeId: "local" },
     ensureManagedDesktop: () => client, organizationEntry: {},
   });
   vm.runInContext(registrations, context, { filename: "main.mjs (organization IPC fixture)" });

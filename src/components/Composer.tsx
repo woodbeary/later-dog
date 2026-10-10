@@ -6,11 +6,11 @@ import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
-import { useAdvancedMode } from "@/lib/interface-mode";
 import {
   draftRevision,
   appendDraftAttachments,
   changeDraftAttachmentPending,
+  draftAttachments,
   forgetFailedComposerSend,
   markDraftEdited,
   prependComposerDraft,
@@ -30,11 +30,12 @@ import { MentionTextarea } from "./MentionTextarea";
 import { ComposerAttachments, pathForFile } from "./ComposerAttachments";
 import { splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
-import { PlaceChip } from "./PlaceChip";
 import { FullAccessWarning } from "./FullAccessWarning";
 import { ApprovalModeSelector } from "./ApprovalModeSelector";
 import { CommandAllowlistDialog } from "./CommandAllowlistDialog";
 import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode";
+import { waitsForTurn, type SendDelivery } from "../../shared/send-delivery";
+import { SendChoiceMenu } from "./SendChoiceMenu";
 import {
   appendPastedText,
   handoffAttachmentImagePreview,
@@ -46,6 +47,7 @@ import {
   imageAttachmentFromFile,
   replyTargetTakesFocus,
   intakeFiles,
+  isImageFile,
   isLongPaste,
   optimisticImageAttachment,
   pasteAttachment,
@@ -53,6 +55,8 @@ import {
   type Attachment,
   type PasteAttachment,
 } from "@/lib/composer-attachments";
+import { admitPictures, joinNotices, PICTURES_PER_MESSAGE } from "@/lib/picture-limit";
+import { useTextWrapped } from "@/lib/composer-expand";
 import { normalizeState } from "@/lib/mascot";
 import { goalCoordinatorForComposer, groupComposerHint, jevRoomRoutingOn, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
@@ -123,9 +127,6 @@ export function Composer({
   const ownerOrAdmin = useOwnerOrAdmin();
   const { threads, currentBotId } = useThreadRefs();
   const { capabilities } = useDesktopCapabilities();
-  // Simple leaves where a conversation works to its bot's Works on (Auto by
-  // default); pinning a place per conversation is an Advanced control.
-  const advanced = useAdvancedMode();
   const remoteClient = window.laterdog?.remoteClient?.active === true;
   // Unified target: a 1:1 bot thread or a room. In a room the @ picker
   // offers members plus @everyone; explicit mentions override the room's
@@ -138,12 +139,11 @@ export function Composer({
   const steerInstanceId = group
     ? members?.find((member) => member.id === group.busyBotId)?.modelSelection.instanceId
     : bot?.modelSelection.instanceId;
-  const canSteer =
-    state.instances.find((i) => i.instanceId === steerInstanceId)?.capabilities?.queueing === true;
+  const steerCapabilities = state.instances.find((i) => i.instanceId === steerInstanceId)?.capabilities;
+  const canSteer = steerCapabilities?.queueing === true;
   // a pending approval blocks the prompt until it is answered
   const threadId = group?.threadId ?? bot?.threadId ?? "";
   // The conversation's own place, when pinned; the chip reads it next to the bot default.
-  const composerTask = profile?.tasks?.find((task) => task.threadId === threadId);
   // the VISIBLE branch only — an approval left on a branch you edited away
   // from must not keep blocking the composer
   const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
@@ -230,6 +230,7 @@ export function Composer({
   const [dismissedAt, setDismissedAt] = useState<number | null>(null); // Esc'd this @
   const [dismissedSlashAt, setDismissedSlashAt] = useState<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const textWrapped = useTextWrapped(inputRef, text);
   const draftIdRef = useRef(draftId);
   draftIdRef.current = draftId;
   // the latest caret, readable from callbacks without re-creating them
@@ -424,11 +425,15 @@ export function Composer({
     else if (bot) dispatch({ type: "interrupt", botId: bot.id, threadId });
   };
   const queueHeadId = queuedMessages[0]?.queueId;
+  const steerLive =
+    canSteer &&
+    (steerCapabilities?.steerImages === true ||
+      !(group ? queuedMessages.slice(0, 1) : queuedMessages).some((item) => item.text.includes("<attached-image")));
   const steerQueued = () => {
     if (!queueHeadId) return;
     setSteering(true);
     const settle = () => setSteering(false);
-    if (group && canSteer) {
+    if (group && steerLive) {
       // A steer-capable room folds the queued head into the running turn
       // through the server; it never interrupts the turn to do it.
       dispatch({ type: "steerGroupQueued", groupId: group.id, threadId, queueId: queueHeadId, onError: settle, onSettled: settle });
@@ -436,7 +441,7 @@ export function Composer({
       // A room whose running engine cannot steer keeps the old behavior:
       // Steer ends the running turn so the next queued message starts.
       dispatch({ type: "interruptGroup", groupId: group.id, threadId, onError: settle });
-    } else if (bot && canSteer) {
+    } else if (bot && steerLive) {
       // A steer-capable engine folds the queued words into the running turn
       // through the server; it never interrupts the turn to do it.
       dispatch({ type: "steerQueued", botId: bot.id, threadId, queueId: queueHeadId, onError: settle, onSettled: settle });
@@ -538,17 +543,27 @@ export function Composer({
       throw error;
     }
   }, [draftId]);
+  const admitFiles = useCallback((files: File[]) => {
+    const { admitted, refused } = admitPictures(
+      files,
+      (file) => engineSupportsImages && isImageFile(file),
+      draftAttachments(draftId),
+    );
+    return { files: admitted, notice: refused ? t("composer.picturesLimit", { max: PICTURES_PER_MESSAGE }) : null };
+  }, [draftId, engineSupportsImages]);
   const pickFiles = async (picked: FileList | null) => {
     if (!picked?.length) return;
+    const admitted = admitFiles(Array.from(picked));
     changeDraftAttachmentPending(draftId, true);
     try {
-      const { attachments: added, notice } = await intakeFiles(Array.from(picked), {
+      const { attachments: added, notice } = await intakeFiles(admitted.files, {
         allowImages: engineSupportsImages,
         getPath: pathForFile,
         uploadImage,
       });
       if (added.length) addAttachments(added);
-      if (notice) setAttachmentNotice(notice);
+      const shown = joinNotices(admitted.notice, notice);
+      if (shown) setAttachmentNotice(shown);
     } finally {
       changeDraftAttachmentPending(draftId, false);
     }
@@ -572,6 +587,7 @@ export function Composer({
   };
 
   const hasContent = Boolean(effectiveText.trim()) || attachments.length > 0;
+  const expanded = textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
   const retryFailedSend = (failed: FailedComposerSend) => {
     const failedMode = failed.channelMode ?? "chat";
     if (failed.requestText.includes("<attached-image ") && !imageTargetsSupport(failed.requestText, failedMode)) {
@@ -601,7 +617,7 @@ export function Composer({
       dispatch({ type: "send", botId: bot.id, ...retry });
     }
   };
-  const send = () => {
+  const send = (delivery?: SendDelivery) => {
     if (locked || attachmentPending) return;
     if (
       attachments.some((attachment) => attachment.kind === "image") &&
@@ -647,12 +663,14 @@ export function Composer({
         sendId: sentDraft.sendId,
         replyToId: replyTo?.id,
         threadId,
+        deliver: delivery,
         onError: () => restoreDraft(sentDraft),
       });
-      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && !canSteer });
+      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && (delivery ? waitsForTurn(delivery) : !canSteer), delivery });
     }
     setText("");
     setAttachments([]);
+    setAttachmentNotice(null);
     onConsumeReply?.();
     if (group) setChannelMode("chat");
   };
@@ -683,10 +701,13 @@ export function Composer({
         return;
       }
       if (imageFiles.length > 0) {
+        const admitted = admitFiles(imageFiles);
+        if (admitted.notice) setAttachmentNotice(admitted.notice);
+        if (!admitted.files.length) return;
         changeDraftAttachmentPending(draftId, true);
         void (async () => {
           try {
-            const results = await Promise.allSettled(imageFiles.map(uploadImage));
+            const results = await Promise.allSettled(admitted.files.map(uploadImage));
             for (const result of results) {
               if (result.status === "rejected") {
                 dispatch({
@@ -922,31 +943,10 @@ export function Composer({
             />
           </div>
         )}
-        {replyTo && (
-          <div className="mb-2 px-1">
-            <ReplyQuote
-              message={replyTo}
-              fallbackName={bot?.name}
-              onClear={onClearReply}
-            />
-          </div>
-        )}
-        <ComposerAttachments
-          items={attachments}
-          onAdd={addAttachments}
-          onRemove={removeAttachment}
-          onChangeCitation={(citation: CitationAttachment) => editAttachments((current) => current.map((attachment) => attachment.id === citation.id ? citation : attachment))}
-          onDisplayInChatBox={displayPasteInChatBox}
-          allowImages={engineSupportsImages}
-          notice={attachmentNotice}
-          onNotice={setAttachmentNotice}
-          onPendingChange={(pending) => changeDraftAttachmentPending(draftId, pending)}
-          uploadImage={uploadImage}
-        />
         <QueuedComposerMessages
           items={queuedMessages}
           onSteer={canSteerQueued ? steerQueued : undefined}
-          steerInterrupts={!canSteer}
+          steerInterrupts={!steerLive}
           steerMode={group ? "next" : "all"}
           steering={steering}
           onCancel={(queueId) => {
@@ -966,15 +966,37 @@ export function Composer({
             data-composer-backdrop
             className="pointer-events-none absolute -left-5 -right-5 -bottom-3 top-1/2 bg-app"
           />
-        {/* One row while it fits: chips, editor, mic. The editor is the only
-            child that can shrink, so in a narrow column (a bot's settings open
-            beside the chat, a small window) it collapsed to a few pixels and
-            its placeholder stacked one letter per line, while the auto-grow
-            made the box tall to fit them. Below the container width where the
-            chips and the placeholder cannot share a line, the editor takes a
-            full line of its own above the chips instead. */}
-        <div data-tour="composer" className="@container/composer relative z-[1] rounded-3xl bg-composer px-2 py-1.5 ring-1 ring-composer-ring">
-        <div data-composer-row className="flex items-end gap-1 @max-[30rem]/composer:flex-wrap">
+        <div
+          data-tour="composer"
+          data-expanded={expanded || undefined}
+          className={cn(
+            "@container/composer relative z-[1] bg-composer px-2 py-1.5 ring-1 ring-composer-ring transition-[border-radius] duration-200",
+            expanded ? "rounded-[20px]" : "rounded-3xl",
+          )}
+        >
+        {replyTo && (
+          <div className="px-1 pb-1.5 pt-0.5">
+            <ReplyQuote
+              message={replyTo}
+              fallbackName={bot?.name}
+              onClear={onClearReply}
+            />
+          </div>
+        )}
+        <ComposerAttachments
+          items={attachments}
+          onAdd={addAttachments}
+          onRemove={removeAttachment}
+          onChangeCitation={(citation: CitationAttachment) => editAttachments((current) => current.map((attachment) => attachment.id === citation.id ? citation : attachment))}
+          onDisplayInChatBox={displayPasteInChatBox}
+          allowImages={engineSupportsImages}
+          notice={attachmentNotice}
+          onNotice={setAttachmentNotice}
+          onPendingChange={(pending) => changeDraftAttachmentPending(draftId, pending)}
+          uploadImage={uploadImage}
+          admitFiles={admitFiles}
+        />
+        <div data-composer-row className={cn("flex items-end gap-1 @max-[30rem]/composer:flex-wrap", expanded && "flex-wrap")}>
           <input
             ref={fileInput}
             type="file"
@@ -987,7 +1009,7 @@ export function Composer({
             }}
           />
           {!locked && (
-            <div className="flex flex-wrap items-center gap-1">
+            <div data-composer-tools className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => fileInput.current?.click()}
@@ -1029,31 +1051,10 @@ export function Composer({
                   {effectiveChannelMode === "goal" ? "/goal" : t("composer.goal.chip")}
                 </button>
               )}
-              {modeBot && approvalEngine && !remoteClient && (
-                <ApprovalModeSelector
-                  approvalMode={modeBot.approvalMode}
-                  autoApprove={modeBot.autoApprove}
-                  providerName={approvalEngine.displayName}
-                  driverKind={approvalEngine.driverKind}
-                  onSelect={setApprovalMode}
-                  disabled={Boolean(modeBot.busy)}
-                  trustedModesAvailable={trustedThreadAccess}
-                  onManageCommandAllowlist={ownerOrAdmin === true ? () => setCommandAllowlistTarget({ botId: modeBot.id, botName: modeBot.name, threadId: modeBot.threadId }) : undefined}
-                />
-              )}
-              {modeBot && !remoteClient && advanced && (
-                <PlaceChip
-                  bot={modeBot}
-                  task={composerTask}
-                  live={Boolean(modeBot.busy)}
-                  disabled={Boolean(modeBot.busy)}
-                  onPin={(surface) => dispatch({ type: "updateTask", botId: modeBot.id, threadId: modeBot.threadId, patch: { surface } })}
-                />
-              )}
             </div>
           )}
           <MentionTextarea
-          wrapperClassName="@max-[30rem]/composer:order-first @max-[30rem]/composer:basis-full"
+          wrapperClassName={cn("@max-[30rem]/composer:order-first @max-[30rem]/composer:basis-full", expanded && "order-first basis-full")}
           inputRef={inputRef}
           peers={group ? members ?? [] : state.bots.filter((member) => member.id !== bot?.id)}
           everyone={Boolean(group && !group.dm)}
@@ -1122,7 +1123,7 @@ export function Composer({
               // the composer is empty, and the window is open — steer the
               // queue into the running turn instead of waiting it out.
               if (
-                canSteer &&
+                steerLive &&
                 doubleEnterSteersQueue(steerAgainUntilRef.current, Date.now(), pendingCount, hasContent)
               ) {
                 steerAgainUntilRef.current = 0;
@@ -1168,10 +1169,23 @@ export function Composer({
           aria-label={t("composer.placeholder.bot", { name: group ? group.name : (bot?.name ?? "") })}
             className="block max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-[15px] leading-6 placeholder:text-ink-secondary focus:outline-none"
           />
-          <div data-composer-actions className="flex items-center gap-1 @max-[30rem]/composer:ml-auto">
+          <div data-composer-actions className="ml-auto flex items-center gap-1">
+          {!locked && modeBot && approvalEngine && !remoteClient && (
+            <ApprovalModeSelector
+              align="right"
+              approvalMode={modeBot.approvalMode}
+              autoApprove={modeBot.autoApprove}
+              providerName={approvalEngine.displayName}
+              driverKind={approvalEngine.driverKind}
+              onSelect={setApprovalMode}
+              disabled={Boolean(modeBot.busy)}
+              trustedModesAvailable={trustedThreadAccess}
+              onManageCommandAllowlist={ownerOrAdmin === true ? () => setCommandAllowlistTarget({ botId: modeBot.id, botName: modeBot.name, threadId: modeBot.threadId }) : undefined}
+            />
+          )}
           {/* Stop stays a stop. Stop-then-steer is named beside the queued
               message above, where its effect is visible before activation. */}
-          {busy && !locked && (
+          {(busy || bot?.waitingForTeammates) && !locked && (
           <button
             onClick={interruptTurn}
             aria-label={t("chat.stopTurn")}
@@ -1202,7 +1216,7 @@ export function Composer({
         {bot && !group && <CallButton bot={bot} placement="composer" />}
         {hasContent && !locked && (
           <button
-            onClick={send}
+            onClick={() => send()}
             disabled={attachmentPending}
             aria-label={
               busy && canSteer
@@ -1227,6 +1241,17 @@ export function Composer({
           >
             {busy && !canSteer ? <Clock size={15} /> : <ArrowUp size={17} />}
           </button>
+          )}
+          {busy && bot && !group && hasContent && !locked && (
+            <SendChoiceMenu
+              name={busyName}
+              canSteer={canSteer}
+              disabled={attachmentPending}
+              onChoose={(delivery) => {
+                inputRef.current?.focus();
+                send(delivery);
+              }}
+            />
           )}
           </div>
         </div>

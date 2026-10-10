@@ -72,7 +72,6 @@ Use only mapped, tested commands:
 - [Preset bots](presets.md)
 - [Teams and shared instructions](teams.md)
 - [Full workspace backups](workspace-backups.md)
-- [Optional company cloud backups](company-backups.md)
 - [Organization library: the desktop channel](desktop-library.md)
 - [Fleet: many workspaces on one server](fleet.md)
 - [Workspaces screen and the fleet agent](workspaces.md)
@@ -103,18 +102,19 @@ The [Connected Apps OAuth fixture](connected-apps-oauth.md) checks blocked-popup
 recovery, safe authorization links and abandoned-account retries through real
 renderer components and isolated HTTP routes.
 
-The [desktop server connection smoke](desktop-server-connection.md) mounts the
-real Settings connection component in disposable Electron windows.
+The [desktop server connection notes](desktop-server-connection.md) cover the
+server switcher, the native Server menu and the optional computer-sharing
+connector tests.
 
 The [loading screen and tray smoke](startup-tray.md) checks the startup close
 button, hidden handoff, tray restore, and Quit in a disposable Electron profile.
 
-The [optional organization connection smoke](organization-settings.md) checks
-the real Settings panel and production desktop client against a synthetic
-Admin server, including cancellation, revocation and unchanged normal startup.
+The [optional organization connection notes](organization-settings.md) cover
+the desktop client, its native entry link and policy tests; there is no
+Organization page.
 
-The [personal Cloud account smoke](cloud-account.md) checks optional browser
-sign-in, server-verified Pro status and sign-out in a disposable Electron profile.
+The [personal Cloud account notes](cloud-account.md) cover the desktop Cloud
+client's contract and node tests.
 
 The [embedded server recovery smoke](desktop-server-recovery.md) crashes real
 Electron-owned fixture servers, verifies bounded recovery and private access,
@@ -152,8 +152,8 @@ The [bot settings fixture](bot-settings.md) checks profile saves, standing
 instructions, history restore, skill/memory refresh, and stale-response isolation.
 
 The [hosted Slack management fixture](hosted-slack-management.md) checks the
-agent settings link to Admin: hosted-only availability, the member-readable
-route module, and stale-response isolation.
+Admin link route: hosted-only availability and the member-readable route
+module.
 
 The [rich tables fixture](rich-tables.md) checks Markdown tables and message-scoped
 CSV/TSV previews, large-file virtualization, sorting, search, export and keyboard
@@ -161,18 +161,10 @@ interaction in a disposable workspace.
 
 The [people invitation fixture](people.md) checks hosted workspace sign-in,
 roles and device revocation through the real HTTP API with a stubbed email
-service. It does not drive the People settings UI through `control-laterdog`.
+service, and the `laterdog access` command. The app has no People page.
 
 The [sidebar fixture](sidebar.md) checks archive and delete confirmations, their
 default focus, keyboard wrapping and focus return against two disposable bots.
-
-The [sidebar attention geometry fixture](sidebar-attention.md) measures the
-Active Threads popover's width and inset at each expanded sidebar density in a
-headless Electron window, including the compact-density case where the menu
-used to cross the window's left edge and lose its title.
-
-The [avatar provider fixture](avatar-providers.md) checks image-provider settings,
-keyless local generation, saved-key handling, and safe errors with a local fake API.
 
 The [independent threads fixture](threads.md) checks nested sidebar navigation,
 per-thread models, simultaneous direct conversations and thread-scoped Stop.
@@ -199,8 +191,9 @@ time-window limits on scheduled routines in that same disposable fixture.
 The [server settings recipe](server-settings.md) checks browser provider sign-in
 with an offline CLI and custom-domain validation without touching live accounts.
 
-The [engine library fixture](engines-ui.md) checks onboarding and Settings cards,
-responsive layouts, theme contrast, and status refreshes without losing drafts.
+The [engine setup preview](engines-ui.md) checks onboarding's engine list and
+the Accounts list with sample statuses, responsive layouts, theme contrast and
+status refreshes.
 
 The [Claude account recipe](claude-account.md) checks sign-out, cancellation and
 retry against an offline Claude CLI confined to a disposable home.

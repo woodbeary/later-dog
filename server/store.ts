@@ -1591,15 +1591,12 @@ export class Store {
    * visible answer. If a provider ends after commentary without emitting a
    * separate answer, that commentary remains visible as the safe fallback. */
   markTerminalAssistantMessage(threadId: string, turnId: string): Message | null {
-    const path = this.activePath(threadId);
-    for (let i = path.length - 1; i >= 0; i -= 1) {
-      const message = path[i];
-      if (message.role === "bot" && message.kind === "text" && message.turnId === turnId) {
-        if (message.turnTerminal) return message;
-        return this.patchMessage(threadId, message.id, { turnTerminal: true });
-      }
-    }
-    return null;
+    const said = this.activePath(threadId).filter((message) =>
+      message.role === "bot" && message.kind === "text" && message.turnId === turnId);
+    const message = said.findLast((candidate) => candidate.text?.trim()) ?? said.at(-1);
+    if (!message) return null;
+    if (message.turnTerminal) return message;
+    return this.patchMessage(threadId, message.id, { turnTerminal: true });
   }
 
   appendMessage(threadId: string, message: Omit<Message, "id" | "at"> & { at?: number }, command?: Command): Message {

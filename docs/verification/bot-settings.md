@@ -58,15 +58,8 @@ Check these user paths:
     Collapse Usage and click the header chip again; repeat after searching
     for another section. The requested section must open and clear the search.
 
-The full-app automated regression covers those repeated external opens, plus
-role creation, optional setup, connected-app settings and failure recovery:
-
-```sh
-pnpm exec vitest run scripts/testing/bot-tools-ui.e2e.test.ts src/state/store.test.ts
-```
-
-It uses the disposable `control-laterdog ui` launcher, not the running app. Set
-`LATERDOG_UI_E2E=1` to install the pinned browser if unavailable.
+The full-app automated regression for these steps was removed in 0.3.0 with
+the screens it drove, so they are manual checks until a replacement exists.
 
 This browser fixture verifies renderer interaction and persistence, not
 packaged Electron privileges, actual operating-system access, or the
@@ -84,14 +77,6 @@ defaults → Edit**. Check that both open immediately, keep a fixed size while
 switching sections, and retain edits between sections. Identity → View full
 must appear above the creation dialog; Escape closes only that inner layer.
 
-In a creation draft, click both random-name buttons repeatedly. Each suggestion
-must replace the editable name, avoid an immediate repeat and existing names,
-and survive switching away from Identity and back. Type a custom name, then
-randomize again. Cancelling must leave the server unchanged. These buttons
-also appear in defaults but not in an existing bot's profile. Dataset provenance
-and licenses are in `src/data/given-names/`; `src/lib/random-bot-name.test.ts`
-checks the pools and selection behavior without a network or model request.
-
 Save defaults containing a title, model, memory topic, skill, and paused
 routine. Read the fixture API to confirm no bot or live routine was created.
 Open a creation draft, confirm inheritance, clear selected values, and cancel:
@@ -103,7 +88,7 @@ Use only the fixture's harmless skills and routines.
 Automated coverage:
 
 ```sh
-pnpm exec vitest run server/new-bot-defaults.test.ts server/new-bot-defaults.e2e.test.ts src/lib/bot-creation-draft.test.ts src/lib/create-configured-bot.test.ts src/components/NewBotDialog.test.ts
+pnpm exec vitest run server/new-bot-defaults.test.ts server/new-bot-defaults.e2e.test.ts src/components/NewBotDialog.test.ts
 node --test electron/approval-trusted-mode.node-test.mjs
 ```
 
@@ -134,14 +119,6 @@ In the defaults editor:
 Open **Identity → View full**. Three successive Escape presses must close only
 the instruction preview, then the defaults editor, then Settings. Tab navigation
 must remain inside the active editor.
-
-`scripts/testing/bot-tools-ui.e2e.test.ts` holds the creation request in the
-isolated renderer, verifies that choosing a role alone creates nothing, then
-closes and reopens the dialog while saving. Escape and Close remain usable;
-the shared pending state prevents a second creation. Completion must not close
-a newer dialog. A rejected profile save must roll back the partial bot, retain
-the draft, and permit one successful retry. The launcher uses a test-only IPC
-stop request so Windows executes the same orderly cleanup as other platforms.
 
 ## Earlier settings verification
 

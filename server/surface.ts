@@ -52,7 +52,7 @@ export function surfaceOfComputerKind(kind: "box" | "vps" | "vm" | "local" | nul
 }
 
 const NO_BROWSER_NOTE =
-  " This bot is set to work in the built-in browser, but the built-in browser is switched off in App Settings, so you have no browser and no computer this turn — say so instead of guessing.";
+  " This bot is set to work in the built-in browser, but the built-in browser is switched off in Settings → Computer, so you have no browser and no computer this turn — say so instead of guessing.";
 
 const OFF_NOTE =
   " This bot's \"Works on\" setting is Off, so no computer and no built-in browser are mounted this turn: you cannot open a page, click, or type on any screen. If the user asks for something that needs one, tell them Works on is Off in this bot's settings — never claim you are opening a browser you do not have.";
@@ -201,13 +201,13 @@ export function surfacePrompt(
   let text = "";
   if (computer && mounted.browser) {
     text =
-      ` Two surfaces are mounted this turn: the built-in browser (the browser server's browser_navigate, browser_snapshot, browser_click, browser_fill and friends) and ${computer} (the computer server's tools). Web tasks → the built-in browser. Desktop apps, files and shell → ${computer} tools. Pick one surface for a task and stay on it; if you need the user to sign in, say which surface — the Browser tab or ${computer}.`;
+      ` Two surfaces are mounted this turn: the built-in browser (the browser server's browser_navigate, browser_snapshot, browser_click, browser_fill and friends) and ${computer} (the computer server's tools). Web tasks → the built-in browser. Desktop apps, files and shell → ${computer} tools. Pick one surface for a task and stay on it; if you need the user to sign in, say which surface — the built-in browser or ${computer}.`;
   } else if (computer) {
     text =
       ` Everything you do on screen happens on ${computer}, web pages included, through its own browser; there is no separate built-in browser this turn. If you need the user to sign in, tell them it is on ${computer}.`;
   } else if (mounted.browser) {
     text =
-      " Everything you do on screen happens in the built-in browser tab; there is no desktop, file or shell computer this turn. If you need the user to sign in, tell them it is in the Browser tab of the Computer panel.";
+      " Everything you do on screen happens in the built-in browser; there is no desktop, file or shell computer this turn. If you need the user to sign in, tell them it is in the built-in browser, in the Computer panel.";
   }
   if (text) text += RESTATE_SENTENCE + (opts.canSelect
     ? SURFACE_AUTHORITY.replace(ASK_TO_SWITCH, "inspect connected choices with select_computer and select the requested available place; on a pending result end this turn so later.dog can reconnect the correct tools and continue the original request")

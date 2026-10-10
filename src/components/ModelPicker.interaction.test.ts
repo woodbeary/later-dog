@@ -46,10 +46,8 @@ vi.mock("@/state/store", async (importOriginal) => ({
   }),
 }));
 
-// These cases cover the full picker; Simple mode has its own file.
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: () => {} }));
-
 const { LOCAL_PROBE_TIMEOUT_MS, ModelEngineRail, ModelPicker, offersLocalModels, probeLocalModels } = await import("./ModelPicker");
+const { SimpleModelPane } = await import("./SimpleModelPane");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -106,6 +104,10 @@ function render(forBot: Bot) {
 function open(forBot: Bot) {
   const trigger = render(forBot).nodes.find((node) => node.props["data-tour"] === "model")!;
   (trigger.props.onClick as () => void)();
+  const line = render(forBot).nodes.find((node) => node.props["data-model-line"] !== undefined);
+  if (line) (line.props.onClick as () => void)();
+  const pane = render(forBot).nodes.find((node) => node.type === SimpleModelPane)!;
+  (pane.props.onSetUp as () => void)();
   return render(forBot);
 }
 
@@ -191,36 +193,16 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
   });
 });
 
-describe("the way into API keys", () => {
-  it("opens Settings on the API keys section from the picker footer", () => {
+describe("the way into Settings", () => {
+  it("offers no API keys shortcut, and its footer opens Settings on General", () => {
     fixture.instances = [codex];
     const opened = open(bot("codex", "gpt-5.6"));
-    const entry = opened.nodes.find((node) => node.props["data-model-add-api-keys"]);
-    expect(opened.html).toContain("Add API keys");
-    (entry!.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "connections" });
-  });
-
-  // MOCA-292: once a key is saved, this shortcut is also how a mistyped key gets fixed.
-  it("says the shortcut changes keys too once a key is saved", () => {
-    const openai: InstanceInfo = {
-      instanceId: "openai", driverKind: "openai-compat", displayName: "OpenAI", access: "api",
-      snapshot: { state: "available", authenticated: true, version: null },
-      models: { default: "gpt-5", options: [{ id: "gpt-5", label: "GPT-5" }] },
-    };
-    fixture.instances = [codex, openai];
-    const opened = open(bot("codex", "gpt-5.6"));
-    expect(opened.html).toContain("Add or change API keys");
-    expect(opened.html).not.toContain(">Add API keys<");
-  });
-
-  it("ends the rail's API keys group with a way to add one", () => {
-    fixture.instances = [codex];
-    const opened = open(bot("codex", "gpt-5.6"));
-    expect(opened.html).toContain(">API keys<");
-    const add = rail(opened)!.props as { onAddApiKeys?: () => void };
-    add.onAddApiKeys!();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "connections" });
+    expect(opened.html).not.toContain("data-model-add-api-keys");
+    expect(opened.html).not.toContain("data-rail-add-api-key");
+    expect(opened.html).not.toContain(">API keys<");
+    const footer = opened.nodes.find((node) => node.type === "button" && Children.toArray(node.props.children).includes("Model providers and accounts"));
+    (footer!.props.onClick as () => void)();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
   });
 });
 

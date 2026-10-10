@@ -6,9 +6,6 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({ home: "", script: "", socketReady: false, children: [], calls: [], embeddedDelays: [], hosts: [], handlers: new Map(), permissionAsks: [] }));
-// The grants are read the way the renderer's checklist reads them (mac-permissions.mjs):
-// Accessibility through isTrustedAccessibilityClient, whose argument says whether macOS may
-// prompt, and Screen Recording through getMediaAccessStatus. Granted whenever a host is queued.
 vi.mock("electron", () => ({
   app: { isPackaged: false, getPath: () => fixture.home },
   ipcMain: { handle: (name, handler) => fixture.handlers.set(name, handler) },
@@ -123,7 +120,6 @@ describe.skipIf(process.platform !== "darwin")("async standalone CUA launch (iso
     expect(result.mode).toBe("unavailable");
     expect(result.reason).toContain("embedded host failed: Accessibility and Screen Recording required; later.dog asks for them when a dog first uses this Mac");
     expect(result.reason).not.toMatch(/restart/i);
-    // macOS was asked what it already decided, never to show a dialog
     expect(fixture.permissionAsks).toEqual([false]);
   });
 

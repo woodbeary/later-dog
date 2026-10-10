@@ -15,7 +15,6 @@ const fixture = vi.hoisted(() => ({
   posts: [] as string[],
   /** Looks at this conversation's computer (GET), each a relay call. */
   looks: 0,
-  advanced: true,
 }));
 vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   ...await importOriginal<typeof import("./DesktopCapabilities")>(),
@@ -31,17 +30,13 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
     },
   }),
 }));
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => fixture.advanced, setAdvancedMode: () => {} }));
 // The owner: starting it early is an Admin's shortcut (shared/place-view.ts);
 // a User's own message starts it when a task needs it.
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => true }));
 vi.mock("./CloudScreenPreview", () => ({
   CloudScreenPreview: () => createElement("div", { "data-live-screen": "" }),
 }));
-vi.mock("./AndroidDevicePanel", () => ({ AndroidDevicePanel: () => null, useAndroidUsbDevices: () => ({ devices: [] }) }));
 vi.mock("./BrowserPanel", () => ({ BrowserPanel: () => null }));
-vi.mock("./CloudBackendPicker", () => ({ CloudBackendPicker: () => null }));
-vi.mock("./bot-settings/RoutinesSection", () => ({ RoutinesSection: () => null }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   api: async (path: string, init?: RequestInit) => {
@@ -112,7 +107,6 @@ afterEach(() => {
   fixture.posts.length = 0;
   fixture.boatState = null;
   fixture.looks = 0;
-  fixture.advanced = true;
   vi.useRealTimers();
 });
 
@@ -163,16 +157,6 @@ describe("Computer panel on Cloud computer", () => {
     expect(text()).toContain("Scout's cloud computer is asleep. It wakes in a few seconds when Scout needs it.");
     expect(button("Wake it now")).toBeUndefined();
     expect(fixture.posts).toEqual([]);
-  });
-
-  it("in Simple mode too: opening it creates nothing, and starting it now is the person's button", async () => {
-    fixture.advanced = false;
-    await open(makeBot({ computer: "cloud" }));
-    expect(text()).toContain("Scout gets its own cloud computer the first time a task needs one. The first start takes about a minute.");
-    expect(fixture.posts).toEqual([]);
-    flushSync(() => button("Start it now")!.click());
-    await settle();
-    expect(fixture.posts.filter((path) => !path.endsWith("/screenshot"))).toEqual(["/api/bots/scout/computer/provision"]);
   });
 
   it("a conversation moved to a sleeping cloud computer: no spinner or 'using it' while the bot only chats, and no polling once it stops", async () => {

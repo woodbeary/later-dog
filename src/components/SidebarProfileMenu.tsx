@@ -1,20 +1,3 @@
-// The profile row at the very bottom of the sidebar, and the menu it opens.
-//
-// Everything app-level used to sit in that row as unlabelled icons crowding
-// the name: a phone, an update arrow, a gear. Three icons is a guessing game
-// and there was nowhere to put a fourth. They are now a menu that the row
-// opens on click — the shape every desktop app uses for "this is about the
-// app, not about what you are looking at".
-//
-// The update entry is the one item that reports progress in place, so it
-// keeps the menu open and re-labels itself as it works.
-//
-// The phone has two entries: Connect your phone, which opens the pairing
-// this window can do and says where the phone will connect (this computer,
-// your Cloud, this server), and Use on your phone (no phone app exists yet;
-// a phone's browser opens the pairing link instead). On
-// this computer, a paid Cloud that is Ready adds a Connect your phone line
-// of its own, first: to your Cloud, always on.
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -26,35 +9,29 @@ import {
   MessageSquare,
   RefreshCw,
   Settings as SettingsIcon,
-  Smartphone,
 } from "lucide-react";
 
 import { InitialsAvatar } from "./Avatar";
 import { AboutDialog } from "./AboutDialog";
-import { PhoneAppDialog } from "./PhoneAppDialog";
+import {
+  AddProfileDialog,
+  EditProfilesDialog,
+  profileEntryItem,
+  profileError,
+  profileName,
+  profilePageItems,
+  useProfiles,
+  type ProfileSwitchError,
+} from "./ProfileSwitcher";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
-import { useSidebarPhoneStatus } from "./SidebarPhoneButton";
-import { useStore, type Action } from "@/state/store";
-import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
+import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { brand } from "../lib/brand";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { FEEDBACK_URL, HELP_CENTER_URL, openExternalLink } from "@/lib/app-links";
-import {
-  cloudPhoneDestination,
-  connectPhoneEntry,
-  currentPhonePairingTarget,
-  loadPhonePairingAccess,
-  phoneDestinations,
-  phonePairingSettingsAction,
-  type CloudPhoneDestination,
-  type ConnectPhoneEntry,
-  type PhoneDestination,
-  type PhonePairingAccess,
-} from "@/lib/phone-pairing";
 
 /** "Sam Reed" → "SR", "sam" → "S", "you@x.dev" → "Y", unset → "?" */
 export function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -147,14 +124,6 @@ function UpdateIcon({ phase, pending, size = 18 }: { phase: UpdatePhase; pending
   return <RefreshCw size={size} />;
 }
 
-/** Whether the updater has something the profile row should say out loud.
- * An idle updater, and the three-second "up to date" tick that follows a
- * check the user asked for from inside the menu, both stay in the menu. So
- * does a release to download: its card told the person once, no nagging. */
-export function updateNoteworthy(phase: UpdatePhase, pending = false): boolean {
-  return pending || (phase !== "idle" && phase !== "up-to-date" && phase !== "checking" && phase !== "available");
-}
-
 interface UpdateEntry {
   item: SidebarMenuItem;
   phase: UpdatePhase;
@@ -217,112 +186,53 @@ export function useUpdateItem(): UpdateEntry | null {
   };
 }
 
-/** Connect your phone for this window, once it is known whether this
- * session may pair one. This computer's own phone flow needs no asking. */
-function useConnectPhoneEntry(cloudHome: boolean): ConnectPhoneEntry | null {
-  const target = currentPhonePairingTarget(cloudHome);
-  const [access, setAccess] = useState<PhonePairingAccess | null>(null);
-  useEffect(() => {
-    if (target === "computer") return;
-    let alive = true;
-    void loadPhonePairingAccess().then((next) => {
-      if (alive) setAccess(next);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [target]);
-  return connectPhoneEntry(target, access);
-}
-
-/** On this computer only: the person's Cloud as a phone destination, from
- * the verified native snapshot (null elsewhere, signed out, or no plan). */
-export function useCloudPhoneDestination(enabled: boolean): { cloud: CloudPhoneDestination; bridge?: CloudAccountBridge } {
-  const bridge = enabled && !window.laterdog?.remoteClient?.active ? window.laterdog?.cloudAccount : undefined;
-  const [account, setAccount] = useState<CloudAccountState | null>(null);
-  useEffect(() => {
-    if (!bridge) return;
-    let active = true, updated = false;
-    const unsubscribe = bridge.onState((next) => { updated = true; if (active) setAccount(next); });
-    // Reads the native snapshot only; never signs in, refreshes or connects.
-    void bridge.state().then((next) => { if (active && !updated) setAccount(next); }).catch(() => {});
-    return () => { active = false; unsubscribe(); };
-  }, [bridge]);
-  return bridge ? { cloud: cloudPhoneDestination(account), bridge } : { cloud: null };
-}
-
-/** What choosing a destination does. Here: Settings → Remote access on this
- * window's pairing. Cloud: open the Cloud in this window on its phone
- * pairing, as Settings → later.dog Cloud's Use your Cloud on your phone does; if
- * that fails, Settings → later.dog Cloud, which says what to do. */
-export function selectPhoneDestination(destination: PhoneDestination, { bridge, dispatch }: { bridge?: Pick<CloudAccountBridge, "connectHomeForPhone">; dispatch: (action: Action) => void }): void {
-  if (destination.id !== "cloud" || !bridge) {
-    dispatch(phonePairingSettingsAction());
-    return;
-  }
-  void bridge.connectHomeForPhone().catch(() => dispatch({ type: "toggleAppSettings", open: true, section: "cloudAccount" }));
-}
-
-/** The phone entries at the top of the menu: a Connect your phone line per
- * destination, then Use on your phone. Connect your phone is absent where
- * this window cannot pair one (a chat-only session, a server whose people
- * sign in through their organization). */
-export function phoneMenuItems({
-  destinations,
-  connected,
-  onConnect,
-  onGetApp,
-}: {
-  destinations: PhoneDestination[];
-  /** a phone is connected to this computer right now */
-  connected: boolean;
-  onConnect: (destination: PhoneDestination) => void;
-  onGetApp: () => void;
-}): SidebarMenuItem[] {
-  return [
-    ...destinations.map((destination) => ({
-      key: destination.id === "cloud" ? "connect-phone-cloud" : "connect-phone",
-      label: t("sidebar.menu.connectPhone"),
-      subtitle: t(destination.subtitleKey),
-      ...(destination.noteKey ? { note: t(destination.noteKey) } : {}),
-      icon: <Smartphone size={18} />,
-      trailing:
-        destination.id === "here" && destination.target === "computer" && connected ? (
-          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-success" />
-        ) : undefined,
-      onSelect: () => onConnect(destination),
-    } satisfies SidebarMenuItem)),
-    {
-      key: "phone-app",
-      label: t("sidebar.menu.getPhoneApp"),
-      icon: <Smartphone size={18} />,
-      onSelect: onGetApp,
-    },
-  ];
-}
-
 export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
-  const phone = useSidebarPhoneStatus();
-  const connectPhone = useConnectPhoneEntry(state.config?.cloudHome === true);
-  const cloudPhone = useCloudPhoneDestination(connectPhone?.target === "computer");
-  const destinations = phoneDestinations(connectPhone, cloudPhone.cloud);
   const update = useUpdateItem();
+  const profiles = useProfiles();
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [phoneAppOpen, setPhoneAppOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [page, setPage] = useState<"main" | "profiles">("main");
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<ProfileSwitchError | null>(null);
+  const [profileDialog, setProfileDialog] = useState<"add" | "edit" | null>(null);
   const triggerRef = useRef<HTMLSpanElement>(null);
+  const switchTicket = useRef(0);
+  const profilesShown = useRef(false);
+  profilesShown.current = menuOpen && page === "profiles";
 
   const profile = state.config?.profile;
   const name = profileLabel(profile);
-  const connectTo = (destination: PhoneDestination) => selectPhoneDestination(destination, { bridge: cloudPhone.bridge, dispatch });
+  const openProfile = profiles?.list.profiles.find((entry) => entry.id === profiles.list.activeId);
+  const setup = openProfile && profiles && profiles.list.profiles.length > 1 ? profileName(openProfile) : "";
 
-  const items: SidebarMenuItem[] = [
-    ...phoneMenuItems({
-      destinations,
-      connected: phone.kind === "connected",
-      onConnect: connectTo,
-      onGetApp: () => setPhoneAppOpen(true),
-    }),
+  const focusTrigger = () => triggerRef.current?.closest("button")?.focus();
+  const switchTo = async (id: string) => {
+    if (!profiles) return;
+    const ticket = ++switchTicket.current;
+    setSwitching(id);
+    setSwitchError(null);
+    try {
+      await profiles.bridge.switch(id);
+    } catch (cause) {
+      if (ticket === switchTicket.current) {
+        const message = profileError(cause);
+        setSwitchError({ id, message });
+        if (!profilesShown.current) dispatch({ type: "error", message });
+      }
+    } finally {
+      if (ticket === switchTicket.current) setSwitching(null);
+    }
+  };
+  const onMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (!open) return;
+    setPage("main");
+    setSwitchError(null);
+  };
+
+  const mainItems: SidebarMenuItem[] = [
+    ...(profiles ? [profileEntryItem(() => setPage("profiles"))] : []),
     {
       key: "settings",
       label: t("sidebar.menu.settings"),
@@ -361,12 +271,31 @@ export function SidebarProfileMenu() {
       onSelect: () => void openExternalLink(FEEDBACK_URL),
     },
   ];
+  const items =
+    profiles && page === "profiles"
+      ? profilePageItems({
+          list: profiles.list,
+          switching,
+          error: switchError,
+          onBack: () => setPage("main"),
+          onSwitch: (id) => void switchTo(id),
+          onAdd: () => {
+            focusTrigger();
+            setProfileDialog("add");
+          },
+          onEdit: () => {
+            focusTrigger();
+            setProfileDialog("edit");
+          },
+        })
+      : mainItems;
 
   return (
     <>
       <SidebarPopoverMenu
         items={items}
         ariaLabel={name}
+        onOpenChange={onMenuOpenChange}
         renderTrigger={({ open }) => (
           <span
             ref={triggerRef}
@@ -376,34 +305,20 @@ export function SidebarProfileMenu() {
             )}
           >
             <InitialsAvatar initials={profileInitials(profile)} size={28} />
-            <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{name}</span>
-            {/* an update is the one thing worth interrupting the name for, so
-              * it sits on the row rather than waiting to be found in the menu */}
-            {update && updateNoteworthy(update.phase, update.pending) && (
-              <span
-                title={update.label}
-                aria-label={update.label}
-                className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded-full",
-                  update.phase === "error" ? "bg-danger/15 text-danger" : "bg-accent/15 text-accent",
-                )}
-              >
-                <UpdateIcon phase={update.phase} pending={update.pending} size={14} />
-              </span>
-            )}
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-[14px] text-ink">{name}</span>
+              {setup && <span className="truncate text-[12px] text-ink-secondary">{setup}</span>}
+            </span>
           </span>
         )}
       />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
-      <PhoneAppDialog
-        open={phoneAppOpen}
-        onClose={() => setPhoneAppOpen(false)}
-        connect={destinations.map((destination) => ({
-          key: destination.id,
-          subtitle: t(destination.subtitleKey),
-          onSelect: () => connectTo(destination),
-        }))}
-      />
+      {profiles && profileDialog === "add" && (
+        <AddProfileDialog bridge={profiles.bridge} onClose={() => setProfileDialog(null)} />
+      )}
+      {profiles && profileDialog === "edit" && (
+        <EditProfilesDialog bridge={profiles.bridge} list={profiles.list} onClose={() => setProfileDialog(null)} />
+      )}
     </>
   );
 }

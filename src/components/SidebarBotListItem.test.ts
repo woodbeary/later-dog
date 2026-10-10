@@ -7,12 +7,6 @@ import { initialState, type Bot } from "@/state/store";
 vi.mock("./DesktopCapabilities", () => ({
   useDesktopCapabilities: () => ({}),
 }));
-// These rows are Advanced mode's: Simple mode keeps one conversation per bot,
-// so its rows have no thread controls (useShowThreads).
-vi.mock("@/lib/interface-mode", async (original) => ({
-  ...await original<typeof import("@/lib/interface-mode")>(),
-  useAdvancedMode: () => true,
-}));
 
 import { ConfirmDialogCard } from "./ConfirmDialog";
 import { BotDeleteMenuItem, BotListItem, botConfirmCopy, botRowProps, currentArchivableBot } from "./Sidebar";
@@ -98,6 +92,25 @@ describe("BotListItem", () => {
     }));
     expect(markup).toContain("This computer isn&#x27;t a place on your later.dog Cloud: its bots run in the cloud.");
     expect(markup).not.toContain("error:");
+  });
+
+  it("previews a markdown reply as plain words", () => {
+    const markup = renderRow(bot({
+      messages: [
+        { id: "u1", role: "user", kind: "text", text: "test the tools", at: 1 },
+        { id: "b1", role: "bot", kind: "text", text: "## Tool test complete\n\n- [x] Created `notes.md`\n- [x] Read it back", at: 2 },
+      ] as Bot["messages"],
+    }));
+    expect(markup).toContain("Tool test complete Created notes.md Read it back");
+    expect(markup).not.toContain("##");
+    expect(markup).not.toContain("[x]");
+  });
+
+  it("previews a person's own last message exactly as typed", () => {
+    const markup = renderRow(bot({
+      messages: [{ id: "u1", role: "user", kind: "text", text: "rename *draft* to final", at: 1 }] as Bot["messages"],
+    }));
+    expect(markup).toContain("rename *draft* to final");
   });
 
   // A turn can end on the approval card itself: Stop while it is open, or a

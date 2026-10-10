@@ -35,7 +35,6 @@ import {
   UserRoundPlus,
   UsersRound,
   Video,
-  Webhook,
   X,
   XCircle,
 } from "lucide-react";
@@ -50,11 +49,9 @@ import { ResultsDestination } from "@/components/routines/ResultsDestination";
 import { CronScheduleFields, CronSchedulePreview } from "@/components/routines/CronScheduleFields";
 import { cronChoiceFor, cronDraftFor, cronEditorValue, isCronChoice, type CronChoice } from "@/components/routines/cron-editor";
 import { routineRunLabel, routineRunsOn, routineRunTime, routineScheduleState } from "@/lib/routine-display";
-import { useAdvancedMode } from "@/lib/interface-mode";
 import { t } from "@/lib/i18n";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { useDesktopCapabilities } from "@/components/DesktopCapabilities";
-import { WebhooksPanel } from "@/components/WebhooksPanel";
 import type { CalendarCall, CalendarCallAttachment, CalendarCallInput } from "@/lib/calendar-calls";
 import { cn } from "@/lib/cn";
 import {
@@ -599,9 +596,6 @@ export function EventEditor({
     && !cron?.error,
   );
   const canSwitchKind = !routinesOnly && !existingRoutine && !existingCall && !lockedBotId;
-  const advanced = useAdvancedMode();
-  // Simple mode keeps the basics up front. A schedule or setting the basics
-  // cannot show opens More options straight away, so nothing saved is hidden.
   const [moreOpen, setMoreOpen] = useState(() => !(["none", "daily", "weekdays", "weekly"] as RecurrenceChoice[]).includes(recurrence)
     || routineTarget === "room-goal"
     || attachments.length > 0
@@ -612,13 +606,13 @@ export function EventEditor({
   useModalDialog(dialogRef, onClose);
 
   const kindSwitchControl = canSwitchKind && (
-            <div className={cn(advanced && "ml-10", "inline-flex rounded-lg bg-inset p-1")}>
+            <div className="inline-flex rounded-lg bg-inset p-1">
               <button type="button" onClick={() => { setKind("routine"); setBotIds((ids) => ids.slice(0, 1)); }} className={cn("rounded-md px-4 py-1.5 text-[12.5px] font-medium", kind === "routine" ? "bg-raised text-ink shadow" : "text-ink-secondary")}>Routine</button>
               <button type="button" onClick={() => { setKind("call"); if (recurrence === "interval" || isCronChoice(recurrence)) setRecurrence("none"); }} className={cn("rounded-md px-4 py-1.5 text-[12.5px] font-medium", kind === "call" ? "bg-raised text-ink shadow" : "text-ink-secondary")}>Call</button>
             </div>
           );
   const routineTypeControl = kind === "routine" && !lockedBotId && (
-            <div className={cn(advanced && "ml-10")}>
+            <div>
               <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-ink-secondary">Routine type</div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <button
@@ -850,7 +844,7 @@ export function EventEditor({
                 </details>
               );
   const continuityControl = kind === "routine" && !isRoomGoal && recurrence !== "none" && (
-          <label className={cn("flex items-start gap-3 rounded-xl border border-hairline/40 bg-inset/40 px-3.5 py-3", advanced && "ml-8")}>
+          <label className="flex items-start gap-3 rounded-xl border border-hairline/40 bg-inset/40 px-3.5 py-3">
             <input type="checkbox" aria-label={t("routines.continuityLabel")} checked={continuity} onChange={(event) => setContinuity(event.target.checked)} className="mt-0.5 accent-accent" />
             <span>
               <span className="block text-[12.5px] font-medium text-ink">{t("routines.continuityLabel")}</span>
@@ -858,7 +852,7 @@ export function EventEditor({
             </span>
           </label>
         );
-  const resultsControl = kind === "routine" && !isRoomGoal && <div className={cn(advanced && "ml-8")}>
+  const resultsControl = kind === "routine" && !isRoomGoal && <div>
             <ResultsDestination bot={bots.find((bot) => bot.id === botIds[0])} value={resultsThreadId} allowCurrent={Boolean(existingRoutine)} onChange={setResultsThreadId} />
           </div>;
   const attachmentsRow = (
@@ -900,7 +894,7 @@ export function EventEditor({
               </div>
             </div>
           );
-  const headerTitle = !advanced && kind === "routine"
+  const headerTitle = kind === "routine"
     ? t(existingRoutine ? "routines.editor.edit" : "routines.editor.new")
     : existingRoutine || existingCall ? "Edit event" : "New event";
   const repeatChoices = [
@@ -919,49 +913,32 @@ export function EventEditor({
         </div>
 
         <div className="space-y-5 px-5 py-5 sm:px-8">
-          {advanced && kindSwitchControl}
-
-          {advanced && routineTypeControl}
-
           <div className="flex items-start gap-4">
             <span className="mt-3 size-4 shrink-0 rounded bg-accent" />
-            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder={kind === "routine" ? (advanced ? "Add title" : t("routines.editor.titlePlaceholder")) : "Add call title"} className="min-w-0 flex-1 border-b border-hairline/60 bg-transparent px-1 pb-2 text-[22px] font-medium text-ink outline-none placeholder:text-ink-tertiary focus:border-accent" />
+            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder={kind === "routine" ? t("routines.editor.titlePlaceholder") : "Add call title"} className="min-w-0 flex-1 border-b border-hairline/60 bg-transparent px-1 pb-2 text-[22px] font-medium text-ink outline-none placeholder:text-ink-tertiary focus:border-accent" />
           </div>
 
-          {advanced ? (
-            <div className="flex items-start gap-4">
-              <Clock3 size={18} className="mt-2.5 shrink-0 text-ink-secondary" />
-              <div className="min-w-0 flex-1 space-y-3">
-                {whenControls}
-                {repeatSelect}
-                {scheduleNote}
-                {repeatDetails}
-                {runLimitControls}
+          <div className="flex items-start gap-4">
+            <Clock3 size={18} className="mt-2.5 shrink-0 text-ink-secondary" />
+            <div className="min-w-0 flex-1 space-y-3">
+              <div className="text-[12.5px] font-medium text-ink">{t("routines.editor.when")}</div>
+              {whenControls}
+              <div role="group" aria-label={t("routines.editor.repeat")} className="flex flex-wrap gap-1.5">
+                {repeatChoices.map(([choice, label]) => (
+                  <button
+                    key={choice}
+                    type="button"
+                    aria-pressed={recurrence === choice}
+                    onClick={() => selectRecurrence(choice)}
+                    className={cn("rounded-full border px-3 py-1.5 text-[12px] font-medium transition", recurrence === choice ? "border-accent-border bg-accent/15 text-accent-text" : "border-hairline/50 bg-inset text-ink-secondary hover:bg-raised hover:text-ink")}
+                  >
+                    {t(label)}
+                  </button>
+                ))}
               </div>
+              {!repeatChoices.some(([choice]) => choice === recurrence) && <div className="text-[11.5px] text-ink-secondary">{t("routines.editor.customRepeat")}</div>}
             </div>
-          ) : (
-            <div className="flex items-start gap-4">
-              <Clock3 size={18} className="mt-2.5 shrink-0 text-ink-secondary" />
-              <div className="min-w-0 flex-1 space-y-3">
-                <div className="text-[12.5px] font-medium text-ink">{t("routines.editor.when")}</div>
-                {whenControls}
-                <div role="group" aria-label={t("routines.editor.repeat")} className="flex flex-wrap gap-1.5">
-                  {repeatChoices.map(([choice, label]) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      aria-pressed={recurrence === choice}
-                      onClick={() => selectRecurrence(choice)}
-                      className={cn("rounded-full border px-3 py-1.5 text-[12px] font-medium transition", recurrence === choice ? "border-accent-border bg-accent/15 text-accent-text" : "border-hairline/50 bg-inset text-ink-secondary hover:bg-raised hover:text-ink")}
-                    >
-                      {t(label)}
-                    </button>
-                  ))}
-                </div>
-                {!repeatChoices.some(([choice]) => choice === recurrence) && <div className="text-[11.5px] text-ink-secondary">{t("routines.editor.customRepeat")}</div>}
-              </div>
-            </div>
-          )}
+          </div>
 
           <div className="flex items-start gap-4">
             {isRoomGoal ? <UsersRound size={18} className="mt-2.5 shrink-0 text-ink-secondary" /> : <UserRoundPlus size={18} className="mt-2.5 shrink-0 text-ink-secondary" />}
@@ -995,7 +972,7 @@ export function EventEditor({
                 </div>
               ) : (
                 <>
-                  <div className="mb-2 text-[12.5px] font-medium text-ink">{kind === "routine" ? (advanced ? "Assign a dog" : t("routines.editor.who")) : "Add guests"}</div>
+                  <div className="mb-2 text-[12.5px] font-medium text-ink">{kind === "routine" ? t("routines.editor.who") : "Add guests"}</div>
                   {bots.length > 0 ? (
                 <>
                   <BotPicker bots={bots} selected={botIds} multiple={kind === "call"} locked={Boolean(lockedBotId)} onChange={selectBots} />
@@ -1012,46 +989,39 @@ export function EventEditor({
             </div>
           </div>
 
-          {advanced && resultsControl}
           <div className="flex items-start gap-4">
             <FileText size={18} className="mt-2.5 shrink-0 text-ink-secondary" />
-            <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={5} placeholder={isRoomGoal ? "What should the group accomplish?" : kind === "routine" ? (advanced ? "Add instructions for the dog" : t("routines.editor.instructionsPlaceholder")) : "Add description or agenda"} className="min-w-0 flex-1 resize-y rounded-xl border border-hairline/50 bg-inset px-3.5 py-3 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-tertiary focus:border-accent" />
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={5} placeholder={isRoomGoal ? "What should the group accomplish?" : kind === "routine" ? t("routines.editor.instructionsPlaceholder") : "Add description or agenda"} className="min-w-0 flex-1 resize-y rounded-xl border border-hairline/50 bg-inset px-3.5 py-3 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-tertiary focus:border-accent" />
           </div>
           {continuityControl}
 
-          {advanced && attachmentsRow}
-
-          {advanced && runOnRow}
-
-          {!advanced && (
-            <div>
-              <button
-                type="button"
-                aria-expanded={moreOpen}
-                aria-controls="routine-more-options"
-                onClick={() => setMoreOpen((open) => !open)}
-                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12.5px] font-medium text-accent-text hover:bg-raised"
-              >
-                <ChevronRight size={14} className={cn("transition-transform", moreOpen && "rotate-90")} />
-                {t(moreOpen ? "routines.editor.fewer" : "routines.editor.more")}
-              </button>
-              {moreOpen && (
-                <div id="routine-more-options" className="mt-3 space-y-5 rounded-xl border border-hairline/40 bg-inset/30 p-4">
-                  {kindSwitchControl}
-                  {routineTypeControl}
-                  <div className="space-y-3">
-                    {repeatSelect}
-                    {scheduleNote}
-                    {repeatDetails}
-                    {runLimitControls}
-                  </div>
-                  {resultsControl}
-                  {attachmentsRow}
-                  {runOnRow}
+          <div>
+            <button
+              type="button"
+              aria-expanded={moreOpen}
+              aria-controls="routine-more-options"
+              onClick={() => setMoreOpen((open) => !open)}
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12.5px] font-medium text-accent-text hover:bg-raised"
+            >
+              <ChevronRight size={14} className={cn("transition-transform", moreOpen && "rotate-90")} />
+              {t(moreOpen ? "routines.editor.fewer" : "routines.editor.more")}
+            </button>
+            {moreOpen && (
+              <div id="routine-more-options" className="mt-3 space-y-5 rounded-xl border border-hairline/40 bg-inset/30 p-4">
+                {kindSwitchControl}
+                {routineTypeControl}
+                <div className="space-y-3">
+                  {repeatSelect}
+                  {scheduleNote}
+                  {repeatDetails}
+                  {runLimitControls}
                 </div>
-              )}
-            </div>
-          )}
+                {resultsControl}
+                {attachmentsRow}
+                {runOnRow}
+              </div>
+            )}
+          </div>
 
           {error && <div className="ml-10 flex items-start gap-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2.5 text-[12.5px] text-danger"><CircleAlert size={15} className="mt-0.5 shrink-0" />{error}</div>}
         </div>
@@ -1469,7 +1439,6 @@ export function EventDetails({
   onOpenRun?: (run: RoutineRun) => void;
 }) {
   const { state, dispatch } = useStore();
-  const advanced = useAdvancedMode();
   const [working, setWorking] = useState(false);
   const runNowPending = useRef(false);
   const [starting, setStarting] = useState(false);
@@ -1499,7 +1468,6 @@ export function EventDetails({
   const description = call?.description ?? run?.prompt ?? routine?.prompt ?? "";
   const attachments = call?.attachments ?? run?.attachments ?? routine?.attachments ?? [];
   const roomId = call?.botIds.length === 1 ? primary?.id : undefined;
-  const safetyLimit = run ? run.timeoutMinutes : routine?.timeoutMinutes;
 
   const openRunTask = () => {
     if (!executionThreadId) return;
@@ -1637,7 +1605,6 @@ export function EventDetails({
         )}
         {!isCall && !isRoomGoal && <DrawerField label={t("routines.results.label")}><div className="text-[12.5px] text-ink">{resultsTitle}</div></DrawerField>}
         {attachments.length > 0 && <DrawerField label="Attachments"><AttachmentChips attachments={attachments} />{call && <div className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary">{call.botIds.length > 1 ? "These references will be shared in the group when the event starts." : "These references stay with the event and are available when you join the group."}</div>}</DrawerField>}
-        {advanced && !isCall && <DrawerField label={t("routines.drawer.runLimit")}><div className="text-[12.5px] text-ink">{safetyLimit == null ? "No time limit" : `Stops if still running after ${durationLabel(safetyLimit)}`}</div></DrawerField>}
         {!isCall && (
           <DrawerField label={t("routines.logs")} action={routine && <button type="button" onClick={() => { dispatch({ type: "showRoutines", section: "logs", routineId: routine.id, botId: routine.botId }); onClose(); }} className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-accent-text hover:bg-raised"><FileText size={11} />{t("routines.drawer.allRuns")}</button>}>
             {recentRuns.length === 0
@@ -1793,10 +1760,9 @@ export function RoutineEditor({
 export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpenRoom: (id: string) => void }) {
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
-  const advanced = useAdvancedMode();
   const routinesOnly = window.laterdog?.remoteClient?.active === true;
   const backButtonRef = useRef<HTMLButtonElement>(null);
-  const [section, setSection] = useState<"calendar" | "logs" | "webhooks">(state.routinesFocus?.section === "logs" ? "logs" : "calendar");
+  const [section, setSection] = useState<"calendar" | "logs">(state.routinesFocus?.section === "logs" ? "logs" : "calendar");
   const [layout, setLayout] = useState<RoutinesLayout>(state.routinesFocus?.view === "list" ? "list" : "week");
   const [anchor, setAnchor] = useState(() => startOfDay(Date.now()));
   const [botFilter, setBotFilter] = useState(state.routinesFocus?.botId ?? "all");
@@ -1807,12 +1773,9 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
   const [editor, setEditor] = useState<EventSeed | null>(null);
   const [selected, setSelected] = useState<CalendarEventItem | null>(null);
   const [pausedOpen, setPausedOpen] = useState(false);
-  const [webhookCreateRequest, setWebhookCreateRequest] = useState(0);
   const [error, setError] = useState("");
   const visibleBots = state.bots.filter((bot) => !bot.hidden);
-  // Webhooks are an Advanced-mode tool; Simple mode keeps triggers elsewhere.
-  const webhooksAvailable = advanced && !routinesOnly;
-  const shownSection = section === "webhooks" && !webhooksAvailable ? "calendar" : section;
+  const shownSection = section;
   const viewDays = layout === "day" ? 1 : 7;
   const rangeStart = viewDays === 7 ? startOfWeek(anchor) : startOfDay(anchor);
   const rangeEnd = addDays(rangeStart, viewDays);
@@ -1905,16 +1868,11 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
     setAnchor((current) => startOfDay(current));
   };
   const goToday = useCallback(() => setAnchor(startOfDay(Date.now())), []);
-  const handleWebhookCreateHandled = useCallback(() => setWebhookCreateRequest(0), []);
   const openCreate = useCallback((seed?: Partial<EventSeed>) => {
     setSelected(null);
     setQuick({ kind: "routine", at: nextHour(), durationMinutes: 30, botIds: [], ...seed });
   }, []);
-  // Advanced keeps the quick popover (with its Routine / Call switch); Simple
-  // goes straight to the plain editor, which has a time and Repeat choices.
   const createRoutine = () => {
-    if (section === "webhooks") setSection("calendar");
-    if (advanced) return openCreate({ kind: "routine" });
     setSelected(null);
     setEditor({ kind: "routine", at: nextHour(), durationMinutes: 30, botIds: botFilter !== "all" ? [botFilter] : [] });
   };
@@ -1979,7 +1937,7 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
     setEditor(seed);
   };
   const segment = (active: boolean) => cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium", active ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink");
-  const drawerOpen = Boolean(liveSelected) && shownSection !== "webhooks";
+  const drawerOpen = Boolean(liveSelected);
 
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col bg-app animate-workspace-in">
@@ -2015,13 +1973,10 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
               <button type="button" aria-pressed={shownSection === "calendar" && layout === "list"} onClick={() => showLayout("list")} className={segment(shownSection === "calendar" && layout === "list")}>{t("routines.view.list")}</button>
             </div>
             <button type="button" aria-pressed={shownSection === "logs"} onClick={() => { if (shownSection === "logs") { setSection("calendar"); return; } setSection("logs"); setRoutineFilter(undefined); }} className={cn("flex items-center gap-1.5 rounded-lg border border-hairline/50 px-2.5 py-1.5 text-[12px] font-medium", shownSection === "logs" ? "bg-raised text-ink" : "bg-panel text-ink-secondary hover:text-ink")}><FileText size={13} />{t("routines.logs")}{unseenFailures > 0 && <span className="rounded-full bg-danger/10 px-1.5 text-[9px] text-danger">{unseenFailures}</span>}</button>
-            {webhooksAvailable && <button type="button" aria-pressed={shownSection === "webhooks"} onClick={() => setSection(shownSection === "webhooks" ? "calendar" : "webhooks")} className={cn("flex items-center gap-1.5 rounded-lg border border-hairline/50 px-2.5 py-1.5 text-[12px] font-medium", shownSection === "webhooks" ? "bg-raised text-ink" : "bg-panel text-ink-secondary hover:text-ink")}><Webhook size={13} />{t("routines.webhooks")}{state.webhooks.length > 0 && <span className="rounded-full bg-accent/15 px-1.5 text-[9px] text-accent-text">{state.webhooks.length}</span>}</button>}
-            {shownSection === "webhooks"
-              ? <button type="button" disabled={visibleBots.length === 0} onClick={() => setWebhookCreateRequest((request) => request + 1)} className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-ink hover:brightness-110 disabled:opacity-40"><Plus size={15} aria-hidden="true" />{t("routines.newWebhook")}</button>
-              : <button type="button" onClick={createRoutine} className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-ink hover:brightness-110"><Plus size={15} aria-hidden="true" />{t("routines.newRoutine")}</button>}
+            <button type="button" onClick={createRoutine} className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[12px] font-semibold text-accent-ink hover:brightness-110"><Plus size={15} aria-hidden="true" />{t("routines.newRoutine")}</button>
           </div>
         </div>
-        {shownSection !== "webhooks" && <div className="mt-2 flex flex-wrap items-center gap-2" style={windowNoDragStyle}>
+        <div className="mt-2 flex flex-wrap items-center gap-2" style={windowNoDragStyle}>
           {unseenFailures > 0 && <button type="button" onClick={() => dispatch({ type: "markAllRoutineRunsSeen" })} className="flex items-center gap-1.5 rounded-lg border border-hairline/50 bg-panel px-2.5 py-1.5 text-[11.5px] text-ink-secondary hover:bg-raised hover:text-ink" title={t("routines.markAllSeen")} aria-label={t("routines.markAllSeen")}><CheckCheck size={12} />{t("routines.markAllSeen")}</button>}
           {running > 0 && <span className="flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-1.5 text-[10.5px] text-accent-text"><Loader2 size={11} className="animate-spin" />{running} active</span>}
           {unseenFailures > 0 && <button type="button" onClick={() => dispatch({ type: "showRoutines", section: "logs", runStatus: "problems" })} className="flex items-center gap-1.5 rounded-full bg-danger/10 px-2.5 py-1.5 text-[10.5px] text-danger" title="Open problem run logs" aria-label="Open problem run logs"><CircleAlert size={11} />{unseenFailures}</button>}
@@ -2032,13 +1987,13 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
           {error && <button type="button" onClick={() => setError("")} className="flex items-center gap-1.5 rounded-lg bg-danger/10 px-2.5 py-1.5 text-[10.5px] text-danger"><CircleAlert size={11} />{error}<X size={11} /></button>}
           {datedView && state.routinesLoadState === "error" && <p role="alert" className="w-full text-[11.5px] text-danger">{t("routines.loadError")}</p>}
           {datedView && state.routinesLoadState === "loading" && state.routines.length === 0 && <p role="status" className="w-full text-[11.5px] text-ink-secondary">{t("routines.loading")}</p>}
-        </div>}
+        </div>
       </header>
       <RoutineWakeBar />
 
       <div className="@container/routines relative flex min-h-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {shownSection === "webhooks" ? <WebhooksPanel bots={visibleBots} createRequest={webhookCreateRequest} onCreateHandled={handleWebhookCreateHandled} /> : shownSection === "logs" ? (
+          {shownSection === "logs" ? (
             <div className="min-h-0 flex-1 overflow-y-auto"><RoutineLogs runs={filteredRuns} bots={state.bots} loading={state.routinesLoadState === "loading" && filteredRuns.length === 0} error={state.routinesLoadState === "error"} routineId={routineFilter} status={statusFilter} onStatusChange={setStatusFilter} onClearRoutine={() => setRoutineFilter(undefined)} onOpen={openRun} /></div>
           ) : layout === "list" ? (
             <div className="min-h-0 flex-1 overflow-y-auto"><div className="mx-auto w-full max-w-4xl space-y-5 p-4 sm:p-6">

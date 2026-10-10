@@ -107,7 +107,7 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
   install: {
     docsUrl: "https://openrouter.ai/keys",
     settings: "connections",
-    signInCommand: "Save an OpenAI-compatible API key in Settings → API keys, or set OPENAI_COMPAT_API_KEY on the server.",
+    signInCommand: "Save an OpenAI-compatible API key in the model picker, or set OPENAI_COMPAT_API_KEY on the server.",
   },
   decodeConfig,
   defaultConfig: () => decodeConfig({}),
@@ -125,10 +125,8 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
       process.env[config.apiKeyEnv] ??
       (ownKeyVariable ? undefined : process.env[DEFAULT_KEY_ENV]) ??
       "";
-    // The default key and the built-in providers' keys are saved in
-    // Settings → API keys; any other variable is configured where it was written.
     const missingKey = !ownKeyVariable || OWN_KEY_ENVS.has(config.apiKeyEnv)
-      ? "No API key — open Settings → API keys."
+      ? "No API key — add one in the model picker."
       : `no API key — set ${config.apiKeyEnv} or add it to the instance config`;
     const seeded = config.catalog === "openai" ? OPENAI_MODELS : DEFAULT_MODELS;
     let catalog: ModelCatalog = config.managedModels

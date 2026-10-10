@@ -19,6 +19,7 @@
 // notifications today, and closed-app APNs delivery once a relay exists.
 
 import type { Notification, NotifyKind } from "../shared/notification.ts";
+import { markdownPreview } from "../shared/markdown-preview.ts";
 
 // The notification wire shape lives in shared/notification.ts now (part of
 // the wire model); re-exported here so existing importers keep working.
@@ -87,7 +88,7 @@ export function buildNotification(
   // you — that is the choice you made, and the chat still shows the card.
   if (bot.notifications === false) return null;
 
-  const body = summarize(detail);
+  const body = summarize(kind === "done" ? markdownPreview(detail) : detail);
   // A bot working in a room is not "Scout" to whoever reads the banner — it
   // is Scout, in that room. Name the room or the notification reads as if it
   // came from the 1:1 thread it will not open.

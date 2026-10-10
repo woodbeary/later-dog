@@ -47,13 +47,13 @@ built from the same pieces the supervisor already proved. Boat stays available a
   few dollars a month; asleep it uses no compute (what snapshot storage costs is not checked yet). The budget page
   (`docs/laterdog/cloudflare.md`) gets a row per dog.
 - **Where it plugs in:** a new computer kind next to `vps` and `boat` (server driver + `Where <dog> works` option), so
-  approvals, the Computer/Browser/Files tabs and the "This PC — not ready" reasoning all apply unchanged.
+  approvals, the Computer panel and the "This PC — not ready" reasoning all apply unchanged.
 
 ## Order of work
 
 1. A single-dog prototype: image, Worker + Durable Object, exec/screenshot/input, noVNC view, sleep and wake from
    snapshots. In progress since 2026-10-08.
-2. The computer kind in the app, with approvals and the Computer tab, behind a setting.
+2. The computer kind in the app, with approvals and the Computer panel, behind a setting.
 3. Many dogs: one Durable Object per dog id, a per-dog budget line, and an idle reaper.
 4. Later: the coordinator dog itself moves into the cloud (roadmap item 2), so routines and packs keep working with every
    Mac closed — the Grok Bot shape, on infrastructure the operator owns.

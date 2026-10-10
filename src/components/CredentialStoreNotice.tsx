@@ -1,9 +1,3 @@
-// Saved sign-ins did not unlock: macOS asked at launch and the answer was
-// Deny, or the keychain could not be read. One small card, bottom-left like
-// the update popup, saying what to do (quit and reopen, then Always Allow);
-// nothing else in the app changes. Only the desktop app's own page learns
-// this (electron/capabilities.cjs credentialStore); a browser and a remote
-// server's page never see it.
 import { useState } from "react";
 import { KeyRound, RefreshCw, X } from "lucide-react";
 import { brand } from "@/lib/brand";

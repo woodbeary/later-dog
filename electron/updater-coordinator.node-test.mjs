@@ -75,6 +75,34 @@ test("manual check rejection is handled as a user-visible error", async () => {
   assert.deepEqual(getState(), { status: "error", message: "feed failed" });
 });
 
+test("a feed with nothing published yet is no failure, even on the person's own check", async () => {
+  const { updater, coordinator, getState } = harness();
+  updater.checkForUpdates = () => Promise.reject(Object.assign(new Error("Cannot find latest-mac.yml in the latest release artifacts: HttpError: 404"), { code: "ERR_UPDATER_CHANNEL_FILE_NOT_FOUND" }));
+
+  await assert.doesNotReject(coordinator.check(true));
+
+  assert.deepEqual(getState(), { status: "idle" });
+});
+
+test("an update's release notes travel with it from the check to the restart", async () => {
+  const h = harness();
+  h.updater.checkForUpdates = async () => {
+    h.updater.emit("checking-for-update");
+    h.updater.emit("update-available", { version: "2.0.0", releaseNotes: "### Fixes\n- Pictures show right away." });
+  };
+  h.updater.downloadUpdate = () => {
+    h.updater.emit("update-downloaded", { version: "2.0.0" });
+    return Promise.resolve(["/tmp/later.dog-2.0.0.zip"]);
+  };
+
+  await h.coordinator.check();
+  await settle();
+
+  assert.equal(h.getState().status, "downloaded");
+  assert.equal(h.getState().notes, "### Fixes\n- Pictures show right away.");
+  assert.equal(h.states.find((entry) => entry.status === "downloading").notes, "### Fixes\n- Pictures show right away.");
+});
+
 test("synchronous check and download throws are handled", async () => {
   const h = harness();
   h.updater.checkForUpdates = () => {
@@ -158,11 +186,11 @@ test("download reports downloading before the first progress event", async () =>
   updater.downloadUpdate = () => pending.promise;
 
   await found({ updater, coordinator });
-  assert.deepEqual(getState(), { status: "downloading", version: "2.0.0", percent: undefined, message: undefined });
+  assert.deepEqual(getState(), { status: "downloading", version: "2.0.0", notes: undefined, percent: undefined, message: undefined });
   assert.equal(states.find((entry) => entry.status !== "checking").status, "downloading");
 
   updater.emit("download-progress", { percent: 12 });
-  assert.deepEqual(getState(), { status: "downloading", version: "2.0.0", percent: 12, message: undefined });
+  assert.deepEqual(getState(), { status: "downloading", version: "2.0.0", notes: undefined, percent: 12, message: undefined });
 
   pending.resolve();
   await settle();
@@ -282,7 +310,7 @@ test("an active download state survives a later background check failure", async
     return downloadPending.promise;
   };
   await found(h);
-  const downloading = { status: "downloading", version: "2.0.0", percent: 42, message: undefined };
+  const downloading = { status: "downloading", version: "2.0.0", notes: undefined, percent: 42, message: undefined };
   assert.deepEqual(h.getState(), downloading);
 
   h.updater.checkForUpdates = () => {
@@ -315,7 +343,7 @@ test("a download error remains authoritative after a later background failure", 
   const downloadError = new Error("download failed first");
   downloadPending.reject(downloadError);
   await settle();
-  const failed = { status: "error", version: "2.0.0", percent: 75, message: "download failed first" };
+  const failed = { status: "error", version: "2.0.0", notes: undefined, percent: 75, message: "download failed first" };
   assert.deepEqual(h.getState(), failed);
 
   h.updater.emit("checking-for-update");
@@ -347,7 +375,7 @@ test("a background failure stays silent before a later download failure only the
   const background = h.coordinator.check();
   checkPending.reject(new Error("background check failed first"));
   await background;
-  assert.deepEqual(h.getState(), { status: "downloading", version: "2.1.0", percent: 18, message: undefined });
+  assert.deepEqual(h.getState(), { status: "downloading", version: "2.1.0", notes: undefined, percent: 18, message: undefined });
   assert.equal(errorStates(h.states).length, 0);
 
   downloadPending.reject(Object.assign(new Error("write failed"), { code: "ENOSPC" }));
@@ -380,12 +408,12 @@ test("an update a check finds downloads without a click; only the restart waits 
 
     await found.coordinator.check(manual);
     assert.equal(downloads, 1, "the check itself started the download");
-    assert.deepEqual(found.getState(), { status: "downloading", version: "2.0.0", percent: 42, message: undefined });
+    assert.deepEqual(found.getState(), { status: "downloading", version: "2.0.0", notes: undefined, percent: 42, message: undefined });
     assert.equal(found.states.some((entry) => entry.status === "available"), false, "no state waits for a Download click");
 
     transfer.resolve();
     await settle();
-    assert.deepEqual(found.getState(), { status: "downloaded", version: "2.0.0", percent: 42, message: undefined });
+    assert.deepEqual(found.getState(), { status: "downloaded", version: "2.0.0", notes: undefined, percent: 42, message: undefined });
   }
 
   const notAvailable = harness();

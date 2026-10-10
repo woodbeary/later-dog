@@ -24,6 +24,7 @@ import { updateMcpServers } from "@/lib/mcp-servers";
 import { completeMcpSignIn, mcpSignInLink, runMcpSignIn, type McpSignInStatus } from "@/lib/mcp-sign-in";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 
+import { AddServerToBots } from "./AddServerToBots";
 import { BrandIcon } from "./BrandIcon";
 import { Switch } from "./SettingsPrimitives";
 import { WhopIcon } from "./WhopIcon";
@@ -233,7 +234,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, hideWhop =
   refreshKey?: number;
   onWhopConnection?: (connected: boolean) => void;
 } = {}) {
-  const { state: store, dispatch } = useStore();
+  const { state: store } = useStore();
   // While enrolled with custom servers off, only approved servers can be added.
   const policy = store.config?.managedPolicy;
   const restricted = Boolean(policy && !policy.mcp.allowCustom);
@@ -633,7 +634,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, hideWhop =
         <summary className="cursor-pointer">{t("whop.access")}</summary>
         <p className="mt-2 leading-relaxed">{t("whop.notice")}</p>
         <p className="mt-2 leading-relaxed">{t("whop.accessHint")}</p>
-        <div className="mt-2 flex flex-wrap gap-2">{(store.bots ?? []).filter((bot) => !bot.hidden).map((bot) => <button key={bot.id} type="button" onClick={() => { dispatch({ type: "togglePlugins", open: false }); dispatch({ type: "toggleSettings", open: true, section: "access", botId: bot.id }); }} className="rounded-lg bg-control px-2.5 py-1.5 text-ink hover:bg-raised-hover">{t("whop.botSettings", { name: bot.name })}</button>)}</div>
+        {whopServer && <AddServerToBots server={whopServer.name} className="mt-2 leading-relaxed" />}
       </details>
     </div>;
   }
@@ -995,7 +996,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, hideWhop =
                     <details className="mt-2">
                       <summary className="cursor-pointer font-medium text-ink">{t("whop.access")}</summary>
                       <p className="mt-2">{t("whop.accessHint")}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">{(store.bots ?? []).filter((bot) => !bot.hidden).map((bot) => <button key={bot.id} type="button" onClick={() => { dispatch({ type: "togglePlugins", open: false }); dispatch({ type: "toggleSettings", open: true, section: "access", botId: bot.id }); }} className="rounded-lg bg-control px-2.5 py-1.5 text-ink hover:bg-raised-hover">{t("whop.botSettings", { name: bot.name })}</button>)}</div>
+                      <AddServerToBots server={server.name} className="mt-2" />
                     </details>
                   </div>}
                   {renderSignIn(server)}

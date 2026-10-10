@@ -116,7 +116,7 @@ import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
 import { isEffortLevel, type BotVisibility, type CardAnswerer, type ResolvedSender, type SteerQueueReason, type WireBot, type WireGroup, type WireTask } from "../shared/wire.ts";
-import { isPersistentQuestionCard, QUESTION_DISMISS_MESSAGE, shouldSettleRequestCard } from "../shared/ask-question.ts";
+import { isPersistentQuestionCard, shouldSettleRequestCard } from "../shared/ask-question.ts";
 import { parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import type { TeamComputersPayload } from "../shared/team-computer.ts";
 import { boatCreateRecoverySnapshot, retireDeletedBoatCreate } from "./boat-create-idempotency.ts";
@@ -233,7 +233,6 @@ import {
 } from "./contracts.ts";
 import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 import { recoveryCapabilityError } from "./automatic-recovery.ts";
-import { decodeGeneratedImage } from "./generated-image.ts";
 import {
   addDisabledMcpServer,
   MAX_MCP_SERVERS,
@@ -635,15 +634,26 @@ import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { DOG_CREATION_REFUSAL, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
+import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, backNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, MAX_BATTERY_RERUNS, backNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
+import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
+import { continueOnAccount } from "./laterdog/continue-on-account.ts";
+import { LimitHold } from "./laterdog/limit-hold.ts";
+import { latestTurnAnswer, postTurnImage } from "./laterdog/turn-images.ts";
+import { steerWords } from "./laterdog/steer-images.ts";
+import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts";
+import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
+import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
 import { createThreadModelRoutes } from "./routes/thread-models.ts";
+import { createContinueOnRoutes } from "./routes/continue-on.ts";
+import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
 import { localDesktopTarget, localVmViewerStatus, viewerTargetId } from "./desktop-viewer-targets.ts";
@@ -866,9 +876,6 @@ const supportsApprovalMode = createApprovalModeSupport(registry);
 // any other copy on PATH.
 registerEnginesBinDir();
 
-// later.dog token battery (server/laterdog/account-battery.ts): with it on,
-// a turn runs on the first of the person's subscription accounts, in their
-// order, that is not out of usage; this file only routes and re-runs.
 const accountBattery = new AccountBattery({
   config: () => cfg.accountBattery,
   file: join(DATA_DIR, "account-battery.json"),
@@ -898,12 +905,23 @@ function batteryAccounts(): BatteryAccount[] {
     };
   });
 }
-/** `bot` as its next turn runs it: on the account the battery picks. */
-function onBatteryAccount<T extends BotRecord | null | undefined>(bot: T): T {
-  if (!bot || !accountBattery.enabled) return bot;
-  const modelSelection = accountBattery.route(bot.modelSelection, batteryAccounts());
+function onBatteryAccount<T extends BotRecord | null | undefined>(bot: T, threadId?: string): T {
+  if (!bot || !accountBattery.routes(threadId)) return bot;
+  const modelSelection = accountBattery.route(bot.modelSelection, batteryAccounts(), threadId);
   return modelSelection === bot.modelSelection ? bot : { ...bot, modelSelection };
 }
+const limitHold = new LimitHold({
+  readyAt: (threadId) => {
+    const owner = store.botByThread(threadId);
+    const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+    return selection ? accountBattery.readyAt(selection, batteryAccounts(), threadId) : undefined;
+  },
+  wake: (threadId) => {
+    drainQueuedSends();
+    pickUpAfterReset(threadId);
+  },
+  onChange: () => broadcast({ kind: "config", ...configStatus() }),
+});
 
 // Who asked for the turn running (or last run) on each thread, read by the
 // usage ledger when it settles. It is set when a turn is ADMITTED, from the
@@ -2940,6 +2958,16 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
   if (directTurnGenerationByThread.get(threadId) === generation) closeOpenApprovals(threadId);
 }
 
+async function stopThreadTurn(botId: string, threadId: string): Promise<void> {
+  const routine = routines!.activeBotRunForBot(botId);
+  if (routine?.threadId === threadId) {
+    await routines!.cancelRun(routine.id);
+    return;
+  }
+  handoffs.stoppedByPerson(threadId);
+  await interruptDirectThread(botId, threadId);
+}
+
 /** Stop left teammates mid-turn: say so in the transcript, name them, and
  * give the person the second gesture. One pill each, like the "Sent to"
  * receipt, so it survives Tool calls being hidden and one click away is the
@@ -2970,7 +2998,7 @@ async function interruptAllDirectThreads(botId: string): Promise<void> {
 const retiredProviderTurns = new RetiredTurnRegistry();
 const pendingCancelledProviderHandshakes = new PendingTurnCancellations();
 // One parking lot for provider output staged mid-turn and attached when the
-// turn settles: generated images since the beginning, voice notes since #1742.
+// turn settles: voice notes since #1742.
 // Audio entries carry their transcript until the message they land on; the
 // wire attachment itself has no text field.
 type ParkedTurnAttachment = NonNullable<Message["attachments"]>[number] & { text?: string };
@@ -3002,7 +3030,7 @@ function clearCancelledProviderHandshake(threadId: string, ownerId: string): voi
 function retireProviderTurn(turnId: string): void {
   retiredProviderTurns.retire(turnId);
   // A stopped/replaced turn is never folded again. Delete only staged files
-  // (images, voice notes) that were parked for that exact provider turn so
+  // (voice notes) that were parked for that exact provider turn so
   // unattached output does not accumulate invisibly on disk.
   for (const [key, attachments] of turnAttachmentsByTurn) {
     if (!key.endsWith(`:${turnId}`)) continue;
@@ -3423,6 +3451,13 @@ function retryComputerEngineMove(): Promise<void> {
     .finally(() => { computerEngineMoveRunning = null; });
   return computerEngineMoveRunning;
 }
+const giveFirstEngine = firstEngine({
+  bots: () => store.bots,
+  pick: () => hostedModels ? Promise.resolve({ instanceId: "", model: "" }) : defaultSelection(),
+  assign: (botId, selection) => {
+    store.patchBot(botId, { modelSelection: withNewBotEffort(selection, cfg.newBots?.effort, registry.get(selection.instanceId)?.adapter.capabilities.effortLevels) });
+  },
+});
 
 function checkedModelSelection(
   raw: unknown,
@@ -3504,9 +3539,7 @@ function checkedModelSelection(
 function checkedTaskModelSwitch(current: BotRecord, raw: unknown, updateBotDefault: boolean,
   resetApprovalToAsk: boolean, requireAvailableModel = false, trusted = false) {
   if (current.approvalGrant) return { ok: false as const, status: 409, error: "Wait for the approval change to finish before switching models" };
-  const checked = checkedModelSelection(raw, {
-    selection: current.modelSelection, busy: threadBusy(current.id, current.threadId),
-  }, requireAvailableModel);
+  const checked = checkedModelSelection(raw, undefined, requireAvailableModel);
   if (!checked.ok) return checked;
   const profile = store.bot(current.id)!;
   if (updateBotDefault) {
@@ -7364,6 +7397,38 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
   });
 }
 
+function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | undefined {
+  const owner = store.botByThread(threadId);
+  const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+  if (!owner || !selection || directRequestOwners.get(threadId)?.stopped) return undefined;
+  return {
+    botId: owner.id, battery: accountBattery, accounts: batteryAccounts(), threadId, selection,
+    generation: directTurnGenerationByThread.get(threadId), path: store.activePath(threadId),
+  };
+}
+
+function pickUpAfterReset(threadId: string): void {
+  const input = carryOnInput(threadId);
+  if (!input || threadBusy(input.botId, threadId) || hasQueuedSteeredMessages(input.botId, threadId)) return;
+  const outcome = carryOnAfterReset({
+    ...input,
+    full: botAtThreadCapacity(input.botId) || Boolean(activeGroupTurnForBot(input.botId)) || parksBehindCoordination(input.botId, threadId),
+    write: (tool, replaceId) => {
+      if (!store.botByThread(threadId)) return;
+      if (replaceId) store.patchMessage(threadId, replaceId, { tool });
+      else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
+    },
+  });
+  if (outcome === "full") limitHold.retry(threadId);
+}
+
+function carryOnWaiting(): Record<string, string> {
+  return Object.fromEntries(Object.entries(limitHold.waiting()).filter(([threadId]) => {
+    const input = carryOnInput(threadId);
+    return input !== undefined && carriesOn(input);
+  }));
+}
+
 /** The engine that dispatched each live turn. A bot's settings may change
  * mid-turn; an interrupt or steer must reach the engine actually running. */
 const runningTurnEngines = new Map<string, NonNullable<ReturnType<typeof registry.get>>>();
@@ -7713,12 +7778,7 @@ bus.subscribe((event: RuntimeEvent) => {
         lastReply.set(event.threadId, text);
       } else if (event.itemType === "assistant_image") {
         try {
-          const decoded = decodeGeneratedImage(event.data);
-          const saved = saveImage(decoded.bytes, decoded.mime);
-          const key = turnAttachmentKey(event.threadId, event.turnId);
-          const current = turnAttachmentsByTurn.get(key) ?? [];
-          current.push({ kind: "image", path: saved.path, mime: saved.mime });
-          turnAttachmentsByTurn.set(key, current);
+          postTurnImage(event.data, event.turnId, pushMessage);
         } catch (error) {
           pushMessage({
             role: "bot",
@@ -8001,7 +8061,7 @@ bus.subscribe((event: RuntimeEvent) => {
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: failedTurnTool(event.message, event),
+        tool: failedTurnTool(event.message, { ...event, quota: event.quota && { ...event.quota, instanceId: event.providerInstanceId } }),
       });
       // a setup error means the engine could not even start: the bot is
       // dead until something changes, not merely idle. The next successful
@@ -8031,7 +8091,6 @@ bus.subscribe((event: RuntimeEvent) => {
       // A turn that never completed never lands its half-said note: parked
       // audio is deleted when the settle is not ok (person stop, provider
       // failure) rather than posted as if the turn finished (#1742).
-      // Generated images keep their long-standing settle-anyway behavior.
       for (const attachment of generated) {
         if (event.ok || attachment.kind !== "audio") continue;
         deleteAttachment(attachment.path);
@@ -8040,12 +8099,7 @@ bus.subscribe((event: RuntimeEvent) => {
         ? generated
         : generated.filter((attachment) => attachment.kind !== "audio");
       if (settled.length) {
-        const response = [...store.messagesFor(event.threadId)].reverse().find(
-          (message) =>
-            message.role === "bot" &&
-            message.kind === "text" &&
-            message.turnId === completedTurnId,
-        );
+        const response = latestTurnAnswer(store.messagesFor(event.threadId), completedTurnId);
         // A voice note's text is its transcript: the visible caption search,
         // compaction and notifications read (#1740 decision 3).
         const transcript = settled
@@ -8110,6 +8164,7 @@ bus.subscribe((event: RuntimeEvent) => {
         threadId: event.threadId, generation: directTurnGenerationByThread.get(event.threadId), stopReason: event.stopReason,
         ranOn: event.providerInstanceId, selection: store.projectBotForTask(bot.id, event.threadId)?.modelSelection, accounts: batteryAccounts(),
       }) : null;
+      if (bot && event.stopReason === "usage_limit" && !nextAccount) limitHold.hold(event.threadId);
       if (!event.ok && event.stopReason !== "interrupted" && !lazyClaimAlreadyReported && !computerParked && !nextAccount && !routines?.runForThread(event.threadId)) {
         const broken = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
         if (broken) reportIncident({ kind: "failed", bot: broken, threadId: event.threadId, detail: event.stopReason?.trim() || "the run ended without a result" });
@@ -9068,7 +9123,7 @@ function drainQueuedSends() {
     // Provider completion can precede its dispatch promise: keep the queue
     // intact until that exact handshake releases its runtime-only claim.
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId),
+      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId),
   );
   // Asides always drain after person follow-ups (see drainAsideLane): the
   // steer drain above can make a thread busy again, deferring its asides
@@ -9127,12 +9182,13 @@ function drainAsideLane() {
 /** Keep a person's words off the transcript until a direct-thread slot is
  * available. Reuse the existing cancellable, idempotent composer queue. */
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "call") {
+  const behindHeld = limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId);
   const decision = admit("direct", {}, {
     // A room turn holds the bot exactly like the sibling opened-thread queue
     // below: the drain's own block check waits it out, so the words queue
     // here rather than bounce off startTurn's 409.
     atCapacity: botAtThreadCapacity(botId),
-    threadBusy: threadBusy(botId, threadId),
+    threadBusy: threadBusy(botId, threadId) || behindHeld,
     groupTurn: Boolean(activeGroupTurnForBot(botId)),
     parksBehindCoordination: parksBehindCoordination(botId, threadId),
   });
@@ -9146,6 +9202,10 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
       trigger,
       via,
     });
+    if (behindHeld) {
+      limitHold.release(threadId);
+      queueMicrotask(drainQueuedSends);
+    }
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: decision.reason };
   }
   const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender, trigger, via });
@@ -9203,10 +9263,11 @@ async function acceptDirectSend(
     /** A person is proven present (a paired session, or the desktop's owner
      * capability): steering their words in clears the unattended mark. */
     personPresent: boolean;
+    deliver?: SendDelivery;
   },
   guardedStart?: (currentAtStart: BotRecord) => Promise<DirectSendReceipt>,
 ): Promise<DirectSendReceipt> {
-  const { botId, threadId, text, sendId, replyTo, sender, trigger, via, personPresent } = input;
+  const { botId, threadId, text, sendId, replyTo, sender, trigger, via, personPresent, deliver } = input;
   const refused = directSendRefusal(botId, threadId);
   if (refused) throw refused;
   return sendSequencer.run(
@@ -9254,21 +9315,21 @@ async function acceptDirectSend(
       if (currentAtStart.busy) {
         const instance = runningTurnInstance(currentAtStart, threadId);
         let steered: SteerOutcome = "refused";
-        // A live text steer has no image side channel. Keep an attachment
-        // message intact for the next ordinary turn, where central image
-        // admission can hand it to the provider natively.
         const carriesImages = extractTurnImages(text).images.length > 0;
         const steerTarget = handoffs.current(threadId);
         const busyAdmission = admit("direct-busy", {
+          waitsForTurn: waitsForTurn(deliver),
           carriesImages,
           pendingComputerSelection: Boolean(computerSelectionTurns.get(threadId)?.selected),
           engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
+          engineSteersImages: instance?.adapter.capabilities.steerImages === true,
         });
         // steer was offered only when a live instance could take it;
         // the second check carries that fact to the type system.
         if (busyAdmission.action === "steer" && instance?.adapter.steer) {
+          const words = steerWords(promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"));
           steered = await instance.adapter
-            .steer(threadId, promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"))
+            .steer(threadId, words.text, words.images)
             .catch((): SteerOutcome => "indeterminate");
         }
         // steer() is awaited adapter work. The turn can settle, the task can
@@ -9322,6 +9383,9 @@ async function acceptDirectSend(
           trigger,
           via,
         });
+        if (deliver === "stop") {
+          void stopThreadTurn(current.id, threadId).catch((error) => console.warn("stop and send: the running turn did not stop", error));
+        }
         return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
       }
       return startOrQueueDirectMessage(botId, threadId, text, replyTo, sendId, sender, trigger, via);
@@ -9693,9 +9757,7 @@ async function startTurn(
     compactOnly?: boolean;
     /** Harness-only: never follow a backup failure with another attempt. */
     automaticRecoveryAttempted?: boolean;
-    /** Harness-only: this turn is the token battery's one run on the next
-     * account after the last one ran out of usage; it never runs again. */
-    accountBatteryAttempted?: boolean;
+    accountBatteryReruns?: number;
     /** Cursor into this bot's ordered startup-only backups. */
     automaticRecoveryIndex?: number;
     /** Queue receipts outlive the dispatch acknowledgment until this exact turn settles. */
@@ -9704,6 +9766,7 @@ async function startTurn(
   },
 ) {
   workspaceMaintenance.assertAvailable();
+  if (store.bots.some((candidate) => candidate.id === botId && hasNoModel(candidate))) await giveFirstEngine();
   const profile = store.bot(botId);
   if (!profile) throw Object.assign(new Error("no such bot"), { status: 404 });
   const threadId = opts?.threadId ?? profile.threadId;
@@ -9722,9 +9785,7 @@ async function startTurn(
   }
   // A thread whose own model can't run runs on its bot's from now on.
   healThreadModel(botId, threadId);
-  // With the token battery on, on the first account in the person's order
-  // that is not out of usage. Never saved: the thread keeps its own model.
-  const bot = onBatteryAccount(store.projectBotForTask(botId, threadId));
+  const bot = onBatteryAccount(store.projectBotForTask(botId, threadId), threadId);
   if (!bot) throw Object.assign(new Error("no such task"), { status: 404 });
   // Routines and legacy peer delivery already have their own completion
   // owners. Only ordinary chats opt into this scheduler; its child turns
@@ -9924,19 +9985,16 @@ async function startTurn(
   directFollowupSettlers.set(dispatchClaimId, { threadId, settle: opts?.onTurnSettled });
   directTurnDispatchClaims.set(threadId, { id: dispatchClaimId, botId, threadId, phase: "setup" });
   directTurnBots.set(threadId, bot);
-  // later.dog token battery: say so when this conversation is back on an
-  // account it left for lack of usage, and keep what one run on the next
-  // account needs should this turn run out (continueOnNextAccount). A backup
-  // run, a routine run and coordinated or delegated work never run twice.
+  limitHold.release(threadId);
   if (!opts?.compactOnly && accountBattery.takeBack(threadId, instanceId)) {
     store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `notice: ${backNotice(instance.displayName || instance.driverKind)}`, ok: true } });
   }
   {
     const asked = userMessage;
     const request = opts?.cardContinuation ? opts.requestMessageId : asked.id;
-    const once = opts?.accountBatteryAttempted || opts?.compactOnly || opts?.automationSource || continuingRoutine || opts?.coordination || commsDepth > 0 || !request;
+    const once = (opts?.accountBatteryReruns ?? 0) >= MAX_BATTERY_RERUNS || opts?.compactOnly || opts?.automationSource || continuingRoutine || opts?.coordination || commsDepth > 0 || !request;
     accountBattery.trackTurn(threadId, { generation: dispatchClaimId, instanceId, requestMessageId: request, ...(once ? {} : {
-      rerun: (continuation: string | null) => startTurn(bot.id, continuation ?? text, { ...opts, threadId, editedMessageId: undefined, accountBatteryAttempted: true,
+      rerun: (continuation: string | null) => startTurn(bot.id, continuation ?? text, { ...opts, threadId, editedMessageId: undefined, accountBatteryReruns: (opts?.accountBatteryReruns ?? 0) + 1,
         // A continuation is control-plane words, not the person's: it rides a
         // card continuation of the same request, with the whole branch replayed.
         ...(continuation
@@ -10350,7 +10408,7 @@ async function startTurn(
         }
         if (!localVm.ready || !localVm.runtime) {
           dropLease();
-          throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (App Settings → Computers)`);
+          throw new Error(`${localVm.problem ?? "the Local VM is not ready"} (Settings → Computer)`);
         }
         // The readiness walk can wait minutes for the desktop, and the group
         // path re-validates its lease afterwards; the direct path needs the
@@ -10681,10 +10739,10 @@ async function startTurn(
         !computerSelectionTurns.has(threadId)
       ) {
         const hint = opts?.automationSource
-          ? "This scheduled run tried to start the VPS computer and could not reach it. Check the VPS connection in Settings → API keys."
+          ? "This scheduled run tried to start the VPS computer and could not reach it. Check the VPS connection in the Computer panel."
           : bot.autoStartVps
-            ? "Check the VPS connection in Settings → API keys."
-            : "Open Computer and enable Start VPS automatically, or choose Cloud computer to start it manually.";
+            ? "Check the VPS connection in the Computer panel."
+            : "Choose Cloud computer for this dog to start it.";
         throw new Error(`${autoVpsProblem}. ${hint}`);
       }
       // Agent control tools include peer comms and the secure credential
@@ -12664,8 +12722,6 @@ async function runGroupMemberTurn(
     return false;
   }
   const group = store.group(groupId);
-  // With the token battery on, on the first of the person's accounts that
-  // is not out of usage (the same pick again for readyBot below).
   const bot = onBatteryAccount(store.bot(botId));
   const ownsThread = group?.dm
     ? group.threadId === threadId
@@ -15609,8 +15665,7 @@ function configStatus() {
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     mcp: { callTimeoutMinutes: mcpCallTimeoutMinutes(cfg) },
     automaticRecovery: cfg.automaticRecovery ?? { enabled: false },
-    // the token battery: on or off, the order turns use, and who is resting
-    accountBattery: accountBattery.status(batteryAccounts()),
+    accountBattery: { ...accountBattery.status(batteryAccounts()), waiting: carryOnWaiting() },
     // absent effort = no level is sent, so clients can tell it from any level
     newBots: cfg.newBots?.effort ? { effort: cfg.newBots.effort } : {},
     threads: {
@@ -15675,6 +15730,7 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
     vps: { configured: status.vps.configured, sshAlias: "" },
     opencodeGo: { configured: status.opencodeGo.configured, providerKeys: [] },
     profile: { name: status.profile.name, email: "" },
+    accountBattery: { ...status.accountBattery, waiting: {} },
     browserProfiles: status.browserProfiles.map((profile) => Object.fromEntries(Object.entries(profile).filter(([key]) => key !== "partitionId"))),
   };
 }
@@ -15744,6 +15800,7 @@ async function describeInstances() {
   // (an install, a sign-in, a key or a Company engine), so a bot still on the
   // removed Computer engine moves now rather than at the next start.
   void retryComputerEngineMove();
+  void giveFirstEngine();
   return (await registry.describe()).map((instance) => {
     const entry = configs[instance.instanceId];
     const described = {
@@ -16112,6 +16169,20 @@ ROUTES.push(createThreadModelRoutes({
   mayChangeModel: (auth) => !CLOUD_HOME || cloudOwnerSession(auth),
   reply: (botId) => publicBot(store.bot(botId)!),
 }));
+ROUTES.push(createContinueOnRoutes({
+  task: requestedTaskBot,
+  refusal: cloudThreadRefusal,
+  continueOn: ({ id, threadId, modelSelection }, instanceId) => continueOnAccount({
+    battery: accountBattery, accounts: batteryAccounts(), threadId, selection: modelSelection,
+    busy: threadBusy(id, threadId), generation: directTurnGenerationByThread.get(threadId), path: store.activePath(threadId),
+    instanceId,
+    write: (tool, replaceId) => {
+      if (!store.botByThread(threadId)) return;
+      if (replaceId) store.patchMessage(threadId, replaceId, { tool });
+      else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
+    },
+  }),
+}));
 // Undo on the one-line receipt of a change that applied without a person.
 ROUTES.push(createUndoRoutes({
   refusal: (auth, threadId, requestId) => cardAnswerRefusal(auth, threadId, requestId, "allow"),
@@ -16125,6 +16196,10 @@ ROUTES.push(createAntigravityLeftoverRoutes({
 }));
 
 ROUTES.push(desktopViewer.route);
+ROUTES.push(createCloudTrialRoutes({
+  otherComputers: () => boat.otherComputersConfigured(cfg),
+  changed: () => broadcast({ kind: "config", ...configStatus() }),
+}));
 
 // Live calls (GPT-Live as the voice, the bot as the brain). A client holds
 // the WebRTC audio; the harness creates the session with the key (which
@@ -20911,13 +20986,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // burst); Steer folds that whole group into the live turn as one.
       const headGroup = headChannelGroup(held.items);
       const [head] = headGroup;
-      // A live steer has no image side channel — the same rule as the
-      // 1:1 queue: attachment words wait for a real turn where central
-      // admission can hand the images to the engine.
-      if (headGroup.some((item) => extractTurnImages(item.text).images.length > 0)) {
-        restoreHeldChannelQueue(held);
-        return json(res, 200, { ok: true, queued: true, threadId: targetThreadId });
-      }
       const decision = admit("room-steer", {
         speakerPresent: Boolean(speaker),
         engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
@@ -20940,9 +21008,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // or drop its own. A target that cannot be resolved restores the held
       // queue before the request fails, mirroring the helper's contract.
       const speakerName = cfg.profile?.name?.trim() || "User";
-      let foldedPrompt: string;
+      let words: ReturnType<typeof steerWords>;
       try {
-        foldedPrompt = headGroup
+        const foldedPrompt = headGroup
           .map((item, index) =>
             promptWithReply(
               item.text,
@@ -20955,15 +21023,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             ),
           )
           .join("\n\n");
+        words = steerWords(foldedPrompt);
       } catch (error) {
         restoreHeldChannelQueue(held);
         throw error;
+      }
+      if (words.images && !instance?.adapter.capabilities.steerImages) {
+        restoreHeldChannelQueue(held);
+        return json(res, 200, { ok: true, queued: true, threadId: targetThreadId });
       }
       // steer was offered only when a live speaker instance could take it;
       // the check carries that invariant to the type system.
       const steered: SteerOutcome = instance?.adapter.steer
         ? await instance.adapter
-            .steer(targetThreadId, foldedPrompt)
+            .steer(targetThreadId, words.text, words.images)
             .catch((): SteerOutcome => "indeterminate")
         : "refused";
       // The steer was awaited adapter work: re-read every ownership
@@ -21435,11 +21508,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (existing.approvalGrant) {
         return json(res, 409, { error: "wait for the approval-level change to finish before changing models" });
       }
-      const checked = checkedModelSelection(
-        body,
-        { selection: selected.modelSelection, busy: threadBusy(selected.id, selected.threadId) },
-        true,
-      );
+      const checked = checkedModelSelection(body, undefined, true);
       if (!checked.ok) return json(res, checked.status, { error: checked.error });
       if (activeGroupTurnForBot(existing.id)) {
         const groupChecked = checkedModelSelection(checked.selection, { selection: existing.modelSelection, busy: true });
@@ -21570,11 +21639,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       let normalizedSelection: ModelSelection | undefined;
       if (rawSelection !== undefined) {
-        const checked = checkedModelSelection(
-          rawSelection,
-          selectedTask ? { selection: selectedTask.modelSelection, busy: threadBusy(selectedTask.id, selectedTask.threadId) } : undefined,
-          body.requireAvailableModel === true,
-        );
+        const checked = checkedModelSelection(rawSelection, undefined, body.requireAvailableModel === true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         normalizedSelection = checked.selection;
         if (existingBot && activeGroupTurnForBot(existingBot.id)) {
@@ -22063,7 +22128,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (normalizedSelection && selectedTask) {
         const current = store.projectBotForTask(selectedTask.id, selectedTask.threadId);
         if (!current) return json(res, 404, { error: "no such task" });
-        const checked = checkedModelSelection(normalizedSelection, { selection: current.modelSelection, busy: threadBusy(current.id, current.threadId) });
+        const checked = checkedModelSelection(normalizedSelection);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         if (freshBrowserBot && activeGroupTurnForBot(freshBrowserBot.id)) {
           const groupChecked = checkedModelSelection(normalizedSelection, { selection: freshBrowserBot.modelSelection, busy: true });
@@ -22646,6 +22711,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const sendId = parseSendId(body.sendId);
       const replyTo = resolveReplyTarget(threadId, body.replyToId);
       const sender = messageSender(auth);
+      const deliver = z.enum(SEND_DELIVERIES).optional().safeParse(body.deliver);
+      if (!deliver.success) return json(res, 400, { error: "deliver must be steer, queue or stop" });
       const guardedStart = guarded
         ? async (currentAtStart: BotRecord): Promise<DirectSendReceipt> => {
             // There is no await between these checks and startTurn's
@@ -22687,6 +22754,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // owner capability, which every mutation there has already shown)
           // clears the mark.
           personPresent: auth.kind === "session" || DESKTOP_MANAGED,
+          deliver: deliver.data,
         }, guardedStart);
         return json(res, 202, receipt);
       } catch (error) {
@@ -22722,20 +22790,25 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // turn — never both for the same words.
       const held = holdSteeredQueue(bot.id, bot.threadId, m[2]);
       if (!held) return json(res, 404, { error: "no such queued message" });
-      // A live steer has no image side channel. Attachment words wait for a
-      // real turn where central admission can hand the images to the engine.
-      if (held.items.some((item) => extractTurnImages(item.text).images.length > 0)) {
-        restoreHeldSteeredQueue(held);
-        return json(res, 200, { ok: true, queued: true, threadId: bot.threadId });
-      }
       const currentAtStart = store.projectBotForTask(bot.id, bot.threadId);
       const instance = currentAtStart?.busy ? runningTurnInstance(currentAtStart, bot.threadId) : undefined;
-      const prompt = held.items.map((item) => item.prompt).join("\n\n");
+      let words: ReturnType<typeof steerWords>;
+      try {
+        words = steerWords(held.items.map((item) => item.prompt).join("\n\n"));
+      } catch (error) {
+        restoreHeldSteeredQueue(held);
+        throw error;
+      }
       const steerTarget = handoffs.current(bot.threadId);
       let steered: SteerOutcome = "refused";
-      if (currentAtStart?.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer) {
+      if (
+        currentAtStart?.busy &&
+        instance?.adapter.capabilities.queueing &&
+        instance.adapter.steer &&
+        (!words.images || instance.adapter.capabilities.steerImages)
+      ) {
         steered = await instance.adapter
-          .steer(bot.threadId, prompt)
+          .steer(bot.threadId, words.text, words.images)
           .catch((): SteerOutcome => "indeterminate");
       }
       // The steer was awaited adapter work: re-read every ownership
@@ -22933,13 +23006,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const requestId = String(body.requestId);
         const pending = store.messagesFor(bot.threadId).find((message) => message.card?.requestId === requestId);
-        if (isPersistentQuestionCard(pending?.card) && (body.dismiss === true || body.message === QUESTION_DISMISS_MESSAGE)) {
-          if (!pending?.card) return json(res, 404, { error: "this question is no longer available" });
-          if (pending.card.answered !== "answer" || pending.card.dismissed) {
-            return json(res, 409, { error: "answer this question before dismissing it" });
-          }
-          store.patchMessage(bot.threadId, pending.id, { card: { ...pending.card, dismissed: true } });
-          return json(res, 200, { ok: true, dismissed: true });
+        if (pending?.card && asksToCloseQuestion(pending.card, body)) {
+          const closed = await closeQuestion(pending.card, {
+            answer: (message) => answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, "answer", message, { id: bot.id, name: bot.name }),
+            current: () => store.messagesFor(bot.threadId).find((message) => message.id === pending.id)?.card,
+            save: (card) => store.patchMessage(bot.threadId, pending.id, { card }),
+          });
+          return json(res, closed.status, closed.body);
         }
         const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name }, body.always === true, body.rememberCommand === true);
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
@@ -23060,14 +23133,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // answerRequest closes an unreachable card, and a pending approval owns
         // the composer, so a dead end here locks the room for good.
         const pending = store.messagesFor(threadId).find((message) => message.card?.requestId === requestId);
-        if (isPersistentQuestionCard(pending?.card) && (body.dismiss === true || body.message === QUESTION_DISMISS_MESSAGE)) {
-          if (!pending?.card) return json(res, 404, { error: "this question is no longer available" });
-          if (pending.card.answered !== "answer" || pending.card.dismissed) {
-            return json(res, 409, { error: "answer this question before dismissing it" });
-          }
-          store.patchMessage(threadId, pending.id, { card: { ...pending.card, dismissed: true } });
-          return json(res, 200, { ok: true, dismissed: true });
-        }
         const persistentQuestion = isPersistentQuestionCard(pending?.card);
         const owner = group
           ? persistentQuestion
@@ -23075,6 +23140,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             : (group.busyBotId ? store.bot(group.busyBotId) : undefined) ??
               (pending?.from ? store.bot(pending.from.botId) : undefined)
           : store.botByThread(threadId);
+        if (pending?.card && asksToCloseQuestion(pending.card, body)) {
+          const asker = owner ? botForThread(owner.id, threadId) : null;
+          const closed = await closeQuestion(pending.card, {
+            answer: (message) => answerRequest(threadId, asker?.modelSelection.instanceId ?? "", requestId, "answer", message, owner ? { id: owner.id, name: owner.name } : undefined),
+            current: () => store.messagesFor(threadId).find((message) => message.id === pending.id)?.card,
+            save: (card) => store.patchMessage(threadId, pending.id, { card }),
+          });
+          return json(res, closed.status, closed.body);
+        }
         // A surviving question belongs to its original asker, never a later speaker.
         if (group && persistentQuestion && !owner) {
           return json(res, 409, { error: "the dog that asked this question is no longer available" });
@@ -23114,12 +23188,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // Explicit thread targets never fall through to another routine or
       // channel just because it belongs to the same bot.
       if (typeof expectedThreadId === "string" && store.taskByThread(bot.id, expectedThreadId)) {
-        const routine = routines!.activeBotRunForBot(bot.id);
-        if (routine?.threadId === expectedThreadId) await routines!.cancelRun(routine.id);
-        else {
-          handoffs.stoppedByPerson(expectedThreadId);
-          await interruptDirectThread(bot.id, expectedThreadId);
-        }
+        await stopThreadTurn(bot.id, expectedThreadId);
         return json(res, 200, { ok: true });
       }
       const directClaim = directTurnDispatchClaims.get(bot.threadId);
@@ -23371,7 +23440,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (body.modelSelection !== undefined) {
         if (current.approvalGrant) return json(res, 409, { error: "the dog's approval level is still being confirmed" });
-        const checked = checkedModelSelection(body.modelSelection, { selection: current.modelSelection, busy: threadBusy(current.id, current.threadId) }, body.requireAvailableModel === true);
+        const checked = checkedModelSelection(body.modelSelection, undefined, body.requireAvailableModel === true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         patch.modelSelection = checked.selection;
       }
@@ -23727,7 +23796,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const action = z.enum(["run", "start", "stop", "remove"]).parse(m[2]);
       const target = localVmTargetForBot(bot.id);
       if (target.key === SHARED_LOCAL_VM_TARGET.key) {
-        return json(res, 409, { error: "Shared mode manages this desktop in App Settings → Computers" });
+        return json(res, 409, { error: "Shared mode manages this desktop in Settings → Computer" });
       }
       if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(target.key)) {
         return json(res, 409, { error: "this dog's Local VM setup action is still running" });
@@ -23754,7 +23823,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const count = await existingPerBotLocalVmCount(before.runtime);
             if (count >= localVmMaxInstances(cfg)) {
               return json(res, 409, {
-                error: `The per-dog Local VM limit is ${localVmMaxInstances(cfg)} — delete an unused dog's VM or raise the limit in App Settings`,
+                error: `The per-dog Local VM limit is ${localVmMaxInstances(cfg)} — delete an unused dog's VM`,
               });
             }
           }
@@ -23820,7 +23889,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // A bot's human-control hold does not reserve a shared desktop or pool
       // seat. Another bot could drive it while the phone is holding this bot.
       if (localVmMode(cfg) !== "per-bot") {
-        return json(res, 409, { error: "Phone control requires a per-dog Local VM. Select Per dog in Settings → Computers." });
+        return json(res, 409, { error: "Phone control requires a per-dog Local VM; on this computer, dogs share Local VMs." });
       }
       const lease = controlLeaseIdSchema.safeParse(url.searchParams.get("controlLeaseId") ?? undefined);
       if (!lease.success) return json(res, 400, { error: "controlLeaseId is required" });
@@ -24225,8 +24294,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // `code` for a pasted sign-in code (Claude), `callbackUrl` for a browser callback
           const callbackUrl = typeof body?.callbackUrl === "string" ? body.callbackUrl : typeof body?.code === "string" ? body.code : "";
           if (!flowId || !callbackUrl) return json(res, 400, { error: "flowId and a code or callbackUrl are required" });
-          await providerAuthSessions.complete(instanceId, owner, flowId, callbackUrl);
-          return json(res, 200, { ok: true });
+          const outcome = await providerAuthSessions.complete(instanceId, owner, flowId, callbackUrl);
+          return json(res, 200, { ok: true, auth: outcome });
         }
         const body = await readBody(req, 4096);
         await providerAuthSessions.cancel(instanceId, owner, typeof body?.flowId === "string" ? body.flowId : "");
@@ -24339,8 +24408,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const instances = persistableInstanceConfigs(result.config);
         if (!result.ok || !Object.hasOwn(instances, instanceId)) return json(res, 404, { error: `unknown instance "${instanceId}"` });
         const entry = instances[instanceId];
-        if ((body.displayName !== undefined || body.configDir !== undefined) && entry.driver !== "claudeAgent") {
-          return json(res, 400, { error: "Account settings are currently available for Claude only." });
+        if (body.configDir !== undefined && entry.driver !== "claudeAgent") {
+          return json(res, 400, { error: "A configuration directory applies to Claude accounts only." });
+        }
+        if (body.displayName !== undefined) {
+          const renamable = renamableAccount(entry);
+          if (!renamable.ok) return json(res, 400, { error: renamable.error });
         }
         if (body.tools !== undefined) {
           if (!["openai-compat", "grok", "minimax", "mistral", "cerebras"].includes(entry.driver)) {
@@ -24373,9 +24446,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
       const instances = persistableInstanceConfigs(cfg);
       if (!Object.hasOwn(instances, instanceId)) return json(res, 404, { error: "unknown instance" });
-      if (instances[instanceId].driver !== "claudeAgent" || instanceId === "claude") {
-        return json(res, 400, { error: "Only added Claude accounts can be removed here." });
-      }
+      const removable = removableAccount(instanceId, instances[instanceId]);
+      if (!removable.ok) return json(res, 400, { error: removable.error });
       if (cfg.defaultModelSelection?.instanceId === instanceId || store.bots.some((bot) =>
         bot.modelSelection.instanceId === instanceId || bot.fallback?.some(candidate => candidate.instanceId === instanceId) || store.tasks(bot.id).some((task) => task.modelSelection?.instanceId === instanceId)) ||
         busyProviderSelections().some((selection) => selection.instanceId === instanceId)) {
@@ -25132,6 +25204,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           const status = configStatus();
           broadcast({ kind: "config", ...status });
+          if (patch.accountBattery) limitHold.recheck();
           if (patch.threads !== undefined) {
             drainQueuedSends();
             drainDelegationWakes();

@@ -25,38 +25,43 @@ turns, and checks the prompt and model delivered to the provider boundary:
 
 The test prints a retained `.bot-continuity.json` evidence path with commands,
 wait results, bounded transcripts, and provider-input receipts. Launch
-environments and MCP tokens are not retained. The renderer recipe checks both
-scope buttons in the real model picker, saves a screenshot, changes models,
-checks server persistence, and sends a message through the composer.
+environments and MCP tokens are not retained. The renderer recipe opens the
+real model picker, checks that it offers no scope choice, saves a screenshot,
+changes models and back, checks that the bot default and the thread moved
+together without changing the approval level, and sends a message through the
+composer.
 
-The header starts at **Only this thread**; **Thread + bot default** explicitly
-includes group turns and future threads. The desktop model-switch recipe uses
-the real picker and private approval channel against offline providers. It
-checks Cancel, the 390px confirmation layout, switching a Custom Codex thread
-to Claude with Ask in one confirmed operation, then updating a mismatched bot
-default without changing another existing Custom thread. HTTP cannot bypass
-Custom; ordinary Full switches may use the atomic HTTP downgrade. A fresh
-thread adopts the new default, and a sample engineering-handoff request sent
-through the composer completes with the fake provider reply. Screenshots stay
-in `.laterdog-scratch/verify-evidence/model-switch/`. This proves settings and turn
+The picker has no scope choice: an owner's pick is also the bot default, and
+every thread that uses the bot's model moves with it. The desktop model-switch
+recipe uses the real picker and private approval channel against offline
+providers. It checks Cancel, then switches a Custom Codex bot to its Claude
+account in one confirmed operation: the bot default, the selected thread and
+another thread that uses the bot's model all move to Claude with Heel. It also
+checks the 390px confirmation layout, and that the picker fits at 1280×800,
+1000×600, 800×480 and 390×844 with its effort row inside and room for two
+model rows. HTTP cannot bypass Custom; ordinary Full switches may use the
+atomic HTTP downgrade. A fresh thread adopts the new default, and a sample
+engineering-handoff request sent through the composer completes with the fake
+provider reply. Screenshots stay in
+`.laterdog-scratch/verify-evidence/model-switch/`. This proves settings and turn
 dispatch, not the quality of a real model's engineering output. The store test
 also simulates a failed disk write and confirms neither scope changes.
 
 The picker smoke also includes an installed but signed-out Claude account and
 a missing Codex installation. The signed-out account stays in the picker's
-**Account** list; choosing it shows its sign-in card and **Use a local model**,
-never its cloud models. The missing Codex, which no bot uses, stays in Settings
-only, and the picker keeps an **Engines and accounts** shortcut. A missing
-engine that a bot already runs on stays in that bot's picker with its install
-card, so the model never silently vanishes. `src/lib/engine-rail.test.ts`
-covers these rules for each Claude account, empty catalogs and leaving the
-source catalog unchanged. `src/components/ModelPicker.interaction.test.ts`
-opens the real picker component and checks the sign-in and install cards, that
-no cloud model can be picked on a signed-out account while its local models
-still can, and that opening local models re-probes local servers behind a
-**Looking for local models…** status that ends after five seconds at most.
-The smoke selects a configured local Codex model, browses Claude, closes and
-reopens the picker, and checks that the selected local model is visible again.
+account list as **Not signed in**; choosing it says it needs to be set up and
+offers **Set up**, never its cloud models. The missing Codex, which no bot
+uses, is left out of the picker. A missing engine that a bot already runs on
+stays in that bot's picker with its install card, so the model never silently
+vanishes. `src/lib/engine-rail.test.ts` covers these rules for each Claude
+account, empty catalogs and leaving the source catalog unchanged.
+`src/components/ModelPicker.interaction.test.ts` opens the real picker
+component through **Set up** and checks the sign-in and install cards, that no
+cloud model can be picked on a signed-out account while its local models still
+can, and that opening local models re-probes local servers behind a **Looking
+for local models…** status that ends after five seconds at most. The smoke
+selects a configured local Codex model, browses Claude, closes and reopens the
+picker, and checks that the selected local model is visible again.
 
 ### Signed-out Claude in the picker — 2026-09-26
 

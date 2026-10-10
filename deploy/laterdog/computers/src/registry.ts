@@ -94,6 +94,10 @@ export class ComputerRegistry extends DurableObject<Env> {
     return listed;
   }
 
+  has(id: string): boolean {
+    return this.ctx.storage.sql.exec("SELECT 1 FROM computers WHERE id = ?", id).toArray().length > 0;
+  }
+
   list(): ComputerView[] {
     return this.ctx.storage.sql
       .exec<Row>("SELECT * FROM computers ORDER BY created_at, id")

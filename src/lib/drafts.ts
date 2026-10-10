@@ -367,6 +367,10 @@ export function appendDraftAttachments(id: string, additions: Attachment[]): voi
   for (const listener of restoreListeners.get(id) ?? []) listener(draft);
 }
 
+export function draftAttachments(id: string): Attachment[] {
+  return getDraftAttachments(getStore(), id);
+}
+
 /** Replace an optimistic upload in the keyed draft even if the composer that
  * started it has unmounted. A missing id means the user already removed it. */
 export function replaceDraftAttachment(

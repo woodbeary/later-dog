@@ -10,9 +10,11 @@ import { DurableObject } from "cloudflare:workers";
 import type { Refusal } from "./auth";
 import { DESKTOP_LINK_TTL_SECONDS, signDesktopToken, verifyDesktopToken } from "./desktop-token";
 import { type Collected, collect, json, outputText, within } from "./http";
-import { MINUTE, decideIdle, idlePolicy, inactivityTimeoutMs } from "./idle";
+import { type IdlePolicy, MINUTE, decideIdle, idlePolicy, inactivityTimeoutMs } from "./idle";
 import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size } from "./inputs";
 import { route } from "./routes";
+import { trialPolicy } from "./trial";
+import { trials } from "./trial-registry";
 import { messagePage, newNonce, pageHeaders, viewerPage } from "./viewer";
 
 export type State = "starting" | "running" | "sleeping" | "stopping" | "error";
@@ -55,6 +57,11 @@ interface ComputerRecord {
   /** The image this computer was first started from. Its snapshots only restore onto that image's filesystem. */
   image?: string;
   error?: string;
+  registry?: string;
+  trial?: string;
+  budgetEndsAt?: number;
+  chargedUntil?: number;
+  unchargedMs?: number;
 }
 
 const RECORD = "computer";
@@ -79,6 +86,7 @@ const READY_POLL_MS = 1000;
 const STOPPED_GRACE_MS = 30_000;
 const EXEC_OUTPUT_CAP = 1024 * 1024;
 const ACTIVITY_WRITE_MS = 30_000;
+const BUDGET_GRACE_MS = 10 * MINUTE;
 
 // Readiness: the display answers xdotool and the VNC server behind websockify sends its RFB greeting (exit 3 when only
 // that much is up), then XFCE has drawn its panel and desktop (exit 0). The VNC server answers about a second before
@@ -145,6 +153,7 @@ interface RunResult {
 
 export class DogComputer extends DurableObject<Env> {
   private readonly policy = idlePolicy(this.env);
+  private readonly trialIdle: IdlePolicy = { ...idlePolicy(this.env), idleSleepMs: trialPolicy(this.env).idleSleepMs };
   /** Open viewer sockets (browser side) and the noVNC socket each one is paired with. */
   private readonly viewers = new Map<WebSocket, WebSocket>();
   private inFlight = 0;
@@ -163,9 +172,10 @@ export class DogComputer extends DurableObject<Env> {
     // stops the container soon after this object goes quiet, before the idle alarm could snapshot it.
     const container = ctx.container;
     if (container?.running) {
+      const timeoutMs = inactivityTimeoutMs(this.policyFor(this.load()));
       void ctx.blockConcurrencyWhile(async () => {
         try {
-          await container.setInactivityTimeout(inactivityTimeoutMs(idlePolicy(env)));
+          await container.setInactivityTimeout(timeoutMs);
         } catch (error) {
           console.error(`laterdog computers: could not re-arm the inactivity timeout: ${describeError(error)}`);
         }
@@ -175,12 +185,22 @@ export class DogComputer extends DurableObject<Env> {
 
   // ---- API (called by the Worker over RPC) ----
 
-  async init(input: { id: string; name: string; size: Size }): Promise<Result<ComputerView>> {
+  async init(input: { id: string; name: string; size: Size; registry?: string; trial?: string }): Promise<Result<ComputerView>> {
     return this.serially(async () => {
       const existing = this.load();
       if (existing) return ok(view(existing));
       const now = Date.now();
-      this.save({ id: input.id, name: input.name, size: input.size, state: "starting", createdAt: now, lastActiveAt: now, generation: 0 });
+      this.save({
+        id: input.id,
+        name: input.name,
+        size: input.size,
+        state: "starting",
+        createdAt: now,
+        lastActiveAt: now,
+        generation: 0,
+        ...(input.registry === undefined ? {} : { registry: input.registry }),
+        ...(input.trial === undefined ? {} : { trial: input.trial }),
+      });
       const booted = await this.boot();
       return booted.ok ? ok(view(this.load()!)) : booted;
     });
@@ -216,7 +236,7 @@ export class DogComputer extends DurableObject<Env> {
   }
 
   /** Snapshots the whole filesystem, then stops the container. A failed snapshot leaves it running and says so. */
-  async sleep(reason: "request" | "idle" | "max_awake" = "request"): Promise<Result<ComputerView>> {
+  async sleep(reason: "request" | "idle" | "max_awake" | "budget" = "request"): Promise<Result<ComputerView>> {
     return this.serially(async () => {
       const record = this.load();
       if (!record) return notFound();
@@ -256,6 +276,7 @@ export class DogComputer extends DurableObject<Env> {
           console.error(`laterdog computers: ${record.id} stop after snapshot failed: ${describeError(error)}`);
         }
       }
+      await this.charge(true);
       const slept = this.update((r) => {
         r.state = "sleeping";
         delete r.awakeSince;
@@ -277,6 +298,7 @@ export class DogComputer extends DurableObject<Env> {
         this.closeViewers(4002, "The computer was deleted.");
         const container = this.container();
         if (container.running) await container.destroy();
+        await this.charge(true);
         await this.ctx.storage.deleteAlarm();
         await this.ctx.storage.deleteAll();
       } finally {
@@ -285,6 +307,10 @@ export class DogComputer extends DurableObject<Env> {
       console.log(`laterdog computers: ${record.id} deleted`);
       return ok({ deleted: true as const });
     });
+  }
+
+  async meter(): Promise<void> {
+    await this.charge();
   }
 
   async exec(input: ExecInput): Promise<Result<ExecResult>> {
@@ -540,11 +566,13 @@ export class DogComputer extends DurableObject<Env> {
     console.error(`laterdog computers: ${failed?.id} failed to boot: ${why}`);
     // Do not leave a broken container running up a bill.
     if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
+    await this.charge(true);
     await this.publish();
   }
 
   private async watch(): Promise<void> {
     if (await this.reconcile()) return;
+    await this.charge();
     const record = this.load();
     if (!record || record.state !== "running") return;
     const decision = this.idleDecision(record);
@@ -554,18 +582,26 @@ export class DogComputer extends DurableObject<Env> {
     }
     console.log(`laterdog computers: ${record.id} is going to sleep (${decision.reason})`);
     const slept = await this.sleep(decision.reason);
-    if (!slept.ok) await this.ctx.storage.setAlarm(Date.now() + 5 * MINUTE);
+    if (slept.ok) return;
+    const overdue = decision.reason === "budget" && Date.now() - (record.budgetEndsAt ?? Date.now()) >= BUDGET_GRACE_MS;
+    if (overdue) await this.stopUnsaved("This free trial ran out of minutes and the computer could not be saved, so it was stopped.");
+    else await this.ctx.storage.setAlarm(Date.now() + 5 * MINUTE);
   }
 
   private idleDecision(record: ComputerRecord) {
     return decideIdle({
-      ...this.policy,
+      ...this.policyFor(record),
       now: Date.now(),
       lastActiveAt: record.lastActiveAt,
       awakeSince: record.awakeSince ?? record.lastActiveAt,
       viewers: this.viewers.size,
       inFlight: this.inFlight,
+      ...(record.budgetEndsAt === undefined ? {} : { budgetEndsAt: record.budgetEndsAt }),
     });
+  }
+
+  private policyFor(record: ComputerRecord | undefined): IdlePolicy {
+    return record?.trial ? this.trialIdle : this.policy;
   }
 
   private async scheduleWatch(): Promise<void> {
@@ -588,8 +624,70 @@ export class DogComputer extends DurableObject<Env> {
     });
     this.closeViewers(4003, "The computer stopped.");
     console.error(`laterdog computers: ${record.id} stopped unexpectedly`);
+    await this.charge(true);
     await this.publish();
     return true;
+  }
+
+  private async budget(): Promise<Result<number | undefined>> {
+    const record = this.load();
+    if (!record?.trial) return ok(undefined);
+    await this.charge(true);
+    let left: number | null;
+    try {
+      left = await trials(this.env).budgetLeft(record.trial);
+    } catch (error) {
+      console.error(`laterdog computers: ${record.id} could not read its trial: ${describeError(error)}`);
+      return fail(503, "trial_unavailable", "The free trial could not be checked. Try again in a minute.");
+    }
+    if (left === null) return fail(409, "trial_ended", "This free trial has ended.");
+    const usable = left - (this.load()?.unchargedMs ?? 0);
+    if (usable < MINUTE) return fail(409, "trial_used_up", "This free trial has no minutes left.");
+    return ok(usable);
+  }
+
+  private async charge(stop = false): Promise<void> {
+    if (!this.load()?.trial) return;
+    const now = Date.now();
+    let ms = 0;
+    const record = this.update((r) => {
+      if (r.chargedUntil !== undefined) {
+        ms = Math.max(0, now - r.chargedUntil);
+        r.chargedUntil = now;
+      }
+      ms += r.unchargedMs ?? 0;
+      delete r.unchargedMs;
+      if (stop) {
+        delete r.chargedUntil;
+        delete r.budgetEndsAt;
+      }
+    })!;
+    if (ms <= 0) return;
+    try {
+      await trials(this.env).charge(record.trial!, ms);
+    } catch (error) {
+      this.update((r) => {
+        r.unchargedMs = (r.unchargedMs ?? 0) + ms;
+      });
+      console.error(`laterdog computers: ${record.id} could not charge its trial: ${describeError(error)}`);
+    }
+  }
+
+  private async stopUnsaved(why: string): Promise<void> {
+    await this.serially(async () => {
+      this.closeViewers(4001, "The computer was stopped.");
+      if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
+      await this.charge(true);
+      const stopped = this.update((r) => {
+        r.state = "error";
+        r.error = why;
+        delete r.awakeSince;
+      });
+      if (!stopped) return;
+      console.error(`laterdog computers: ${stopped.id} stopped without a snapshot: ${why}`);
+      await this.ctx.storage.deleteAlarm();
+      await this.publish();
+    });
   }
 
   // ---- Helpers ----
@@ -600,6 +698,8 @@ export class DogComputer extends DurableObject<Env> {
       // A container the record no longer trusts (one that never became ready, say): start over cleanly.
       await container.destroy().catch((error) => console.error(`laterdog computers: clearing the old container failed: ${describeError(error)}`));
     }
+    const budget = await this.budget();
+    if (!budget.ok) return budget;
     const now = Date.now();
     const record = this.update((r) => {
       r.generation += 1;
@@ -607,6 +707,10 @@ export class DogComputer extends DurableObject<Env> {
       r.awakeSince = now;
       r.lastActiveAt = now;
       delete r.error;
+      if (budget.value !== undefined) {
+        r.budgetEndsAt = now + budget.value;
+        r.chargedUntil = now;
+      }
     })!;
     const common = {
       enableInternet: true,
@@ -631,11 +735,12 @@ export class DogComputer extends DurableObject<Env> {
         r.state = "error";
         r.error = why;
       });
+      await this.charge(true);
       await this.publish();
       return fail(502, "start_failed", why);
     }
     try {
-      await container.setInactivityTimeout(inactivityTimeoutMs(this.policy));
+      await container.setInactivityTimeout(inactivityTimeoutMs(this.policyFor(record)));
     } catch (error) {
       console.error(`laterdog computers: ${record.id} could not set the inactivity timeout: ${describeError(error)}`);
     }
@@ -758,7 +863,7 @@ export class DogComputer extends DurableObject<Env> {
     if (!record) return;
     this.lastPublished = Date.now();
     try {
-      await this.env.REGISTRY.get(this.env.REGISTRY.idFromName("registry")).update(view(record));
+      await this.env.REGISTRY.get(this.env.REGISTRY.idFromName(record.registry ?? "registry")).update(view(record));
     } catch (error) {
       console.error(`laterdog computers: registry update for ${record.id} failed: ${describeError(error)}`);
     }

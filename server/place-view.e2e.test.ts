@@ -194,7 +194,7 @@ describe("a cloud computer that can't start, against the real server", () => {
     createAnswer = AT_ONCE;
     await send(bot.id, bot.threadId, "Use your desktop too.");
     const row = await failedRow(bot.threadId);
-    expect(row.tool.name).toBe("error: Your Personal plan includes 1 cloud computer, and Ada has it. Manage your cloud computers in Settings → Local VM.");
+    expect(row.tool.name).toBe("error: Your Personal plan includes 1 cloud computer, and Ada has it. Manage your cloud computers in Settings → Computer.");
     expect(row.tool.place).toEqual({ state: "cc-at-once", params: { bot: "Bo", plan: "Personal", max: 1, holders: ["Ada"] }, source: "works-on" });
   }, 90_000);
 

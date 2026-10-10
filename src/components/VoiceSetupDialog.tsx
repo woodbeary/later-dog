@@ -1,17 +1,6 @@
-// Voice set-up, where a call asked for it. The call button's help used to
-// send people to the bot's full settings (in Simple mode, the whole Advanced
-// fold-out) just to paste a key and pick a voice. This is the same
-// VoiceSettings card in a small glass pop-up over the chat, with the bot's
-// full Voice section one link away, and the call one click away once a
-// voice is ready.
-//
-// It saves the way the bot's own settings do (the bot update and the
-// workspace voice config). A desktop paired to another computer can't make
-// those writes (the host keeps the engine and its key), so the call help
-// opens the remote agent settings there instead of this.
 import { useEffect, useId, useRef, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, ChevronRight, Loader2, Phone, X } from "lucide-react";
+import { CheckCircle2, Loader2, Phone, X } from "lucide-react";
 
 import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { t } from "@/lib/i18n";
@@ -46,8 +35,7 @@ export function VoiceSetupDialog({
   /** Focus goes back here on close: the call button. */
   returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
-  const { state, dispatch } = useStore();
-  // The patch the bot settings' Voice section hands the same card.
+  const { state } = useStore();
   const { patch } = useBotSettingsDerived(bot);
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -106,15 +94,6 @@ export function VoiceSetupDialog({
       (returnFocusRef?.current ?? previousFocus)?.focus();
     };
   }, [returnFocusRef]);
-
-  // Everything the pop-up leaves out (notifications, the rest of the bot's
-  // profile) is in the full settings, opened at Voice. In a room the bot is a
-  // member, so open its chat first, as the call help always did.
-  const openAllSettings = () => {
-    close();
-    if (state.selectedId !== bot.id) dispatch({ type: "select", id: bot.id });
-    dispatch({ type: "toggleSettings", open: true, section: "voice" });
-  };
 
   return createPortal(
     <div
@@ -190,17 +169,6 @@ export function VoiceSetupDialog({
           )}
         </div>
 
-        <footer className="flex items-center border-t border-hairline/30 px-6 py-3.5 sm:px-7">
-          <button
-            type="button"
-            data-voice-setup-all-settings
-            onClick={openAllSettings}
-            className="inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-accent-text underline-offset-2 hover:underline"
-          >
-            {t("call.voiceSetup.allSettings")}
-            <ChevronRight size={14} aria-hidden="true" />
-          </button>
-        </footer>
       </div>
     </div>,
     document.body,
