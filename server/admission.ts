@@ -95,6 +95,7 @@ export interface AdmissionMessage {
   /** The running engine can steer: capabilities.queueing and a steer()
    * method. Engines without them keep their queue. */
   engineCanSteer?: boolean;
+  engineSteersImages?: boolean;
   waitsForTurn?: boolean;
   /** The item being steered is the queue head. Room queues drain one item
    * per turn, so only the head may jump into the live speaker's turn. */
@@ -146,7 +147,7 @@ export function admit(
       // Steer-first for plain text into a capable engine; every mechanical
       // clamp (attachments, a pending surface choice, an incapable engine)
       // parks the words for the next ordinary turn instead.
-      const steerable = !message.waitsForTurn && !message.carriesImages && !message.pendingComputerSelection && message.engineCanSteer === true;
+      const steerable = !message.waitsForTurn && (!message.carriesImages || message.engineSteersImages === true) && !message.pendingComputerSelection && message.engineCanSteer === true;
       return steerable ? { action: "steer" } : { action: "queue" };
     }
     case "direct": {

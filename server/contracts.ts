@@ -301,6 +301,7 @@ export interface ProviderAdapter {
      * others keep the queue-one-and-wait behaviour. Same rule as the other
      * flags: never show a control the driver cannot honour. */
     queueing?: boolean;
+    steerImages?: boolean;
     /** True only when local MCP calls can reach the human approval channel.
      * Full-auto/bypass provider instances must leave this false. */
     localComputerMcp?: boolean;
@@ -356,7 +357,7 @@ export interface ProviderAdapter {
    *   timed out after accept, transport failed, or the turn settled while
    *   the answer was in flight). The caller must NOT re-queue: the words
    *   may already be running, and replaying them would execute them twice. */
-  steer?(threadId: ThreadId, text: string): Promise<SteerOutcome>;
+  steer?(threadId: ThreadId, text: string, images?: TurnImageInput[]): Promise<SteerOutcome>;
   hasSession(threadId: ThreadId): boolean;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;

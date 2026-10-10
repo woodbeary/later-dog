@@ -468,6 +468,16 @@ const promptText = (prompt: JsonValue): string => {
   return typeof m?.content === "string" ? m.content : "";
 };
 
+const steerText = (prompt: JsonValue): string => {
+  const m = prompt && typeof prompt === "object" && !Array.isArray(prompt) ? (prompt as { message?: { content?: unknown } }).message : undefined;
+  if (!Array.isArray(m?.content)) return promptText(prompt);
+  return m.content
+    .map((block: { type?: string; text?: string; source?: { media_type?: string } }) =>
+      block?.type === "text" ? block.text ?? "" : block?.type === "image" ? `[image ${block.source?.media_type ?? "unknown"}]` : "")
+    .filter(Boolean)
+    .join(" ");
+};
+
 /** A message the finished turn could not fold runs as the next turn — once
  * FAKE_CLAUDE_LATE_STEER_INIT_GATE, if set, lets its `init` out. True while
  * one is queued or waiting. */
@@ -904,7 +914,7 @@ process.stdin.on("data", (c) => {
       // behind any queued message whose turn has not been announced yet
       if (process.env.FAKE_CLAUDE_LATE_STEER_GATE) lateSteers.push(prompt);
       else {
-        steered.push(promptText(prompt));
+        steered.push(steerText(prompt));
         steeredMessages.push(prompt);
       }
       if (process.env.FAKE_CLAUDE_STEER_RECEIVED) writeFileSync(process.env.FAKE_CLAUDE_STEER_RECEIVED, "received");

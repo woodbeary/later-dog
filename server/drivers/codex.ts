@@ -34,6 +34,7 @@ import type {
   RuntimeEventListener,
   SendTurnInput,
   SteerOutcome,
+  TurnImageInput,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { decodeCodexSelection, OFFICIAL_CODEX_PROVIDER, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
@@ -779,7 +780,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
        * "refused" when this attempt has nothing steerable; the caller
        * queues. "indeterminate" when delivery happened but the answer did
        * not come back — the caller must not re-queue those words. */
-      steer?: (text: string) => Promise<SteerOutcome>;
+      steer?: (text: string, images?: TurnImageInput[]) => Promise<SteerOutcome>;
       turnId: string;
       asks: Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>;
     }
@@ -1166,14 +1167,17 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // transport, or a turn that settles while the answer is in flight is
       // "indeterminate": the words may already be running, so the caller must
       // not re-queue them.
-      const steerActiveTurn = async (text: string): Promise<SteerOutcome> => {
+      const steerActiveTurn = async (text: string, images?: TurnImageInput[]): Promise<SteerOutcome> => {
         if (state.settled || abandoned || stopRequested || !codexThreadId || !codexTurnId) return "refused";
         if (child.exitCode !== null || child.signalCode !== null) return "refused";
         try {
           const steerTimeoutMs = Math.max(1, Number(process.env.FAKE_CODEX_STEER_TIMEOUT_MS ?? 10_000) || 10_000);
           await request("turn/steer", {
             threadId: codexThreadId,
-            input: [{ type: "text", text }],
+            input: [
+              { type: "text", text },
+              ...(images ?? []).map((image) => ({ type: "localImage" as const, path: image.path })),
+            ],
             expectedTurnId: codexTurnId,
           }, steerTimeoutMs);
           return "steered";
@@ -2171,6 +2175,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         // A guest's turn runs with no environment and the shell off (guestConfined).
         guestTurns: "confined",
         queueing: true,
+        steerImages: true,
         computerMcp: true,
         localComputerMcp: true,
         composioMcp: true,
@@ -2187,9 +2192,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       interruptTurn: async (threadId) => {
         await active.get(threadId)?.stop();
       },
-      steer: async (threadId, text) => {
+      steer: async (threadId, text, images) => {
         const turn = active.get(threadId);
-        return turn?.steer ? await turn.steer(text) : "refused";
+        return turn?.steer ? await turn.steer(text, images) : "refused";
       },
       respondToRequest: async (threadId, requestId, decision) => {
         const turn = active.get(threadId);

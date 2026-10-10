@@ -643,6 +643,7 @@ import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carr
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold } from "./laterdog/limit-hold.ts";
 import { latestTurnAnswer, postTurnImage } from "./laterdog/turn-images.ts";
+import { steerWords } from "./laterdog/steer-images.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
@@ -9304,9 +9305,6 @@ async function acceptDirectSend(
       if (currentAtStart.busy) {
         const instance = runningTurnInstance(currentAtStart, threadId);
         let steered: SteerOutcome = "refused";
-        // A live text steer has no image side channel. Keep an attachment
-        // message intact for the next ordinary turn, where central image
-        // admission can hand it to the provider natively.
         const carriesImages = extractTurnImages(text).images.length > 0;
         const steerTarget = handoffs.current(threadId);
         const busyAdmission = admit("direct-busy", {
@@ -9314,12 +9312,14 @@ async function acceptDirectSend(
           carriesImages,
           pendingComputerSelection: Boolean(computerSelectionTurns.get(threadId)?.selected),
           engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
+          engineSteersImages: instance?.adapter.capabilities.steerImages === true,
         });
         // steer was offered only when a live instance could take it;
         // the second check carries that fact to the type system.
         if (busyAdmission.action === "steer" && instance?.adapter.steer) {
+          const words = steerWords(promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"));
           steered = await instance.adapter
-            .steer(threadId, promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"))
+            .steer(threadId, words.text, words.images)
             .catch((): SteerOutcome => "indeterminate");
         }
         // steer() is awaited adapter work. The turn can settle, the task can
@@ -20970,13 +20970,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // burst); Steer folds that whole group into the live turn as one.
       const headGroup = headChannelGroup(held.items);
       const [head] = headGroup;
-      // A live steer has no image side channel — the same rule as the
-      // 1:1 queue: attachment words wait for a real turn where central
-      // admission can hand the images to the engine.
-      if (headGroup.some((item) => extractTurnImages(item.text).images.length > 0)) {
-        restoreHeldChannelQueue(held);
-        return json(res, 200, { ok: true, queued: true, threadId: targetThreadId });
-      }
       const decision = admit("room-steer", {
         speakerPresent: Boolean(speaker),
         engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
@@ -20999,9 +20992,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // or drop its own. A target that cannot be resolved restores the held
       // queue before the request fails, mirroring the helper's contract.
       const speakerName = cfg.profile?.name?.trim() || "User";
-      let foldedPrompt: string;
+      let words: ReturnType<typeof steerWords>;
       try {
-        foldedPrompt = headGroup
+        const foldedPrompt = headGroup
           .map((item, index) =>
             promptWithReply(
               item.text,
@@ -21014,15 +21007,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             ),
           )
           .join("\n\n");
+        words = steerWords(foldedPrompt);
       } catch (error) {
         restoreHeldChannelQueue(held);
         throw error;
+      }
+      if (words.images && !instance?.adapter.capabilities.steerImages) {
+        restoreHeldChannelQueue(held);
+        return json(res, 200, { ok: true, queued: true, threadId: targetThreadId });
       }
       // steer was offered only when a live speaker instance could take it;
       // the check carries that invariant to the type system.
       const steered: SteerOutcome = instance?.adapter.steer
         ? await instance.adapter
-            .steer(targetThreadId, foldedPrompt)
+            .steer(targetThreadId, words.text, words.images)
             .catch((): SteerOutcome => "indeterminate")
         : "refused";
       // The steer was awaited adapter work: re-read every ownership
@@ -22776,20 +22774,25 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // turn — never both for the same words.
       const held = holdSteeredQueue(bot.id, bot.threadId, m[2]);
       if (!held) return json(res, 404, { error: "no such queued message" });
-      // A live steer has no image side channel. Attachment words wait for a
-      // real turn where central admission can hand the images to the engine.
-      if (held.items.some((item) => extractTurnImages(item.text).images.length > 0)) {
-        restoreHeldSteeredQueue(held);
-        return json(res, 200, { ok: true, queued: true, threadId: bot.threadId });
-      }
       const currentAtStart = store.projectBotForTask(bot.id, bot.threadId);
       const instance = currentAtStart?.busy ? runningTurnInstance(currentAtStart, bot.threadId) : undefined;
-      const prompt = held.items.map((item) => item.prompt).join("\n\n");
+      let words: ReturnType<typeof steerWords>;
+      try {
+        words = steerWords(held.items.map((item) => item.prompt).join("\n\n"));
+      } catch (error) {
+        restoreHeldSteeredQueue(held);
+        throw error;
+      }
       const steerTarget = handoffs.current(bot.threadId);
       let steered: SteerOutcome = "refused";
-      if (currentAtStart?.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer) {
+      if (
+        currentAtStart?.busy &&
+        instance?.adapter.capabilities.queueing &&
+        instance.adapter.steer &&
+        (!words.images || instance.adapter.capabilities.steerImages)
+      ) {
         steered = await instance.adapter
-          .steer(bot.threadId, prompt)
+          .steer(bot.threadId, words.text, words.images)
           .catch((): SteerOutcome => "indeterminate");
       }
       // The steer was awaited adapter work: re-read every ownership

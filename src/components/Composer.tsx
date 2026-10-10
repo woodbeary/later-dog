@@ -135,8 +135,8 @@ export function Composer({
   const steerInstanceId = group
     ? members?.find((member) => member.id === group.busyBotId)?.modelSelection.instanceId
     : bot?.modelSelection.instanceId;
-  const canSteer =
-    state.instances.find((i) => i.instanceId === steerInstanceId)?.capabilities?.queueing === true;
+  const steerCapabilities = state.instances.find((i) => i.instanceId === steerInstanceId)?.capabilities;
+  const canSteer = steerCapabilities?.queueing === true;
   // a pending approval blocks the prompt until it is answered
   const threadId = group?.threadId ?? bot?.threadId ?? "";
   // The conversation's own place, when pinned; the chip reads it next to the bot default.
@@ -420,11 +420,15 @@ export function Composer({
     else if (bot) dispatch({ type: "interrupt", botId: bot.id, threadId });
   };
   const queueHeadId = queuedMessages[0]?.queueId;
+  const steerLive =
+    canSteer &&
+    (steerCapabilities?.steerImages === true ||
+      !(group ? queuedMessages.slice(0, 1) : queuedMessages).some((item) => item.text.includes("<attached-image")));
   const steerQueued = () => {
     if (!queueHeadId) return;
     setSteering(true);
     const settle = () => setSteering(false);
-    if (group && canSteer) {
+    if (group && steerLive) {
       // A steer-capable room folds the queued head into the running turn
       // through the server; it never interrupts the turn to do it.
       dispatch({ type: "steerGroupQueued", groupId: group.id, threadId, queueId: queueHeadId, onError: settle, onSettled: settle });
@@ -432,7 +436,7 @@ export function Composer({
       // A room whose running engine cannot steer keeps the old behavior:
       // Steer ends the running turn so the next queued message starts.
       dispatch({ type: "interruptGroup", groupId: group.id, threadId, onError: settle });
-    } else if (bot && canSteer) {
+    } else if (bot && steerLive) {
       // A steer-capable engine folds the queued words into the running turn
       // through the server; it never interrupts the turn to do it.
       dispatch({ type: "steerQueued", botId: bot.id, threadId, queueId: queueHeadId, onError: settle, onSettled: settle });
@@ -943,7 +947,7 @@ export function Composer({
         <QueuedComposerMessages
           items={queuedMessages}
           onSteer={canSteerQueued ? steerQueued : undefined}
-          steerInterrupts={!canSteer}
+          steerInterrupts={!steerLive}
           steerMode={group ? "next" : "all"}
           steering={steering}
           onCancel={(queueId) => {
@@ -1110,7 +1114,7 @@ export function Composer({
               // the composer is empty, and the window is open — steer the
               // queue into the running turn instead of waiting it out.
               if (
-                canSteer &&
+                steerLive &&
                 doubleEnterSteersQueue(steerAgainUntilRef.current, Date.now(), pendingCount, hasContent)
               ) {
                 steerAgainUntilRef.current = 0;

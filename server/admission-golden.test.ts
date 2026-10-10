@@ -18,6 +18,8 @@ describe("admission golden tables", () => {
     expect(admit("direct-busy", plain)).toEqual({ action: "steer" });
     // Each mechanical clamp alone forces the reasonless busy-thread park.
     expect(admit("direct-busy", { ...plain, carriesImages: true })).toEqual({ action: "queue" });
+    expect(admit("direct-busy", { ...plain, carriesImages: true, engineSteersImages: true })).toEqual({ action: "steer" });
+    expect(admit("direct-busy", { ...plain, carriesImages: true, engineSteersImages: true, engineCanSteer: false })).toEqual({ action: "queue" });
     expect(admit("direct-busy", { ...plain, pendingComputerSelection: true })).toEqual({ action: "queue" });
     expect(admit("direct-busy", { ...plain, engineCanSteer: false })).toEqual({ action: "queue" });
     expect(admit("direct-busy", { ...plain, waitsForTurn: true })).toEqual({ action: "queue" });

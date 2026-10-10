@@ -996,6 +996,8 @@
   "composer.queued.regionOne": "1 queued message",
   "composer.queued.regionMany": "{count} queued messages",
   "composer.queued.list": "Queued messages",
+  "composer.queued.pictureOne": "A picture",
+  "composer.queued.pictureMany": "{count} pictures",
   "composer.queued.capacity": "Queued — starts when this dog has a free thread slot.",
   "composer.queued.groupTurn": "Queued — this dog's room turn runs one at a time; it starts when that finishes.",
   "composer.queued.deleteAria": "Delete queued message {index} of {count}",

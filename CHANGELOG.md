@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3 — unreleased
+
+### Fixes
+- A picture you add while a dog works goes into the running turn, the same as words. Claude and ChatGPT dogs see it right away; Steer on a queued picture works too. Before, any message with a picture waited for the turn to end, and its queue row showed a file path instead of the picture.
+- A queued picture shows as a small thumbnail with "A picture" or "2 pictures" when there are no words.
+
 ## 0.3.2 — 2026-10-09
 
 ### Fixes

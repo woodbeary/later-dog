@@ -147,7 +147,12 @@ Local-only failures, seen on 2026-10-09:
    - Plan it as one mechanical commit, run right after an upstream merge.
 10. **Sign with Jacob's Developer ID and notarize.** Deferred on 2026-10-08. It is the only full fix for the keychain prompt at launch and Gatekeeper's right-click → Open.
 11. **A close button on a new dog's first question.** A new dog opens with a big card asking what it guesses you want. It needs an × so you can close it and just type. Asked for by Jacob on 2026-10-09.
-12. **Adding a picture while a dog works is broken.** It can't be queued or used to steer. Reported by Jacob on 2026-10-09; not investigated yet.
+12. **Adding a picture while a dog works:** fixed for 0.3.3; checked in the browser fixture, not yet in the installed app.
+    - **Symptom:** a picture added while a dog worked couldn't steer, and its queue row showed a file path.
+    - **Cause:** the server queued every message with a picture on purpose, because a steer could only carry words. Steer on a queued picture was refused the same way.
+    - **Fix:** Claude and ChatGPT (Codex) take pictures mid-turn (`server/laterdog/steer-images.ts`, `steerImages` in each driver's capabilities). Sending, Steer on a queued row, and a room's Steer all pass the picture along. Engines that still can't take one mid-turn (OpenAI-compatible, Pi) keep the queue, and the composer offers Stop and send instead of a steer that can't work. A queued picture shows as a thumbnail.
+    - **Tests:** `server/laterdog/steer-images.test.ts`, `server/laterdog/steer-images.e2e.test.ts` (a real server and the fake Claude CLI; it fails on 0.3.2), two updated cases in `server/steer-e2e.test.ts`, `server/admission-golden.test.ts`, `src/components/ComposerQueuedMessages.test.ts`.
+    - **Not verified:** a real Claude or Codex taking a picture mid-turn. Each gets the same picture input it already takes when a turn starts (Claude image blocks, Codex `localImage`).
 13. **Jacob's UI list from 2026-10-09:**
     - **The composer should look like Grok Bot's:** no big left indent, and attached pictures sit inside the box instead of floating above it.
     - **Stop a fifth picture when it's picked**, instead of after.

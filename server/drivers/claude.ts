@@ -2509,7 +2509,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
      * native turn, which this driver keeps inside the same logical turn.
      * "refused" when nothing is running here to steer or the stdin write
      * provably failed; the caller queues those words. */
-    const steer = async (threadId: string, text: string): Promise<SteerOutcome> => {
+    const steer = async (threadId: string, text: string, images?: readonly ClaudeImage[]): Promise<SteerOutcome> => {
       const s = sessions.get(threadId);
       if (!s || !s.turn || s.turn.settled || s.closing || s.child.exitCode !== null) return "refused";
       const turn = s.turn;
@@ -2518,7 +2518,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       // The uuid is what the CLI's echo names when a model call takes it in.
       const id = randomUUID();
       turn.pendingSteers.add(id);
-      if (!(await writeUser(s, threadId, { ...claudeUserMessage(text, undefined), uuid: id }))) {
+      if (!(await writeUser(s, threadId, { ...claudeUserMessage(text, images), uuid: id }))) {
         turn.pendingSteers.delete(id);
         return "refused";
       }
@@ -2674,6 +2674,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           nativeImageInput: true,
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
           queueing: true,
+          steerImages: true,
           // Only while this CLI can be told to refresh a resumed session's
           // recorded system prompt (--system-prompt-snapshot). Keeping a
           // session across an update from outside it means the harness keeps
