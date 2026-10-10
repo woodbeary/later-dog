@@ -649,6 +649,7 @@ import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
 import { createThreadModelRoutes } from "./routes/thread-models.ts";
+import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
 import { localDesktopTarget, localVmViewerStatus, viewerTargetId } from "./desktop-viewer-targets.ts";
@@ -16167,6 +16168,20 @@ ROUTES.push(createThreadModelRoutes({
   mayChangeModel: (auth) => !CLOUD_HOME || cloudOwnerSession(auth),
   reply: (botId) => publicBot(store.bot(botId)!),
 }));
+ROUTES.push(createContinueOnRoutes({
+  task: requestedTaskBot,
+  refusal: cloudThreadRefusal,
+  continueOn: ({ id, threadId, modelSelection }, instanceId) => continueOnAccount({
+    battery: accountBattery, accounts: batteryAccounts(), threadId, selection: modelSelection,
+    busy: threadBusy(id, threadId), generation: directTurnGenerationByThread.get(threadId), path: store.activePath(threadId),
+    instanceId,
+    write: (tool, replaceId) => {
+      if (!store.botByThread(threadId)) return;
+      if (replaceId) store.patchMessage(threadId, replaceId, { tool });
+      else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
+    },
+  }),
+}));
 // Undo on the one-line receipt of a change that applied without a person.
 ROUTES.push(createUndoRoutes({
   refusal: (auth, threadId, requestId) => cardAnswerRefusal(auth, threadId, requestId, "allow"),
@@ -22850,26 +22865,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 202, { ok: true, threadId: bot.threadId });
     }
 
-    m = path.match(/^\/api\/bots\/([\w-]+)\/continue-on$/);
-    if (m && method === "POST") {
-      const body = await readBody(req);
-      requirePinnedClientThread(m[1], body?.threadId);
-      const bot = requestedTaskBot(m[1], body.threadId);
-      const notYours = cloudThreadRefusal(auth, bot.threadId);
-      if (notYours) return json(res, 403, { error: notYours });
-      const threadId = bot.threadId;
-      const outcome = continueOnAccount({
-        battery: accountBattery, accounts: batteryAccounts(), threadId, selection: bot.modelSelection,
-        busy: threadBusy(bot.id, threadId), generation: directTurnGenerationByThread.get(threadId), path: store.activePath(threadId),
-        instanceId: body.instanceId,
-        write: (tool, replaceId) => {
-          if (!store.botByThread(threadId)) return;
-          if (replaceId) store.patchMessage(threadId, replaceId, { tool });
-          else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
-        },
-      });
-      return json(res, outcome.status, outcome.body);
-    }
     // edit a user message → fork the conversation there and rerun the turn.
     // Rewinding a live thread is refused, exactly like switching versions
     // below: interrupting mid-flight and branching under the dying turn is
