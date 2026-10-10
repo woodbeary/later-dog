@@ -235,7 +235,7 @@ describe("computerToolsRefusal", () => {
   it("refuses a Tool selection without the computer with one action: the setting that changes it", () => {
     const refused = computerToolsRefusal({ deny: ["mcp:computer:*"] }, "works-on", "Scout")!;
     expect(refused).toMatchObject({ name: "PlaceUnavailableError", place: "cloud", row: { state: "cc-tools-off", params: { bot: "Scout" }, source: "works-on" } });
-    const line = "What Scout can use doesn't include a computer. Change what Scout can use in its settings.";
+    const line = "What Scout can use doesn't include a computer. Let Scout use the computer from the Computer panel.";
     expect(refused.message).toBe(line);
     // The same one action whatever chose the place: never a second one, and
     // never "Set Works on to Auto".
@@ -244,7 +244,7 @@ describe("computerToolsRefusal", () => {
     }
     // An Auto-recorded pin is cleared by the dispatch, and the line says so.
     expect(computerToolsRefusal({ allow: ["native:*"] }, "auto-pin", "Scout")?.message)
-      .toBe("What Scout can use doesn't include a computer. This conversation is back on Auto. Change what Scout can use in its settings.");
+      .toBe("What Scout can use doesn't include a computer. This conversation is back on Auto. Let Scout use the computer from the Computer panel.");
   });
 
   it("lets every selection that keeps a computer tool through", () => {
