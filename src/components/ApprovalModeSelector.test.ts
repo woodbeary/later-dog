@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FullAccessWarning } from "./FullAccessWarning";
@@ -10,11 +10,15 @@ import {
   approvalModeSelectionRequiresLocalDesktop,
 } from "./ApprovalModeSelector";
 
+vi.mock("react-dom", async (original) => ({ ...await original<object>(), createPortal: (children: unknown) => children }));
+
 describe("approval mode selector", () => {
   it("discloses delegated work in the Full access confirmation", () => {
+    vi.stubGlobal("document", { body: {} });
     const html = renderToStaticMarkup(createElement(FullAccessWarning, {
       open: true, onCancel: () => {}, onConfirm: () => {},
     }));
+    vi.unstubAllGlobals();
     expect(html).toContain("tasks delegated by your Chief or other dogs");
     expect(html).toContain("does not enable Full access on other dogs");
     expect(html).not.toContain("Requests that come from another bot still get the usual checks");

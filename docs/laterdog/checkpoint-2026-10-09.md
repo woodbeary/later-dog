@@ -172,7 +172,11 @@ Local-only failures, seen on 2026-10-09:
     - **One "Computer" place** instead of Browser and Files, looking like Grok Bot's. Drop the "allow control of this computer" and "where it works" wording.
     - **A short account popover** (the "Anthony" menu), plus dragging to reorder accounts.
     - **Remove the Phone features.**
-    - **"Jump to latest" stays under dialogs**, and the About dialog's links row isn't cut off.
+    - **"Jump to latest" stays under dialogs, and About's links row isn't cut off:** done for 0.3.3; checked in the browser fixture, not yet in the installed app.
+      - **Cause:** one bug. About opens from the menu under your name, inside the sidebar's bar, which is a layer of its own (`isolation: isolate`, z-index 10). Nothing inside that bar can rise above it, so **Jump to latest**, at the same level and later in the page, showed on top of About and covered its Support link. The Full access and computer warnings and the allowed commands list had the same problem inside the message box's layer (z-index 2).
+      - **Fix:** the four open at the page root (`createPortal` to `document.body`), as ConfirmDialog already did. The room members panel looked similar but was never covered: nothing caps its z-index of 40, so it stays as it was.
+      - **Measured in the fixture (1280×720):** with About open, a click where **Jump to latest** sits lands on About's backdrop, and all six About buttons, Support included, can be clicked. The links row wraps in a narrow window instead of overflowing.
+      - Test: `src/components/dialogs.layer.test.ts` (all four fail on the old code).
     - **Profiles:** named setups such as "personal", "business" and "business 2" that switch back and forth without interrupting a dog that is working.
 14. **Study Grok Bot's domain transfer flow**, which asks for a Cloudflare sign-in:
     - how it's presented, when it calls its tools, and how it updates as it goes

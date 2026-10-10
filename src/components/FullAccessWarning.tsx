@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { ShieldAlert } from "lucide-react";
 
 export const FULL_ACCESS_WARNING =
@@ -49,7 +50,7 @@ export function FullAccessWarning({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6"
       onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
@@ -93,6 +94,7 @@ export function FullAccessWarning({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
