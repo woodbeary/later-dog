@@ -9,6 +9,12 @@
 - Tried for real: a signed 0.3.3 found a test 0.3.4, downloaded it, showed the icon, and restarted as 0.3.4 after **Restart to update**. That run caught a missing file that stopped every download, now fixed. Not tried yet: an update from a real GitHub release, or of a copy in Applications.
 - How to publish an update: [docs/laterdog/releasing.md](docs/laterdog/releasing.md).
 
+### Accounts
+- The menu on the model chip is short now. It opens on your accounts, one line each with its usage, and the model you're using is a single line under them. Tap that line to change the model or effort; **‹ Accounts** goes back. With one account it opens straight on the models. Before, accounts, models and effort were all in one menu about 1,000px tall. With three accounts it's now 220px.
+- Drag an account up or down to change the order **Keep going when an account runs out** moves through, or press Alt+↑ or Alt+↓ on it. An account moves among its own kind only, Claude with Claude and ChatGPT with ChatGPT. Dragging needs a mouse or trackpad.
+- An account that isn't signed in stays out of the menu unless a dog is using it. It's still in Settings, General, Accounts.
+- Tried in the browser fixture with three Claude accounts: dragging one to the top and Alt+↓ both saved the new order. Not tried yet in the installed app.
+
 ### Fixes
 - A picture you add while a dog works goes into the running turn, the same as words. Claude and ChatGPT dogs see it right away; Steer on a queued picture works too. Before, any message with a picture waited for the turn to end, and its queue row showed a file path instead of the picture.
 - A queued picture shows as a small thumbnail with "A picture" or "2 pictures" when there are no words.

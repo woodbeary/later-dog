@@ -29,7 +29,7 @@ import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { threadsOnOwnModel } from "../../shared/thread-model";
 import { ThreadModelsLine } from "./ThreadModelsLine";
 import { subscriptionAccounts } from "./AccountsPanel";
-import { AccountSwitcher, accountUsageLines, activeRest, UsageRing, usageRingFor } from "./AccountSwitcher";
+import { AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
 import { usePlanUsage, useRefreshAfterTurn } from "./PlanUsage";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
@@ -509,6 +509,8 @@ export function ModelPicker({
   // the shared bot's default. Keep choices thread-only until authority loads.
   const simpleUpdatesBotDefault = !state.config?.cloudHome || ownerOrAdmin === true;
   const [fullView, setFullView] = useState(false);
+  const [page, setPage] = useState<"accounts" | "models">("accounts");
+  const [cameBack, setCameBack] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<{ botId: string; threadId: string;
     selection: ModelSelection; updateBotDefault: boolean; name: string } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -791,7 +793,11 @@ export function ModelPicker({
       ?? account.models.options.find((option) => !option.custom)?.id;
     if (model) pick(account, model, true);
   };
-  const showSwitcher = simpleView && switcherAccounts.length > (simpleUpdatesBotDefault ? 0 : 1);
+  const showSwitcher = simpleView && shownAccounts(switcherAccounts, selection.instanceId).length > 1;
+  const manage = () => {
+    setOpen(false);
+    dispatch({ type: "toggleAppSettings", open: true, section: "general" });
+  };
   const activeLevels = active?.capabilities?.effortLevels ?? [];
   const simpleEffort = activeLevels.length > 0 ? {
     levels: simpleEffortLevels(activeLevels, selection.effort),
@@ -820,6 +826,7 @@ export function ModelPicker({
         modelProvider(active, selection.model) ? ` · ${modelProvider(active, selection.model)}` : ""
       }${selectedVariantLabel ? ` · ${selectedVariantLabel}` : selection.effort ? ` · ${effortLabel(selection.effort)} effort` : ""}`
     : selection.model;
+  const chosenDepth = selectedVariantLabel ?? (selection.effort ? friendlyEffort(selection.effort) : undefined);
   const followLine = follows === true ? `\n${t("model.followsBot", { name: profile.name })}` : follows === false ? `\n${t("model.ownModel")}` : "";
   const activeProvider = usage.report?.providers.find((provider) => provider.id === active?.instanceId);
   const activeRestNow = active ? activeRest(battery?.resting, active.instanceId, usage.now) : undefined;
@@ -841,6 +848,8 @@ export function ModelPicker({
           if (next) {
             openFor(initial);
             setFullView(false);
+            setPage("accounts");
+            setCameBack(false);
           }
           return next;
         });
@@ -919,12 +928,38 @@ export function ModelPicker({
           {bot.busy && (
             <p data-model-next-reply className="shrink-0 border-b border-hairline/40 px-3 py-2 text-[12px] text-ink-secondary">{t("model.nextReply")}</p>
           )}
+          {showSwitcher && page === "accounts" ? (
+            <div data-model-accounts className="flex min-h-0 flex-col overflow-y-auto">
+              <AccountSwitcher accounts={switcherAccounts} currentId={selection.instanceId} report={usage.report}
+                now={usage.now} resting={battery?.resting} onPick={switchAccount} />
+              <button type="button" data-model-line autoFocus={cameBack} onClick={() => setPage("models")}
+                className="flex shrink-0 items-center gap-2 border-t border-hairline/40 px-3 py-2.5 text-left hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
+                <span className="shrink-0 text-[12px] font-medium text-ink-secondary">{t("model.simple.model")}</span>
+                <span className="min-w-0 flex-1 truncate text-right text-[13px] text-ink">
+                  {modelLabel(active, selection.model)}
+                  {chosenDepth && <span className="text-ink-secondary"> · {chosenDepth}</span>}
+                </span>
+                <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />
+              </button>
+              <div className="flex shrink-0 justify-end border-t border-hairline/40 px-3 py-1.5">
+                <button type="button" data-model-manage onClick={manage}
+                  className="-mr-1 flex shrink-0 items-center gap-0.5 rounded-lg px-1 py-1 text-[12px] font-medium text-accent-text hover:bg-control/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  {t("model.simple.manage")}
+                  <ChevronRight size={13} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          ) : (
+          <>
+          {showSwitcher && (
+            <button type="button" data-model-back autoFocus onClick={() => { setPage("accounts"); setCameBack(true); }}
+              className="flex shrink-0 items-center gap-1 border-b border-hairline/40 px-2 py-2 text-left text-[12px] font-medium text-ink-secondary hover:bg-raised-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
+              <ChevronLeft size={14} aria-hidden="true" />
+              {t("accounts.title")}
+            </button>
+          )}
           {follows !== undefined && (
             <FollowBotModelRow name={profile.name} model={botModelName} follows={follows} onPick={pickBotModel} />
-          )}
-          {showSwitcher && (
-            <AccountSwitcher accounts={switcherAccounts} currentId={selection.instanceId} report={usage.report} loading={usage.loading}
-              now={usage.now} resting={battery?.resting} onPick={switchAccount} />
           )}
           <div className="flex min-h-0 min-w-0 flex-1">
           {simpleView ? (
@@ -974,10 +1009,7 @@ export function ModelPicker({
                   label={<span className="shrink-0 text-[12px] font-medium text-ink-secondary">{t("model.simple.reasoning")}</span>} />
               ) : undefined}
               effort={simpleEffort}
-              onManage={() => {
-                setOpen(false);
-                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
-              }}
+              onManage={manage}
             />
           ) : (
           <>
@@ -1241,6 +1273,8 @@ export function ModelPicker({
           </>
           )}
           </div>
+          </>
+          )}
         </div>
       )}
       {!contained && changedBotModel && !open && ownModelThreads > 0 && (

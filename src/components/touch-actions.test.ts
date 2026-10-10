@@ -27,6 +27,7 @@ const notActions: Array<{ file: string; snippet: string; why: string }> = [
   { file: "components/routines/CalendarSidebar.tsx", snippet: "text-[8.5px]", why: "'Drag' hint badge, not a control" },
   { file: "components/RoutineCalendarPage.tsx", snippet: "cursor-ns-resize", why: "mouse drag-resize handle for call events" },
   { file: "components/ComputerPanel.tsx", snippet: "opacity-80", why: "already visible at 80% without hover" },
+  { file: "components/AccountSwitcher.tsx", snippet: "cursor-grab", why: "aria-hidden drag hint; the whole account row is what moves" },
 ];
 
 function sourceFiles(dir: string): string[] {

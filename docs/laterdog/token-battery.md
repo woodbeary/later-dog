@@ -9,10 +9,10 @@ Nothing changes until you switch it on. Rotating several personal subscriptions 
 **Keep going when an account runs out** is one setting, switched from any of three places:
 
 - Settings → General → Accounts, below Add account;
-- the model picker, below its list of accounts and their usage;
+- the model picker's first page, below its accounts;
 - the message a conversation gets when its account runs out.
 
-The order is the Accounts list: Claude accounts, then ChatGPT accounts, each engine's in the order saved when the switch was last flipped, then any added since. The list has no way to reorder accounts. Removing an account takes it out of the order. Each account shows its usage, **Resting until** a time, or **Not signed in**. Two configuration folders signed in to one Anthropic login share one limit, and rest together.
+The order is the Accounts list: Claude accounts, then ChatGPT accounts, each engine's in the order last saved, then any added since. To change it, drag an account up or down in the model picker's account list, or focus it and press Alt+↑ or Alt+↓. An account moves only among its own engine's accounts, and the new order is saved at once, whether the switch is on or off. Dragging needs a mouse or trackpad; Settings → General → Accounts shows the same order but can't change it. Removing an account takes it out of the order. Each account shows its usage, **Resting until** a time, or **Not signed in**. Two configuration folders signed in to one Anthropic login share one limit, and rest together.
 
 Saved in `config.json`:
 

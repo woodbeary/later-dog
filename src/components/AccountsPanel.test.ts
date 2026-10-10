@@ -53,7 +53,7 @@ vi.mock("./DeviceSignIn", () => ({
   },
 }));
 
-const { AccountsPanel, accountOrder, pollSignedIn, removable, subscriptionAccounts } = await import("./AccountsPanel");
+const { AccountsPanel, accountOrder, pollSignedIn, removable, shownOrder, subscriptionAccounts, useCarryOn } = await import("./AccountsPanel");
 const { requestAddAccount } = await import("@/lib/add-account-request");
 
 const claude = (instanceId: string, displayName: string, snapshot: Partial<InstanceInfo["snapshot"]> = {}): InstanceInfo => ({
@@ -151,6 +151,12 @@ describe("account helpers", () => {
     expect(removable(chatgpt("chatgpt-work", "Work"))).toBe(true);
     expect(removable(chatgpt("codex", "Codex"))).toBe(false);
     expect(accountOrder(rows)).toEqual({ claudeAgent: ["claude", "claude-work"], codex: ["chatgpt"] });
+  });
+
+  it("puts the shown accounts in their new order and leaves a hidden one where it was", () => {
+    const rows = [claude("claude", "Personal"), claude("claude-old", "Old", { authenticated: false }), claude("claude-work", "Work"), chatgpt("chatgpt", "ChatGPT")];
+    expect(shownOrder(rows, ["claude-work", "claude", "chatgpt"])).toEqual({ claudeAgent: ["claude-work", "claude-old", "claude"], codex: ["chatgpt"] });
+    expect(shownOrder(rows, ["chatgpt"])).toEqual({ claudeAgent: ["claude", "claude-old", "claude-work"], codex: ["chatgpt"] });
   });
 
   it("checks the fetched list after each wait until the account reads as signed in", async () => {
@@ -360,5 +366,50 @@ describe("Accounts", () => {
     expect(sheet()?.getAttribute("aria-label")).toBe("Add account");
     await click(button("Cancel", sheet()!));
     expect(sheet()).toBeNull();
+  });
+});
+
+describe("reordering accounts", () => {
+  let carryOn: ReturnType<typeof useCarryOn>;
+  function Probe() {
+    carryOn = useCarryOn();
+    return null;
+  }
+  const reordered = { claudeAgent: ["claude-new", "claude-work", "claude"], codex: ["chatgpt"] };
+
+  beforeEach(async () => {
+    await act(async () => publish({ instances: [...fixture.state.instances, claude("claude-new", "New")] }));
+    await act(async () => root.render(createElement(Probe)));
+  });
+
+  it("shows the new order at once, keeps a hidden account in its place, and takes the server's config", async () => {
+    let answer!: (config: unknown) => void;
+    fixture.api.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    await act(async () => { void carryOn.reorder(["claude-new", "claude", "chatgpt"]); });
+    expect(fixture.state.config.accountBattery!.order).toEqual(reordered);
+    expect(fixture.api).toHaveBeenCalledWith("/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { enabled: false, order: reordered } }) });
+    expect(carryOn.saving).toBe(true);
+    const saved = { accountBattery: { enabled: false, order: reordered, resting: {} } };
+    await act(async () => answer(saved));
+    await settle();
+    expect(fixture.state.config).toEqual(saved);
+    expect(carryOn.saving).toBe(false);
+  });
+
+  it("puts the old order back and says why when it could not be saved", async () => {
+    const before = fixture.state.config;
+    fixture.api.mockRejectedValueOnce(new Error("Could not reach this server."));
+    await act(async () => { await carryOn.reorder(["claude-new", "claude", "chatgpt"]); });
+    await settle();
+    expect(fixture.state.config).toEqual(before);
+    expect(carryOn.error).toBe("Could not reach this server.");
+  });
+
+  it("can reorder only once the server has said how accounts carry on", async () => {
+    expect(carryOn.canReorder).toBe(true);
+    await act(async () => publish({ config: {} }));
+    expect(carryOn.canReorder).toBe(false);
+    await act(async () => { await carryOn.reorder(["claude-new", "claude", "chatgpt"]); });
+    expect(fixture.api).not.toHaveBeenCalled();
   });
 });

@@ -170,7 +170,20 @@ Local-only failures, seen on 2026-10-09:
       - Code: `src/components/AttachmentGallery.tsx` (`sent`), `src/components/ChatView.tsx`, `src/components/GroupView.tsx`, and `onRatio` in `src/components/AttachmentPreview.tsx`. Tests: `src/components/ChatView.pictures.test.ts`, and a new block in `src/components/AttachmentGallery.test.ts`.
     - **Stop a fifth picture when it's picked:** done for 0.3.3; checked with tests, not yet in the installed app. Picking, pasting or dropping counts the pictures already in the message, adds up to 4, and says "A message can have up to 4 pictures." Documents aren't limited. The number lives in `shared/picture-limit.ts`, and the server's own check in `server/turn-images.ts` uses it too. Tests: `src/lib/picture-limit.test.ts` and `src/components/Composer.pictureLimit.test.ts`, which picks, pastes and drops pictures into the composer (3 of its 4 tests fail on the old code).
     - **One "Computer" place** instead of Browser and Files, looking like Grok Bot's. Drop the "allow control of this computer" and "where it works" wording.
-    - **A short account popover** (the "Anthony" menu), plus dragging to reorder accounts.
+    - **A short account popover** (the "Anthony" menu), plus dragging to reorder accounts: done for 0.3.3; checked in the browser fixture, not yet in the installed app.
+      - **Jacob's report:** the menu on the "Anthony" chip looked "long, huge and overwhelming". His screenshot showed it about 1,000px tall: the dog's-model row, six accounts with usage bars, the carry-on switch, the providers with five models and Show all, the effort steps, and Manage AI accounts.
+      - **Fix, following Grok Bot's short account menu:** the menu has two pages.
+        - **Accounts** lists each signed-in account on one 32px line (usage ring, name, "62% used", a check on the one in use), then the carry-on switch, one **Model** line ("Opus 5.5 · Deep") and Manage AI accounts.
+        - Tapping the Model line opens **Models**: the dog's-model row, providers, models and effort, with **‹ Accounts** at the top.
+        - With one account shown, the menu opens on Models, and the chip's ring carries its usage. An account that isn't signed in is hidden unless it's the one in use.
+      - **Reorder:** drag an account (a grip shows on hover), or press Alt+↑ / Alt+↓ on a focused one. It moves within its own engine only and saves `accountBattery.order`, the order the token battery uses. The drag carries its own type (`application/x-laterdog-account`), and the message box's drop-to-attach only reacts to files, so nothing lands in the message box.
+      - **Measured in the fixture (1280×720), three Claude accounts:**
+        - The Accounts page is 220px tall and the Models page 383px.
+        - Dragging "Personal" above the first account moved it under the pointer and saved the new order on the server.
+        - Alt+↓ moved it back down one and saved again.
+        - The message box stayed empty. Focus lands on **‹ Accounts** on the Models page, and back on the Model line after going back.
+      - **Limits:** dragging needs a mouse or trackpad. On a touch screen it's untested and the grip stays hidden, and Settings → Accounts can't reorder. The "Drag to reorder" hint is English only, like the other account strings.
+      - Code: `src/components/AccountSwitcher.tsx`, `src/components/ModelPicker.tsx`, and `useCarryOn` and `shownOrder` in `src/components/AccountsPanel.tsx`. Tests: `src/components/AccountSwitcher.test.ts`, `src/components/AccountsPanel.test.ts`, and the two-page cases in `src/components/ModelPicker.simple.test.ts`.
     - **Remove the Phone features.**
     - **"Jump to latest" stays under dialogs, and About's links row isn't cut off:** done for 0.3.3; checked in the browser fixture, not yet in the installed app.
       - **Cause:** one bug. About opens from the menu under your name, inside the sidebar's bar, which is a layer of its own (`isolation: isolate`, z-index 10). Nothing inside that bar can rise above it, so **Jump to latest**, at the same level and later in the page, showed on top of About and covered its Support link. The Full access and computer warnings and the allowed commands list had the same problem inside the message box's layer (z-index 2).

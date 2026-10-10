@@ -58,6 +58,16 @@ export function accountOrder(accounts: readonly InstanceInfo[]): Record<string, 
   return order;
 }
 
+export function shownOrder(accounts: readonly InstanceInfo[], shown: readonly string[]): Record<string, string[]> {
+  const order = accountOrder(accounts);
+  for (const [kind, ids] of Object.entries(order)) {
+    const moved = shown.filter((id) => ids.includes(id));
+    let next = 0;
+    order[kind] = ids.map((id) => (moved.includes(id) ? moved[next++]! : id));
+  }
+  return order;
+}
+
 export async function pollSignedIn(isSignedIn: () => boolean, fetchSignedIn: () => Promise<boolean>, delays: readonly number[] = [500, 1000, 2000, 4000]): Promise<boolean> {
   if (isSignedIn()) return true;
   for (const delay of delays) {
@@ -72,21 +82,29 @@ export function useCarryOn() {
   const battery = state.config?.accountBattery;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const set = async (enabled: boolean) => {
+  const accounts = subscriptionAccounts(state.instances, battery);
+  const save = async (enabled: boolean, order: Record<string, string[]>, shown?: ConfigStatus) => {
     if (saving) return;
     setSaving(true);
     setError(null);
+    if (shown) dispatch({ type: "configStatus", config: shown });
     try {
-      const order = accountOrder(subscriptionAccounts(state.instances, battery));
       const config = await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { enabled, order } }) });
       dispatch({ type: "configStatus", config });
     } catch (cause) {
+      if (shown && state.config) dispatch({ type: "configStatus", config: state.config });
       setError(cause instanceof Error ? cause.message : t("accounts.carryOnError"));
     } finally {
       setSaving(false);
     }
   };
-  return { on: battery?.enabled === true, saving, error, set };
+  const set = (enabled: boolean) => save(enabled, accountOrder(accounts));
+  const reorder = async (shown: readonly string[]) => {
+    if (!battery || !state.config) return;
+    const order = shownOrder(accounts, shown);
+    await save(battery.enabled, order, { ...state.config, accountBattery: { ...battery, order } });
+  };
+  return { on: battery?.enabled === true, saving, error, set, reorder, canReorder: battery !== undefined };
 }
 
 function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {

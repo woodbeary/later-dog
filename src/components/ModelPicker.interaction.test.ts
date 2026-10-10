@@ -104,6 +104,8 @@ function render(forBot: Bot) {
 function open(forBot: Bot) {
   const trigger = render(forBot).nodes.find((node) => node.props["data-tour"] === "model")!;
   (trigger.props.onClick as () => void)();
+  const line = render(forBot).nodes.find((node) => node.props["data-model-line"] !== undefined);
+  if (line) (line.props.onClick as () => void)();
   const pane = render(forBot).nodes.find((node) => node.type === SimpleModelPane)!;
   (pane.props.onSetUp as () => void)();
   return render(forBot);

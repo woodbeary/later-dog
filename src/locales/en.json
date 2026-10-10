@@ -1673,6 +1673,7 @@
   "accounts.carryOn": "Keep going when an account runs out",
   "accounts.carryOnHint": "A conversation moves to your next signed-in account of the same kind and comes back after the reset. When every account is out, it waits and picks up where it stopped.",
   "accounts.carryOnError": "Could not save this setting. Please try again.",
+  "accounts.dragHint": "Drag to reorder",
   "accounts.signOutTitle": "Sign out {name}?",
   "accounts.signOutBody": "This removes the sign-in later.dog keeps for this account. Dogs using it need a sign-in before their next turn.",
   "accounts.removeTitle": "Remove {name}?",
