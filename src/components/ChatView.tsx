@@ -487,6 +487,10 @@ const Bubble = memo(function Bubble({
   const attachments = user && !webhookView ? splitTranscriptAttachments(cited?.display ?? text) : null;
   const visibleText = webhookView?.task ?? attachments?.display ?? text;
   const hasAttachments = Boolean(cited?.citations.length || (attachments && (attachments.images.length || attachments.files.length)));
+  const sentImages = attachments?.images ?? [];
+  const sentFiles = attachments?.files ?? [];
+  const sentAttachments = sentImages.length + sentFiles.length > 0;
+  const sentAbove = sentAttachments && Boolean(visibleText.trim());
   // A message that is only attachments is just the files: no bubble around them.
   const attachmentsOnly = !webhookView && !replyTarget && !visibleText.trim() &&
     (user ? hasAttachments : generatedPaths.length + linkedFiles.length > 0);
@@ -517,6 +521,9 @@ const Bubble = memo(function Bubble({
   return (
     <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
       {peer && <PeerLabel peer={peer} />}
+      {sentAbove && (
+        <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
+      )}
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
           <MessageActions side="user">
@@ -595,7 +602,9 @@ const Bubble = memo(function Bubble({
             </div>
           ) : user ? (
             <>
-              {attachments && <AttachmentGallery images={attachments.images} files={attachments.files} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className={!visibleText ? "mb-0" : undefined} />}
+              {sentAttachments && !sentAbove && (
+                <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} />
+              )}
               {visibleText && (
                 <div
                   className={cn("chat-text", collapsible && "max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]")}

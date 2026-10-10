@@ -233,6 +233,12 @@ export const Transcript = memo(function Transcript({
         const user = m.role === "user";
         const cited = user && m.text ? splitTranscriptCitations(m.text) : null;
         const attachments = user && m.text ? splitTranscriptAttachments(cited?.display ?? m.text) : null;
+        const sentImages = attachments?.images ?? [];
+        const sentFiles = attachments?.files ?? [];
+        const sentAttachments = sentImages.length + sentFiles.length > 0;
+        const sentWords = Boolean((attachments?.display ?? m.text ?? "").trim());
+        const sentAbove = sentAttachments && sentWords;
+        const sentOnly = sentAttachments && !sentWords && !m.replyToId;
         const newCluster = !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || Boolean(prev.comm) || newDay;
         const routineOwner = m.kind === "routine.run" ? memberOf(m.from?.botId) : undefined;
         const routineExecutionThreadId = m.routineRun?.executionThreadId;
@@ -290,6 +296,9 @@ export const Transcript = memo(function Transcript({
             showToolCalls ? <DigestChip message={m} /> : null
           ) : m.kind === "text" && (m.text || m.attachments?.length) ? (
             <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
+              {sentAbove && (
+                <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId: group.threadId, messageId: m.id }} eager={m.id === newestMessageId || m.id === newestUserMessageId} className="mb-1.5 max-w-[min(42rem,78%)]" />
+              )}
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
                 {user && (
                   <>
@@ -310,8 +319,7 @@ export const Transcript = memo(function Transcript({
                   className={cn(
                     "w-fit max-w-[min(42rem,78%)] rounded-2xl text-[15px] leading-relaxed",
                     !user && m.id === emergingId && "turn-answer",
-                    // A bot message that is only attachments is just the files: no bubble.
-                    !user && !m.text?.trim() && !m.replyToId && m.attachments?.length
+                    (user ? sentOnly : !m.text?.trim() && !m.replyToId && m.attachments?.length)
                       ? "text-ink"
                       : user ? "chat-text whitespace-pre-wrap bg-bubble-user px-4 py-2.5 text-ink" : "bg-card px-4 py-2.5 text-ink",
                   )}
@@ -334,7 +342,9 @@ export const Transcript = memo(function Transcript({
                   })()}
                   {user ? (
                     <>
-                      {attachments && <AttachmentGallery images={attachments.images} files={attachments.files} message={{ threadId: group.threadId, messageId: m.id }} eager={m.id === newestMessageId || m.id === newestUserMessageId} className={!attachments.display ? "mb-0" : undefined} />}
+                      {sentAttachments && !sentAbove && (
+                        <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId: group.threadId, messageId: m.id }} eager={m.id === newestMessageId || m.id === newestUserMessageId} />
+                      )}
                       <div
                         data-citation-source={m.id}
                         data-citation-owner-type="group"

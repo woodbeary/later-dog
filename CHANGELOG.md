@@ -15,6 +15,9 @@
 - A dog's question has an × in its corner. Close it to skip the question and type your own message instead. A new dog's first question has one too. The dog is told you closed it and stops waiting for an answer. Closing works after a restart as well.
 - A message takes up to 4 pictures, and the message box now stops there. Picking, pasting or dropping more adds the first 4 and says so. Before, they all went in and sending failed.
 - The message box hint while a dog works is plainer, for example "Message Biscuit while it works", in all ten languages.
+- The message box works like Grok Bot's. It is one slim line until you need more. Long messages get the full width, with the buttons underneath. Pictures, files, the 4-picture note and the message you're answering all sit inside the box instead of floating above it.
+- The 4-picture note goes away once the message is sent.
+- Pictures you send sit in their own row on the right, side by side at one height, like Grok Bot. Your words get a bubble that fits them, and a message that's only pictures has no bubble. Before, one picture sat at the left of a wide empty box, and pictures with words made a very wide bubble. Rooms show them the same way.
 
 ## 0.3.2 — 2026-10-09
 

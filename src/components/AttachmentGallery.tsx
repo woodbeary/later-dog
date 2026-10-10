@@ -324,12 +324,52 @@ type GalleryItem = { key: string } & (
   | { kind: "image"; image: PreviewImage }
   | { kind: "video" | "audio" | "file"; file: GalleryFile }
 );
+type PictureItem = Extract<GalleryItem, { kind: "image" }>;
 
-export function AttachmentGallery({ images = [], files = [], message, eager = false, className }: {
+const SENT_ROW_HEIGHT = 192;
+const SENT_ROW_GAP = 6;
+const SENT_ROW_LENGTH = 4;
+const SENT_DEFAULT_RATIO = 4 / 3;
+
+export function sentRowWidth(ratios: readonly number[]): number {
+  return Math.round(ratios.reduce((sum, ratio) => sum + ratio, 0) * SENT_ROW_HEIGHT + SENT_ROW_GAP * Math.max(ratios.length - 1, 0));
+}
+
+function SentPictureRows({ pictures, eager, onPreview }: {
+  pictures: PictureItem[];
+  eager: boolean;
+  onPreview: (image: PreviewImage) => void;
+}) {
+  const [ratios, setRatios] = useState<Record<string, number>>({});
+  const rows: PictureItem[][] = [];
+  for (let start = 0; start < pictures.length; start += SENT_ROW_LENGTH) rows.push(pictures.slice(start, start + SENT_ROW_LENGTH));
+  return rows.map((row) => {
+    const shapes = row.map((item) => ratios[item.key] ?? SENT_DEFAULT_RATIO);
+    return (
+      <div key={row[0]!.key} data-sent-pictures className="flex max-w-full items-start gap-1.5" style={{ width: sentRowWidth(shapes) }}>
+        {row.map((item, index) => (
+          <div key={item.key} className="min-w-0" title={item.image.name} style={{ flex: `${shapes[index]! * 100} 1 0%`, aspectRatio: String(shapes[index]) }}>
+            <AttachmentThumbnail
+              key={item.image.src}
+              image={item.image}
+              eager={eager}
+              onPreview={() => onPreview(item.image)}
+              onRatio={(ratio) => setRatios((current) => current[item.key] === ratio ? current : { ...current, [item.key]: ratio })}
+              className="size-full rounded-2xl border-0 bg-transparent"
+            />
+          </div>
+        ))}
+      </div>
+    );
+  });
+}
+
+export function AttachmentGallery({ images = [], files = [], message, eager = false, sent = false, className }: {
   images?: Array<string | TranscriptImageAttachment>;
   files?: GalleryFile[];
   message?: MessageAttachmentContext;
   eager?: boolean;
+  sent?: boolean;
   className?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -362,9 +402,39 @@ export function AttachmentGallery({ images = [], files = [], message, eager = fa
   const media = shown.filter((item) => item.kind === "image" || item.kind === "video");
   const documents = shown.filter((item) => item.kind === "file" || item.kind === "audio");
   const previews = items.flatMap((item) => item.kind === "image" ? [item.image] : []);
+  const label = items.length === 1 ? t("attach.gallerySingle") : t("attach.galleryCount", { count: items.length });
+  const toggle = items.length > 4 && (
+    <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} className="flex min-h-8 items-center gap-1 rounded-lg px-1 py-1 text-[11px] text-ink-secondary transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+      {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+      {expanded ? t("attach.showLess") : t("attach.showMore", { count: items.length - 4 })}
+    </button>
+  );
+  const dialog = selected && previews.some((image) => image.src === selected.src) && (
+    <AttachmentPreviewDialog image={selected} images={previews} initialIndex={previews.findIndex((image) => image.src === selected.src)} onClose={() => setSelected(null)} />
+  );
+
+  if (sent) {
+    const pictures = shown.filter((item): item is PictureItem => item.kind === "image");
+    const videos = shown.filter((item) => item.kind === "video");
+    return (
+      <section aria-label={label} data-sent-attachments className={cn("flex max-w-full flex-col items-end gap-1.5 text-left whitespace-normal", className)}>
+        <SentPictureRows pictures={pictures} eager={eager} onPreview={setSelected} />
+        {message && videos.map((item) => item.kind === "video" && (
+          <div key={item.key} className="w-72 max-w-full">
+            <VideoAttachment key={`${message.threadId}:${message.messageId}:${item.key}`} file={item.file} message={message} />
+          </div>
+        ))}
+        {documents.map((item) => item.kind === "audio" && message
+          ? <AudioAttachment key={`${message.threadId}:${message.messageId}:${item.key}`} file={item.file} message={message} />
+          : item.kind === "file" && <AttachedFileChip key={item.key} file={item.file} linked={item.file.linked} message={message} className="rounded-xl" />)}
+        {toggle}
+        {dialog}
+      </section>
+    );
+  }
 
   return (
-    <section aria-label={items.length === 1 ? t("attach.gallerySingle") : t("attach.galleryCount", { count: items.length })} className={cn("mb-1.5 w-[min(34rem,70vw)] max-w-full space-y-1.5 text-left whitespace-normal", className)}>
+    <section aria-label={label} className={cn("mb-1.5 w-[min(34rem,70vw)] max-w-full space-y-1.5 text-left whitespace-normal", className)}>
       {media.length > 0 && (
         <div className={cn("grid gap-2", media.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
           {media.map((item) => item.kind === "image" ? (
@@ -383,15 +453,8 @@ export function AttachmentGallery({ images = [], files = [], message, eager = fa
             : item.kind === "file" && <AttachedFileChip key={item.key} file={item.file} linked={item.file.linked} message={message} className="max-w-none rounded-xl border-hairline/25 bg-transparent" />)}
         </div>
       )}
-      {items.length > 4 && (
-        <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} className="flex min-h-8 items-center gap-1 rounded-lg px-1 py-1 text-[11px] text-ink-secondary transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
-          {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-          {expanded ? t("attach.showLess") : t("attach.showMore", { count: items.length - 4 })}
-        </button>
-      )}
-      {selected && previews.some((image) => image.src === selected.src) && (
-        <AttachmentPreviewDialog image={selected} images={previews} initialIndex={previews.findIndex((image) => image.src === selected.src)} onClose={() => setSelected(null)} />
-      )}
+      {toggle}
+      {dialog}
     </section>
   );
 }
