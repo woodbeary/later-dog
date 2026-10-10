@@ -13,6 +13,7 @@ import {
   type Attachment,
   type PasteAttachment,
 } from "@/lib/composer-attachments";
+import { joinNotices } from "@/lib/picture-limit";
 import { AttachmentPreviewDialog, previewImage, type PreviewImage } from "./AttachmentPreview";
 import { CitationBadge } from "./CitationUI";
 import type { CitationAttachment } from "@/lib/citations";
@@ -34,6 +35,7 @@ export function ComposerAttachments({
   onNotice,
   onPendingChange,
   uploadImage,
+  admitFiles,
 }: {
   items: Attachment[];
   onAdd: (attachments: Attachment[]) => void;
@@ -45,14 +47,15 @@ export function ComposerAttachments({
   onNotice: (notice: string | null) => void;
   onPendingChange?: (pending: boolean) => void;
   uploadImage: (file: File) => Promise<Attachment | null>;
+  admitFiles?: (files: File[]) => { files: File[]; notice: string | null };
 }) {
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<PreviewImage | null>(null);
   // dragenter/dragleave fire once per element crossed, so the overlay
   // tracks depth rather than the last event it happened to see
   const depth = useRef(0);
-  const callbacks = useRef({ onAdd, onNotice, onPendingChange, allowImages, uploadImage });
-  callbacks.current = { onAdd, onNotice, onPendingChange, allowImages, uploadImage };
+  const callbacks = useRef({ onAdd, onNotice, onPendingChange, allowImages, uploadImage, admitFiles });
+  callbacks.current = { onAdd, onNotice, onPendingChange, allowImages, uploadImage, admitFiles };
   const pendingDrops = useRef(new Set<symbol>());
 
   useEffect(() => {
@@ -78,20 +81,22 @@ export function ComposerAttachments({
       e.preventDefault();
       depth.current = 0;
       setDragging(false);
-      const files = Array.from(e.dataTransfer?.files ?? []);
+      const dropped = Array.from(e.dataTransfer?.files ?? []);
+      const admitted = callbacks.current.admitFiles?.(dropped) ?? { files: dropped, notice: null };
       // Same intake the attach button uses: a dropped file and a picked one
       // must not appear in a different order.
       const operation = Symbol("attachment-drop");
       pendingDrops.current.add(operation);
       callbacks.current.onPendingChange?.(true);
       try {
-        const { attachments, notice: message } = await intakeFiles(files, {
+        const { attachments, notice: message } = await intakeFiles(admitted.files, {
           allowImages: callbacks.current.allowImages,
           getPath: pathForFile,
           uploadImage: callbacks.current.uploadImage,
         });
         if (attachments.length) callbacks.current.onAdd(attachments);
-        if (message) callbacks.current.onNotice(message);
+        const shown = joinNotices(admitted.notice, message);
+        if (shown) callbacks.current.onNotice(shown);
       } finally {
         if (pendingDrops.current.delete(operation)) callbacks.current.onPendingChange?.(false);
       }

@@ -10,6 +10,7 @@ import {
   draftRevision,
   appendDraftAttachments,
   changeDraftAttachmentPending,
+  draftAttachments,
   forgetFailedComposerSend,
   markDraftEdited,
   prependComposerDraft,
@@ -46,6 +47,7 @@ import {
   imageAttachmentFromFile,
   replyTargetTakesFocus,
   intakeFiles,
+  isImageFile,
   isLongPaste,
   optimisticImageAttachment,
   pasteAttachment,
@@ -53,6 +55,7 @@ import {
   type Attachment,
   type PasteAttachment,
 } from "@/lib/composer-attachments";
+import { admitPictures, joinNotices, PICTURES_PER_MESSAGE } from "@/lib/picture-limit";
 import { normalizeState } from "@/lib/mascot";
 import { goalCoordinatorForComposer, groupComposerHint, jevRoomRoutingOn, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
@@ -538,17 +541,27 @@ export function Composer({
       throw error;
     }
   }, [draftId]);
+  const admitFiles = useCallback((files: File[]) => {
+    const { admitted, refused } = admitPictures(
+      files,
+      (file) => engineSupportsImages && isImageFile(file),
+      draftAttachments(draftId),
+    );
+    return { files: admitted, notice: refused ? t("composer.picturesLimit", { max: PICTURES_PER_MESSAGE }) : null };
+  }, [draftId, engineSupportsImages]);
   const pickFiles = async (picked: FileList | null) => {
     if (!picked?.length) return;
+    const admitted = admitFiles(Array.from(picked));
     changeDraftAttachmentPending(draftId, true);
     try {
-      const { attachments: added, notice } = await intakeFiles(Array.from(picked), {
+      const { attachments: added, notice } = await intakeFiles(admitted.files, {
         allowImages: engineSupportsImages,
         getPath: pathForFile,
         uploadImage,
       });
       if (added.length) addAttachments(added);
-      if (notice) setAttachmentNotice(notice);
+      const shown = joinNotices(admitted.notice, notice);
+      if (shown) setAttachmentNotice(shown);
     } finally {
       changeDraftAttachmentPending(draftId, false);
     }
@@ -684,10 +697,13 @@ export function Composer({
         return;
       }
       if (imageFiles.length > 0) {
+        const admitted = admitFiles(imageFiles);
+        if (admitted.notice) setAttachmentNotice(admitted.notice);
+        if (!admitted.files.length) return;
         changeDraftAttachmentPending(draftId, true);
         void (async () => {
           try {
-            const results = await Promise.allSettled(imageFiles.map(uploadImage));
+            const results = await Promise.allSettled(admitted.files.map(uploadImage));
             for (const result of results) {
               if (result.status === "rejected") {
                 dispatch({
@@ -943,6 +959,7 @@ export function Composer({
           onNotice={setAttachmentNotice}
           onPendingChange={(pending) => changeDraftAttachmentPending(draftId, pending)}
           uploadImage={uploadImage}
+          admitFiles={admitFiles}
         />
         <QueuedComposerMessages
           items={queuedMessages}
