@@ -21,7 +21,7 @@ function fixture(response = 0) {
   const context = vm.createContext({
     ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
     localOnly: localOrigin.localOnly, workspaceSenderAllowed: environments.workspaceSenderAllowed,
-    mainWindow, rendererOrigin: () => ORIGIN, environmentsState: { activeId: "local", environments: [] },
+    mainWindow, rendererOrigin: () => ORIGIN, localPageOrigin: () => ORIGIN, environmentsState: { activeId: "local", environments: [] },
     dialog: { showMessageBox: async (...args) => { calls.push(args); return { response }; } },
   });
   vm.runInContext(section("const workspaceOnly =", 'ipcMain.handle("organization:settings-opened"')

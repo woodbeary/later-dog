@@ -96,6 +96,8 @@ import { cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, mo
 import { createOrgLibrary } from "./org-library.mjs";
 import { createCompanyBackups } from "./company-backups.mjs";
 import { createCompanyBackupSchedule } from "./company-backup-schedule.mjs";
+import { createProfileRunner } from "./laterdog-profiles.mjs";
+import { registerProfileIpc } from "./laterdog-profile-ipc.mjs";
 
 const { desktopCapabilities, nativeDesktopActions } = capabilitiesModule;
 const nativeActions = nativeDesktopActions(process.platform);
@@ -250,7 +252,7 @@ function deliverPackageInstall(win) {
   // pending link is delivered when that page finishes loading.
   let showingLocal = false;
   try {
-    showingLocal = new URL(win.webContents.getURL()).origin === rendererOrigin();
+    showingLocal = new URL(win.webContents.getURL()).origin === localPageOrigin();
   } catch {}
   if (!showingLocal) {
     if (activeEnvironment(environmentsState)) void workspaceMenuAction(() => switchEnvironment(LOCAL_ID));
@@ -299,6 +301,7 @@ let serverReady = !app.isPackaged;
 let secureCredentials = {};
 let secureCredentialState = null;
 let desktopDataDirLease = null;
+let profiles = null;
 let managedDesktop = null;
 let cloudAccount = null;
 // Settles once a saved Cloud sign-in is restored and checked (or there is none).
@@ -346,7 +349,7 @@ const serverSupervisor = createServerSupervisor({
     // Existing chat windows reconnect in place, preserving unsent drafts.
     // A window opened during the outage is still on our error page instead.
     for (const win of BrowserWindow.getAllWindows()) {
-      if (!serverUnavailableWindows.has(win) || activeEnvironment(environmentsState)) continue;
+      if (!serverUnavailableWindows.has(win) || activeEnvironment(environmentsState) || profiles?.activeOrigin()) continue;
       void win.loadURL(`http://127.0.0.1:${SERVER_PORT}`).then(() => {
         serverUnavailableWindows.delete(win);
       }).catch((error) => {
@@ -565,7 +568,7 @@ import { createRoutineWakeHold, rememberRoutineWake, routineWakeSettings } from 
  * android-device.mjs. Declared before any handler registration below: a
  * const declared later would be in its temporal dead zone at module load.
  */
-const { isLocalSender: senderIsLocal, localOnly, localOnlySync, setLocalOrigin } = localOriginModule;
+const { isLocalSender: senderIsLocal, isProfileSender, localOnly, localOnlySync, setLocalOrigin, setProfileOrigin } = localOriginModule;
 
 let companionPowerBlocker = null;
 
@@ -1288,9 +1291,9 @@ function installDesktopMutationHeader() {
     let ownsTarget = false;
     try {
       const target = new URL(details.url);
-      ownsTarget = serverReady && target.protocol === "http:" &&
-        target.hostname === "127.0.0.1" &&
-        Number(target.port || 80) === SERVER_PORT;
+      const port = Number(target.port || 80);
+      ownsTarget = target.protocol === "http:" && target.hostname === "127.0.0.1" &&
+        ((serverReady && port === SERVER_PORT) || profiles?.ownsPort(port) === true);
     } catch {}
     if (!ownsTarget) {
       callback({ requestHeaders: details.requestHeaders });
@@ -1359,6 +1362,7 @@ async function startServerOn(port) {
     ...workspaceCredentialEnv(secureCredentials),
   });
   delete childEnv.LATERDOG_BROWSER_CONNECTION;
+  delete childEnv.LATERDOG_DESKTOP_PROFILE;
   // Set here or not at all, never inherited from the launching shell. The
   // bootstrap removes it before the server runs, so nothing the server
   // spawns sees it.
@@ -1765,7 +1769,7 @@ function sharingController() {
     file: path.join(app.getPath("userData"), "computer-sharing.json"),
     // The harness server's data directory holds provider API keys and
     // sessions.json, so a broad share must never reach it either.
-    protectedPaths: [desktopDataDir()],
+    protectedPaths: [desktopDataDir(), profilesDataRoot()],
     fetch: (...args) => session.defaultSession.fetch(...args),
     environments: () => environmentsState.environments,
     enabled: refreshSharedComputersAllowed,
@@ -1825,7 +1829,10 @@ async function openLendingSettings() {
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow({ deferNavigation: true });
   if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
   if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) win.webContents.send("app:open-settings", "cloud-settings");
-  else await win.loadURL(`${rendererOrigin()}/?desktop-settings=cloud-settings`);
+  else {
+    profiles?.usePersonal();
+    await win.loadURL(`${rendererOrigin()}/?desktop-settings=cloud-settings`);
+  }
 }
 
 let lendingTray = null;
@@ -1890,7 +1897,131 @@ function writeEnvironments(state) {
 
 /** Where the main window should be: the active remote server, else Local. */
 function activeOrigin() {
-  return activeEnvironment(environmentsState)?.origin ?? rendererOrigin();
+  return activeEnvironment(environmentsState)?.origin ?? localPageOrigin();
+}
+
+function profilesDataRoot() {
+  return `${desktopDataDir()}-profiles`;
+}
+
+function localPageOrigin() {
+  return profiles?.activeOrigin() ?? rendererOrigin();
+}
+
+function askingProfile(event) {
+  return Boolean(profiles) && isProfileSender(event);
+}
+
+function profilePageSender(event) {
+  return askingProfile(event) && workspaceSenderAllowed(event, mainWindow?.webContents, environmentsState, localPageOrigin());
+}
+
+function profileSwitcherSender(event) {
+  return (senderIsLocal(event) || isProfileSender(event)) &&
+    workspaceSenderAllowed(event, mainWindow?.webContents, environmentsState, localPageOrigin());
+}
+
+function showActive() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  let showing = null;
+  try {
+    showing = new URL(mainWindow.webContents.getURL()).origin;
+  } catch {}
+  const target = activeOrigin();
+  if (showing === target) return;
+  if (target === rendererOrigin() && app.isPackaged && !serverReady) {
+    serverUnavailableWindows.add(mainWindow);
+    void mainWindow.loadURL(buildErrorPage({ allPortsOccupied: serverStartConflictOnly })).catch(() => {});
+    return;
+  }
+  navigateMainWindow(target);
+}
+
+function showPersonalInstead(name, message, reason = "") {
+  const personal = profiles?.list().profiles.find((profile) => profile.main)?.name || "Personal";
+  profiles?.usePersonal();
+  showActive();
+  void dialog.showMessageBox({
+    type: "warning",
+    message,
+    detail: `${reason}Showing ${personal} instead. Choose ${name} again from the menu under your name to try again.`,
+  });
+}
+
+function profilesChanged() {
+  if (!profiles) return;
+  const state = profiles.list();
+  const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
+  let showing = null;
+  try {
+    showing = new URL(contents?.getURL() ?? "").origin;
+  } catch {}
+  if (contents && showing === localPageOrigin()) contents.send("profiles:changed", state);
+  const open = state.profiles.find((profile) => profile.id === state.activeId);
+  if (open && !open.main && open.status === "failed" && !activeEnvironment(environmentsState)) {
+    showPersonalInstead(open.name, `${open.name} stopped`);
+  }
+}
+
+function syncProfileMutationToken(proc) {
+  try {
+    proc.postMessage({ type: "laterdog:desktop-mutation-token", token: desktopMutationToken });
+  } catch (error) {
+    slog(`profile mutation capability sync failed: ${error?.message ?? error}`);
+  }
+}
+
+async function applyProfileCredential({ port, patch }) {
+  const response = await fetch(`http://127.0.0.1:${port}/api/config?secretStorage=external`, {
+    method: "PUT",
+    headers: desktopServerHeaders({ "content-type": "application/json" }, { packaged: true, token: desktopMutationToken }),
+    body: JSON.stringify(patch),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.error || `Could not save credential (HTTP ${response.status})`);
+  return body;
+}
+
+async function startProfiles() {
+  if (!app.isPackaged || desktopRemoteAccess) return;
+  const userData = app.getPath("userData");
+  try {
+    profiles = createProfileRunner({
+      file: path.join(userData, "profiles.json"),
+      dataRoot: profilesDataRoot(),
+      credentialsRoot: path.join(userData, "profiles"),
+      launch: () => serverChildLaunch({ resourcesPath: process.resourcesPath, userData }),
+      baseEnvironment: () => ({
+        ...process.env,
+        LATERDOG_STATIC_DIR: path.join(process.resourcesPath, "ui"),
+        LATERDOG_RESOURCES_PATH: process.resourcesPath,
+        LATERDOG_SKILLS_DIR: path.join(process.resourcesPath, "skills"),
+        LATERDOG_APP_VERSION: app.getVersion(),
+        LATERDOG_USER_DATA: userData,
+      }),
+      fork: (entry, args, options) => utilityProcess.fork(entry, args, options),
+      probe: pollServerIdentity,
+      acquireLease: (dataDir) => acquireDataDirLease(dataDir),
+      supervise: createServerSupervisor,
+      secrets: {
+        available: () => safeStorage.isAsyncEncryptionAvailable(),
+        encrypt: (value) => safeStorage.encryptStringAsync(value),
+        decrypt: (buffer) => safeStorage.decryptStringAsync(buffer),
+      },
+      applyCredential: applyProfileCredential,
+      trash: (target) => shell.trashItem(target),
+      onSpawn: syncProfileMutationToken,
+      onMessage: (proc, message) => trustedApprovalMode.receive(proc, message),
+      onExit: (proc) => trustedApprovalMode.rejectProcess(proc),
+      onChange: profilesChanged,
+      bootTimeoutMs: SERVER_BOOT_TIMEOUT_MS,
+      stopTimeoutMs: UTILITY_SERVER_STOP_TIMEOUT_MS,
+      log: slog,
+    });
+    await profiles.start();
+  } catch (error) {
+    slog(`profiles unavailable: ${error?.message ?? error}`);
+  }
 }
 
 
@@ -1985,6 +2116,7 @@ const organizationEntry = createOrganizationEntry({
     if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) {
       win.webContents.send("app:open-settings", "organization");
     } else {
+      profiles?.usePersonal();
       await win.loadURL(`${rendererOrigin()}/?desktop-settings=organization`);
     }
   },
@@ -2027,6 +2159,7 @@ async function openCloudEntry() {
   if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) {
     win.webContents.send("app:open-settings", "cloud");
   } else {
+    profiles?.usePersonal();
     await win.loadURL(`${rendererOrigin()}/?desktop-settings=cloud`);
   }
   return true;
@@ -2041,6 +2174,7 @@ function openWorkspaceSettings(computerId, panel = "computer") {
   if (senderIsLocal({ sender: mainWindow.webContents })) {
     mainWindow.webContents.send("workspaces:open-settings", id, ...(copy ? ["copy"] : []));
   } else {
+    profiles?.usePersonal();
     persistEnvironments(withActive(environmentsState, LOCAL_ID));
     navigateMainWindow(`${rendererOrigin()}/?desktop-settings=workspaces${id ? `&${copy ? "copy-to" : "share-computer"}=${encodeURIComponent(id)}` : ""}`);
   }
@@ -2234,6 +2368,7 @@ function createWindow({ deferNavigation = false } = {}) {
       // upstream's origin boundary must not erase the client-mode marker.
       additionalArguments: [...desktopCompanionRendererArguments(rendererOrigin(), desktopRemoteAccess),
         ...(app.isPackaged && !desktopRemoteAccess ? ["--laterdog-company-desktop=1"] : []),
+        ...(profiles ? ["--laterdog-profiles=1"] : []),
         // The personal Cloud exists only when this build names one; without
         // it the preload exposes no Cloud bridge and Settings shows no Cloud.
         ...(app.isPackaged && !desktopRemoteAccess && configuredCloudOrigin() ? ["--laterdog-cloud-account=1"] : []),
@@ -2292,7 +2427,7 @@ function createWindow({ deferNavigation = false } = {}) {
     try {
       origin = new URL(url).origin;
     } catch {}
-    if (workspaceNavigationAllowed(url, environmentsState, rendererOrigin())) return;
+    if (workspaceNavigationAllowed(url, environmentsState, localPageOrigin())) return;
     event.preventDefault();
     slog(`blocked navigation to ${origin ?? "an invalid address"}`);
   };
@@ -2309,7 +2444,7 @@ function createWindow({ deferNavigation = false } = {}) {
       page = new URL(win.webContents.getURL()).origin;
     } catch {}
     if (!target || !page || target === page) return;
-    if (target === rendererOrigin() || allowedOrigins(environmentsState, rendererOrigin()).has(target)) {
+    if (target === rendererOrigin() || allowedOrigins(environmentsState, rendererOrigin()).has(target) || profiles?.isProfileOrigin(target) === true) {
       details.preventDefault();
       slog(`blocked subframe navigation to ${details.url}`);
     }
@@ -2330,6 +2465,17 @@ function createWindow({ deferNavigation = false } = {}) {
       detail: `${errorDescription}. Showing the local server instead; choose it again from the Server menu when it is back.`,
     });
     void workspaceMenuAction(() => switchEnvironment(LOCAL_ID));
+  });
+  win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3 || !profiles || activeEnvironment(environmentsState)) return;
+    const open = profiles.list().profiles.find((profile) => profile.id === profiles.activeId() && !profile.main);
+    let origin = null;
+    try {
+      origin = new URL(validatedURL).origin;
+    } catch {}
+    if (!open || origin !== profiles.activeOrigin()) return;
+    slog(`profile ${open.id} page did not load (${errorDescription}); back to Personal`);
+    showPersonalInstead(open.name, `${open.name} is not reachable`, `${errorDescription}. `);
   });
   win.webContents.on("did-finish-load", () => deliverPackageInstall(win));
   win.webContents.on("did-finish-load", () => void offerComputerSharing(win));
@@ -2450,13 +2596,16 @@ function createWindow({ deferNavigation = false } = {}) {
   }
 
   const remote = activeEnvironment(environmentsState);
-  if (!serverReady && (desktopRemoteAccess || (app.isPackaged && !remote))) serverUnavailableWindows.add(win);
+  const openProfile = remote ? null : profiles?.activeOrigin() ?? null;
+  if (!serverReady && (desktopRemoteAccess || (app.isPackaged && !remote && !openProfile))) serverUnavailableWindows.add(win);
   // The confirmed native organisation action supplies the fixed local URL.
   if (deferNavigation) return win;
   if (desktopRemoteAccess) {
     win.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : buildErrorPage({ allPortsOccupied: serverStartConflictOnly }));
   } else if (remote) {
     void win.loadURL(remote.origin).catch(() => {});
+  } else if (openProfile) {
+    void win.loadURL(openProfile).catch(() => {});
   } else if (app.isPackaged) {
     win.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : buildErrorPage({ allPortsOccupied: serverStartConflictOnly }));
   } else {
@@ -2557,7 +2706,7 @@ ipcMain.handle("desktop:export-diagnostics", localOnly("desktop:export-diagnosti
 // renderer-controlled, so it must resolve inside ~/.laterdog and be a
 // regular file — never a symlink escape or directory.
 ipcMain.handle("desktop:save-file", localOnly("desktop:save-file", async (event, rawPath) => {
-  return withSavableFile(rawPath, { home: os.homedir() }, async ({ defaultName, copyTo }) => {
+  return withSavableFile(rawPath, { home: os.homedir(), root: askingProfile(event) ? profiles.activeDataDir() : undefined }, async ({ defaultName, copyTo }) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const defaultPath = await defaultSaveName(app.getPath("downloads"), defaultName);
     const choice = await dialog.showSaveDialog(parent ?? undefined, {
@@ -2859,7 +3008,7 @@ ipcMain.handle("companion-account:retry", localOnly("companion-account:retry", (
 ipcMain.handle("companion-account:sign-out", localOnly("companion-account:sign-out", () => ensureCompanionAccountService().signOut()));
 
 const workspaceOnly = (handler) => (event, ...args) => {
-  if (!workspaceSenderAllowed(event, mainWindow?.webContents, environmentsState, rendererOrigin())) throw new Error("These controls are only available in the main desktop window");
+  if (!workspaceSenderAllowed(event, mainWindow?.webContents, environmentsState, localPageOrigin())) throw new Error("These controls are only available in the main desktop window");
   return handler(event, ...args);
 };
 const localWorkspaceOnly = (channel, handler) => localOnly(channel, workspaceOnly(handler));
@@ -3124,7 +3273,7 @@ const cloudPageSender = (channel, handler) => (event) => {
 // (the one rule its Settings → Plan and the microphone use), so someone who
 // stays on My Cloud still sees "Restart to update". Any other server's page
 // gets nothing.
-const updaterPageAllowed = event => cloudPageAsking(event) !== null;
+const updaterPageAllowed = event => cloudPageAsking(event) !== null || profilePageSender(event);
 // The preload asks once, as a page loads, whether to give it the updater at
 // all. Pages built before main answered My Cloud read the bridge alone as
 // "You're up to date", so it goes only to a page main answers, or will: while
@@ -3273,16 +3422,19 @@ ipcMain.handle("workspaces:menu", workspaceOnly(async () => {
   }
 }));
 
-ipcMain.handle("desktop:capabilities", async (event) =>
-  desktopCapabilities({
-    remote: !senderIsLocal(event),
+ipcMain.handle("desktop:capabilities", async (event) => {
+  const profile = askingProfile(event);
+  return desktopCapabilities({
+    remote: !senderIsLocal(event) && !profile,
     platform: process.platform,
     env: process.env,
     packaged: app.isPackaged,
     localConnection: await cuaReady,
-    credentialStore: credentialStoreUnavailable ? "unavailable" : "ok",
-  }),
-);
+    credentialStore: profile ? profiles.activeCredentialStore() : credentialStoreUnavailable ? "unavailable" : "ok",
+  });
+});
+
+registerProfileIpc({ ipcMain, runner: () => profiles, isPage: profilePageSender, senderAllowed: profileSwitcherSender, showActive });
 
 const CREDENTIAL_PATCH = {
   composioApiKey: (value) => ({ composio: { apiKey: value } }),
@@ -3339,38 +3491,53 @@ async function saveWorkspaceCredential(name, value) {
   );
 }
 
-ipcMain.handle("credential:set", localOnly("credential:set", (_event, name, value) =>
-  saveWorkspaceCredential(name, value),
+async function saveProfileCredential(id, name, value) {
+  const patchFor = CREDENTIAL_PATCH[name];
+  if (!patchFor || typeof value !== "string") throw new Error("Unsupported credential");
+  if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("The operating-system credential store is unavailable");
+  return profiles.saveCredential(id, name, value, patchFor(value.trim()));
+}
+
+ipcMain.handle("credential:set", localOnly("credential:set", (event, name, value) =>
+  askingProfile(event) ? saveProfileCredential(profiles.activeId(), name, value) : saveWorkspaceCredential(name, value),
 ));
 
-ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mode", (_event, botId, mode, options) => {
+ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mode", (event, botId, mode, options) => {
   // Development uses a separately launched server, which is intentionally
   // outside this trust path. Never degrade this grant to loopback HTTP.
-  if (!app.isPackaged || !serverProc) {
+  const proc = askingProfile(event) ? profiles.activeProcess() : serverProc;
+  if (!app.isPackaged || !proc) {
     throw new Error("Full and Custom approval modes require the embedded desktop server");
   }
-  return trustedApprovalMode.request(serverProc, botId, mode, options);
+  return trustedApprovalMode.request(proc, botId, mode, options);
 }));
 
 async function broadcastDesktopCapabilities() {
   const localConnection = await cuaReady;
-  const build = (remote) =>
+  const build = (remote, credentialStore = credentialStoreUnavailable ? "unavailable" : "ok") =>
     desktopCapabilities({
       remote,
       platform: process.platform,
       env: process.env,
       packaged: app.isPackaged,
       localConnection,
-      credentialStore: credentialStoreUnavailable ? "unavailable" : "ok",
+      credentialStore,
     });
   const local = build(false);
   let redacted = null;
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
     let isLocal = false;
+    let isProfile = false;
     try {
-      isLocal = new URL(window.webContents.getURL()).origin === rendererOrigin();
+      const origin = new URL(window.webContents.getURL()).origin;
+      isLocal = origin === rendererOrigin();
+      isProfile = Boolean(profiles) && origin === profiles.activeOrigin();
     } catch {}
+    if (isProfile) {
+      window.webContents.send("desktop:capabilities-changed", build(false, profiles.activeCredentialStore()));
+      continue;
+    }
     if (!isLocal) redacted ??= build(true);
     window.webContents.send("desktop:capabilities-changed", isLocal ? local : redacted);
   }
@@ -3481,7 +3648,7 @@ app.whenReady().then(async () => {
     session.defaultSession.setDisplayMediaRequestHandler(
       (request, callback) => {
         displayMediaRequestCount += 1;
-        if (!displayMediaGuard.consume(request, rendererOrigin())) {
+        if (!displayMediaGuard.consume(request, localPageOrigin())) {
           respondToDisplayMediaRequest(callback, {});
           return;
         }
@@ -3552,7 +3719,9 @@ app.whenReady().then(async () => {
       slog(`desktop companion relay failed: ${error?.message ?? error}`);
     }
   } else if (app.isPackaged) {
+    const profilesStarting = startProfiles();
     await startServerPackaged();
+    await profilesStarting;
   }
   if (app.isPackaged && !desktopRemoteAccess && serverReady) {
     const supervisor = await startLaterDogSupervisor({ app, dataDir: desktopDataDir(), port: SERVER_PORT, ownerToken: desktopMutationToken, log: slog });
@@ -3578,6 +3747,7 @@ app.whenReady().then(async () => {
       .catch(error => slog(`companion auto-start skipped: ${error?.message ?? error}`));
   }
   setLocalOrigin(rendererOrigin());
+  setProfileOrigin(() => profiles?.activeOrigin() ?? null);
   // Device permissions (microphone, notifications, clipboard) are for the
   // local UI only; privileged capabilities (camera, geolocation, USB, MIDI,
   // serial) stay off. Client mode's loopback relay is the local UI. The
@@ -3588,7 +3758,7 @@ app.whenReady().then(async () => {
   // window's main frame, may also write the clipboard. Neither ever reads it;
   // both are re-evaluated per request, so a server switch or sign-out withdraws it.
   appPermissions = appPermissionHandlers({
-    rendererOrigin,
+    rendererOrigin: localPageOrigin,
     mainContents: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
     cloudHomeOrigin: myCloud,
     cloudHomeRestoring: () => cloudAccountRestoring ? cloudAccountRestored() : null,
@@ -3718,6 +3888,7 @@ app.on("before-quit", (e) => {
   ]);
   const cleanup = Promise.all([
     ownedHelperCleanup,
+    profiles?.stopAll().catch(() => {}),
     stoppingServer.then((stopped) => {
       if (!stopped) slog("server child did not stop before desktop exit; retaining the data-directory lease");
     }),

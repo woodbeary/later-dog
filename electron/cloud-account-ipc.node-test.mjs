@@ -32,7 +32,7 @@ test("production personal Cloud IPC guards exact local main frame and forwards n
   localOrigin.setLocalOrigin(origin);
   const context = vm.createContext({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     localOnly: localOrigin.localOnly, workspaceSenderAllowed: environments.workspaceSenderAllowed, mainWindow: { webContents: contents },
-    rendererOrigin: () => origin, environmentsState: { environments: [], activeId: "local" },
+    rendererOrigin: () => origin, localPageOrigin: () => origin, environmentsState: { environments: [], activeId: "local" },
     ensureCloudAccount: () => Object.fromEntries(methods.map(method => [method, (...args) => { calls.push([method, ...args]); return { status: "signed-out" }; }])),
     connectCloudHome: (...args) => { calls.push(["connectHome", ...args]); return { status: "connected" }; },
   });

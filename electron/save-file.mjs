@@ -51,10 +51,10 @@ function isSameFile(left, right) {
 // Paths come from model-rendered markdown, so they are untrusted. Resolve the
 // root and target before checking containment, then retain the target identity
 // for the open step below.
-async function resolveSource(rawPath, { home, fsp, platform }) {
+async function resolveSource(rawPath, { home, root: rootDir, fsp, platform }) {
   const target = normalizeSourcePath(rawPath);
   const root = await canonicalPath(
-    path.join(home, ".laterdog"),
+    rootDir ?? path.join(home, ".laterdog"),
     fsp,
     "Only files created by your bots can be saved",
   );
@@ -73,12 +73,12 @@ async function resolveSource(rawPath, { home, fsp, platform }) {
 // Kept as a narrow validation seam for callers and tests that only need the
 // canonical path. The save flow uses withSavableFile so it cannot forget to
 // close the stable source handle.
-export async function resolveSavablePath(rawPath, { home, fsp = fs.promises, platform = process.platform } = {}) {
-  return (await resolveSource(rawPath, { home, fsp, platform })).filePath;
+export async function resolveSavablePath(rawPath, { home, root, fsp = fs.promises, platform = process.platform } = {}) {
+  return (await resolveSource(rawPath, { home, root, fsp, platform })).filePath;
 }
 
-async function openSavableFile(rawPath, { home, fsp, platform }) {
-  const source = await resolveSource(rawPath, { home, fsp, platform });
+async function openSavableFile(rawPath, { home, root, fsp, platform }) {
+  const source = await resolveSource(rawPath, { home, root, fsp, platform });
   const noFollow = platform === "win32" ? 0 : fs.constants.O_NOFOLLOW ?? 0;
   const handle = await fsp.open(source.filePath, fs.constants.O_RDONLY | noFollow);
   try {
@@ -98,10 +98,10 @@ async function openSavableFile(rawPath, { home, fsp, platform }) {
 // handle. This keeps validation, stable copying, and cleanup at one seam.
 export async function withSavableFile(
   rawPath,
-  { home, fsp = fs.promises, platform = process.platform } = {},
+  { home, root, fsp = fs.promises, platform = process.platform } = {},
   operation,
 ) {
-  const { handle, filePath } = await openSavableFile(rawPath, { home, fsp, platform });
+  const { handle, filePath } = await openSavableFile(rawPath, { home, root, fsp, platform });
   try {
     return await operation({
       filePath,

@@ -13,6 +13,16 @@ import {
 
 import { InitialsAvatar } from "./Avatar";
 import { AboutDialog } from "./AboutDialog";
+import {
+  AddProfileDialog,
+  EditProfilesDialog,
+  profileEntryItem,
+  profileError,
+  profileName,
+  profilePageItems,
+  useProfiles,
+  type ProfileSwitchError,
+} from "./ProfileSwitcher";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
@@ -179,13 +189,50 @@ export function useUpdateItem(): UpdateEntry | null {
 export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
   const update = useUpdateItem();
+  const profiles = useProfiles();
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [page, setPage] = useState<"main" | "profiles">("main");
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<ProfileSwitchError | null>(null);
+  const [profileDialog, setProfileDialog] = useState<"add" | "edit" | null>(null);
   const triggerRef = useRef<HTMLSpanElement>(null);
+  const switchTicket = useRef(0);
+  const profilesShown = useRef(false);
+  profilesShown.current = menuOpen && page === "profiles";
 
   const profile = state.config?.profile;
   const name = profileLabel(profile);
+  const openProfile = profiles?.list.profiles.find((entry) => entry.id === profiles.list.activeId);
+  const setup = openProfile && profiles && profiles.list.profiles.length > 1 ? profileName(openProfile) : "";
 
-  const items: SidebarMenuItem[] = [
+  const focusTrigger = () => triggerRef.current?.closest("button")?.focus();
+  const switchTo = async (id: string) => {
+    if (!profiles) return;
+    const ticket = ++switchTicket.current;
+    setSwitching(id);
+    setSwitchError(null);
+    try {
+      await profiles.bridge.switch(id);
+    } catch (cause) {
+      if (ticket === switchTicket.current) {
+        const message = profileError(cause);
+        setSwitchError({ id, message });
+        if (!profilesShown.current) dispatch({ type: "error", message });
+      }
+    } finally {
+      if (ticket === switchTicket.current) setSwitching(null);
+    }
+  };
+  const onMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (!open) return;
+    setPage("main");
+    setSwitchError(null);
+  };
+
+  const mainItems: SidebarMenuItem[] = [
+    ...(profiles ? [profileEntryItem(() => setPage("profiles"))] : []),
     {
       key: "settings",
       label: t("sidebar.menu.settings"),
@@ -224,12 +271,31 @@ export function SidebarProfileMenu() {
       onSelect: () => void openExternalLink(FEEDBACK_URL),
     },
   ];
+  const items =
+    profiles && page === "profiles"
+      ? profilePageItems({
+          list: profiles.list,
+          switching,
+          error: switchError,
+          onBack: () => setPage("main"),
+          onSwitch: (id) => void switchTo(id),
+          onAdd: () => {
+            focusTrigger();
+            setProfileDialog("add");
+          },
+          onEdit: () => {
+            focusTrigger();
+            setProfileDialog("edit");
+          },
+        })
+      : mainItems;
 
   return (
     <>
       <SidebarPopoverMenu
         items={items}
         ariaLabel={name}
+        onOpenChange={onMenuOpenChange}
         renderTrigger={({ open }) => (
           <span
             ref={triggerRef}
@@ -239,11 +305,20 @@ export function SidebarProfileMenu() {
             )}
           >
             <InitialsAvatar initials={profileInitials(profile)} size={28} />
-            <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{name}</span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-[14px] text-ink">{name}</span>
+              {setup && <span className="truncate text-[12px] text-ink-secondary">{setup}</span>}
+            </span>
           </span>
         )}
       />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      {profiles && profileDialog === "add" && (
+        <AddProfileDialog bridge={profiles.bridge} onClose={() => setProfileDialog(null)} />
+      )}
+      {profiles && profileDialog === "edit" && (
+        <EditProfilesDialog bridge={profiles.bridge} list={profiles.list} onClose={() => setProfileDialog(null)} />
+      )}
     </>
   );
 }
