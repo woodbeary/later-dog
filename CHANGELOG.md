@@ -36,7 +36,7 @@
   - Appearance and other choices kept in the window, such as theme, fonts, language, notifications and the sidebar, start at their defaults in a new profile.
   - Profiles are in the Mac app only.
   - A profile's data is in `~/.laterdog-profiles`. A removed profile's browser data stays in `~/.agent-browser`.
-- Tried for real in a test copy of the 0.3.3 Mac app: adding Business opened it in about 2 seconds with its own first dog, Business kept running after switching back to Personal, and renaming and removing worked. Starting with your name, and the tour fix under Fixes, aren't in a build yet.
+- Tried for real in a test copy of the 0.3.3 Mac app: adding Business opened it in about 2 seconds with its own first dog, Business kept running after switching back to Personal, and renaming and removing worked. In the 0.3.3 preview build, the tour's tip stepped aside while Settings or Add profile was open, and Escape closed Settings without ending the tour. Starting with your name isn't tried in a build yet.
 
 ### Computer panel
 - The Computer panel is one view now, like Grok Bot's: **Computer**, a green dot while the dog is working there, and a close button. The Computer, Browser and Files tabs are gone.
@@ -63,7 +63,7 @@
 - The message box works like Grok Bot's. It is one slim line until you need more. Long messages get the full width, with the buttons underneath. Pictures, files, the 4-picture note and the message you're answering all sit inside the box instead of floating above it.
 - The 4-picture note goes away once the message is sent.
 - Pictures you send sit in their own row on the right, side by side at one height, like Grok Bot. Your words get a bubble that fits them, and a message that's only pictures has no bubble. Before, one picture sat at the left of a wide empty box, and pictures with words made a very wide bubble. Rooms show them the same way.
-- The tour's tip no longer shows on top of other windows, such as Edit profiles or Settings. It steps aside while one is open and comes back when it closes. Pressing Escape to close a window no longer ends the tour as well.
+- The tour's tip no longer shows on top of other windows, menus or pop-ups, such as Settings, Edit profiles, the menu under your name or the list of models. It steps aside while one is open and comes back when it closes. Pressing Escape to close one no longer ends the tour as well.
 - About, the Full access and computer warnings, and the allowed commands list now cover the whole window. Before, **Jump to latest** could show on top of them and hide About's Support link.
 - If later.dog's background server stops and the app isn't told, the app now notices and restarts it, for each profile's server too. It checks every 15 seconds and restarts only a server that has really ended. Before, the window stayed open with nothing behind it, and dogs stopped answering until you quit and reopened later.dog. This happened once with 0.3.2, on 2026-10-10; why that server stopped is still unknown. Tried in tests only, including with a real ended process. Not tried yet in the installed app.
 - A dog's answer no longer hides inside **Worked for**. Only what a dog says on its way to using a tool, such as "Let me check", folds away. Before, a message sent while a dog worked could fold its whole answer into the chip and leave only its last line showing. Tried for real with Claude: an 80-line answer sent with a message mid-turn now stays in the chat.

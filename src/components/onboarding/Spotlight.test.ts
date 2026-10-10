@@ -50,6 +50,13 @@ function modal(extra: Record<string, string> = {}) {
   return dialog;
 }
 
+function popup(role: string) {
+  const element = document.createElement("div");
+  element.setAttribute("role", role);
+  element.append(document.createElement("button"));
+  return element;
+}
+
 function onScreen(element: HTMLElement) {
   const rect = { x: 40, y: 40, left: 40, top: 40, width: 300, height: 200, right: 340, bottom: 240, toJSON: () => ({}) };
   element.getBoundingClientRect = () => rect as DOMRect;
@@ -123,5 +130,28 @@ describe("the tour spotlight", () => {
     expect(hidden()).toBe(false);
     await escapeOn(panel);
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("steps aside for an open menu or pop-up, but not for its own card", async () => {
+    await show(null);
+    expect(layer()?.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(hidden()).toBe(false);
+    for (const role of ["menu", "dialog"]) {
+      const open = popup(role);
+      document.body.append(open);
+      await settle();
+      expect(hidden()).toBe(true);
+      open.remove();
+      await settle();
+      expect(hidden()).toBe(false);
+    }
+  });
+
+  it("leaves the tour alone when Escape closes a menu", async () => {
+    const menu = popup("menu");
+    document.body.append(menu);
+    const onDone = await show(null);
+    await escapeOn(menu.querySelector("button")!);
+    expect(onDone).not.toHaveBeenCalled();
   });
 });
