@@ -34,6 +34,7 @@ import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference"
 import { botShowsUnread } from "@/lib/bot-unread";
 import { currentPhonePairingTarget, takePhonePairingRequest } from "@/lib/phone-pairing";
 import { PhonePairingDialog } from "@/components/PhonePairingDialog";
+import { acknowledgeOrganizationSettings } from "@/lib/organization-settings-ack";
 
 function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const { state, dispatch } = useStore();
@@ -63,6 +64,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
       if (requestedSettings === "workspaces") open();
       else dispatch(CLOUD_LINK_SETTINGS);
+      acknowledgeOrganizationSettings(requestedSettings, window.laterdog.organization, remoteClient);
     }
     return window.laterdog.environments.onOpenSettings?.(open);
   }, [dispatch]);
@@ -199,9 +201,10 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   }, [dispatch]);
 
   useEffect(() => {
-    return window.laterdog?.onOpenAppSettings?.(section => dispatch(section
-      ? CLOUD_LINK_SETTINGS
-      : { type: "toggleAppSettings", open: true }));
+    return window.laterdog?.onOpenAppSettings?.(section => {
+      dispatch(section ? CLOUD_LINK_SETTINGS : { type: "toggleAppSettings", open: true });
+      acknowledgeOrganizationSettings(section, window.laterdog?.organization, remoteClient);
+    });
   }, [dispatch]);
 
   // The viewer outlives ComputerPanel and can target any bot, so release control
@@ -230,7 +233,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* fixed-position popups, bottom-left — outside the layout flow */}
       <UpdateBanner />
       <CredentialStoreNotice />
       <div className="relative flex min-h-0 flex-1">
