@@ -821,11 +821,12 @@ export function ModelPicker({
     />
   );
 
+  const shownModel = selection.instanceId ? modelLabel(active, selection.model) : t("model.choose");
   const summary = active
     ? `${active.displayName} · ${modelLabel(active, selection.model)}${
         modelProvider(active, selection.model) ? ` · ${modelProvider(active, selection.model)}` : ""
       }${selectedVariantLabel ? ` · ${selectedVariantLabel}` : selection.effort ? ` · ${effortLabel(selection.effort)} effort` : ""}`
-    : selection.model;
+    : shownModel;
   const chosenDepth = selectedVariantLabel ?? (selection.effort ? friendlyEffort(selection.effort) : undefined);
   const followLine = follows === true ? `\n${t("model.followsBot", { name: profile.name })}` : follows === false ? `\n${t("model.ownModel")}` : "";
   const activeProvider = usage.report?.providers.find((provider) => provider.id === active?.instanceId);
@@ -873,7 +874,7 @@ export function ModelPicker({
           {active && showActiveAccount && (
             <span data-model-account className="text-ink-secondary">{active.displayName} · </span>
           )}
-          {modelLabel(active, selection.model)}
+          {shownModel}
           {active && modelProvider(active, selection.model) && (
             <span className="text-ink-secondary"> · {modelProvider(active, selection.model)}</span>
           )}
@@ -936,7 +937,7 @@ export function ModelPicker({
                 className="flex shrink-0 items-center gap-2 border-t border-hairline/40 px-3 py-2.5 text-left hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
                 <span className="shrink-0 text-[12px] font-medium text-ink-secondary">{t("model.simple.model")}</span>
                 <span className="min-w-0 flex-1 truncate text-right text-[13px] text-ink">
-                  {modelLabel(active, selection.model)}
+                  {shownModel}
                   {chosenDepth && <span className="text-ink-secondary"> · {chosenDepth}</span>}
                 </span>
                 <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />

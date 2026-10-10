@@ -645,6 +645,7 @@ import { LimitHold } from "./laterdog/limit-hold.ts";
 import { latestTurnAnswer, postTurnImage } from "./laterdog/turn-images.ts";
 import { steerWords } from "./laterdog/steer-images.ts";
 import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts";
+import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
@@ -3450,6 +3451,13 @@ function retryComputerEngineMove(): Promise<void> {
     .finally(() => { computerEngineMoveRunning = null; });
   return computerEngineMoveRunning;
 }
+const giveFirstEngine = firstEngine({
+  bots: () => store.bots,
+  pick: () => hostedModels ? Promise.resolve({ instanceId: "", model: "" }) : defaultSelection(),
+  assign: (botId, selection) => {
+    store.patchBot(botId, { modelSelection: withNewBotEffort(selection, cfg.newBots?.effort, registry.get(selection.instanceId)?.adapter.capabilities.effortLevels) });
+  },
+});
 
 function checkedModelSelection(
   raw: unknown,
@@ -9758,6 +9766,7 @@ async function startTurn(
   },
 ) {
   workspaceMaintenance.assertAvailable();
+  if (store.bots.some((candidate) => candidate.id === botId && hasNoModel(candidate))) await giveFirstEngine();
   const profile = store.bot(botId);
   if (!profile) throw Object.assign(new Error("no such bot"), { status: 404 });
   const threadId = opts?.threadId ?? profile.threadId;
@@ -15791,6 +15800,7 @@ async function describeInstances() {
   // (an install, a sign-in, a key or a Company engine), so a bot still on the
   // removed Computer engine moves now rather than at the next start.
   void retryComputerEngineMove();
+  void giveFirstEngine();
   return (await registry.describe()).map((instance) => {
     const entry = configs[instance.instanceId];
     const described = {

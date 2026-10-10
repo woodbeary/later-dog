@@ -631,6 +631,15 @@ describe("the model picker in Simple mode", () => {
     expect(fixture.refreshInstances).toHaveBeenCalled();
   });
 
+  it("says Choose model on the chip and on the model line while a dog has no model yet", () => {
+    const work: InstanceInfo = { ...claude(true, [{ id: "claude-sonnet-5-5", label: "Sonnet 5.5" }]), instanceId: "claude-work", displayName: "Work" };
+    fixture.instances = [claude(), work];
+    const none = bot(undefined, "", "");
+    expect(text(render(none).html)).toBe("Choose model");
+    const html = menu(openAccounts(none).html);
+    expect(text(region(html, "data-model-line", "data-model-manage"))).toContain("Choose model");
+  });
+
   it("opens on the accounts with their usage, and switches account in one tap", () => {
     const work: InstanceInfo = { ...claude(true, [{ id: "claude-sonnet-5-5", label: "Sonnet 5.5" }]), instanceId: "claude-work", displayName: "Work" };
     fixture.instances = [claude(), work];
