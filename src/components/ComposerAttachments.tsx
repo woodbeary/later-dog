@@ -1,9 +1,6 @@
-// Chips for what is attached to the next message, plus the window-wide
-// file drop that creates them. A long paste collapses into a card of its
-// first lines instead of flooding the composer; a file dropped anywhere
-// on the window attaches by path.
 import { useEffect, useRef, useState } from "react";
-import { ClipboardPaste, File as FileIcon, Image as ImageIcon, LoaderCircle, MessageSquareText, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ClipboardPaste, File as FileIcon, LoaderCircle, MessageSquareText, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   attachmentImageUrl,
@@ -116,21 +113,23 @@ export function ComposerAttachments({
 
   return (
     <>
-      {dragging && (
+      {dragging && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-10">
           <div className="rounded-2xl border-2 border-dashed border-accent/70 bg-panel/90 px-8 py-6 text-[14px] font-medium text-ink shadow-2xl">
             Drop to attach
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {notice && (
-        <div className="mb-2 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
+        <div role="status" className="flex items-start gap-2 px-1 pb-1.5 pt-0.5 text-[12px] text-warning">
           <span className="min-w-0 flex-1">{notice}</span>
           <button
+            type="button"
             onClick={() => onNotice(null)}
             aria-label="Dismiss"
-            className="shrink-0 rounded p-0.5"
+            className="shrink-0 rounded p-0.5 hover:bg-control"
           >
             <X size={12} />
           </button>
@@ -138,42 +137,35 @@ export function ComposerAttachments({
       )}
 
       {items.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
+        <div role="list" aria-label="Attachments" data-composer-attachments className="flex items-center gap-2 overflow-x-auto px-1 pb-2 pt-1">
           {items.map((a) =>
             a.kind === "citation" ? (
-              <CitationBadge
-                key={a.id}
-                citation={a}
-                onChange={onChangeCitation}
-                onRemove={() => onRemove(a.id)}
-              />
+              <div key={a.id} role="listitem" className="shrink-0">
+                <CitationBadge
+                  citation={a}
+                  onChange={onChangeCitation}
+                  onRemove={() => onRemove(a.id)}
+                />
+              </div>
             ) : a.kind === "paste" ? (
-              <Chip
-                key={a.id}
-                label="PASTED"
-                title={a.text.slice(0, 4000)}
-                onRemove={() => onRemove(a.id)}
-              >
-                <div className="relative h-[76px] overflow-hidden">
-                  <pre className="whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.45] text-ink-secondary">
-                    {a.text.slice(0, 400)}
-                  </pre>
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-b from-transparent to-raised" />
+              <div key={a.id} role="listitem" title={a.text.slice(0, 4000)} className={chipClass("w-[200px] gap-2 pl-3 pr-7")}>
+                <ClipboardPaste size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="truncate text-[12px] text-ink">{pasteSummary(a)}</div>
+                  <button
+                    type="button"
+                    onClick={() => onDisplayInChatBox(a)}
+                    className="flex max-w-full items-center gap-1 text-[11px] text-accent-text hover:underline focus-visible:underline focus-visible:outline-none"
+                    aria-label="Display pasted text in chat box"
+                  >
+                    <MessageSquareText size={11} className="shrink-0" aria-hidden="true" />
+                    <span className="truncate">Display in chat box</span>
+                  </button>
                 </div>
-                <div className="mt-1 text-[10.5px] text-ink-tertiary">{pasteSummary(a)}</div>
-                <button
-                  type="button"
-                  onClick={() => onDisplayInChatBox(a)}
-                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/25 bg-accent/5 px-2 py-1.5 text-[10.5px] font-medium text-accent-text transition-colors hover:border-accent/50 hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60"
-                  aria-label="Display pasted text in chat box"
-                  title="Display in chat box"
-                >
-                  <MessageSquareText size={12} aria-hidden="true" />
-                  <span>Display in chat box</span>
-                </button>
-              </Chip>
+                <RemoveButton label="Remove pasted text" onClick={() => onRemove(a.id)} />
+              </div>
             ) : a.kind === "image" ? (
-              <Chip key={a.id} label="IMAGE" title={a.name} onRemove={() => onRemove(a.id)}>
+              <div key={a.id} role="listitem" title={a.name} className={chipClass("size-14 overflow-hidden bg-inset")}>
                 <button
                   type="button"
                   onClick={() => {
@@ -183,7 +175,7 @@ export function ComposerAttachments({
                   }}
                   disabled={!attachmentImageUrl(a.path) && !a.previewUrl}
                   aria-busy={a.uploading || undefined}
-                  className="relative flex h-[76px] w-full items-center justify-center overflow-hidden rounded-lg bg-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-default"
+                  className="relative flex size-full items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 disabled:cursor-default"
                   aria-label={`Preview ${a.name}`}
                 >
                   <img
@@ -191,28 +183,25 @@ export function ComposerAttachments({
                     alt={a.name}
                     loading="eager"
                     fetchPriority="high"
-                    className="max-h-[76px] max-w-full object-contain"
+                    className="size-full object-cover"
                   />
                   {a.uploading && (
-                    <span className="absolute bottom-1.5 right-1.5 flex size-6 items-center justify-center rounded-full bg-black/65 text-white shadow-sm">
-                      <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/35 text-white">
+                      <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
                     </span>
                   )}
                 </button>
-                <div className="mt-1 truncate text-[10.5px] text-ink-tertiary">
-                  {a.uploading ? "Uploading…" : formatSize(a.size)}
-                </div>
-              </Chip>
+                <RemoveButton label="Remove file" onImage onClick={() => onRemove(a.id)} />
+              </div>
             ) : (
-              <Chip key={a.id} label="FILE" title={a.path} onRemove={() => onRemove(a.id)}>
-                <div className="flex h-[76px] items-center gap-2">
-                  <FileIcon size={16} className="shrink-0 text-ink-secondary" />
-                  <div className="min-w-0">
-                    <div className="truncate text-[12px] text-ink">{a.name}</div>
-                    <div className="text-[10.5px] text-ink-tertiary">{formatSize(a.size)}</div>
-                  </div>
+              <div key={a.id} role="listitem" title={a.path} className={chipClass("w-[180px] gap-2 pl-3 pr-7")}>
+                <FileIcon size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="truncate text-[12px] text-ink">{a.name}</div>
+                  <div className="text-[10.5px] text-ink-tertiary">{formatSize(a.size)}</div>
                 </div>
-              </Chip>
+                <RemoveButton label="Remove file" onClick={() => onRemove(a.id)} />
+              </div>
             ),
           )}
         </div>
@@ -222,42 +211,22 @@ export function ComposerAttachments({
   );
 }
 
-function Chip({
-  children,
-  label,
-  title,
-  onRemove,
-}: {
-  children: React.ReactNode;
-  label: "PASTED" | "FILE" | "IMAGE";
-  title: string;
-  onRemove: () => void;
-}) {
-  const Icon = label === "PASTED" ? ClipboardPaste : label === "IMAGE" ? ImageIcon : FileIcon;
+function chipClass(extra: string) {
+  return cn("group relative flex h-14 shrink-0 items-center rounded-xl border border-hairline/40 bg-raised transition-colors hover:border-hairline", extra);
+}
+
+function RemoveButton({ label, onClick, onImage = false }: { label: string; onClick: () => void; onImage?: boolean }) {
   return (
-    <div
-      title={title}
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
       className={cn(
-        "group relative w-[172px] rounded-xl border border-hairline/40 bg-raised px-2.5 py-2",
-        "transition-colors hover:border-hairline",
+        "absolute right-1 top-1 flex size-5 items-center justify-center rounded-full opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 touch:opacity-100",
+        onImage ? "bg-black/60 text-white hover:bg-black/75" : "border border-hairline/60 bg-panel text-ink-secondary hover:text-ink",
       )}
     >
-      {children}
-      <div className="mt-1 flex items-center gap-1">
-        <Icon size={11} className="text-ink-tertiary" />
-        <span className="rounded border border-hairline/60 px-1 py-px text-[9.5px] font-medium tracking-wide text-ink-secondary">
-          {label}
-        </span>
-      </div>
-      {/* hover reveals it, but so must focus: `hidden` would take the only
-          way to drop a chip out of reach of the keyboard */}
-      <button
-        onClick={onRemove}
-        aria-label={`Remove ${label === "PASTED" ? "pasted text" : "file"}`}
-        className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-hairline/60 bg-panel text-ink-secondary opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 touch:opacity-100"
-      >
-        <X size={11} />
-      </button>
-    </div>
+      <X size={11} />
+    </button>
   );
 }

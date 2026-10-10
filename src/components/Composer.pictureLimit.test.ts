@@ -143,6 +143,18 @@ describe("four pictures to a message", () => {
     expect(uploads.filter((url) => url.startsWith("/api/files?"))).toHaveLength(1);
   });
 
+  it("drops the note once the message is sent", async () => {
+    await mount();
+    await pick(pictures(5));
+    expect(host.textContent).toContain(LIMIT_NOTICE);
+    await act(async () => {
+      host.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(fixture.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: "send" }));
+    expect(pictureChips()).toBe(0);
+    expect(host.textContent).not.toContain(LIMIT_NOTICE);
+  });
+
   it("makes room again when a picture is removed", async () => {
     await mount();
     await pick(pictures(4));
