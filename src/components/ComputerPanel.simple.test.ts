@@ -2,21 +2,15 @@ import { Children, createElement, isValidElement, type ReactElement, type ReactN
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Bot, InstanceInfo, Message, Task } from "@/state/store";
+import type { Bot, InstanceInfo } from "@/state/store";
 import type { FeatureFlagConfig } from "@/lib/feature-flags";
 
-// Same hook-by-call-order harness as ModelPicker.simple.test.ts: the panel's
-// own state survives between renders, effects never run, and handlers are
-// read off the returned element tree. `seed` presets the state the resolve
-// effect would have reached (it never runs here).
 const fixture = vi.hoisted(() => {
-  const view = { current: "computer" as string };
   const laterdog: Record<string, unknown> = {};
   vi.stubGlobal("window", { laterdog });
   vi.stubGlobal("document", { visibilityState: "visible" });
-  vi.stubGlobal("localStorage", { getItem: (key: string) => key.startsWith("laterdog-computer-panel-view") ? view.current : null, setItem: () => {} });
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
   return {
-    view,
     laterdog,
     platform: "darwin" as "darwin" | "win32" | "linux",
     localComputer: { available: true, support: "supported", enabled: true, status: "ready" } as DesktopCapabilities["localComputer"],
@@ -32,8 +26,6 @@ const fixture = vi.hoisted(() => {
   };
 });
 
-// The panel's useState calls in source order, counted from `phase` (the only
-// one that starts as "checking"). Keep in step with ComputerPanel.tsx.
 const PHASE_OFFSETS = { phase: 0, resolved: 2, vmViewerUrl: 10, vmStatus: 11, error: 16 } as const;
 let phaseIndex = -1;
 
@@ -73,8 +65,11 @@ vi.mock("./BrowserPanel", () => ({ BrowserPanel: () => createElement("div", null
 vi.mock("./CloudScreenPreview", () => ({ CloudScreenPreview: () => null }));
 vi.mock("./LocalScreenPreview", () => ({ LocalScreenPreview: () => null }));
 vi.mock("./LinuxLocalControl", () => ({ LinuxLocalControl: () => null }));
-vi.mock("./MacLocalControl", () => ({ MacLocalControl: () => null }));
-vi.mock("./LocalComputerAutoWarning", () => ({ LocalComputerAutoWarning: () => null }));
+vi.mock("./MacLocalControl", () => ({ MacLocalControl: () => createElement("div", null, "MAC-LOCAL") }));
+vi.mock("./ApiKeys", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./ApiKeys")>(),
+  ApiKeyRow: () => createElement("div", null, "BOAT-KEY-ROW"),
+}));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   api: (...args: unknown[]) => fixture.api(...args),
@@ -92,8 +87,6 @@ vi.mock("@/state/store", async (importOriginal) => ({
 }));
 
 const { ComputerPanel } = await import("./ComputerPanel");
-const { ComputerFilesPane } = await import("./ComputerFilesPane");
-const { LocalComputerAutoWarning } = await import("./LocalComputerAutoWarning");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -141,23 +134,18 @@ function render(forBot: Bot) {
   const all = nodes(tree);
   const buttons = all.filter((node) => node.type === "button");
   const button = (label: string) => buttons.find((node) => text(node.props.children) === label);
-  return { html, nodes: all, buttons, button };
+  const byTestId = (id: string) => all.find((node) => node.props["data-testid"] === id);
+  return { html, nodes: all, buttons, button, byTestId };
 }
 
-const tabs = (rendered: ReturnType<typeof render>) => {
-  const bar = rendered.nodes.find((node) => node.props["data-testid"] === "computer-tabs")!;
-  return nodes(bar.props.children).filter((node) => node.type === "button").map((node) => text(node.props.children));
+const fresh = () => {
+  fixture.values = [];
+  phaseIndex = -1;
 };
-const placeLine = (rendered: ReturnType<typeof render>) =>
-  text(rendered.nodes.find((node) => node.props["data-testid"] === "place-line")!.props.children).replace(/&#x27;/g, "'");
-const grid = (rendered: ReturnType<typeof render>) => {
-  const card = rendered.nodes.find((node) => node.props["data-testid"] === "where-works");
-  if (!card) return [];
-  return nodes(card.props.children).filter((node) => node.type === "button");
-};
+const cloudBox = { botId: "scout", threadId: "thread-scout", computer: "cloud", cloudBackend: "box" } as const;
+const plainEngine = () => ({ ...engine(), displayName: "Plain", capabilities: { computerMcp: false, browserMcp: false } } as InstanceInfo);
 
 beforeEach(() => {
-  fixture.view.current = "computer";
   fixture.platform = "darwin";
   fixture.localComputer = { available: true, support: "supported", enabled: true, status: "ready" } as DesktopCapabilities["localComputer"];
   fixture.values = [];
@@ -173,67 +161,65 @@ beforeEach(() => {
   for (const key of Object.keys(fixture.laterdog)) delete fixture.laterdog[key];
 });
 
-describe("Computer panel tabs", () => {
-  it("centres the tabs as a pill with close pinned right", () => {
+describe("Computer panel", () => {
+  it("is one Computer view with a close button, and no tabs or where-works picker", () => {
     const rendered = render(makeBot());
-    const bar = rendered.nodes.find((node) => node.props["data-testid"] === "computer-tabs")!;
-    expect(String(bar.props.className).split(" ")).toEqual(expect.arrayContaining(["justify-center", "rounded-full", "mx-9"]));
-    const row = rendered.nodes.find((node) => Children.toArray(node.props.children)
-      .some((child) => isValidElement(child) && (child as Node).props["data-testid"] === "computer-tabs"))!;
-    expect(String(row.props.className).split(" ")).toEqual(expect.arrayContaining(["relative", "flex", "justify-center"]));
+    expect(text(rendered.nodes.find((node) => node.type === "h2")!.props.children)).toBe("Computer");
+    expect(rendered.buttons.filter((node) => ["Computer", "Browser", "Files"].includes(text(node.props.children)))).toEqual([]);
+    expect(rendered.html).not.toContain("computer-tabs");
+    expect(rendered.html).not.toContain("Where Scout works");
     const close = rendered.nodes.find((node) => node.props["aria-label"] === "Close computer panel")!;
-    expect(String(close.props.className).split(" ")).toEqual(expect.arrayContaining(["absolute", "right-0"]));
+    (close.props.onClick as () => void)();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleComputer", open: false });
   });
 
-  it("shows Computer, Browser and Files, with the browser on or off", () => {
-    expect(tabs(render(makeBot()))).toEqual(["Computer", "Browser", "Files"]);
-    fixture.config = {};
-    fixture.values = [];
-    expect(tabs(render(makeBot()))).toEqual(["Computer", "Browser", "Files"]);
+  it("pulses its live dot while a turn runs wherever the dog works, and never for Off", () => {
+    expect(render(makeBot({ computer: "cloud", busy: true })).byTestId("computer-live")).toBeDefined();
+    fresh();
+    expect(render(makeBot({ computer: "browser", busy: true })).byTestId("computer-live")).toBeDefined();
+    fresh();
+    expect(render(makeBot({ computer: "cloud" })).byTestId("computer-live")).toBeUndefined();
+    fresh();
+    expect(render(makeBot({ computer: "off", busy: true })).byTestId("computer-live")).toBeUndefined();
   });
 
-  it("reads a Routines or Android view stored by the old Advanced mode as the Computer tab", () => {
-    for (const stored of ["routines", "android"]) {
-      fixture.view.current = stored;
-      fixture.values = [];
-      phaseIndex = -1;
-      const rendered = render(makeBot());
-      expect(rendered.nodes.find((node) => node.props["data-testid"] === "where-works"), stored).toBeDefined();
-    }
-  });
-
-  it("lists the files this chat changed in the Files tab", () => {
-    fixture.view.current = "files";
-    const digest = (files: { added?: string[]; changed?: string[]; deleted?: string[] }) => ({
-      id: Math.random().toString(36), role: "assistant", kind: "digest", text: "",
-      digest: { files: { added: [], changed: [], deleted: [], ...files } },
-    }) as unknown as Message;
-    const rendered = render(makeBot({ messages: [
-      digest({ added: ["/Users/me/work/report.md", "/Users/me/work/old.txt"] }),
-      digest({ changed: ["/Users/me/work/notes.md"], deleted: ["/Users/me/work/old.txt"] }),
-    ] }));
-    expect(rendered.nodes.some((node) => node.type === ComputerFilesPane)).toBe(true);
-    expect(rendered.html).toContain("notes.md");
-    expect(rendered.html).toContain("report.md");
-    expect(rendered.html).not.toContain("old.txt");
-    expect(rendered.html).toContain("~/work");
-    expect(rendered.html).toContain("Scout&#x27;s private folder");
-  });
-
-  it("explains an empty Files tab", () => {
-    fixture.view.current = "files";
-    expect(render(makeBot()).html).toContain("Files Scout makes or changes in this chat will show up here.");
+  it("sends the person of a dog with no screen to where it works", () => {
+    fixture.seed = { phase: "off" };
+    const rendered = render(makeBot({ computer: "off" }));
+    expect(rendered.html).toContain("Scout has no screen. It can still chat and do anything that doesn&#x27;t need one.");
+    const choose = rendered.byTestId("choose-where-works")!;
+    expect(text(choose.props.children)).toBe("Choose where Scout works");
+    (choose.props.onClick as () => void)();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleSettings", open: true, section: "access", botId: "scout" });
   });
 });
 
-describe("Browser tab with the browser off", () => {
-  it("explains and turns on the same installation setting as Settings", async () => {
-    fixture.view.current = "browser";
+describe("The built-in browser", () => {
+  const turnOn = (rendered: ReturnType<typeof render>) => rendered.byTestId("browser-turn-on")!;
+
+  it("is the whole panel for a dog that works in the browser", () => {
+    const rendered = render(makeBot({ computer: "browser" }));
+    expect(rendered.byTestId("computer-browser")).toBeDefined();
+    expect(rendered.html).toContain("BROWSER-PANEL");
+    expect(rendered.html).not.toContain("Scout&#x27;s screen");
+  });
+
+  it("never shows for a dog that works anywhere else", () => {
+    for (const computer of [undefined, "cloud", "vm", "local", "off"] as const) {
+      fresh();
+      const rendered = render(makeBot({ computer }));
+      expect(rendered.html, String(computer)).not.toContain("BROWSER-PANEL");
+      expect(rendered.html, String(computer)).toContain("Scout&#x27;s screen");
+    }
+  });
+
+  it("explains when it is off and turns on the same installation setting as Settings", async () => {
     fixture.config = { features: { browser: false }, browserEngine: { kind: "engine" } };
-    const rendered = render(makeBot());
+    const rendered = render(makeBot({ computer: "browser" }));
     expect(rendered.html).toContain("The browser is off");
+    expect(rendered.html).toContain("Turn on the built-in browser to watch Scout browse the web, and take over any time.");
     expect(rendered.html).not.toContain("BROWSER-PANEL");
-    (browserSwitch(rendered).props.onClick as () => void)();
+    (turnOn(rendered).props.onClick as () => void)();
     await vi.waitFor(() => expect(fixture.dispatch).toHaveBeenCalledWith({ type: "configStatus", config: { features: { browser: true } } }));
     expect(fixture.api).toHaveBeenCalledWith("/api/config", {
       method: "PATCH",
@@ -241,55 +227,40 @@ describe("Browser tab with the browser off", () => {
     });
   });
 
-  it("turns on this bot's own browser switch when only that is off", async () => {
-    fixture.view.current = "browser";
-    const rendered = render(makeBot({ browser: false }));
-    expect(browserSwitch(rendered).props.checked).toBe(false);
-    (browserSwitch(rendered).props.onClick as () => void)();
+  it("turns on only this dog's browser when only that is off", async () => {
+    const rendered = render(makeBot({ computer: "browser", browser: false }));
+    expect(rendered.html).toContain("The browser is off");
+    (turnOn(rendered).props.onClick as () => void)();
     await vi.waitFor(() => expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "scout", patch: { browser: true } }));
     expect(fixture.api).not.toHaveBeenCalled();
   });
 
-  it("says why when this server cannot have a browser", () => {
-    fixture.view.current = "browser";
-    fixture.config = { features: { browser: false }, browserEngine: { kind: "unavailable", reason: "No engine here." } };
-    const rendered = render(makeBot());
-    expect(rendered.html).toContain("No engine here.");
-    expect(browserSwitch(rendered).props.disabled).toBe(true);
+  it("tells a User to ask an Admin instead of offering a switch only an Admin can use", () => {
+    fixture.config = { features: { browser: false }, browserEngine: { kind: "engine" } };
+    fixture.ownerOrAdmin = false;
+    const rendered = render(makeBot({ computer: "browser" }));
+    expect(rendered.html).toContain("The browser is off");
+    expect(rendered.html).toContain("The built-in browser is switched off. Ask an Admin to change it.");
+    expect(rendered.byTestId("browser-turn-on")).toBeUndefined();
   });
 
-  it("shows the real browser once it is on, under a switch that turns it off for this bot only", () => {
-    fixture.view.current = "browser";
-    const rendered = render(makeBot());
-    expect(rendered.html).toContain("BROWSER-PANEL");
-    expect(browserSwitch(rendered).props.checked).toBe(true);
-    (browserSwitch(rendered).props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "scout", patch: { browser: false } });
-    expect(fixture.api).not.toHaveBeenCalled();
+  it("says why when this server cannot have a browser", () => {
+    fixture.config = { features: { browser: false }, browserEngine: { kind: "unavailable", reason: "No engine here." } };
+    const rendered = render(makeBot({ computer: "browser" }));
+    expect(rendered.html).toContain("No engine here.");
+    expect(turnOn(rendered).props.disabled).toBe(true);
+  });
+
+  it("names a model that cannot browse and offers a different one", () => {
+    fixture.instances = [plainEngine()];
+    const rendered = render(makeBot({ computer: "browser" }));
+    expect(text(rendered.byTestId("browser-cannot")!.props.children)).toBe("M can't use the built-in browser.Choose a model");
+    (rendered.byTestId("place-action")!.props.onClick as () => void)();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleSettings", open: true, section: "model", botId: "scout" });
   });
 });
 
-function browserSwitch(rendered: ReturnType<typeof render>) {
-  return rendered.nodes.find((node) => node.props["aria-label"] === "Let Scout use a browser")!;
-}
-
-describe("Where the bot works", () => {
-  it("offers six places in a 3-column grid with plain names", () => {
-    const rendered = render(makeBot());
-    const card = rendered.nodes.find((node) => node.props["data-testid"] === "where-works")!;
-    expect(rendered.html).toContain("Where Scout works");
-    expect(nodes(card.props.children).find((node) => node.props.role === "group")!.props.className).toContain("grid-cols-3");
-    expect(grid(rendered).map((node) => text(node.props.children))).toEqual(["Auto", "Cloud computer", "Local VM", "This Mac", "Browser", "Off"]);
-    expect(placeLine(rendered)).toBe("Uses the built-in browser, a private desktop on this computer, or this computer's screen, whichever the task needs.");
-  });
-
-  it("says This PC off a Mac, and never names a Local VM in Auto's line there", () => {
-    fixture.platform = "win32";
-    const rendered = render(makeBot());
-    expect(grid(rendered).map((node) => text(node.props.children))).toContain("This PC");
-    expect(placeLine(rendered)).not.toMatch(/Local VM|Boat|cloud box/i);
-  });
-
+describe("This Mac", () => {
   it("asks for the grants This Mac is missing in place of its screen: the two rows computer control needs, nothing more", () => {
     fixture.laterdog.platform = "darwin";
     fixture.laterdog.permissions = { status: vi.fn(), request: vi.fn(), openSettings: vi.fn() };
@@ -307,23 +278,47 @@ describe("Where the bot works", () => {
     expect(rendered.html).not.toContain("Settings → Computers → Permissions");
     expect(rendered.html).not.toContain('data-testid="open-permissions"');
     expect(rendered.html).not.toContain("animate-spin");
-    // macOS keeps the tile pickable before the grant (localComputerSelectable), so the grid itself is not where it says so
-    expect(grid(rendered).find((node) => text(node.props.children) === "This Mac")!.props.disabled).toBeFalsy();
+    expect(rendered.html).not.toContain("MAC-LOCAL");
   });
 
-  it("says what Auto does on My Cloud, where it starts a cloud computer by itself", () => {
-    fixture.config = { ...fixture.config, cloudHome: true };
-    expect(placeLine(render(makeBot()))).toBe("Uses the built-in browser. In a chat, it starts its cloud computer by itself when a task needs desktop apps.");
+  it("shows the Mac control card only for a dog that works on This Mac", () => {
+    expect(render(makeBot({ computer: "local" })).html).toContain("MAC-LOCAL");
+    for (const computer of [undefined, "cloud", "vm", "browser", "off"] as const) {
+      fresh();
+      expect(render(makeBot({ computer })).html, String(computer)).not.toContain("MAC-LOCAL");
+    }
   });
 
-  it("J11: a tile names its problem in a few words, and the whole line on hover", () => {
-    fixture.instances = [{ ...engine(), displayName: "Plain", capabilities: { computerMcp: false, browserMcp: true } } as InstanceInfo];
-    const tile = grid(render(makeBot())).find((node) => text(node.props.children).startsWith("Cloud computer"))!;
-    expect(tile.props.disabled).toBe(true);
-    expect(text(tile.props.children)).toBe("Cloud computerNot with this model");
-    expect(tile.props.title).toBe("M can't use a computer. Choose a model that can, such as Claude or ChatGPT.");
+  it("asks for no macOS grants for a model that cannot control this Mac anyway", () => {
+    fixture.laterdog.platform = "darwin";
+    fixture.laterdog.permissions = { status: vi.fn(), request: vi.fn(), openSettings: vi.fn() };
+    fixture.localComputer = {
+      available: false, support: "unsupported", enabled: false, status: "unavailable", reasonCode: "cua-driver-unavailable",
+      message: "Accessibility and Screen Recording required; later.dog asks for them when a dog first uses this Mac",
+    } as DesktopCapabilities["localComputer"];
+    fixture.instances = [plainEngine()];
+    fixture.seed = { phase: "local-unavailable" };
+    const rendered = render(makeBot({ computer: "local" }));
+    expect(rendered.html).not.toContain('data-testid="local-computer-permissions"');
   });
+});
 
+describe("Local VM", () => {
+  it("names a model that cannot use it in plain words and offers a different one", () => {
+    fixture.instances = [plainEngine()];
+    fixture.seed = { phase: "vm-unavailable" };
+    const rendered = render(makeBot({ computer: "vm" }));
+    expect(rendered.html).toContain("M can&#x27;t use a Local VM. Choose a model that can, such as Claude or ChatGPT.");
+    expect(rendered.html).not.toContain("ACP");
+    expect(rendered.nodes.some((node) => node.props.role === "alert")).toBe(false);
+    const action = rendered.byTestId("place-action")!;
+    expect(text(action.props.children)).toBe("Choose a model");
+    (action.props.onClick as () => void)();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleSettings", open: true, section: "model", botId: "scout" });
+  });
+});
+
+describe("Cloud computer", () => {
   it("reads a refused start as the same state a failed row does, never the relay's words", () => {
     fixture.seed = {
       phase: "error",
@@ -339,103 +334,32 @@ describe("Where the bot works", () => {
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "computer" });
   });
 
-  it("offers the one next action for the chosen place, and a User is told to ask an Admin", () => {
+  it("puts the Boat key row under an Admin's screen, and tells a User to ask an Admin", () => {
     fixture.config = { ...fixture.config, box: { configured: false } };
-    const rendered = render(makeBot({ computer: "cloud" }));
-    expect(placeLine(rendered)).toBe("A cloud computer here needs your own Boat key, a paid service.Add Boat key");
-    (rendered.nodes.find((node) => node.props["data-testid"] === "place-action")!.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "computer" });
+    fixture.seed = { phase: "unconfigured", resolved: cloudBox };
+    const admin = render(makeBot({ computer: "cloud" }));
+    expect(admin.html).toContain("A cloud computer here needs your own Boat key, a paid service.");
+    expect(admin.html).toContain("BOAT-KEY-ROW");
 
+    fresh();
     fixture.ownerOrAdmin = false;
-    fixture.values = [];
-    phaseIndex = -1;
     const user = render(makeBot({ computer: "cloud" }));
-    expect(placeLine(user)).toBe("A cloud computer here needs your own Boat key, a paid service. Ask an Admin to change it.");
-    expect(user.nodes.some((node) => node.props["data-testid"] === "place-action")).toBe(false);
+    expect(user.html).toContain("A cloud computer here needs your own Boat key, a paid service. Ask an Admin to change it.");
+    expect(user.html).not.toContain("BOAT-KEY-ROW");
+    expect(user.byTestId("place-action")).toBeUndefined();
   });
 
   it("lets a dog whose tools leave out the computer use it, in one click from here", async () => {
     const api = vi.fn(async (..._args: unknown[]) => ({}));
     fixture.api = api;
+    fixture.seed = { phase: "cloud-new", resolved: cloudBox };
     const rendered = render(makeBot({ computer: "cloud", toolScope: { deny: ["mcp:computer:*", "native:bash"] } }));
-    expect(placeLine(rendered)).toBe("What Scout can use doesn't include a computer.Let Scout use the computer");
-    (rendered.nodes.find((node) => node.props["data-testid"] === "place-action")!.props.onClick as () => void)();
+    expect(rendered.html).toContain("What Scout can use doesn&#x27;t include a computer.");
+    const action = rendered.byTestId("place-action")!;
+    expect(text(action.props.children)).toBe("Let Scout use the computer");
+    (action.props.onClick as () => void)();
     await Promise.resolve();
     expect(api).toHaveBeenCalledWith("/api/bots/scout", { method: "PATCH", body: JSON.stringify({ toolScope: { deny: ["native:bash"] } }) });
-  });
-
-  it("saves each place as the dog's Works on, turning the browser on with Browser", () => {
-    const expected = [
-      { computer: null },
-      { computer: "cloud" },
-      { computer: "vm" },
-      { computer: "local" },
-      { computer: "browser", browser: true },
-      { computer: "off" },
-    ];
-    for (const [index, patch] of expected.entries()) {
-      fixture.values = [];
-      phaseIndex = -1;
-      fixture.dispatch = vi.fn();
-      const rendered = render(makeBot({ computer: patch.computer === "off" ? "cloud" : "off" }));
-      const group = rendered.nodes.find((node) => node.props.role === "group" && node.props["aria-label"] === "Computer destination")!;
-      (nodes(group.props.children).filter((node) => node.type === "button")[index]!.props.onClick as () => void)();
-      expect((fixture.dispatch as ReturnType<typeof vi.fn>).mock.calls).toEqual([[{ type: "updateBot", botId: "scout", patch }]]);
-    }
-  });
-
-  it("asks before letting an auto-approving bot use this Mac", () => {
-    const start = makeBot({ computer: "off", approvalMode: "auto" } as Partial<Bot>);
-    const rendered = render(start);
-    (grid(rendered).find((node) => text(node.props.children) === "This Mac")!.props.onClick as () => void)();
-    expect(fixture.dispatch).not.toHaveBeenCalled();
-    const warning = render(start).nodes.find((node) => node.type === LocalComputerAutoWarning)!;
-    expect(warning.props.open).toBe(true);
-    (warning.props.onConfirm as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({
-      type: "updateBot", botId: "scout", patch: { computer: "local", acknowledgeLocalAuto: true },
-    });
-  });
-});
-
-describe("A chat pinned to a place", () => {
-  const pinned = () => makeBot({ tasks: [{ threadId: "thread-scout", title: "", createdAt: 1, surface: "cloud" }] } as Partial<Bot>);
-  const note = (rendered: ReturnType<typeof render>) =>
-    text(rendered.nodes.find((node) => node.props["data-testid"] === "place-pinned-note")!.props.children);
-
-  it("names the place in the grid's words, never pointing at a composer chip", () => {
-    expect(note(render(pinned()))).toBe("This chat is pinned to “Cloud computer”.");
-  });
-
-  const pinnedOn = (computer: Bot["computer"], task: Partial<Task> = {}) =>
-    makeBot({ computer, tasks: [{ threadId: "thread-scout", title: "", createdAt: 1, surface: "cloud", ...task }] } as Partial<Bot>);
-  const unpin = (rendered: ReturnType<typeof render>) => rendered.nodes.find((node) => node.props["data-testid"] === "place-unpin");
-  const fresh = () => { fixture.values = []; phaseIndex = -1; };
-
-  it("leads a person's pin back to the grid's choice", () => {
-    const button = unpin(render(pinned()))!;
-    expect(text(button.props.children)).toBe("Use Auto");
-    expect(button.props.disabled).toBe(false);
-    (button.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateTask", botId: "scout", threadId: "thread-scout", patch: { surface: null } });
-
-    fresh();
-    expect(text(unpin(render(pinnedOn("local")))!.props.children)).toBe("Use This Mac");
-  });
-
-  it("waits out a running turn, as the server refuses a busy chat's place change", () => {
-    const button = unpin(render(pinnedOn(undefined, { busy: true })))!;
-    expect(button.props.disabled).toBe(true);
-    expect(button.props.title).toBe("Wait for the current turn to finish");
-  });
-
-  it("says nothing of a pin Auto recorded, one matching Works on, or one Off overrides", () => {
-    for (const bot of [pinnedOn(undefined, { surface: "browser", surfaceAuto: true }), pinnedOn("cloud"), pinnedOn("off")]) {
-      fresh();
-      const rendered = render(bot);
-      expect(rendered.nodes.some((node) => node.props["data-testid"] === "place-pinned-note"), JSON.stringify([bot.computer, bot.tasks])).toBe(false);
-      expect(unpin(rendered)).toBeUndefined();
-    }
   });
 });
 

@@ -85,6 +85,7 @@ const { LocalComputerAutoWarning } = await import("./LocalComputerAutoWarning");
 const { ModelPicker } = await import("./ModelPicker");
 const { MemorySection } = await import("./bot-settings/MemorySection");
 const { RoutineEditor } = await import("./RoutinesPage");
+const { WorksOnPicker } = await import("./WorksOnPicker");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -453,22 +454,24 @@ describe("Library", () => {
 describe("Computer", () => {
   beforeEach(() => openTab("access"));
 
-  it("says where the dog works in place words, Auto when nothing is chosen, and opens the panel", () => {
-    const rendered = dialog(makeBot());
-    const row = find(rendered, "data-testid", "access-works-on");
-    expect(rendered.html).toContain("Where Scout works:");
+  it("holds the where-works picker for this dog", () => {
+    const bot = makeBot();
+    const rendered = dialog(bot);
+    const picker = rendered.nodes.find((node) => node.type === WorksOnPicker)!;
+    expect(picker.props.bot).toBe(bot);
+    expect(rendered.html).toContain("Where Scout works");
     expect(rendered.html).not.toContain("Cloud backend");
     expect(rendered.html).not.toContain("Start VPS");
-    const open = nodes(row).find((node) => node.type === "button")!;
+  });
+
+  it("opens the Computer panel from the screen row", () => {
+    const rendered = dialog(makeBot());
+    const row = find(rendered, "data-testid", "access-screen");
+    expect(nodes(row.props.children).some((node) => node.props.children === "Scout's screen")).toBe(true);
+    const open = nodes(row.props.children).find((node) => node.type === "button")!;
     expect(open.props.children).toBe("Open Computer panel");
     click(open);
     expect(fixture.dispatch).toHaveBeenNthCalledWith(1, { type: "toggleSettings", open: false });
     expect(fixture.dispatch).toHaveBeenNthCalledWith(2, { type: "toggleComputer", open: true });
-  });
-
-  it("reads the chosen computer's words when one is set", () => {
-    const auto = dialog(makeBot()).html.match(/Where Scout works: ([^<]*)/)![1];
-    const local = dialog(makeBot({ computer: "local" })).html.match(/Where Scout works: ([^<]*)/)![1];
-    expect(local).not.toBe(auto);
   });
 });

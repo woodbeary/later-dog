@@ -97,7 +97,7 @@ describe("surfacePrompt", () => {
     expect(text).toMatch(/Web tasks → the built-in browser/);
     expect(text).toMatch(/Desktop apps, files and shell → the cloud computer tools/);
     expect(text).toMatch(/Pick one surface for a task and stay on it/);
-    expect(text).toMatch(/say which surface — the Browser tab or the cloud computer/);
+    expect(text).toMatch(/say which surface — the built-in browser or the cloud computer/);
   });
 
   it("names only the computer when it is the only surface", () => {
@@ -109,11 +109,12 @@ describe("surfacePrompt", () => {
     expect(surfacePrompt({ computer: "local", browser: false })).toMatch(/tell them it is on this computer/);
   });
 
-  it("names only the browser tab when it is the only surface", () => {
+  it("names only the built-in browser when it is the only surface", () => {
     const text = surfacePrompt({ computer: null, browser: true });
-    expect(text).toMatch(/happens in the built-in browser tab/);
+    expect(text).toMatch(/happens in the built-in browser;/);
     expect(text).toMatch(/no desktop, file or shell computer/);
-    expect(text).toMatch(/Browser tab of the Computer panel/);
+    expect(text).toMatch(/in the built-in browser, in the Computer panel/);
+    expect(text).not.toMatch(/Browser tab/);
     expect(text).toMatch(/say in one short sentence where you are working/);
     expect(text).not.toMatch(/happens on the cloud computer/);
   });

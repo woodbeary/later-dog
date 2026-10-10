@@ -20,6 +20,16 @@
 - A phone or browser you already paired keeps working. The app no longer lists paired devices: `laterdog sessions` lists them, and `laterdog sessions revoke ID` signs one out.
 - Tried in the browser fixture: the menu has five lines and is 212px tall. The fixture has no updater, so its update line didn't show. Not tried yet in the installed app.
 
+### Computer panel
+- The Computer panel is one view now, like Grok Bot's: **Computer**, a green dot while the dog is working there, and a close button. The Computer, Browser and Files tabs are gone.
+- It shows the one place the dog works. A dog set to Browser shows the browser there; a dog on a cloud computer, a Local VM or this computer shows that screen. A dog uses one place per message, so there's nothing to switch between.
+- Where a dog works is chosen in the dog's settings, under **Computer**: one list (Auto, Cloud computer, Local VM, This Mac, Browser, Off) and a line saying what the choice means, with **Open Computer panel** under it. The six cards and the "where it works" block are gone from the panel.
+- A dog set to Off says it has no screen and has a button to choose where it works. When a dog's browser is switched off, the panel says so and has **Turn on the browser**. Only an Admin gets the button; anyone else is told to ask an Admin.
+- The first time a dog works in the browser, the panel offers its one-time download (about 160 MB) right there. Before, the message pointed to a Browser tab. Browser can be chosen before that download, and an Admin can choose it while the browser is off.
+- Dogs are told the browser is "in the Computer panel" instead of "the Browser tab".
+- Gone for now: the note about a chat held to a different place (a message that fails there still offers to switch back), opening the built-in browser for a dog that works somewhere else, and the Files tab's list of changed files. The working folder is in the dog's settings, and each finished message's summary in the chat still counts the files it changed.
+- Tried in the browser fixture: Browser, Off and Auto in the panel, and the list in the dog's settings. Not tried yet in the installed app.
+
 ### Fixes
 - A picture you add while a dog works goes into the running turn, the same as words. Claude and ChatGPT dogs see it right away; Steer on a queued picture works too. Before, any message with a picture waited for the turn to end, and its queue row showed a file path instead of the picture.
 - A queued picture shows as a small thumbnail with "A picture" or "2 pictures" when there are no words.

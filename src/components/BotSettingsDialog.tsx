@@ -6,7 +6,6 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { skillsLibraryEnabled } from "@/lib/feature-flags";
 import { DOG_COLOR_NAMES, DOG_COLORS } from "@/lib/mascot";
-import { placeFacts, placeViewFor, usePlaceSeat } from "@/lib/place-view";
 import { routineScheduleState } from "@/lib/routine-display";
 import type { Routine } from "@/lib/routines";
 import { scheduleLabel } from "@/lib/schedule-label";
@@ -16,7 +15,7 @@ import type { ApprovalMode } from "../../shared/approval-mode";
 import { approvalModeOptionsFor } from "./ApprovalModeSelector";
 import { BotAvatar, DogAvatar } from "./Avatar";
 import { isDogBreed } from "./DogAvatar";
-import { useCaptionChrome, useDesktopCapabilities } from "./DesktopCapabilities";
+import { useCaptionChrome } from "./DesktopCapabilities";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { ModelPicker } from "./ModelPicker";
 import { RoutineEditor } from "./RoutinesPage";
@@ -24,6 +23,7 @@ import { Switch } from "./SettingsPrimitives";
 import { SoulField } from "./SoulField";
 import { ThreadModelsLine } from "./ThreadModelsLine";
 import { TreatCount } from "./TreatCount";
+import { WorksOnPicker } from "./WorksOnPicker";
 import { useBotEditor } from "./bot-settings/BotEditorContext";
 import { botLibraryItems } from "./bot-settings/library";
 import { MemorySection } from "./bot-settings/MemorySection";
@@ -56,8 +56,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   // Windows draws its caption buttons over the top-right corner, where this
   // panel's close button sits; drop the header below them.
   const { padClass } = useCaptionChrome();
-  const { capabilities } = useDesktopCapabilities();
-  const placeSeat = usePlaceSeat(state.config, capabilities.host?.platform ?? "other");
   const tab = state.botSettingsExpandAccordion ? tabForSection(state.botSettingsSection) : "details";
   const skills = useManagedSkills(bot);
   const libraryOn = skillsLibraryEnabled(state.config);
@@ -486,29 +484,23 @@ export function BotSettingsDialog({ bot, overlay = false }: {
           {tab === "computer" && (
             <div role="tabpanel" className="mt-5">
               <span className={groupLabelCls}>{t("botSettings.simple.computer")}</span>
-              <div className={cn(cardCls, rowCls, "flex items-center justify-between gap-3")} data-testid="access-works-on">
-                <div className={cn(itemTextCls, "text-[14px] leading-relaxed text-ink")}>
-                  {t("access.worksOn", {
-                    name: bot.name,
-                    short: placeViewFor(placeFacts({
-                      bot,
-                      place: bot.computer ?? "auto",
-                      seat: placeSeat,
-                      config: state.config,
-                      instances: state.instances,
-                    })).short,
-                  })}
+              <div className={cardCls}>
+                <div className={rowCls}>
+                  <WorksOnPicker bot={bot} />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    close();
-                    dispatch({ type: "toggleComputer", open: true });
-                  }}
-                  className={cn(pillCls, "shrink-0")}
-                >
-                  {t("place.action.openComputerPanel")}
-                </button>
+                <div className={cn(dividedRowCls, "flex items-center justify-between gap-3")} data-testid="access-screen">
+                  <span className={cn(itemTextCls, "text-[14px] text-ink")}>{t("computer.screenOf", { name: bot.name })}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      close();
+                      dispatch({ type: "toggleComputer", open: true });
+                    }}
+                    className={cn(pillCls, "shrink-0")}
+                  >
+                    {t("place.action.openComputerPanel")}
+                  </button>
+                </div>
               </div>
             </div>
           )}

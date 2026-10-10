@@ -169,7 +169,41 @@ Local-only failures, seen on 2026-10-09:
       - **Measured in the fixture (1280×720):** four square pictures with "hi there" made a row 672px wide (164px tiles) ending at the right edge, with an 84px "hi there" bubble under it. One portrait picture is 144×192 at the right edge. In a 420px-wide chat the row shrank to 328px.
       - Code: `src/components/AttachmentGallery.tsx` (`sent`), `src/components/ChatView.tsx`, `src/components/GroupView.tsx`, and `onRatio` in `src/components/AttachmentPreview.tsx`. Tests: `src/components/ChatView.pictures.test.ts`, and a new block in `src/components/AttachmentGallery.test.ts`.
     - **Stop a fifth picture when it's picked:** done for 0.3.3; checked with tests, not yet in the installed app. Picking, pasting or dropping counts the pictures already in the message, adds up to 4, and says "A message can have up to 4 pictures." Documents aren't limited. The number lives in `shared/picture-limit.ts`, and the server's own check in `server/turn-images.ts` uses it too. Tests: `src/lib/picture-limit.test.ts` and `src/components/Composer.pictureLimit.test.ts`, which picks, pastes and drops pictures into the composer (3 of its 4 tests fail on the old code).
-    - **One "Computer" place** instead of Browser and Files, looking like Grok Bot's. Drop the "allow control of this computer" and "where it works" wording.
+    - **One "Computer" place, like Grok Bot's:** done for 0.3.3; checked in the browser fixture, not yet in the installed app.
+      - **Jacob's report:** "no need for "browser" "files" just "Computer"". The panel's "allow control of this computer", "open the browser tab" and "where it works" made no sense.
+      - **What changed:** the panel is one view: a **Computer** title, a green dot while the dog works there, and a close button. It shows the one place the dog's conversation works: the browser for a dog set to Browser, or the screen of its cloud computer, Local VM or This Mac. Each message uses one place (`resolveSurface` in `server/surface.ts`), so there's nothing to switch between. The Browser and Files tabs, the six-card "Where … works" grid with its line, and the pinned-chat note are gone from the panel. "Allow control of this computer" shows only for a dog that works on This Mac and is missing a macOS permission.
+      - **Where a dog works** moved to the dog's settings → Computer: one list of the same places, with the same one-line explanation and action (`src/components/WorksOnPicker.tsx`), and **Open Computer panel** under it. Choosing This Mac for an Off-leash dog still asks first.
+      - **Browser fixes found on the way:**
+        - The panel's download card pointed to the removed tab. It now says "The built-in browser needs a one-time download of about 160 MB." with **Install the browser engine**.
+        - The list showed Browser as "Browser is off" and greyed it out while only that one-time download was missing, so no dog could reach the download. A browser that can still be downloaded now counts as ready, and an Admin can choose Browser while it's switched off: its line then offers **Turn on the browser**.
+        - A User sees "Ask an Admin to change it." in the panel instead of a button the server would refuse.
+        - Settings' browser switch no longer mentions a per-dog switch.
+      - **The dog's instructions:** a browser-only turn tells the dog the browser is "in the built-in browser, in the Computer panel" instead of "the Browser tab of the Computer panel" (`server/surface.ts`).
+      - **Checked in the fixture:**
+        - Browser: the list says "Works in the built-in browser only: web pages, no desktop apps.", and the panel shows the download card.
+        - Off: "Pepper has no screen. It can still chat and do anything that doesn't need one." and **Choose where Pepper works**, which opens the dog's settings on Computer.
+        - Back on Auto: the download card again.
+        - The dog's settings tabs are Details, Library and Computer.
+      - **Limits:**
+        - The built-in browser can't be opened by hand for a dog that works somewhere else; choose Browser for it instead.
+        - The pinned-chat note is gone. A message that fails on the pinned place still offers to switch back.
+        - The Files tab's list of changed files is gone. Each finished message's summary still counts them, and the working folder is in the dog's settings.
+        - When a ready cloud computer's dog has tools that leave out the computer, the panel doesn't offer "Let … use the computer". The list in the dog's settings does.
+        - A dog on This Mac whose model can't control it still gets the technical message. A plain "can't use This Mac" state is a follow-up.
+        - The live dot waits until an Auto dog's place is known.
+        - The list says the browser is "switched off" even on a server with no browser engine at all. That choice stays greyed out there.
+        - The download card's title and button are still English only (upstream text).
+        - The app no longer mentions the `laterdog browser install` command.
+      - **Code:**
+        - `src/components/ComputerPanel.tsx`, `src/components/WorksOnPicker.tsx`, `src/lib/turn-on-browser.ts`
+        - `src/components/BotSettingsDialog.tsx`, `src/components/BrowserPanel.tsx`
+        - `placeFacts` in `src/lib/place-view.ts`, and `server/surface.ts`
+        - removed `src/components/ComputerFilesPane.tsx` and `src/lib/computer-panel-view.ts`
+      - **Tests:**
+        - `src/components/ComputerPanel.simple.test.ts`, `src/components/ComputerPanel.browser.test.ts`
+        - `src/components/WorksOnPicker.test.ts`, `src/components/BotSettingsDialog.simple.test.ts`
+        - `server/surface.test.ts`
+        - `scripts/testing/cloud-preview.e2e.test.ts`, which drives the real app in a headless browser. It passes on this Mac; CI skips it.
     - **A short account popover** (the "Anthony" menu), plus dragging to reorder accounts: done for 0.3.3; checked in the browser fixture, not yet in the installed app.
       - **Jacob's report:** the menu on the "Anthony" chip looked "long, huge and overwhelming". His screenshot showed it about 1,000px tall: the dog's-model row, six accounts with usage bars, the carry-on switch, the providers with five models and Show all, the effort steps, and Manage AI accounts.
       - **Fix, following Grok Bot's short account menu:** the menu has two pages.

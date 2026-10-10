@@ -4,7 +4,6 @@ import { activeLocale, t } from "@/lib/i18n";
 import { cloudPlanView } from "@/lib/cloud-plan";
 import { engineSignedOut } from "@/lib/failed-turn";
 import { browserAvailable, builtInBrowserEnabled, type FeatureFlagConfig } from "@/lib/feature-flags";
-import { writeComputerPanelView } from "@/lib/computer-panel-view";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import type { Action, Bot, ConfigStatus, InstanceInfo } from "@/state/store";
 import type { LocaleKey } from "@/locales";
@@ -43,7 +42,7 @@ function engineFacts(instance: InstanceInfo | undefined, model: string | undefin
 
 /** Every fact of a bot's place but the place itself and its live state. */
 export function placeFacts(input: {
-  bot: Pick<Bot, "name" | "modelSelection" | "toolScope" | "cloudBackend">;
+  bot: Pick<Bot, "name" | "modelSelection" | "toolScope" | "cloudBackend" | "browser">;
   place: PlaceFacts["place"];
   seat: PlaceSeat;
   config: (FeatureFlagConfig & Pick<ConfigStatus, "box">) | null | undefined;
@@ -63,7 +62,7 @@ export function placeFacts(input: {
     backend: bot.cloudBackend === "vps" ? "vps" : "box",
     engine: engineFacts(instance, bot.modelSelection.model),
     toolsAllowComputer: canUseMcpServer(bot.toolScope, "computer"),
-    browserOn: builtInBrowserEnabled(config) && browserAvailable(config),
+    browserOn: builtInBrowserEnabled(config) && (browserAvailable(config) || config?.browserEngine?.installable === true) && bot.browser !== false,
     role: seat.role,
     ...(input.local ? { local: input.local } : {}),
     ...(input.computer ? { computer: input.computer } : {}),
@@ -155,7 +154,6 @@ export function openPlaceAction(
     case "open-computer-panel":
     case "allow-computer":
     case "turn-on-browser":
-      writeComputerPanelView(target.botId, id === "turn-on-browser" ? "browser" : "computer");
       dispatch({ type: "toggleComputer", open: true });
       return true;
     default:

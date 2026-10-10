@@ -65,6 +65,7 @@ describe("cloud preview recovery in the real renderer", () => {
       await expect.poll(currentFrame, { timeout: 6000 }).toBe(await stat("vmScreenshot"));
       expect((await stat("paths") as string[]).some((path) => path.endsWith(`/local-computer/screenshot?threadId=fixture-${scenario}`))).toBe(true);
       expect(await snapshot()).not.toContain("The selected model engine cannot use a Local VM");
+      expect(await snapshot()).not.toContain("can't use a Local VM");
     }
     await select("Conversation surface", "off");
     await expect.poll(currentFrame, { timeout: 5000 }).toBe(null);
@@ -89,30 +90,24 @@ describe("cloud preview recovery in the real renderer", () => {
     await click("Release desktop join");
     expect(await stat("opened")).toBe(0);
     await select("Conversation surface", "browser-pin");
-    await expect.poll(() => evaluate('document.querySelector("[data-tour=computer-browser]")?.getAttribute("aria-pressed")'), { timeout: 5000 }).toBe("true");
-    await click("Browser"); // Save it manually, as a real person can.
+    await expect.poll(() => evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))'), { timeout: 5000 }).toBe(true);
     await select("Conversation surface", "vm-pin");
     await expect.poll(currentFrame, { timeout: 6000 }).toBe(await stat("vmScreenshot"));
-    expect(await evaluate('document.querySelector("[data-tour=computer-tabs] button")?.getAttribute("aria-pressed")')).toBe("true");
+    expect(await evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))')).toBe(false);
     await select("Conversation surface", "browser-pin");
-    await expect.poll(() => evaluate('document.querySelector("[data-tour=computer-browser]")?.getAttribute("aria-pressed")'), { timeout: 5000 }).toBe("true");
-    await click("Files");
-    await pause(200);
-    expect(await evaluate('document.querySelector("[data-tour=computer-browser]")?.getAttribute("aria-pressed")')).toBe("false");
+    await expect.poll(() => evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))'), { timeout: 5000 }).toBe(true);
     await select("Conversation surface", "default");
-    await evaluate('document.querySelector("[data-tour=computer-tabs] button")?.click(); true');
     await expect.poll(frameVisible, { timeout: 6000 }).toBe(true);
+    expect(await evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))')).toBe(false);
     const beforeBusy = await stat("paths") as string[];
     const busyProvisions = beforeBusy.filter((path) => path.endsWith("/computer/provision")).length;
     await click("Busy: false");
     await pause(200);
     expect(await frameVisible()).toBe(true);
     expect((await stat("paths") as string[]).filter((path) => path.endsWith("/computer/provision"))).toHaveLength(busyProvisions);
-    await click("Files");
     await click("Busy: true");
     await pause(200);
-    expect(await evaluate('Array.from(document.querySelectorAll("[data-tour=computer-tabs] button")).find(button => button.textContent.includes("Files"))?.getAttribute("aria-pressed")')).toBe("true");
-    await evaluate('document.querySelector("[data-tour=computer-tabs] button")?.click(); true');
+    expect(await evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))')).toBe(false);
     await expect.poll(frameVisible, { timeout: 6000 }).toBe(true);
 
     // Busy changes must not cancel an expensive capture. A real abort does

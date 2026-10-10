@@ -64,7 +64,7 @@ pnpm control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
 In `fake-claude-dump.json` the Cloud turn's `systemPrompt` must say everything
 on screen happens on the cloud computer, web pages included, carry the
 restate-first sentence, and hold no agent_browser paragraph; the pinned turn's
-prompt must name the built-in browser tab and no computer, and its `mcpConfig`
+prompt must name the built-in browser and no computer, and its `mcpConfig`
 must hold no computer server. The task in `GET /api/bots?messages=0` carries
 `surface: "browser"` after the pin and loses it after `{"surface": null}`.
 

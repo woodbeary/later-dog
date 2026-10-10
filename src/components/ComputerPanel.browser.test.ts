@@ -8,9 +8,8 @@ import { t } from "@/lib/i18n";
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("document", { visibilityState: "visible" });
-  const view = { current: "browser" };
-  vi.stubGlobal("localStorage", { getItem: () => view.current });
-  return { config: {} as FeatureFlagConfig & { cloudHome?: boolean }, view };
+  vi.stubGlobal("localStorage", { getItem: () => null });
+  return { config: {} as FeatureFlagConfig & { cloudHome?: boolean } };
 });
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
@@ -23,7 +22,7 @@ vi.mock("@/state/store", async (importOriginal) => ({
 import { ComputerPanel } from "./ComputerPanel";
 
 afterAll(() => vi.unstubAllGlobals());
-const bot = { id: "browser-fixture", name: "Browser fixture", modelSelection: { instanceId: "fixture" } } as Bot;
+const bot = { id: "browser-fixture", name: "Browser fixture", computer: "browser", modelSelection: { instanceId: "fixture" } } as Bot;
 const render = (config: FeatureFlagConfig & { cloudHome?: boolean }, browser?: boolean) => {
   fixture.config = config;
   return renderToStaticMarkup(createElement(ComputerPanel, { bot: { ...bot, browser } }));
@@ -34,13 +33,18 @@ describe("Browser panel installation access", () => {
 
   it("shows the real install panel before the engine is available", () => {
     const config = { features: { browser: true }, browserEngine: missing };
-    expect(render(config)).toContain("Install the browser engine");
+    const markup = render(config);
+    expect(markup).toContain("Install the browser engine");
+    expect(markup).toContain(t("browser.installBody"));
+    expect(markup).not.toContain("Settings → Computer");
     expect(browserAvailable(config)).toBe(false);
   });
 
   it("retains the global and per-bot opt-in gates", () => {
-    expect(render({ browserEngine: missing })).not.toContain("Install the browser engine");
-    expect(render({ features: { browser: true }, browserEngine: missing }, false)).not.toContain("Install the browser engine");
+    for (const markup of [render({ browserEngine: missing }), render({ features: { browser: true }, browserEngine: missing }, false)]) {
+      expect(markup).toContain('data-testid="browser-off"');
+      expect(markup).not.toContain("Install the browser engine");
+    }
   });
 
   it("does not offer an install on unsupported hosts and still shows a ready engine", () => {
@@ -74,25 +78,6 @@ describe("Computer panel on a narrow screen", () => {
     // Nothing to drag against when the panel is the whole window.
     const separator = /<div role="separator"[^>]*class="([^"]*)"/.exec(markup)!;
     expect(separator[1].split(" ")).toContain("max-md:hidden");
-  });
-});
-
-describe("Computer panel Works on", () => {
-  const places = (markup: string) => [...markup.matchAll(/<span class="w-full truncate text-\[12px\] font-medium leading-4">([^<]+)<\/span>/g)].map((match) => match[1]);
-  const computerTab = (config: FeatureFlagConfig & { cloudHome?: boolean }) => {
-    fixture.view.current = "computer";
-    try { return render(config); } finally { fixture.view.current = "browser"; }
-  };
-
-  it("lists this computer and a Local VM on a desktop or self-hosted server", () => {
-    const markup = computerTab({});
-    expect(places(markup)).toEqual(["Auto", "Cloud computer", "Local VM", expect.stringMatching(/^This (Mac|PC)$/), "Browser", "Off"]);
-    expect(markup).toContain("Where Browser fixture works");
-  });
-
-  it("lists neither on My Cloud", () => {
-    const markup = computerTab({ cloudHome: true });
-    expect(places(markup)).toEqual(["Auto", "Cloud computer", "Browser", "Off"]);
   });
 });
 
