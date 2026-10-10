@@ -3,7 +3,7 @@
 Run the focused lifecycle checks in disposable homes:
 
 ```sh
-pnpm exec vitest run server/container-computer.test.ts server/local-vm-stop-reason.test.ts server/local-vm-idle.test.ts server/group-local-vm.e2e.test.ts server/routes/desktop-viewer.test.ts src/components/LocalComputerSection.test.ts src/components/ComputerPanel.test.ts src/components/ComputerPanel.i18n.test.ts
+pnpm exec vitest run server/container-computer.test.ts server/local-vm-stop-reason.test.ts server/local-vm-idle.test.ts server/group-local-vm.e2e.test.ts server/routes/desktop-viewer.test.ts src/components/LocalVmRows.test.ts src/components/ComputerPanel.test.ts src/components/ComputerPanel.i18n.test.ts
 node --experimental-strip-types scripts/verify-local-vm-resume.ts
 ```
 
@@ -21,7 +21,8 @@ The browser check proves an existing shared VM shows “stopped” and an idle
 explanation, Start issues exactly one request, the button stays disabled and
 busy after that request returns while Cua is still warming up, and the ready
 desktop replaces the empty state without a remove or recreate request. It also
-checks that Settings offers Start for a stopped VM and waits for readiness.
+checks that Settings → Computer offers Start for a stopped VM and waits for
+readiness.
 
 The server fixture runs the actual HTTP routes and idle timer, replacing only
 the container boundary and shortening the idle window through a test-only

@@ -1,8 +1,9 @@
 # ChatGPT plan sign-in
 
-The **ChatGPT plan** account in Settings → Engines is separate from the legacy
-Codex login and Company models. Choose **Continue with ChatGPT**, authorize plan
-usage, then select a model from that account's refreshed catalog. The model slug
+A ChatGPT account under Settings → General → Accounts is separate from the
+legacy Codex login and Company models. Choose **Add account** → **ChatGPT**,
+name it and choose **Continue**; sign-in opens in the browser to authorize plan
+usage. Then select a model from that account's refreshed catalog. The model slug
 is preserved exactly, including `gpt-6.1-sol` when OpenAI returns it. This does
 not migrate existing bots or silently switch their billing. Add another named
 ChatGPT account to use another identity; signing out retains its registration.
@@ -39,7 +40,7 @@ configured providers remain unchanged.
 
 ```sh
 pnpm exec vitest run server/drivers/chatgpt-plan-auth.test.ts server/drivers/codex.test.ts server/chatgpt-plan-api.test.ts
-pnpm exec vitest run src/components/ChatGptPlanSignIn.interaction.test.ts src/components/DeviceSignIn.test.ts src/components/CodexAccountSettings.test.ts src/components/EngineSetup.test.ts src/components/ModelPicker.interaction.test.ts src/components/ChatView.controls.test.ts
+pnpm exec vitest run src/components/ChatGptPlanSignIn.interaction.test.ts src/components/DeviceSignIn.test.ts src/components/AccountsPanel.test.ts src/components/EngineSetup.test.ts src/components/ModelPicker.interaction.test.ts src/components/ChatView.controls.test.ts
 pnpm typecheck
 pnpm i18n:check
 PROBE_CODEX=/path/to/codex node --experimental-strip-types scripts/verify-chatgpt-plan.mjs

@@ -2,14 +2,15 @@
 
 ## User path
 
-Settings → Backups → **Export full backup** → password and confirmation →
-encrypted `.dogbackup` download. Import uses a native file input, password,
-validated preview and an explicit **REPLACE** confirmation. It is replacement,
-not an additive team import. Click **Restart and restore** on the local desktop
-to quit and reopen it; closing only its window does not restart the server.
-A hosted server must restart before its browser's **Retry** can finish recovery.
-No restore writes into a running Store. The native-button workflow is exercised
-by the [company-backup fixture](company-backups.md).
+There is no Backups page in Settings. An admin can still export and import
+through the HTTP routes in `server/workspace-backup-http.ts`: export writes an
+encrypted `.dogbackup` behind a password; import uploads it, checks the
+password and returns a validated preview, and stages the replacement only
+after an explicit `REPLACE` confirmation. It is replacement, not an additive
+team import. The restore applies when the server restarts; no restore writes
+into a running Store. A browser that started a restore from the old Backups
+page still gets the recovery screen: **Restart and restore** on the local
+desktop, or **Retry** once a hosted server has restarted.
 
 The previous workspace is retained under `.backups/safety-<restore-id>/data`.
 Keep this copy until the restored workspace is checked. Do not publish it.
@@ -56,7 +57,6 @@ pnpm exec vitest run server/workspace-backup.test.ts \
   server/workspace-backup-http.test.ts \
   server/workspace-backup-maintenance.test.ts \
   server/webhook-ingress.test.ts server/request-auth.test.ts
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/workspace-backup-ui.e2e.test.ts
 ```
 
 The archive tests cover authenticated encryption, damaged/wrong-password files,
@@ -69,10 +69,8 @@ Unknown external writers cannot be frozen: users must stop external editors and
 managed desktops before exporting.
 
 All tests use disposable workspaces and synthetic credential values, never the
-user's keychain or live sign-ins. The renderer recipe drives the real Settings
-screen in an isolated Chromium fixture with simulated backup endpoints; it checks the native
-file input, password errors, preview and confirmation. Actual archive and restart
-behavior is proved separately by the two-server recipe above.
+user's keychain or live sign-ins. Actual archive and restart behavior is
+proved by the two-server recipe above.
 
 ## Limits and cleanup
 
