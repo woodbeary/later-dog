@@ -50,6 +50,9 @@ person's browser ──/desktop/<id>/<token>/──▶ Worker ──fetch──�
   and uses its alarm for readiness and the idle policy.
 - `src/registry.ts`: `ComputerRegistry`, one Durable Object. It lists computers and enforces `MAX_COMPUTERS` and
   `Idempotency-Key` replays. Each computer's own object stays the truth.
+- `src/trial.ts`, `src/trial-page.ts` and `src/trial-registry.ts`: free trials (see Free trials). `TrialRegistry` is
+  one Durable Object, named `trials`. It starts trials, limits them per network and per day, keeps their minutes and
+  deletes their computers when they expire. Each trial lists its computers in its own `ComputerRegistry`.
 - `src/viewer.ts`: the viewer page. It loads noVNC from the same signed path and scales the screen to the window. The
   person watches by default. **Take over** gives them the mouse and keyboard. **Hand back** returns control to the dog.
 - `container/`: the image. Debian trixie (`node:24-trixie-slim`), Xvfb at 1280×800, XFCE, x11vnc on localhost,
@@ -59,14 +62,15 @@ person's browser ──/desktop/<id>/<token>/──▶ Worker ──fetch──�
 ## API
 
 Base URL `https://laterdog-computers.<your-subdomain>.workers.dev/v1`. Every request needs
-`Authorization: Bearer ldc_…`. The Worker stores only the key's SHA-256 (secret `COMPUTERS_KEY_SHA256`). It compares
+`Authorization: Bearer ldc_…`, or a free-trial key `ldt_…` (see Free trials). The Worker stores only the key's SHA-256 (secret `COMPUTERS_KEY_SHA256`). It compares
 digests in constant time. The API is for servers: a request with an `Origin` header is refused (403). So a browser can
 never call it, even with a leaked key.
 
 Errors are JSON `{ "error": { "code": "…", "message": "…" } }` with a matching status: 400 `invalid_*`, 401
-`unauthorized`, 403 `browser_origin`, 404 `not_found` / `file_not_found`, 405 `method_not_allowed`, 409 `asleep` /
-`limit_reached` / `is_directory`, 413 `too_large`, 502 `start_failed` / `snapshot_failed` / `screenshot_failed` /
-`container_error`, 503 `not_configured`.
+`unauthorized`, 403 `browser_origin` / `trial_size`, 404 `not_found` / `file_not_found` / `no_trial`, 405
+`method_not_allowed`, 409 `asleep` / `limit_reached` / `is_directory` / `trial_ended` / `trial_used_up`, 413
+`too_large`, 502 `start_failed` / `snapshot_failed` / `screenshot_failed` / `container_error`, 503 `not_configured` /
+`trials_off` / `trial_unavailable`.
 
 A computer looks like:
 
@@ -127,6 +131,59 @@ viewer. Reading a computer's state with `GET` is not activity. The `DogComputer`
 `wrangler.jsonc`. The rules are unit tested in `test/idle.test.ts`. The first two were also seen working live (see
 Measured).
 
+## Free trials
+
+Someone without a deployment of their own can try a computer for free: `TRIAL_MINUTES` (default 30) minutes awake,
+used within `TRIAL_DAYS` (default 7) days. No card and no account. Trials stay off until `TRIALS_ENABLED` is `"true"`
+and the Turnstile keys and `TRIAL_NETWORK_KEY` are set (see Turning on free trials).
+
+How a trial starts:
+
+1. later.dog makes a trial key, `ldt_` and 43 random base64url characters, and keeps it. It opens
+   `/trial?claim=<the key's SHA-256, lowercase hex>` in the person's browser. Only the digest passes through the
+   browser, so a copied link does not give anyone the trial.
+2. The page shows a Cloudflare Turnstile check. Once it passes, **Start free trial** posts the form back to `/trial`.
+3. The Worker checks, in order: the form came from its own page (`Origin`), it is a small URL-encoded form, the claim is
+   well formed, the country is allowed (`TRIAL_COUNTRIES`; empty means everywhere), the network can be identified, and
+   Turnstile's siteverify accepts the token for this hostname, the action `trial` and this claim. A token solved for
+   another claim is refused.
+4. `TrialRegistry` starts the trial and the page says so. later.dog then calls the API with the key as its bearer.
+   Sending the form again is harmless: the page answers with the minutes left.
+
+What a trial may do:
+
+- One computer at a time, size `standard`. Trial computers do not count toward `MAX_COMPUTERS`.
+- A trial key sees only its own trial's computers. Anything else answers 404.
+- Minutes count while a trial computer is starting, awake or going to sleep. Asleep costs nothing.
+- A trial computer sleeps after `TRIAL_IDLE_SLEEP_MINUTES` (default 5) without activity, and as soon as the minutes run
+  out, even with a viewer open. Waking needs at least a minute left. If the snapshot fails when the minutes run out, the
+  computer tries again every five minutes. Ten minutes after the end it is stopped without a snapshot and shows `error`.
+- When the trial expires, its computers are deleted. If a deletion fails, `TrialRegistry` tries again an hour later.
+
+Who gets one:
+
+- One trial per network per `TRIAL_DAYS`: per IPv4 address, or per IPv6 /64. The Worker keeps an HMAC-SHA256 of the
+  network (secret `TRIAL_NETWORK_KEY`), never the address, and forgets it when the window ends.
+- At most `TRIALS_PER_DAY` (default 20) new trials per UTC day for the whole deployment.
+
+| Request | Answer |
+| --- | --- |
+| `GET /v1/trials`, no key | `{ offered, minutes, days }`. Like the rest of the API, refused with an `Origin` header. |
+| `GET /v1/trial` | `{ trial: { state, minutes, minutesLeft, expiresAt } }`. `state` is `active`, or `used_up` with under a minute left. 401 once the trial has ended, or before it starts. 404 `no_trial` for the owner's key. |
+| `DELETE /v1/trial` | `{ ended: true }`. Deletes the trial's computers and ends it now. Its network stays used until the window ends. |
+| `GET /trial?claim=` | The page with the check (HTML). |
+| `POST /trial` | The form. It answers with a page: 200 when the trial started, else 400, 403, 413, 415, 429 (the network had a trial, or the day's trials are taken), 502 (siteverify could not be reached) or 503 (trials are off). |
+
+The kill switch is `TRIALS_ENABLED`. Set it to `"false"` and run `pnpm run deploy:worker`. The page then answers 503, and
+creating or waking a trial computer answers 503 `trials_off`. Trial computers already awake keep running until their
+minutes or their idle time run out, then sleep. A trial can still be read, put to sleep and ended. The owner's
+computers are not affected.
+
+Cost: each day at most `TRIALS_PER_DAY` trials start, each with `TRIAL_MINUTES`. With the defaults that is 10 awake
+hours of `standard` a day on average. That is about 57 cents (CPU idle) to $1.30 (CPU flat out) a day, so at most about
+$40 a month, plus snapshot storage, which has no published price. Several days' trials can spend their minutes on the
+same day, and a computer whose snapshot keeps failing can run 10 minutes over.
+
 ## Costs
 
 Containers bill only while running, per 10 ms, on Workers Paid. Cloudflare's rates (pricing page updated 2026-10-05):
@@ -173,13 +230,40 @@ Secrets go to wrangler on stdin and are never printed. Run it again to redeploy;
 For Worker-only changes, `pnpm run deploy:worker` (`--containers-rollout=none`) redeploys without building the image.
 It keeps the image the last deploy prepared. It took 7 seconds.
 
+### Turning on free trials
+
+Trials stay off until all of this is done. Nothing here prints a secret.
+
+1. In the Cloudflare dashboard, open **Turnstile** and choose **Add widget**. Use the hostname
+   `laterdog-computers.<subdomain>.workers.dev` and the mode **Managed**. Put its site key, which is public, in
+   `TURNSTILE_SITE_KEY` in `wrangler.jsonc`.
+2. Set the two secrets. Paste the widget's secret key when wrangler asks for it:
+
+   ```sh
+   pnpm exec wrangler secret put TURNSTILE_SECRET_KEY
+   openssl rand -base64 48 | tr -d '\n' | pnpm exec wrangler secret put TRIAL_NETWORK_KEY
+   ```
+
+   Changing `TRIAL_NETWORK_KEY` later forgets which networks have had a trial.
+3. To limit countries, set `TRIAL_COUNTRIES` to two-letter codes, such as `"US,CA"`. A request whose country is not
+   known is then refused.
+4. Set `TRIALS_ENABLED` to `"true"` and run `pnpm run deploy:worker`.
+5. `curl -s https://laterdog-computers.<subdomain>.workers.dev/v1/trials` should answer `{"offered":true,...}`.
+
+`TrialRegistry` is declared in `exports` like the other classes. Wrangler 4.149 treats `exports` as the Durable Object
+declaration and refuses `migrations` alongside it, so no migration is written. That was read in wrangler's code, not
+seen in a deploy.
+
 Cloudflare limits image storage to 50 GB per account. List images with `wrangler containers images list` and remove old
 ones with `wrangler containers images delete <image:tag>`.
 
 ## Checks
 
 - `pnpm test`: unit tests for the pure logic. API key check, desktop link signing, ids, routing, input validation,
-  output capture and the idle policy.
+  output capture, the idle policy and the free-trial rules. `test/trial-flow.test.ts` and `test/trial-registry.test.ts`
+  also run the Worker's own request handling and Durable Object classes against in-memory stand-ins (`test/fakes.ts`:
+  SQLite from `node:sqlite`, a fake container and a clock that fires alarms). The stand-ins are not Cloudflare, so
+  passing them says nothing about the live platform.
 - `pnpm run check`: `wrangler types` and `tsc --noEmit`.
 - `pnpm exec oxlint --deny-warnings deploy/laterdog/computers`, from the repository root.
 - `pnpm run dry-run`: `wrangler deploy --dry-run`. This builds the image too.
@@ -206,6 +290,11 @@ Not seen live yet: the 8-hour `MAX_AWAKE_HOURS` backstop, the platform's inactiv
 expiry, recovery after Cloudflare restarts a host, the `small` and `large` sizes, the `MAX_COMPUTERS` cap, renaming
 (`PATCH`), and the list endpoint with computers in it.
 
+Free trials have not been deployed or seen live. Not verified: the Turnstile widget and siteverify with real keys
+(Cloudflare's test keys cannot pass the hostname, action and claim checks), `cf-connecting-ip` and the country on real
+requests, the new `TrialRegistry` class deploying without a migration, `TrialRegistry` waiting on a computer that
+charges the trial back while it waits, and what the snapshots of trial computers cost.
+
 ## Limitations
 
 - It runs on public-beta Cloudflare APIs: the `durable_object` scheduling policy, `ctx.container.exec` and snapshots.
@@ -228,6 +317,13 @@ expiry, recovery after Cloudflare restarts a host, the `small` and `large` sizes
   up to `MAX_AWAKE_HOURS`.
 - Some boots are slower: 15 to 18 s instead of about 6 s, in two of eight boots. The likely cause is a host fetching
   the image; that is not confirmed.
+- Free trials are limited per network, not per person. Everyone behind one IPv4 address (an office, a campus, a
+  carrier-grade NAT) shares one trial per window. Someone with many networks (VPNs, proxies, IPv6 ranges) can start
+  more; Turnstile and `TRIALS_PER_DAY` bound that. Whoever takes a day's trials leaves none for others that day.
+- A trial computer has the same internet access as any other, so someone could misuse its minutes (spam, scanning).
+  Nothing inspects the traffic.
+- An ended trial frees its key: the same key can start a new trial from another network, as a new key could.
+- The trial page is in English only.
 - The screen is fixed at 1280×800. No audio. No clipboard or file transfer in the viewer: use the API.
 - Files move 16 MB at a time. Command output keeps 1 MiB per stream.
 - Commands get the environment in `src/computer.ts` (`DOG_ENV`) plus `PATH`, not the image's other variables.

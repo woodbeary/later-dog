@@ -19,12 +19,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "COMPUTER", "class_name": "DogComputer" },
-      { "name": "REGISTRY", "class_name": "ComputerRegistry" }
+      { "name": "REGISTRY", "class_name": "ComputerRegistry" },
+      { "name": "TRIALS", "class_name": "TrialRegistry" }
     ]
   },
   "exports": {
     "DogComputer": { "type": "durable-object", "storage": "sqlite" },
-    "ComputerRegistry": { "type": "durable-object", "storage": "sqlite" }
+    "ComputerRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "TrialRegistry": { "type": "durable-object", "storage": "sqlite" }
   },
   "vars": {
     // How many computers may exist at once, awake or asleep.
@@ -32,7 +34,14 @@
     // An awake computer with no API calls and no open viewer for this long is snapshotted and stopped.
     "IDLE_SLEEP_MINUTES": "15",
     // Backstop: any computer awake this long is snapshotted and stopped, even with a viewer open.
-    "MAX_AWAKE_HOURS": "8"
+    "MAX_AWAKE_HOURS": "8",
+    "TRIALS_ENABLED": "false",
+    "TRIAL_MINUTES": "30",
+    "TRIAL_DAYS": "7",
+    "TRIALS_PER_DAY": "20",
+    "TRIAL_IDLE_SLEEP_MINUTES": "5",
+    "TRIAL_COUNTRIES": "",
+    "TURNSTILE_SITE_KEY": ""
   }
   // Secrets (wrangler secret put, values piped on stdin):
   // COMPUTERS_KEY_SHA256 - lowercase hex SHA-256 of the API key ("ldc_..."); the key itself is never stored here.

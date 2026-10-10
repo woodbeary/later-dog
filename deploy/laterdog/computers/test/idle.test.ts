@@ -36,6 +36,24 @@ describe("decideIdle", () => {
   });
 });
 
+describe("a free trial's budget", () => {
+  it("sleeps once the trial's minutes run out, even with a viewer open", () => {
+    expect(decideIdle({ ...base, budgetEndsAt: T0 + 10 * MINUTE, now: T0 + 10 * MINUTE })).toEqual({ sleep: true, reason: "budget" });
+    const now = T0 + 10 * MINUTE;
+    expect(decideIdle({ ...base, viewers: 1, inFlight: 1, lastActiveAt: now, budgetEndsAt: now, now })).toEqual({ sleep: true, reason: "budget" });
+  });
+
+  it("checks again exactly when the minutes run out", () => {
+    expect(decideIdle({ ...base, budgetEndsAt: T0 + 2 * MINUTE, now: T0 + MINUTE })).toEqual({ sleep: false, checkAt: T0 + 2 * MINUTE });
+    expect(decideIdle({ ...base, viewers: 1, budgetEndsAt: T0 + 90_000, now: T0 + MINUTE })).toEqual({ sleep: false, checkAt: T0 + 90_000 });
+  });
+
+  it("names the maximum awake time when both are reached", () => {
+    const now = T0 + 8 * 60 * MINUTE;
+    expect(decideIdle({ ...base, budgetEndsAt: now - MINUTE, now })).toEqual({ sleep: true, reason: "max_awake" });
+  });
+});
+
 describe("configuration", () => {
   it("defaults to 15 idle minutes, 8 awake hours and 10 computers", () => {
     expect(idlePolicy({})).toEqual(policy);
