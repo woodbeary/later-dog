@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-10-09
+
+### Fixes
+- A working dog's messages show up as they arrive again. A message you sent while it worked could leave the chat stuck at an earlier point if it was queued (a message with a picture always is) or failed. Everything the dog said after that stayed hidden until you pressed Stop and sent something new.
+
 ## 0.3.0 — checkpoint, 2026-10-09
 
 later.dog made as simple as Grok Bot. This is a review build from the branch `biscuit/simplify-wording` (tag `checkpoint-2026-10-09`): not merged and not released. What was checked, what wasn't, and what's next: [docs/laterdog/checkpoint-2026-10-09.md](docs/laterdog/checkpoint-2026-10-09.md).

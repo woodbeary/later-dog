@@ -1105,6 +1105,41 @@ describe("optimistic sent messages", () => {
     expect(removed.bots[0]?.activeLeafId).toBe(root.id);
   });
 
+  it("keeps showing the dog's messages after a send is queued", () => {
+    const sent = reducer(
+      { ...initialState, bots: [bot] },
+      { type: "send", botId: bot.id, sendId: "send-queued", text: "and this" },
+    );
+    const first: Message = { id: "b1", role: "bot", kind: "text", text: "Looking", at: 2, parentId: root.id };
+    const second: Message = { id: "b2", role: "bot", kind: "text", text: "Found it", at: 3, parentId: first.id };
+    const working = [first, second].reduce(
+      (current, message) => reducer(current, { type: "messageAdded", threadId: bot.threadId, message }),
+      sent,
+    );
+    const queued = reducer(working, { type: "optimisticMessageRemoved", threadId: bot.threadId, sendId: "send-queued" });
+    expect(queued.bots[0]?.activeLeafId).toBe(second.id);
+
+    const third: Message = { id: "b3", role: "bot", kind: "text", text: "Done", at: 4, parentId: second.id };
+    const done = reducer(queued, { type: "messageAdded", threadId: bot.threadId, message: third });
+    expect(visibleMessages(done.bots[0]!).map((message) => message.id)).toEqual([root.id, first.id, second.id, third.id]);
+  });
+
+  it("follows a screenshot inserted mid-line while a send is queued", () => {
+    const sent = reducer(
+      { ...initialState, bots: [bot] },
+      { type: "send", botId: bot.id, sendId: "send-shot", text: "and this" },
+    );
+    const step: Message = { id: "b1", role: "bot", kind: "text", text: "Looking", at: 2, parentId: root.id };
+    const shot: Message = { id: "shot", role: "bot", kind: "screen", png: "x", at: 3, parentId: root.id };
+    const arrived = reducer(
+      reducer(sent, { type: "messageAdded", threadId: bot.threadId, message: step }),
+      { type: "messageAdded", threadId: bot.threadId, message: shot },
+    );
+    const moved = reducer(arrived, { type: "messagePatched", threadId: bot.threadId, message: { ...step, parentId: shot.id } });
+    const queued = reducer(moved, { type: "optimisticMessageRemoved", threadId: bot.threadId, sendId: "send-shot" });
+    expect(visibleMessages(queued.bots[0]!).map((message) => message.id)).toEqual([root.id, shot.id, step.id]);
+  });
+
   describe("edits", () => {
     const question: Message = { id: "q1", role: "user", kind: "text", text: "first try", at: 2, parentId: root.id };
     const answer: Message = { id: "a1", role: "bot", kind: "text", text: "old answer", at: 3, parentId: question.id };
@@ -1953,6 +1988,33 @@ describe("messageAdded leaf adoption", () => {
     });
     expect(next.bots[0].activeLeafId).toBe("m2"); // the user's message stays the tail
     expect(next.bots[0].messages.map((m) => m.id)).toContain("shot");
+  });
+
+  it("catches a leaf that fell behind up to a message continuing its line", () => {
+    const behind = {
+      ...initialState,
+      bots: [{ ...baseBot, messages: [...baseBot.messages, { id: "m3", at: 3, parentId: "m2", role: "bot", kind: "text", text: "on it" } as never as Message] }],
+    };
+    const next = reducer(behind, {
+      type: "messageAdded",
+      threadId: "thread-1",
+      message: { id: "m4", at: 4, parentId: "m3", role: "bot", kind: "text", text: "done" } as never as Message,
+    });
+    expect(next.bots[0].activeLeafId).toBe("m4");
+    expect(visibleMessages(next.bots[0]).map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4"]);
+  });
+
+  it("keeps the leaf when a message continues another branch", () => {
+    const branched = {
+      ...initialState,
+      bots: [{ ...baseBot, messages: [...baseBot.messages, { id: "m2b", at: 3, parentId: "m1", role: "user", kind: "text", text: "earlier try" } as never as Message] }],
+    };
+    const next = reducer(branched, {
+      type: "messageAdded",
+      threadId: "thread-1",
+      message: { id: "m3b", at: 4, parentId: "m2b", role: "bot", kind: "text", text: "old reply" } as never as Message,
+    });
+    expect(next.bots[0].activeLeafId).toBe("m2");
   });
 });
 

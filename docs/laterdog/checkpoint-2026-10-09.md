@@ -6,7 +6,7 @@ The newest version that builds and passes its local checks. Saved so Jacob can r
 
 - **Branch:** `biscuit/simplify-wording`, in the worktree `~/code/dog-biscuit-settings`. It sits on PR #1 (`biscuit/launch-no-prompts`, launch without permission prompts).
 - **Tag:** `checkpoint-2026-10-09`
-- **Version:** 0.3.0. Not merged and not released.
+- **Version:** 0.3.0, then 0.3.1 with the live chat fix (TODO 1). Not merged and not released.
 - **Draft PR:** stacked on PR #1. The CI build is a workflow artifact, not a public release.
 - **Changes:** [CHANGELOG.md](../../CHANGELOG.md)
 
@@ -92,7 +92,10 @@ CI on the draft PR runs the whole vitest suite in four shards plus the broker, e
 
 ## TODO, in order
 
-1. **Live progress in later.dog's chat.** Interim messages from a working dog only appear after pressing Stop. Jacob needs to watch work as it happens, the way Claude Code shows it.
+1. **Live progress in later.dog's chat.** Fixed in 0.3.1; not yet checked in the installed app.
+   - **Symptom:** interim messages from a working dog only appeared after pressing Stop and sending again.
+   - **Cause:** the chat shows the line of messages ending at its newest one. A message sent while a dog worked was shown at once, and the dog's new messages waited behind it. If the send came back queued (a message with a picture always does) or failed, the chat went back to where it was before the send. It never moved on to the dog's newer messages, so it hid every message after that. The server sent all of them on time.
+   - **Fix:** the chat moves forward along its own line (`src/lib/leaf-follow.ts`, used in `src/state/store.tsx`). Four new tests in `src/state/store.test.ts`; three of them fail without the fix.
 2. **Finish the docs.**
    - Fix the nine verification docs above.
    - These guides still send people to Settings pages that are gone:

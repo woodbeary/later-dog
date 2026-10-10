@@ -39,6 +39,7 @@ import {
 import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { botShowsUnread } from "@/lib/bot-unread";
+import { descendsFrom, newestTip } from "@/lib/leaf-follow";
 import type { ComputerStart } from "@/lib/computer-start";
 import { answerResponse, dismissResponse } from "@/lib/card-answer";
 import { currentCall } from "@/lib/call";
@@ -1229,8 +1230,6 @@ export type Action =
   | { type: "botPatched"; bot: BotAnnouncement }
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
-  /** `restoreLeafId` puts back the branch an optimistic edit replaced; a
-   * plain send falls back to the removed row's parent. */
   | { type: "optimisticMessageRemoved"; threadId: string; sendId: string; restoreLeafId?: string | null }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
@@ -1868,13 +1867,10 @@ export function reducer(state: AppState, action: Action): AppState {
             : current.activeLeafId,
         }));
       }
-      // every server-side append chains onto (and becomes) the active leaf
       const next = updateBot(stamped, bot.id, (b) => {
-        // A message chains onto the leaf → it becomes the leaf (the normal
-        // append). A message parented elsewhere is a chain-insert of a late
-        // turn artifact (settle-time screenshot) — the leaf must stay put,
-        // or the follow-up send it raced would fall off the active branch.
-        const adoptsLeaf = (action.message.parentId ?? null) === (b.activeLeafId ?? null);
+        const parent = action.message.parentId ?? null;
+        const leaf = b.activeLeafId ?? null;
+        const adoptsLeaf = parent === leaf || (leaf !== null && descendsFrom(b.messages, parent, leaf));
         return { ...b, messages: [...b.messages, action.message], activeLeafId: adoptsLeaf ? action.message.id : b.activeLeafId };
       });
       const motion =
@@ -1900,13 +1896,15 @@ export function reducer(state: AppState, action: Action): AppState {
       if (bot) {
         const optimistic = bot.messages.find((message) => message.id === id);
         if (!optimistic) return state;
-        const cleared = updateBot(state, bot.id, (current) => ({
-          ...current,
-          messages: current.messages.filter((message) => message.id !== id),
-          activeLeafId: current.activeLeafId === id
-            ? (action.restoreLeafId !== undefined ? action.restoreLeafId : (optimistic.parentId ?? null))
-            : current.activeLeafId,
-        }));
+        const cleared = updateBot(state, bot.id, (current) => {
+          const messages = current.messages.filter((message) => message.id !== id);
+          const restored = action.restoreLeafId !== undefined ? action.restoreLeafId : (optimistic.parentId ?? null);
+          return {
+            ...current,
+            messages,
+            activeLeafId: current.activeLeafId === id ? newestTip(messages, restored) : current.activeLeafId,
+          };
+        });
         const task = bot.tasks?.find((candidate) => candidate.threadId === action.threadId);
         const kept = cleared.bots.find((candidate) => candidate.id === bot.id)?.messages ?? [];
         return rewindThreadUpdatedAt(cleared, action.threadId, kept, task?.createdAt ?? 0);
