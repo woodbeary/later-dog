@@ -42,6 +42,7 @@ import { stateForBot } from "@/lib/mascot";
 import { cn } from "@/lib/cn";
 import { searchMatchesThreads, useSearchDisclosure } from "@/lib/search-disclosure";
 import { useHeldMenuMotion, useMenuMotion } from "./MenuMotion";
+import { UpdateButton } from "./UpdateButton";
 import { lastNonReceipt } from "@/lib/receipts";
 import { activityPreview, botEngine } from "@/lib/failed-turn";
 import { activeLocale, t } from "@/lib/i18n";
@@ -2306,6 +2307,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           >
             {density === "icons" ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
           </button>}
+          <UpdateButton align={density === "icons" ? "left" : "right"} />
           {/* `contents` keeps the popover anchored to the header row */}
           <div ref={plusMenuRef} className="contents">
           <button

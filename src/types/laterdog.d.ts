@@ -350,6 +350,7 @@ export interface UpdaterState {
     | "handed-off"
     | "error";
   version?: string;
+  notes?: string;
   percent?: number;
   message?: string;
   /** native work may still be running; recovery requires an app restart */
@@ -365,9 +366,9 @@ export interface UpdaterState {
   /** hand-off only: whether a terminal was opened to paste it into */
   terminalOpened?: boolean;
   /**
-   * A build with no update feed cannot install updates itself (later.dog's
-   * releases are unsigned), so it asks GitHub for the latest release
-   * instead: a newer one's version and the page to download it from.
+   * A build with no update feed cannot install updates itself, so it asks
+   * GitHub for the latest release instead: a newer one's version and the
+   * page to download it from.
    * Offered while `status` is "idle".
    */
   available?: { version: string; url: string };

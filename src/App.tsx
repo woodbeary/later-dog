@@ -19,7 +19,6 @@ import {
   preloadScreens, RemoteAgentSettingsPanel, RemoteDesktopPanel, RoutinesPage, SettingsModal, TeamMapPage, TriggersPanel,
 } from "@/components/lazy-screens";
 import { WorkspaceBackupRecovery } from "@/components/WorkspaceBackupSettings";
-import { UpdateBanner } from "@/components/UpdateBanner";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
 import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
 import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
@@ -233,7 +232,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   return (
     <div className="flex h-full flex-col">
-      <UpdateBanner />
       <CredentialStoreNotice />
       <div className="relative flex min-h-0 flex-1">
       {!calendarFocus && <button

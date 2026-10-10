@@ -7,7 +7,7 @@ const fixture = vi.hoisted(() => ({ state: null as UpdaterState | null }));
 // As the real hook: no state without the desktop app's updater bridge.
 vi.mock("@/lib/updater", () => ({ useUpdaterState: () => (window.laterdog?.updater ? fixture.state : null) }));
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
-import { AboutReleaseLine, ReleaseCheckRow, ReleaseNoticeCard, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
+import { AboutReleaseLine, ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 
 const PAGE = "https://github.com/woodbeary/later-dog/releases/tag/v0.2.0";
 const OFFERED: UpdaterState = { status: "idle", releaseCheck: "on", available: { version: "0.2.0", url: PAGE } };
@@ -31,18 +31,6 @@ it("offers a release only while the updater is otherwise idle", () => {
   expect(releaseChecksOff({ status: "idle", releaseCheck: "on" })).toBe(false);
   // A build with an update feed has no release check at all.
   expect(releaseChecksOff({ status: "idle" })).toBe(false);
-});
-
-it("tells of a newer release once a version: a version put away stays away, a newer one comes back", () => {
-  const card = render(ReleaseNoticeCard, OFFERED, LOCAL_PAGE, { release: OFFERED.available! });
-  expect(card).toContain("later.dog 0.2.0 is available");
-  expect(card).toContain("This build can&#x27;t update itself yet. Download the new version from GitHub.");
-  expect(card).toContain("Download");
-  expect(card).toContain("Later");
-
-  vi.stubGlobal("localStorage", { getItem: (key: string) => (key === "laterdog.release-notice.dismissed" ? "0.2.0" : null), setItem: vi.fn() });
-  expect(renderToStaticMarkup(createElement(ReleaseNoticeCard, { release: { version: "0.2.0", url: PAGE } }))).toBe("");
-  expect(renderToStaticMarkup(createElement(ReleaseNoticeCard, { release: { version: "0.3.0", url: PAGE } }))).toContain("later.dog 0.3.0 is available");
 });
 
 it("About names the newer release beside its Download, and nothing otherwise", () => {

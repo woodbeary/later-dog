@@ -2,6 +2,12 @@
 
 ## 0.3.3 — unreleased
 
+### Updates
+- later.dog updates itself. A new version downloads in the background, and a small icon appears at the top of the sidebar: a ring while it downloads, then a highlighted arrow when it's ready. Click it to see what's new and **Restart to update**, now or whenever suits you. If a dog is still working, it says so before you restart.
+- The icon replaces the floating update card and the badge on your name. **Check for updates** stays in the menu under your name and in Settings, Updates.
+- 0.3.2 and earlier can't update themselves. Download 0.3.3 once, and later versions arrive by themselves.
+- Not yet tried on a real install: the tests cover each step, but a real update from one signed build to the next hasn't run yet.
+
 ### Fixes
 - A picture you add while a dog works goes into the running turn, the same as words. Claude and ChatGPT dogs see it right away; Steer on a queued picture works too. Before, any message with a picture waited for the turn to end, and its queue row showed a file path instead of the picture.
 - A queued picture shows as a small thumbnail with "A picture" or "2 pictures" when there are no words.

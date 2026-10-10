@@ -13,10 +13,10 @@ const LOCAL = "http://127.0.0.1:8799";
 const CLOUD = "https://home-7f3k2.fly.dev";
 const OTHER = "https://bots.example.test";
 
-const fixture = vi.hoisted(() => ({ autoUpdater: null, handlers: new Map() }));
+const fixture = vi.hoisted(() => ({ autoUpdater: null, handlers: new Map(), appPath: "/unused-updater-test-app" }));
 
 vi.mock("electron", () => ({
-  app: { isPackaged: true, getPath: () => "/unused-updater-test-log", getVersion: () => "0.1.2" },
+  app: { isPackaged: true, getPath: () => "/unused-updater-test-log", getVersion: () => "0.1.2", getAppPath: () => fixture.appPath },
   clipboard: { writeText: vi.fn() },
   ipcMain: { handle: (name, handler) => fixture.handlers.set(name, handler) },
 }));
@@ -125,8 +125,6 @@ const settle = async () => {
   for (let index = 0; index < 10; index += 1) await Promise.resolve();
 };
 
-// later.dog ships no update feed: the updater runs only where an operator sets
-// LATERDOG_UPDATE_URL, so these tests give it one.
 const FEED = "https://updates.example.test/later.dog/";
 
 beforeEach(() => {
@@ -135,6 +133,7 @@ beforeEach(() => {
   vi.useFakeTimers();
 });
 afterEach(() => {
+  fixture.appPath = "/unused-updater-test-app";
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllEnvs();
@@ -205,7 +204,37 @@ it("reads its feed from LATERDOG_UPDATE_URL and refuses one that is not plain HT
     await settle();
     expect(refused.autoUpdater.setFeedURL).not.toHaveBeenCalled();
     expect(refused.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+    expect(refused.handlers.get("update:get-state")({})).toMatchObject({ status: "error", message: expect.stringMatching(/HTTPS/) });
   }
+});
+
+it("a signed build checks the feed baked into its package.json, without differential downloads", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "laterdog-updater-feed-"));
+  try {
+    const baked = "https://github.com/woodbeary/later-dog/releases/latest/download/";
+    writeFileSync(join(directory, "package.json"), JSON.stringify({ version: "0.3.3", laterdogUpdateFeed: baked }));
+    fixture.appPath = directory;
+    vi.stubEnv("LATERDOG_UPDATE_URL", "");
+    const github = stubGitHub();
+    const { updater, autoUpdater } = await load(() => true);
+    updater.startUpdater();
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({ provider: "generic", url: baked });
+    expect(autoUpdater.disableDifferentialDownload).toBe(true);
+    expect(autoUpdater.autoDownload).toBe(false);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await settle();
+    expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(github).not.toHaveBeenCalled();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it("takes a plain-http feed only from the environment and only on this computer, for testing an update", async () => {
+  vi.stubEnv("LATERDOG_UPDATE_URL", "http://127.0.0.1:8123/");
+  const { updater, autoUpdater } = await load(() => true);
+  updater.startUpdater();
+  expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({ provider: "generic", url: "http://127.0.0.1:8123/" });
 });
 
 /** The bridge preload.cjs gives a page at `origin`. `rule`: main's, which

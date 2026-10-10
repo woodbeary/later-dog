@@ -13,6 +13,10 @@ export function updateErrorNeedsPerson(error) {
   return NEEDS_PERSON.has(updateErrorMessage(error));
 }
 
+export function updateNotPublished(error) {
+  return error?.code === "ERR_UPDATER_CHANNEL_FILE_NOT_FOUND";
+}
+
 // Keep platform error details in the updater log; show the same recovery
 // guidance in Settings and the update card. This never relaxes install locks.
 export function updateErrorMessage(error) {

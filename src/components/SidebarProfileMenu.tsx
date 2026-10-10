@@ -130,14 +130,6 @@ function UpdateIcon({ phase, pending, size = 18 }: { phase: UpdatePhase; pending
   return <RefreshCw size={size} />;
 }
 
-/** Whether the updater has something the profile row should say out loud.
- * An idle updater, and the three-second "up to date" tick that follows a
- * check the user asked for from inside the menu, both stay in the menu. So
- * does a release to download: its card told the person once, no nagging. */
-export function updateNoteworthy(phase: UpdatePhase, pending = false): boolean {
-  return pending || (phase !== "idle" && phase !== "up-to-date" && phase !== "checking" && phase !== "available");
-}
-
 interface UpdateEntry {
   item: SidebarMenuItem;
   phase: UpdatePhase;
@@ -351,20 +343,6 @@ export function SidebarProfileMenu() {
           >
             <InitialsAvatar initials={profileInitials(profile)} size={28} />
             <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{name}</span>
-            {/* an update is the one thing worth interrupting the name for, so
-              * it sits on the row rather than waiting to be found in the menu */}
-            {update && updateNoteworthy(update.phase, update.pending) && (
-              <span
-                title={update.label}
-                aria-label={update.label}
-                className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded-full",
-                  update.phase === "error" ? "bg-danger/15 text-danger" : "bg-accent/15 text-accent",
-                )}
-              >
-                <UpdateIcon phase={update.phase} pending={update.pending} size={14} />
-              </span>
-            )}
           </span>
         )}
       />

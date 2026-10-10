@@ -8,7 +8,6 @@ import {
   selectPhoneDestination,
   profileLabel,
   updateBusy,
-  updateNoteworthy,
   updateLabel,
   updatePhase,
 } from "./SidebarProfileMenu";
@@ -139,29 +138,6 @@ describe("platformLabel", () => {
     expect(platformLabel("linux")).toBe("Linux");
     expect(platformLabel("freebsd")).toBeNull();
     expect(platformLabel(undefined)).toBeNull();
-  });
-});
-
-describe("updateNoteworthy", () => {
-  it("puts a real update on the profile row", () => {
-    expect(updateNoteworthy("downloading")).toBe(true);
-    expect(updateNoteworthy("preparing")).toBe(true);
-    expect(updateNoteworthy("downloaded")).toBe(true);
-    expect(updateNoteworthy("installing")).toBe(true);
-    expect(updateNoteworthy("error")).toBe(true);
-    expect(updateNoteworthy("handed-off")).toBe(true);
-  });
-
-  // a check the user started from inside the open menu is answered there;
-  // badging the row for it would flash at someone already looking elsewhere
-  it("leaves a quiet updater quiet", () => {
-    expect(updateNoteworthy("idle")).toBe(false);
-    expect(updateNoteworthy("checking")).toBe(false);
-    expect(updateNoteworthy("up-to-date")).toBe(false);
-  });
-
-  it("shows the click that has not landed yet", () => {
-    expect(updateNoteworthy("idle", true)).toBe(true);
   });
 });
 
