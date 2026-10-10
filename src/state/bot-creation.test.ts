@@ -1,7 +1,7 @@
 import { createElement, type Dispatch } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDog, initialState, reducer, StoreProvider, useStore, type Action, type Bot } from "./store";
+import { createDog, duplicateProfileFor, initialState, reducer, StoreProvider, useStore, type Action, type Bot } from "./store";
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const deferred = () => {
@@ -65,6 +65,13 @@ describe("createDog", () => {
     const request = vi.fn().mockRejectedValue(new Error("offline"));
     await expect(createDog({ name: "Scout" }, request)).rejects.toThrow("offline");
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("duplicateProfileFor", () => {
+  it("keeps the source's breed and colour along with its instructions", () => {
+    const source = { id: "rex", name: "Rex", title: "Trips", description: "", soul: "Be brief.", notifications: true, color: "red", mascotBody: "beagle", messages: [] } as unknown as Bot;
+    expect(duplicateProfileFor(source)).toMatchObject({ name: "Rex copy", title: "Trips", soul: "Be brief.", color: "red", mascotBody: "beagle" });
   });
 });
 

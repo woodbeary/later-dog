@@ -2557,6 +2557,27 @@ export async function createDog(fields: NewDogFields = {}, request: typeof api =
   return { bot };
 }
 
+export function duplicateProfileFor(source: Bot) {
+  return {
+    name: `${source.name} copy`,
+    title: source.title,
+    description: source.description,
+    soul: source.soul,
+    notifications: source.notifications,
+    modelSelection: source.modelSelection,
+    computer: source.computer,
+    cloudBackend: source.cloudBackend,
+    autoStartVps: source.autoStartVps,
+    color: source.color,
+    mascotBody: source.mascotBody,
+    avatarUrl: source.avatarUrl,
+    avatarCrop: source.avatarCrop,
+    avatarZoom: source.avatarZoom,
+    avatarFocusX: source.avatarFocusX,
+    avatarFocusY: source.avatarFocusY,
+  };
+}
+
 /** Messages per thread in a snapshot, and per scrollback page.
  *
  * An unbounded `/api/bots` serialises every message of every thread: a
@@ -3324,22 +3345,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "duplicateBot": {
           const source = stateRef.current.bots.find((b) => b.id === action.botId);
           if (!source) break;
-          const duplicateProfile = {
-            name: `${source.name} copy`,
-            title: source.title,
-            description: source.description,
-            soul: source.soul,
-            notifications: source.notifications,
-            modelSelection: source.modelSelection,
-            computer: source.computer,
-            cloudBackend: source.cloudBackend,
-            autoStartVps: source.autoStartVps,
-            avatarUrl: source.avatarUrl,
-            avatarCrop: source.avatarCrop,
-            avatarZoom: source.avatarZoom,
-            avatarFocusX: source.avatarFocusX,
-            avatarFocusY: source.avatarFocusY,
-          };
+          const duplicateProfile = duplicateProfileFor(source);
           // A copy of a restricted bot is restricted from its first moment.
           api("/api/bots", {
             method: "POST",
