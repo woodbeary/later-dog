@@ -32,13 +32,31 @@ module.exports = async function verifyModelSwitch({ root, url, api, until, grant
   const evaluate = js => window.webContents.executeJavaScript(js).catch(error => { throw new Error(`${error.message}\nExpression: ${js}`); });
   const text = () => evaluate("document.body.innerText");
   const click = name => evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(name)} || b.getAttribute('aria-label') === ${JSON.stringify(name)}); if (!button || button.disabled) throw new Error('Missing enabled button: ' + ${JSON.stringify(name)}); button.click(); return true; })()`);
+  const inPicker = selector => `document.querySelector(${JSON.stringify(`[data-model-picker-content] ${selector}`)})`;
+  const press = selector => evaluate(`(() => { const node = ${inPicker(selector)}; if (!node || node.disabled) throw new Error('Missing enabled control: ' + ${JSON.stringify(selector)}); node.click(); return true; })()`);
+  const modelRow = label => `[...document.querySelectorAll('[data-model-picker-content] [data-simple-models] button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
+  const settle = () => evaluate(`Promise.all(document.getAnimations()
+    .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+    .map(animation => animation.finished.catch(() => {})))
+    .then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))`);
+  const capture = async name => {
+    await settle();
+    writeFileSync(join(evidence, name), (await window.webContents.capturePage()).toPNG());
+  };
+  const resize = async (width, height) => {
+    window.setSize(width, height);
+    await until(() => evaluate(`innerWidth === ${width}`));
+    await settle();
+  };
   const openPicker = async () => { await evaluate("document.querySelector('[data-tour=model]').click(); true"); await until(() => evaluate("!!document.querySelector('[data-model-picker-content]')")); };
-  const selectClaude = async () => {
-    await until(() => evaluate("!!document.querySelector('[data-model-picker-content] button[aria-label=Claude]')"));
-    await click("Claude");
-    await until(() => evaluate("[...document.querySelectorAll('[data-model-picker-content] button')].some(b => b.textContent.startsWith('Claude Sonnet 5'))"));
-    await evaluate("[...document.querySelectorAll('[data-model-picker-content] button')].find(b => b.textContent.startsWith('Claude Sonnet 5')).click(); true");
-    await until(async () => (await text()).includes("Switch model with Ask permissions?"));
+  const closePicker = async () => {
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await until(() => evaluate("!document.querySelector('[data-model-picker-content]')"));
+  };
+  const confirmation = async () => {
+    await until(async () => (await text()).includes("Switch model and reset to Heel?"));
+    assert.equal(await evaluate("document.activeElement.textContent.trim()"), "Cancel");
   };
   const evidence = join(root, ".laterdog-scratch/verify-evidence/model-switch");
   mkdirSync(evidence, { recursive: true });
@@ -49,104 +67,90 @@ module.exports = async function verifyModelSwitch({ root, url, api, until, grant
     const instances = (await api("/api/instances")).body.instances;
     assert.equal(instances.find(instance => instance.instanceId === "claude-signed-out").snapshot.authenticated, false);
     assert.notEqual(instances.find(instance => instance.instanceId === "missing-codex").snapshot.state, "available");
-    assert.equal(await evaluate("!!document.querySelector('[data-model-picker-content] button[aria-label=\"Missing provider fixture\"]')"), false);
-    assert.ok((await text()).includes("Engines and accounts"));
-    assert.equal(await evaluate("[...document.querySelectorAll('[aria-label=\"Apply model changes to\"] button')].find(b => b.textContent === 'Only this thread').getAttribute('aria-pressed')"), "true");
-    await click("Claude");
-    await until(() => evaluate("!!document.querySelector('[data-model-picker-content] select option[value=claude]')"));
-    // A signed-out account stays in the picker and offers its sign-in card,
-    // never its cloud models; the missing, unused engine stays in Settings.
-    assert.equal(await evaluate("[...document.querySelectorAll('[data-model-picker-content] select option')].some(option => option.value === 'claude-signed-out')"), true);
-    const chooseAccount = id => evaluate(`(() => { const select = document.querySelector('[data-model-picker-content] select'); select.value = ${JSON.stringify(id)}; select.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
-    const claudeRows = "[...document.querySelectorAll('[data-model-picker-content] button')].some(b => b.textContent.startsWith('Claude Sonnet 5'))";
-    await chooseAccount("claude-signed-out");
-    await until(async () => (await text()).includes("Sign in to Signed-out fixture"));
-    assert.equal(await evaluate(claudeRows), false);
-    assert.equal(await evaluate("!!document.querySelector('[data-model-picker-content] [data-model-local-entry]')"), true);
-    writeFileSync(join(evidence, "signed-out-account.png"), (await window.webContents.capturePage()).toPNG());
-    await chooseAccount("claude");
-    await until(() => evaluate(claudeRows));
-    writeFileSync(join(evidence, "configured-providers.png"), (await window.webContents.capturePage()).toPNG());
+    assert.equal(await evaluate(`Boolean(${inPicker("[data-simple-model-pane]")})`), true);
+    assert.equal(await evaluate(`Boolean(${inPicker('[aria-label="Apply model changes to"]')})`), false);
+    assert.equal(await evaluate(`Boolean(${inPicker('[data-simple-provider="missing-codex"]')} || ${inPicker('[data-account="missing-codex"]')})`), false);
+    assert.equal((await text()).includes("Missing provider fixture"), false);
+    assert.match(await evaluate(`${inPicker('[data-account="claude-signed-out"]')}.textContent`), /Not signed in/);
+    await press('[data-simple-provider="claude"]');
+    await until(() => evaluate(`Boolean(${modelRow("Claude Sonnet 5")})`));
+    await capture("configured-providers.png");
     for (const [width, height] of [[1280, 800], [1000, 600], [800, 480], [390, 844]]) {
-      window.setSize(width, height);
-      await until(() => evaluate(`innerWidth === ${width}`));
-      await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+      await resize(width, height);
       const geometry = await evaluate(`(() => {
         const panel = document.querySelector('[data-model-picker-content]');
-        const list = panel.querySelector('[data-model-list]');
         const rect = panel.getBoundingClientRect();
-        return { left: rect.left, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight,
-          listHeight: list.clientHeight, effortHeight: panel.querySelector('select[aria-label="Reasoning effort"]').parentElement.getBoundingClientRect().height };
+        const models = panel.querySelector('[data-simple-models]').getBoundingClientRect();
+        const row = panel.querySelector('[data-simple-models] [role=group] button').getBoundingClientRect();
+        const band = panel.querySelector('[data-simple-effort-band]').getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: innerWidth, height: innerHeight,
+          modelsHeight: models.height, rowHeight: row.height, bandBottom: band.bottom };
       })()`);
       assert.ok(geometry.left >= 0 && geometry.right <= geometry.width, JSON.stringify(geometry));
-      assert.ok(geometry.bottom <= geometry.height, JSON.stringify(geometry));
-      assert.ok(geometry.listHeight >= Math.min(180, geometry.height * 0.3) - 2, JSON.stringify(geometry));
-      assert.ok(geometry.effortHeight <= 52, JSON.stringify(geometry));
-      writeFileSync(join(evidence, `model-picker-${width}x${height}.png`), (await window.webContents.capturePage()).toPNG());
+      assert.ok(geometry.top >= 0 && geometry.bottom <= geometry.height, JSON.stringify(geometry));
+      assert.ok(geometry.bandBottom <= geometry.bottom + 0.5, JSON.stringify(geometry));
+      assert.ok(geometry.modelsHeight >= 2 * geometry.rowHeight, JSON.stringify(geometry));
+      await capture(`model-picker-${width}x${height}.png`);
     }
-    window.setSize(1100, 850);
-    await selectClaude();
-    assert.equal(await evaluate("document.activeElement.textContent.trim()"), "Cancel");
+    await resize(1100, 850);
+    await evaluate(`${modelRow("Claude Sonnet 5")}.click(); true`);
+    await confirmation();
     await click("Cancel");
     assert.equal(calls.length, 0);
-    const cancelledTask = (await read()).tasks.find(task => task.threadId === selected.threadId);
+    const cancelled = await read();
+    const cancelledTask = cancelled.tasks.find(task => task.threadId === selected.threadId);
     assert.equal(cancelledTask.approvalMode, "custom");
     assert.equal(cancelledTask.modelSelection.instanceId, "codex");
+    assert.equal(cancelled.modelSelection.instanceId, "codex");
     await openPicker();
-    await selectClaude();
-    window.setSize(390, 844);
-    await until(() => evaluate("innerWidth === 390"));
+    await press('[data-account="claude-signed-out"]');
+    await until(async () => (await text()).includes("Signed-out fixture needs to be set up before you can use it."));
+    assert.equal(await evaluate(`Boolean(${inPicker("[data-simple-set-up]")})`), true);
+    assert.equal(await evaluate(`Boolean(${modelRow("Claude Sonnet 5")})`), false);
+    assert.equal(calls.length, 0);
+    await capture("signed-out-account.png");
+    await press('[data-account="claude"]');
+    await confirmation();
+    assert.ok((await text()).includes("Every thread that uses the dog's model switches too"));
+    await resize(390, 844);
     assert.equal(await evaluate("(() => { const r = document.querySelector('[role=alertdialog]').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; })()"), true);
-    writeFileSync(join(evidence, "thread-confirmation.png"), (await window.webContents.capturePage()).toPNG());
-    await click("Switch with Ask");
-    await until(async () => {
-      const task = (await read()).tasks.find(task => task.threadId === selected.threadId);
-      return task.modelSelection.instanceId === "claude" && task.approvalMode === "ask";
-    });
-    const threadOnly = await read();
-    assert.equal(threadOnly.approvalMode, "custom");
-    assert.equal(threadOnly.modelSelection.instanceId, "codex");
-    assert.equal(threadOnly.tasks.find(task => task.threadId === sibling.threadId).approvalMode, "custom");
-    assert.deepEqual(calls[0], { threadId: selected.threadId, modelSelection: selection, updateBotDefault: false });
-    window.setSize(1100, 850);
-    await openPicker();
-    await click("Thread + dog default");
-    await selectClaude();
-    assert.ok((await text()).includes("Groups and new threads use this default"));
-    writeFileSync(join(evidence, "default-confirmation.png"), (await window.webContents.capturePage()).toPNG());
-    await click("Switch with Ask");
+    await capture("default-confirmation.png");
+    await click("Switch with Heel");
     await until(async () => (await read()).modelSelection.instanceId === "claude");
+    assert.deepEqual(calls, [{ threadId: selected.threadId, modelSelection: selection, updateBotDefault: true }]);
     const after = await read();
     assert.equal(after.approvalMode, "ask");
-    assert.equal(after.tasks.find(task => task.threadId === sibling.threadId).approvalMode, "custom");
-    assert.equal(calls[1].updateBotDefault, true);
+    for (const thread of [selected, sibling]) {
+      const moved = after.tasks.find(task => task.threadId === thread.threadId);
+      assert.equal(moved.modelSelection.instanceId, "claude");
+      assert.equal(moved.approvalMode, "ask");
+    }
+    await resize(1100, 850);
     const newThread = (await api(`/api/bots/${bot.id}/tasks`, "POST", { title: "Uses the new default" })).body.task;
     assert.equal(newThread.modelSelection.instanceId, "claude");
     assert.equal(newThread.approvalMode, "ask");
     await api(`/api/bots/${bot.id}/tasks/${selected.threadId}`, "POST", {});
     await until(async () => (await read()).threadId === selected.threadId);
-    // Send a work request through the real composer after both transitions.
     await evaluate("document.querySelector('textarea').focus(); true");
     window.webContents.insertText("Draft three acceptance criteria for the engineering handoff.");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
     await until(async () => !(await read()).busy && (await text()).includes("hello from fake claude"));
-    writeFileSync(join(evidence, "after-send.png"), (await window.webContents.capturePage()).toPNG());
+    await capture("after-send.png");
     const localModel = instances.find(instance => instance.instanceId === "codex").models.options.find(option => option.custom && option.id.includes("fixture-local"));
     assert.ok(localModel, "Fixture includes a configured local model alongside Codex cloud models");
     assert.equal((await api(`/api/bots/${bot.id}/tasks/${selected.threadId}`, "PATCH", { modelSelection: { instanceId: "codex", model: localModel.id } })).status, 200);
     await until(() => evaluate(`document.querySelector('[data-tour=model]').textContent.includes(${JSON.stringify(localModel.label)})`));
     await openPicker();
-    await click("Claude");
-    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
-    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
-    await until(() => evaluate("!document.querySelector('[data-model-picker-content]')"));
+    await press('[data-simple-provider="claude"]');
+    await closePicker();
     await openPicker();
-    await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-    await until(() => evaluate(`[...document.querySelectorAll('[data-model-picker-content] button')].some(button => button.textContent.includes(${JSON.stringify(localModel.label)}))`));
-    writeFileSync(join(evidence, "reopened-local-model.png"), (await window.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ modelSwitch: true, missingProviderHidden: true, signedOutAccountShowsSignIn: true, unconfiguredRetainedInCatalog: true, customHttpRefused: true, cancelPreservedSettings: true,
-      scopedCustomSwitch: true, defaultMismatchHandled: true, siblingUnchanged: true, newThreadUsesDefault: true,
+    await settle();
+    await until(() => evaluate(`[...document.querySelectorAll('[data-model-picker-content] [data-simple-models] button[aria-pressed=true]')].some(button => button.textContent.includes(${JSON.stringify(localModel.label)}))`));
+    assert.equal(await evaluate(`${inPicker('[data-simple-provider="codex"]')}.getAttribute('aria-pressed')`), "true");
+    await capture("reopened-local-model.png");
+    console.log(JSON.stringify({ modelSwitch: true, simplePicker: true, missingProviderHidden: true, signedOutAccountShowsSetUp: true, customHttpRefused: true, cancelPreservedSettings: true,
+      accountSwitchConfirmed: true, dogDefaultUpdated: true, followingThreadsMoved: true, newThreadUsesDefault: true,
       sentAfterSwitch: true, narrowLayout: true, selectedLocalModelOnReopen: true, providerReplies: "offline fake CLI", evidence }));
   } finally {
     ipcMain.removeHandler("fixture:thread-approval");
