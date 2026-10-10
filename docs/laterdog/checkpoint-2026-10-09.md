@@ -6,7 +6,7 @@ The newest version that builds and passes its local checks. Saved so Jacob can r
 
 - **Branch:** `biscuit/simplify-wording`, in the worktree `~/code/dog-biscuit-settings`. It sits on PR #1 (`biscuit/launch-no-prompts`, launch without permission prompts).
 - **Tag:** `checkpoint-2026-10-09`
-- **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1). Not merged and not released.
+- **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1), then 0.3.3 (unreleased) with the update icon, pictures while a dog works, the × on a question, and the 4-picture limit. Not merged and not released.
 - **Draft PR:** stacked on PR #1. The CI build is a workflow artifact, not a public release.
 - **Changes:** [CHANGELOG.md](../../CHANGELOG.md)
 
@@ -146,7 +146,10 @@ Local-only failures, seen on 2026-10-09:
    - Cost: every later pull from upstream will conflict on those lines.
    - Plan it as one mechanical commit, run right after an upstream merge.
 10. **Sign with Jacob's Developer ID and notarize.** Deferred on 2026-10-08. It is the only full fix for the keychain prompt at launch and Gatekeeper's right-click → Open.
-11. **A close button on a new dog's first question.** A new dog opens with a big card asking what it guesses you want. It needs an × so you can close it and just type. Asked for by Jacob on 2026-10-09.
+11. **A close button on a dog's question:** done for 0.3.3; checked with tests, not yet in the installed app. Asked for by Jacob on 2026-10-09.
+    - **What it does:** every open question card, a new dog's first one included, has an × in its corner. Closing it tells the dog the question was closed, so the dog stops waiting, hides the card, and puts the cursor in the message box. A question still showing after its turn ended, or after a restart, closes without starting a new turn.
+    - **Code:** `server/laterdog/close-question.ts`, used by both respond routes in `server/index.ts`, and `src/components/QuestionCard.tsx`.
+    - **Tests:** `server/laterdog/close-question.test.ts`, `server/laterdog/close-question.e2e.test.ts` (a real server and the fake Claude CLI; it fails on the old code), `src/components/QuestionCard.dom.test.ts`.
 12. **Adding a picture while a dog works:** fixed for 0.3.3; checked in the browser fixture, not yet in the installed app.
     - **Symptom:** a picture added while a dog worked couldn't steer, and its queue row showed a file path.
     - **Cause:** the server queued every message with a picture on purpose, because a steer could only carry words. Steer on a queued picture was refused the same way.
@@ -155,7 +158,7 @@ Local-only failures, seen on 2026-10-09:
     - **Not verified:** a real Claude or Codex taking a picture mid-turn. Each gets the same picture input it already takes when a turn starts (Claude image blocks, Codex `localImage`).
 13. **Jacob's UI list from 2026-10-09:**
     - **The composer should look like Grok Bot's:** no big left indent, and attached pictures sit inside the box instead of floating above it.
-    - **Stop a fifth picture when it's picked**, instead of after.
+    - **Stop a fifth picture when it's picked:** done for 0.3.3; checked with tests, not yet in the installed app. Picking, pasting or dropping counts the pictures already in the message, adds up to 4, and says "A message can have up to 4 pictures." Documents aren't limited. The number lives in `shared/picture-limit.ts`, and the server's own check in `server/turn-images.ts` uses it too. Tests: `src/lib/picture-limit.test.ts` and `src/components/Composer.pictureLimit.test.ts`, which picks, pastes and drops pictures into the composer (3 of its 4 tests fail on the old code).
     - **One "Computer" place** instead of Browser and Files, looking like Grok Bot's. Drop the "allow control of this computer" and "where it works" wording.
     - **A short account popover** (the "Anthony" menu), plus dragging to reorder accounts.
     - **Remove the Phone features.**
@@ -164,6 +167,19 @@ Local-only failures, seen on 2026-10-09:
 14. **Study Grok Bot's domain transfer flow**, which asks for a Cloudflare sign-in:
     - how it's presented, when it calls its tools, and how it updates as it goes
     - then finish a real transfer with Jacob so later.dog's version has good data behind it
+15. **Updates from a small icon:** done for 0.3.3. How to publish one: [releasing.md](releasing.md).
+    - **What it does:** a new version downloads in the background. An icon at the top of the sidebar shows a ring while it downloads and an arrow when it's ready. Clicking it shows what's new, **Restart to update** and **Later**.
+    - **Bug found and fixed (3dae86d43):** the mac app shipped no `app-update.yml`. The bundled electron-updater reads it before every download, even with the feed set in code, so every download stopped with a missing-file error. The file now ships in `Contents/Resources`, CI checks the built app for it (`macos.yml`), and `electron/update-config.node-test.mjs` runs the updater's own loading code against it.
+    - **Verified on 2026-10-10 with real signed builds.** CI built 0.3.3 (3dae86d43) and a throwaway 0.3.4 (branch `biscuit/update-e2e-b`). The 0.3.3 copy ran from a test folder, with its own home folder, against a feed served on this Mac:
+      - it found 0.3.4 at its first check, 15 seconds after launch, downloaded it and handed it to macOS's installer (ShipIt)
+      - the icon read "later.dog 0.3.4 is ready", and its popover showed the 0.3.4 notes
+      - **Restart to update** quit the app, and ShipIt swapped the app in 12 seconds
+      - the result was 0.3.4, passed `codesign --verify --deep --strict`, and kept the same designated requirement
+      - started again, it found nothing newer and showed no icon
+    - **Not verified:**
+      - The window after the restart. ShipIt starts the new app through launchd, so in the test it started under the real account, found Jacob's later.dog already running, and exited at the single-instance lock. With one copy installed, the restarted app is the only one.
+      - An app in `/Applications`. macOS App Management may treat it differently from one in a test folder.
+      - A real GitHub release as the feed.
 
 ## Decisions waiting on Jacob
 
