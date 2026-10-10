@@ -64,7 +64,7 @@ description is in [self-hosting](../self-hosting.md#loopback-trust-owner-or-serv
 pnpm exec vitest run server/request-auth.test.ts server/decision-log.test.ts \
   server/card-answerers.e2e.test.ts server/cli-service-trust.e2e.test.ts \
   server/hosted-access.test.ts server/decision-log-wiring.test.ts server/hosted-models-api.test.ts \
-  src/components/PeopleSection.test.ts src/components/ServerPairingCard.test.ts src/lib/session.test.ts
+  src/components/ServerPairingCard.test.ts src/lib/session.test.ts
 ```
 
 - `server/request-auth.test.ts` runs the worker's calls and a list of admin

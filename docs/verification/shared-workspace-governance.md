@@ -49,8 +49,7 @@ prompt or dialog: visibility is access control and the log is a record.
 ```sh
 pnpm exec vitest run server/bot-visibility.test.ts server/bot-visibility.e2e.test.ts \
   server/admin-activity.test.ts server/admin-activity.e2e.test.ts server/peer-roster.test.ts \
-  server/cli.test.ts src/components/ActivitySection.test.ts \
-  src/components/bot-settings/VisibilitySection.test.ts
+  server/cli.test.ts
 ```
 
 - `server/bot-visibility.e2e.test.ts` boots a server with an admin (Boss) and
