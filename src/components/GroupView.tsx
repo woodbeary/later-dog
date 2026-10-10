@@ -68,6 +68,7 @@ import { appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
 import { citationPreviewText, splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
 import { highlightCitationSource } from "@/lib/citations-dom";
 import { latestReply, type TranscriptSnapshot } from "@/lib/transcript-announcer";
+import { openQuestion } from "@/lib/open-question";
 import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
 import { dayLabel, localDay } from "@/lib/transcript-derivations";
@@ -1076,11 +1077,15 @@ export function GroupView({ group }: { group: Group }) {
   const presenceVisible = waiting || popping !== null;
   const announcement = useMemo((): TranscriptSnapshot => {
     const approval = pendingApprovals(group.messages)[0];
+    const question = openQuestion(group.messages);
     return {
       busy: Boolean(group.working || group.busyBotId),
       reply: latestReply(group.messages, (m) => m.from?.name ?? group.name),
       approval: approval
         ? { id: approval.requestId, name: approval.message.from?.name ?? speaker?.name ?? group.name }
+        : undefined,
+      question: question
+        ? { id: question.id, name: question.message.from?.name ?? speaker?.name ?? group.name }
         : undefined,
     };
   }, [group.messages, group.working, group.busyBotId, group.name, speaker?.name]);

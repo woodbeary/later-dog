@@ -116,6 +116,7 @@ import { citationPreviewText, splitTranscriptCitations, type CitationAttachment 
 import { highlightCitationSource } from "@/lib/citations-dom";
 import { useCanWriteIn } from "@/lib/cloud-guest";
 import { latestReply, type TranscriptSnapshot } from "@/lib/transcript-announcer";
+import { openQuestion } from "@/lib/open-question";
 import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
 
@@ -1238,10 +1239,12 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const presenceVisible = waiting || popping !== null;
   const announcement = useMemo((): TranscriptSnapshot => {
     const approval = pendingApprovals(messages)[0];
+    const question = openQuestion(messages);
     return {
       busy: Boolean(bot.busy),
       reply: latestReply(messages, () => bot.name),
       approval: approval ? { id: approval.requestId, name: bot.name } : undefined,
+      question: question ? { id: question.id, name: bot.name } : undefined,
     };
   }, [messages, bot.busy, bot.name]);
   // Wall-clock anchor for the working row's elapsed readout — the server

@@ -87,6 +87,23 @@ describe("nextAnnouncement", () => {
     const approval = { id: "ask-1", name: "Pepper" };
     expect(play([{ busy: true, approval }, { busy: true, approval }])).toEqual([]);
   });
+
+  it("announces a new question once, by name", () => {
+    const question = { id: "q-1", name: "Pepper" };
+    expect(play([
+      { busy: true, approval: { id: "ask-1", name: "Pepper" } },
+      { busy: true },
+      { busy: true, question },
+      { busy: true, question },
+      { busy: true },
+      { busy: true, question: { id: "q-2", name: "Pepper" } },
+    ])).toEqual(["Pepper has a question", "Pepper has a question"]);
+  });
+
+  it("does not announce a question that was already open when the thread opened", () => {
+    const question = { id: "q-1", name: "Pepper" };
+    expect(play([{ busy: true, question }, { busy: true, question }])).toEqual([]);
+  });
 });
 
 describe("latestReply", () => {

@@ -71,6 +71,7 @@
 - When a Claude dog asks to write or edit a file, the approval shows the file's path and the text going in. An edit shows the lines taken out with `-` and the lines put in with `+`. Before, it showed one cut-off line of code, such as `{"file_path":"…/haiku.md","content":"Loyal paws padding\nTail wags like a metr`. A long change shows its first 2,000 characters, and a cut-off command or address now ends in "…" so you can tell there is more. Tried for real with Claude: writing a 3-line file showed its path and the 3 lines, and an edit showed `- Beagle` and `+ Poodle`.
 - An answered question shows the question once. Before, a card with one question showed it again as "Q: …" above your answer. A card with several questions now lists each one with its answer, without the tabs. Tried for real with Claude, with one question and with two.
 - A dog's lettered question card now says who is asking, such as "Pepper has a question", the same as its other question card. Before, it said "Your dog has a question". Tried for real with Claude.
+- A screen reader now hears "Pepper has a question" when a dog asks you something, the same way it hears that a dog needs your approval. Before, it heard nothing, and it could still be holding the line about an earlier approval. Tried in tests only so far.
 
 ## 0.3.2 — 2026-10-09
 
