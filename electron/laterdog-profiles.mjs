@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import profilesModule from "./profiles.cjs";
 import { readSecureCredentials } from "./secure-credentials.mjs";
 import { createSecureCredentialState } from "./secure-credential-state.mjs";
+import { createServerLiveness } from "./laterdog-server-liveness.mjs";
 import { WORKSPACE_CREDENTIALS, workspaceCredentialEnv } from "./workspace-credentials.mjs";
 
 const {
@@ -72,6 +73,7 @@ export function createProfileRunner({
   probe,
   acquireLease,
   supervise,
+  watchLiveness = createServerLiveness,
   secrets,
   applyCredential,
   trash,
@@ -271,6 +273,7 @@ export function createProfileRunner({
       if (closed || run.stopping) return;
       if (port === null) throw new Error("No free port for this profile");
       run.lease = acquireLease(dataDirFor(run.id));
+      const liveness = watchLiveness({ port: () => find(run.id)?.port, log: (line) => log(`profile ${run.id} ${line}`) });
       run.supervisor = supervise({
         restart: () => spawn(run),
         stop: (proc) => stopProc(run, proc),
@@ -278,8 +281,10 @@ export function createProfileRunner({
           run.proc = proc;
           setStatus(run, "running");
           onReady(run.id);
+          liveness.start(proc);
         },
         onUnavailable() {
+          liveness.stop();
           run.proc = null;
           if (run.status === "running") setStatus(run, "starting");
         },

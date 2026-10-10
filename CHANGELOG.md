@@ -65,6 +65,7 @@
 - Pictures you send sit in their own row on the right, side by side at one height, like Grok Bot. Your words get a bubble that fits them, and a message that's only pictures has no bubble. Before, one picture sat at the left of a wide empty box, and pictures with words made a very wide bubble. Rooms show them the same way.
 - The tour's tip no longer shows on top of other windows, such as Edit profiles or Settings. It steps aside while one is open and comes back when it closes. Pressing Escape to close a window no longer ends the tour as well.
 - About, the Full access and computer warnings, and the allowed commands list now cover the whole window. Before, **Jump to latest** could show on top of them and hide About's Support link.
+- If later.dog's background server stops and the app isn't told, the app now notices and restarts it, for each profile's server too. It checks every 15 seconds and restarts only a server that has really ended. Before, the window stayed open with nothing behind it, and dogs stopped answering until you quit and reopened later.dog. This happened once with 0.3.2, on 2026-10-10; why that server stopped is still unknown. Tried in tests only, including with a real ended process. Not tried yet in the installed app.
 
 ## 0.3.2 — 2026-10-09
 

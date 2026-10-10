@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { createProfileRunner, portFree, profileServerEnvironment } from "./laterdog-profiles.mjs";
+import { createServerLiveness } from "./laterdog-server-liveness.mjs";
 import { createServerSupervisor } from "./server-supervisor.mjs";
 
 const tick = (ms = 1) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -377,6 +378,33 @@ test("a crashed profile server restarts on the same port", async () => {
   await until(() => setup.forks.length === 2 && runner.list().profiles[1].status === "running", "the restart");
   assert.equal(setup.forks[1].env.LATERDOG_SERVER_PORT, "8811");
   assert.deepEqual(setup.exited, [setup.forks[0].proc]);
+  await runner.stopAll();
+});
+
+test("a profile server that ended without an exit event restarts on the same port", async () => {
+  const setup = harness();
+  const gone = new Set();
+  const probed = [];
+  const runner = setup.runner({
+    watchLiveness: (settings) => createServerLiveness({
+      ...settings,
+      intervalMs: 5,
+      probe: async (port) => {
+        probed.push(port);
+        return gone.size ? "refused" : "open";
+      },
+      ended: async (pid) => gone.has(pid),
+    }),
+  });
+  await runner.start();
+  await runner.add("Business");
+  await until(() => runner.list().profiles[1].status === "running" && probed.length > 0, "the first check");
+  setup.forks[0].proc.dead = true;
+  gone.add(setup.forks[0].proc.pid);
+  await until(() => setup.forks.length === 2 && runner.list().profiles[1].status === "running", "the restart");
+  assert.equal(setup.forks[1].env.LATERDOG_SERVER_PORT, "8811");
+  assert.deepEqual(setup.exited, [setup.forks[0].proc]);
+  assert.deepEqual([...new Set(probed)], [8811]);
   await runner.stopAll();
 });
 
