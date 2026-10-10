@@ -11,11 +11,13 @@ export interface LocalVmStatus {
   ready: boolean;
   container: "running" | "stopped" | "missing";
   problem: string | null;
+  resumable?: boolean;
+  stop_reason?: "idle" | null;
   viewer_url?: string;
   commands?: { view?: string | null };
 }
 
-type VmAction = "run" | "recreate";
+type VmAction = "start" | "run" | "recreate";
 
 export const pillButton = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
 
@@ -26,7 +28,7 @@ async function readStatus(signal?: AbortSignal): Promise<LocalVmStatus> {
   return body as LocalVmStatus;
 }
 
-async function post(action: "run" | "remove", signal: AbortSignal): Promise<LocalVmStatus> {
+async function post(action: "start" | "run" | "remove", signal: AbortSignal): Promise<LocalVmStatus> {
   const response = await fetch(`/api/local-computer/${action}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -34,7 +36,7 @@ async function post(action: "run" | "remove", signal: AbortSignal): Promise<Loca
     signal,
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error ?? t(action === "run" ? "vm.err.create" : "vm.deleteError"));
+  if (!response.ok) throw new Error(body.error ?? t(action === "remove" ? "vm.deleteError" : action === "run" ? "vm.err.create" : "vm.err.start"));
   signal.throwIfAborted();
   return body as LocalVmStatus;
 }
@@ -86,9 +88,8 @@ export function LocalVmRows() {
 
   const confirmAction = (message: string) => window.laterdog?.confirm ? window.laterdog.confirm(message) : window.confirm(message);
 
-  const reset = async () => {
+  const act = async (action: VmAction) => {
     if (pending !== null || actionController.current) return;
-    const action: VmAction = status?.container === "missing" ? "run" : "recreate";
     const controller = new AbortController();
     actionController.current = controller;
     setPending(action);
@@ -96,9 +97,13 @@ export function LocalVmRows() {
     try {
       if (action === "recreate" && !(await confirmAction(t("vm.confirm.recreate")))) return;
       if (action === "recreate") await post("remove", controller.signal);
-      let result = await post("run", controller.signal);
-      result = await waitForLocalVmReady(result, () => readStatus(controller.signal), controller.signal);
+      let result = await post(action === "start" ? "start" : "run", controller.signal);
       setStatus(result);
+      result = await waitForLocalVmReady(result, async () => {
+        const next = await readStatus(controller.signal);
+        setStatus(next);
+        return next;
+      }, controller.signal);
       if (!result.ready) throw new Error(result.problem ?? t("vm.err.start"));
       setRefreshKey((key) => key + 1);
     } catch (e) {
@@ -111,12 +116,16 @@ export function LocalVmRows() {
   };
 
   const ready = status?.ready === true;
+  const stopped = status?.container === "stopped" && status.resumable !== false;
+  const waiting = pending !== null && status?.container === "running" && !ready;
   const viewer = status?.viewer_url || status?.commands?.view || null;
   return (
     <div data-local-vm-rows className="rounded-xl bg-card px-4">
       <SettingRow
         title={t("settings.vm.status")}
-        subtitle={error ? <span role="alert" className="text-danger">{error}</span> : undefined}
+        subtitle={error
+          ? <span role="alert" className="text-danger">{error}</span>
+          : stopped ? t(status.stop_reason === "idle" ? "vm.stopped.idle" : "vm.stopped.detail") : undefined}
       >
         <span
           aria-live="polite"
@@ -127,7 +136,7 @@ export function LocalVmRows() {
           )}
         >
           {loading ? <Loader2 size={12} className="animate-spin" /> : ready ? <Check size={12} /> : <Circle size={9} />}
-          {localVmStatusLabel(status, loading)}
+          {waiting ? t("vm.setup.waiting") : localVmStatusLabel(status, loading)}
         </span>
       </SettingRow>
       <SettingRow title={t("settings.vm.actions")} subtitle={t("settings.vm.actionsHint")}>
@@ -135,8 +144,19 @@ export function LocalVmRows() {
           {ready && viewer && (
             <a href={viewer} target="_blank" rel="noreferrer" className={pillButton}>{t("settings.vm.open")}</a>
           )}
-          <button type="button" onClick={() => void reset()} disabled={loading || pending !== null} className={pillButton}>
-            {pending ? t("settings.vm.working") : status?.container === "missing" ? t("settings.vm.create") : t("settings.vm.reset")}
+          {(stopped || pending === "start") && (
+            <button type="button" onClick={() => void act("start")} disabled={loading || pending !== null} aria-busy={pending === "start"} className={pillButton}>
+              {t(pending === "start" ? "vm.setup.starting" : "vm.setup.start")}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void act(status?.container === "missing" ? "run" : "recreate")}
+            disabled={loading || pending !== null}
+            aria-busy={pending === "run" || pending === "recreate"}
+            className={pillButton}
+          >
+            {pending === "run" || pending === "recreate" ? t("settings.vm.working") : status?.container === "missing" ? t("settings.vm.create") : t("settings.vm.reset")}
           </button>
         </div>
       </SettingRow>
