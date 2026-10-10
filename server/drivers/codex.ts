@@ -70,7 +70,7 @@ export function codexUserError(value: string, chatgptPlan: boolean): string {
   if (value.includes("provider_not_configured")) {
     return chatgptPlan
       ? "provider_not_configured: ChatGPT has not enabled this model for the selected account. Refresh models or reconnect ChatGPT plan in Settings. API billing will not be used."
-      : "provider_not_configured: This Codex account cannot use the selected route. For the new ChatGPT plan models, choose ChatGPT plan in Settings → Engines and Continue with ChatGPT, then select a model from that account.";
+      : "provider_not_configured: This Codex account cannot use the selected route. For the new ChatGPT plan models, choose ChatGPT plan in the model picker and Continue with ChatGPT, then select a model from that account.";
   }
   return value.slice(0, 400);
 }
@@ -92,7 +92,7 @@ export function codexSignInRefused(error: unknown): boolean {
   return typeof message === "string" && CODEX_SIGN_IN_REFUSED.test(message);
 }
 
-export const CODEX_SIGN_IN_EXPIRED = "Codex's ChatGPT sign-in has expired. Sign in again in Settings → Model providers → Codex.";
+export const CODEX_SIGN_IN_EXPIRED = "Codex's ChatGPT sign-in has expired. Sign in again in Settings → General → Accounts.";
 
 /** The plain sentence first, so a peer bot's one-line report keeps it;
  * Codex's own words follow as the detail. */

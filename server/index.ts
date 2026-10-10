@@ -10738,10 +10738,10 @@ async function startTurn(
         !computerSelectionTurns.has(threadId)
       ) {
         const hint = opts?.automationSource
-          ? "This scheduled run tried to start the VPS computer and could not reach it. Check the VPS connection in Settings → API keys."
+          ? "This scheduled run tried to start the VPS computer and could not reach it. Check the VPS connection in the Computer panel."
           : bot.autoStartVps
-            ? "Check the VPS connection in Settings → API keys."
-            : "Open Computer and enable Start VPS automatically, or choose Cloud computer to start it manually.";
+            ? "Check the VPS connection in the Computer panel."
+            : "Choose Cloud computer for this dog to start it.";
         throw new Error(`${autoVpsProblem}. ${hint}`);
       }
       // Agent control tools include peer comms and the secure credential

@@ -44,7 +44,7 @@ export const CerebrasDriver: ProviderDriver<CerebrasConfig> = {
   install: {
     docsUrl: "https://cloud.cerebras.ai/",
     settings: "connections",
-    signInCommand: "Save a Cerebras API key in Settings → API keys, or set CEREBRAS_API_KEY on the server.",
+    signInCommand: "Save a Cerebras API key in the model picker, or set CEREBRAS_API_KEY on the server.",
   },
   decodeConfig,
   defaultConfig: () => decodeConfig({}),
@@ -96,8 +96,8 @@ export const CerebrasDriver: ProviderDriver<CerebrasConfig> = {
         ...(stream ? { stream_options: { include_usage: true } } : {}),
       }),
       httpErrorLabel: "Cerebras",
-      missingKeyError: "Save a Cerebras API key in Settings → API keys, or set CEREBRAS_API_KEY.",
-      unavailableReason: "No Cerebras API key — open Settings → API keys.",
+      missingKeyError: "Save a Cerebras API key in the model picker, or set CEREBRAS_API_KEY.",
+      unavailableReason: "No Cerebras API key — add one in the model picker.",
       timeoutMs: 180_000, billing: "metered", includeUsageInCompleted: true,
       nativeLog: {
         source: "cerebras.chat.completions",
