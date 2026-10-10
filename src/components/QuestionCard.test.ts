@@ -126,6 +126,31 @@ describe("QuestionCard", () => {
     expect(markup).not.toContain('role="radiogroup"');
   });
 
+  it("names a single question once after it is answered", () => {
+    const markup = render(
+      message({
+        answered: "answer",
+        answeredText: "The user answered your questions.\n\nQ: Which dog breed do you like best?\nA: Corgi",
+        questionRequest: { version: 1, questions: [{ question: "Which dog breed do you like best?", options: [{ label: "Corgi" }] }] },
+      }),
+    );
+    expect(markup.split("Which dog breed do you like best?")).toHaveLength(2);
+    expect(markup).toContain("Corgi");
+    expect(markup).not.toContain("Q: ");
+  });
+
+  it("lists each question with its answer once, without the tabs, after several are answered", () => {
+    const markup = render(
+      message({
+        answered: "answer",
+        answeredText: "The user answered your questions.\n\nQ: Which model should Hazelnut run on by default?\nA: Claude Opus 5\n\nQ: Which style should it write in?\nA: Terse",
+      }),
+    );
+    expect(markup.split("Which model should Hazelnut run on by default?")).toHaveLength(2);
+    expect(markup).toContain("A: Terse");
+    expect(markup).not.toContain('role="tablist"');
+  });
+
   it("renders nothing for a card that carries no questions", () => {
     expect(render(message({ questionRequest: undefined }))).toBe("");
   });

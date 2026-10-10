@@ -15,13 +15,13 @@ import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import {
-  answerWithoutPreamble,
   formatQuestionAnswers,
   MAX_CUSTOM_ANSWER,
   QUESTION_DISMISS_MESSAGE,
   type AskQuestion,
 } from "../../shared/ask-question";
 import { ExpandableText } from "./ExpandableText";
+import { settledAnswer } from "@/lib/settled-answer";
 
 /** What each question has been answered with so far. Option labels and the
  * free-text reply are kept apart so toggling "Other" off cannot silently
@@ -79,6 +79,9 @@ export function QuestionCard({
   const draft = drafts[currentIndex] ?? EMPTY;
   const answeredCount = answered.filter(Boolean).length;
   const complete = answeredCount === questions.length;
+  const answerText = card.answeredText ?? sent;
+  const shownAnswer = settled && answerText ? settledAnswer(answerText, questions) : "";
+  const listsQuestions = questions.length > 1 && shownAnswer.startsWith("Q: ");
 
   const update = (index: number, next: Partial<Draft>) =>
     setDrafts((previous) => ({ ...previous, [index]: { ...(previous[index] ?? EMPTY), ...next } }));
@@ -182,7 +185,7 @@ export function QuestionCard({
         <div className="mt-1 text-[12px] text-ink-secondary">{t("question.origin.badge")}</div>
       )}
 
-      {questions.length > 1 && (
+      {questions.length > 1 && !listsQuestions && (
         <div role="tablist" aria-label={t("question.aria.tabs")} className="mt-3 flex flex-wrap gap-1">
           {questions.map((question, index) => (
             <button
@@ -204,7 +207,7 @@ export function QuestionCard({
         </div>
       )}
 
-      <ExpandableText text={current.question} className="mt-3 text-[15px] leading-relaxed text-ink" />
+      {!listsQuestions && <ExpandableText text={current.question} className="mt-3 text-[15px] leading-relaxed text-ink" />}
       {current.multiSelect && !settled && (
         <div className="mt-1 text-[12.5px] text-ink-secondary">{t("question.multiHint")}</div>
       )}
@@ -276,12 +279,7 @@ export function QuestionCard({
       {settled ? (
         <div className="mt-3 flex items-start gap-1.5 text-[13px] text-ink-secondary">
           <Check size={14} className="mt-0.5 shrink-0 text-success" />
-          <span className="whitespace-pre-wrap break-words">
-            {(() => {
-              const answer = card.answeredText ?? sent;
-              return answer ? answerWithoutPreamble(answer) : t("question.status.answered");
-            })()}
-          </span>
+          <span className="whitespace-pre-wrap break-words">{shownAnswer || t("question.status.answered")}</span>
         </div>
       ) : (
         <div className="mt-3 flex items-center justify-end gap-3">
