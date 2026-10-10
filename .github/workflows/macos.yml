@@ -65,6 +65,14 @@ jobs:
           codesign --verify --deep --strict "$APP"
           codesign -dr - "$APP" 2>&1 | grep designated
           if [ -n "${LATERDOG_MAC_IDENTITY:-}" ]; then codesign -dr - "$APP" 2>&1 | grep -Eq 'certificate (leaf|root) = H"6ce7d3fb20195fbe66e9bb8dd1d272272977fae2"'; fi
+      - name: Zip the app for download
+        run: ditto -c -k --sequesterRsrc --keepParent release/mac-arm64/later.dog.app later.dog-macOS-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: later.dog-macOS-arm64
+          path: later.dog-macOS-arm64.zip
+          retention-days: 14
+          if-no-files-found: error
       - name: Publish the requested release
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         env:
