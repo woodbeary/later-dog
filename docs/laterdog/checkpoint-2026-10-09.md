@@ -6,7 +6,7 @@ The newest version that builds and passes its local checks. Saved so Jacob can r
 
 - **Branch:** `biscuit/simplify-wording`, in the worktree `~/code/dog-biscuit-settings`. It sits on PR #1 (`biscuit/launch-no-prompts`, launch without permission prompts).
 - **Tag:** `checkpoint-2026-10-09`
-- **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1), then 0.3.3 (unreleased) with the update icon, pictures while a dog works, the × on a question, the 4-picture limit, Profiles, the free trial (off until deployed), the restart of a server that ended, and the fixes from a run with real Claude. Not merged and not released.
+- **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1), then 0.3.3 (unreleased) with the update icon, pictures while a dog works, the × on a question, the 4-picture limit, Profiles, the free trial (off until deployed), the restart of a server that ended, the fixes from a run with real Claude, and two fixes from a check of a 0.3.3 preview build. Not merged and not released.
 - **Draft PR:** stacked on PR #1. The CI build is a workflow artifact, not a public release.
 - **Changes:** [CHANGELOG.md](../../CHANGELOG.md)
 
@@ -71,7 +71,7 @@ CI on the draft PR runs the whole vitest suite in four shards plus the broker, e
 
 ## Not verified
 
-- **0.3.3 hasn't run in the real app yet.** The installed app is 0.3.2.
+- **0.3.3 hasn't run in the real app yet.** The installed app is 0.3.2. Test copies of signed 0.3.3 preview builds have run, each with its own home folder (TODO 13, 15 and 19).
 - Real Claude ran only in a throwaway copy with test dogs (TODO 18).
 - No real Claude or ChatGPT sign-in through the new Add account sheet.
 - No real usage limit has triggered the Continue on message or the walk-away pickup. Fixture success does not qualify a live provider.
@@ -242,11 +242,14 @@ Local-only failures, seen on 2026-10-09:
         - Back in Personal, Business kept running: the same process, still answering.
         - Renaming it to "Work" stuck without a restart.
         - Adding and removing "Business 2" worked. Its server stopped and its folder went to the Trash a few seconds later.
-      - **Found in that run and fixed since, not yet in a build:**
+      - **Found in that run and fixed since:**
         - A new profile showed the welcome again and asked your name. It now starts with your name, email and tour progress.
         - The tour's tip showed on top of the Edit profiles window, and pressing Escape there ended the tour as well. Fixed for every window in `src/components/onboarding/Spotlight.tsx`. Test: `src/components/onboarding/Spotlight.test.ts` (5 of its 6 cases fail on the old code).
+      - **Checked again on 2026-10-10** in the build from CI run 38088601743 (e6108502c), the same way:
+        - Adding "Business" took about 5 seconds and skipped the welcome. "Sam" showed under the name, the tour stayed at step 3 of 5, and Business had its own first dog. Its starting settings were the name and the tour progress.
+        - The tour's tip stepped aside while **Add profile** was open.
+        - Switching back to Personal took under a second. Business's server was the same process and still answered.
       - **Not verified:**
-        - The two fixes above in a build.
         - A profile that fails to start, and a dog working in one profile while you switch.
         - Late in the run the Mac's load went very high, and the test copy's window stopped answering and had to be force-quit. Found afterwards: the disk was full (187 MB free of 228 GB) and dozens of system services were restarting every few seconds. Deleting my 3.1 GB of test copies and stopping my tests brought the load from about 200 to 5 within minutes. The likely cause is the full disk, made worse by two of my typechecks running at once. Not proven: the app hasn't been profiled under normal load yet.
       - **Testing note:** a removed profile goes to the real account's Trash even when the app runs with a test home folder.
@@ -266,14 +269,16 @@ Local-only failures, seen on 2026-10-09:
     - **Not verified:**
       - The window after the restart. ShipIt starts the new app through launchd, so in the test it started under the real account, found Jacob's later.dog already running, and exited at the single-instance lock. With one copy installed, the restarted app is the only one.
       - An app in `/Applications`. macOS App Management may treat it differently from one in a test folder.
-      - A real GitHub release as the feed.
+      - A real GitHub release as the feed. The app asks `releases/latest/download/`, which GitHub sends to the newest release. That's still v0.2.0, which has no `latest-mac.yml`, so until 0.3.3 is published the check finds nothing and shows no icon (TODO 19).
 16. **Free cloud computer trial:** built for 0.3.3, off until deployed. 30 minutes to use within 7 days, no card and no account. Details: [the computers README](../../deploy/laterdog/computers/README.md#free-trials).
     - **Waiting on Jacob:** deploying the computers Worker with trials on, its Turnstile keys and trial secrets, then the Worker's address in the app (`DEFAULT_TRIAL_API`).
     - **Tried in tests only:** the Worker against a fake Cloudflare, and the app against a fake Worker.
+    - **In the 0.3.3 preview build,** which names no trial service, Settings → Computer → Cloud computers shows no trial row (TODO 19).
 17. **A background server that ends without telling the app:** fixed for 0.3.3 (0e5f1a327).
     - **What happened:** on 2026-10-10 at 09:35, 0.3.2's server stopped. The window stayed open with nothing behind it until a new server started at 11:39. Why it stopped is unknown.
     - **Fix:** the app checks every 15 seconds and restarts a server that has really ended, for each profile.
     - **Tried:** with fake and real ended processes. Not yet in the installed app.
+    - **In the 0.3.3 preview build** (TODO 19), a force-quit server came back in about a second. That's the app's older recovery, for a server the app is told has ended, so it doesn't test this fix.
 18. **A run with real Claude**, on 2026-10-10, in a throwaway copy with its own folder, port and test dogs. Six fixes:
     - a message sent mid-turn no longer folds the answer into Worked for (4d282aead)
     - the sidebar and the "finished" notification show plain words (b2d5467e6)
@@ -283,6 +288,17 @@ Local-only failures, seen on 2026-10-09:
     - screen readers hear a dog's question (7cc1ad4a7)
 
     Four questions from it are in Decisions waiting on Jacob.
+19. **A check of the 0.3.3 preview build**, on 2026-10-10, in test copies with their own home folders. The first copy (CI run 38085330702) found two problems. Both are fixed, and the second copy (CI run 38088601743, e6108502c) checked the fixes:
+    - **The tour's tip covered the list of models and the menu under your name** (74c5879fe). Clicking the model chip during the tour opens the list and moves the tour on, and the tip's dim layer then lay over the list, so it looked switched off. The tip now steps aside for menus and pop-ups as it does for windows. Test: `src/components/onboarding/Spotlight.test.ts`.
+      - **Checked:** the list of models opened in full and moved the tour to step 3. Escape closed it and the tip came back at the same step. The tip stepped aside for the menu under your name, Settings and **Add profile** too. Escape with nothing open still ended the tour.
+    - **A dog made before Claude was installed had no model** (e6108502c). Its chip was blank and every message failed with `provider instance "" is unavailable`. Now a dog with no model gets the one a new dog would get when later.dog sees an engine. Code: `server/laterdog/first-engine.ts`. Test: `server/laterdog/first-engine.test.ts`.
+      - **Checked:** the copy started with no Claude, so its first dog had no model. With Claude added, **Check again** in the welcome found it, and the dog got Claude Sonnet 5, shown on its chip. Claude wasn't signed in there, so no message went to Claude in this check.
+    - **Also checked in the second copy:**
+      - **Updates:** the check at launch found nothing and showed no icon, and **Check for updates** said "You're up to date". No release has `latest-mac.yml` yet (TODO 15).
+      - **Free trial:** no trial row in Settings, as this build names no trial service.
+      - **A force-quit server:** the app started a new one in about a second, the window picked it up by itself, and Business's server kept running. This is the older recovery path, not TODO 17's 15-second check.
+      - **Profiles:** see TODO 13.
+    - **Not verified:** the installed app.
 
 ## Decisions waiting on Jacob
 
