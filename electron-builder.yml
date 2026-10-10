@@ -32,6 +32,7 @@ files:
   - "!electron/resources/recorder-helper.swift"
   - "!electron/resources/recorder-helper-Info.plist"
   - "!electron/resources/later.dog Recorder.app/**"
+  - "!electron/resources/app-update.yml"
   - "!**/node_modules/**"
   - package.json
 
@@ -103,6 +104,8 @@ mac:
       to: cloudflared/cloudflared
     - from: dist-native/browser/darwin-${arch}
       to: browser-engine
+    - from: electron/resources/app-update.yml
+      to: app-update.yml
   extendInfo:
     NSMicrophoneUsageDescription: later.dog uses the microphone for voice dictation into the composer.
     NSSpeechRecognitionUsageDescription: later.dog transcribes your voice on-device to type messages for you.
