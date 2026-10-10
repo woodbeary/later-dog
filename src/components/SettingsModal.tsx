@@ -21,7 +21,7 @@ import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, Switch } from "./SettingsPrimitives";
 import { shortcutLabel } from "./ShortcutHint";
 import { UsageSection } from "./UsageSection";
-import { SkinPicker } from "./SkinPicker";
+import { ThemeRow } from "./ThemeRow";
 import { cn } from "@/lib/cn";
 import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { setNotificationSounds, useNotificationSounds } from "@/lib/notification-preferences";
@@ -308,9 +308,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
       </SettingsGroup>
       <SettingsGroup label={t("settings.section.appearance")} testId="appearance">
         <SettingsRows>
-          <SettingRow title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>
-            <SkinPicker />
-          </SettingRow>
+          <ThemeRow />
           <LanguageRow />
           <NotificationSoundsRow />
         </SettingsRows>

@@ -20,6 +20,10 @@
 - A phone or browser you already paired keeps working. The app no longer lists paired devices: `laterdog sessions` lists them, and `laterdog sessions revoke ID` signs one out.
 - Tried in the browser fixture: the menu has five lines and is 212px tall. The fixture has no updater, so its update line didn't show. Not tried yet in the installed app.
 
+### Settings
+- **Theme** is one menu: System, Light and Dark, like Grok Bot. System follows your computer and switches when it does. Before, it was nine small cards squeezed into a narrow column. A theme you picked before stays, and shows in the menu until you pick another. A new install follows your computer instead of starting dark.
+- Tried in the browser fixture: System showed Light on a light system and stayed after a reload, and Dark and an older Atelier choice each stayed. Switching the computer between light and dark was tried in tests only.
+
 ### Profiles
 - Keep separate setups, such as Personal, Business and Business 2, and switch between them with **Switch profile** in the menu under your name. Each profile has its own dogs, chats and saved keys. Profiles you're not looking at keep running, so a dog working in Business carries on while you're in Personal.
 - **Add profile** asks for a name and sets the profile up, which takes a few seconds. **Edit profiles** renames or removes one. Removing a profile deletes its saved keys and moves its dogs and chats to the Trash. Personal and the profile you're in can't be removed. You can have up to 8 profiles.

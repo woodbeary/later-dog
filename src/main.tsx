@@ -5,14 +5,14 @@ import {
   BROWSER_SIGN_IN_FAILED, previewBrowserSignIn, readSessionState, SERVICE_TRUST_REASON, takeBrowserSignInFromLocation, takePairingCodeFromLocation, takeInvitedEmailFromLocation,
 } from "./lib/session";
 import { bootstrapBrand } from "./lib/brand";
-import { applySkin, readSkin } from "./lib/skins";
+import { applyTheme, readTheme } from "./lib/theme";
 import { applyFont, readFont } from "./lib/fonts";
 import { BrowserSignInPage } from "./pair/BrowserSignInPage";
 import { PairPage } from "./pair/PairPage";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 
-applySkin(readSkin());
+applyTheme(readTheme());
 applyFont(readFont());
 
 /** A pairing link lands on /pair. A remote browser without a session lands

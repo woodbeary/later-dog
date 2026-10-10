@@ -33,7 +33,6 @@ vi.mock("./SavedApiKeys", async (importOriginal) => ({
 vi.mock("./UsageSection", () => ({ UsageSection: marker("usage") }));
 vi.mock("./LocalVmRows", () => ({ LocalVmRows: marker("local-vm") }));
 vi.mock("./CloudComputerRows", () => ({ CloudComputerRows: marker("cloud-computers") }));
-vi.mock("./SkinPicker", () => ({ SkinPicker: marker("skin") }));
 vi.mock("./PermissionChecklist", () => ({
   PermissionChecklist: ({ permissions }: { permissions: readonly string[] }) => `MARKER:permissions=${permissions.join("+")};`,
 }));
@@ -105,12 +104,17 @@ describe("General", () => {
   it("stacks Accounts, Profile, Appearance and System, in that order", () => {
     const html = render();
     expect(groups(html)).toEqual(["accounts", "profile", "appearance", "system"]);
-    expect(markers(html)).toEqual(["accounts", "about-me", "skin", "permissions=microphone"]);
+    expect(markers(html)).toEqual(["accounts", "about-me", "permissions=microphone"]);
     const order = ["Accounts", "Profile", "Your name", "Appearance", "Theme", "Language", "Notification sounds", "System"].map((word) => html.indexOf(`>${word}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toContain('aria-label="Your name"');
     expect(html).not.toContain("Email");
+  });
+
+  it("picks the theme from System, Light and Dark", () => {
+    const select = render().match(/<select[^>]*aria-label="Theme"[^>]*>(.*?)<\/select>/)?.[1] ?? "";
+    expect([...select.matchAll(/>([^<]+)<\/option>/g)].map(([, label]) => label)).toEqual(["System", "Light", "Dark"]);
   });
 
   it("lists the saved API keys under Accounts, only once a key is saved", () => {
@@ -122,15 +126,15 @@ describe("General", () => {
     ];
     const html = render();
     expect(groups(html)).toEqual(["accounts", "api-keys", "profile", "appearance", "system"]);
-    expect(markers(html)).toEqual(["accounts", "api-keys=openai", "about-me", "skin", "permissions=microphone"]);
+    expect(markers(html)).toEqual(["accounts", "api-keys=openai", "about-me", "permissions=microphone"]);
     expect(html).toContain(">API keys</div>");
   });
 
   it("asks for the microphone only on a Mac with the desktop bridge", () => {
     vi.stubGlobal("window", {});
-    expect(markers(render())).toEqual(["accounts", "about-me", "skin"]);
+    expect(markers(render())).toEqual(["accounts", "about-me"]);
     vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, platform: "win32" } });
-    expect(markers(render())).toEqual(["accounts", "about-me", "skin"]);
+    expect(markers(render())).toEqual(["accounts", "about-me"]);
   });
 
   it("leaves System out where it would be empty", () => {
