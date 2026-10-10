@@ -126,7 +126,7 @@ Local-only failures, seen on 2026-10-09:
    - **Left as they are:**
      - The My Cloud lending text in `server/system-prompt.ts` and `server/index.ts`. Only Macs on 0.3.2 or older can lend, and for them it names the right page.
      - `shared/place-view.ts` says "Open My Cloud from the menu at the top of the sidebar", which no menu offers. Only Cloud plan users see it.
-4. **Run the full browser e2e suite** and compare it file by file with `main`.
+4. **Run the full browser e2e suite** and compare it file by file with `main`: done on 2026-10-10. The results are in Known failing.
 5. **Remove dead leftovers:**
    - `laterdog-show-run-card` in the backup and preload key lists
    - `BotActivityPicker`
