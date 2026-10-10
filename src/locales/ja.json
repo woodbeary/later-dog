@@ -26,6 +26,7 @@
   "cloudMove.error.growUnsupportedPlain": "My Cloud はまだこのサイズの移行に必要な容量を確保できません。何も移行されていません。「フィードバックを送る」からお知らせいただければ、容量を確保します。",
   "cloudSignIn.limits": "24 時間働く犬には、お使いの AI プランの上限が適用されます。使用量が多い場合は、Anthropic の Claude Max プランか API キーが最適です。",
   "settings.section.usage": "使用状況",
+  "settings.profile.title": "プロフィール",
   "settings.profile.subtitle": "サイドバーに表示されます。入力するそばから保存されます。",
   "settings.profile.name": "あなたの名前",
   "settings.skin.subtitle": "すぐに適用され、このコンピューターに記憶されます。",

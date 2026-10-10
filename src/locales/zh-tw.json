@@ -158,6 +158,7 @@
   "organization.noModels": "目前沒有可用的公司模型。請洽組織管理員設定存取權。",
   "settings.section.appearance": "外觀",
   "settings.section.usage": "使用量",
+  "settings.profile.title": "個人資料",
   "settings.profile.subtitle": "會顯示在側邊欄，並隨時自動儲存。",
   "settings.profile.name": "你的名稱",
   "settings.skin.subtitle": "立即套用，並會記憶在這台電腦上。",

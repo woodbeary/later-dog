@@ -26,6 +26,7 @@
   "cloudMove.error.growUnsupportedPlain": "My Cloud ne peut pas encore faire de place pour un transfert de cette taille. Rien n'a été transféré. Prévenez-nous via « Envoyer un retour » et nous ferons de la place.",
   "cloudSignIn.limits": "Les limites de votre forfait IA s'appliquent aux chiens qui travaillent jour et nuit. Pour un usage intensif, le forfait Claude Max d'Anthropic ou une clé API convient le mieux.",
   "settings.section.usage": "Utilisation",
+  "settings.profile.title": "Profil",
   "settings.profile.subtitle": "Affiché dans la barre latérale. Enregistré au fil de la saisie.",
   "settings.profile.name": "Votre nom",
   "settings.skin.subtitle": "S'applique aussitôt et reste mémorisé sur cet ordinateur.",

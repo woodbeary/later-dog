@@ -117,6 +117,7 @@
   "cloudSignIn.limits": "Обмеження вашого плану ШІ діють для собак, що працюють цілодобово. Для інтенсивного використання найкраще підходить план Claude Max від Anthropic або ключ API.",
   "settings.section.appearance": "Вигляд",
   "settings.section.usage": "Використання",
+  "settings.profile.title": "Профіль",
   "settings.profile.subtitle": "Показується в бічній панелі. Зберігається на ходу.",
   "settings.profile.name": "Ваше ім'я",
   "settings.skin.subtitle": "Застосовується миттєво і запам'ятовується на цій машині.",

@@ -105,6 +105,7 @@
   "cloudMove.error.growUnsupportedPlain": "O My Cloud ainda não consegue abrir espaço para uma mudança deste tamanho. Nada foi movido. Avise-nos em \"Enviar feedback\" e abriremos espaço.",
   "cloudSignIn.limits": "Os limites do seu plano de IA valem para cachorros que trabalham 24 horas por dia. Para uso intenso, o plano Claude Max da Anthropic ou uma chave de API funciona melhor.",
   "settings.section.usage": "Uso",
+  "settings.profile.title": "Perfil",
   "settings.profile.subtitle": "Aparece na barra lateral. Salvo conforme você digita.",
   "settings.profile.name": "Seu nome",
   "settings.skin.subtitle": "Aplicado na hora e lembrado neste computador.",

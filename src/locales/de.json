@@ -105,6 +105,7 @@
   "cloudMove.error.growUnsupportedPlain": "My Cloud kann für einen Umzug dieser Größe bisher keinen Platz schaffen. Es wurde nichts verschoben. Schreib uns über „Feedback senden“, und wir schaffen Platz.",
   "cloudSignIn.limits": "Die Limits deines KI-Tarifs gelten für Hunde, die rund um die Uhr arbeiten. Für intensive Nutzung eignen sich der Claude Max-Tarif von Anthropic oder ein API-Schlüssel am besten.",
   "settings.section.usage": "Nutzung",
+  "settings.profile.title": "Profil",
   "settings.profile.subtitle": "Wird in der Seitenleiste gezeigt. Wird beim Tippen gespeichert.",
   "settings.profile.name": "Dein Name",
   "settings.skin.subtitle": "Wirkt sofort und wird auf diesem Rechner gemerkt.",

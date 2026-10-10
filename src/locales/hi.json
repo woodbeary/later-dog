@@ -26,6 +26,7 @@
   "cloudMove.error.growUnsupportedPlain": "My Cloud अभी इतने बड़े मूव के लिए जगह नहीं बना सकता। कुछ भी मूव नहीं हुआ। \"प्रतिक्रिया भेजें\" से हमें बताएँ और हम जगह बना देंगे।",
   "cloudSignIn.limits": "चौबीसों घंटे काम करने वाले कुत्तों पर आपके AI प्लान की सीमाएँ लागू होती हैं। ज़्यादा इस्तेमाल के लिए Anthropic का Claude Max प्लान या API कुंजी सबसे अच्छी रहती है।",
   "settings.section.usage": "उपयोग",
+  "settings.profile.title": "प्रोफ़ाइल",
   "settings.profile.subtitle": "साइडबार में दिखता है। लिखते ही सहेजा जाता है।",
   "settings.profile.name": "आपका नाम",
   "settings.skin.subtitle": "तुरंत लागू होती है और इसी कंप्यूटर पर याद रखी जाती है।",

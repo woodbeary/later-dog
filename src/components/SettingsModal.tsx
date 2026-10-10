@@ -12,6 +12,7 @@ import { useUpdaterState } from "@/lib/updater";
 import { appVersion, openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
 import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
+import { AboutMeSettings } from "./AboutMeSettings";
 import { AccountsPanel } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { CloudComputerRows } from "./CloudComputerRows";
@@ -286,6 +287,7 @@ function MacPermissions({ permissions, intro }: { permissions: readonly DesktopP
 function GeneralPage({ mac }: { mac: boolean }) {
   const { state } = useStore();
   const keyed = savedKeyEngines(state.instances);
+  const analytics = analyticsConfigured();
   return (
     <>
       <SettingsGroup label={t("settings.group.accounts")} testId="accounts">
@@ -296,6 +298,14 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <SavedApiKeys instances={keyed} />
         </SettingsGroup>
       )}
+      <SettingsGroup label={t("settings.profile.title")} testId="profile">
+        <SettingsRows>
+          <NameRow />
+          <div className="border-t border-hairline/40 py-4">
+            <AboutMeSettings />
+          </div>
+        </SettingsRows>
+      </SettingsGroup>
       <SettingsGroup label={t("settings.section.appearance")} testId="appearance">
         <SettingsRows>
           <SettingRow title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>
@@ -305,13 +315,16 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <NotificationSoundsRow />
         </SettingsRows>
       </SettingsGroup>
-      <SettingsGroup label={t("settings.group.system")} testId="system">
-        {mac && <MacPermissions permissions={["microphone"]} />}
-        <SettingsRows>
-          <AnalyticsRow />
-          <NameRow />
-        </SettingsRows>
-      </SettingsGroup>
+      {(mac || analytics) && (
+        <SettingsGroup label={t("settings.group.system")} testId="system">
+          {mac && <MacPermissions permissions={["microphone"]} />}
+          {analytics && (
+            <SettingsRows>
+              <AnalyticsRow />
+            </SettingsRows>
+          )}
+        </SettingsGroup>
+      )}
     </>
   );
 }

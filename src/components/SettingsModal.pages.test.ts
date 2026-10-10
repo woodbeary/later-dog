@@ -25,6 +25,7 @@ vi.mock("@/lib/app-links", () => ({ appVersion: () => "1.2.3", openExternalLink:
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
 const { marker } = vi.hoisted(() => ({ marker: (name: string) => () => `MARKER:${name};` }));
 vi.mock("./AccountsPanel", () => ({ AccountsPanel: marker("accounts") }));
+vi.mock("./AboutMeSettings", () => ({ AboutMeSettings: marker("about-me") }));
 vi.mock("./SavedApiKeys", async (importOriginal) => ({
   ...await importOriginal<typeof import("./SavedApiKeys")>(),
   SavedApiKeys: ({ instances }: { instances: readonly InstanceInfo[] }) => `MARKER:api-keys=${instances.map((instance) => instance.instanceId).join("+")};`,
@@ -101,16 +102,15 @@ describe("the Settings rail", () => {
 });
 
 describe("General", () => {
-  it("stacks Accounts, Appearance and System, in that order", () => {
+  it("stacks Accounts, Profile, Appearance and System, in that order", () => {
     const html = render();
-    expect(groups(html)).toEqual(["accounts", "appearance", "system"]);
-    expect(markers(html)).toEqual(["accounts", "skin", "permissions=microphone"]);
-    const order = ["Accounts", "Appearance", "Theme", "Language", "Notification sounds", "System", "Your name"].map((word) => html.indexOf(`>${word}</div>`));
+    expect(groups(html)).toEqual(["accounts", "profile", "appearance", "system"]);
+    expect(markers(html)).toEqual(["accounts", "about-me", "skin", "permissions=microphone"]);
+    const order = ["Accounts", "Profile", "Your name", "Appearance", "Theme", "Language", "Notification sounds", "System"].map((word) => html.indexOf(`>${word}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toContain('aria-label="Your name"');
     expect(html).not.toContain("Email");
-    expect(html).not.toContain("About you");
   });
 
   it("lists the saved API keys under Accounts, only once a key is saved", () => {
@@ -121,16 +121,23 @@ describe("General", () => {
       { instanceId: "mistral", driverKind: "mistral", displayName: "Mistral", access: "api", snapshot: { state: "unavailable", authenticated: false }, models },
     ];
     const html = render();
-    expect(groups(html)).toEqual(["accounts", "api-keys", "appearance", "system"]);
-    expect(markers(html)).toEqual(["accounts", "api-keys=openai", "skin", "permissions=microphone"]);
+    expect(groups(html)).toEqual(["accounts", "api-keys", "profile", "appearance", "system"]);
+    expect(markers(html)).toEqual(["accounts", "api-keys=openai", "about-me", "skin", "permissions=microphone"]);
     expect(html).toContain(">API keys</div>");
   });
 
   it("asks for the microphone only on a Mac with the desktop bridge", () => {
     vi.stubGlobal("window", {});
-    expect(markers(render())).toEqual(["accounts", "skin"]);
+    expect(markers(render())).toEqual(["accounts", "about-me", "skin"]);
     vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, platform: "win32" } });
-    expect(markers(render())).toEqual(["accounts", "skin"]);
+    expect(markers(render())).toEqual(["accounts", "about-me", "skin"]);
+  });
+
+  it("leaves System out where it would be empty", () => {
+    vi.stubGlobal("window", {});
+    expect(groups(render())).toEqual(["accounts", "profile", "appearance"]);
+    fixture.analytics = true;
+    expect(groups(render())).toEqual(["accounts", "profile", "appearance", "system"]);
   });
 
   it("has the analytics switch only where an analytics key is built in", () => {
