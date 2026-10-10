@@ -2,11 +2,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale } from "@/lib/i18n";
-import type { AppSettingsSection } from "@/state/store";
+import type { AppSettingsSection, InstanceInfo } from "@/state/store";
 
 const fixture = vi.hoisted(() => ({
   section: "general" as AppSettingsSection,
   config: {} as Record<string, unknown>,
+  instances: [] as InstanceInfo[],
   dispatch: vi.fn(),
   analytics: false,
   updater: { status: "idle" } as Record<string, unknown>,
@@ -15,7 +16,7 @@ const fixture = vi.hoisted(() => ({
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   api: vi.fn(),
-  useStore: () => ({ state: { appSettingsSection: fixture.section, instances: [], bots: [], config: fixture.config }, dispatch: fixture.dispatch }),
+  useStore: () => ({ state: { appSettingsSection: fixture.section, instances: fixture.instances, bots: [], config: fixture.config }, dispatch: fixture.dispatch }),
 }));
 vi.mock("@/lib/laterdog-analytics", () => ({ analyticsConfigured: () => fixture.analytics }));
 vi.mock("@/lib/analytics", () => ({ analyticsEnabled: () => false, setAnalyticsEnabled: vi.fn() }));
@@ -24,6 +25,10 @@ vi.mock("@/lib/app-links", () => ({ appVersion: () => "1.2.3", openExternalLink:
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
 const { marker } = vi.hoisted(() => ({ marker: (name: string) => () => `MARKER:${name};` }));
 vi.mock("./AccountsPanel", () => ({ AccountsPanel: marker("accounts") }));
+vi.mock("./SavedApiKeys", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./SavedApiKeys")>(),
+  SavedApiKeys: ({ instances }: { instances: readonly InstanceInfo[] }) => `MARKER:api-keys=${instances.map((instance) => instance.instanceId).join("+")};`,
+}));
 vi.mock("./UsageSection", () => ({ UsageSection: marker("usage") }));
 vi.mock("./LocalVmRows", () => ({ LocalVmRows: marker("local-vm") }));
 vi.mock("./CloudComputerRows", () => ({ CloudComputerRows: marker("cloud-computers") }));
@@ -43,6 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixture.section = "general";
   fixture.config = { features: { browser: false }, browserEngine: { kind: "bundled", installable: true } };
+  fixture.instances = [];
   fixture.analytics = false;
   fixture.updater = { status: "idle" };
   vi.stubGlobal("window", MAC);
@@ -105,6 +111,19 @@ describe("General", () => {
     expect(html).toContain('aria-label="Your name"');
     expect(html).not.toContain("Email");
     expect(html).not.toContain("About you");
+  });
+
+  it("lists the saved API keys under Accounts, only once a key is saved", () => {
+    const models = { default: "", options: [] };
+    fixture.instances = [
+      { instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", access: "subscription", snapshot: { state: "available", authenticated: true, version: "2.0.0" }, models },
+      { instanceId: "openai", driverKind: "openai-compat", displayName: "OpenAI", access: "api", snapshot: { state: "available", authenticated: true }, models },
+      { instanceId: "mistral", driverKind: "mistral", displayName: "Mistral", access: "api", snapshot: { state: "unavailable", authenticated: false }, models },
+    ];
+    const html = render();
+    expect(groups(html)).toEqual(["accounts", "api-keys", "appearance", "system"]);
+    expect(markers(html)).toEqual(["accounts", "api-keys=openai", "skin", "permissions=microphone"]);
+    expect(html).toContain(">API keys</div>");
   });
 
   it("asks for the microphone only on a Mac with the desktop bridge", () => {

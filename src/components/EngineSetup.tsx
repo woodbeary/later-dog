@@ -9,7 +9,7 @@ import { t } from "@/lib/i18n";
 import { copyText } from "@/lib/copy-text";
 import { DEVICE_SIGN_IN_COPY, DeviceSignIn, deviceSignInProvider } from "./DeviceSignIn";
 import { ClaudeSignIn } from "./ClaudeSignIn";
-import { ApiKeyRow, OpenAiCompatUrl, type ConfigSection, type TestableProvider } from "./ApiKeys";
+import { AnthropicEveryClaudeBot, ApiKeyRow, OpenAiCompatUrl, type ConfigSection, type TestableProvider } from "./ApiKeys";
 
 type Platform = "darwin" | "win32" | "linux";
 
@@ -448,6 +448,7 @@ function KeyField({ section }: { section: ConfigSection & TestableProvider }) {
     <div data-engine-setup-key-field={section} className="mt-3 flex flex-col gap-3">
       <ApiKeyRow section={section} testProvider={section} />
       {section === "openaiCompat" && <OpenAiCompatUrl />}
+      {section === "anthropic" && <AnthropicEveryClaudeBot />}
     </div>
   );
 }

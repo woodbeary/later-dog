@@ -13,6 +13,7 @@ import { appVersion, openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
 import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { AccountsPanel } from "./AccountsPanel";
+import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { CloudComputerRows } from "./CloudComputerRows";
 import { LocalVmRows } from "./LocalVmRows";
 import { PermissionChecklist } from "./PermissionChecklist";
@@ -283,11 +284,18 @@ function MacPermissions({ permissions, intro }: { permissions: readonly DesktopP
 }
 
 function GeneralPage({ mac }: { mac: boolean }) {
+  const { state } = useStore();
+  const keyed = savedKeyEngines(state.instances);
   return (
     <>
       <SettingsGroup label={t("settings.group.accounts")} testId="accounts">
         <AccountsPanel />
       </SettingsGroup>
+      {keyed.length > 0 && (
+        <SettingsGroup label={t("settings.group.apiKeys")} testId="api-keys">
+          <SavedApiKeys instances={keyed} />
+        </SettingsGroup>
+      )}
       <SettingsGroup label={t("settings.section.appearance")} testId="appearance">
         <SettingsRows>
           <SettingRow title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>
