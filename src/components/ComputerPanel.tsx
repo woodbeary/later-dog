@@ -255,9 +255,6 @@ export function ComputerPanel({
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const localAvailable = capabilities.localComputer.available;
   const isLinux = capabilities.host.platform === "linux";
-  // The live macOS permissions checklist, polled only while This Mac is not
-  // ready here: its "Not ready" then names the grant still missing, and the
-  // panel asks for it in place of the screen (LocalComputerPermissions).
   const {
     checklist: desktopPermissions,
     busy: permissionBusy,
@@ -275,7 +272,6 @@ export function ComputerPanel({
   // from it (shared/place-view.ts), the same as the chip and a failed row.
   const placeSeat = usePlaceSeat(state.config, capabilities.host.platform);
   const [phase, setPhase] = useState<Phase>("checking");
-  // This Mac is chosen but a grant is missing: the screen area asks for it.
   const askingForGrants = phase === "local-unavailable" && localPermissionGap.length > 0;
   const [persistedComputerSelection, setPersistedComputerSelection] = useState<{
     botId: string;
@@ -872,12 +868,6 @@ export function ComputerPanel({
     };
   }, [panelView, phase, computerStatusCurrent, threadPath, viewerOpen, pageVisible, bot.busy, setError, setPreviewError, setVmFrame]);
 
-  // local preview: frames from the Electron main process. The FIRST capture
-  // attempt is what makes macOS show the Screen Recording prompt (there is
-  // no reliable pre-grant flow on macOS 15+), so nothing is captured until
-  // This Mac is ready (the grants given where LocalComputerPermissions asks
-  // for them), and repeated empty frames after that mean the user denied —
-  // surface the Settings repair path instead of spinning.
   const [localMisses, setLocalMisses] = useState(0);
   useEffect(() => {
     if (panelView !== "computer" || phase !== "local" || !localAvailable || !computerStatusCurrent || !window.laterdog || isLinux || !pageVisible) return;

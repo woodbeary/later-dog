@@ -25,9 +25,6 @@ export interface TourStep {
   /** `data-tour` id of the control this step points at; null centres the card. */
   anchor: string | null;
   skipIfMissing?: boolean;
-  /** Pointed at instead when the anchor is not on screen (a control only
-   * some builds draw, beside one every build draws). */
-  fallbackAnchor?: string;
   placement: "above" | "below" | "right";
   onEnter?: TourEffect;
   onExit?: TourEffect;
@@ -36,9 +33,6 @@ export interface TourStep {
 export const TOUR_STEPS: TourStep[] = [
   { id: "tour.composer", anchor: "composer", placement: "above" },
   { id: "tour.model", anchor: "model", placement: "below" },
-  // The Computer step only points. Opening the panel would start the screen
-  // capture, and with it the Screen Recording prompt, in the middle of the
-  // tour; a dog asks for that grant itself the first time it needs this Mac.
   { id: "tour.computer", anchor: "computer", placement: "below" },
   { id: "tour.apps", anchor: "nav-apps", skipIfMissing: true, placement: "right", onExit: "openApps" },
   { id: "tour.apps-panel", anchor: "apps-panel", placement: "below", onEnter: "openApps", onExit: "closeApps" },

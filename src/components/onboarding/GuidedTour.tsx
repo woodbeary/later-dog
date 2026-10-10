@@ -47,7 +47,6 @@ export function GuidedTour() {
   const [dismissed, setDismissed] = useState(false);
   const [failed, setFailed] = useState(false);
   const entered = useRef<string | null>(null);
-  const [fallback, setFallback] = useState<string | null>(null);
 
   useEffect(() => {
     if (!state.tourOpen) return;
@@ -126,17 +125,11 @@ export function GuidedTour() {
     run(step.onEnter);
   }, [active, step, run]);
 
-  // a step whose control is not on screen points at its fallback, or skips
-  // itself, after the layout has a moment to settle (a menu closing, a
-  // page changing, a panel mounting). Its enter effect is pressed once
-  // more first: on a cold load the sidebar may not have been there yet.
   useEffect(() => {
     if (!active || !step?.skipIfMissing) return;
     let second: ReturnType<typeof setTimeout> | undefined;
     const decide = () => {
-      if (anchorPresent(step.anchor)) return;
-      if (step.fallbackAnchor && anchorPresent(step.fallbackAnchor)) setFallback(step.id);
-      else advance();
+      if (!anchorPresent(step.anchor)) advance();
     };
     const first = setTimeout(() => {
       if (anchorPresent(step.anchor)) return;
@@ -165,10 +158,9 @@ export function GuidedTour() {
 
   const { current, total } = stepNumber(step);
   const closing = step.id === "tour.done";
-  const anchor = fallback === step.id && step.fallbackAnchor ? step.fallbackAnchor : step.anchor;
   return (
     <Spotlight
-      anchor={anchor}
+      anchor={step.anchor}
       placement={step.placement}
       mascot={MASCOT[step.id]}
       progress={closing ? undefined : t("onboarding.tour.progress", { current, total })}

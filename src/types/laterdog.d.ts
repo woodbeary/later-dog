@@ -60,7 +60,6 @@ const __APP_VERSION__: string;
       session?: "x11" | "wayland" | "headless" | "unknown";
       compositor?: "gnome-mutter";
     };
-    /** Whether saved sign-ins unlocked at launch (electron/secure-credentials.mjs); only this computer's own page is told. */
     credentialStore?: "ok" | "unavailable";
   };
 

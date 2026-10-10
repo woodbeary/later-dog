@@ -304,7 +304,6 @@ describe("Where the bot works", () => {
     expect(rendered.html).toContain("macOS asks for each one. Allow both and Scout can get going.");
     expect([...rendered.html.matchAll(/data-permission="([^"]+)"/g)].map((match) => match[1])).toEqual(["accessibility", "screen"]);
     expect(rendered.html).not.toContain("Microphone");
-    // the rows are where the grant is given now, so nothing points at Settings
     expect(rendered.html).not.toContain("Settings → Computers → Permissions");
     expect(rendered.html).not.toContain('data-testid="open-permissions"');
     expect(rendered.html).not.toContain("animate-spin");

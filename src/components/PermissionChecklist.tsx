@@ -57,9 +57,7 @@ export function PermissionChecklist({
   busy: DesktopPermission | null;
   onRequest: (permission: DesktopPermission) => void;
   onOpenSettings: (permission: DesktopPermission) => void;
-  /** Settings only: a Screen Recording grant applies after a relaunch. */
   onRelaunch?: () => void;
-  /** The rows to draw, in order; the Computer panel asks only for the two computer control needs. */
   permissions?: readonly DesktopPermission[];
   /** The welcome tour's rows arrive one after another. */
   stagger?: boolean;
