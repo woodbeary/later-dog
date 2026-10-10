@@ -184,6 +184,22 @@ describe("groupTranscript", () => {
     expect(groupTranscript([only])).toEqual([{ kind: "message", message: only }]);
   });
 
+  it("keeps an image taken mid-turn where it was taken instead of folding it into the turn", () => {
+    const user: Message = { id: "u2", at: 1_000, role: "user", kind: "text", text: "show me the page" };
+    const opening = assistant("Opening the page.", "turn-img", false, 2_000);
+    const shot: Message = {
+      ...assistant("", "turn-img", false, 3_000),
+      attachments: [{ kind: "image", path: "/attachments/shot.png", mime: "image/png" }],
+    };
+    const final = assistant("Here it is.", "turn-img", true, 4_000);
+
+    const items = groupTranscript([user, opening, shot, final]);
+    expect(items.map((item) => item.kind)).toEqual(["message", "turn", "message", "message"]);
+    expect(items[1]).toMatchObject({ kind: "turn", messages: [opening] });
+    expect(items[2].kind === "message" && items[2].message).toBe(shot);
+    expect(items[3].kind === "message" && items[3].message).toBe(final);
+  });
+
   it("does not fold narration from a different turn", () => {
     const older = assistant("Previous answer.", "turn-old");
     const progress = assistant("Checking.", "turn-new");

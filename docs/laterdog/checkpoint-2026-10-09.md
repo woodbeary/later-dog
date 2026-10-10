@@ -6,7 +6,7 @@ The newest version that builds and passes its local checks. Saved so Jacob can r
 
 - **Branch:** `biscuit/simplify-wording`, in the worktree `~/code/dog-biscuit-settings`. It sits on PR #1 (`biscuit/launch-no-prompts`, launch without permission prompts).
 - **Tag:** `checkpoint-2026-10-09`
-- **Version:** 0.3.0, then 0.3.1 with the live chat fix (TODO 1). Not merged and not released.
+- **Version:** 0.3.0, then 0.3.1 and 0.3.2 with the live chat fixes (TODO 1). Not merged and not released.
 - **Draft PR:** stacked on PR #1. The CI build is a workflow artifact, not a public release.
 - **Changes:** [CHANGELOG.md](../../CHANGELOG.md)
 
@@ -27,7 +27,7 @@ The newest version that builds and passes its local checks. Saved so Jacob can r
 - **Hidden features:** anything technical that still works but has no switch stays hidden for now (see Decisions).
 - **No code comments.**
   - Done: every comment this branch added is gone.
-  - Not done: the upstream OpenMausBot comments are still there (see TODO).
+  - Not done: the upstream comments are still there (see TODO).
 
 ## What changed
 
@@ -80,24 +80,32 @@ CI on the draft PR runs the whole vitest suite in four shards plus the broker, e
   - the Local VM Start button on a real VM
   - Windows and Linux
 - No side-by-side comparison with Grok Bot.
-- The browser e2e suite (`scripts/testing/*.e2e.test.ts`) has not been rerun since the cleanup.
+- The browser e2e suite (`scripts/testing/*.e2e.test.ts`) has only had a partial local rerun since the cleanup (see Known failing).
   - At its last full run, 17 of 25 files failed; 9 of those fail on `main` too.
 
 ## Known failing
 
-`scripts/testing/verification-docs.test.ts` fails on this branch and passes on `main`.
+Fixed in 0.3.2: `scripts/testing/verification-docs.test.ts` and `scripts/brand-links.test.ts` pass again. The nine docs under `docs/verification/` no longer cite deleted files, and the old upstream name is gone from the changelog and this doc.
 
-- Nine docs under `docs/verification/` still cite 17 source files and 17 tests that this branch deleted.
-- This is the unfinished half of the docs cleanup (TODO 2).
+Local-only failures, seen on 2026-10-09:
+
+- `server/control-laterdog.test.ts` ("drives a real fake-engine turn") expects only the fake Claude engine. On a Mac with the Codex CLI on its PATH it also finds ChatGPT. It fails the same way on 0.3.1.
+- With the pinned test browser installed, the `scripts/testing/*-ui.e2e.test.ts` files run instead of skipping. A partial run failed 9 of them; the usage details one was rerun on 0.3.1 and fails the same way. CI has no such browser and skips them (TODO 4).
 
 ## TODO, in order
 
-1. **Live progress in later.dog's chat.** Fixed in 0.3.1; not yet checked in the installed app.
-   - **Symptom:** interim messages from a working dog only appeared after pressing Stop and sending again.
-   - **Cause:** the chat shows the line of messages ending at its newest one. A message sent while a dog worked was shown at once, and the dog's new messages waited behind it. If the send came back queued (a message with a picture always does) or failed, the chat went back to where it was before the send. It never moved on to the dog's newer messages, so it hid every message after that. The server sent all of them on time.
-   - **Fix:** the chat moves forward along its own line (`src/lib/leaf-follow.ts`, used in `src/state/store.tsx`). Four new tests in `src/state/store.test.ts`; three of them fail without the fix.
+1. **Live progress in later.dog's chat.**
+   - **Messages:** fixed in 0.3.1; not yet checked in the installed app.
+     - **Symptom:** interim messages from a working dog only appeared after pressing Stop and sending again.
+     - **Cause:** the chat shows the line of messages ending at its newest one. A message sent while a dog worked was shown at once, and the dog's new messages waited behind it. If the send came back queued (a message with a picture always does) or failed, the chat went back to where it was before the send. It never moved on to the dog's newer messages, so it hid every message after that. The server sent all of them on time.
+     - **Fix:** the chat moves forward along its own line (`src/lib/leaf-follow.ts`, used in `src/state/store.tsx`). Four new tests in `src/state/store.test.ts`; three of them fail without the fix.
+   - **Pictures:** fixed in 0.3.2; not yet checked in the installed app.
+     - **Symptom:** screenshots a dog took while it worked showed up only after pressing Stop, and then most of them vanished or piled up at the end of its last reply.
+     - **Cause:** the server held every picture until the turn ended, then attached them all to the dog's final reply. Stop deleted the held files.
+     - **Fix:** each picture is saved and posted as its own message the moment it arrives, where it was taken (`server/laterdog/turn-images.ts`). The "Worked for…" fold never hides a picture, and a picture landing after the dog's written answer doesn't replace it as the turn's answer.
+     - **Tests:** `server/laterdog/turn-images.test.ts`, `server/laterdog/turn-images.e2e.test.ts` (a real server and the fake Claude CLI, including Stop), two in `server/store.test.ts`, one in `src/lib/activity-runs.test.ts`. The end-to-end test fails on 0.3.1: the screenshot never shows while the dog works.
 2. **Finish the docs.**
-   - Fix the nine verification docs above.
+   - The nine verification docs: done in 0.3.2.
    - These guides still send people to Settings pages that are gone:
      - `docs/custom-engines.md`, `self-hosting.md`, `composio.md`, `custom-mcp-servers.md`
      - `organization-branding.md`, `byo-vps.md`, `desktop-companion.md`
@@ -135,9 +143,22 @@ CI on the draft PR runs the whole vitest suite in four shards plus the broker, e
    - **A second Continue on with the battery off.** The conversation goes back to the first account when the second resets, even if the first is still resting. The limit message then shows again.
    - **The picker hides more than it must.** Its "resting" filter treats the whole account as resting, while the server lets Sonnet run during an Opus-only limit.
 9. **Strip the upstream comments**, which Jacob wants gone everywhere.
-   - Cost: every later pull from OpenMausBot will conflict on those lines.
+   - Cost: every later pull from upstream will conflict on those lines.
    - Plan it as one mechanical commit, run right after an upstream merge.
 10. **Sign with Jacob's Developer ID and notarize.** Deferred on 2026-10-08. It is the only full fix for the keychain prompt at launch and Gatekeeper's right-click → Open.
+11. **A close button on a new dog's first question.** A new dog opens with a big card asking what it guesses you want. It needs an × so you can close it and just type. Asked for by Jacob on 2026-10-09.
+12. **Adding a picture while a dog works is broken.** It can't be queued or used to steer. Reported by Jacob on 2026-10-09; not investigated yet.
+13. **Jacob's UI list from 2026-10-09:**
+    - **The composer should look like Grok Bot's:** no big left indent, and attached pictures sit inside the box instead of floating above it.
+    - **Stop a fifth picture when it's picked**, instead of after.
+    - **One "Computer" place** instead of Browser and Files, looking like Grok Bot's. Drop the "allow control of this computer" and "where it works" wording.
+    - **A short account popover** (the "Anthony" menu), plus dragging to reorder accounts.
+    - **Remove the Phone features.**
+    - **"Jump to latest" stays under dialogs**, and the About dialog's links row isn't cut off.
+    - **Profiles:** named setups such as "personal", "business" and "business 2" that switch back and forth without interrupting a dog that is working.
+14. **Study Grok Bot's domain transfer flow**, which asks for a Cloudflare sign-in:
+    - how it's presented, when it calls its tools, and how it updates as it goes
+    - then finish a real transfer with Jacob so later.dog's version has good data behind it
 
 ## Decisions waiting on Jacob
 

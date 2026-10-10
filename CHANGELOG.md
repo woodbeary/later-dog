@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 — 2026-10-09
+
+### Fixes
+- Pictures a dog takes while it works, such as screenshots, show in the chat the moment it takes them, in the place it took them. Before, they waited for the end of the turn, piled up at the end of the dog's last reply, and pressing Stop lost most of them.
+
+### Docs
+- The verification guides no longer point at tests and screens removed in 0.3.0.
+
 ## 0.3.1 — 2026-10-09
 
 ### Fixes
@@ -45,6 +53,6 @@ later.dog made as simple as Grok Bot. This is a review build from the branch `bi
 - An organization link no longer leaves Settings opening on every launch.
 
 ### Under the hood
-- Every code comment this branch added is gone. Upstream OpenMausBot comments remain for now.
+- Every code comment this branch added is gone. Upstream comments remain for now.
 - The continue-on route lives in `server/routes/continue-on.ts`.
 - Compared with `main`: 430 files changed, about 9,000 lines added and 43,000 removed.

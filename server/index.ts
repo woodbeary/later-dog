@@ -233,7 +233,6 @@ import {
 } from "./contracts.ts";
 import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 import { recoveryCapabilityError } from "./automatic-recovery.ts";
-import { decodeGeneratedImage } from "./generated-image.ts";
 import {
   addDisabledMcpServer,
   MAX_MCP_SERVERS,
@@ -643,6 +642,7 @@ import {
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold } from "./laterdog/limit-hold.ts";
+import { latestTurnAnswer, postTurnImage } from "./laterdog/turn-images.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
@@ -2994,7 +2994,7 @@ async function interruptAllDirectThreads(botId: string): Promise<void> {
 const retiredProviderTurns = new RetiredTurnRegistry();
 const pendingCancelledProviderHandshakes = new PendingTurnCancellations();
 // One parking lot for provider output staged mid-turn and attached when the
-// turn settles: generated images since the beginning, voice notes since #1742.
+// turn settles: voice notes since #1742.
 // Audio entries carry their transcript until the message they land on; the
 // wire attachment itself has no text field.
 type ParkedTurnAttachment = NonNullable<Message["attachments"]>[number] & { text?: string };
@@ -3026,7 +3026,7 @@ function clearCancelledProviderHandshake(threadId: string, ownerId: string): voi
 function retireProviderTurn(turnId: string): void {
   retiredProviderTurns.retire(turnId);
   // A stopped/replaced turn is never folded again. Delete only staged files
-  // (images, voice notes) that were parked for that exact provider turn so
+  // (voice notes) that were parked for that exact provider turn so
   // unattached output does not accumulate invisibly on disk.
   for (const [key, attachments] of turnAttachmentsByTurn) {
     if (!key.endsWith(`:${turnId}`)) continue;
@@ -7767,12 +7767,7 @@ bus.subscribe((event: RuntimeEvent) => {
         lastReply.set(event.threadId, text);
       } else if (event.itemType === "assistant_image") {
         try {
-          const decoded = decodeGeneratedImage(event.data);
-          const saved = saveImage(decoded.bytes, decoded.mime);
-          const key = turnAttachmentKey(event.threadId, event.turnId);
-          const current = turnAttachmentsByTurn.get(key) ?? [];
-          current.push({ kind: "image", path: saved.path, mime: saved.mime });
-          turnAttachmentsByTurn.set(key, current);
+          postTurnImage(event.data, event.turnId, pushMessage);
         } catch (error) {
           pushMessage({
             role: "bot",
@@ -8085,7 +8080,6 @@ bus.subscribe((event: RuntimeEvent) => {
       // A turn that never completed never lands its half-said note: parked
       // audio is deleted when the settle is not ok (person stop, provider
       // failure) rather than posted as if the turn finished (#1742).
-      // Generated images keep their long-standing settle-anyway behavior.
       for (const attachment of generated) {
         if (event.ok || attachment.kind !== "audio") continue;
         deleteAttachment(attachment.path);
@@ -8094,12 +8088,7 @@ bus.subscribe((event: RuntimeEvent) => {
         ? generated
         : generated.filter((attachment) => attachment.kind !== "audio");
       if (settled.length) {
-        const response = [...store.messagesFor(event.threadId)].reverse().find(
-          (message) =>
-            message.role === "bot" &&
-            message.kind === "text" &&
-            message.turnId === completedTurnId,
-        );
+        const response = latestTurnAnswer(store.messagesFor(event.threadId), completedTurnId);
         // A voice note's text is its transcript: the visible caption search,
         // compaction and notifications read (#1740 decision 3).
         const transcript = settled

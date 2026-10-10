@@ -74,7 +74,8 @@ function assistantTurnFolds(messages: Message[]): {
       message.role === "bot" &&
       message.kind === "text" &&
       message.turnId === terminal.turnId &&
-      !message.turnTerminal
+      !message.turnTerminal &&
+      !message.attachments?.length
     );
     if (!narration.length) return;
 
