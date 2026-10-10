@@ -623,7 +623,6 @@
   "usage.costLine": "El coste es {caption}.",
   "usage.costMixed": "según lo informa cada proveedor: en una suscripción es un equivalente, no un cargo",
   "engines.claudeUpdated": "Claude actualizado: {version}",
-  "engines.none": "Todavía no se detectaron apps de proveedores de modelos.",
   "remote.pairOverTailscale": "Emparejar por Tailscale",
   "remote.devices.title": "Dispositivos emparejados",
   "remote.devices.lastSeen": "Visto por última vez {when}",
@@ -726,6 +725,7 @@
   "vm.main.notReady": "No está listo",
   "vm.deleteError": "No se pudo eliminar esta VM local",
   "vm.setup.start": "Iniciar la VM local",
+  "vm.setup.waiting": "Esperando al escritorio…",
   "vm.setup.create": "Crear la VM local",
   "vm.err.status": "La consulta de estado falló ({code})",
   "vm.cloud.checkingList": "Comprobando equipos en la nube…",
@@ -1060,8 +1060,5 @@
   "place.view.autoTeam.short": "Compartido",
   "onboarding.bot.intro": "Elige una raza, un color y un nombre. Puedes cambiarlos más tarde.",
   "onboarding.bot.breed": "Raza",
-  "permissions.staleHint": "¿Ya está activado en Ajustes del Sistema? Hasta que {app} esté firmada, macOS vincula el interruptor a cada versión: desactívalo y vuelve a activarlo allí.",
-  "engines.library.comingSoon": "Próximamente",
-  "engines.library.showComingSoon": "Mostrar de todos modos",
-  "engines.library.hideComingSoon": "Ocultar"
+  "permissions.staleHint": "¿Ya está activado en Ajustes del Sistema? Hasta que {app} esté firmada, macOS vincula el interruptor a cada versión: desactívalo y vuelve a activarlo allí."
 }

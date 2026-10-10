@@ -636,7 +636,6 @@
   "usage.costLine": "O custo é {caption}.",
   "usage.costMixed": "conforme cada provedor informa — em uma assinatura é um equivalente, não uma cobrança",
   "engines.claudeUpdated": "Claude atualizado — {version}",
-  "engines.none": "Nenhum app de provedor de modelos detectado ainda.",
   "remote.pairOverTailscale": "Parear pelo Tailscale",
   "remote.devices.title": "Dispositivos pareados",
   "remote.devices.lastSeen": "Visto por último {when}",
@@ -739,6 +738,7 @@
   "vm.main.notReady": "Não está pronto",
   "vm.deleteError": "Não foi possível excluir esta VM local",
   "vm.setup.start": "Iniciar a VM local",
+  "vm.setup.waiting": "Esperando o desktop…",
   "vm.setup.create": "Criar a VM local",
   "vm.err.status": "A consulta de status falhou ({code})",
   "vm.cloud.checkingList": "Verificando computadores na nuvem…",
@@ -1073,8 +1073,5 @@
   "place.view.autoTeam.short": "Compartilhado",
   "onboarding.bot.intro": "Escolha uma raça, uma cor e um nome. Você pode mudar depois.",
   "onboarding.bot.breed": "Raça",
-  "permissions.staleHint": "Já está ativado nos Ajustes do Sistema? Até o {app} ser assinado, o macOS vincula a opção a cada versão: desative e ative de novo lá.",
-  "engines.library.comingSoon": "Em breve",
-  "engines.library.showComingSoon": "Mostrar mesmo assim",
-  "engines.library.hideComingSoon": "Ocultar"
+  "permissions.staleHint": "Já está ativado nos Ajustes do Sistema? Até o {app} ser assinado, o macOS vincula a opção a cada versão: desative e ative de novo lá."
 }

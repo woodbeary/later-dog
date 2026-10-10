@@ -623,7 +623,6 @@
   "usage.costLine": "Le coût est {caption}.",
   "usage.costMixed": "tel que chaque fournisseur le rapporte — sur un abonnement, c’est un équivalent, pas un débit",
   "engines.claudeUpdated": "Claude mis à jour — {version}",
-  "engines.none": "Aucune application de fournisseur de modèles détectée pour l’instant.",
   "remote.pairOverTailscale": "Associer via Tailscale",
   "remote.devices.title": "Appareils associés",
   "remote.devices.lastSeen": "Vu pour la dernière fois {when}",
@@ -726,6 +725,7 @@
   "vm.main.notReady": "Pas prêt",
   "vm.deleteError": "Impossible de supprimer cette VM locale",
   "vm.setup.start": "Démarrer la VM locale",
+  "vm.setup.waiting": "En attente du bureau…",
   "vm.setup.create": "Créer la VM locale",
   "vm.err.status": "Échec de la requête d’état ({code})",
   "vm.cloud.checkingList": "Vérification des ordinateurs cloud…",
@@ -1060,8 +1060,5 @@
   "place.view.autoTeam.short": "Partagé",
   "onboarding.bot.intro": "Choisissez une race, une couleur et un nom. Vous pourrez les changer plus tard.",
   "onboarding.bot.breed": "Race",
-  "permissions.staleHint": "Déjà activé dans Réglages Système ? Tant que {app} n'est pas signée, macOS lie l'interrupteur à chaque version : désactivez-le puis réactivez-le là-bas.",
-  "engines.library.comingSoon": "Bientôt disponible",
-  "engines.library.showComingSoon": "Afficher quand même",
-  "engines.library.hideComingSoon": "Masquer"
+  "permissions.staleHint": "Déjà activé dans Réglages Système ? Tant que {app} n'est pas signée, macOS lie l'interrupteur à chaque version : désactivez-le puis réactivez-le là-bas."
 }

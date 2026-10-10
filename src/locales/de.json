@@ -630,7 +630,6 @@
   "usage.costLine": "Die Kosten sind {caption}.",
   "usage.costMixed": "wie jeder Anbieter es meldet — bei einem Abo ist es ein Gegenwert, keine Abrechnung",
   "engines.claudeUpdated": "Claude aktualisiert — {version}",
-  "engines.none": "Bisher keine Apps von Modellanbietern erkannt.",
   "remote.pairOverTailscale": "Über Tailscale koppeln",
   "remote.devices.title": "Gekoppelte Geräte",
   "remote.devices.lastSeen": "Zuletzt gesehen {when}",
@@ -733,6 +732,7 @@
   "vm.main.notReady": "Nicht bereit",
   "vm.deleteError": "Diese lokale VM konnte nicht gelöscht werden",
   "vm.setup.start": "Lokale VM starten",
+  "vm.setup.waiting": "Warte auf den Desktop…",
   "vm.setup.create": "Lokale VM erstellen",
   "vm.err.status": "Statusabfrage fehlgeschlagen ({code})",
   "vm.cloud.checkingList": "Cloud-Computer werden geprüft…",
@@ -1068,8 +1068,5 @@
   "place.view.autoTeam.short": "Gemeinsam",
   "onboarding.bot.intro": "Wähle eine Rasse, eine Farbe und einen Namen. Du kannst sie später ändern.",
   "onboarding.bot.breed": "Rasse",
-  "permissions.staleHint": "In den Systemeinstellungen schon an? Bis {app} signiert ist, bindet macOS den Schalter an jede Version: dort aus- und wieder einschalten.",
-  "engines.library.comingSoon": "Bald verfügbar",
-  "engines.library.showComingSoon": "Trotzdem zeigen",
-  "engines.library.hideComingSoon": "Ausblenden"
+  "permissions.staleHint": "In den Systemeinstellungen schon an? Bis {app} signiert ist, bindet macOS den Schalter an jede Version: dort aus- und wieder einschalten."
 }

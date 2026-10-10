@@ -623,7 +623,6 @@
   "usage.costLine": "लागत {caption} है।",
   "usage.costMixed": "जैसा हर प्रदाता बताता है — सदस्यता पर यह समतुल्य राशि है, शुल्क नहीं",
   "engines.claudeUpdated": "Claude अपडेट हुआ — {version}",
-  "engines.none": "अभी कोई मॉडल प्रदाता ऐप नहीं मिला।",
   "remote.pairOverTailscale": "Tailscale से जोड़ें",
   "remote.devices.title": "जुड़े हुए डिवाइस",
   "remote.devices.lastSeen": "आख़िरी बार देखा गया {when}",
@@ -726,6 +725,7 @@
   "vm.main.notReady": "तैयार नहीं",
   "vm.deleteError": "यह लोकल VM हटाई नहीं जा सकी",
   "vm.setup.start": "लोकल VM शुरू करें",
+  "vm.setup.waiting": "डेस्कटॉप का इंतज़ार…",
   "vm.setup.create": "लोकल VM बनाएँ",
   "vm.err.status": "स्थिति अनुरोध विफल ({code})",
   "vm.cloud.checkingList": "क्लाउड कंप्यूटर जाँचे जा रहे हैं…",
@@ -1060,8 +1060,5 @@
   "place.view.autoTeam.short": "साझा",
   "onboarding.bot.intro": "एक नस्ल, एक रंग और एक नाम चुनें। आप इन्हें बाद में बदल सकते हैं।",
   "onboarding.bot.breed": "नस्ल",
-  "permissions.staleHint": "सिस्टम सेटिंग्स में पहले से चालू है? जब तक {app} साइन नहीं होता, macOS यह स्विच हर बिल्ड से जोड़ता है: वहाँ इसे बंद करके फिर चालू करें।",
-  "engines.library.comingSoon": "जल्द आ रहा है",
-  "engines.library.showComingSoon": "फिर भी दिखाएँ",
-  "engines.library.hideComingSoon": "छिपाएँ"
+  "permissions.staleHint": "सिस्टम सेटिंग्स में पहले से चालू है? जब तक {app} साइन नहीं होता, macOS यह स्विच हर बिल्ड से जोड़ता है: वहाँ इसे बंद करके फिर चालू करें।"
 }

@@ -625,7 +625,6 @@
   "usage.costLine": "コストは{caption}。",
   "usage.costMixed": "各プロバイダーの報告どおりです。サブスクリプションでは請求ではなく相当額です",
   "engines.claudeUpdated": "Claude を更新しました — {version}",
-  "engines.none": "モデルプロバイダーのアプリはまだ検出されていません。",
   "remote.pairOverTailscale": "Tailscale でペアリング",
   "remote.devices.title": "ペアリング済みの端末",
   "remote.devices.lastSeen": "最後に確認: {when}",
@@ -728,6 +727,7 @@
   "vm.main.notReady": "準備できていません",
   "vm.deleteError": "このローカル VM を削除できませんでした",
   "vm.setup.start": "ローカル VM を起動",
+  "vm.setup.waiting": "デスクトップを待機中…",
   "vm.setup.create": "ローカル VM を作成",
   "vm.err.status": "状態の取得に失敗しました（{code}）",
   "vm.cloud.checkingList": "クラウドコンピューターを確認中…",
@@ -1062,8 +1062,5 @@
   "place.view.autoTeam.short": "共有",
   "onboarding.bot.intro": "犬種、色、名前を選びましょう。あとから変更できます。",
   "onboarding.bot.breed": "犬種",
-  "permissions.staleHint": "システム設定ですでにオンですか? {app} が署名されるまで、macOS はこのスイッチをビルドごとに結び付けます。そこで一度オフにしてからオンに戻してください。",
-  "engines.library.comingSoon": "近日対応",
-  "engines.library.showComingSoon": "それでも表示",
-  "engines.library.hideComingSoon": "隠す"
+  "permissions.staleHint": "システム設定ですでにオンですか? {app} が署名されるまで、macOS はこのスイッチをビルドごとに結び付けます。そこで一度オフにしてからオンに戻してください。"
 }
