@@ -12,6 +12,7 @@ import localOriginModule from "./local-origin.cjs";
 const LOCAL = "http://127.0.0.1:8799";
 const CLOUD = "https://home-7f3k2.fly.dev";
 const OTHER = "https://bots.example.test";
+const PROFILE = "http://127.0.0.1:8811";
 
 const fixture = vi.hoisted(() => ({ autoUpdater: null, handlers: new Map(), appPath: "/unused-updater-test-app" }));
 
@@ -61,6 +62,7 @@ function mainRule() {
     path: { join: (...parts) => parts.join("/") }, os: { hostname: () => "mac" }, shell: {}, safeStorage: {},
     createCloudAccountStore: () => ({}), rememberCloudHome: () => {}, rememberedCloudHome, computerSharing: null,
     sendUpdaterState: () => {},
+    profilePageSender: (event) => Boolean(window.webContents) && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === `${PROFILE}/`,
     createCloudAccountClient: (options) => {
       signIn.options = options;
       return {
@@ -254,7 +256,11 @@ function bridgeFor(origin, { clicked = false, rule = null } = {}) {
       contextBridge: { exposeInMainWorld: (_name, value) => { bridge = value; } },
       ipcRenderer: {
         on() {}, removeListener() {}, send() {},
-        sendSync: (channel) => { asked.push(channel); return rule ? rule.offered(loading.event) : undefined; },
+        sendSync: (channel) => {
+          asked.push(channel);
+          if (!rule) return undefined;
+          return channel === "profiles:page" ? rule.context.profilePageSender(loading.event) : rule.offered(loading.event);
+        },
         invoke: (...args) => { invoked.push(args); return Promise.resolve({ status: "idle" }); },
       },
     }),
@@ -294,6 +300,7 @@ it("another server's page never gets the update bridge; My Cloud's does, even wh
   // Signed in.
   expect(has(OTHER, "vps")).toBe(false);
   expect(has(CLOUD, "cloud")).toBe(true);
+  expect(has(PROFILE)).toBe(true);
   // A frame inside My Cloud's page.
   rule.show(page(CLOUD), "cloud");
   expect(rule.offered({ sender: rule.window.webContents, senderFrame: { url: `${CLOUD}/` } })).toBe(false);
@@ -435,6 +442,10 @@ it("My Cloud's page reads and drives the update channels, and another server's p
   const local = page(LOCAL);
   rule.show(local);
   for (const channel of handlers.keys()) expect(() => handlers.get(channel)(local.event), channel).not.toThrow();
+
+  const profile = page(PROFILE);
+  rule.show(profile);
+  for (const channel of handlers.keys()) expect(() => handlers.get(channel)(profile.event), channel).not.toThrow();
 });
 
 it("sends update news only to a page allowed to read it", async () => {
