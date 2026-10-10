@@ -188,6 +188,7 @@
   "question.status.waiting": "Waiting for your answer",
   "question.aria.card": "Question from your dog",
   "question.aria.tabs": "Questions",
+  "question.close": "Close question",
   "approval.voice.defaultUpdateSkill": "Update this trick?",
   "approval.voice.defaultEnableSkill": "Enable this trick?",
   "approval.voice.actionUpdate": "update",

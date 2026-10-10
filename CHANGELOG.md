@@ -11,6 +11,7 @@
 ### Fixes
 - A picture you add while a dog works goes into the running turn, the same as words. Claude and ChatGPT dogs see it right away; Steer on a queued picture works too. Before, any message with a picture waited for the turn to end, and its queue row showed a file path instead of the picture.
 - A queued picture shows as a small thumbnail with "A picture" or "2 pictures" when there are no words.
+- A dog's question has an × in its corner. Close it to skip the question and type your own message instead. A new dog's first question has one too. The dog is told you closed it and stops waiting for an answer. Closing works after a restart as well.
 
 ## 0.3.2 — 2026-10-09
 

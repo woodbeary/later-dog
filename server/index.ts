@@ -116,7 +116,7 @@ import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
 import { isEffortLevel, type BotVisibility, type CardAnswerer, type ResolvedSender, type SteerQueueReason, type WireBot, type WireGroup, type WireTask } from "../shared/wire.ts";
-import { isPersistentQuestionCard, QUESTION_DISMISS_MESSAGE, shouldSettleRequestCard } from "../shared/ask-question.ts";
+import { isPersistentQuestionCard, shouldSettleRequestCard } from "../shared/ask-question.ts";
 import { parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import type { TeamComputersPayload } from "../shared/team-computer.ts";
 import { boatCreateRecoverySnapshot, retireDeletedBoatCreate } from "./boat-create-idempotency.ts";
@@ -644,6 +644,7 @@ import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold } from "./laterdog/limit-hold.ts";
 import { latestTurnAnswer, postTurnImage } from "./laterdog/turn-images.ts";
 import { steerWords } from "./laterdog/steer-images.ts";
+import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
@@ -22990,13 +22991,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const requestId = String(body.requestId);
         const pending = store.messagesFor(bot.threadId).find((message) => message.card?.requestId === requestId);
-        if (isPersistentQuestionCard(pending?.card) && (body.dismiss === true || body.message === QUESTION_DISMISS_MESSAGE)) {
-          if (!pending?.card) return json(res, 404, { error: "this question is no longer available" });
-          if (pending.card.answered !== "answer" || pending.card.dismissed) {
-            return json(res, 409, { error: "answer this question before dismissing it" });
-          }
-          store.patchMessage(bot.threadId, pending.id, { card: { ...pending.card, dismissed: true } });
-          return json(res, 200, { ok: true, dismissed: true });
+        if (pending?.card && asksToCloseQuestion(pending.card, body)) {
+          const closed = await closeQuestion(pending.card, {
+            answer: (message) => answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, "answer", message, { id: bot.id, name: bot.name }),
+            current: () => store.messagesFor(bot.threadId).find((message) => message.id === pending.id)?.card,
+            save: (card) => store.patchMessage(bot.threadId, pending.id, { card }),
+          });
+          return json(res, closed.status, closed.body);
         }
         const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name }, body.always === true, body.rememberCommand === true);
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
@@ -23117,14 +23118,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // answerRequest closes an unreachable card, and a pending approval owns
         // the composer, so a dead end here locks the room for good.
         const pending = store.messagesFor(threadId).find((message) => message.card?.requestId === requestId);
-        if (isPersistentQuestionCard(pending?.card) && (body.dismiss === true || body.message === QUESTION_DISMISS_MESSAGE)) {
-          if (!pending?.card) return json(res, 404, { error: "this question is no longer available" });
-          if (pending.card.answered !== "answer" || pending.card.dismissed) {
-            return json(res, 409, { error: "answer this question before dismissing it" });
-          }
-          store.patchMessage(threadId, pending.id, { card: { ...pending.card, dismissed: true } });
-          return json(res, 200, { ok: true, dismissed: true });
-        }
         const persistentQuestion = isPersistentQuestionCard(pending?.card);
         const owner = group
           ? persistentQuestion
@@ -23132,6 +23125,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             : (group.busyBotId ? store.bot(group.busyBotId) : undefined) ??
               (pending?.from ? store.bot(pending.from.botId) : undefined)
           : store.botByThread(threadId);
+        if (pending?.card && asksToCloseQuestion(pending.card, body)) {
+          const asker = owner ? botForThread(owner.id, threadId) : null;
+          const closed = await closeQuestion(pending.card, {
+            answer: (message) => answerRequest(threadId, asker?.modelSelection.instanceId ?? "", requestId, "answer", message, owner ? { id: owner.id, name: owner.name } : undefined),
+            current: () => store.messagesFor(threadId).find((message) => message.id === pending.id)?.card,
+            save: (card) => store.patchMessage(threadId, pending.id, { card }),
+          });
+          return json(res, closed.status, closed.body);
+        }
         // A surviving question belongs to its original asker, never a later speaker.
         if (group && persistentQuestion && !owner) {
           return json(res, 409, { error: "the dog that asked this question is no longer available" });

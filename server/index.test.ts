@@ -1450,21 +1450,6 @@ describe("harness HTTP API", () => {
       expect(afterSubsequentQuestion.answered).toBeUndefined();
       expect(afterSubsequentQuestion.dismissed).toBeUndefined();
 
-      const refusedDismiss = await isolatedApi("POST", `/api/bots/${bot.id}/respond`, {
-        requestId,
-        behavior: "answer",
-        dismiss: true,
-      });
-      expect(refusedDismiss).toMatchObject({
-        status: 409,
-        body: { error: "answer this question before dismissing it" },
-      });
-      const afterRefusedDismiss = (await isolatedApi("GET", `/api/threads/${bot.threadId}/messages`)).body.messages
-        .find((message: { id: string }) => message.id === cardId)?.card;
-      expect(afterRefusedDismiss).toMatchObject({ requestType: "question", requestId });
-      expect(afterRefusedDismiss.answered).toBeUndefined();
-      expect(afterRefusedDismiss.dismissed).toBeUndefined();
-
       const completionsBeforeAnswer = (await isolatedApi("GET", `/api/threads/${bot.threadId}/messages`)).body.messages
         .filter((message: { role?: string; kind?: string; text?: string }) =>
           message.role === "bot" && message.kind === "text" && message.text === "fixture turn completed").length;
