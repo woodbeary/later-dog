@@ -7358,21 +7358,6 @@ describe("harness HTTP API", () => {
     expect(question.answered).toBeUndefined();
     expect(question.dismissed).toBeUndefined();
 
-    const dismissed = await api("POST", "/api/threads/test-cancel-room-thread/respond", {
-      requestId: "cancel-question-request",
-      behavior: "answer",
-      message: "The user closed this question without answering. Use your best judgment and continue.",
-      dismiss: true,
-    });
-    expect(dismissed.status).toBe(409);
-
-    const reread = (await api("GET", "/api/bots")).body.groups.find(
-      (group: { id: string }) => group.id === "test-cancel-room",
-    );
-    const stillOpen = reread.messages.find((message: { id: string }) => message.id === "cancel-question-card").card;
-    expect(stillOpen.answered).toBeUndefined();
-    expect(stillOpen.dismissed).toBeUndefined();
-
     try {
       const answered = await api("POST", "/api/threads/test-cancel-room-thread/respond", {
         requestId: "cancel-question-request",

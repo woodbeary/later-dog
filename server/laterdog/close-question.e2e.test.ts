@@ -42,8 +42,9 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
   const busy = async (botId: string) => (await api("GET", "/api/bots?messages=0")).body.bots.find((b: any) => b.id === botId)?.busy === true;
   const messages = async (threadId: string): Promise<any[]> => (await api("GET", `/api/threads/${threadId}/messages`)).body.messages;
   const card = async (threadId: string, requestId: string) => (await messages(threadId)).find((m) => m.card?.requestId === requestId)?.card;
+  const working = async (roomId: string) => (await api("GET", "/api/bots?messages=0")).body.groups.find((g: any) => g.id === roomId)?.working === true;
 
-  const dogAskingAQuestion = async () => {
+  const newAsker = async () => {
     rmSync(finishGate, { force: true });
     rmSync(dump, { force: true });
     const created = await api("POST", "/api/bots", {
@@ -52,9 +53,30 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
-    const bot = created.body.bot as { id: string; threadId: string };
+    return created.body.bot as { id: string; threadId: string };
+  };
+
+  const dogAskingAQuestion = async () => {
+    const bot = await newAsker();
     expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Ask me what to work on first." })).status).toBe(202);
-    await waitFor(() => busy(bot.id), "the dog to start working");
+    return { bot, ...(await askOn(bot.threadId, () => busy(bot.id))) };
+  };
+
+  const roomAskingAQuestion = async () => {
+    const bot = await newAsker();
+    const created = await api("POST", "/api/groups", {
+      name: "Ask room",
+      memberIds: [bot.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
+    });
+    expect(created.status).toBe(201);
+    const room = created.body.group as { id: string; threadId: string };
+    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Ask me what to work on first." })).status).toBe(202);
+    return { room, ...(await askOn(room.threadId, () => working(room.id))) };
+  };
+
+  const askOn = async (threadId: string, started: () => Promise<boolean>) => {
+    await waitFor(started, "the dog to start working");
     const launch = await waitFor(async () => {
       if (!existsSync(dump)) return null;
       try {
@@ -87,8 +109,8 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
       tool: "AskUserQuestion",
       input: { questions: [{ question: "What should I help with first?", options: [{ label: "Code and GitHub" }, { label: "Research and writing" }] }] },
     }) + "\n");
-    await waitFor(() => card(bot.threadId, requestId), "the question card");
-    return { bot, requestId, replies };
+    await waitFor(() => card(threadId, requestId), "the question card");
+    return { requestId, replies };
   };
 
   beforeAll(async () => {
@@ -181,5 +203,23 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
     const again = await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId, behavior: "answer", message: QUESTION_DISMISS_MESSAGE });
     expect(again).toMatchObject({ status: 200, body: { ok: true, dismissed: true } });
     expect(again.body.outcome).toBeUndefined();
+  }, 60_000);
+
+  it("hides a room question left open after its turn ended, without starting a new turn", async () => {
+    const { room, requestId } = await roomAskingAQuestion();
+    writeFileSync(finishGate, "finish");
+    await waitFor(async () => !(await working(room.id)), "the room's turn to settle");
+    const left = await card(room.threadId, requestId);
+    expect(left.answered).toBeUndefined();
+    expect(left.dismissed).toBeUndefined();
+    const before = (await messages(room.threadId)).length;
+
+    rmSync(finishGate, { force: true });
+    const closed = await api("POST", `/api/threads/${room.threadId}/respond`, { requestId, behavior: "answer", dismiss: true });
+    expect(closed).toMatchObject({ status: 200, body: { ok: true, dismissed: true, outcome: "unavailable" } });
+    expect(await card(room.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+    await new Promise((r) => setTimeout(r, 500));
+    expect(await working(room.id)).toBe(false);
+    expect(await messages(room.threadId)).toHaveLength(before);
   }, 60_000);
 });
