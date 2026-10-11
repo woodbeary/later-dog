@@ -7,6 +7,10 @@ Apache License, Version 2.0. OpenMausBot was relicensed from the MIT License to
 the Apache License, Version 2.0, with the consent of all contributors whose
 copyright was incorporated before the transition.
 
+later.dog modified the OpenMausBot files it includes, as Apache License 2.0 section 4(b)
+requires us to state. later.dog was forked from OpenMausBot at commit f1d3a3a38 in
+October 2026 and later merged through OpenMausBot 0.1.101.
+
 The Google Antigravity ACP integration adapts release, installation, profile,
 authentication, and runtime temporary-folder behavior from T3 Code, Copyright
 2026 T3 Tools Inc., used under the MIT License (third_party/t3-code/LICENSE).

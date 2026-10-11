@@ -1,9 +1,6 @@
 # Bot playbook — how people run bot teams, and how to run them in later.dog
 
-Source: the seventeen guides at [x.ai/bot/guides](https://x.ai/bot/guides) (read in full on 2026-10-07: Grok Bot 101,
-Engineering, Multiple teams, Templates, Work, Mobile app development, PMs, Designing, Support, GTM, Legal Ops, SDRs,
-Marketing, Founder-Led Sales, Performance Marketing, Post-Sales, Recruiting), plus xAI's "Designing Grok Bot". The
-guides are what their authors do; this page turns the practices that recur into later.dog's defaults and names the gaps.
+This page turns the practices that recur in how people run agent teams into later.dog's defaults and names the gaps.
 
 ## 1. The anatomy of a bot, and where each part lives here
 
@@ -13,7 +10,7 @@ Every guide describes a bot the same six ways. later.dog already has a home for 
 | --- | --- | --- |
 | Job description | "What it owns, the KPI it's responsible for, and where it has to stop and ask you" — one lane, and the work it refuses | New Bot → **Identity** (name, job) and **Soul** (standing instructions). The starting roles below are written this way |
 | Connections | the accounts it is signed into, read or draft scopes first | **Apps** (Composio-backed connectors, once a broker is configured) and per-bot **MCP servers**; engine sign-ins in Settings → AI |
-| A computer | its own machine, running whether or not yours is on | **Bot's computer** (Computer / Browser / Files) on this Mac or a paired computer; a cloud computer per dog on your own Cloudflare is being built (roadmap, direction b) |
+| A computer | its own machine, running whether or not yours is on | **Bot's computer** (Computer / Files) on this Mac or a paired computer; a cloud computer per dog on your own Cloudflare is coming soon (roadmap, direction b) |
 | Routines | standing work on a clock or an event; "created Disabled until I hit Enable" | **Routines** (schedules, webhooks); every routine has an enabled flag — create them paused |
 | Skills | playbooks the bot replays; recorded once, reused everywhere | **Skills** per bot; the repo's canonical skills in `skills/laterdog/` (verify, orchestrate, correct, review, ship, architect, benchmark) |
 | Handoffs | "the ability to hand work to another bot directly, without routing through you" | `ask_bot` / `send_to_bot` tools, @mentions, **group chats** and **teams** |
@@ -89,8 +86,8 @@ tasks opened. The Workspace is the shared board the guides keep in Notion.
 | Persistent per-bot memory; corrections become rules | Memory per bot; `correct-recurring-errors` skill | Have |
 | Skills recorded from a demonstration | Skills are written, not recorded | Roadmap (record-to-skill) |
 | Connectors via OAuth (Gmail, Slack, Notion, Salesforce…) | Composio-backed Apps once a broker is configured; MCP servers per bot | **Gap**: needs a self-hosted broker on your Cloudflare and a Composio key — see `cloudflare/composio-broker/` and roadmap item 7 |
-| Per-bot always-on cloud computer with stored logins | Local or paired computers; a Boat cloud computer with your own Boat key | Being built: one per dog on your own Cloudflare, asleep when idle (roadmap, direction b) |
-| Cloud coding agents that open PRs and never merge | Codex Cloud and Claude Code routines through the supervisor, draft PRs, verification at the commit, independent review | Have — and stricter than Grok Bot, which has no verification step |
+| Per-bot always-on cloud computer with stored logins | This Mac or a paired computer | Coming soon: one per dog on your own Cloudflare, asleep when idle (roadmap, direction b) |
+| Cloud coding agents that open PRs and never merge | Codex Cloud and Claude Code routines through the supervisor, draft PRs, verification at the commit, independent review | Have |
 | Templates / packs ("recipe, not meal"), "Add X" links | Preset files and team packages; the Templates shelf reads any GitHub repo of packages | Have; a later.dog pack repo is roadmap |
 | Approval queue / drafts folder | Approval cards in chat | Partial (cards only) |
 | Gatekeeper in front of APIs | A role; connectors carry their own scopes | Partial |

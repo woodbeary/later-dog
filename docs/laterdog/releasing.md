@@ -40,4 +40,4 @@ A tag such as `v0.3.4-preview.1` publishes a prerelease without `latest-mac.yml`
 
 ## Tested
 
-On 2026-10-10 a signed 0.3.3 updated itself to a throwaway signed 0.3.4 served from this Mac. The download, the icon, the notes, **Restart to update** and the new version's signature were all checked. A real GitHub release hasn't been through it yet. Details are in [checkpoint-2026-10-09.md](checkpoint-2026-10-09.md), TODO 15.
+On 2026-10-10 a signed 0.3.3 updated itself to a throwaway signed 0.3.4 served from this Mac. The download, the icon, the notes, **Restart to update** and the new version's signature were all checked. A real GitHub release hasn't been through it yet.

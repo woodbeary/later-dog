@@ -1,8 +1,3 @@
-// The first dog speaks first. When first run ends, the dog's chat greets the person by name at once (the static seed
-// greeting is rewritten, since it may carry a name the person just changed), and when the dog's engine can answer, a
-// hidden turn asks one question: what to help with first, with a few options. Grok Bot's new bots do the same; nothing
-// in the transcript looks like the person typed it.
-
 /** The greeting store.createBot seeds into a new dog's chat. */
 export const SEED_GREETING = /^Hi, I'm .+\. What would you like me to do\?$/;
 
