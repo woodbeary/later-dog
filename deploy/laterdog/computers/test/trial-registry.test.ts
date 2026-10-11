@@ -13,6 +13,12 @@ vi.mock("cloudflare:workers", () => ({
       readonly env: unknown,
     ) {}
   },
+  WorkerEntrypoint: class {
+    constructor(
+      readonly ctx: unknown,
+      readonly env: unknown,
+    ) {}
+  },
 }));
 
 afterEach(() => {

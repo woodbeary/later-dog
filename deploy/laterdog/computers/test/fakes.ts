@@ -77,7 +77,12 @@ export class FakeContainer {
     return { id: `snapshot-${this.snapshots}`, size: 4096, name: options.name };
   }
 
-  async exec(): Promise<{ exitCode: Promise<number>; stdout: null; stderr: null; kill(): void }> {
+  readonly execs: Array<{ cmd: string[]; options: ContainerExecOptions | undefined }> = [];
+  failCommands: Error | undefined;
+
+  async exec(cmd: string[], options?: ContainerExecOptions): Promise<{ exitCode: Promise<number>; stdout: null; stderr: null; kill(): void }> {
+    this.execs.push({ cmd, options });
+    if (this.failCommands && cmd.includes("-lc")) throw this.failCommands;
     return { exitCode: Promise.resolve(0), stdout: null, stderr: null, kill: () => undefined };
   }
 

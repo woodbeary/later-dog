@@ -11,7 +11,7 @@ import type { Refusal } from "./auth";
 import { DESKTOP_LINK_TTL_SECONDS, signDesktopToken, verifyDesktopToken } from "./desktop-token";
 import { type Collected, collect, json, outputText, within } from "./http";
 import { type IdlePolicy, MINUTE, decideIdle, idlePolicy, inactivityTimeoutMs } from "./idle";
-import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size } from "./inputs";
+import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size, commandEnv, redact } from "./inputs";
 import { route } from "./routes";
 import { trialPolicy } from "./trial";
 import { trials } from "./trial-registry";
@@ -142,6 +142,7 @@ interface RunOptions {
   user?: string;
   cwd?: string;
   stdin?: ReadableStream;
+  env?: Record<string, string>;
 }
 
 interface RunResult {
@@ -315,7 +316,14 @@ export class DogComputer extends DurableObject<Env> {
 
   async exec(input: ExecInput): Promise<Result<ExecResult>> {
     return this.using(async () => {
-      const result = await this.run(["bash", "-lc", input.command], { timeoutMs: input.timeoutMs, cap: EXEC_OUTPUT_CAP, user: DOG, cwd: input.cwd ?? DOG_HOME });
+      const env = commandEnv(DOG_ENV, input.env);
+      let result: RunResult;
+      try {
+        result = await this.run(["bash", "-lc", input.command], { timeoutMs: input.timeoutMs, cap: EXEC_OUTPUT_CAP, user: DOG, cwd: input.cwd ?? DOG_HOME, env });
+      } catch (error) {
+        if (!input.env) throw error;
+        throw new Error(redact(describeError(error), Object.values(input.env)));
+      }
       return ok({ exitCode: result.exitCode, stdout: outputText(result.stdout), stderr: outputText(result.stderr), timedOut: result.timedOut });
     });
   }
@@ -786,7 +794,7 @@ export class DogComputer extends DurableObject<Env> {
   private async run(argv: string[], options: RunOptions): Promise<RunResult> {
     const started = Date.now();
     const child = await this.container().exec(["timeout", "--kill-after=5", `${(options.timeoutMs / 1000).toFixed(3)}s`, ...argv], {
-      env: DOG_ENV,
+      env: options.env ?? DOG_ENV,
       ...(options.user ? { user: options.user } : {}),
       ...(options.cwd ? { cwd: options.cwd } : {}),
       ...(options.stdin ? { stdin: options.stdin } : {}),
