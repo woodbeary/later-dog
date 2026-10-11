@@ -6,10 +6,10 @@ import { waitForLocalVmReady } from "@/lib/local-vm-readiness";
 import {
   Globe,
   Hand,
+  Laptop,
   Loader2,
   Maximize2,
   Monitor,
-  Moon,
   Power,
   X,
 } from "lucide-react";
@@ -334,7 +334,6 @@ export function ComputerPanel({
   // the only way a person can actually drive the VM.
   const [vmViewerUrl, setVmViewerUrl] = useState<string | null>(null);
   const [vmStatus, setVmStatus] = useState<LocalVmStatus | null>(null);
-  const [localFrame, setLocalFrame] = useState<string | null>(null);
   const [pending, setPending] = useState<
     "join" | "sleep" | "provision" | "vm-start" | "vm-create" | "vm-recreate" | "vm-delete" | null
   >(null);
@@ -422,7 +421,6 @@ export function ComputerPanel({
     setVmFrame(null);
     setVmViewerUrl(null);
     setVmStatus(null);
-    setLocalFrame(null);
     setError(null);
     // The selection may be optimistic for up to the profile debounce. Never
     // let it choose a provider until the PATCH lane confirms server state.
@@ -814,35 +812,9 @@ export function ComputerPanel({
     };
   }, [phase, computerStatusCurrent, threadPath, viewerOpen, pageVisible, bot.busy, setError, setPreviewError, setVmFrame]);
 
-  const [localMisses, setLocalMisses] = useState(0);
-  useEffect(() => {
-    if (phase !== "local" || !localAvailable || !computerStatusCurrent || !window.laterdog || isLinux || !pageVisible) return;
-    let alive = true;
-    setLocalMisses(0);
-    const shoot = async () => {
-      try {
-        const url = await window.laterdog!.screenFrame();
-        if (alive && url) setLocalFrame(url);
-        else if (alive) setLocalMisses((n) => n + 1);
-      } catch {
-        if (alive) setLocalMisses((n) => n + 1);
-      }
-    };
-    void shoot();
-    // A real ScreenCaptureKit capture + PNG encode per tick: idle bots get a
-    // slow heartbeat, working ones the live cadence.
-    const timer = setInterval(shoot, bot.busy ? 3000 : 30_000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [phase, localAvailable, computerStatusCurrent, isLinux, pageVisible, bot.busy, bot.id, bot.threadId]);
-
   const frameSrc = !computerStatusCurrent ? null :
     phase === "vm"
       ? vmFrame
-      : phase === "local" && !isLinux
-      ? localFrame
       : cloudPreviewReady || (bot.computer === "cloud" && phase === "starting")
         ? polledFrame && `data:${polledFrame.mime};base64,${polledFrame.png}`
         : null;
@@ -917,6 +889,11 @@ export function ComputerPanel({
     }
   }, [transitionControl]);
 
+  const viewerWasOpen = useRef(false);
+  useEffect(() => {
+    if (viewerWasOpen.current && !viewerOpen && control.held) void controlAction("release");
+    viewerWasOpen.current = viewerOpen;
+  }, [viewerOpen, control.held, controlAction]);
 
   const openDesktop = async () => {
     const controller = new AbortController();
@@ -1010,6 +987,11 @@ export function ComputerPanel({
 
   /** The person's own Start it now / Wake it now: the only way the panel
    * starts a cloud computer. Choosing it or opening the panel never does. */
+  const [autoStartCloud, setAutoStartCloud] = useState(false);
+  const takeFreeCloud = () => {
+    setAutoStartCloud(true);
+    updateComputerSelection({ computer: "cloud" });
+  };
   const startCloudComputer = () => {
     setPending("provision");
     setError(null);
@@ -1104,6 +1086,13 @@ export function ComputerPanel({
       setAllowingComputer(false);
     }
   };
+
+  useEffect(() => {
+    if (!autoStartCloud || pending !== null || profileBot.busy) return;
+    if (phase !== "cloud-new" && phase !== "cloud-asleep") return;
+    setAutoStartCloud(false);
+    startCloudComputer();
+  });
 
   const browserCanTurnOn = browserAvailableHere || state.config?.browserEngine?.installable === true;
   const [browserTurningOn, setBrowserTurningOn] = useState(false);
@@ -1283,18 +1272,7 @@ export function ComputerPanel({
         </div>
       ) : (
       <div className="flex-1 overflow-y-auto px-5 pb-5">
-          {/* Screen preview */}
-          <div className="mb-1.5 mt-2 flex items-center justify-between text-[13px] text-ink-secondary">
-            <span>{t("computer.screenOf", { name: bot.name })}</span>
-            {currentTeamComputer && <span className="text-[11px]">{autoView.short}</span>}
-            {phase === "local" && <span className="text-[11px]">{t("computer.badge.local")}</span>}
-            {phase === "vm" && <span className="text-[11px]">{t("vm.dest.vm")}</span>}
-            {(phase === "show-ready-boat" || phase === "show-sleeping-boat" || phase === "show-pending-boat") && (
-              <span className="text-[11px]">{t("computer.badge.autoBoat")}</span>
-            )}
-            {computerStatusCurrent && bot.computer === "cloud" && cloudBackend === "vps" && (phase === "ready" || phase === "starting") && <span className="text-[11px]">{t("computer.badge.vps")}</span>}
-        </div>
-        <div className="relative flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-xl bg-card">
+        <div className="relative mt-2 flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-xl bg-card">
           {cloudPreviewReady || (bot.computer === "cloud" && phase === "starting") ? (
             <CloudScreenPreview
               key={`${bot.id}:${bot.threadId}:${bot.computer}:${cloudBackend}`}
@@ -1329,7 +1307,7 @@ export function ComputerPanel({
                 alt={t("computer.screenOf", { name: bot.name })}
                 className="h-full w-full object-contain transition group-hover:brightness-75 group-focus-visible:brightness-75"
               />
-              <span className="pointer-events-none absolute right-2 top-2 flex items-center gap-1 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white opacity-80 shadow-sm transition group-hover:opacity-100 group-focus-visible:opacity-100">
+              <span className="pointer-events-none absolute flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-sm transition group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100">
                 {pending === "join" ? <Loader2 size={12} className="animate-spin" /> : <Maximize2 size={12} />}
                 {t("computer.open")}
               </span>
@@ -1343,8 +1321,10 @@ export function ComputerPanel({
             />
           ) : (
             <div className="flex flex-col items-center gap-2 px-6 text-center text-ink-secondary">
-              {askingForGrants ? null : phase === "checking" || phase === "starting" || (phase === "busy-boat" && busyBoat.spinner) || phase === "vm" || (phase === "local" && !isLinux) ? (
+              {askingForGrants ? null : phase === "checking" || phase === "starting" || (phase === "busy-boat" && busyBoat.spinner) || phase === "vm" ? (
                 <Loader2 size={18} className="animate-spin" />
+              ) : phase === "local" || phase === "local-unavailable" ? (
+                <Laptop size={22} />
               ) : phase === "off" ? (
                 <Power size={22} />
               ) : (
@@ -1362,9 +1342,7 @@ export function ComputerPanel({
                   : phase === "local"
                     ? isLinux
                       ? t("computer.linuxReady")
-                      : localMisses >= 3
-                      ? t("computer.needsScreenPerm")
-                      : t("computer.capturingLocal")
+                      : t("computer.onThisMac", { name: bot.name })
                     : vmResumable
                       ? t(pending === "vm-start" ? "vm.setup.starting" : "computer.phase.vmStopped")
                       : emptyState[phase]}
@@ -1387,13 +1365,10 @@ export function ComputerPanel({
                   <VpsConnection />
                 </div>
               )}
-              {phase === "local" && !isLinux && localMisses >= 3 && (
-                <button
-                  onClick={() => window.laterdog?.permOpenSettings?.("screen")}
-                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover"
-                >
-                  {t("computer.openSettings")}
-                </button>
+              {(phase === "local" || phase === "local-unavailable") && livePlace !== "cloud" && !askingForGrants && (
+                <div className="min-h-[52px]">
+                  <CloudTrialOffer className="mt-1" onUse={takeFreeCloud} />
+                </div>
               )}
               {askingForGrants && (
                 <LocalComputerPermissions
@@ -1406,7 +1381,7 @@ export function ComputerPanel({
                   onRelaunch={() => void window.laterdog?.relaunch?.()}
                 />
               )}
-              {phase === "off" && livePlace !== "off" && <CloudTrialOffer onUse={() => updateComputerSelection({ computer: "cloud" })} />}
+              {phase === "off" && livePlace !== "off" && <CloudTrialOffer onUse={takeFreeCloud} />}
               {phase === "off" && (
                 <button
                   type="button"
@@ -1471,6 +1446,7 @@ export function ComputerPanel({
             </div>
           )}
         </div>
+        <p className="mt-2 text-center text-[12px] text-ink-tertiary">{t("computer.screenOf", { name: bot.name })}</p>
 
         {errorText && !cloudRefused && (
           <div className="mt-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">
@@ -1479,9 +1455,9 @@ export function ComputerPanel({
         )}
         {/* Who is driving — take the wheel / hand it back */}
         {(cloudPreviewReady || phase === "vm" || currentTeamComputer) && control.helpReason && !control.held && (
-          <div className="mt-3 rounded-xl border border-warning/25 bg-warning/10 p-4">
-            <div className="text-[13px] leading-relaxed text-warning">
-              <b>{bot.name}</b> {t("computer.askedHands")} {control.helpReason}
+          <div className="mt-3 rounded-xl bg-card p-4">
+            <div className="text-[13px] leading-relaxed text-ink">
+              <b>{t("computer.needsYou", { name: bot.name })}</b> {control.helpReason}
             </div>
             <div className="mt-2 flex gap-2">
               <button
@@ -1492,24 +1468,22 @@ export function ComputerPanel({
                 className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent py-2 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-50"
               >
                 {pending === "join" ? <Loader2 size={14} className="animate-spin" /> : <Hand size={14} />}
-                {t("computer.takeControl")}
+                {t("computer.takeOver")}
               </button>
               <button
                 onClick={() => controlAction("dismiss-help")}
                 disabled={controlPending}
                 className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
               >
-                {t("computer.dismiss")}
+                {t("computer.skip")}
               </button>
             </div>
           </div>
         )}
         {(cloudPreviewReady || phase === "vm" || currentTeamComputer) && control.held && (
-          <div className="mt-3 rounded-xl border border-accent/25 bg-accent/10 p-4">
+          <div className="mt-3 rounded-xl bg-card p-4">
             <div className="text-[13px] leading-relaxed text-ink">
-              {t("computer.youHaveWheel")}
-              {cloudPreviewReady && ` ${t("computer.simple.useFullScreen")}`}
-              {phase === "vm" && ` ${t("computer.simple.useFullScreenVm")}`}
+              {t("computer.youHaveWheel", { name: bot.name })}
             </div>
             <button
               onClick={() => {
@@ -1524,53 +1498,11 @@ export function ComputerPanel({
             </button>
           </div>
         )}
-        {(cloudPreviewReady || phase === "vm") && (
-          <div className="mt-3 flex gap-2" data-testid="computer-actions">
-            {!control.held && !control.helpReason && (
-              <button
-                type="button"
-                onClick={() => void openDesktop()}
-                disabled={controlPending || pending === "join" || (phase === "vm" && !vmViewerUrl)}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent py-2 text-[13px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-50"
-                title={phase === "vm" ? t("computer.takeControlVmTitle") : t("computer.takeControlTitle")}
-              >
-                {pending === "join" ? <Loader2 size={14} className="animate-spin" /> : <Hand size={14} />}
-                {t("computer.takeControl")}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void openDesktop()}
-              disabled={pending === "join" || (!control.held && controlPending) || (phase === "vm" && !vmViewerUrl)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-              title={t("computer.openLiveDesktop")}
-            >
-              <Maximize2 size={14} />
-              {t("computer.fullScreen")}
-            </button>
-            {cloudPreviewReady && canManageCloud && (cloudBackend === "vps" || boatState !== "archived") && (
-              <button
-                type="button"
-                onClick={() => run("sleep")}
-                // the server refuses sleep while a turn owns the boat (409)
-                disabled={pending === "sleep" || profileBot.busy}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-                title={t("computer.sleepTitle")}
-              >
-                {pending === "sleep" ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
-                {t("vm.cloud.sleep")}
-              </button>
-            )}
-          </div>
-        )}
         {phase !== "team-boat" && (bot.computer !== undefined || computerStatusCurrent) && <>
           <LocalScreenPreview />
           <LinuxLocalControl />
           {bot.computer === "local" && !askingForGrants && <MacLocalControl />}
         </>}
-        {(phase === "local" || phase === "local-unavailable") && livePlace !== "cloud" && (
-          <CloudTrialOffer className="mt-4 border-t border-hairline/40 pt-4" onUse={() => updateComputerSelection({ computer: "cloud" })} />
-        )}
         <CloudTasksSection botId={profileBot.id} botName={bot.name} />
       </div>
       )}

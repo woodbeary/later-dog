@@ -60,7 +60,7 @@ import { BotAvatar } from "./Avatar";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
-import { normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
+import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
 import { MOTION } from "@/lib/motion";
@@ -252,9 +252,9 @@ export function ErrorRow({
   const headline = macCuaReason ?? plainHeadline ?? message;
   return (
     <div className="flex justify-start">
-      <div className="w-fit max-w-[min(42rem,78%)] rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-2.5 text-[13.5px] text-danger">
+      <div data-turn-error className="w-fit max-w-[min(42rem,78%)] rounded-[18px] bg-card px-3 py-[7px] text-[14px] leading-[21px] text-ink">
         <div className="flex items-start gap-2">
-          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <AlertTriangle size={14} className="mt-[3.5px] shrink-0 text-ink-secondary" />
           <span className="min-w-0 break-words">{headline}</span>
         </div>
         {headline !== message && <details className="mt-2 text-[12px] text-ink-secondary"><summary className="cursor-pointer">{macCuaReason ? t("computer.mac.permission.driverDetail") : t("chat.error.details")}</summary><p className="mt-1 break-words">{message}</p></details>}
@@ -279,7 +279,7 @@ export function ErrorRow({
             <button
               type="button"
               onClick={action.onClick}
-              className="mt-1.5 flex items-center gap-1.5 rounded-full border border-danger/30 px-2.5 py-1 text-[12.5px] hover:bg-danger/15"
+              className="mt-1.5 mb-0.5 flex items-center gap-1.5 rounded-full bg-control px-3 py-1 text-[13px] text-ink hover:bg-raised-hover"
             >
               {action.label}
             </button>
@@ -288,7 +288,7 @@ export function ErrorRow({
           onRetry && (
             <button
               onClick={onRetry}
-              className="mt-1.5 flex items-center gap-1.5 rounded-full border border-danger/30 px-2.5 py-1 text-[12.5px] hover:bg-danger/15"
+              className="mt-1.5 mb-0.5 flex items-center gap-1.5 rounded-full bg-control px-3 py-1 text-[13px] text-ink hover:bg-raised-hover"
             >
               <RefreshCw size={12} /> {t("chat.retry")}
             </button>
@@ -364,7 +364,7 @@ class MessageBoundary extends Component<{ children: ReactNode; fallbackText: str
   render() {
     if (this.state.failed) {
       return (
-        <div className="chat-text w-fit max-w-[min(42rem,78%)] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
+        <div className="chat-text w-fit max-w-[min(42rem,78%)] rounded-[18px] bg-card px-3 py-[7px] text-[14px] leading-[21px] whitespace-pre-wrap text-ink">
           {this.props.fallbackText}
         </div>
       );
@@ -396,7 +396,7 @@ function BubbleEditor({
     if (draft.trim()) onSubmit(draft.trim());
   };
   return (
-    <div className="w-full max-w-[min(42rem,78%)] rounded-2xl border border-hairline/40 bg-bubble-user px-4 py-3">
+    <div className="w-full max-w-[min(42rem,78%)] rounded-[18px] border border-hairline/40 bg-bubble-user px-3 py-2">
       <textarea
         ref={ref}
         value={draft}
@@ -464,7 +464,7 @@ const Bubble = memo(function Bubble({
   replyTarget?: Message;
   onReply: (message: Message) => void;
 }) {
-  const { botId, threadId, botName, voiceId, tts, localVoice, busy, mentionPeers, focus, dispatch, onBranch } = useChatRows();
+  const { botId, threadId, botName, voiceId, tts, localVoice, busy, mentionPeers, focus, dispatch, onBranch, bots } = useChatRows();
   const remoteClient = window.laterdog?.remoteClient?.active === true;
   // A user-role line another bot delivered (ask_bot, delegate_bot,
   // start_thread) is that bot speaking, not the person: it takes the
@@ -577,17 +577,18 @@ const Bubble = memo(function Bubble({
         <div
           data-chat-bubble
           className={cn(
-            "w-fit max-w-[min(42rem,78%)] rounded-2xl text-[15px] leading-relaxed",
+            "w-fit max-w-[min(42rem,78%)] rounded-[18px] text-[14px] leading-[21px]",
             emerging && "turn-answer",
             user && webhookView
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
               : attachmentsOnly
                 ? "text-ink"
                 : user
-                  ? "bg-bubble-user px-4 py-2.5 whitespace-pre-wrap text-ink"
-                  : "bg-card px-4 py-2.5 text-ink",
+                  ? "bg-bubble-user px-3 py-[7px] whitespace-pre-wrap text-ink"
+                  : "bg-card px-3 py-[7px] text-ink",
           )}
           title={new Date(message.at).toLocaleString()}
+          data-dog-tint={user && !webhookView && !attachmentsOnly ? dogTint(bots.find((candidate) => candidate.id === botId)?.color) : undefined}
         >
           {replyTarget && (
             <div className="mb-2">
@@ -1074,7 +1075,7 @@ function PinnedBanner({
 }
 
 /** The chat header's bot pill: the model chip's shape and tint. */
-const CHATHEAD_PILL = "flex min-w-0 items-center gap-2 rounded-full border border-hairline/40 bg-control/60 py-0.5 pl-1.5 text-ink";
+const CHATHEAD_PILL = "flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-ink/10 bg-composer py-1.5 pl-1.5 text-ink shadow-[0_4px_12px_-1px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.06)]";
 
 function chiefOfStaffBadge(bot: Bot) {
   if (!bot.chiefOfStaff) return null;
@@ -1309,7 +1310,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             <BotAvatar bot={bot} state={restingStateForBot(bot)} size={24} animated={false} />
             <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
             {chiefOfStaffBadge(bot)}
-            {bot.busy && <span data-testid="working-dot" aria-hidden="true" title={t("chat.activity.working")} className="size-2 shrink-0 rounded-full bg-success" />}
           </button>
           {!bot.busy && bot.waitingForTeammates && <span className="truncate text-[12px] text-ink-secondary" role="status">Other dogs working</span>}
         </div>

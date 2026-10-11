@@ -263,11 +263,11 @@ export function AccountUsage({ provider, now, loading = false, resting }: {
   if (resting && Date.parse(resting.until) > now) {
     return <p className={cn(quiet, "text-warning")}>{t("accounts.resting", { time: resetClock(resting.until, now) })}</p>;
   }
-  if (!provider) return <p className={quiet}>{loading ? t("planUsage.loading") : t("planUsage.none")}</p>;
-  if (!provider.ok) return <p className={quiet}>{t("planUsage.unavailable")}</p>;
+  if (!provider) return loading ? <p className={quiet}>{t("planUsage.loading")}</p> : null;
+  if (!provider.ok) return null;
   const session = windowLine(t("planUsage.fiveHour"), provider.fiveHour, now);
   const weekly = windowLine(t("planUsage.weekly"), provider.weekly, now);
-  if (!session && !weekly) return <p className={quiet}>{t("planUsage.none")}</p>;
+  if (!session && !weekly) return null;
   return (
     <div className="flex flex-col gap-1">
       {session && provider.fiveHour.usedPercent != null && (

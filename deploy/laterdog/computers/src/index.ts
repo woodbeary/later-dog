@@ -258,7 +258,8 @@ async function grantTrial(request: Request, env: Env, caller: Caller): Promise<R
 
 async function trialPageRequest(request: Request, env: Env, url: URL): Promise<Response> {
   const nonce = newNonce();
-  const page = (status: number, title: string, message: string) => new Response(messagePage({ title, message, nonce }), { status, headers: trialPageHeaders(nonce) });
+  const page = (status: number, title: string, message: string, openApp?: { href: string; label: string }) =>
+    new Response(messagePage({ title, message, nonce, ...(openApp ? { openApp } : {}) }), { status, headers: trialPageHeaders(nonce) });
   const policy = trialPolicy(env);
   if (!policy.enabled) return page(503, "Free trials are not available", "Free trials are switched off on this service right now.");
   const { minutes, days } = trialOffer(policy);
@@ -305,9 +306,9 @@ async function trialPageRequest(request: Request, env: Env, url: URL): Promise<R
   });
   if (!activation.ok) return page(activation.refusal.status, "The free trial could not start", activation.refusal.message);
   const message = activation.replayed
-    ? `Go back to later.dog. This free trial has ${trialView(activation.trial).minutesLeft} minutes left.`
-    : `Go back to later.dog. You have ${minutes} minutes of cloud computer time to use in the next ${days} days.`;
-  return page(200, "Your free trial has started", message);
+    ? `This free trial has ${trialView(activation.trial).minutesLeft} minutes left. later.dog is starting your cloud computer.`
+    : `You have ${minutes} minutes of cloud computer time in the next ${days} days. later.dog is starting your cloud computer.`;
+  return page(200, "Your free trial has started", message, { href: "laterdog://trial", label: "Open later.dog" });
 }
 
 const NO_ENDPOINT: Refusal = { status: 404, code: "not_found", message: "No such endpoint." };

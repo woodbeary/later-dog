@@ -828,8 +828,6 @@
   "computer.askedHands": "a demandé votre aide :",
   "computer.takeControl": "Prendre la main",
   "computer.dismiss": "Ignorer",
-  "computer.youHaveWheel": "Vous avez la main — les clics et les frappes du chien sont refusés jusqu'à ce que vous la rendiez.",
-  "computer.handBack": "Rendre la main",
   "computer.takeControlVmTitle": "Mettre le contrôle du chien en pause et ouvrir le bureau en direct de la VM locale",
   "computer.takeControlTitle": "Mettre le contrôle du chien en pause et piloter cet ordinateur vous-même",
   "computer.sleepTitle": "Mettre l'ordinateur en veille",

@@ -19,7 +19,7 @@ export interface BrandStatus {
   notice?: string;
 }
 
-export const DEFAULT_BRAND: Brand = { name: "later.dog", tagline: "Dog food your way to the top!", accent: "#24624e" };
+export const DEFAULT_BRAND: Brand = { name: "later.dog", tagline: "Dog food your way to the top!" };
 
 let current: BrandStatus = { brand: DEFAULT_BRAND, source: "default", file: "" };
 

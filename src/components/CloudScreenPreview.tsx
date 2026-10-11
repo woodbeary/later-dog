@@ -1,3 +1,4 @@
+import { cn } from "@/lib/cn";
 import { useEffect, useState } from "react";
 import { Loader2, Maximize2, Monitor } from "lucide-react";
 
@@ -42,7 +43,7 @@ export function CloudScreenPreview({ src, name, error, starting, opening, disabl
             className={`h-full w-full object-contain transition group-hover:brightness-75 ${visible ? "" : "invisible"}`}
           />
           {visible && (
-            <span className="absolute right-2 top-2 flex items-center gap-1 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white">
+            <span className={cn("pointer-events-none absolute flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-sm transition group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100", opening && "opacity-100")}>
               {opening ? <Loader2 size={12} className="animate-spin" /> : <Maximize2 size={12} />}
               {opening ? t("computer.preview.connecting") : t("computer.open")}
             </span>

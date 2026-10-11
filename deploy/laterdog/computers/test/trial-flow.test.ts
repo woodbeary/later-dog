@@ -94,9 +94,10 @@ describe("free trials, end to end", () => {
     expect(await shown(await startTrial(w, key))).toEqual({
       status: 200,
       title: "Your free trial has started",
-      message: "Go back to later.dog. You have 30 minutes of cloud computer time to use in the next 7 days.",
+      message: "You have 30 minutes of cloud computer time in the next 7 days. later.dog is starting your cloud computer.",
     });
     expect(verify).toHaveBeenCalledTimes(1);
+    expect(await (await startTrial(w, key)).text()).toContain('<a href="laterdog://trial">Open later.dog</a>');
     const [url, init] = verify.mock.calls[0]!;
     expect(url).toBe("https://challenges.cloudflare.com/turnstile/v0/siteverify");
     expect(init?.method).toBe("POST");
@@ -123,7 +124,7 @@ describe("free trials, end to end", () => {
     expect(await shown(await startTrial(w, trialKey("a")))).toEqual({
       status: 200,
       title: "Your free trial has started",
-      message: "Go back to later.dog. This free trial has 30 minutes left.",
+      message: "This free trial has 30 minutes left. later.dog is starting your cloud computer.",
     });
 
     expect(await shown(await startTrial(w, trialKey("b")))).toEqual(NETWORK_USED);

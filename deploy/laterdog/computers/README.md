@@ -55,7 +55,7 @@ person's browser ──/desktop/<id>/<token>/──▶ Worker ──fetch──�
   one Durable Object, named `trials`. It starts trials, limits them per network and per day, keeps their minutes and
   deletes their computers when they expire. Each trial lists its computers in its own `ComputerRegistry`.
 - `src/viewer.ts`: the viewer page. It loads noVNC from the same signed path and scales the screen to the window. The
-  person watches by default. **Take over** gives them the mouse and keyboard. **Hand back** returns control to the dog.
+  person can use the mouse and keyboard as soon as the screen appears.
 - `container/`: the image. Debian trixie (`node:24-trixie-slim`), Xvfb at 1280×800, XFCE, x11vnc on localhost,
   websockify and noVNC on port 6080, Chromium, `xdotool`, `scrot`, `xclip`, `git`, `gh`, Node 24. The user is `dog`
   (uid 1000) with passwordless `sudo`.
@@ -179,7 +179,10 @@ How a trial starts:
 1. later.dog makes a trial key, `ldt_` and 43 random base64url characters, and keeps it. It opens
    `/trial?claim=<the key's SHA-256, lowercase hex>` in the person's browser. Only the digest passes through the
    browser, so a copied link does not give anyone the trial.
-2. The page shows a Cloudflare Turnstile check. Once it passes, **Start free trial** posts the form back to `/trial`.
+2. The page shows a Cloudflare Turnstile check. Once it passes, the page posts the form back to `/trial` by itself
+   (**Start free trial** is the same post, for a check that needs a second try). The answer page says the trial has
+   started and opens `laterdog://trial`, which brings later.dog to the front; the app then moves the dog to the free
+   cloud computer and starts it.
 3. The Worker checks, in order: the form came from its own page (`Origin`), it is a small URL-encoded form, the claim is
    well formed, the country is allowed (`TRIAL_COUNTRIES`; empty means everywhere), the network can be identified, and
    Turnstile's siteverify accepts the token for this hostname, the action `trial` and this claim. A token solved for

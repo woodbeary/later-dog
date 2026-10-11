@@ -830,8 +830,6 @@
   "computer.askedHands": "があなたの操作を求めています:",
   "computer.takeControl": "操作を代わる",
   "computer.dismiss": "閉じる",
-  "computer.youHaveWheel": "いまは操作があなたにあります。返すまで犬のクリックやキー入力は拒否されます。",
-  "computer.handBack": "操作を返す",
   "computer.takeControlVmTitle": "犬の操作を止めて、ローカル VM のライブデスクトップを開く",
   "computer.takeControlTitle": "犬の操作を止めて、自分でこのコンピューターを操作する",
   "computer.sleepTitle": "コンピューターをスリープさせる",

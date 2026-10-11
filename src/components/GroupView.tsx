@@ -322,11 +322,11 @@ export const Transcript = memo(function Transcript({
                 <div
                   data-chat-bubble
                   className={cn(
-                    "w-fit max-w-[min(42rem,78%)] rounded-2xl text-[15px] leading-relaxed",
+                    "w-fit max-w-[min(42rem,78%)] rounded-[18px] text-[14px] leading-[21px]",
                     !user && m.id === emergingId && "turn-answer",
                     (user ? sentOnly : !m.text?.trim() && !m.replyToId && m.attachments?.length)
                       ? "text-ink"
-                      : user ? "chat-text whitespace-pre-wrap bg-bubble-user px-4 py-2.5 text-ink" : "bg-card px-4 py-2.5 text-ink",
+                      : user ? "chat-text whitespace-pre-wrap bg-bubble-user px-3 py-[7px] text-ink" : "bg-card px-3 py-[7px] text-ink",
                   )}
                   title={new Date(m.at).toLocaleString()}
                 >
@@ -1437,7 +1437,7 @@ export function GroupView({ group }: { group: Group }) {
               avatar={
                 // the speaker's real profile image when it has one, as in ChatView
                 <BotAvatar
-                  bot={presenceSpeaker ?? { color: "green" }}
+                  bot={presenceSpeaker ?? { color: "yellow" }}
                   state={toolInFlight && !awaited ? "working" : "thinking"}
                   size={36}
                   forward={false}

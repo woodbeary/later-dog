@@ -118,7 +118,7 @@ describe("the Usage page", () => {
     expect(rows()[0]!.textContent).toContain("PersonalMax");
     expect(rows()[0]!.querySelector('[role="meter"]')).not.toBeNull();
     expect(rows()[1]!.textContent).toBe("WorkNot signed in");
-    expect(rows()[2]!.textContent).toBe("ChatGPTCouldn't check usage");
+    expect(rows()[2]!.textContent).toBe("ChatGPT");
     expect(text()).not.toMatch(/API key|Codex|Sign in again/);
   });
 

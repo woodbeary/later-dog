@@ -49,22 +49,21 @@ describe("Account usage presentation", () => {
     expect(html).not.toContain("Weekly");
   });
 
-  it("says a resting account is resting, and gives one quiet line when there is nothing to report", () => {
+  it("says a resting account is resting, and shows nothing when there is nothing real to report", () => {
     const until = new Date(Date.now() + HOUR).toISOString();
     const resting = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now: Date.now(), resting: { until } }));
     expect(resting).toMatch(/Resting until [^<]*\d{1,2}:\d{2}/);
     expect(resting).not.toContain('role="meter"');
     const none = renderToStaticMarkup(createElement(AccountUsage, { provider: undefined, now: Date.now() }));
-    expect(none).toContain("No usage reported yet");
+    expect(none).toBe("");
     const failed = renderToStaticMarkup(createElement(AccountUsage, { provider: provider({ ok: false, error: "Could not reach Claude" }), now: Date.now() }));
-    expect(failed).toContain("Couldn&#x27;t check usage");
-    expect(failed).not.toContain('role="meter"');
+    expect(failed).toBe("");
   });
 
   it("never tells a signed-in account to sign in again, and never names Codex", () => {
     for (const error of ["Sign in again in Claude", "Sign in again in Codex", "Could not reach Codex", "Codex returned an unexpected usage response"]) {
       const html = renderToStaticMarkup(createElement(AccountUsage, { provider: provider({ ok: false, error }), now: Date.now() }));
-      expect(html).toBe('<p class="text-[12px] text-ink-secondary">Couldn&#x27;t check usage</p>');
+      expect(html).toBe("");
     }
   });
 });

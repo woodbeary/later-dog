@@ -273,8 +273,14 @@ function queuePackageInstall(rawLink) {
   return true;
 }
 
+function focusFromTrialLink(url) {
+  if (!/^laterdog:\/\/trial(?:[/?#]|$)/i.test(String(url))) return false;
+  if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
+  return true;
+}
+
 app.on("open-url", (event, url) => {
-  if (!queueOrganizationEntry(url) && !cloudEntry.fromUrl(url) && !queuePackageInstall(url)) return;
+  if (!queueOrganizationEntry(url) && !cloudEntry.fromUrl(url) && !queuePackageInstall(url) && !focusFromTrialLink(url)) return;
   event.preventDefault();
 });
 
@@ -1583,9 +1589,12 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
   desktopViewerOwner = owner.webContents;
   desktopViewerContextId = nextContextId;
 
+  const cover = owner.getBounds();
   const viewer = new BrowserWindow({
-    width: 1220,
-    height: 820,
+    x: cover.x,
+    y: cover.y,
+    width: Math.max(760, cover.width),
+    height: Math.max(520, cover.height),
     minWidth: 760,
     minHeight: 520,
     parent: owner,

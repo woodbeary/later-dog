@@ -38,7 +38,8 @@ fi
 chmod 600 "$key_file"
 tr -d '\n' < "$key_file" | shasum -a 256 | cut -d ' ' -f 1 | tr -d '\n' | pnpm exec wrangler secret put COMPUTERS_KEY_SHA256
 
-if ! pnpm exec wrangler secret list --format json 2>/dev/null | grep -q '"DESKTOP_SIGNING_KEY"'; then
+secrets="$(pnpm exec wrangler secret list --format json)" || { echo "Could not list the Worker's secrets, so DESKTOP_SIGNING_KEY was left alone." >&2; exit 1; }
+if ! grep -q '"DESKTOP_SIGNING_KEY"' <<<"$secrets"; then
   openssl rand -base64 48 | tr -d '\n' | pnpm exec wrangler secret put DESKTOP_SIGNING_KEY
 fi
 

@@ -80,7 +80,7 @@ export function Hands({ playing, onCue, onEnded, label }: SceneProps) {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center justify-between border-b border-hairline/40 px-3 py-2">
             <div className="flex items-center gap-2">
-              <DogAvatar color="green" state={busy ? "working" : replied ? "proud" : "happy"} size={18} animated={!still} trackPointer={false} />
+              <DogAvatar color="yellow" state={busy ? "working" : replied ? "proud" : "happy"} size={18} animated={!still} trackPointer={false} />
               <span className="text-[12px] font-semibold text-ink">later.dog</span>
             </div>
             <span className={cn("flex size-6 items-center justify-center rounded-md transition-colors duration-300", panel ? "bg-raised text-accent" : "text-ink-secondary")}>
@@ -93,7 +93,7 @@ export function Hands({ playing, onCue, onEnded, label }: SceneProps) {
             </div>
             {awake && (
               <div className="animate-rise flex items-start gap-2">
-                <DogAvatar color="green" state={busy ? "working" : "proud"} size={22} animated={!still} trackPointer={false} />
+                <DogAvatar color="yellow" state={busy ? "working" : "proud"} size={22} animated={!still} trackPointer={false} />
                 <div className="min-w-0">
                   <div className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-medium transition-colors duration-300", done ? "bg-success/15 text-success" : "bg-raised text-ink-secondary")}>
                     {done ? <Check size={10} strokeWidth={3} /> : <Loader2 size={10} className="animate-spin" />}

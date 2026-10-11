@@ -1,28 +1,29 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { api, useStore, type ConfigStatus, type InstanceInfo } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { subscribeAddAccount } from "@/lib/add-account-request";
 import { Switch } from "./SettingsPrimitives";
 import { ClaudeMark, CodexMark } from "./ProviderIcons";
-import { ConfirmDialog } from "./ConfirmDialog";
 import { ClaudeSignIn } from "./ClaudeSignIn";
 import { DeviceSignIn } from "./DeviceSignIn";
-import { AccountUsage, usePlanUsage, type PlanProvider } from "./PlanUsage";
+import { resetClock, usageLines, usageReading, usePlanUsage, type PlanProvider } from "./PlanUsage";
 
 type Battery = NonNullable<ConfigStatus["accountBattery"]>;
 type Rest = NonNullable<Battery["resting"]>[string];
 export type AccountKind = "claudeAgent" | "codex";
 
-export const ACCOUNT_ENGINES: ReadonlyArray<{ kind: AccountKind; name: string; route: string }> = [
-  { kind: "claudeAgent", name: "Claude", route: "/api/instances/claude-accounts" },
-  { kind: "codex", name: "ChatGPT", route: "/api/instances/chatgpt-accounts" },
+export const ACCOUNT_ENGINES: ReadonlyArray<{ kind: AccountKind; name: string; route: string; defaultId: string }> = [
+  { kind: "claudeAgent", name: "Claude", route: "/api/instances/claude-accounts", defaultId: "claude" },
+  { kind: "codex", name: "ChatGPT", route: "/api/instances/chatgpt-accounts", defaultId: "chatgpt" },
 ];
 
 const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex"]);
 
 export const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
+const primary = cn(pill, "bg-accent text-white hover:bg-accent");
+const ROW = "flex h-14 items-center gap-3 px-4";
 
 export function signedIn(instance: InstanceInfo): boolean {
   return instance.snapshot.state !== "unavailable" && instance.snapshot.authenticated !== false;
@@ -50,6 +51,42 @@ function eligible(instance: InstanceInfo): boolean {
 
 export function removable(instance: InstanceInfo): boolean {
   return !DEFAULT_ACCOUNT_IDS.has(instance.instanceId) && instance.claudeAccount?.isDefault !== true;
+}
+
+export function realAccount(instance: InstanceInfo): boolean {
+  return signedIn(instance) || removable(instance);
+}
+
+function unusedDefault(instances: readonly InstanceInfo[], kind: AccountKind): InstanceInfo | undefined {
+  const id = ACCOUNT_ENGINES.find((engine) => engine.kind === kind)?.defaultId;
+  return subscriptionAccounts(instances, undefined).find((instance) =>
+    instance.instanceId === id && !signedIn(instance) && instance.authentication !== undefined);
+}
+
+function rowUsage(provider: PlanProvider | undefined, rest: Rest | undefined, now: number): { text: string; detail: string } | null {
+  if (rest && Date.parse(rest.until) > now) {
+    const text = t("accounts.resting", { time: resetClock(rest.until, now) });
+    return { text, detail: text };
+  }
+  const reading = usageReading(provider);
+  return reading ? { text: t("planUsage.used", { used: Math.round(reading.used) }), detail: usageLines(provider, now).join("\n") } : null;
+}
+
+function useListedAccounts(accounts: readonly InstanceInfo[]) {
+  const [kept, setKept] = useState<ReadonlySet<string>>(() => new Set());
+  const real = accounts.filter(realAccount).map((account) => account.instanceId).join("\n");
+  useEffect(() => {
+    if (!real) return;
+    const ids = real.split("\n");
+    setKept((previous) => (ids.every((id) => previous.has(id)) ? previous : new Set([...previous, ...ids])));
+  }, [real]);
+  const forget = (instanceId: string) => setKept((previous) => {
+    if (!previous.has(instanceId)) return previous;
+    const next = new Set(previous);
+    next.delete(instanceId);
+    return next;
+  });
+  return { listed: accounts.filter((account) => realAccount(account) || kept.has(account.instanceId)), forget };
 }
 
 export function accountOrder(accounts: readonly InstanceInfo[]): Record<string, string[]> {
@@ -111,48 +148,45 @@ function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {
   return kind === "codex" ? <CodexMark size={size} /> : <ClaudeMark size={size} />;
 }
 
-function AccountRow({ instance, provider, loading, rest, now, onSignIn }: {
+function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
   instance: InstanceInfo;
   provider: PlanProvider | undefined;
-  loading: boolean;
   rest: Rest | undefined;
   now: number;
+  only: boolean;
   onSignIn: () => void;
+  onGone: () => void;
 }) {
   const { dispatch } = useStore();
   const [draft, setDraft] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"rename" | "signOut" | "remove" | null>(null);
-  const [confirm, setConfirm] = useState<"signOut" | "remove" | null>(null);
+  const [busy, setBusy] = useState<"rename" | "remove" | null>(null);
+  const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const removeButton = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
   const isSignedIn = signedIn(instance);
   const email = isSignedIn ? instance.snapshot.account?.email : undefined;
   const plan = provider?.plan ?? (instance.snapshot.chatgptPlan ? "ChatGPT" : null);
-  const canSignOut = isSignedIn && instance.authentication?.signOut === true;
+  const signsOut = isSignedIn && instance.authentication?.signOut === true;
+  const canRemove = removable(instance) || !isSignedIn || signsOut;
+  const usage = isSignedIn ? rowUsage(provider, rest, now) : null;
+  const name = instance.displayName;
   const id = encodeURIComponent(instance.instanceId);
 
+  useEffect(() => {
+    if (asking || !refocus.current) return;
+    refocus.current = false;
+    removeButton.current?.focus();
+  }, [asking]);
+
   const rename = async () => {
-    const name = draft?.trim() ?? "";
+    const next = draft?.trim() ?? "";
     setDraft(null);
-    if (!name || name === instance.displayName || busy) return;
+    if (!next || next === name || busy) return;
     setBusy("rename");
     setError(null);
     try {
-      const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, { method: "PATCH", body: JSON.stringify({ displayName: name }) });
-      dispatch({ type: "instances", instances });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const signOut = async () => {
-    setConfirm(null);
-    if (busy || !canSignOut) return;
-    setBusy("signOut");
-    setError(null);
-    try {
-      const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}/auth/sign-out`, { method: "POST" });
+      const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, { method: "PATCH", body: JSON.stringify({ displayName: next }) });
       dispatch({ type: "instances", instances });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -162,18 +196,26 @@ function AccountRow({ instance, provider, loading, rest, now, onSignIn }: {
   };
 
   const remove = async () => {
-    setConfirm(null);
-    if (busy || !removable(instance)) return;
+    setAsking(false);
+    if (busy || !canRemove) return;
     setBusy("remove");
     setError(null);
+    let instances: InstanceInfo[] | null = null;
     try {
-      const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, { method: "DELETE" });
-      dispatch({ type: "instances", instances });
+      if (signsOut) instances = (await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}/auth/sign-out`, { method: "POST" })).instances;
+      if (removable(instance)) instances = (await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, { method: "DELETE" })).instances;
+      onGone();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
+      if (instances) dispatch({ type: "instances", instances });
       setBusy(null);
     }
+  };
+
+  const cancel = () => {
+    refocus.current = true;
+    setAsking(false);
   };
 
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -182,76 +224,78 @@ function AccountRow({ instance, provider, loading, rest, now, onSignIn }: {
   };
 
   return (
-    <li className="flex flex-col gap-2 px-4 py-3" data-account={instance.instanceId}>
-      <div className="flex items-start gap-3">
-        <span aria-hidden="true" className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
+    <li data-account={instance.instanceId}>
+      <div data-account-row className={ROW}>
+        <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
           <AccountMark kind={instance.driverKind} />
         </span>
-        <div className="min-w-0 flex-1">
-          {draft === null ? (
-            <button
-              type="button"
-              onClick={() => setDraft(instance.displayName)}
-              aria-label={t("accounts.rename", { name: instance.displayName })}
-              title={t("accounts.rename", { name: instance.displayName })}
-              className="max-w-full truncate rounded-md text-left text-[13px] font-medium text-ink hover:bg-control"
-            >
-              {busy === "rename" ? <Loader2 size={12} className="mr-1 inline animate-spin" /> : null}{instance.displayName}
-            </button>
-          ) : (
-            <input
-              autoFocus
-              value={draft}
-              aria-label={t("accounts.nameLabel")}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={onKey}
-              onBlur={() => void rename()}
-              className="w-full max-w-xs rounded-md border border-hairline/40 bg-inset px-2 py-0.5 text-[13px] text-ink outline-none focus:border-accent-border"
-            />
-          )}
-          <p className="truncate text-[12px] text-ink-secondary">
-            {isSignedIn ? [email, plan].filter(Boolean).join(" · ") || t("accounts.signedIn") : t("accounts.signedOut")}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {!isSignedIn && (
-            <button type="button" onClick={onSignIn} className={pill}>{t("accounts.signIn")}</button>
-          )}
-          {canSignOut && (
-            <button type="button" disabled={busy !== null} onClick={() => setConfirm("signOut")} className={pill}>
-              {busy === "signOut" ? t("engines.account.signingOut") : t("accounts.signOut")}
-            </button>
-          )}
-          {removable(instance) && (
-            <button type="button" disabled={busy !== null} onClick={() => setConfirm("remove")} className="rounded-full px-2 py-1.5 text-[13px] font-medium text-danger/70 hover:bg-control hover:text-danger disabled:opacity-45">
-              {t("accounts.remove")}
-            </button>
-          )}
-        </div>
+        {asking ? (
+          <div
+            role="group"
+            aria-label={t("accounts.removeTitle", { name })}
+            onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); cancel(); } }}
+            className="flex min-w-0 flex-1 items-center gap-2"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium leading-5 text-ink">{t("accounts.removeTitle", { name })}</p>
+              <p className="truncate text-[12px] leading-4 text-ink-secondary">{only ? t("accounts.onlyAccount") : t("accounts.signsOutHere", { name })}</p>
+            </div>
+            <button type="button" autoFocus onClick={cancel} className={pill}>{t("common.cancel")}</button>
+            <button type="button" onClick={() => void remove()} className={primary}>{t("accounts.remove")}</button>
+          </div>
+        ) : (
+          <>
+            <div data-account-text className="min-w-0 flex-1">
+              <div className="flex h-5 items-center">
+                {draft === null ? (
+                  <button
+                    type="button"
+                    onClick={() => setDraft(name)}
+                    aria-label={t("accounts.rename", { name })}
+                    title={t("accounts.rename", { name })}
+                    className="max-w-full truncate rounded-md text-left text-[13px] font-medium leading-5 text-ink hover:bg-control"
+                  >
+                    {busy === "rename" ? <Loader2 size={12} className="mr-1 inline animate-spin" /> : null}{name}
+                  </button>
+                ) : (
+                  <input
+                    autoFocus
+                    value={draft}
+                    aria-label={t("accounts.nameLabel")}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={onKey}
+                    onBlur={() => void rename()}
+                    className="h-5 w-full max-w-xs rounded-md border border-hairline/40 bg-inset px-1.5 text-[13px] text-ink outline-none focus:border-accent-border"
+                  />
+                )}
+              </div>
+              <p className="h-4 truncate text-[12px] leading-4 text-ink-secondary">
+                {isSignedIn ? [email, plan].filter(Boolean).join(" · ") || t("accounts.signedIn") : t("accounts.signedOut")}
+              </p>
+            </div>
+            {usage && (
+              <span data-account-usage title={usage.detail} className="shrink-0 text-[12px] tabular-nums text-ink-secondary">{usage.text}</span>
+            )}
+            {!isSignedIn && (
+              <button type="button" disabled={busy !== null} onClick={onSignIn} className={pill}>{t("accounts.signIn")}</button>
+            )}
+            {canRemove && (
+              <button
+                ref={removeButton}
+                type="button"
+                disabled={busy !== null}
+                onClick={() => (only || signsOut ? setAsking(true) : void remove())}
+                aria-label={t("accounts.removeLabel", { name })}
+                title={t("accounts.removeLabel", { name })}
+                className="ui-icon-button shrink-0"
+              >
+                {busy === "remove" ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+              </button>
+            )}
+          </>
+        )}
       </div>
-      {isSignedIn && (
-        <div className="pl-11">
-          <AccountUsage provider={provider} loading={loading} now={now} resting={rest} />
-        </div>
-      )}
-      {error && <p role="alert" className="pl-11 text-[12px] text-danger">{error}</p>}
-      <ConfirmDialog
-        open={confirm === "signOut"}
-        title={t("accounts.signOutTitle", { name: instance.displayName })}
-        body={t("accounts.signOutBody")}
-        confirmLabel={t("accounts.signOut")}
-        onCancel={() => setConfirm(null)}
-        onConfirm={() => void signOut()}
-      />
-      <ConfirmDialog
-        open={confirm === "remove"}
-        title={t("accounts.removeTitle", { name: instance.displayName })}
-        body={t("accounts.removeBody")}
-        confirmLabel={t("accounts.remove")}
-        tone="neutral"
-        onCancel={() => setConfirm(null)}
-        onConfirm={() => void remove()}
-      />
+      {error && <p role="alert" className="pb-3 pl-15 pr-4 text-[12px] text-danger">{error}</p>}
     </li>
   );
 }
@@ -307,7 +351,10 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
                 <button
                   key={candidate.kind}
                   type="button"
-                  onClick={() => onStep({ step: "name", kind: candidate.kind })}
+                  onClick={() => {
+                    const unused = unusedDefault(instances, candidate.kind);
+                    onStep(unused ? { step: "signIn", instanceId: unused.instanceId } : { step: "name", kind: candidate.kind });
+                  }}
                   className="flex flex-col items-center gap-2 rounded-xl bg-card px-3 py-4 text-[13px] font-medium text-ink hover:bg-raised-hover"
                 >
                   <AccountMark kind={candidate.kind} size={28} />
@@ -334,7 +381,7 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
             {error && <p role="alert" className="text-[12px] text-danger">{error}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => onStep({ step: "pick" })} disabled={creating} className={pill}>{t("accounts.sheet.back")}</button>
-              <button type="submit" disabled={creating || !name.trim()} className={cn(pill, "bg-accent text-white hover:bg-accent")}>
+              <button type="submit" disabled={creating || !name.trim()} className={primary}>
                 {creating ? t("accounts.sheet.adding") : t("accounts.sheet.continue")}
               </button>
             </div>
@@ -367,8 +414,10 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
 export function AccountsPanel() {
   const { state, dispatch } = useStore();
   const battery = state.config?.accountBattery;
-  const accounts = subscriptionAccounts(state.instances, battery);
-  const { report, loading, now } = usePlanUsage();
+  const { listed: accounts, forget } = useListedAccounts(subscriptionAccounts(state.instances, battery));
+  const loaded = state.instances.length > 0;
+  const signedInCount = accounts.filter(signedIn).length;
+  const { report, now } = usePlanUsage();
   const [sheet, setSheet] = useState<SheetStep | null>(null);
   const carryOn = useCarryOn();
   const instancesRef = useRef(state.instances);
@@ -394,8 +443,18 @@ export function AccountsPanel() {
   return (
     <section className="flex flex-col" data-accounts-panel>
       <div className="rounded-xl bg-card">
-        {accounts.length === 0 ? (
-          <p className="px-4 py-3 text-[13px] text-ink-secondary">{t("accounts.empty")}</p>
+        {!loaded ? (
+          <div aria-hidden="true" data-account-skeleton className={ROW}>
+            <span className="size-8 shrink-0 rounded-lg bg-control" />
+            <span className="flex min-w-0 flex-1 flex-col gap-2">
+              <span className="h-3 w-24 rounded-full bg-control" />
+              <span className="h-2.5 w-40 max-w-full rounded-full bg-control" />
+            </span>
+          </div>
+        ) : accounts.length === 0 ? (
+          <div data-accounts-empty className={ROW}>
+            <p className="min-w-0 text-[13px] leading-5 text-ink-secondary">{t("accounts.empty")}</p>
+          </div>
         ) : (
           <ul className="divide-y divide-hairline/40">
             {accounts.map((instance) => (
@@ -403,15 +462,16 @@ export function AccountsPanel() {
                 key={instance.instanceId}
                 instance={instance}
                 provider={report?.providers.find((provider) => provider.id === instance.instanceId)}
-                loading={loading}
                 rest={battery?.resting?.[instance.instanceId]}
                 now={now}
+                only={signedIn(instance) && signedInCount === 1}
                 onSignIn={() => setSheet({ step: "signIn", instanceId: instance.instanceId })}
+                onGone={() => forget(instance.instanceId)}
               />
             ))}
           </ul>
         )}
-        <div className="flex items-center justify-between gap-3 border-t border-hairline/40 px-4 py-3">
+        <div className="flex items-center gap-3 border-t border-hairline/40 px-4 py-3">
           <button type="button" onClick={() => setSheet({ step: "pick" })} className={pill}>{t("accounts.add")}</button>
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-hairline/40 px-4 py-3">

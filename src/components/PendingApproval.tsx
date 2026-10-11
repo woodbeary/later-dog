@@ -4,9 +4,10 @@
 // is being asked, and the send row is replaced by the decisions.
 //
 // Faithful details worth keeping: one at a time with an "n of N" counter,
-// the detail printed raw in a monospace block that is NEVER truncated
+// the raw detail one click away under View details and NEVER truncated
 // (it scrolls instead), and the buttons ordered least-destructive-last so
 // the primary action sits under your thumb.
+import { AlertTriangle, ChevronRight } from "lucide-react";
 import { memo } from "react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -162,33 +163,21 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
               ? t("approval.aria.pendingProfile")
               : t("approval.aria.pending")
       }
-      className="rounded-t-2xl border-b border-hairline/50 bg-control/40 px-4 py-3"
+      className="rounded-t-[18px] bg-card px-4 pb-1 pt-3"
     >
       <div className="flex flex-wrap items-center gap-2" aria-live="polite">
-        <span className="text-[11px] uppercase tracking-[0.18em] text-ink-secondary">
-          {t("approval.pending")}
-        </span>
+        <span className="sr-only">{t("approval.pending")}</span>
+        <AlertTriangle size={15} className="shrink-0 text-warning" aria-hidden="true" />
         {count > 1 && (
           <span className="rounded-full bg-control px-1.5 py-0.5 text-[11px] tabular-nums text-ink-secondary">
             {t("approval.position", { index: index + 1, count })}
           </span>
         )}
-        <span className="text-[13px] text-ink">{outbound ? outbound.headline : label(pending)}</span>
-        {outbound ? (
-          outbound.summary && <span className="text-[13px] text-ink-secondary">{outbound.summary}</span>
-        ) : !pending.message.card?.teamSetupRequest && <span className="font-mono text-[11px] text-ink-secondary">
-          {isSkillApproval(pending)
-            ? pending.message.card?.skillRequest?.action === "update" ? "update_skill" : "stage_skill"
-            : isRoutineApproval(pending)
-            ? pending.message.card?.routineRequest?.operation.action === "create"
-              ? "schedule_routine"
-              : "manage_routine"
-            : isProfileApproval(pending)
-              ? "update_profile"
-              : pending.tool}
-        </span>}
+        <span className="text-[14px] font-semibold text-ink">{outbound ? outbound.headline : label(pending)}</span>
+        {outbound && outbound.summary && <span className="text-[13px] text-ink-secondary">{outbound.summary}</span>}
       </div>
-      {/* never truncated — long commands wrap and scroll */}
+      <details className="group mt-1.5 text-[13px] text-ink-secondary">
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 hover:text-ink">{t("approval.viewDetails")}<ChevronRight size={13} className="transition-transform group-open:rotate-90" aria-hidden="true" /></summary>
       <pre
         tabIndex={0}
         aria-label={
@@ -204,6 +193,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
       >
         {pending.commandAllowlist?.command ?? pending.detail}
       </pre>
+      </details>
       {pending.message.card?.skillRequest && (
         <SkillRequestPreview request={pending.message.card.skillRequest} />
       )}
@@ -251,8 +241,11 @@ export function PendingApprovalActions({
     });
 
   const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
+  const quiet = "bg-control text-ink hover:bg-raised-hover";
+  const primary = "bg-accent font-medium text-white hover:brightness-110";
+  const alwaysIsPrimary = !durableRequest && Boolean((bot && pending.allowKey) || (!pending.allowKey && !canRememberCommand && pending.allowSession));
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 px-2 py-2">
+    <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-[18px] bg-card px-3 pb-3 pt-1">
       {!durableRequest && (
         <button onClick={onCancelTurn} className={cn(base, "text-ink-secondary hover:bg-control hover:text-ink")}>
           {t("approval.action.cancelTurn")}
@@ -261,7 +254,7 @@ export function PendingApprovalActions({
       <button
         onClick={() => decide("deny")}
         autoFocus={isTeamSetup}
-        className={cn(base, "border border-danger/40 text-danger hover:bg-danger/10")}
+        className={cn(base, quiet)}
       >
         {isRoutineRequest || isProfileRequest || isTeamSetup ? t("approval.action.cancel") : t("approval.action.deny")}
       </button>
@@ -269,7 +262,7 @@ export function PendingApprovalActions({
         <button
           onClick={() => decide("allow", true)}
           title={t("approval.action.stopAsking", { name: bot.name, key: pending.allowKey })}
-          className={cn(base, "border border-hairline/50 text-ink hover:bg-control")}
+          className={cn(base, primary)}
         >
           {t("approval.action.alwaysAllow")}
         </button>
@@ -278,7 +271,7 @@ export function PendingApprovalActions({
         <button
           onClick={() => decide("allow", true)}
           title={t("approval.action.alwaysAllowSessionHint")}
-          className={cn(base, "border border-hairline/50 text-ink hover:bg-control")}
+          className={cn(base, primary)}
         >
           {t("approval.action.alwaysAllowSession")}
         </button>
@@ -287,7 +280,7 @@ export function PendingApprovalActions({
         <button
           onClick={() => decide("allow", false, true)}
           title={t("approval.action.alwaysAllowCommandHint", { cwd: pending.commandAllowlist.cwd })}
-          className={cn(base, "border border-hairline/50 text-ink hover:bg-control")}
+          className={cn(base, quiet)}
         >
           {t("approval.action.alwaysAllowCommand")}
         </button>
@@ -297,7 +290,8 @@ export function PendingApprovalActions({
         disabled={isSkillRequest && !reviewedSha256}
         className={cn(
           base,
-          "bg-accent font-medium text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40",
+          alwaysIsPrimary ? quiet : primary,
+          "disabled:cursor-not-allowed disabled:opacity-40",
         )}
       >
         {isTeamSetup ? pending.message.card?.options[0] : isSkillRequest

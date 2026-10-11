@@ -240,4 +240,37 @@ for (const skinId of ["daylight", "meadow"]) {
   if (!bubbleFailed) console.log(`✓ ${skinId} bubble — editor, controls and paired fills above 4.5:1`);
 }
 
+const tintInk = declarations(css.match(/\.bg-bubble-user\[data-dog-tint\]\s*\{([^}]*)\}/)?.[1] ?? "");
+const tints = [...css.matchAll(/\.bg-bubble-user\[data-dog-tint="([a-z]+)"\]\s*\{([^}]*)\}/g)];
+if (!tints.length || !tintInk["--color-ink"]) {
+  failed = true;
+  console.log("✗ dog-colored bubbles — no tint rules found");
+}
+for (const [, tint, body] of tints) {
+  const bubble = { ...tintInk, ...declarations(body) };
+  let tintFailed = false;
+  for (const [fg, bg] of [
+    ["--color-ink", "--color-bubble-user"],
+    ["--color-bubble-user-ink", "--color-bubble-user"],
+    ["--color-ink-secondary", "--color-bubble-user"],
+    ["--color-ink-tertiary", "--color-bubble-user"],
+    ["--color-accent-text", "--color-bubble-user"],
+    ["--color-ink", "--color-raised"],
+    ["--color-ink-secondary", "--color-raised-hover"],
+    ["--color-ink-tertiary", "--color-inset"],
+    ["--color-ink", "--color-control"],
+    ["--color-accent-ink", "--color-accent"],
+    ["--color-danger-ink", "--color-danger"],
+    ["--color-success-ink", "--color-success"],
+  ]) {
+    const ratio = contrast(bubble[fg] ?? "", bubble[bg] ?? "");
+    if (ratio === null || ratio < 4.5) {
+      failed = true;
+      tintFailed = true;
+      console.log(`✗ ${tint} bubble — ${fg} on ${bg}: ${ratio?.toFixed(2) ?? "unmeasurable"}:1 (needs 4.5:1)`);
+    }
+  }
+  if (!tintFailed) console.log(`✓ ${tint} bubble — text and fills above 4.5:1`);
+}
+
 process.exit(failed ? 1 : 0);

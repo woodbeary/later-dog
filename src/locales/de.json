@@ -835,8 +835,6 @@
   "computer.askedHands": "braucht deine Hilfe:",
   "computer.takeControl": "Steuerung übernehmen",
   "computer.dismiss": "Verwerfen",
-  "computer.youHaveWheel": "Du hast das Steuer — Klicks und Tastendrücke des Hundes werden abgelehnt, bis du es zurückgibst.",
-  "computer.handBack": "Steuerung zurückgeben",
   "computer.takeControlVmTitle": "Die Steuerung des Hundes pausieren und den Live-Desktop der lokalen VM öffnen",
   "computer.takeControlTitle": "Die Steuerung des Hundes pausieren und diesen Computer selbst bedienen",
   "computer.sleepTitle": "Den Computer schlafen legen",

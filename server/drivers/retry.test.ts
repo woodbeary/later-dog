@@ -137,6 +137,8 @@ describe("classifyError — usage limits", () => {
       "You've hit your Opus limit · resets 3pm (America/Los_Angeles)",
       "You've hit your Sonnet limit · resets 3pm (America/Los_Angeles)",
       "You've hit your limit · resets 3pm (America/Los_Angeles)",
+      "You've reached your Fable limit. Switch to another model to continue.",
+      "You've hit your Haiku limit · resets 3pm (America/Los_Angeles)",
     ]) {
       expect(classifyError({ text }), text).toEqual({ transient: false, reason: "quota" });
       expect(classifyError({ exitCode: 1, stderr: text }), text).toEqual({ transient: false, reason: "quota" });

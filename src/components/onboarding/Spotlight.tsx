@@ -257,7 +257,7 @@ export function Spotlight({
         >
           <div className="shrink-0 drop-shadow-[0_6px_14px_rgba(0,0,0,0.35)]">
             <DogAvatar
-              color="green"
+              color="yellow"
               state={mascot}
               size={38}
               trackPointer={false}

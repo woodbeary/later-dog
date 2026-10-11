@@ -841,8 +841,6 @@
   "computer.askedHands": "pediu sua ajuda:",
   "computer.takeControl": "Assumir o controle",
   "computer.dismiss": "Dispensar",
-  "computer.youHaveWheel": "Você está no comando — os cliques e teclas do cachorro são recusados até você devolver.",
-  "computer.handBack": "Devolver o controle",
   "computer.takeControlVmTitle": "Pausar o controle do cachorro e abrir o desktop ao vivo da VM local",
   "computer.takeControlTitle": "Pausar o controle do cachorro e conduzir este computador você mesmo",
   "computer.sleepTitle": "Colocar o computador para dormir",

@@ -967,8 +967,8 @@ export function Composer({
           data-tour="composer"
           data-expanded={expanded || undefined}
           className={cn(
-            "@container/composer relative z-[1] bg-composer px-2 py-1.5 ring-1 ring-composer-ring transition-[border-radius] duration-200",
-            expanded ? "rounded-[20px]" : "rounded-3xl",
+            "@container/composer relative z-[1] bg-composer px-2 py-1.5 ring-[0.5px] ring-ink/30 shadow-[0_2px_8px_-1px_rgba(0,0,0,0.05),0_1px_2px_rgba(0,0,0,0.03)] transition-[border-radius] duration-200",
+            expanded ? "rounded-[20px]" : "rounded-[22px]",
           )}
         >
         {replyTo && (
@@ -1164,7 +1164,7 @@ export function Composer({
                   : t("composer.placeholder.bot", { name: bot?.name ?? "" })
           }
           aria-label={t("composer.placeholder.bot", { name: group ? group.name : (bot?.name ?? "") })}
-            className="block max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-[15px] leading-6 placeholder:text-ink-secondary focus:outline-none"
+            className="block max-h-[9rem] min-h-5 w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-[14px] leading-5 placeholder:text-ink-secondary focus:outline-none"
           />
           <div data-composer-actions className="ml-auto flex items-center gap-1">
           {!locked && modeBot && approvalEngine && !remoteClient && (

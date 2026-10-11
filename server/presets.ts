@@ -524,7 +524,7 @@ export function presetFromDefaults(defaults: NewBotDefaults | undefined, options
   if (profile.color || mascotExpression || mascotBody || options.avatar) {
     const crop = profile.avatarCrop === "rounded" || profile.avatarCrop === "square" ? profile.avatarCrop : "circle";
     bot.appearance = {
-      color: profile.color ?? "green",
+      color: profile.color ?? "yellow",
       ...(mascotExpression ? { mascotExpression } : {}),
       ...(mascotBody ? { mascotBody } : {}),
       ...(options.avatar ? { avatar: { ...options.avatar, crop } } : {}),

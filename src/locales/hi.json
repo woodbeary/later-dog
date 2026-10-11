@@ -828,8 +828,6 @@
   "computer.askedHands": "ने आपकी मदद माँगी:",
   "computer.takeControl": "नियंत्रण लें",
   "computer.dismiss": "खारिज करें",
-  "computer.youHaveWheel": "अभी नियंत्रण आपके पास है — जब तक आप लौटाते नहीं, कुत्ते के क्लिक और कीस्ट्रोक अस्वीकार होंगे।",
-  "computer.handBack": "नियंत्रण लौटाएँ",
   "computer.takeControlVmTitle": "कुत्ते का नियंत्रण रोकें और लोकल VM का लाइव डेस्कटॉप खोलें",
   "computer.takeControlTitle": "कुत्ते का नियंत्रण रोकें और इस कंप्यूटर को खुद चलाएँ",
   "computer.sleepTitle": "कंप्यूटर को सुला दें",

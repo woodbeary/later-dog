@@ -2,13 +2,13 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { signedIn, subscriptionAccounts } from "./AccountsPanel";
+import { realAccount, signedIn, subscriptionAccounts } from "./AccountsPanel";
 import { AccountUsage, usePlanUsage } from "./PlanUsage";
 
 export function UsageAccounts() {
   const { state } = useStore();
   const battery = state.config?.accountBattery;
-  const accounts = subscriptionAccounts(state.instances, battery);
+  const accounts = subscriptionAccounts(state.instances, battery).filter(realAccount);
   const { report, loading, error, now, reload } = usePlanUsage();
   return (
     <section data-plan-usage="" className="flex flex-col gap-1.5">

@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { DogAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { DOG_COLOR_NAMES, DOG_COLORS, type DogColor } from "@/lib/mascot";
+import { DEFAULT_DOG_COLOR, DOG_COLOR_NAMES, DOG_COLORS, type DogColor } from "@/lib/mascot";
 import { api, type Bot } from "@/state/store";
 import { DEFAULT_MASCOT_BODY, MASCOT_BODIES, MASCOT_BODY_IDS, type MascotBodyId } from "../../../../shared/mascot-bodies";
 import { isDogBreed } from "@/components/DogAvatar";
@@ -28,7 +28,7 @@ export function MeetYourBotBeat({
   onFinish: () => void;
 }) {
   const [name, setName] = useState(bot?.name ?? "");
-  const [color, setColor] = useState<DogColor>(bot?.color ?? "green");
+  const [color, setColor] = useState<DogColor>(bot?.color ?? DEFAULT_DOG_COLOR);
   const [breed, setBreed] = useState<MascotBodyId>(bot?.mascotBody && isDogBreed(bot.mascotBody) ? bot.mascotBody : DEFAULT_MASCOT_BODY);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);

@@ -1234,8 +1234,6 @@
   "computer.askedHands": "請求你動手協助：",
   "computer.takeControl": "接手控制",
   "computer.dismiss": "關閉",
-  "computer.youHaveWheel": "現在由你操控 — 在你交還控制權之前，狗狗的點擊與按鍵都會被拒絕。",
-  "computer.handBack": "交還控制權",
   "computer.takeControlVmTitle": "暫停狗狗的操作，並開啟本機 VM 的即時桌面",
   "computer.takeControlTitle": "暫停狗狗的操作，改由你自己操控這台電腦",
   "computer.sleepTitle": "讓電腦進入睡眠",

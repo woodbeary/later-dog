@@ -17,7 +17,7 @@
 export interface UsageLimit {
   /** ISO time the limit resets, when the frame or its words say. */
   resetsAt?: string;
-  /** Which limit: session, weekly, daily, monthly, opus, sonnet, usage, or
+  /** Which limit: session, weekly, daily, monthly, opus, sonnet, haiku, fable, usage, or
    * the CLI's own rateLimitType when it names another. */
   kind?: string;
 }
@@ -26,8 +26,8 @@ type Frame = Record<string, unknown>;
 
 /** The wording of a reached subscription limit. Kept in step with the quota
  * class in server/drivers/retry.ts. */
-const LIMIT_WORDS = /\b(?:hit|reached) your (?:(?:5-hour|session|weekly|daily|monthly|opus|sonnet|usage) )?limit\b|\b(?:usage|5-hour|session|weekly|daily|monthly) limit reached\b/i;
-const LIMIT_KIND_WORDS = /\b(?:hit|reached) your (5-hour|session|weekly|daily|monthly|opus|sonnet|usage) limit\b/i;
+const LIMIT_WORDS = /\b(?:hit|reached) your (?:(?:5-hour|session|weekly|daily|monthly|opus|sonnet|haiku|fable|usage) )?limit\b|\b(?:usage|5-hour|session|weekly|daily|monthly) limit reached\b/i;
+const LIMIT_KIND_WORDS = /\b(?:hit|reached) your (5-hour|session|weekly|daily|monthly|opus|sonnet|haiku|fable|usage) limit\b/i;
 /** Claude's rateLimitType names, as the limit a person reads. */
 const RATE_LIMIT_KINDS: Record<string, string> = {
   five_hour: "session",
