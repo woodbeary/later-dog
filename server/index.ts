@@ -636,6 +636,7 @@ import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
 import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
+import { INCLUDED_AI_INSTANCE } from "./laterdog/included-ai.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
@@ -16185,8 +16186,21 @@ ROUTES.push(createAntigravityLeftoverRoutes({
 ROUTES.push(desktopViewer.route);
 ROUTES.push(createCloudTrialRoutes({
   otherComputers: () => boat.otherComputersConfigured(cfg),
-  changed: () => broadcast({ kind: "config", ...configStatus() }),
+  changed: () => {
+    broadcast({ kind: "config", ...configStatus() });
+    void reloadIncludedAi().catch((error) => console.warn(`[included-ai] reload failed: ${(error as Error).message}`));
+  },
 }));
+
+async function reloadIncludedAi() {
+  const entry = instanceConfigs(cfg)[INCLUDED_AI_INSTANCE];
+  if (!entry || !registry.get(INCLUDED_AI_INSTANCE)) return;
+  bus.detach(INCLUDED_AI_INSTANCE);
+  await registry.load({ [INCLUDED_AI_INSTANCE]: entry });
+  const live = registry.get(INCLUDED_AI_INSTANCE);
+  if (live) bus.attach([live]);
+  broadcast({ kind: "config", ...configStatus() });
+}
 
 // Live calls (GPT-Live as the voice, the bot as the brain). A client holds
 // the WebRTC audio; the harness creates the session with the key (which

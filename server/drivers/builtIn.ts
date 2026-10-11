@@ -19,6 +19,7 @@ import { PiDriver } from "./pi.ts";
 import { MistralDriver } from "./mistral.ts";
 import { CerebrasDriver } from "./cerebras.ts";
 import { MinimaxDriver } from "./minimax.ts";
+import { IncludedAiDriver } from "../laterdog/included-ai.ts";
 
 export const BUILT_IN_DRIVERS: readonly AnyProviderDriver[] = [
   GrokDriver,
@@ -39,4 +40,5 @@ export const BUILT_IN_DRIVERS: readonly AnyProviderDriver[] = [
   MinimaxDriver,
   MistralDriver,
   CerebrasDriver,
+  IncludedAiDriver,
 ];

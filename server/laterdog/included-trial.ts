@@ -21,3 +21,8 @@ export function trialVoice(): IncludedTrial | null {
   const trial = liveTrial();
   return trial ? { token: trial.key, api: `${trial.api}/voice`, included: true } : null;
 }
+
+export function trialAi(): IncludedTrial | null {
+  const trial = liveTrial();
+  return trial ? { token: trial.key, api: `${trial.api}/ai`, included: true } : null;
+}

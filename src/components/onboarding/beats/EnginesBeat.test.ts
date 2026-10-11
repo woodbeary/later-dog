@@ -13,6 +13,7 @@ const fixture = vi.hoisted(() => ({
   listeners: new Set<() => void>(),
   routes: {} as Record<string, (body: unknown) => unknown>,
   calls: [] as string[],
+  trialCalls: [] as string[],
   open: vi.fn(async (_url: string) => {}),
   refreshModels: vi.fn(async (_instanceId: string) => {}),
 }));
@@ -42,7 +43,8 @@ vi.mock("@/state/store", async () => {
   };
   const api = async (path: string, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${path.split("?")[0]}`;
-    fixture.calls.push(key);
+    if (!key.endsWith("/api/computers/trial")) fixture.calls.push(key);
+    else fixture.trialCalls.push(key);
     const route = fixture.routes[key];
     if (!route) throw new ApiError(`no route for ${key}`, 404);
     return route(init?.body ? JSON.parse(String(init.body)) : undefined);
@@ -160,7 +162,8 @@ beforeEach(() => {
   fixture.instances = [];
   fixture.server = fleet();
   fixture.calls = [];
-  fixture.routes = { "GET /api/instances": () => ({ instances: fixture.server }) };
+  fixture.trialCalls = [];
+  fixture.routes = { "GET /api/instances": () => ({ instances: fixture.server }), "GET /api/computers/trial": () => ({ state: "none" }) };
   fixture.open.mockClear();
   fixture.refreshModels.mockClear();
   for (const callback of Object.values(props)) callback.mockClear();
@@ -375,6 +378,29 @@ describe("the AI step of first run", () => {
     expect([...document.body.querySelectorAll("button")].map((element) => element.textContent)).toEqual(["Sign in", "Sign in", "Continue"]);
     await act(async () => publish([claude({ authenticated: true }), chatgpt(missing)]));
     expect(row("claude").textContent).toBe("ClaudeReady");
+  });
+
+  it("offers later.dog AI free while a trial is on offer, opens the browser check, and reads Ready once it passes", async () => {
+    let trial: Record<string, unknown> = { state: "offered", minutes: 30, days: 7 };
+    fixture.routes["GET /api/computers/trial"] = () => trial;
+    fixture.routes["POST /api/computers/trial"] = () => (trial = { state: "pending", url: "https://cloud.later.dog/trial?claim=abc" });
+    await mount();
+    const free = row("free-ai");
+    expect(free.textContent).toBe("later.dog AIFree with the trial. No account needed.Try free");
+    expect(document.body.textContent).toContain("or try later.dog AI free");
+    await click(buttonIn(free)!);
+    expect(fixture.trialCalls).toContain("POST /api/computers/trial");
+    expect(fixture.open).toHaveBeenCalledWith("https://cloud.later.dog/trial?claim=abc");
+    expect(row("free-ai").textContent).toContain("Finish the check");
+    trial = { state: "active", minutes: 30, minutesLeft: 30, expiresAt: "2030-01-01T00:00:00.000Z" };
+    await advance(3_000);
+    expect(row("free-ai").textContent).toContain("Ready");
+  });
+
+  it("shows no later.dog AI row when no trial is on offer", async () => {
+    await mount();
+    expect(document.querySelector('[data-onboarding-account="free-ai"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("later.dog AI");
   });
 
   it("looks proud once a plan is ready, curious while none is", async () => {

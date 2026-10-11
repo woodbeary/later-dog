@@ -3,7 +3,7 @@ import type { Refusal } from "./auth";
 export const AI_MAX_BODY_BYTES = 6 * 1024 * 1024;
 export const AI_TOKENS_PER_DAY = 1_500_000;
 export const AI_TOKENS_TOTAL_PER_DAY = 100_000_000;
-export const AI_DEFAULT_MODEL = "grok-4-fast";
+export const AI_DEFAULT_MODEL = "grok-4-1-fast-reasoning";
 export const AI_MAX_OUTPUT_TOKENS = 32_000;
 const MAX_MESSAGES = 1_000;
 const MAX_TOOLS = 256;
