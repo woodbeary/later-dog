@@ -65,6 +65,14 @@ export class WorkspaceStore {
       return job;
     });
   }
+  /** Progress that changes every poll (a task's stage, its latest step): kept on the job without an event or a wake-up. */
+  touch(id: string, patch: Partial<Job>): Job {
+    return this.transaction(() => {
+      const job = { ...this.job(id), ...patch };
+      this.db.prepare("UPDATE jobs SET document=? WHERE id=?").run(JSON.stringify(job), id);
+      return job;
+    });
+  }
   event(id: string, type: string, detail: string): void {
     const event = this.db.prepare("INSERT INTO events(job_id,at,type,detail) VALUES(?,?,?,?)").run(id, new Date().toISOString(), type, detail.slice(0,10_000));
     if (["collected","published","verified","reviewed","provider_failed","preparation_blocked","publication_blocked","submission_unknown","merged","collection_blocked"].includes(type)) {
@@ -80,9 +88,10 @@ export class WorkspaceStore {
   repositories(): Repository[] {
     return (this.db.prepare("SELECT document FROM repositories ORDER BY slug").all() as { document: string }[]).map((row) => repositorySchema.parse(JSON.parse(row.document)));
   }
+  hasRepository(slug: string): boolean { return Boolean(this.db.prepare("SELECT 1 FROM repositories WHERE slug=?").get(slug)); }
   repository(slug: string): Repository {
     const row = this.db.prepare("SELECT document FROM repositories WHERE slug=?").get(slug) as { document: string } | undefined;
-    if (!row) throw Object.assign(new Error("Configure this repository and its Codex Cloud environment first"), { status: 409 });
+    if (!row) throw Object.assign(new Error("Connect this repository first: later.dog Cloud connects a repository by itself the first time a job names it; other backends need it set up in the Workspace"), { status: 409 });
     return repositorySchema.parse(JSON.parse(row.document));
   }
   saveRepository(repo: Repository): void {

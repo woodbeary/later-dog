@@ -510,6 +510,8 @@ export interface WireMessage {
   comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: string };
   /** thread chips: "Opened thread #Title on @X". */
   threadRef?: { botId: string; threadId: string; title: string };
+  /** cloud task cards: a job a dog sent to the cloud, opened in the Computer panel. */
+  cloudTask?: import("./cloud-task.ts").CloudTaskRef;
   /** user messages waiting in the steer-queue while the bot is mid-turn. */
   queued?: boolean;
   /** steer-queue entry this drained user line came from. */

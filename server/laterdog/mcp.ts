@@ -5,6 +5,7 @@ import { observationSchema } from "./observations.ts";
 import { assistanceSchema } from "./bridge-store.ts";
 import { supervisorOrigin } from "./config.ts";
 import { credentialHeaders, mcpCredential, type SupervisorCredential } from "./dog-access.ts";
+import { jobReceipt, startsCloudJob } from "./job-receipt.ts";
 
 const jobId = z.string().uuid();
 const tools = [
@@ -13,7 +14,7 @@ const tools = [
   { name: "list_provider_tasks", description: "List existing tasks under a selected profile to investigate an uncertain submission before attaching its identity; this never starts or resumes work.", schema: z.object({ profileId: z.string().regex(/^[a-zA-Z0-9_-]+$/) }).strict(), method: "GET", path: (a: Record<string,unknown>) => `/profiles/${a.profileId}/tasks` },
   { name: "record_job_observation", description: "Record a durable agent decision, human intervention, regression, or sourced usage/cost receipt. Reuse requestKey for retries; missing costs remain unknown.", schema: observationSchema, method: "POST", path: () => "/observations" },
   { name: "laterdog_workspace", description: "Inspect cloud jobs, configured repositories, account profiles, native limitations and measured PR outcomes.", schema: z.object({}).strict(), method: "GET", path: () => "/workspace" },
-  { name: "delegate_cloud_job", description: "Delegate a scoped task to the selected profile's cloud backend: later.dog Cloud (Claude Code in its own cloud computer on the owner's Cloudflare; best for running several jobs in parallel), native Codex Cloud, or Claude Code cloud through a routine. laterdog_workspace lists the profiles and which backends are enabled. Reuse requestKey on retries. Dependencies and standing instructions are durable; the starting ref is pinned separately from the output branch.", schema: createJobSchema, method: "POST", path: () => "/jobs" },
+  { name: "delegate_cloud_job", description: "Delegate a scoped task to the selected profile's cloud backend: later.dog Cloud (Claude Code in its own cloud computer on the owner's Cloudflare; best for running several jobs in parallel), native Codex Cloud, or Claude Code cloud through a routine. laterdog_workspace lists the profiles and which backends are enabled. Leave profileId out to use later.dog Cloud when it is set up. Reuse requestKey on retries. Dependencies and standing instructions are durable; the starting ref is pinned separately from the output branch.", schema: createJobSchema.extend({ profileId: z.string().regex(/^[a-zA-Z0-9_-]+$/).optional() }), method: "POST", path: () => "/jobs" },
   { name: "inspect_cloud_job", description: "Read a job and its event receipts without resuming or duplicating the provider task.", schema: z.object({ jobId }).strict(), method: "GET", path: (a: Record<string,unknown>) => `/jobs/${a.jobId}` },
   { name: "collect_cloud_diff", description: "Read a previously collected provider diff. It is not a verification verdict.", schema: z.object({ jobId }).strict(), method: "GET", path: (a: Record<string,unknown>) => `/jobs/${a.jobId}/patch` },
   ...["publish", "verify", "merge", "cancel"].map((action) => ({
@@ -45,7 +46,7 @@ export async function callTool(name: string, args: unknown, origin = supervisorO
     ...(tool.method !== "GET" ? { body: JSON.stringify(payload) } : {}), redirect: "error", signal: AbortSignal.timeout(660_000) });
   const result = await response.json() as { error?: string };
   if (!response.ok) throw new Error(result.error ?? `later.dog returned ${response.status}`);
-  return result;
+  return startsCloudJob(name) ? jobReceipt(result) : result;
 }
 
 export function startMcp(): void {

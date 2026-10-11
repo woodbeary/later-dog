@@ -70,6 +70,8 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
 import { ThreadChip } from "./ThreadChip";
+import { CloudTaskCard, CloudTaskUpdateRow } from "./CloudTaskCard";
+import { cloudWakeupOf } from "@/lib/cloud-tasks";
 import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
@@ -764,6 +766,7 @@ const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { m
   const { bots, dispatch } = useChatRows();
   const tool = message.tool;
   if (!tool) return null;
+  if (message.cloudTask) return <CloudTaskCard message={message} />;
   if (message.threadRef) return <ThreadChip message={message} />;
   // bot⇄bot comm chip: opens the channel where the exchange lives
   const comm = message.comm;
@@ -977,7 +980,7 @@ const MessagesList = memo(function MessagesList({
                   />
                 );
               }
-              if (!showToolCalls && !m.comm && !m.threadRef) return null;
+              if (!showToolCalls && !m.comm && !m.threadRef && !m.cloudTask) return null;
               return <ActivityChip message={m} place={place} />;
             }
             case "digest":
@@ -988,6 +991,7 @@ const MessagesList = memo(function MessagesList({
             case "screen":
               return <ScreenFrame threadId={threadId} message={m} />;
             default:
+              if (cloudWakeupOf(m)) return <CloudTaskUpdateRow message={m} />;
               return (
                 <Bubble
                   message={m}

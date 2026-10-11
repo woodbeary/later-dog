@@ -69,6 +69,12 @@ export interface Job extends CreateJob {
   cancelRequested?: boolean;
   verification?: Verification;
   review?: { headSha: string; reviewerJobId: string; verdict: "pass" | "changes_requested"; summary: string; at: string };
+  startedAt?: string;
+  finishedAt?: string;
+  stage?: string;
+  lastStep?: import("./cloud-task.ts").CloudTaskStep;
+  changes?: import("./cloud-task.ts").CloudTaskChanges;
+  activityArtifact?: string;
 }
 export interface JobEvent { sequence: number; jobId: string; at: string; type: string; detail: string }
 export interface Profile {

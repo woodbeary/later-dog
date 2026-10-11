@@ -22,6 +22,7 @@ import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import { usePageVisible } from "@/lib/page-visible";
 import { listenLiveFrames } from "@/lib/live-events";
 import { CloudScreenPreview } from "./CloudScreenPreview";
+import { CloudTasksSection } from "./CloudTasksSection";
 import { isActiveTurnRefusal, isRemoteScreenshotContention } from "@/lib/remote-desktop";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { BrowserPanel } from "./BrowserPanel";
@@ -1565,6 +1566,7 @@ export function ComputerPanel({
           <LinuxLocalControl />
           {bot.computer === "local" && !askingForGrants && <MacLocalControl />}
         </>}
+        <CloudTasksSection botId={profileBot.id} botName={bot.name} />
       </div>
       )}
       </div>

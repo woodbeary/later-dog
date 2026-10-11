@@ -10,6 +10,7 @@ import { SubmissionUnknown, type JobContext } from "./codex-cloud.ts";
 import { GitHubPublisher } from "./github.ts";
 import { WorkspaceStore } from "./store.ts";
 import { Supervisor } from "./supervisor.ts";
+import { AUTO_SETUP_SCRIPT, SETUP_FAILED_NOTE } from "./cloud-task-files.ts";
 import {
   COMPUTER_PREFIX, ComputerSubmissionUnknown, INTERNAL_COMPUTERS_API, LATERDOG_CLOUD_CAPABILITIES, LaterdogCloudAdapter, laterdogCloudSettings, shellQuote, taskScript,
 } from "./laterdog-cloud.ts";
@@ -28,9 +29,21 @@ const DEFAULT_CLAUDE = [
   "echo '{\"type\":\"result\"}'",
 ].join("\n");
 
+const STREAM_CLAUDE = [
+  'cat > "$HOME/task/prompt.seen"',
+  'if grep -q "keep running" "$HOME/task/prompt.seen"; then',
+  `  echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Still at it."}]}}'`,
+  '  while [ -d "$HOME/task" ] && [ ! -f "$HOME/task/stop" ]; do sleep 0.1; done',
+  "fi",
+  "mkdir -p src && printf 'new\\n' > src/a.ts",
+  `echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Changing src/a.ts now."}]}}'`,
+  `echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"'"$HOME"'/work/src/a.ts"}}]}}'`,
+  `echo '{"type":"result","is_error":false,"result":"Changed it.","num_turns":2,"duration_ms":50}'`,
+].join("\n");
+
 const roots: string[] = [];
 const cleanups: (() => void)[] = [];
-afterEach(() => { cleanups.splice(0).forEach((cleanup) => cleanup()); roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })); });
+afterEach(() => { cleanups.splice(0).forEach((cleanup) => cleanup()); roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })); });
 
 interface FakeComputer { id: string; name: string; size: string; state: string; error?: string; startingReads: number; home: string }
 interface Recorded { method: string; url: string; headers: Record<string, string>; body: string }
@@ -52,9 +65,11 @@ class FakeComputersApi {
   dropFirstCreateAnswer = false;
   startingReads = 2;
   maxExecStdout = 0;
-  constructor(claude = DEFAULT_CLAUDE) {
+  constructor(claude = DEFAULT_CLAUDE, options: { seed?: Record<string, string>; failing?: string[] } = {}) {
     this.root = mkdtempSync(join(tmpdir(), "laterdog-cloud-")); roots.push(this.root);
     const bin = join(this.root, "bin"); mkdirSync(bin);
+    shim(bin, "node", `exec "${process.execPath}" "$@"`);
+    for (const name of options.failing ?? []) shim(bin, name, `echo "$*" >> "$HOME/task/${name}.calls"\nexit 3`);
     shim(bin, "setsid", '[ "$1" = "-f" ] && shift\n"$@" &');
     shim(bin, "timeout", 'while [ "${1#-}" != "$1" ]; do shift; done\nshift\nexec "$@"');
     shim(bin, "claude", `exec bash "${join(this.root, "claude-behaviour.sh")}" "$@"`);
@@ -65,6 +80,7 @@ class FakeComputersApi {
     const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, env: gitEnv(this.root), encoding: "utf8" }).trim();
     git(this.bare, ["init", "-q", "--bare"]);
     git(seed, ["init", "-q"]); writeFileSync(join(seed, "src", "a.ts"), "old\n"); writeFileSync(join(seed, ".gitignore"), "node_modules\n");
+    for (const [name, content] of Object.entries(options.seed ?? {})) writeFileSync(join(seed, name), content);
     git(seed, ["add", "-A"]); git(seed, ["commit", "-q", "-m", "seed"]); git(seed, ["push", "-q", this.bare, "HEAD:refs/heads/main"]);
     this.baseSha = git(seed, ["rev-parse", "HEAD"]);
   }
@@ -113,6 +129,7 @@ class FakeComputersApi {
     if (action === "" && method === "DELETE") { this.computers.delete(computer.id); return this.json(200, { deleted: true }); }
     if (action === "/wake" && method === "POST") { computer.state = "starting"; computer.startingReads = 1; return this.json(200, { computer: this.view(computer) }); }
     if (computer.state !== "running") return this.refuse(409, "asleep", "computer is not running");
+    if (action === "/desktop" && method === "POST") return this.json(200, { url: `https://computers.fixture.test/desktop/${computer.id}/signed-token/`, expiresAt: Date.now() + 7_200_000 });
     if (action === "/exec" && method === "POST") {
       const request = JSON.parse(body) as { command: string; timeoutMs?: number; env?: Record<string, string> };
       this.execs.push({ command: request.command, ...(request.env ? { env: request.env } : {}) });
@@ -131,8 +148,8 @@ class FakeComputersApi {
   file(id: string, path: string) { return readFileSync(join(this.computers.get(id)!.home, path), "utf8"); }
 }
 
-function setup(options: { claude?: string; env?: NodeJS.ProcessEnv } = {}) {
-  const api = new FakeComputersApi(options.claude);
+function setup(options: { claude?: string; env?: NodeJS.ProcessEnv; seed?: Record<string, string>; failing?: string[] } = {}) {
+  const api = new FakeComputersApi(options.claude, { seed: options.seed, failing: options.failing });
   const env = options.env ?? { LATERDOG_COMPUTERS_URL: API, LATERDOG_COMPUTERS_KEY: COMPUTERS_KEY, CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN, GH_TOKEN: GITHUB_TOKEN };
   const adapter = new LaterdogCloudAdapter(profile, { fetch: api.fetch, env, pollMs: 0 });
   const jobId = randomUUID(); api.inputBranch(jobId);
@@ -274,6 +291,61 @@ describe("later.dog Cloud adapter", () => {
     expect(() => laterdogCloudSettings({ ...env, LATERDOG_COMPUTERS_URL: `https://user:${COMPUTERS_KEY}@example.com/v1` })).toThrow(/credential-free/);
   });
 
+  it("writes a progress log the desktop pages through, keeps it before the computer goes, and offers its screen", async () => {
+    const { api, adapter, context } = setup({ claude: STREAM_CLAUDE });
+    const { taskId } = await adapter.submit("none", context.sourceRef!, "Change src/a.ts", context);
+    expect(await settle(adapter, taskId)).toBe("ready");
+    expect(adapter.progress(taskId)).toMatchObject({ stage: "done", lastStep: { k: "stage", stage: "done" } });
+    const page = await adapter.activity(taskId, 0);
+    expect(page).toMatchObject({ available: true, live: false });
+    expect(page.steps.map((step) => (step.k === "stage" ? `stage:${step.stage}` : step.k))).toEqual(["stage:install", "stage:clone", "stage:setup", "stage:claude", "say", "tool", "done", "stage:done"]);
+    expect(page.steps.find((step) => step.k === "tool")).toMatchObject({ tool: "Edit", detail: "src/a.ts" });
+    const log = api.file(taskId, "task/activity.jsonl");
+    expect(page.cursor).toBe(Buffer.byteLength(log));
+    expect((await adapter.activity(taskId, page.cursor)).steps).toEqual([]);
+    const middle = log.indexOf("\n", 10) + 1;
+    expect((await adapter.activity(taskId, middle)).steps.length).toBe(page.steps.length - 1);
+    expect(await adapter.transcript(taskId)).toBe(log);
+    expect(api.file(taskId, "task/out.jsonl")).toContain('"type":"result"');
+    expect((await adapter.screen(taskId)).url).toBe(`https://computers.fixture.test/desktop/${taskId}/signed-token/`);
+    await adapter.collect(taskId);
+    await expect(adapter.screen(taskId)).rejects.toThrow(/gone/);
+    expect(await adapter.activity(taskId, 0)).toMatchObject({ available: false, live: false, steps: [] });
+    expect(await adapter.transcript(taskId)).toBe("");
+    expectNoSecretOutsideEnv(api);
+  });
+
+  it("installs a project's dependencies by itself, and tells Claude instead of failing when that does not work", async () => {
+    const { api, adapter, context } = setup({ seed: { "package-lock.json": "{}\n", "package.json": "{}\n" }, failing: ["npm"] });
+    const { taskId } = await adapter.submit("", context.sourceRef!, "Prompt", context);
+    expect(await settle(adapter, taskId)).toBe("ready");
+    expect(api.file(taskId, "task/setup.sh")).toBe(AUTO_SETUP_SCRIPT);
+    expect(api.file(taskId, "task/npm.calls").trim()).toBe("ci");
+    expect(api.file(taskId, "task/setup-failed")).toBe("");
+    expect(api.file(taskId, "task/prompt.seen")).toBe(`Prompt${SETUP_FAILED_NOTE}`);
+    const fine = setup();
+    const job = await fine.adapter.submit("auto", fine.context.sourceRef!, "Prompt", fine.context);
+    expect(await settle(fine.adapter, job.taskId)).toBe("ready");
+    expect(fine.api.file(job.taskId, "task/prompt.seen")).toBe("Prompt");
+  });
+
+  it("stops a running job for real by deleting its computer", async () => {
+    const { api, adapter, context } = setup({ claude: STREAM_CLAUDE });
+    const { taskId } = await adapter.submit("none", context.sourceRef!, "keep running", context);
+    const home = api.computers.get(taskId)!.home;
+    cleanups.push(() => writeFileSync(join(home, "task", "stop"), ""));
+    const deadline = Date.now() + 10_000;
+    while (!(await adapter.activity(taskId, 0)).steps.some((step) => step.k === "say") && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await adapter.inspect(taskId)).toBe("running");
+    expect(adapter.progress(taskId)?.stage).toBe("claude");
+    api.sleepState(taskId, "sleeping");
+    expect(await adapter.activity(taskId, 0)).toMatchObject({ available: false, reason: "This task's computer is asleep." });
+    api.sleepState(taskId, "running");
+    await adapter.cancel(taskId);
+    expect(api.computers.has(taskId)).toBe(false);
+    expect(await adapter.inspect(taskId)).toBe("failed");
+  });
+
   it("refuses unsafe task inputs and quotes what it embeds", () => {
     expect(shellQuote("it's")).toBe("'it'\\''s'");
     const base = { repository: "fixture/repo", sourceRef: "laterdog/input/x", baseSha: "a".repeat(40), maxRunMinutes: 10 };
@@ -319,6 +391,72 @@ describe("later.dog Cloud through the supervisor", () => {
     expectNoSecretOutsideEnv(api);
     expect(supervisor.snapshot().backends.find((backend) => backend.id === "laterdog-cloud")).toMatchObject({ enabled: true, label: LATERDOG_CLOUD_CAPABILITIES.label });
     await supervisor.drain();
+  });
+
+  it("keeps a finished task's progress and changes, shows them as cloud task summaries, and stops a running task", async () => {
+    const api = new FakeComputersApi(STREAM_CLAUDE);
+    const env = { LATERDOG_COMPUTERS_URL: API, LATERDOG_COMPUTERS_KEY: COMPUTERS_KEY, CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN };
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-cloud-supervisor-")); roots.push(dir);
+    const store = new WorkspaceStore(":memory:"); cleanups.push(() => store.close());
+    store.saveRepository(repositorySchema.parse({ slug: "fixture/repo", environmentId: "none", environments: {} }));
+    const publisher = new GitHubPublisher(join(dir, "checkouts"));
+    vi.spyOn(publisher, "prepare").mockImplementation(async (job) => { api.inputBranch(job.id); return { baseSha: api.baseSha, sourceRef: `laterdog/input/${job.id}` }; });
+    const supervisor = new Supervisor(store, { dataDir: dir, profiles: [profile], concurrency: 2, publishingHost: "local", publisher,
+      adapter: (p) => new LaterdogCloudAdapter(p, { fetch: api.fetch, env, pollMs: 0 }) });
+    cleanups.push(() => supervisor.stop());
+    const quick = supervisor.create({ requestKey: randomUUID(), repository: "fixture/repo", title: "Quick change", brief: "Change src/a.ts", writeScopes: ["src"], profileId: "cloud", botId: "dog-1", conversationId: "thread-1" });
+    const long = supervisor.create({ requestKey: randomUUID(), repository: "fixture/repo", title: "Long change", brief: "keep running", writeScopes: ["docs"], profileId: "cloud", botId: "dog-1", conversationId: "thread-1" });
+    expect(supervisor.summaries({ ids: [quick.id] })[0]).toMatchObject({ state: "queued", stoppable: true, screen: false });
+    await supervisor.tick();
+    const longTask = store.job(long.id).taskId!;
+    cleanups.push(() => writeFileSync(join(api.root, "computers", longTask, "home", "task", "stop"), ""));
+    const deadline = Date.now() + 20_000;
+    while ((store.job(quick.id).state === "running" || store.job(long.id).lastStep?.k !== "say") && Date.now() < deadline) { await new Promise((resolve) => setTimeout(resolve, 50)); await supervisor.tick(); }
+    const done = store.job(quick.id);
+    expect(done).toMatchObject({ state: "ready", changes: { files: 1, additions: 1, deletions: 1 } });
+    expect(Date.parse(done.startedAt!)).toBeLessThanOrEqual(Date.parse(done.finishedAt!));
+    expect(done.activityArtifact).toMatch(/\.activity\.jsonl$/);
+    expect(api.computers.has(done.taskId!)).toBe(false);
+    const kept = await supervisor.activity(quick.id, 0);
+    expect(kept).toMatchObject({ available: true, live: false });
+    expect(kept.steps.find((step) => step.k === "done")).toMatchObject({ ok: true, text: "Changed it." });
+    expect(supervisor.summaries({ ids: [quick.id, randomUUID()] })).toEqual([expect.objectContaining({ id: quick.id, state: "ready", publishable: true, screen: false, stoppable: false })]);
+    const running = supervisor.summaries({ ids: [long.id] })[0];
+    expect(running).toMatchObject({ state: "running", stage: "claude", screen: true, stoppable: true, lastStep: { k: "say", text: "Still at it." } });
+    expect(supervisor.summaries({ botId: "dog-1" }).map((job) => job.id)).toEqual([long.id, quick.id]);
+    expect(supervisor.summaries({ botId: "someone-else" })).toEqual([]);
+    const live = await supervisor.activity(long.id, 0);
+    expect(live).toMatchObject({ available: true, live: true });
+    expect((await supervisor.screen(long.id)).url).toContain(longTask);
+    await expect(supervisor.screen(quick.id)).rejects.toThrow(/only kept while it runs/);
+    const stopped = await supervisor.stopJob(long.id);
+    expect(stopped).toMatchObject({ state: "cancelled", cancelRequested: true });
+    expect(stopped.activityArtifact).toMatch(/\.activity\.jsonl$/);
+    expect((await supervisor.activity(long.id, 0)).steps.find((step) => step.k === "say")).toMatchObject({ text: "Still at it." });
+    expect(stopped.finishedAt).toBeTruthy();
+    expect(api.computers.has(longTask)).toBe(false);
+    await supervisor.tick();
+    expect(store.job(long.id).state).toBe("cancelled");
+    await supervisor.drain();
+  });
+
+  it("connects a repository by itself the first time a later.dog Cloud job names it, starting from its default branch", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-cloud-supervisor-")); roots.push(dir);
+    const store = new WorkspaceStore(":memory:"); cleanups.push(() => store.close());
+    const publisher = new GitHubPublisher(join(dir, "checkouts"));
+    const defaultBranch = vi.spyOn(publisher, "defaultBranch").mockResolvedValue("trunk");
+    const supervisor = new Supervisor(store, { dataDir: dir, profiles: [profile, { id: "default", label: "Codex" }], concurrency: 1, publishingHost: "local", publisher });
+    cleanups.push(() => supervisor.stop());
+    const request = { requestKey: randomUUID(), repository: "owner/new", title: "x", brief: "y", profileId: "cloud" };
+    await supervisor.ensureRepository(request);
+    expect(store.repository("owner/new")).toMatchObject({ baseRef: "trunk", environments: { "laterdog-cloud": "auto" }, publish: true, merge: false });
+    expect(supervisor.create(request).state).toBe("queued");
+    await supervisor.ensureRepository({ ...request, requestKey: randomUUID() });
+    await supervisor.ensureRepository({ ...request, requestKey: randomUUID(), repository: "owner/codex", profileId: "default" });
+    expect(store.hasRepository("owner/codex")).toBe(false);
+    expect(defaultBranch).toHaveBeenCalledTimes(1);
+    defaultBranch.mockRejectedValueOnce(Object.assign(new Error("later.dog could not open owner/missing on GitHub"), { status: 409 }));
+    await expect(supervisor.ensureRepository({ ...request, requestKey: randomUUID(), repository: "owner/missing" })).rejects.toThrow(/could not open owner\/missing/);
   });
 
   it("builds the later.dog Cloud adapter for a laterdog-cloud profile and lists the backend as disabled otherwise", async () => {

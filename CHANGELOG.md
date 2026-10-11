@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.5 — 2026-10-11
+
+### Cloud tasks you can watch
+- When a dog sends work to the cloud, a **Cloud task** card appears in the chat that started it. It shows what the task is doing right now (Setting up, Working, Ready for review, Needs attention), how long it has run, and its pull request once it has one.
+- Click a card to open the task beside the chat: its progress step by step, its plan, the files it changed (open one to see the change) and **Watch screen** to see its live screen while it runs. **Open draft PR** publishes the result, and **Stop** ends a running task and deletes its cloud computer.
+- A dog's Computer panel lists its cloud tasks, so a dog working in the cloud no longer shows an empty screen.
+- Any GitHub repository works without setup: the first task connects it, starts from its default branch and installs its dependencies itself.
+- A dog that sends work to the cloud without saying where uses later.dog Cloud when it is set up.
+- A dog gets a short receipt when it sends work to the cloud, instead of its whole request read back to it.
+- When a cloud task finishes or needs attention, the chat shows one line saying so ("Cloud task opened a draft PR") that opens the task, instead of the message later.dog sends the dog.
+
 ## 0.3.4 — 2026-10-10
 
 - A dog can use later.dog's cloud tools without asking you each time: checking the workspace, sending work to the cloud, following a job, and publishing a draft PR. Before, the first call asked for approval, and in Auto mode Claude's safety check could refuse it outright. Merging a pull request still asks you first.

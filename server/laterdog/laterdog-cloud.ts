@@ -2,11 +2,13 @@ import { z } from "zod";
 import { gitRef, repoSlug, type BackendCapabilities, type Profile } from "../../shared/laterdog.ts";
 import { COMPUTER_ID, ComputersApiError, readCapped } from "./cloud-computers.ts";
 import { SubmissionUnknown, type ExecutionAdapter, type JobContext } from "./codex-cloud.ts";
+import { ACTIVITY_SCRIPT, AUTO_SETUP_SCRIPT, SETUP_FAILED_NOTE, WATCH_SCRIPT } from "./cloud-task-files.ts";
+import { MAX_ACTIVITY_PAGE_BYTES, cloudTaskStep, parseCloudTaskSteps, type CloudTaskActivityPage, type CloudTaskStep } from "../../shared/cloud-task.ts";
 
 export const LATERDOG_CLOUD_CAPABILITIES: BackendCapabilities = {
-  id: "laterdog-cloud", label: "later.dog Cloud", enabled: true, submission: true, continuation: false, cancellation: false,
+  id: "laterdog-cloud", label: "later.dog Cloud", enabled: true, submission: true, continuation: false, cancellation: true,
   activity: "polled", billing: "subscription",
-  limitation: "Runs Claude Code only, signed in with the owner's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN), on the owner's own later.dog cloud computers on Cloudflare. Each job boots a fresh Linux computer and installs Claude Code and the repository's setup, so its first minutes are setup. Linux only; no Docker inside a computer. Status is polled from files the job writes; a computer that falls asleep (15 minutes without API activity, or 8 hours awake) or errors is reported failed and kept for inspection. Corrections start a new computer. Native cancellation is not exposed. Not yet run end to end against a live computers service.",
+  limitation: "Runs Claude Code only, signed in with the owner's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN), on the owner's own later.dog cloud computers on Cloudflare. Each job boots a fresh Linux computer and installs Claude Code and the repository's setup, so its first minutes are setup. Linux only; no Docker inside a computer. Status is polled from files the job writes; a computer that falls asleep (15 minutes without API activity, or 8 hours awake) or errors is reported failed and kept for inspection. Corrections start a new computer. Stopping a running job deletes its computer; its progress log is kept, its files are not. Progress is read from the job's own computer while it runs, and its screen can be watched live; a finished job keeps its progress log but not its computer.",
 };
 
 export const COMPUTER_SIZES = ["small", "standard", "large", "xlarge"] as const;
@@ -19,6 +21,10 @@ const OWNER_KEY = /^ldc_[!-~]{8,1024}$/;
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_ERROR_BYTES = 64 * 1024;
+const MAX_TRANSCRIPT_BYTES = 8 * 1000 * 1000;
+export const SETUP_MODES = ["none", "auto", "command"] as const;
+export type SetupMode = typeof SETUP_MODES[number];
+export function setupMode(environmentId: string): SetupMode { const value = environmentId.trim(); return value === "none" ? "none" : value === "auto" || value === "" ? "auto" : "command"; }
 
 const computerSchema = z.object({ id: z.string().regex(COMPUTER_ID), name: z.string().max(200), state: z.string().min(1).max(40), error: z.string().optional() });
 type Computer = z.infer<typeof computerSchema>;
@@ -27,6 +33,7 @@ const listBody = z.object({ computers: z.array(computerSchema).max(10_000) });
 const execBody = z.object({ exitCode: z.number().int().nullable(), stdout: z.string(), stderr: z.string(), timedOut: z.boolean().optional() });
 type ExecResult = z.infer<typeof execBody>;
 const errorBody = z.object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }) });
+const desktopBody = z.object({ url: z.string().url().max(16_384), expiresAt: z.union([z.number(), z.string()]) });
 
 export const INTERNAL_COMPUTERS_API = "http://computers.internal/v1";
 export const INTERNAL_COMPUTERS_HOST = "computers.internal";
@@ -56,7 +63,7 @@ export function laterdogCloudSettings(env: NodeJS.ProcessEnv): LaterdogCloudSett
 
 export function shellQuote(value: string): string { return `'${value.replace(/'/g, `'\\''`)}'`; }
 
-export interface TaskInput { repository: string; sourceRef: string; baseSha: string; maxRunMinutes: number }
+export interface TaskInput { repository: string; sourceRef: string; baseSha: string; maxRunMinutes: number; setup?: SetupMode }
 
 export function taskScript(input: TaskInput): string {
   if (!repoSlug.safeParse(input.repository).success) throw new Error("Invalid repository for a later.dog Cloud job");
@@ -70,14 +77,21 @@ export function taskScript(input: TaskInput): string {
     `SOURCE_REF=${shellQuote(input.sourceRef)}`,
     `BASE_SHA=${shellQuote(input.baseSha)}`,
     `MAX_RUN_SECONDS=${input.maxRunMinutes * 60}`,
+    `SETUP_MODE=${shellQuote(input.setup ?? "command")}`,
     'TASK="$HOME/task"',
     'WORK="$HOME/work"',
-    "stage() { printf '%s\\n' \"$1\" > \"$TASK/stage\"; }",
+    "stage() { printf '%s\\n' \"$1\" > \"$TASK/stage\"; printf '{\"t\":%s000,\"k\":\"stage\",\"stage\":\"%s\"}\\n' \"$(date +%s)\" \"$1\" >> \"$TASK/activity.jsonl\"; }",
+    "watch() {",
+    '  if [ -n "${DISPLAY:-}" ] && [ -f "$TASK/watch.mjs" ] && command -v xfce4-terminal >/dev/null 2>&1; then',
+    '    env -i HOME="$HOME" PATH="$PATH" DISPLAY="$DISPLAY" LANG=C.UTF-8 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" setsid -f xfce4-terminal --disable-server --maximize --hide-menubar -T "later.dog cloud task" -x node "$TASK/watch.mjs" >/dev/null 2>&1 </dev/null || true',
+    "  fi",
+    "}",
     "finish() { local status=$?; printf '%s\\n' \"$status\" > \"$TASK/exit.tmp\"; mv \"$TASK/exit.tmp\" \"$TASK/exit\"; }",
     "main() {",
     "  printf '%s\\n' \"$$\" > \"$TASK/pid.tmp\"",
     '  mv "$TASK/pid.tmp" "$TASK/pid"',
     "  trap finish EXIT",
+    "  watch",
     '  export NPM_CONFIG_PREFIX="$HOME/.npm-global"',
     '  export PATH="$HOME/.npm-global/bin:$PATH"',
     "  export IS_SANDBOX=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
@@ -99,10 +113,16 @@ export function taskScript(input: TaskInput): string {
     "  git config user.email laterdog@users.noreply.github.com",
     "  printf '%s\\n' \"$BASE_SHA\" > \"$TASK/base\"",
     "  stage setup",
-    '  if [ -f "$TASK/setup.sh" ]; then bash "$TASK/setup.sh"; fi',
+    '  if [ -f "$TASK/setup.sh" ]; then',
+    '    if [ "$SETUP_MODE" = auto ]; then',
+    `      bash "$TASK/setup.sh" || { touch "$TASK/setup-failed"; printf '%s' ${shellQuote(SETUP_FAILED_NOTE)} >> "$TASK/prompt.md"; }`,
+    "    else",
+    '      bash "$TASK/setup.sh"',
+    "    fi",
+    "  fi",
     "  unset GH_TOKEN",
     "  stage claude",
-    '  timeout --kill-after=60 "$MAX_RUN_SECONDS" claude -p --dangerously-skip-permissions --output-format stream-json --verbose < "$TASK/prompt.md" > "$TASK/out.jsonl"',
+    '  timeout --kill-after=60 "$MAX_RUN_SECONDS" claude -p --dangerously-skip-permissions --output-format stream-json --verbose < "$TASK/prompt.md" | tee "$TASK/out.jsonl" | { node "$TASK/activity.mjs" || cat > /dev/null; }',
     "  stage done",
     "}",
     'main "$@"',
@@ -119,6 +139,7 @@ export const STATUS_COMMAND = [
   'elif [ ! -d "$T/launched" ]; then echo unlaunched',
   'elif [ "$alive" = 0 ]; then printf \'vanished %s\\n\' "$(cat "$T/stage" 2>/dev/null || echo unknown)"',
   'else printf \'running %s\\n\' "$(cat "$T/stage" 2>/dev/null || echo starting)"; fi',
+  'tail -n 1 "$T/activity.jsonl" 2>/dev/null || true',
 ].join("\n");
 
 export function launchCommand(setup: boolean): string {
@@ -238,6 +259,11 @@ class LaterdogComputers {
     await response.body?.cancel().catch(() => undefined);
   }
 
+  async desktop(id: string): Promise<{ url: string; expiresAt: number | string }> {
+    const response = await this.send(`/computers/${id}/desktop`, { method: "POST", body: "{}", headers: { "content-type": "application/json" } });
+    return this.json(response, desktopBody);
+  }
+
   async read(id: string, path: string, maxBytes: number): Promise<Buffer> {
     const response = await this.send(`/computers/${id}/files?path=${encodeURIComponent(path)}`, { accept: "application/octet-stream", timeoutMs: 120_000 });
     return readCapped(response, maxBytes, () => new ComputersApiError(`the file is larger than ${maxBytes} bytes`, 413, "too_large"));
@@ -257,6 +283,7 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly maxRunMinutes: number;
   private readonly failures = new Map<string, string>();
+  private readonly progressById = new Map<string, { stage?: string; lastStep?: CloudTaskStep }>();
   constructor(profile: Profile, options: LaterdogCloudAdapterOptions = {}) {
     this.profile = profile; this.fetchImpl = options.fetch ?? fetch; this.env = options.env ?? process.env;
     this.size = options.size ?? profile.computerSize ?? "xlarge";
@@ -299,9 +326,9 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
 
   async submit(environmentId: string, sourceRef: string, prompt: string, context?: JobContext) {
     if (!context?.jobId || !context.baseSha) throw new Error("later.dog Cloud submission needs the job context with its pinned starting commit");
-    const setup = environmentId.trim();
-    if (!setup) throw new Error("Configure the repository's laterdog-cloud setup command, or \"none\", before delegating");
-    const script = taskScript({ repository: context.repository, sourceRef, baseSha: context.baseSha, maxRunMinutes: this.maxRunMinutes });
+    const mode = setupMode(environmentId);
+    const setup = mode === "auto" ? AUTO_SETUP_SCRIPT : mode === "command" ? `set -euo pipefail\n${environmentId.trim()}\n` : "";
+    const script = taskScript({ repository: context.repository, sourceRef, baseSha: context.baseSha, maxRunMinutes: this.maxRunMinutes, setup: mode });
     const { computers, settings } = this.client();
     let computer: Computer;
     try { computer = await computers.create(`${COMPUTER_PREFIX}${context.jobId}`, this.size, context.jobId); }
@@ -318,9 +345,11 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
       if (state.stdout.trim() !== "launched") {
         await computers.put(id, "task/prompt.md", prompt);
         await computers.put(id, "task/run.sh", script);
-        if (setup !== "none") await computers.put(id, "task/setup.sh", `set -euo pipefail\n${setup}\n`);
+        await computers.put(id, "task/activity.mjs", ACTIVITY_SCRIPT);
+        await computers.put(id, "task/watch.mjs", WATCH_SCRIPT);
+        if (setup) await computers.put(id, "task/setup.sh", setup);
         const env: Record<string, string> = { CLAUDE_CODE_OAUTH_TOKEN: settings.claudeToken, ...(settings.githubToken ? { GH_TOKEN: settings.githubToken } : {}) };
-        const launched = await computers.exec(id, launchCommand(setup !== "none"), 60_000, env);
+        const launched = await computers.exec(id, launchCommand(Boolean(setup)), 60_000, env);
         if (launched.exitCode === 64) throw new Error("the computers service did not pass the exec env to the command; deploy a computers service whose exec accepts env");
         if (launched.exitCode !== 0 && launched.exitCode !== 66) throw new Error(`launching the task exited ${launched.exitCode ?? "without a code"}`);
       }
@@ -347,7 +376,11 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
       throw error;
     }
     if (result.exitCode !== 0) throw new Error(`Reading job status on computer ${id} exited ${result.exitCode ?? "without a code"}`);
-    const [word, code, stage] = result.stdout.trim().split(/\s+/);
+    const [status = "", latest = ""] = result.stdout.replace(/^\s+/, "").split("\n");
+    const [word, code, stage] = status.trim().split(/\s+/);
+    let lastStep: CloudTaskStep | undefined;
+    try { lastStep = cloudTaskStep(JSON.parse(latest)) ?? undefined; } catch { lastStep = undefined; }
+    this.progressById.set(id, { ...(word === "running" ? { stage: code } : word === "exit" || word === "vanished" ? { stage: word === "exit" ? stage : code } : {}), ...(lastStep ? { lastStep } : {}) });
     if (word === "running") return "running";
     if (word === "unlaunched") return this.failed(id, `The job was never launched on computer ${id}; delete that computer and delegate again.`);
     if (word === "vanished") return this.failed(id, `The job's process on computer ${id} stopped without recording an exit code during ${code ?? "an unknown stage"}; see ~/task/log on that computer.`);
@@ -378,6 +411,55 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
     catch (error) { console.warn(`later.dog Cloud collected job computer ${id} but could not delete it: ${error instanceof Error ? error.message : "unknown error"}`); }
     if (!patch.trim()) return "";
     return patch.endsWith("\n") ? patch : `${patch}\n`;
+  }
+
+  progress(taskId: string): { stage?: string; lastStep?: CloudTaskStep } | undefined { return this.progressById.get(taskId); }
+
+  async activity(taskId: string, after: number): Promise<CloudTaskActivityPage> {
+    const id = LaterdogCloudAdapter.id(taskId);
+    if (!Number.isSafeInteger(after) || after < 0) throw new Error("after must be a byte offset");
+    const { computers } = this.client();
+    const computer = await computers.get(id);
+    if (!computer) return { steps: [], cursor: after, live: false, available: false, reason: "This task's computer is gone." };
+    if (computer.state !== "running") return { steps: [], cursor: after, live: false, available: false, reason: computer.state === "sleeping" ? "This task's computer is asleep." : `This task's computer is ${computer.state}.` };
+    const command = `f="$HOME/task/activity.jsonl"; [ -f "$f" ] || exit 0; tail -c +${after + 1} "$f" | head -c ${MAX_ACTIVITY_PAGE_BYTES}; [ -f "$HOME/task/exit" ] && printf '\n__laterdog_finished__\n' >&2 || true`;
+    const result = await computers.exec(id, command, 30_000);
+    if (result.exitCode !== 0) throw new Error(`Reading progress on computer ${id} exited ${result.exitCode ?? "without a code"}`);
+    const { steps, consumedBytes } = parseCloudTaskSteps(result.stdout);
+    return { steps, cursor: after + consumedBytes, live: !result.stderr.includes("__laterdog_finished__"), available: true };
+  }
+
+  async transcript(taskId: string): Promise<string> {
+    const id = LaterdogCloudAdapter.id(taskId);
+    const { computers } = this.client();
+    const computer = await computers.get(id);
+    if (!computer || computer.state !== "running") return "";
+    const size = await computers.exec(id, 'f="$HOME/task/activity.jsonl"; [ -f "$f" ] && wc -c < "$f" || echo 0', 30_000);
+    const bytes = Number.parseInt(size.stdout.trim(), 10);
+    if (!Number.isInteger(bytes) || bytes <= 0) return "";
+    if (bytes > MAX_TRANSCRIPT_BYTES) {
+      const tail = await computers.exec(id, `tail -c ${MAX_TRANSCRIPT_BYTES} "$HOME/task/activity.jsonl" > "$HOME/task/activity.tail" && echo ok`, 60_000);
+      if (tail.exitCode !== 0) return "";
+      const text = (await computers.read(id, "task/activity.tail", MAX_TRANSCRIPT_BYTES)).toString("utf8");
+      return text.slice(text.indexOf("\n") + 1);
+    }
+    return (await computers.read(id, "task/activity.jsonl", MAX_TRANSCRIPT_BYTES)).toString("utf8");
+  }
+
+  async screen(taskId: string): Promise<{ url: string; expiresAt: number | string }> {
+    const id = LaterdogCloudAdapter.id(taskId);
+    const { computers } = this.client();
+    const computer = await computers.get(id);
+    if (!computer) throw Object.assign(new Error("This task's computer is gone, so there is no screen to watch."), { status: 409 });
+    if (computer.state !== "running") throw Object.assign(new Error(computer.state === "sleeping" ? "This task's computer is asleep." : `This task's computer is ${computer.state}.`), { status: 409 });
+    return computers.desktop(id);
+  }
+
+  async cancel(taskId: string): Promise<void> {
+    const id = LaterdogCloudAdapter.id(taskId);
+    const { computers } = this.client();
+    await computers.remove(id);
+    this.failures.set(id, "Stopped: its computer was deleted.");
   }
 
   async list(): Promise<unknown> {
