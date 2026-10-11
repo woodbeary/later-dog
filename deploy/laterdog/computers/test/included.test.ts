@@ -56,6 +56,16 @@ const speak = (key: string, voiceId: string, text: string, headers: Record<strin
     body: JSON.stringify({ text, model_id: "eleven_flash_v2_5" }),
   });
 
+describe("what the trial says is included", () => {
+  it("names only the services that are set up", async () => {
+    const { w, key } = await included();
+    expect((await body(await w.fetch(new Request(`${ORIGIN}/v1/trials`)))).included).toEqual(["decisions"]);
+    expect((await body(await w.fetch(apiRequest("GET", "/v1/trial", key)))).included).toEqual(["decisions"]);
+    const all = await included({ ELEVENLABS_API_KEY: "sk", XAI_API_KEY: "xai" });
+    expect((await body(await all.w.fetch(apiRequest("GET", "/v1/trial", all.key)))).included).toEqual(["decisions", "voice", "ai"]);
+  });
+});
+
 describe("included decisions", () => {
   it("answers a later.dog group chat with Clef through the AI Gateway, logging no content", async () => {
     const { w, run, key } = await included();

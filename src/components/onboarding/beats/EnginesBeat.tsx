@@ -11,7 +11,7 @@ import { t } from "@/lib/i18n";
 import { ONBOARDING_ACCOUNT_IDS, onboardingAccounts, type OnboardingAccount, type OnboardingAccountId } from "@/lib/onboarding";
 import type { LocaleKey } from "@/locales";
 import { api, useStore, type InstanceInfo } from "@/state/store";
-import { FreeAiRow, freeAiShown } from "./FreeAiRow";
+import { FreeAiRow } from "./FreeAiRow";
 import { PrimaryButton, staggerIndex, type BeatProps } from "./shared";
 import type { TrialStatus } from "@/components/CloudTrial";
 
@@ -304,7 +304,7 @@ export function EnginesBeat({ onNext, setMascot, bump }: BeatProps & { hosted?: 
   return (
     <div className="stagger flex min-h-0 flex-col">
       <p className="animate-rise mt-1 text-[14px] leading-relaxed text-ink-secondary" style={staggerIndex(0)}>
-        {freeAiShown(freeStatus) ? t("onboarding.engines.subtitleFree") : t("onboarding.engines.subtitle")}
+        {freeStatus ? t("onboarding.engines.subtitleFree") : t("onboarding.engines.subtitle")}
       </p>
       <ul
         aria-busy={loading}

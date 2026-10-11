@@ -381,7 +381,7 @@ describe("the AI step of first run", () => {
   });
 
   it("offers later.dog AI free while a trial is on offer, opens the browser check, and reads Ready once it passes", async () => {
-    let trial: Record<string, unknown> = { state: "offered", minutes: 30, days: 7 };
+    let trial: Record<string, unknown> = { state: "offered", minutes: 30, days: 7, ai: true };
     fixture.routes["GET /api/computers/trial"] = () => trial;
     fixture.routes["POST /api/computers/trial"] = () => (trial = { state: "pending", url: "https://cloud.later.dog/trial?claim=abc" });
     await mount();
@@ -392,12 +392,16 @@ describe("the AI step of first run", () => {
     expect(fixture.trialCalls).toContain("POST /api/computers/trial");
     expect(fixture.open).toHaveBeenCalledWith("https://cloud.later.dog/trial?claim=abc");
     expect(row("free-ai").textContent).toContain("Finish the check");
-    trial = { state: "active", minutes: 30, minutesLeft: 30, expiresAt: "2030-01-01T00:00:00.000Z" };
+    trial = { state: "active", minutes: 30, minutesLeft: 30, expiresAt: "2030-01-01T00:00:00.000Z", ai: true };
     await advance(3_000);
     expect(row("free-ai").textContent).toContain("Ready");
   });
 
-  it("shows no later.dog AI row when no trial is on offer", async () => {
+  it("shows no later.dog AI row when no trial is on offer, or the trial has no AI yet", async () => {
+    await mount();
+    expect(document.querySelector('[data-onboarding-account="free-ai"]')).toBeNull();
+    await act(async () => root.unmount());
+    fixture.routes["GET /api/computers/trial"] = () => ({ state: "offered", minutes: 30, days: 7 });
     await mount();
     expect(document.querySelector('[data-onboarding-account="free-ai"]')).toBeNull();
     expect(document.body.textContent).not.toContain("later.dog AI");

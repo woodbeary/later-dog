@@ -26,6 +26,7 @@ function trialService() {
     down: false,
     held: null as Promise<void> | null,
     planClaims: [] as string[],
+    included: null as string[] | null,
     paid: new Map<string, string>(),
     claim(url: string) {
       trials.set(new URL(url).searchParams.get("claim") ?? "", { minutesLeft: 30, ended: false });
@@ -61,7 +62,7 @@ function trialService() {
         trial.ended = true;
         return json(200, { ended: true });
       }
-      return json(200, { trial: { state: trial.minutesLeft >= 1 ? "active" : "used_up", minutes: 30, minutesLeft: trial.minutesLeft, expiresAt: EXPIRES } });
+      return json(200, { trial: { state: trial.minutesLeft >= 1 ? "active" : "used_up", minutes: 30, minutesLeft: trial.minutesLeft, expiresAt: EXPIRES }, ...(world.included ? { included: world.included } : {}) });
     }) as typeof fetch,
   };
   return world;
@@ -344,5 +345,18 @@ describe("later.dog Cloud from the app", () => {
     expect(savedKey()).not.toBe(before);
     expect(mode(keyFile())).toBe(0o600);
     expect(saved()).toEqual({ api: API });
+  });
+});
+
+describe("what a free trial includes", () => {
+  it("remembers the included services the service names, and says when later.dog AI is among them", async () => {
+    const started = await startTrial(options);
+    service.claim(started.state === "pending" ? started.url : "");
+    service.included = ["decisions", "voice", "ai", "something-new"];
+    expect(await trialStatus(options)).toMatchObject({ state: "active", ai: true });
+    expect(saved()).toEqual({ api: API, confirmed: true, included: ["decisions", "voice", "ai"] });
+    service.included = ["decisions"];
+    expect(await trialStatus(options)).not.toHaveProperty("ai");
+    expect(saved().included).toEqual(["decisions"]);
   });
 });

@@ -10,10 +10,10 @@ export type PlanInfo = { status: "none" | "pending" | "active" | "canceled" | "e
 
 export type TrialStatus =
   | { state: "none" }
-  | { state: "offered"; minutes: number; days: number }
+  | { state: "offered"; minutes: number; days: number; ai?: true }
   | { state: "pending"; url: string }
-  | { state: "active"; minutes: number; minutesLeft: number; expiresAt: string; plan?: PlanInfo; planOffered?: true }
-  | { state: "used_up"; minutes: number; expiresAt: string; plan?: PlanInfo; planOffered?: true }
+  | { state: "active"; minutes: number; minutesLeft: number; expiresAt: string; plan?: PlanInfo; planOffered?: true; ai?: true }
+  | { state: "used_up"; minutes: number; expiresAt: string; plan?: PlanInfo; planOffered?: true; ai?: true }
   | { state: "ended"; planOffered?: true };
 
 const PLAN_PATH = "/api/computers/plan";

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Check, Loader2, Sparkles } from "lucide-react";
 import { pill } from "@/components/AccountsPanel";
 import { useCloudTrial, type TrialStatus } from "@/components/CloudTrial";
@@ -6,21 +6,27 @@ import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 
-export const freeAiShown = (status: TrialStatus | null) =>
-  status?.state === "offered" || status?.state === "pending" || status?.state === "active" || status?.state === "used_up";
+export const freeAiShown = (status: TrialStatus | null, started = false) =>
+  ((status?.state === "offered" || status?.state === "active" || status?.state === "used_up") && status.ai === true)
+  || (status?.state === "pending" && started);
 
-export const freeAiReady = (status: TrialStatus | null) => status?.state === "active" || status?.state === "used_up";
+export const freeAiReady = (status: TrialStatus | null) => (status?.state === "active" || status?.state === "used_up") && status.ai === true;
 
 export function FreeAiRow({ onReady, onStatus }: { onReady: () => void; onStatus?: (status: TrialStatus | null) => void }) {
-  const { status, busy, error, start } = useCloudTrial();
+  const { status, busy, error, start: startTrial } = useCloudTrial();
+  const [started, setStarted] = useState(false);
+  const start = () => {
+    setStarted(true);
+    startTrial();
+  };
   const ready = freeAiReady(status);
 
   useEffect(() => {
-    onStatus?.(status);
+    onStatus?.(freeAiShown(status, started) ? status : null);
     if (ready) onReady();
-  }, [status, ready, onReady, onStatus]);
+  }, [status, started, ready, onReady, onStatus]);
 
-  if (!freeAiShown(status)) return null;
+  if (!freeAiShown(status, started)) return null;
   let slot;
   if (ready) {
     slot = (

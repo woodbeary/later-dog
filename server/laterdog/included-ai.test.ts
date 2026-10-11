@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 const startTrial = () => {
-  writeFileSync(join(home, "computers-trial.json"), JSON.stringify({ api: "https://cloud.later.dog/v1", confirmed: true }));
+  writeFileSync(join(home, "computers-trial.json"), JSON.stringify({ api: "https://cloud.later.dog/v1", confirmed: true, included: ["decisions", "voice", "ai"] }));
   writeFileSync(join(home, "computers-trial-key"), `${KEY}\n`);
 };
 const create = () => IncludedAiDriver.create({ instanceId: INCLUDED_AI_INSTANCE, displayName: "later.dog AI", enabled: true, config: {}, environment: {} });

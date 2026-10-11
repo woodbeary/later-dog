@@ -10,17 +10,17 @@ export const DEFAULT_TRIAL_API = "https://cloud.later.dog/v1";
 
 export type TrialStatus =
   | { state: "none" }
-  | { state: "offered"; minutes: number; days: number }
+  | { state: "offered"; minutes: number; days: number; ai?: true }
   | { state: "pending"; url: string }
-  | { state: "active"; minutes: number; minutesLeft: number; expiresAt: string; plan?: PlanInfo; planOffered?: true }
-  | { state: "used_up"; minutes: number; expiresAt: string; plan?: PlanInfo; planOffered?: true }
+  | { state: "active"; minutes: number; minutesLeft: number; expiresAt: string; plan?: PlanInfo; planOffered?: true; ai?: true }
+  | { state: "used_up"; minutes: number; expiresAt: string; plan?: PlanInfo; planOffered?: true; ai?: true }
   | { state: "ended"; planOffered?: true };
 
 export interface TrialOptions { otherComputers: () => boolean; fetch?: typeof fetch }
 
 const OFFER_TIMEOUT_MS = 15_000;
 const MAX_OFFER_BYTES = 64 * 1024;
-const offerBody = z.object({ offered: z.boolean(), minutes: z.number().int().min(1).max(600), days: z.number().int().min(1).max(90) });
+const offerBody = z.object({ offered: z.boolean(), minutes: z.number().int().min(1).max(600), days: z.number().int().min(1).max(90), included: z.array(z.string().max(32)).max(16).optional() });
 
 const refused = (message: string) => Object.assign(new Error(message), { status: 409 });
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -54,7 +54,11 @@ function end(saved: SavedTrial): void {
 const client = (saved: SavedTrial, options: TrialOptions) =>
   new ComputersClient({ api: saved.api, keyFile: trialKeyFile(), source: "trial" }, { fetch: options.fetch });
 
-const extras = (trial: TrialView) => ({ ...(trial.plan ? { plan: trial.plan } : {}), ...(trial.planOffered ? { planOffered: true as const } : {}) });
+const extras = (trial: TrialView) => ({
+  ...(trial.plan ? { plan: trial.plan } : {}),
+  ...(trial.planOffered ? { planOffered: true as const } : {}),
+  ...(trial.included?.includes("ai") ? { ai: true as const } : {}),
+});
 
 const view = (trial: TrialView): TrialStatus => trial.state === "active"
   ? { state: "active", minutes: trial.minutes, minutesLeft: trial.minutesLeft, expiresAt: trial.expiresAt, ...extras(trial) }
@@ -98,7 +102,9 @@ async function offer(options: TrialOptions): Promise<TrialStatus> {
     });
     if (!response.ok) { await response.body?.cancel().catch(() => {}); return { state: "none" }; }
     const body = offerBody.safeParse(JSON.parse((await readCapped(response, MAX_OFFER_BYTES, () => new Error("too large"))).toString("utf8")));
-    return body.success && body.data.offered ? { state: "offered", minutes: body.data.minutes, days: body.data.days } : { state: "none" };
+    if (!body.success || !body.data.offered) return { state: "none" };
+    const ai = body.data.included?.includes("ai") === true;
+    return { state: "offered", minutes: body.data.minutes, days: body.data.days, ...(ai ? { ai: true as const } : {}) };
   } catch { return { state: "none" }; }
 }
 
@@ -109,7 +115,10 @@ async function current(options: TrialOptions): Promise<TrialStatus> {
   if (key) {
     const trial = await client(saved, options).trial();
     if (trial) {
-      if (!saved.confirmed) save({ api: saved.api, confirmed: true });
+      const included = trial.included;
+      if (!saved.confirmed || JSON.stringify(saved.included ?? null) !== JSON.stringify(included ?? null)) {
+        save({ api: saved.api, confirmed: true, ...(included ? { included } : {}) });
+      }
       return view(trial);
     }
     if (!saved.confirmed) return { state: "pending", url: trialPage(saved.api, key) };
