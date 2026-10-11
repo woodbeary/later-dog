@@ -798,7 +798,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     // chat (server/laterdog/dog-creation.ts); say only what the harness did.
     const newName = String(r.name ?? botName);
     return {
-      text: `Created @${newName} in ${r.section ?? "General"} [id: ${r.id}].${r.modelSelection ? ` Model: ${JSON.stringify(r.modelSelection)}.` : ""} It is in the person's sidebar now${r.greeted === true ? ", greeting them in its own chat" : ""}. Tell them so in one sentence, for example: "I've created ${newName}, and it should be in your sidebar now." Assign it work with ${COORDINATING ? "coordinate_bots" : "delegate_bot"} only if they asked for that.`,
+      text: `Created @${newName} in ${r.section ?? "General"} [id: ${r.id}].${r.modelSelection ? ` Model: ${JSON.stringify(r.modelSelection)}.` : ""} It is in the person's sidebar now${r.greeted === true ? ", greeting them in its own chat" : ""}. Tell them so in one sentence, for example: "I've created ${newName}, and it should be in your sidebar now." If they gave it a job, hand that job over now with ${COORDINATING ? "coordinate_bots" : "delegate_bot"} so it starts working; otherwise leave it to greet them.`,
     };
   }
   if (name === "create_room") {

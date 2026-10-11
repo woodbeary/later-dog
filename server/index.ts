@@ -356,7 +356,7 @@ import { createDecider, deciderIncludedHere, deciderReady, deciderSavePatch, des
 import { decideRoomResponder, type RoomRoutingInput } from "./decider/room-routing.ts";
 import { createLiveSession, liveAttachUrl, LiveSessionError, type LiveBot, type LiveHistoryMessage } from "./live-call.ts";
 import { LiveCallController, LiveCallSignedOutError, type LiveSocket } from "./live-call-controller.ts";
-import { narrateTool, toUtterances } from "./tts/speech-text.ts";
+import { toUtterances } from "./tts/speech-text.ts";
 import { turnStartLogLine } from "./turn-log.ts";
 import { makeCapContinuationSubscriber } from "./turn-continuation.ts";
 import { buildRecoveryText, buildTurnContext, engineIsFresh, NATIVELY_REPLAYING_DRIVER_KINDS, peerMessageText } from "./turn-context.ts";
@@ -634,7 +634,8 @@ import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
-import { DOG_CREATION_REFUSAL, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
+import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
+import { botNames, dogActivityWords } from "./laterdog/activity-words.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
@@ -7822,7 +7823,7 @@ bus.subscribe((event: RuntimeEvent) => {
         const message = pushMessage({
           role: "bot",
           kind: "activity",
-          tool: { name, spoken: narrateTool(name) ?? undefined, summary: event.summary, input: event.input, itemId: event.itemId ?? event.eventId },
+          tool: { name, spoken: dogActivityWords(name, event.input, botNames(store), Boolean(event.summary)) ?? undefined, summary: event.summary, input: event.input, itemId: event.itemId ?? event.eventId },
           // attributed to its turn so the digest can count it
           turnId: liveTurnId,
         });
@@ -18816,12 +18817,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           },
           { seedMessages: false },
         );
-        const safeBot = store.patchBot(created.id, {
-          composio: false,
-          connectorTools: {},
-          autoApprove: false,
-          approvePeerComms: false,
-        })!;
+        const safeBot = store.patchBot(created.id, dogMadeDogAccess(
+          chief,
+          sourceApprovalMode(chief.id, fromThreadId),
+          newBotDefaultsOrBuiltIn(cfg.newBotDefaults).profile.approvalMode,
+          (mode) => supportsApprovalMode(created.modelSelection, mode),
+        ))!;
         internalCapability.createdBots += 1;
         const greeted = greetNewDog(store, safeBot, { creatorName: chief.name, threadId: fromThreadId, profileName: cfg.profile?.name });
         return json(res, 201, {

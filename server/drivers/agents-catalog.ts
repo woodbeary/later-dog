@@ -424,7 +424,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
     name: "create_bot",
     // Every bot is shown this, not only a Chief: later.dog's rule (server/laterdog/dog-creation.ts).
     description:
-      "Create a new bot when the person asks for another bot, agent or teammate. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It joins your section with connected apps and automatic approvals off, and greets the person in its own chat; then tell them it is in their sidebar. Omit modelSelection for the workspace default (a Chief may choose exact IDs from list_team_setup). Give it work only if they asked. Maximum four new bots per turn.",
+      "Create a new bot when the person asks for another bot, agent or teammate. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It joins your section with the same access you have (never more) and greets the person in its own chat; then tell them it is in their sidebar. Omit modelSelection for the workspace default (a Chief may choose exact IDs from list_team_setup). If they gave it a job, hand the job over right away so it starts working without them repeating it. Maximum four new bots per turn.",
     inputSchema: {
       type: "object",
       properties: {
