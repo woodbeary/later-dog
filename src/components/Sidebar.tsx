@@ -1,3 +1,4 @@
+import { cloudWakeupOf, wakeupLine } from "@/lib/cloud-tasks";
 import { track } from "@/lib/analytics";
 import { OrganizationIdentity } from "./OrganizationIdentity";
 import { approvalCardOutcome } from "./ApprovalCard";
@@ -165,6 +166,8 @@ function preview(bot: Bot, visible: Message[], instances: InstanceInfo[]): strin
   if (last.kind === "activity" && last.tool) return activityPreview(last.tool, botEngine(bot, instances));
   if (last.kind === "screen") return t("sidebar.preview.screenFrame");
   if (last.kind === "connector" && last.connector) return sidebarConnectorPreview(last.connector, t);
+  const wakeup = cloudWakeupOf(last);
+  if (wakeup) return wakeupLine(wakeup.event);
   const peer = peerLine(last);
   if (peer) return `${peer.name}: ${markdownPreview(peer.body)}`;
   const text = citationPreviewText(last.text ?? "");
@@ -199,6 +202,8 @@ function groupPreview(group: Group, bots: Bot[], instances: InstanceInfo[]): str
       : last.kind === "connector" && last.connector
         ? sidebarConnectorPreview(last.connector, t)
         : markdownPreview(citationPreviewText(last.text ?? ""));
+  const wakeup = cloudWakeupOf(last);
+  if (wakeup) return wakeupLine(wakeup.event);
   if (last.role === "user") return t("sidebar.preview.you", { text: readable });
   return last.from ? `${last.from.name}: ${readable}` : readable;
 }

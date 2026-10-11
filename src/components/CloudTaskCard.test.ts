@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { rememberCloudTasks } from "@/lib/cloud-tasks";
 import { BotEditorStore, initialState, reducer, type Message } from "@/state/store";
 import type { CloudTaskSummary } from "../../shared/cloud-task";
-import { CloudTaskCard } from "./CloudTaskCard";
+import { CloudTaskCard, CloudTaskUpdateRow } from "./CloudTaskCard";
 
 const ID = "6a1f8f2e-1111-4222-8333-944444444444";
 
@@ -57,6 +57,17 @@ describe("CloudTaskCard", () => {
     const markup = render(message(id));
     expect(markup).toContain("Needs attention");
     expect(markup).toContain("The job exited 1 during setup");
+  });
+});
+
+describe("CloudTaskUpdateRow", () => {
+  it("shows a cloud task's wake-up as one line that names the task, never as the person's words", () => {
+    remember(ID, { state: "ready", changes: { files: 1, additions: 2, deletions: 0 }, screen: false, stoppable: false });
+    const wakeup: Message = { id: "wake-1", role: "user", kind: "text", at: 2, sendId: `laterdog_${ID.replaceAll("-", "")}_9`, text: `later.dog job ${ID}: collected. Provider diff retained\nState: ready.` };
+    const markup = renderToStaticMarkup(createElement(BotEditorStore, { value: { state: initialState, dispatch: vi.fn() } as never, children: createElement(CloudTaskUpdateRow, { message: wakeup }) }));
+    expect(markup).toContain("Cloud task finished its work");
+    expect(markup).toContain("Fix the login button");
+    expect(markup).not.toContain("later.dog job");
   });
 });
 

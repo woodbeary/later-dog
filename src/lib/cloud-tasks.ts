@@ -196,6 +196,33 @@ export const publishCloudTask = (jobId: string) => act(jobId, { action: "publish
 export const cloudTaskScreen = (jobId: string) => api<{ url: string; expiresAt: number | string }>(`/api/laterdog/jobs/${jobId}/screen`, { method: "POST", body: "{}" });
 export const cloudTaskPatch = (jobId: string) => api<{ patch: string }>(`/api/laterdog/jobs/${jobId}/patch`);
 
+const WAKEUP_SEND_ID = /^laterdog_([0-9a-f]{32})_\d+$/;
+const WAKEUP_TEXT = /^later\.dog job [0-9a-f-]{36}: ([a-z_]+)\./;
+
+/** A wake-up the supervisor sent a dog's chat when its cloud task moved: shown as a slim update line, not as the person's words. */
+export function cloudWakeupOf(message: { role: string; kind?: string; sendId?: string; text?: string }): { jobId: string; event: string } | null {
+  if (message.role !== "user" || (message.kind !== undefined && message.kind !== "text") || !message.sendId) return null;
+  const hex = WAKEUP_SEND_ID.exec(message.sendId)?.[1];
+  if (!hex) return null;
+  return {
+    jobId: `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`,
+    event: WAKEUP_TEXT.exec(message.text ?? "")?.[1] ?? "updated",
+  };
+}
+
+export function wakeupLine(event: string): string {
+  switch (event) {
+    case "collected": return t("cloudTask.update.collected");
+    case "published": return t("cloudTask.update.published");
+    case "verified": return t("cloudTask.update.verified");
+    case "reviewed": return t("cloudTask.update.reviewed");
+    case "merged": return t("cloudTask.update.merged");
+    case "provider_failed": case "preparation_blocked": case "publication_blocked": case "collection_blocked": case "submission_unknown":
+      return t("cloudTask.update.attention");
+    default: return t("cloudTask.update.other");
+  }
+}
+
 export type CloudTaskTone = "accent" | "success" | "warning" | "danger" | "muted";
 export interface CloudTaskStatusView { label: string; tone: CloudTaskTone; live: boolean; detail?: string }
 

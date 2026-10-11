@@ -3,7 +3,7 @@ import { ChevronRight, Cloud, ExternalLink, Loader2 } from "lucide-react";
 
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
-import { changesLabel, cloudTaskActive, cloudTaskStatus, elapsedLabel, stepHeadline, TONE_CLASS, useCloudTask } from "@/lib/cloud-tasks";
+import { changesLabel, cloudTaskActive, cloudTaskStatus, cloudWakeupOf, elapsedLabel, stepHeadline, TONE_CLASS, useCloudTask, wakeupLine } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
 import { useStore, type Message } from "@/state/store";
 
@@ -16,6 +16,30 @@ function useMinuteClock(running: boolean): number {
   }, [running]);
   return now;
 }
+
+/** A cloud task's wake-up in the chat: what happened, in one line that opens the task. */
+export const CloudTaskUpdateRow = memo(function CloudTaskUpdateRow({ message }: { message: Message }) {
+  const { dispatch } = useStore();
+  const wakeup = cloudWakeupOf(message);
+  const entry = useCloudTask(wakeup?.jobId);
+  if (!wakeup) return null;
+  const title = entry?.summary?.title;
+  return (
+    <div className="flex justify-start" data-testid="cloud-task-update">
+      <button
+        type="button"
+        onClick={() => dispatch({ type: "openCloudTask", jobId: wakeup.jobId })}
+        title={t("cloudTask.viewProgress")}
+        className="flex max-w-full min-w-0 items-center gap-1.5 rounded-full px-3 py-1 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink"
+      >
+        <Cloud size={12} aria-hidden="true" className="shrink-0" />
+        <span className="shrink-0">{wakeupLine(wakeup.event)}</span>
+        {title && <span className="min-w-0 truncate text-ink-tertiary">· {title}</span>}
+        <ChevronRight size={12} aria-hidden="true" className="shrink-0" />
+      </button>
+    </div>
+  );
+});
 
 export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message: Message }) {
   const { dispatch } = useStore();

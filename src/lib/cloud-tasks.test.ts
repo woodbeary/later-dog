@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CloudTaskSummary } from "../../shared/cloud-task";
-import { changesLabel, cloudTaskActive, cloudTaskStatus, elapsedLabel, filesChangedLabel, stepHeadline } from "./cloud-tasks";
+import { changesLabel, cloudTaskActive, cloudTaskStatus, cloudWakeupOf, elapsedLabel, filesChangedLabel, stepHeadline, wakeupLine } from "./cloud-tasks";
 
 function summary(patch: Partial<CloudTaskSummary> = {}): CloudTaskSummary {
   return {
@@ -62,5 +62,24 @@ describe("cloud task steps and labels", () => {
     expect(elapsedLabel(summary({ startedAt: "2026-10-10T00:00:00.000Z" }), now)).toBe("1 h 15 min");
     expect(elapsedLabel(summary({ state: "ready", startedAt: "2026-10-10T00:00:00.000Z", finishedAt: "2026-10-10T00:07:00.000Z" }), now)).toBe("7 min");
     expect(elapsedLabel(undefined, now)).toBeNull();
+  });
+});
+
+describe("cloud task wake-ups in the chat", () => {
+  const sendId = `laterdog_${"6a1f8f2e-1111-4222-8333-944444444444".replaceAll("-", "")}_17`;
+  it("recognises the supervisor's wake-up and the job it is about", () => {
+    const text = "later.dog job 6a1f8f2e-1111-4222-8333-944444444444: collected. Provider diff retained\nState: ready.";
+    expect(cloudWakeupOf({ role: "user", kind: "text", sendId, text })).toEqual({ jobId: "6a1f8f2e-1111-4222-8333-944444444444", event: "collected" });
+    expect(cloudWakeupOf({ role: "user", kind: "text", sendId, text: "odd" })).toEqual({ jobId: "6a1f8f2e-1111-4222-8333-944444444444", event: "updated" });
+    expect(cloudWakeupOf({ role: "user", kind: "text", sendId: "client-send-1", text })).toBeNull();
+    expect(cloudWakeupOf({ role: "bot", kind: "text", sendId, text })).toBeNull();
+    expect(cloudWakeupOf({ role: "user", kind: "text", text })).toBeNull();
+  });
+
+  it("says what happened in plain words", () => {
+    expect(wakeupLine("collected")).toBe("Cloud task finished its work");
+    expect(wakeupLine("published")).toBe("Cloud task opened a draft PR");
+    expect(wakeupLine("provider_failed")).toBe("Cloud task needs attention");
+    expect(wakeupLine("wakeup_dropped")).toBe("Cloud task update");
   });
 });

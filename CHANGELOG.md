@@ -9,6 +9,7 @@
 - Any GitHub repository works without setup: the first task connects it, starts from its default branch and installs its dependencies itself.
 - A dog that sends work to the cloud without saying where uses later.dog Cloud when it is set up.
 - A dog gets a short receipt when it sends work to the cloud, instead of its whole request read back to it.
+- When a cloud task finishes or needs attention, the chat shows one line saying so ("Cloud task opened a draft PR") that opens the task, instead of the message later.dog sends the dog.
 
 ## 0.3.4 — 2026-10-10
 

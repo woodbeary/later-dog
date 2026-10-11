@@ -20,7 +20,8 @@ import { PlaceIcon } from "./PlaceIcon";
 import { ScreenFrame } from "./ScreenFrame";
 import { effectivePlace, placeLabelKey } from "@/lib/place";
 import { ThreadChip } from "./ThreadChip";
-import { CloudTaskCard } from "./CloudTaskCard";
+import { CloudTaskCard, CloudTaskUpdateRow } from "./CloudTaskCard";
+import { cloudWakeupOf } from "@/lib/cloud-tasks";
 import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { TurnPresence } from "./TurnPresence";
@@ -233,6 +234,7 @@ export const Transcript = memo(function Transcript({
           );
         }
         const m = item.message;
+        if (cloudWakeupOf(m)) return <div key={m.id} className="contents" data-mid={m.id}><CloudTaskUpdateRow message={m} /></div>;
         const user = m.role === "user";
         const cited = user && m.text ? splitTranscriptCitations(m.text) : null;
         const attachments = user && m.text ? splitTranscriptAttachments(cited?.display ?? m.text) : null;

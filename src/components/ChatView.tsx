@@ -70,7 +70,8 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
 import { ThreadChip } from "./ThreadChip";
-import { CloudTaskCard } from "./CloudTaskCard";
+import { CloudTaskCard, CloudTaskUpdateRow } from "./CloudTaskCard";
+import { cloudWakeupOf } from "@/lib/cloud-tasks";
 import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
@@ -990,6 +991,7 @@ const MessagesList = memo(function MessagesList({
             case "screen":
               return <ScreenFrame threadId={threadId} message={m} />;
             default:
+              if (cloudWakeupOf(m)) return <CloudTaskUpdateRow message={m} />;
               return (
                 <Bubble
                   message={m}

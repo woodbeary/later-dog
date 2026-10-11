@@ -2899,5 +2899,12 @@
   "cloudTask.step.stopped": "Stopped",
   "cloudTask.elapsed.underMinute": "under a minute",
   "cloudTask.elapsed.minutes": "{minutes} min",
-  "cloudTask.elapsed.hours": "{hours} h {minutes} min"
+  "cloudTask.elapsed.hours": "{hours} h {minutes} min",
+  "cloudTask.update.collected": "Cloud task finished its work",
+  "cloudTask.update.published": "Cloud task opened a draft PR",
+  "cloudTask.update.verified": "Cloud task's PR was checked",
+  "cloudTask.update.reviewed": "Cloud task was reviewed",
+  "cloudTask.update.merged": "Cloud task's PR was merged",
+  "cloudTask.update.attention": "Cloud task needs attention",
+  "cloudTask.update.other": "Cloud task update"
 }
