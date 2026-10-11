@@ -1,3 +1,4 @@
+import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode.ts";
 import { clip } from "../peer-roster.ts";
 import type { BotRecord, Store } from "../store.ts";
 
@@ -9,8 +10,8 @@ import type { BotRecord, Store } from "../store.ts";
 // setup, deletions, rooms, retries and changing another dog's profile or model stay a Chief's (CHIEF_ONLY_TOOL_NAMES and
 // CHIEF_TARGET_TOOL_NAMES in server/drivers/agents-catalog.ts), and creation keeps every other guard of
 // /api/internal/create-bot in server/index.ts: four per turn, the workspace limit, no duplicate name in the section, the
-// creator's section and audience, and connected apps, automatic approvals and peer-approval skipping off. Model-facing
-// words still say "bot".
+// creator's section and audience. The new dog works the way its creator does (dogMadeDogAccess), never with more access,
+// so a dog can hand it work without the person approving every step. Model-facing words still say "bot".
 
 /** Whether `bot` may create a dog: every dog the person can see may, an archived (hidden) one may not. */
 export function mayCreateDogs(bot: Pick<BotRecord, "hidden"> | null | undefined): boolean {
@@ -72,4 +73,43 @@ export function greetNewDog(
     console.warn(`[dog-creation] could not post ${dog.id}'s greeting: ${(error as Error).message}`);
     return false;
   }
+}
+
+const INHERITED_LEVELS = ["ask", "edits", "auto"] as const;
+
+function inheritedLevel(mode: ApprovalMode | undefined): (typeof INHERITED_LEVELS)[number] {
+  if (mode === "full") return "auto";
+  return mode === "edits" || mode === "auto" ? mode : "ask";
+}
+
+export type DogAccessSource = Pick<BotRecord, "approvalMode" | "autoApprove" | "approvalGrant" | "composio" | "connectorTools"
+  | "connectorScopes" | "outbound" | "mcpServers" | "toolScope" | "alwaysAllow" | "browser">;
+
+export function dogMadeDogAccess(
+  creator: DogAccessSource,
+  creatorThreadMode: ApprovalMode,
+  newDogMode: ApprovalMode | undefined,
+  supported: (mode: ApprovalMode) => boolean,
+): Partial<BotRecord> {
+  const cap = Math.min(
+    INHERITED_LEVELS.indexOf(inheritedLevel(approvalModeFor(creator))),
+    INHERITED_LEVELS.indexOf(inheritedLevel(creatorThreadMode)),
+    INHERITED_LEVELS.indexOf(inheritedLevel(newDogMode)),
+  );
+  const level = INHERITED_LEVELS[cap]!;
+  const approvalMode = supported(level) ? level : "ask";
+  const copy = <T>(value: T): T => (value === undefined ? value : structuredClone(value));
+  return {
+    approvalMode,
+    autoApprove: approvalMode === "auto",
+    approvePeerComms: false,
+    composio: creator.composio,
+    connectorTools: copy(creator.connectorTools),
+    connectorScopes: copy(creator.connectorScopes),
+    outbound: copy(creator.outbound),
+    mcpServers: copy(creator.mcpServers),
+    toolScope: copy(creator.toolScope),
+    alwaysAllow: copy(creator.alwaysAllow),
+    browser: creator.browser,
+  };
 }

@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { launchVerificationServer } from "../scripts/control-laterdog.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
-it("Chief creation uses the workspace default or a validated explicit model without inheriting permissions", async () => {
+it("Chief creation uses the workspace default or a validated explicit model and never more access than the Chief", async () => {
   const temp = mkdtempSync(join(tmpdir(), "laterdog-create-model-"));
   const gate = join(temp, "finish");
   const fixture = await launchVerificationServer({ FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: gate }, undefined, undefined, undefined, undefined, undefined, ["codex"]);
@@ -45,8 +45,9 @@ it("Chief creation uses the workspace default or a validated explicit model with
     expect(bots.find((bot: any) => bot.id === chief.id).modelSelection).toEqual(chiefModel);
     for (const [id, modelSelection] of [[first.id, defaultModel], [second.id, explicit]]) {
       expect(bots.find((bot: any) => bot.id === id)).toMatchObject({
-        section: "Design", modelSelection, autoApprove: false, composio: false, approvePeerComms: false,
+        section: "Design", modelSelection, approvalMode: "ask", autoApprove: false, approvePeerComms: false,
       });
+      expect(bots.find((bot: any) => bot.id === id).composio).toBe(bots.find((bot: any) => bot.id === chief.id).composio);
     }
     for (const invalid of [null, {}, { instanceId: "missing", model: "missing" },
       { ...explicit, model: "not-in-catalog" }, { ...explicit, effort: "invalid" },

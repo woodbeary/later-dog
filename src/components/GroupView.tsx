@@ -402,7 +402,6 @@ export const Transcript = memo(function Transcript({
                   {formatTime(m.at)}
                 </span>
               </div>
-              {!user && m.routedBy && <RoutedByLine routedBy={m.routedBy} />}
             </div>
           ) : null;
         if (!row) return null;
@@ -423,16 +422,6 @@ export const Transcript = memo(function Transcript({
     </>
   );
 });
-
-/** Under a reply in an Auto room: the decision model chose this speaker. */
-export function RoutedByLine({ routedBy }: { routedBy: NonNullable<Message["routedBy"]> }) {
-  const percent = Math.round(Math.min(1, Math.max(0, routedBy.probability)) * 100);
-  return (
-    <div data-testid="routed-by" className="mt-1 px-1 text-[11px] text-ink-secondary">
-      {t("room.routedBy", { percent: String(percent) })}
-    </div>
-  );
-}
 
 export function DefaultResponderSelect({ group, members }: { group: Group; members: Bot[] }) {
   const { state, dispatch } = useStore();
@@ -477,7 +466,7 @@ export function DefaultResponderSelect({ group, members }: { group: Group; membe
           ))}
         </optgroup>
         <optgroup label={t("room.responder.groupBehavior")}>
-          <option value="auto">{jevOn ? t("room.responder.autoOption") : t("room.responder.autoOptionOff")}</option>
+          {(jevOn || value === "auto") && <option value="auto">{jevOn ? t("room.responder.autoOption") : t("room.responder.autoOptionOff")}</option>}
           <option value="everyone">{t("room.responder.everyoneOption")}</option>
           <option value="mentions">{t("room.responder.mentionsOption")}</option>
         </optgroup>
@@ -1264,14 +1253,7 @@ export function GroupView({ group }: { group: Group }) {
       {!setupPending && !group.dm && !remoteClient && state.config && group.defaultResponder.kind === "auto" && !jevRoomRoutingOn(state.config) && (
         <div className="w-full px-5">
           <p data-testid="room-jev-off" className="mb-1 px-2 text-[12px] text-ink-secondary">
-            {t("room.responder.jevOffHint", { name: defaultResponderName(group, members) ?? t("room.responder.leadFallback") })}{" "}
-            <button
-              type="button"
-              onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "general" })}
-              className="cursor-pointer text-accent hover:underline"
-            >
-              {t("room.responder.jevOffOpen")}
-            </button>
+            {t("room.responder.jevOffHint", { name: defaultResponderName(group, members) ?? t("room.responder.leadFallback") })}
           </p>
         </div>
       )}

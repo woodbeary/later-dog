@@ -7,21 +7,16 @@
 // the raw detail one click away under View details and NEVER truncated
 // (it scrolls instead), and the buttons ordered least-destructive-last so
 // the primary action sits under your thumb.
-import { AlertTriangle, ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronRight, X } from "lucide-react";
 import { memo } from "react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t, tFromServer } from "@/lib/i18n";
-import type { LocaleKey } from "@/locales";
 import { SkillRequestPreview } from "@/components/SkillRequestPreview";
 import { toolLabel } from "./ApprovalCard";
 import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
-
-interface ApprovalLabels {
-  [tool: string]: LocaleKey;
-}
 
 export interface Pending {
   message: Message;
@@ -108,7 +103,7 @@ export function spokenApprovalPrompt(pending: Pending, requester: string): strin
   });
 }
 
-function label(pending: Pending): string {
+function label(pending: Pending, botName?: string): string {
   if (pending.message.card?.teamSetupRequest) return pending.message.card.title;
   if (isSkillApproval(pending)) {
     return pending.message.card?.skillRequest?.action === "update"
@@ -123,26 +118,22 @@ function label(pending: Pending): string {
       ? t("approval.label.confirmRoutine")
       : t("approval.label.confirmRoutineChange");
   }
-  const nice: ApprovalLabels = {
-    Bash: "approval.label.commandRequested",
-    shell: "approval.label.commandRequested",
-    Read: "approval.label.fileReadRequested",
-    Write: "approval.label.fileChangeRequested",
-    Edit: "approval.label.fileChangeRequested",
-    edit: "approval.label.fileChangeRequested",
-  };
-  const key = nice[pending.tool];
-  return key ? t(key) : t("approval.label.requested");
+  const action = toolLabel(pending.tool);
+  return botName ? t("approval.ask.named", { name: botName, action }) : t("approval.ask.unnamed", { action });
 }
 
 export const PendingApprovalPanel = memo(function PendingApprovalPanel({
   pending,
   count,
   index,
+  botName,
+  onCancelTurn,
 }: {
   pending: Pending;
   count: number;
   index: number;
+  botName?: string;
+  onCancelTurn?: () => void;
   /** The active locale. Not read here: it is the memo key, the same way the
    * transcript takes one. Every line in this panel comes from the catalog,
    * and nothing else about a pending approval changes with the language. */
@@ -173,8 +164,19 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
             {t("approval.position", { index: index + 1, count })}
           </span>
         )}
-        <span className="text-[14px] font-semibold text-ink">{outbound ? outbound.headline : label(pending)}</span>
+        <span className="text-[14px] font-medium text-ink">{outbound ? outbound.headline : label(pending, botName)}</span>
         {outbound && outbound.summary && <span className="text-[13px] text-ink-secondary">{outbound.summary}</span>}
+        {onCancelTurn && (
+          <button
+            type="button"
+            onClick={onCancelTurn}
+            aria-label={t("approval.action.cancelTurn")}
+            title={t("approval.action.cancelTurn")}
+            className="-mr-1.5 ml-auto flex size-7 shrink-0 items-center justify-center rounded-full text-ink-tertiary transition-colors hover:bg-control hover:text-ink"
+          >
+            <X size={15} aria-hidden="true" />
+          </button>
+        )}
       </div>
       <details className="group mt-1.5 text-[13px] text-ink-secondary">
       <summary className="flex w-fit cursor-pointer list-none items-center gap-1 hover:text-ink">{t("approval.viewDetails")}<ChevronRight size={13} className="transition-transform group-open:rotate-90" aria-hidden="true" /></summary>
@@ -197,7 +199,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
       {pending.message.card?.skillRequest && (
         <SkillRequestPreview request={pending.message.card.skillRequest} />
       )}
-      {heldNote && <div className="mt-2 text-[12px] text-warning">{heldNote}</div>}
+      {heldNote && <div className="mt-1.5 text-[12px] text-ink-secondary">{heldNote}</div>}
     </div>
   );
 });
@@ -206,13 +208,11 @@ export function PendingApprovalActions({
   pending,
   threadId,
   bot,
-  onCancelTurn,
 }: {
   pending: Pending;
   threadId: string;
   /** who asked — "always allow" is remembered against them */
   bot?: Bot;
-  onCancelTurn: () => void;
 }) {
   const { dispatch } = useStore();
   const ownerOrAdmin = useOwnerOrAdmin();
@@ -246,11 +246,6 @@ export function PendingApprovalActions({
   const alwaysIsPrimary = !durableRequest && Boolean((bot && pending.allowKey) || (!pending.allowKey && !canRememberCommand && pending.allowSession));
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-[18px] bg-card px-3 pb-3 pt-1">
-      {!durableRequest && (
-        <button onClick={onCancelTurn} className={cn(base, "text-ink-secondary hover:bg-control hover:text-ink")}>
-          {t("approval.action.cancelTurn")}
-        </button>
-      )}
       <button
         onClick={() => decide("deny")}
         autoFocus={isTeamSetup}

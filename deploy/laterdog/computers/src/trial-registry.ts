@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { Refusal } from "./auth";
 import { newTrialId } from "./ids";
 import { MINUTE } from "./idle";
+import { type UsageKind, utcDay } from "./decide";
 import { type TrialRecord, trialListing } from "./trial";
 
 const RETRY_MS = 60 * MINUTE;
@@ -40,6 +41,27 @@ export class TrialRegistry extends DurableObject<Env> {
     )`);
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY, until INTEGER NOT NULL)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, started INTEGER NOT NULL)");
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS usage (key_sha256 TEXT NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (key_sha256, day, kind))");
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS usage_totals (day TEXT NOT NULL, kind TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (day, kind))");
+  }
+
+  allowUsage(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number }): { ok: true } | { ok: false; refusal: Refusal } {
+    const sql = this.ctx.storage.sql;
+    const now = Date.now();
+    if (sql.exec("SELECT 1 FROM trials WHERE key_sha256 = ? AND expires_at > ?", input.keySha256, now).toArray().length === 0) {
+      return { ok: false, refusal: { status: 401, code: "unauthorized", message: "This free trial has ended or has not started yet." } };
+    }
+    const amount = Math.max(1, Math.ceil(input.amount));
+    const day = utcDay(now);
+    sql.exec("DELETE FROM usage WHERE day <> ?", day);
+    sql.exec("DELETE FROM usage_totals WHERE day <> ?", day);
+    const mine = sql.exec<{ used: number }>("SELECT used FROM usage WHERE key_sha256 = ? AND day = ? AND kind = ?", input.keySha256, day, input.kind).toArray()[0]?.used ?? 0;
+    if (mine + amount > input.perKey) return { ok: false, refusal: { status: 429, code: "daily_limit", message: "This installation has used today's allowance. It resets at midnight UTC." } };
+    const all = sql.exec<{ used: number }>("SELECT used FROM usage_totals WHERE day = ? AND kind = ?", day, input.kind).toArray()[0]?.used ?? 0;
+    if (all + amount > input.total) return { ok: false, refusal: { status: 503, code: "busy_today", message: "later.dog's included service is at today's limit. Try again tomorrow, or add your own key." } };
+    sql.exec("INSERT INTO usage (key_sha256, day, kind, used) VALUES (?, ?, ?, ?) ON CONFLICT (key_sha256, day, kind) DO UPDATE SET used = used + ?", input.keySha256, day, input.kind, amount, amount);
+    sql.exec("INSERT INTO usage_totals (day, kind, used) VALUES (?, ?, ?) ON CONFLICT (day, kind) DO UPDATE SET used = used + ?", day, input.kind, amount, amount);
+    return { ok: true };
   }
 
   async activate(input: { keySha256: string; network: string; limitMs: number; windowMs: number; perDay: number }): Promise<Activation> {

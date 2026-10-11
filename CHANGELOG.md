@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.10 — 2026-10-11
+
+- **No Node needed.** On a Mac without Node, **Sign in** for Claude or ChatGPT installs them straight from Anthropic and OpenAI. Codex's download is checked against OpenAI's published checksum before it runs.
+- **Dogs that make dogs hand over the work.** A dog made by another dog starts with its creator's apps and approval level (never more, and never Full access), and the creator hands it the job right away, so you don't have to approve every step in a thread you aren't watching.
+- **Plain words while a dog works.** "Checking with Scout", "Making Scout", "Working in Gmail" and "Sniffing around the web" instead of tool names like "Running create_bot".
+- **Approvals ask one question.** "Let Scout run a command?" with **Don't allow**, **Always allow** and **Allow once**, and a small × to stop. Tool names are gone from the card in the chat, and details are one click away.
+- **Group chats start right away.** No setup card before the first message: the first dog leads and @mentions bring others in. Replies no longer show a "Picked by…" percentage, and a teammate's reply chip shows the first line of what it said.
+- **Your free trial includes smart group chats and voice.** During the trial, group chats send each message to the best-fit dog, and dogs can talk out loud with a choice of ten voices, with nothing to set up. Your own keys always come first.
+- Shorter wording across setup, apps and approvals.
+
 ## 0.3.9 — 2026-10-11
 
 - **Black and white.** Buttons are black in light mode and white in dark mode, and new dogs start as the classic golden dog. Pick any color for a dog in its settings.

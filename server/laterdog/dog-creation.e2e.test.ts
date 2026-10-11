@@ -1,8 +1,8 @@
 // later.dog's rule (server/laterdog/dog-creation.ts): any dog the person can see creates a dog when asked, the way the
 // reference product's bots do. This drives an ordinary dog's real turn in a disposable server with the fake engine: the
 // agents proxy that turn mounts lists create_bot, its tools/call creates "Scout" through /api/internal/create-bot, and
-// Scout lands in the same section with the safe defaults, already greeting the person in its own chat. The per-turn cap,
-// the duplicate check and the archived-dog refusal still hold.
+// Scout lands in the same section working the way its creator does (never with more access), already greeting the person
+// in its own chat. The per-turn cap, the duplicate check and the archived-dog refusal still hold.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -85,6 +85,7 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     const biscuit: Bot = (await api("POST", "/api/bots", { name: "Biscuit", section: "Research" }, 201)).bot;
     const rex: Bot = (await api("POST", "/api/bots", { name: "Rex", section: "Research" }, 201)).bot;
     expect((await bots()).filter((bot) => bot.chiefOfStaff)).toEqual([]);
+    await api("PATCH", `/api/bots/${biscuit.id}`, { approvalMode: "auto" });
 
     // An ordinary dog's turn is shown create_bot, and none of the tools only a Chief keeps.
     const turn = await startTurn(biscuit, "can u make another agent");
@@ -110,8 +111,10 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     expect(scout).toMatchObject({
       section: "Research", title: "research and writing",
       description: "Find sources, read them closely and draft short summaries with links.",
-      composio: false, connectorTools: {}, autoApprove: false, approvePeerComms: false, unread: true,
+      approvalMode: "auto", autoApprove: true, approvePeerComms: false, unread: true,
     });
+    expect(scout.composio).not.toBe(false);
+    expect(scout.connectorTools).toBeUndefined();
     expect(scout.chiefOfStaff).toBeFalsy();
     expect(scout.visibility).toBeUndefined();
     expect(said).toContain(`[id: ${scout.id}]`);
@@ -136,6 +139,8 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     // An archived dog is refused in plain words, and nothing is created.
     const archived = await startTurn(rex, "make me a helper");
     expect(await archived.toolNames()).toContain("create_bot");
+    await api("POST", "/api/internal/create-bot", { name: "Pup", role: "keeping notes", instructions: "Keep notes." }, 201, archived.token);
+    expect((await bots()).find((bot) => bot.name === "Pup")).toMatchObject({ approvalMode: "ask", autoApprove: false });
     await api("PATCH", `/api/bots/${rex.id}`, { hidden: true });
     const refused = await archived.tool("create_bot", { name: "Shadow", role: "keeping watch", instructions: "Watch." });
     expect(refused.isError).toBe(true);

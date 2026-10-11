@@ -17,6 +17,7 @@
 // relay. An included token is never written to config.json, never reported
 // to a client, and never the saved key Settings verifies, rotates or clears.
 import { JEV_DEFAULT_BASE_URL } from "./decider/jev.ts";
+import { trialDecider, trialVoice } from "./laterdog/included-trial.ts";
 
 export const BOAT_API_DEFAULT = "https://ascii.dev/api/box/v1";
 export const ELEVENLABS_API_DEFAULT = "https://api.elevenlabs.io/v1";
@@ -82,7 +83,7 @@ export function boatCredential(own: string | undefined, env: NodeJS.ProcessEnv =
 
 /** The ElevenLabs credential in use: the person's own key, else the included one. */
 export function voiceCredential(own: string | undefined, env: NodeJS.ProcessEnv = process.env): ServiceCredential | null {
-  return resolve(own, elevenLabsProviderApi(env), (held ?? includedFrom(env)).voice);
+  return resolve(own, elevenLabsProviderApi(env), (held ?? includedFrom(env)).voice ?? trialVoice());
 }
 
 /** The decision model's credential in use: the person's own Jev key (saved,
@@ -93,5 +94,5 @@ export function deciderCredential(
   ownBaseUrl: string | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): ServiceCredential | null {
-  return resolve(own?.trim(), ownBaseUrl?.trim() || JEV_DEFAULT_BASE_URL, (held ?? includedFrom(env)).decider);
+  return resolve(own?.trim(), ownBaseUrl?.trim() || JEV_DEFAULT_BASE_URL, (held ?? includedFrom(env)).decider ?? trialDecider());
 }

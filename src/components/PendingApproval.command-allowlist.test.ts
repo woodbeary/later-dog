@@ -29,7 +29,7 @@ function nodes(value: ReactNode): Node[] {
 }
 function view(extra: Partial<NonNullable<Message["card"]>> = {}) {
   const pending = pendingApprovals([message(extra)])[0]!;
-  const tree = PendingApprovalActions({ pending, bot, threadId: "thread-1", onCancelTurn: vi.fn() });
+  const tree = PendingApprovalActions({ pending, bot, threadId: "thread-1" });
   return { html: renderToStaticMarkup(tree), buttons: nodes(tree).filter((node) => node.type === "button") };
 }
 
@@ -55,15 +55,15 @@ describe("remembering exact command approvals", () => {
   it("forwards eligibility supplied by the server without deriving a grant from the tool label", () => {
     expect(pendingApprovals([message()])[0]?.commandAllowlist).toEqual(commandAllowlist);
     expect(pendingApprovals([message({ commandAllowlist: undefined })])[0]?.commandAllowlist).toBeUndefined();
-    expect(view({ commandAllowlist: undefined }).html).not.toContain("Always allow this command");
+    expect(view({ commandAllowlist: undefined }).html).not.toContain("Always allow");
   });
 
   it("answers and remembers in one action without a separate preference update", () => {
     const result = view();
-    expect(result.html).toContain("Always allow this command");
+    expect(result.html).toContain("Always allow");
     expect(result.html).toContain("/work/project");
-    expect(result.html).not.toContain("Always allow this session");
-    result.buttons.find((button) => button.props.children === "Always allow this command")!.props.onClick!();
+    expect(result.html).not.toContain("Allow for this chat");
+    result.buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       type: "decideRequest", threadId: "thread-1", requestId: "request-1", behavior: "allow", rememberCommand: true,
       alwaysAllow: undefined, always: undefined,
@@ -71,7 +71,7 @@ describe("remembering exact command approvals", () => {
   });
 
   it("keeps Allow once and Deny from saving a grant", () => {
-    for (const [label, behavior] of [["Allow once", "allow"], ["Deny", "deny"]]) {
+    for (const [label, behavior] of [["Allow once", "allow"], ["Don't allow", "deny"]]) {
       fixture.dispatch.mockClear();
       view().buttons.find((button) => button.props.children === label)!.props.onClick!();
       expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
@@ -83,13 +83,13 @@ describe("remembering exact command approvals", () => {
   it.each([false, null])("keeps bot-wide grants unavailable without owner/admin authority (%s)", (admin) => {
     fixture.admin = admin;
     const result = view();
-    expect(result.html).not.toContain("Always allow this command");
-    expect(result.html).toContain("Always allow this session");
+    expect(result.html).not.toContain("Always allow");
+    expect(result.html).toContain("Allow for this chat");
     expect(result.html).toContain("Allow once");
   });
 
   it("preserves session approval for requests without an exact command", () => {
-    view({ commandAllowlist: undefined }).buttons.find((button) => button.props.children === "Always allow this session")!.props.onClick!();
+    view({ commandAllowlist: undefined }).buttons.find((button) => button.props.children === "Allow for this chat")!.props.onClick!();
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       behavior: "allow", always: true, rememberCommand: undefined,
     }));
@@ -97,7 +97,7 @@ describe("remembering exact command approvals", () => {
 
   it("keeps peer grants separate from provider command rules", () => {
     const result = view({ allowKey: "peer:teammate" });
-    expect(result.html).not.toContain("Always allow this command");
+    expect(result.buttons.filter((button) => button.props.children === "Always allow")).toHaveLength(1);
     result.buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       alwaysAllow: { botId: bot.id, key: "peer:teammate" }, always: undefined, rememberCommand: undefined,

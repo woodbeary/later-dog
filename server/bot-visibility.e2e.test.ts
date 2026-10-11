@@ -544,7 +544,7 @@ posixOnly("per-bot visibility on a shared workspace", () => {
       body: JSON.stringify({ text: "SECRET-AFTER-77 noted" }),
     });
     expect(note.status).toBe(403);
-    expect(((await note.json()) as { error: string }).error).toMatch(/visible to fewer people than you are/);
+    expect(((await note.json()) as { error: string }).error).toMatch(/Fewer people can see this group chat than can see your memory/);
     // Payroll itself, which fewer people see, still recalls its own room —
     // once the room's floor is back to what its bots allow (it went down to
     // admins only while Payroll was admins-only, and floors never widen alone).

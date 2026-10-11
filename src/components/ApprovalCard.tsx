@@ -5,13 +5,13 @@
 // and the actual command/path in monospace, and the choices carry their
 // own behavior instead of being matched by their label text.
 import { useState } from "react";
-import { Check, ShieldCheck, Undo2, X } from "lucide-react";
+import { Check, ChevronRight, ShieldCheck, Undo2, X } from "lucide-react";
 import { api, ApiError, type Bot, type Message, type OptionCardData } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t, tFromServer } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { SkillRequestPreview } from "@/components/SkillRequestPreview";
-import { composioActionPhrase, outboundSummary } from "@/lib/approval-summary";
+import { composioActionPhrase, outboundSummary, toolService, usesComputer } from "@/lib/approval-summary";
 import { niceDate, niceTime, scheduleLabel } from "@/lib/schedule-label";
 import { cronScheduleLabel } from "../../shared/cron-label";
 import { PROFILE_REQUEST_FIELDS, type ProfileRequestField } from "../../shared/profile-request";
@@ -116,7 +116,15 @@ export function toolLabel(tool?: string): string {
   };
   const key = nice[tool];
   if (key) return t(key);
-  return composioActionPhrase(tool.replace(/^mcp__[^_]+__/, "")) ?? bare;
+  const phrase = composioActionPhrase(tool.replace(/^mcp__(.+?)__/, ""));
+  if (phrase) return phrase;
+  const service = toolService(tool);
+  if (service) return t("approval.tool.useService", { service });
+  if (usesComputer(tool)) return t("approval.tool.useComputer");
+  const words = bare.trim().split(/\s+/);
+  return !tool.startsWith("mcp__") && words.length >= 2 && words.length <= 3 && words.every((word) => /^[a-z]+$/i.test(word))
+    ? words.join(" ").toLowerCase()
+    : t("approval.tool.takeAction");
 }
 
 /** When a routine runs, in the plain words the receipt line uses. Never a
@@ -311,12 +319,12 @@ export function ApprovalCard({
     <div
       data-tour={settled || expired ? undefined : "approval"}
       className={cn(
-        "w-full max-w-[840px] rounded-2xl border bg-card p-4",
-        settled || expired ? "border-hairline/30 opacity-70" : "border-accent/40",
+        "w-full max-w-[560px] rounded-[18px] bg-card px-4 py-3",
+        settled || expired ? "opacity-70" : "ring-[0.5px] ring-ink/10",
       )}
     >
       <div className="flex items-baseline justify-between gap-3">
-        <div className="text-[15px] font-semibold text-ink">
+        <div className="text-[14px] font-medium text-ink">
           {isTeamSetup ? card.title : outbound ? outbound.headline : profileHeader ?? (
             <>
               {bot
@@ -325,11 +333,11 @@ export function ApprovalCard({
             </>
           )}
         </div>
-        {displayTool && !isTeamSetup && !outbound && <span className="shrink-0 font-mono text-[11px] text-ink-secondary">{displayTool}</span>}
       </div>
       {outbound?.summary && <div className="mt-0.5 text-[13px] text-ink-secondary">{outbound.summary}</div>}
 
-      {/* what, exactly */}
+      <details className="group mt-1.5 text-[13px] text-ink-secondary">
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 hover:text-ink">{t("approval.viewDetails")}<ChevronRight size={13} className="transition-transform group-open:rotate-90" aria-hidden="true" /></summary>
       <pre
         tabIndex={0}
         aria-label={
@@ -345,11 +353,12 @@ export function ApprovalCard({
       >
         {card.subtitle}
       </pre>
+      </details>
 
       {card.skillRequest && <SkillRequestPreview request={card.skillRequest} />}
 
       {heldNote && (
-        <div className="mt-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12.5px] text-warning">
+        <div className="mt-1.5 text-[12.5px] text-ink-secondary">
           {heldNote}
         </div>
       )}

@@ -4,7 +4,7 @@ import { callTool, type ToolCallContext } from "../drivers/agents-call.ts";
 import { peerRosterSystemPrompt } from "../peer-roster.ts";
 import type { Message } from "../store.ts";
 import { PROFILE_PROMPT } from "../system-prompt.ts";
-import { DOG_CREATION_PROMPT, DOG_CREATION_REFUSAL, dogGreeting, greetNewDog, mayCreateDogs } from "./dog-creation.ts";
+import { DOG_CREATION_PROMPT, DOG_CREATION_REFUSAL, dogGreeting, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./dog-creation.ts";
 
 describe("mayCreateDogs", () => {
   it("lets every dog the person can see create dogs, Chief or not, and no archived one", () => {
@@ -133,13 +133,52 @@ describe("create_bot's result", () => {
     expect(result.text).toBe(
       "Created @Scout in Research [id: scout]. It is in the person's sidebar now, greeting them in its own chat. " +
       "Tell them so in one sentence, for example: \"I've created Scout, and it should be in your sidebar now.\" " +
-      "Assign it work with coordinate_bots only if they asked for that.",
+      "If they gave it a job, hand that job over now with coordinate_bots so it starts working; otherwise leave it to greet them.",
     );
   });
 
   it("claims no greeting the harness did not post", async () => {
     const result = await callTool("create_bot", args, context({ id: "scout", name: "Scout", section: "Research", greeted: false }, false));
     expect(result.text).toContain("It is in the person's sidebar now. Tell them so");
-    expect(result.text).toContain("Assign it work with delegate_bot only if they asked for that.");
+    expect(result.text).toContain("hand that job over now with delegate_bot so it starts working");
+  });
+});
+
+describe("dogMadeDogAccess", () => {
+  const everywhere = () => true;
+
+  it("gives a dog made by an Off-leash dog the same level, apps, tools and allowances, as copies", () => {
+    const creator = {
+      approvalMode: "auto" as const, composio: true, connectorTools: { gmail: { tools: "*" as const } },
+      connectorScopes: { apps: { gmail: "write" as const } }, outbound: { policy: "ask" as const, dailyCap: 25 },
+      mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] }, alwaysAllow: ["WebFetch"], browser: true,
+    };
+    const access = dogMadeDogAccess(creator, "auto", "auto", everywhere);
+    expect(access).toEqual({
+      approvalMode: "auto", autoApprove: true, approvePeerComms: false, composio: true,
+      connectorTools: { gmail: { tools: "*" } }, connectorScopes: { apps: { gmail: "write" } },
+      outbound: { policy: "ask", dailyCap: 25 }, mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] },
+      alwaysAllow: ["WebFetch"], browser: true,
+    });
+    expect(access.connectorTools).not.toBe(creator.connectorTools);
+    expect(access.toolScope).not.toBe(creator.toolScope);
+  });
+
+  it("never gives more than the creator has here, or than the person's level for new dogs", () => {
+    expect(dogMadeDogAccess({ approvalMode: "ask" }, "ask", "auto", everywhere).approvalMode).toBe("ask");
+    expect(dogMadeDogAccess({ approvalMode: "auto" }, "ask", "auto", everywhere).approvalMode).toBe("ask");
+    expect(dogMadeDogAccess({ approvalMode: "auto" }, "auto", "ask", everywhere).approvalMode).toBe("ask");
+    expect(dogMadeDogAccess({ approvalMode: "edits" }, "edits", "auto", everywhere).approvalMode).toBe("edits");
+    expect(dogMadeDogAccess({ autoApprove: true }, "auto", undefined, everywhere).approvalMode).toBe("ask");
+    expect(dogMadeDogAccess({ approvalMode: "auto", composio: false, connectorTools: {} }, "auto", "auto", everywhere))
+      .toMatchObject({ composio: false, connectorTools: {} });
+  });
+
+  it("never passes on Full access or a Codex config, and falls back to Heel where the engine can't run the level", () => {
+    expect(dogMadeDogAccess({ approvalMode: "full" }, "full", "full", everywhere).approvalMode).toBe("auto");
+    expect(dogMadeDogAccess({ approvalMode: "custom" }, "custom", "auto", everywhere).approvalMode).toBe("ask");
+    const pending = { approvalMode: "full" as const, approvalGrant: { requestId: "r", mode: "full" as const, phase: "prepared" as const } };
+    expect(dogMadeDogAccess(pending, "auto", "auto", everywhere).approvalMode).toBe("ask");
+    expect(dogMadeDogAccess({ approvalMode: "edits" }, "edits", "auto", (mode) => mode !== "edits")).toMatchObject({ approvalMode: "ask", autoApprove: false });
   });
 });

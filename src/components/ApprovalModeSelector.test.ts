@@ -38,7 +38,7 @@ describe("approval mode selector", () => {
       {
         mode: "auto",
         label: "Off-leash",
-        description: "Acts, then tells you. The provider's automatic review approves routine actions and asks you about the rest. Web search is allowed without asking.",
+        description: "Does the work. Asks before risky steps.",
       },
       {
         mode: "full",
@@ -104,7 +104,7 @@ describe("approval mode selector", () => {
   });
 
   it("explains Auto fallbacks and does not elevate unknown providers", () => {
-    expect(approvalModeOptionsFor("grokAgent").find((option) => option.mode === "auto")?.description).toContain("automatic review approves routine actions");
+    expect(approvalModeOptionsFor("grokAgent").find((option) => option.mode === "auto")?.description).toContain("Asks before risky steps");
     expect(approvalModeOptionsFor("customAgent").find((option) => option.mode === "auto")?.description).toContain("behaves like Heel");
     expect(approvalModeOptionsFor("customAgent").map((option) => option.mode)).toEqual(["ask", "auto"]);
   });

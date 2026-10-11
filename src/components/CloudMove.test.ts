@@ -56,7 +56,7 @@ it("Settings → later.dog Cloud: what comes and its size, that sign-ins stay he
   expect(bridge.state).toHaveBeenCalledWith("cloud");
   expect(html).toContain("Copy this computer's dogs and chats");
   expect(html).toContain("from this computer to My Cloud. This computer keeps its own copy.");
-  expect(html).toContain("About 1.5 GB: 4 dogs, 37 chats, 1 rooms.");
+  expect(html).toContain("About 1.5 GB: 4 dogs, 37 chats, 1 group chats.");
   expect(html).toContain("API keys and sign-ins stay on this computer. On My Cloud you sign in to Claude or ChatGPT");
   expect(html).not.toContain("replaces them");
   button(settings(), "Copy to My Cloud")!.props.onClick!(); await flush();

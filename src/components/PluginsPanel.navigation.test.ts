@@ -318,10 +318,10 @@ describe("Apps pop-up", () => {
     fixture.bots = [bot("scout", { composio: false })];
     fixture.overrides.set(7, true); // stale
     let { html } = render();
-    expect(html).toContain("Showing what was connected last time");
+    expect(html).toContain("Couldn&#x27;t re-check your apps just now");
     fixture.overrides.set(7, false);
     ({ html } = render());
-    expect(html).toContain("Not every dog can use these apps.");
+    expect(html).toContain("Some dogs can&#x27;t use these apps yet.");
     expect(html).toContain("Allow scout");
   });
 

@@ -525,11 +525,12 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
         title: "Product designer",
         description: "Design and review the user experience.",
         section: "Launch",
-        composio: false,
+        approvalMode: "ask",
         autoApprove: false,
         approvePeerComms: false,
         modelSelection: defaultSelection,
       });
+      expect(operator.composio).toBe((await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === chief.id).composio);
       expect(operator.chiefOfStaff).toBeFalsy();
       expect(operator.messages.some((message: any) => message.text?.includes("Review the new onboarding flow."))).toBe(true);
     },

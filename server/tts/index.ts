@@ -29,6 +29,11 @@ export class NoVoiceConfigured extends Error {
  * included with Cloud Pro. Settings' own-key flows read cfg.tts.key instead. */
 const elevenLabs = (cfg: AppConfig) => voiceCredential(cfg.tts?.key);
 
+export const INCLUDED_DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb";
+
+const elevenLabsVoice = (cfg: AppConfig, voiceId?: string) =>
+  voiceId || cfg.tts?.voice || (elevenLabs(cfg)?.included ? INCLUDED_DEFAULT_VOICE : "");
+
 export function voiceProvider(cfg: AppConfig): VoiceProvider {
   const provider = cfg.tts?.provider;
   return provider === "xai" || provider === "fish" || provider === "system" || provider === "chatterbox" ? provider : "elevenlabs";
@@ -54,7 +59,7 @@ export function voiceConfigured(cfg: AppConfig): boolean {
   }
   if (provider === "chatterbox") return Boolean(cfg.tts?.baseUrl?.trim() && cfg.tts?.voice);
   if (provider === "fish") return Boolean(cfg.tts?.fishKey && cfg.tts?.voice);
-  return Boolean(elevenLabs(cfg) && cfg.tts?.voice);
+  return Boolean(elevenLabs(cfg) && elevenLabsVoice(cfg));
 }
 
 /** A per-bot voice is a complete choice too; it should not be blocked just
@@ -67,7 +72,7 @@ export function voiceReady(cfg: AppConfig, voiceId?: string): boolean {
   }
   if (provider === "chatterbox") return Boolean(cfg.tts?.baseUrl?.trim() && (voiceId || cfg.tts?.voice));
   if (provider === "fish") return Boolean(cfg.tts?.fishKey && (voiceId || cfg.tts?.voice));
-  return Boolean(elevenLabs(cfg) && (voiceId || cfg.tts?.voice));
+  return Boolean(elevenLabs(cfg) && elevenLabsVoice(cfg, voiceId));
 }
 
 /** What the settings panel needs. Never includes the key — same write-only
@@ -81,7 +86,7 @@ export function describeVoice(cfg: AppConfig) {
   return {
     configured: providerConfigured(cfg),
     ready: voiceConfigured(cfg),
-    voice: cfg.tts?.voice ?? "",
+    voice: provider === "elevenlabs" ? elevenLabsVoice(cfg) : cfg.tts?.voice ?? "",
     provider,
     baseUrl: provider === "chatterbox" ? (cfg.tts?.baseUrl ?? "") : "",
     model: provider === "chatterbox" ? (cfg.tts?.model ?? "") : "",
@@ -156,7 +161,7 @@ export function speak(cfg: AppConfig, text: string, voiceId?: string, run?: syst
   }
   const credential = elevenLabs(cfg);
   if (!credential) throw new NoVoiceConfigured("key");
-  const voice = voiceId || cfg.tts?.voice;
+  const voice = elevenLabsVoice(cfg, voiceId);
   if (!voice) throw new NoVoiceConfigured("voice");
   return elevenlabs.synthesize(text, voice, credential.token, credential.api);
 }

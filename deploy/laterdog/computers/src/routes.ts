@@ -19,6 +19,9 @@ export type Route =
   | { kind: "trial"; op: TrialOp }
   | { kind: "trial_offer" }
   | { kind: "trial_grant" }
+  | { kind: "decide" }
+  | { kind: "voices" }
+  | { kind: "speak"; voiceId: string }
   | { kind: "not_found"; api: boolean }
   | { kind: "method_not_allowed"; allow: string[] };
 
@@ -37,6 +40,7 @@ const ACTIONS: Record<string, Record<string, ComputerOp>> = {
 
 const API_PATH = /^\/v1\/computers(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/;
 const DESKTOP_PATH = /^\/desktop\/([^/]+)\/([^/]+)(\/.*)?$/;
+const VOICE_PATH = /^\/v1\/voice\/text-to-speech\/([A-Za-z0-9]{1,64})$/;
 const DESKTOP_TOKEN = /^[A-Za-z0-9._-]{1,128}$/;
 // noVNC's ES modules (core/rfb.js and everything it imports); nothing else from the container's web root is reachable.
 const ASSET = /^(?:core|vendor)(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)+\.js$/;
@@ -50,6 +54,10 @@ export function route(method: string, pathname: string): Route {
   if (pathname === "/trial") return method === "GET" || method === "POST" ? { kind: "trial_page" } : { kind: "method_not_allowed", allow: ["GET", "POST"] };
   if (pathname === "/v1/trials") return method === "GET" ? { kind: "trial_offer" } : { kind: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/v1/trials/grant") return method === "POST" ? { kind: "trial_grant" } : { kind: "method_not_allowed", allow: ["POST"] };
+  if (pathname === "/v1/systemone") return method === "POST" ? { kind: "decide" } : { kind: "method_not_allowed", allow: ["POST"] };
+  if (pathname === "/v1/voice/voices") return method === "GET" ? { kind: "voices" } : { kind: "method_not_allowed", allow: ["GET"] };
+  const speak = VOICE_PATH.exec(pathname);
+  if (speak) return method === "POST" ? { kind: "speak", voiceId: speak[1]! } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/trial") {
     const op = allow(TRIAL, method) as TrialOp | undefined;
     return op ? { kind: "trial", op } : { kind: "method_not_allowed", allow: Object.keys(TRIAL) };
