@@ -43,6 +43,9 @@ describe("trialPolicy", () => {
       { ...READY, TURNSTILE_SECRET_KEY: "" },
       { ...READY, TRIAL_NETWORK_KEY: undefined },
       { ...READY, TRIALS_PER_DAY: "0" },
+      { ...READY, TURNSTILE_SITE_KEY: "1x00000000000000000000AA" },
+      { ...READY, TURNSTILE_SITE_KEY: "3x00000000000000000000FF" },
+      { ...READY, TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA" },
     ]) {
       expect(trialPolicy(off).enabled, JSON.stringify(off)).toBe(false);
     }

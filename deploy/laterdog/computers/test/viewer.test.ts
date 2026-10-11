@@ -35,6 +35,8 @@ describe("page headers", () => {
     expect(headers["content-security-policy"]).toContain("script-src 'self' 'nonce-n0nce'");
     expect(headers["content-security-policy"]).toContain("connect-src 'self' wss://computers.example.dev");
     expect(headers["content-security-policy"]).toContain("default-src 'none'");
+    expect(headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+    expect(headers["x-frame-options"]).toBe("DENY");
     expect(headers["referrer-policy"]).toBe("no-referrer");
     expect(headers["cache-control"]).toBe("no-store");
   });

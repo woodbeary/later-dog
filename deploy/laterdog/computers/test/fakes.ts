@@ -21,7 +21,7 @@ export const VARS: Record<string, string> = {
   TRIALS_PER_DAY: "20",
   TRIAL_IDLE_SLEEP_MINUTES: "5",
   TRIAL_COUNTRIES: "",
-  TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
+  TURNSTILE_SITE_KEY: "0x4AAAAAAAtestsitekey000",
   TURNSTILE_SECRET_KEY: "turnstile-secret-for-tests",
   TRIAL_NETWORK_KEY: "network-key-for-tests",
   DESKTOP_SIGNING_KEY: "desktop-signing-key-for-tests",

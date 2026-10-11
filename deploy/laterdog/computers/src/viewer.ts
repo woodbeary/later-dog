@@ -20,8 +20,10 @@ export function pageHeaders(requestUrl: URL, nonce: string): Record<string, stri
     "cache-control": "no-store",
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
     "content-security-policy": [
       "default-src 'none'",
+      "frame-ancestors 'none'",
       `script-src 'self' 'nonce-${nonce}'`,
       `style-src 'nonce-${nonce}'`,
       "img-src 'self' data: blob:",
