@@ -34,6 +34,19 @@ own tests (`pnpm control-plane:test`) are not run in CI.
 
 The conversation fixture follows the shared [verification control surface](../verification/README.md). Evidence persists in `.laterdog-evidence/conversation/receipts.json` and `server.log` after disposable data cleanup. The isolated browser preview runs with `node scripts/laterdog-preview.mjs`, prints its URL, and stops only its owned processes on Ctrl-C; its server log also survives cleanup.
 
+## Launch check, 2026-10-11
+
+Run against the real services the night before launch.
+
+- **The download.** The release linked from later.dog (v0.3.7, 279 MB) matches its published SHA-256, carries a valid signature and needs macOS 12. Gatekeeper refuses it as not notarized, so the first open needs Open Anyway, as the site says.
+- **A clean install.** That zip, unpacked and opened with its own home folder, a mock keychain and a stand-in Claude CLI: the welcome flow ran (name, model providers, first dog) with no macOS permission prompt at launch; the first dog started Off-leash, greeted by name and answered; Settings, Computer offered the free trial from cloud.later.dog; Check for updates found 0.3.7 is the newest.
+- **The free trial on cloud.later.dog.** Offer, link, an owner grant in place of the human check, active in the app and the service, a cloud computer started, the dog's screenshot tool on it, minutes counted, its live screen in the Computer panel, ended, the key refused afterwards, the computer deleted.
+- **The human check.** The trial page loads Cloudflare Turnstile with later.dog's widget, which shows "Verify you are human" with no domain error; Start free trial stays off until it passes, and a forged token is refused. No person passing it is on record yet.
+- **Cloud tasks.** A real task (a security review of the cloud service) ran on the hosted supervisor in about four minutes and returned its diff.
+- **Token battery.** See the [live record of 2026-10-10](token-battery.md#verification-and-limits).
+
+Still unproven: a person passing the human check, a notarized build, and ChatGPT (Codex) accounts at a real limit.
+
 ## Live Codex Cloud acceptance
 
 First run on 2026-10-08: all seven steps exercised against two real repositories through the hosted supervisor, with
@@ -49,6 +62,6 @@ four defects found and fixed along the way. Still open: raising concurrency only
 
 Current implementation cannot provision an environment through the CLI, continue a native cloud task, cancel an already submitted native task, or establish Cloudflare grant coverage. Chrome sign-in and a reusable environment are prerequisites for the live acceptance. Fixture success does not close these items.
 
-The public repository also runs an unsigned macOS preview build on the standard `macos-14` GitHub-hosted runner, checking the application identity and bundled supervisor. An explicit workflow-dispatch preview tag publishes the zipped arm64 application and checksum; existing release assets are never overwritten. This validates packaging, not desktop installation or live provider access. Standard hosted runners are free for public repositories: https://docs.github.com/en/actions/reference/runners/github-hosted-runners. Signing and notarization remain release work.
+The public repository also runs a macOS preview build on the standard `macos-14` GitHub-hosted runner, checking the application identity and bundled supervisor. It is signed with later.dog's own certificate, or with a Developer ID and notarized on release once those secrets exist ([releasing](releasing.md#signing-and-notarization)). An explicit workflow-dispatch tag publishes the zipped arm64 application and checksum; existing release assets are never overwritten. This validates packaging, not desktop installation or live provider access. Standard hosted runners are free for public repositories: https://docs.github.com/en/actions/reference/runners/github-hosted-runners.
 
 The separate Ubuntu container job builds the real supervisor image, starts it without provider credentials, checks HTTP authentication, saves repository state, and recreates the container against the same volume. It requires unchanged credentials and persisted SQLite state with zero submitted jobs. To repeat locally with an available Docker daemon: `docker build -f deploy/laterdog/Dockerfile -t laterdog-supervisor:smoke .` then `node scripts/smoke-laterdog-container.mjs`. This container smoke does not establish a deployed remote account or Codex environment.

@@ -49,6 +49,8 @@ export function updateErrorText(message?: string): string {
   return text.split("\n")[0]!.slice(0, 200);
 }
 
+const DOWNLOAD_PAGE = "https://later.dog";
+
 const tidy = (text: string) => text.replace(/ {2,}/g, " ").trim();
 
 export function updateButtonTitle(phase: UpdateButtonPhase, state: UpdaterState): string {
@@ -205,6 +207,19 @@ export function UpdatePanel({ phase, state, working, pending, onInstall, onRetry
             <UpdateNotes notes={notes} />
           </div>
         </div>
+      )}
+      {phase === "error" && (
+        <button
+          type="button"
+          data-update-download
+          onClick={() => {
+            onClose();
+            void openExternalLink(DOWNLOAD_PAGE);
+          }}
+          className="mx-4 mt-1.5 text-left text-[12.5px] leading-snug text-accent hover:underline"
+        >
+          {t("update.downloadInstead")}
+        </button>
       )}
       {warning && <p className="mx-4 mt-3 rounded-lg bg-warning/10 px-2.5 py-2 text-[12px] leading-snug text-warning">{warning}</p>}
       {phase === "handed-off" && state.command && (

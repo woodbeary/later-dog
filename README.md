@@ -53,7 +53,7 @@ appears at the top of the sidebar, and **Restart to update** installs it.
 
 ## Cloud
 
-- **Try a cloud computer free.** A dog with no computer offers **Try a cloud computer free** in its Computer panel:
+- **Try a cloud computer free.** A dog's Computer panel and Settings, Computer offer **Try a cloud computer free**:
   30 minutes on a later.dog cloud computer, to use within 7 days. No account and no card; a quick check in your
   browser starts it.
 - **Cloud tasks.** A dog can hand a coding job to the cloud: a fresh cloud computer clones the repository and does the
@@ -92,7 +92,8 @@ ditto release/mac-arm64/later.dog.app /Applications/later.dog.app && open -a lat
 
 ## What is proven, and what is not
 
-[docs/laterdog/verification.md](docs/laterdog/verification.md) is the fixture map: what each test proves. The token
+[docs/laterdog/verification.md](docs/laterdog/verification.md) is the fixture map: what each test proves, and the
+[launch check](docs/laterdog/verification.md#launch-check-2026-10-11) records what ran live before launch. The token
 battery switched live between two real Claude accounts when one hit its 5-hour limit (2026-10-10,
 [the record](docs/laterdog/token-battery.md#verification-and-limits)). Still open: ChatGPT (Codex) accounts at a real
 limit, and a real reset with every account out, are proven only against fake CLIs; connected

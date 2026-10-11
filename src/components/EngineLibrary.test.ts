@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { InstanceInfo } from "@/state/store";
 import { engineReady } from "./EngineLibrary";
+import { CURSOR_MARK_PATH } from "./CursorMark";
 import { CursorMark, HermesMark, InstanceProviderMark } from "./ProviderIcons";
 
 const instance = (overrides: Partial<InstanceInfo> = {}): InstanceInfo => ({
@@ -18,6 +19,12 @@ describe("engine library", () => {
       expect(html).not.toContain("#F5F5F5");
       expect(html).toContain("ink");
     }
+  });
+  it("draws Cursor's cube mark, not a pointer arrow", () => {
+    const html = renderToStaticMarkup(createElement(CursorMark));
+    expect(html).toContain(CURSOR_MARK_PATH);
+    expect(html).toContain('fill-rule="evenodd"');
+    expect(html).not.toContain("M4 2.2 20.6 12 12.7 13.9 10.4 21.8z");
   });
   it("uses an instance icon without changing the driver's default mark", () => {
     const preset = renderToStaticMarkup(createElement(InstanceProviderMark, { instance: instance({ icon: { kind: "preset", preset: "azure" } }) }));

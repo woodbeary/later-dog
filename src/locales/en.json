@@ -499,6 +499,7 @@
   "update.close": "Close",
   "update.failed.offline": "Couldn't reach the update server. Check your connection and try again.",
   "update.failed.unknown": "Something went wrong.",
+  "update.downloadInstead": "Or download the newest version from later.dog",
   "common.save": "Save",
   "common.cancel": "Cancel",
   "common.close": "Close",

@@ -20,6 +20,8 @@ vi.mock("@/lib/updater", async () => {
 });
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: { bots: [] }, dispatch: () => {} }) }));
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
+const links = vi.hoisted(() => ({ open: vi.fn(async () => {}) }));
+vi.mock("@/lib/app-links", () => ({ openExternalLink: links.open }));
 import { UpdateButton } from "./UpdateButton";
 
 const updater = { check: vi.fn(async () => {}), install: vi.fn(async () => {}), onState: () => () => {} };
@@ -97,6 +99,23 @@ describe("the update icon in use", () => {
     expect(retry?.disabled).toBe(false);
     click(retry);
     expect(updater.check).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers the download page when an update fails, and closes the popover", () => {
+    mount({ status: "error", message: "Code signature did not pass validation" });
+    click(icon());
+    const link = host.querySelector<HTMLButtonElement>("[data-update-download]");
+    expect(link?.textContent).toBe("Or download the newest version from later.dog");
+    click(link);
+    expect(links.open).toHaveBeenCalledExactlyOnceWith("https://later.dog");
+    expect(popover()).toBeNull();
+    links.open.mockClear();
+  });
+
+  it("keeps the download link out of a healthy update", () => {
+    mount({ status: "downloaded", version: "0.3.8" });
+    click(icon());
+    expect(host.querySelector("[data-update-download]")).toBeNull();
   });
 
   it("keeps the icon after Later, so the update waits for the person", () => {

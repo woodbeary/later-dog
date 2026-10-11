@@ -206,6 +206,18 @@ describe("the Computer panel's trial offer", () => {
     expect(use).toHaveBeenCalledTimes(1);
   });
 
+  it("takes the caller's spacing, and renders nothing at all without an offer", async () => {
+    fixture.serve = () => offered;
+    await mount(createElement(CloudTrialOffer, { className: "mt-4 border-t pt-4" }));
+    expect(document.querySelector("[data-cloud-trial-offer]")?.className).toContain("mt-4 border-t pt-4");
+    root!.unmount();
+    root = null;
+    document.body.innerHTML = "";
+    fixture.serve = () => ({ state: "none" });
+    await mount(createElement("div", { "data-testid": "host" }, createElement(CloudTrialOffer, { className: "mt-4 border-t pt-4" })));
+    expect(document.querySelector('[data-testid="host"]')?.innerHTML).toBe("");
+  });
+
   it("stays out of the way without an offer, and once the trial runs", async () => {
     for (const answer of [{ state: "none" }, active(20), { state: "ended" }] as TrialStatus[]) {
       fixture.serve = () => answer;
