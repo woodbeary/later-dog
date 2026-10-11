@@ -243,6 +243,16 @@ describe("verifyTurnstile", () => {
     expect(await verifyTurnstile(input)).toBe("failed");
   });
 
+  it("blames this service, not the visitor, when Turnstile refuses its secret key", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    for (const code of ["invalid-input-secret", "missing-input-secret"]) {
+      siteverify(Response.json({ success: false, "error-codes": [code] }));
+      expect(await verifyTurnstile(input)).toBe("unavailable");
+    }
+    expect(errors).toHaveBeenCalledWith("laterdog computers: Turnstile refused the secret key; check TURNSTILE_SECRET_KEY");
+    errors.mockRestore();
+  });
+
   it("is unavailable when siteverify errors, cannot be reached or answers garbage", async () => {
     siteverify(new Response("busy", { status: 500 }));
     expect(await verifyTurnstile(input)).toBe("unavailable");
