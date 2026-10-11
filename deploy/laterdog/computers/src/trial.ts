@@ -182,5 +182,10 @@ export async function verifyTurnstile(input: {
   } catch {
     return "unavailable";
   }
+  const codes = (outcome as { "error-codes"?: unknown } | null)?.["error-codes"];
+  if (Array.isArray(codes) && codes.some((code) => code === "invalid-input-secret" || code === "missing-input-secret")) {
+    console.error("laterdog computers: Turnstile refused the secret key; check TURNSTILE_SECRET_KEY");
+    return "unavailable";
+  }
   return turnstileVerdict(outcome, input) ? "passed" : "failed";
 }
