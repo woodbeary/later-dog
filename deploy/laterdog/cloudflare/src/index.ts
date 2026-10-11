@@ -19,6 +19,7 @@ declare global {
     LATERDOG_BACKUP_KEY: string;
     GH_TOKEN?: string;
     CLAUDE_CODE_OAUTH_TOKEN?: string;
+    LATERDOG_COMPUTERS_PUBLIC_URL?: string;
   }
 }
 
