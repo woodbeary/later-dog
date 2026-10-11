@@ -6,7 +6,7 @@ import {
   ComputersClient, TRIAL_KEY, readCapped, savedTrial, serviceApi, trialKeyFile, trialStateFile, type SavedTrial, type TrialView,
 } from "./cloud-computers.ts";
 
-export const DEFAULT_TRIAL_API = "";
+export const DEFAULT_TRIAL_API = "https://cloud.later.dog/v1";
 
 export type TrialStatus =
   | { state: "none" }
@@ -27,7 +27,9 @@ const sha256 = (value: string) => createHash("sha256").update(value).digest("hex
 const trialPage = (api: string, key: string) => `${new URL(api).origin}/trial?claim=${sha256(key)}`;
 
 function trialApi(): string | null {
-  const raw = process.env.LATERDOG_TRIAL_API?.trim() || DEFAULT_TRIAL_API;
+  const named = process.env.LATERDOG_TRIAL_API?.trim();
+  if (named === "off") return null;
+  const raw = named || DEFAULT_TRIAL_API;
   return raw ? serviceApi(raw) : null;
 }
 

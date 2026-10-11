@@ -106,6 +106,10 @@ export type BotDefaultsProfile = NewBotDefaults["profile"];
 export type BotRoutineTemplate = NewBotDefaults["routines"][number];
 export type BotSkillTemplate = NewBotDefaults["skills"][number];
 
+export const BUILT_IN_NEW_BOT_DEFAULTS: NewBotDefaults = newBotDefaultsSchema.parse({ profile: { approvalMode: "auto" } });
+
+export const newBotDefaultsOrBuiltIn = (saved: NewBotDefaults | undefined): NewBotDefaults => saved ?? BUILT_IN_NEW_BOT_DEFAULTS;
+
 /** Explicit values (including empty values) win. A resolved renderer draft
  * opts out so deleted fields and template extras are not restored on POST. */
 export function resolveBotCreationDefaults(saved: NewBotDefaults | undefined, body: Record<string, unknown>) {

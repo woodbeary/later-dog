@@ -4,6 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
+  "workers_dev": true,
+  "routes": [{ "pattern": "cloud.later.dog", "custom_domain": true }],
   "containers": [
     {
       // One container per DogComputer Durable Object. With this policy the Durable Object picks the image (or a snapshot)
@@ -35,13 +37,13 @@
     "IDLE_SLEEP_MINUTES": "15",
     // Backstop: any computer awake this long is snapshotted and stopped, even with a viewer open.
     "MAX_AWAKE_HOURS": "8",
-    "TRIALS_ENABLED": "false",
+    "TRIALS_ENABLED": "true",
     "TRIAL_MINUTES": "30",
     "TRIAL_DAYS": "7",
-    "TRIALS_PER_DAY": "20",
+    "TRIALS_PER_DAY": "100",
     "TRIAL_IDLE_SLEEP_MINUTES": "5",
     "TRIAL_COUNTRIES": "",
-    "TURNSTILE_SITE_KEY": ""
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFToUIA2DvjWJrmf"
   }
   // Secrets (wrangler secret put, values piped on stdin):
   // COMPUTERS_KEY_SHA256 - lowercase hex SHA-256 of the API key ("ldc_..."); the key itself is never stored here.

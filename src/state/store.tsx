@@ -1217,7 +1217,7 @@ export type Action =
   /** Name the thread again from its conversation; the new title arrives with the bot event. */
   | { type: "regenerateTaskTitle"; botId: string; threadId: string; onSettled?: (ok: boolean) => void }
   | { type: "deleteTask"; botId: string; threadId: string }
-  | { type: "newBot"; name?: string; title?: string; modelSelection?: ModelSelection; visibility?: BotVisibility; section?: string; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
+  | { type: "newBot"; name?: string; title?: string; modelSelection?: ModelSelection; visibility?: BotVisibility; section?: string; offLeash?: boolean; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
   | { type: "botCreationPending"; on: boolean }
   | { type: "updateTask"; botId: string; threadId: string; patch: TaskUpdatePatch }
   | { type: "refreshTaskPermissions"; botId: string; threadId: string; acknowledgeLocalAuto?: boolean }
@@ -2557,6 +2557,7 @@ export interface NewDogFields {
   modelSelection?: ModelSelection;
   visibility?: BotVisibility;
   section?: string;
+  offLeash?: boolean;
 }
 
 export async function createDog(fields: NewDogFields = {}, request: typeof api = api): Promise<{ bot: Bot }> {
@@ -2568,6 +2569,7 @@ export async function createDog(fields: NewDogFields = {}, request: typeof api =
     ...(fields.modelSelection ? { modelSelection: fields.modelSelection, requireAvailableModel: true } : {}),
     ...(fields.visibility && fields.visibility !== "everyone" ? { visibility: fields.visibility } : {}),
     ...(fields.section !== undefined ? { section: fields.section } : {}),
+    ...(fields.offLeash ? { settings: { approvalMode: "auto" } } : {}),
   };
   const { bot } = await request("/api/bots", {
     method: "POST",
@@ -3345,7 +3347,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (creatingBot) break;
           creatingBot = true;
           rawDispatch({ type: "botCreationPending", on: true });
-          void createDog({ name: action.name, title: action.title, modelSelection: action.modelSelection, visibility: action.visibility, section: action.section })
+          void createDog({ name: action.name, title: action.title, modelSelection: action.modelSelection, visibility: action.visibility, section: action.section, offLeash: action.offLeash })
             .then(({ bot }) => {
               rawDispatch({ type: "botAdded", bot, preserveSelection: action.preserveSelection });
               action.onCreated?.(bot);

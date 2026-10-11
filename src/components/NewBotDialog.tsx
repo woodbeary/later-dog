@@ -23,6 +23,7 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
   const [modelSelection, setModelSelection] = useState<ModelSelection | undefined>(undefined);
+  const [offLeash, setOffLeash] = useState(false);
   const [error, setError] = useState("");
   const saving = state.botCreationPending;
   const dialog = useRef<HTMLDivElement>(null);
@@ -36,10 +37,11 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
   useEffect(() => {
     if (companion) return;
     let cancelled = false;
-    void api<{ modelSelection: ModelSelection; suggestedName: string }>("/api/bot-defaults")
+    void api<{ modelSelection: ModelSelection; suggestedName: string; defaults?: { profile?: { approvalMode?: string } } }>("/api/bot-defaults")
       .then((result) => {
         if (cancelled) return;
         setModelSelection(result.modelSelection);
+        setOffLeash(result.defaults?.profile?.approvalMode === "auto");
         setName((current) => current || result.suggestedName || "");
       })
       .catch(() => {});
@@ -79,6 +81,7 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
       title: purpose.trim() || undefined,
       modelSelection,
       section,
+      ...(offLeash ? { offLeash } : {}),
       preserveSelection,
       onCreated: (bot) => {
         Promise.resolve().then(() => onCreated?.(bot)).catch((cause: unknown) => {

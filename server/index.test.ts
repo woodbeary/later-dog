@@ -9829,7 +9829,7 @@ describe("harness HTTP API", () => {
       expect(unavailableCloud.status).toBe(409);
       expect(await unavailableCloud.json()).toMatchObject({
         // The same words a failed cloud turn's row uses (shared/place-view.ts).
-        error: expect.stringMatching(/^Cloud computers are coming soon\./),
+        error: expect.stringMatching(/^Cloud computers aren’t set up here yet\./),
       });
 
       const proposed = await fetch(`${BASE}/api/internal/routine-requests`, {

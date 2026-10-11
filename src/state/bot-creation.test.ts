@@ -45,6 +45,12 @@ describe("createDog", () => {
     expect(request).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST" });
   });
 
+  it("asks for Off-leash in the same POST when the dialog starts the dog off-leash", async () => {
+    const request = vi.fn().mockResolvedValue({ bot });
+    await createDog({ name: "Scout", offLeash: true }, request);
+    expect(JSON.parse(request.mock.calls[0]![1].body)).toEqual({ name: "Scout", settings: { approvalMode: "auto" } });
+  });
+
   it("creates directly in the selected team in the one POST", async () => {
     const request = vi.fn().mockResolvedValue({ bot: { ...bot, section: "Studio" } });
     const created = await createDog({ section: "Studio" }, request);

@@ -51,6 +51,7 @@ import { openPlaceAction, placeBlocked, placeFacts, placeViewFor, usePlaceSeat }
 import { cloudRefusal, type PlaceActionId, type PlaceFacts, type PlaceView } from "../../shared/place-view";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
+import { CloudTrialOffer } from "./CloudTrial";
 
 /** Keep local failure copy translatable while it remains in panel state. */
 class LocalizedPanelError extends Error {
@@ -1405,6 +1406,7 @@ export function ComputerPanel({
                   onRelaunch={() => void window.laterdog?.relaunch?.()}
                 />
               )}
+              {phase === "off" && livePlace !== "off" && <CloudTrialOffer />}
               {phase === "off" && (
                 <button
                   type="button"

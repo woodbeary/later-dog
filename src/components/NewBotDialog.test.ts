@@ -105,6 +105,24 @@ describe("the new dog dialog", () => {
     expect(fixture.api).toHaveBeenCalledTimes(1);
   });
 
+  it("starts the new dog Off-leash when that is the default, and leaves it to the server otherwise", async () => {
+    const model = { instanceId: "claude", model: "claude-sonnet-5" };
+    fixture.api.mockResolvedValue({ modelSelection: model, suggestedName: "Biscuit", defaults: { profile: { approvalMode: "auto" } } });
+    render();
+    runEffects();
+    await flush();
+    submit(render());
+    expect(lastNewBot()).toMatchObject({ type: "newBot", name: "Biscuit", offLeash: true });
+    fixture.values = [];
+    fixture.dispatch.mockReset();
+    fixture.api.mockResolvedValue({ modelSelection: model, suggestedName: "Biscuit", defaults: { profile: { approvalMode: "ask" } } });
+    render();
+    runEffects();
+    await flush();
+    submit(render());
+    expect(lastNewBot()).not.toHaveProperty("offLeash");
+  });
+
   it("keeps a name the person already typed over the suggestion, and leaves the title out when blank", async () => {
     fixture.api.mockResolvedValue({ modelSelection: { instanceId: "claude", model: "x" }, suggestedName: "Biscuit" });
     change(find(render(), "id", "new-dog-name"), "Nova");

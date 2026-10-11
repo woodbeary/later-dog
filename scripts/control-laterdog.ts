@@ -371,6 +371,7 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
     // shell's PATH, so a developer's own `codex` (or any engine CLI) becomes
     // an "available" engine that CI never has (#2035).
     LATERDOG_TEST_SEALED_PATH: "1",
+    LATERDOG_TRIAL_API: parentEnv.LATERDOG_TRIAL_API || "off",
   });
   // The fake engine's own knobs (mode, replies, tool calls) are the one thing
   // a caller may script into the child: FAKE_CLAUDE_* crosses, nothing else.

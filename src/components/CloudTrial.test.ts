@@ -23,7 +23,7 @@ vi.mock("@/state/store", () => ({
 }));
 vi.mock("@/lib/app-links", () => ({ openExternalLink: fixture.open }));
 
-const { CloudTrialRow, trialSubtitle } = await import("./CloudTrial");
+const { CloudTrialOffer, CloudTrialRow, trialSubtitle } = await import("./CloudTrial");
 
 const PAGE = `https://trial.example.test/trial?claim=${"a".repeat(64)}`;
 const offered: TrialStatus = { state: "offered", minutes: 30, days: 7 };
@@ -34,11 +34,11 @@ let root: Root | null = null;
 const flush = async () => {
   for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(0);
 };
-const mount = async () => {
+const mount = async (component: typeof CloudTrialRow | typeof CloudTrialOffer = CloudTrialRow) => {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  flushSync(() => root!.render(createElement(CloudTrialRow)));
+  flushSync(() => root!.render(createElement(component)));
   await flush();
 };
 const text = () => document.body.textContent ?? "";
@@ -178,5 +178,33 @@ describe("the free trial row", () => {
     expect(trialSubtitle(active(1))).toBe("1 minute left");
     expect(trialSubtitle({ state: "none" })).toBe("");
     expect(trialSubtitle({ state: "ended" })).toBe("");
+  });
+});
+
+describe("the Computer panel's trial offer", () => {
+  it("offers the trial in one button, then waits for the browser check", async () => {
+    let started = false;
+    fixture.serve = (method) => {
+      if (method === "POST") started = true;
+      return started ? pending : offered;
+    };
+    await mount(CloudTrialOffer);
+    expect(text()).toBe("Try a cloud computer free30 minutes, no card needed");
+    await click("Try a cloud computer free");
+    expect(fixture.open).toHaveBeenCalledExactlyOnceWith(PAGE);
+    expect(text()).toContain("Finish the quick check in your browser to start");
+    await click("Open");
+    expect(fixture.open).toHaveBeenCalledTimes(2);
+  });
+
+  it("stays out of the way without an offer, and once the trial runs", async () => {
+    for (const answer of [{ state: "none" }, active(20), { state: "ended" }] as TrialStatus[]) {
+      fixture.serve = () => answer;
+      await mount(CloudTrialOffer);
+      expect(text()).toBe("");
+      root!.unmount();
+      root = null;
+      document.body.innerHTML = "";
+    }
   });
 });

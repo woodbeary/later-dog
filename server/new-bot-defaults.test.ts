@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { newBotDefaultsSchema, resolveBotCreationDefaults } from "./new-bot-defaults.ts";
+import { BUILT_IN_NEW_BOT_DEFAULTS, newBotDefaultsOrBuiltIn, newBotDefaultsSchema, resolveBotCreationDefaults } from "./new-bot-defaults.ts";
 import { parseConfigPatch } from "./config.ts";
 
 describe("new-bot templates", () => {
+  it("starts new dogs Off-leash until the person saves their own defaults", () => {
+    expect(resolveBotCreationDefaults(newBotDefaultsOrBuiltIn(undefined), {}).profile).toEqual({ approvalMode: "auto" });
+    expect(resolveBotCreationDefaults(newBotDefaultsOrBuiltIn(undefined), { settings: { approvalMode: "ask" } }).profile).toEqual({ approvalMode: "ask" });
+    const saved = newBotDefaultsSchema.parse({ profile: { approvalMode: "ask" } });
+    expect(newBotDefaultsOrBuiltIn(saved)).toBe(saved);
+    expect(resolveBotCreationDefaults(newBotDefaultsOrBuiltIn(newBotDefaultsSchema.parse({})), {}).profile).toEqual({});
+    expect(BUILT_IN_NEW_BOT_DEFAULTS.skills).toEqual([]);
+  });
   it("preserves restricted and empty tool defaults while allowing an explicit owner reset", () => {
     const defaults = newBotDefaultsSchema.parse({ profile: { toolScope: { allow: ["native:read", "native:read"] } } });
     expect(defaults.profile).toEqual({ toolScope: { allow: ["native:read"] } });

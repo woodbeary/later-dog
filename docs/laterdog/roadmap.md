@@ -24,7 +24,8 @@ Apache License asks for is in [NOTICE](../../NOTICE). The plan, in this order:
   picks its image and instance size when it starts the container. Filesystem snapshots carry the dog's files across
   sleep and wake (files only: running programs start fresh, and a snapshot only restores onto the image it was taken
   from). A live desktop the person can watch and take over in the Computer panel. Idle sleep, so a computer is billed
-  for compute only while it is awake. Cloud computers are coming soon and are not in 0.3.3. Design: [cloud-computers.md](cloud-computers.md).
+  for compute only while it is awake. Since 0.3.6 the app offers a free 30-minute trial on later.dog's own service; a paid
+  later.dog Cloud plan is next. Design: [cloud-computers.md](cloud-computers.md).
 - **c. Any model through Cloudflare AI Gateway.** Planned. One OpenAI-compatible endpoint on the person's own account,
   with Unified Billing (one bill, no provider keys to manage) and Auto Router (it picks a model per request), next to the
   subscription engines (Claude, Codex).
