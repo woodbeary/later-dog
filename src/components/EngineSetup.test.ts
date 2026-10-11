@@ -136,7 +136,7 @@ describe("install from Settings on the server", () => {
   it("offers one click on the server and keeps the terminal command behind a disclosure", () => {
     const markup = render(npmEngine({ state: "unavailable", reason: "`kimi` CLI not found" }));
     expect(markup).toContain("Install Kimi on this server");
-    expect(markup).toContain("as its own user");
+    expect(markup).toContain("installs it for you");
     expect(markup).toContain("Prefer a terminal?");
     expect(markup).toContain("npm install -g kimi-fixture");
     expect(markup).not.toContain("needs");
