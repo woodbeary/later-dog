@@ -9,6 +9,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
+import { CLEF_MODEL, DECIDE_MAX_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, VOICE_CHARS_TOTAL_PER_DAY, clefInput, decisionFrom } from "./decide";
 import { maxComputers } from "./idle";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
 import type { ComputerRegistry } from "./registry";
@@ -31,6 +32,7 @@ import {
 import { trialPage, trialPageHeaders } from "./trial-page";
 import { trials } from "./trial-registry";
 import { messagePage, newNonce } from "./viewer";
+import { INCLUDED_VOICES, VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, elevenLabsRequest, speechRequest, voiceInput } from "./voice";
 
 export { DogComputer } from "./computer";
 export { ComputerRegistry } from "./registry";
@@ -43,6 +45,8 @@ declare global {
     DESKTOP_SIGNING_KEY?: string;
     TURNSTILE_SECRET_KEY?: string;
     TRIAL_NETWORK_KEY?: string;
+    AI_GATEWAY_ID?: string;
+    ELEVENLABS_API_KEY?: string;
   }
 }
 
@@ -312,6 +316,91 @@ async function trialPageRequest(request: Request, env: Env, url: URL): Promise<R
 }
 
 const NO_ENDPOINT: Refusal = { status: 404, code: "not_found", message: "No such endpoint." };
+const NOT_INCLUDED: Refusal = { status: 503, code: "not_included", message: "Included services are not set up on this service." };
+const INCLUDED_FAILED: Refusal = { status: 502, code: "upstream_failed", message: "The service did not answer. Try again." };
+
+function includedKey(request: Request): string | null {
+  if (request.headers.has("origin")) return null;
+  const token = request.headers.get("xi-api-key")?.trim() || bearerToken(request.headers.get("authorization"));
+  return token && TRIAL_TOKEN.test(token) ? token : null;
+}
+
+const aiGateway = (env: Env) => ({ gateway: { id: env.AI_GATEWAY_ID?.trim() || "default", collectLog: false } });
+
+async function readBody(request: Request, limit: number): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
+  let bytes: Uint8Array;
+  try {
+    bytes = await readLimited(request.body, limit);
+  } catch (error) {
+    if (error instanceof TooLarge) return { ok: false, response: apiError({ status: 413, code: "too_large", message: error.message }) };
+    throw error;
+  }
+  try {
+    return { ok: true, value: JSON.parse(new TextDecoder().decode(bytes)) };
+  } catch {
+    return { ok: false, response: apiError({ status: 400, code: "invalid_json", message: "The body is not valid JSON." }) };
+  }
+}
+
+async function decideRequest(request: Request, env: Env): Promise<Response> {
+  if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+  const token = includedKey(request);
+  if (!token) return apiError(NO_TRIAL, CHALLENGE);
+  const keySha256 = await sha256Hex(token);
+  if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
+  const body = await readBody(request, DECIDE_MAX_BODY_BYTES);
+  if (!body.ok) return body.response;
+  const parsed = decisionFrom(body.value);
+  if (!parsed.ok) return apiError(parsed.refusal);
+  if (!env.AI) return apiError(NOT_INCLUDED);
+  const allowance = await trials(env).allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: DECISIONS_PER_DAY, total: DECISIONS_TOTAL_PER_DAY });
+  if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
+  try {
+    return json(await env.AI.run(CLEF_MODEL, clefInput(parsed.decision), aiGateway(env)));
+  } catch (error) {
+    console.error(`laterdog computers: decision failed: ${error instanceof Error ? error.message : String(error)}`);
+    return apiError(INCLUDED_FAILED);
+  }
+}
+
+async function voicesRequest(request: Request): Promise<Response> {
+  if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+  if (!includedKey(request)) return apiError(NO_TRIAL, CHALLENGE);
+  return json({ voices: INCLUDED_VOICES });
+}
+
+async function speakRequest(request: Request, env: Env, url: URL, voiceId: string): Promise<Response> {
+  if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+  const token = includedKey(request);
+  if (!token) return apiError(NO_TRIAL, CHALLENGE);
+  const keySha256 = await sha256Hex(token);
+  if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
+  const body = await readBody(request, 32 * 1024);
+  if (!body.ok) return body.response;
+  const parsed = speechRequest(voiceId, url.searchParams, body.value);
+  if (!parsed.ok) return apiError(parsed.refusal);
+  if (!env.AI) return apiError(NOT_INCLUDED);
+  const allowance = await trials(env).allowUsage({ keySha256, kind: "voice_chars", amount: parsed.request.text.length, perKey: VOICE_CHARS_PER_DAY, total: VOICE_CHARS_TOTAL_PER_DAY });
+  if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
+  try {
+    const key = env.ELEVENLABS_API_KEY?.trim();
+    if (key) {
+      const upstream = await env.AI.gateway(aiGateway(env).gateway.id).run(elevenLabsRequest(parsed.request, key));
+      if (!upstream.ok || !upstream.body) {
+        console.error(`laterdog computers: speech failed: ElevenLabs answered ${upstream.status}`);
+        await upstream.body?.cancel().catch(() => {});
+        return apiError(INCLUDED_FAILED);
+      }
+      return new Response(upstream.body, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
+    }
+    const bytes = await audioBytes(await env.AI.run(VOICE_MODEL, voiceInput(parsed.request), aiGateway(env)));
+    if (!bytes || bytes.byteLength === 0) return apiError(INCLUDED_FAILED);
+    return new Response(bytes, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
+  } catch (error) {
+    console.error(`laterdog computers: speech failed: ${error instanceof Error ? error.message : String(error)}`);
+    return apiError(INCLUDED_FAILED);
+  }
+}
 
 async function serve(request: Request, env: Env, via: Via): Promise<Response> {
   const url = new URL(request.url);
@@ -335,6 +424,12 @@ async function serve(request: Request, env: Env, via: Via): Promise<Response> {
       case "trial_offer":
         if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
         return json(trialOffer(trialPolicy(env)));
+      case "decide":
+        return await decideRequest(request, env);
+      case "voices":
+        return await voicesRequest(request);
+      case "speak":
+        return await speakRequest(request, env, url, target.voiceId);
       case "trial":
       case "trial_grant":
       case "collection":
