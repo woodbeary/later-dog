@@ -183,7 +183,7 @@ describe("ApprovalCard profile proposals", () => {
 
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message }));
     expect(html).toContain("wants to update its profile");
-    expect(html).toContain("update_profile");
+    expect(html).not.toContain("update_profile");
     expect(html).toContain("+Be brief.");
     expect(html).toContain("Nothing runs.");
   });
@@ -415,7 +415,11 @@ describe("ApprovalCard tool-call kinds", () => {
       ["think", "think"],
       ["other", "take an action"],
       ["tool", "use a tool"],
-      ["mcp__dog__computer_batch", "computer batch"],
+      ["mcp__dog__computer_batch", "use the computer"],
+      ["mcp__claude_ai_Gmail__send_email", "use Gmail"],
+      ["mcp__composio__GMAIL_SEND_EMAIL", "send email"],
+      ["apply_patch", "apply patch"],
+      ["TodoWrite", "take an action"],
     ];
     for (const [tool, phrase] of cases) {
       const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: kindMessage(tool) }));
@@ -463,7 +467,7 @@ describe("ApprovalCard expired proposals", () => {
 
   it("marks a dead proposal as expired instead of waiting for an answer", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: expiredMessage() }));
-    expect(html).toContain("Expired — ask for a fresh proposal");
+    expect(html).toContain("No answer in time, so this didn&#x27;t happen");
     expect(html).not.toContain("Waiting for your confirmation below");
     expect(html).not.toContain("data-tour=\"approval\"");
   });

@@ -75,12 +75,14 @@ describe("German approval cards", () => {
       pending,
       count: 3,
       index: 1,
+      botName: "Mochi",
     }));
 
     expect(markup).toContain('aria-label="Ausstehende Freigabe"');
     expect(markup).toContain("Ausstehende Freigabe");
     expect(markup).toContain("2 von 3");
-    expect(markup).toContain("Befehlsfreigabe angefordert");
+    expect(markup).toContain("Darf Mochi einen Befehl ausführen?");
+    expect(markup).toContain("Details anzeigen");
     expect(markup).toContain('aria-label="Details zur Freigabe prüfen"');
   });
 
@@ -104,12 +106,10 @@ describe("German approval cards", () => {
         pending,
         threadId: "thread-1",
         bot: { id: "bot-1", name: "Mochi" } as Bot,
-        onCancelTurn: () => undefined,
       }),
     ));
 
-    expect(markup).toContain("Ausführung abbrechen");
-    expect(markup).toContain("Ablehnen");
+    expect(markup).toContain("Nicht erlauben");
     expect(markup).toContain("Immer erlauben");
     expect(markup).toContain("Einmal erlauben");
     expect(markup).toContain("Bei Mochi nicht mehr nach Bash:pnpm test fragen");
@@ -185,12 +185,13 @@ describe("Brazilian Portuguese approval cards", () => {
       pending,
       count: 3,
       index: 1,
+      botName: "Mochi",
     }));
 
     expect(markup).toContain('aria-label="Aprovação pendente"');
     expect(markup).toContain("Aprovação pendente");
     expect(markup).toContain("2 de 3");
-    expect(markup).toContain("Aprovação de comando solicitada");
+    expect(markup).toContain("Deixar Mochi executar um comando?");
     expect(markup).toContain('aria-label="Detalhes da aprovação para revisar"');
   });
 
@@ -225,12 +226,10 @@ describe("Brazilian Portuguese approval cards", () => {
         pending,
         threadId: "thread-1",
         bot: { id: "bot-1", name: "Mochi" } as Bot,
-        onCancelTurn: () => undefined,
       }),
     ));
 
-    expect(markup).toContain("Cancelar execução");
-    expect(markup).toContain("Negar");
+    expect(markup).toContain("Não permitir");
     expect(markup).toContain("Sempre permitir");
     expect(markup).toContain("Permitir uma vez");
     expect(markup).toContain("Não perguntar mais a Mochi sobre Bash:pnpm test");

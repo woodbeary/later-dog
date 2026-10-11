@@ -101,3 +101,19 @@ export function composioActionPhrase(tool: string): string | undefined {
   if (!match) return undefined;
   return match[1]!.replace(/_+/g, " ").trim().toLowerCase() || undefined;
 }
+
+const OWN_SERVERS = new Set(["agents", "computer", "laterdog", "browser", "dog", "shell", "team-notes", "memory"]);
+
+export function toolService(tool: string): string | undefined {
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(tool.trim());
+  if (!mcp || OWN_SERVERS.has(mcp[1]!)) return undefined;
+  const raw = mcp[1] === "composio" ? mcp[2]!.split("_", 1)[0]! : mcp[1]!.replace(/^claude_ai_/, "");
+  const words = raw.replace(/[-_]+/g, " ").trim();
+  if (!words) return undefined;
+  return words.split(" ").map((word) => (word === word.toUpperCase() ? word[0]! + word.slice(1).toLowerCase() : word[0]!.toUpperCase() + word.slice(1))).join(" ");
+}
+
+export function usesComputer(tool: string): boolean {
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(tool.trim());
+  return Boolean(mcp && (/^(computer|browser)$/.test(mcp[1]!) || /^(computer|browser|screenshot|click)/.test(mcp[2]!)));
+}

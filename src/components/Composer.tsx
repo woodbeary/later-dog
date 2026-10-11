@@ -923,7 +923,7 @@ export function Composer({
         {/* An approval takes over the composer: you answer it before you
             can type again, so a waiting bot is impossible to miss. */}
         {approval && (
-          <div className="mb-2 overflow-hidden rounded-2xl border border-accent/40 bg-card">
+          <div className="mb-2 overflow-hidden rounded-[18px] bg-card shadow-[0_2px_8px_-1px_rgba(0,0,0,0.05),0_1px_2px_rgba(0,0,0,0.03)] ring-[0.5px] ring-ink/15">
             {/* locale: the panel is memoized and its other props do not
                 change with the language — see MessagesList in ChatView */}
             <PendingApprovalPanel
@@ -931,12 +931,13 @@ export function Composer({
               count={approvals.length}
               index={0}
               locale={activeLocale()}
+              botName={approvalBot?.name}
+              onCancelTurn={approval.message.card?.routineRequest || approval.message.card?.skillRequest || approval.message.card?.profileRequest || approval.message.card?.teamSetupRequest ? undefined : interruptTurn}
             />
             <PendingApprovalActions
               pending={approval}
               threadId={threadId}
               bot={approvalBot}
-              onCancelTurn={interruptTurn}
             />
           </div>
         )}
