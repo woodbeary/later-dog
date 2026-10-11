@@ -6,6 +6,8 @@
 
 <p align="center"><a href="https://later.dog">later.dog</a> · <a href="https://github.com/woodbeary/later-dog/releases/latest">Download for Mac</a> · <a href="docs/laterdog/README.md">User guide</a></p>
 
+<p align="center"><img src="docs/laterdog/images/later-dog.webp" width="900" alt="later.dog on a Mac: Biscuit, the chief of staff, sent two cloud tasks, and the task panel shows one of them step by step."></p>
+
 later.dog is a desktop home for AI agents that do real work. We call them dogs. Each dog is a contact in your sidebar
 with its own files and its own conversation. Dogs message each other, run on a schedule, and hand coding work to the
 cloud. It runs on the subscriptions you already pay for, ChatGPT and Claude, through their official sign-in flows, so
