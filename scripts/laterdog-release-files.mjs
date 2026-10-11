@@ -68,7 +68,7 @@ export function releaseNotesMarkdown({ version, notes }) {
     "",
     `**Already on later.dog ${FIRST_SELF_UPDATING_VERSION} or newer?** It updates itself. The update downloads in the background, and a small icon at the top of the sidebar appears when it is ready. Click it, then **Restart to update**.`,
     "",
-    "**New install:** unzip, drag **later.dog** into Applications, then right-click it and choose **Open** the first time. The app is signed with later.dog's own certificate, not Apple's, so macOS asks once. Every release carries the same signature, so updates keep your keychain access and the Accessibility and Screen Recording permissions you granted.",
+    "**New install:** unzip, drag **later.dog** into Applications, then open it once. macOS will say it can't check the app, so go to System Settings → Privacy & Security and click **Open Anyway**. The app is signed with later.dog's own certificate, not Apple's, so macOS asks once. Every release carries the same signature, so updates keep your keychain access and the Accessibility and Screen Recording permissions you granted.",
     "",
     "### What's new",
     "",
