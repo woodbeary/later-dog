@@ -5,6 +5,7 @@ import { observationSchema } from "./observations.ts";
 import { assistanceSchema } from "./bridge-store.ts";
 import { supervisorOrigin } from "./config.ts";
 import { credentialHeaders, mcpCredential, type SupervisorCredential } from "./dog-access.ts";
+import { jobReceipt, startsCloudJob } from "./job-receipt.ts";
 
 const jobId = z.string().uuid();
 const tools = [
@@ -45,7 +46,7 @@ export async function callTool(name: string, args: unknown, origin = supervisorO
     ...(tool.method !== "GET" ? { body: JSON.stringify(payload) } : {}), redirect: "error", signal: AbortSignal.timeout(660_000) });
   const result = await response.json() as { error?: string };
   if (!response.ok) throw new Error(result.error ?? `later.dog returned ${response.status}`);
-  return result;
+  return startsCloudJob(name) ? jobReceipt(result) : result;
 }
 
 export function startMcp(): void {

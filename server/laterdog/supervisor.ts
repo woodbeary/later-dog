@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { activeJob, createJobSchema, scopesOverlap, type BackendId, type CreateJob, type Job, type Profile, type WorkspaceSnapshot } from "../../shared/laterdog.ts";
+import { activeJob, createJobSchema, repositorySchema, scopesOverlap, type BackendId, type CreateJob, type Job, type Profile, type WorkspaceSnapshot } from "../../shared/laterdog.ts";
+import { MAX_ACTIVITY_PAGE_BYTES, cloudTaskSummary, parseCloudTaskSteps, patchChanges, type CloudTaskActivityPage, type CloudTaskSummary } from "../../shared/cloud-task.ts";
 import { CodexCloudAdapter, SubmissionUnknown, type ExecutionAdapter, type JobContext } from "./codex-cloud.ts";
 import { ClaudeCloudAdapter, CLAUDE_CLOUD_CAPABILITIES } from "./claude-cloud.ts";
 import { LaterdogCloudAdapter, LATERDOG_CLOUD_CAPABILITIES } from "./laterdog-cloud.ts";
@@ -148,11 +149,22 @@ export class Supervisor {
     if (job.state === "merged" || job.state === "cancelled") return job;
     return this.store.update(id, { cancelRequested: true }, "cancel_requested", "Native cloud cancellation is unavailable; the provider task may still be running");
   }
+  /** Keeps a task's progress log as an artifact before its computer goes away; a log that cannot be read is only a loss of history. */
+  private async keepActivity(job: Job): Promise<void> {
+    const adapter = this.adapters.get(job.profileId);
+    if (!adapter?.transcript || !job.taskId) return;
+    try {
+      const transcript = await adapter.transcript(job.taskId);
+      if (!transcript.trim()) return;
+      const activityArtifact = join(this.artifactDir, `${job.id}.activity.jsonl`); writeFileSync(activityArtifact, transcript, { mode: 0o600 });
+      this.store.touch(job.id, { activityArtifact });
+    } catch (error) { console.warn(`later.dog kept no progress log for job ${job.id}: ${message(error)}`); }
+  }
   private async collect(job: Job): Promise<void> {
     const patch = await this.adapter(job).collect(job.taskId!, this.context(job));
     const patchArtifact = join(this.artifactDir, `${job.id}.patch`); writeFileSync(patchArtifact, patch, { mode: 0o600 });
     const cancelled = this.store.job(job.id).cancelRequested;
-    this.store.update(job.id, { state: cancelled ? "cancelled" : "ready", patchArtifact, blocker: patch.trim() ? undefined : "Cloud task finished without a diff; inspect it before deciding the next step" }, "collected", "Provider diff retained; completion is not verification");
+    this.store.update(job.id, { state: cancelled ? "cancelled" : "ready", patchArtifact, changes: patchChanges(patch), finishedAt: new Date().toISOString(), blocker: patch.trim() ? undefined : "Cloud task finished without a diff; inspect it before deciding the next step" }, "collected", "Provider diff retained; completion is not verification");
     if (cancelled) return;
     if (job.kind === "review" && job.parentId) {
       const files = [...patch.matchAll(/^diff --git a\/(.+) b\/(.+)$/gm)];
@@ -237,18 +249,32 @@ export class Supervisor {
     const pollInterval = this.options.pollIntervalMs ?? 0;
     for (const job of this.store.jobs().filter((j) => j.state === "running")) {
       if (this.inFlight.has(job.id)) continue;
-      if (pollInterval > 0 && Date.now() - (this.lastPolled.get(job.id) ?? 0) < pollInterval) continue;
+      // later.dog Cloud reads its own computers, so its progress can be read often; other providers keep the configured pace.
+      const interval = job.backend === "laterdog-cloud" ? Math.min(pollInterval, 10_000) : pollInterval;
+      if (interval > 0 && Date.now() - (this.lastPolled.get(job.id) ?? 0) < interval) continue;
       this.lastPolled.set(job.id, Date.now());
       this.inFlight.add(job.id);
       // A failed status read is the provider not answering yet: the task keeps its identity and is read again. Only a failure
       // while collecting (a diff that cannot be retrieved, a review manifest that does not hold) stops the job.
       let collecting = false;
       try {
-        const state = await this.adapter(job).inspect(job.taskId!, this.context(job));
-        if (state === "failed") { this.lastPolled.delete(job.id); this.store.update(job.id, { state: "needs_attention", blocker: this.adapter(job).failure?.(job.taskId!) ?? "Provider reports this task failed; an agent can investigate and choose a repair" }, "provider_failed"); }
+        const adapter = this.adapter(job);
+        const state = await adapter.inspect(job.taskId!, this.context(job));
+        const seen = adapter.progress?.(job.taskId!);
+        if (seen && (seen.stage !== job.stage || JSON.stringify(seen.lastStep) !== JSON.stringify(job.lastStep))) {
+          this.store.touch(job.id, { ...(seen.stage ? { stage: seen.stage } : {}), ...(seen.lastStep ? { lastStep: seen.lastStep } : {}) });
+        }
+        if (state === "failed") {
+          this.lastPolled.delete(job.id);
+          await this.keepActivity(job);
+          if (this.store.job(job.id).cancelRequested) this.store.update(job.id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");
+          else this.store.update(job.id, { state: "needs_attention", finishedAt: new Date().toISOString(), blocker: adapter.failure?.(job.taskId!) ?? "Provider reports this task failed; an agent can investigate and choose a repair" }, "provider_failed");
+        }
         else if (state === "ready") {
           this.lastPolled.delete(job.id); collecting = true;
-          this.store.update(job.id, { state: "collecting" }, "collecting"); await this.collect(job);
+          this.store.update(job.id, { state: "collecting" }, "collecting");
+          await this.keepActivity(job);
+          await this.collect(job);
         }
       } catch (error) {
         const blocker = message(error);
@@ -273,7 +299,7 @@ export class Supervisor {
           : "Sign this native Codex profile in with its supported subscription before submitting cloud work");
         // Resolve the backend's environment before pinning an input ref so a misconfigured repository blocks preparation, not submission.
         const repository = this.store.repository(job.repository);
-        const environment = repository.environments[job.backend] ?? (job.backend === "codex-cloud" ? repository.environmentId : "");
+        const environment = repository.environments[job.backend] ?? (job.backend === "codex-cloud" ? repository.environmentId : job.backend === "laterdog-cloud" ? "auto" : "");
         if (!environment) throw new Error(`No ${job.backend} environment is configured for ${repository.slug}; connect one before delegating`);
         const prepared = await this.publisher.prepare(job, repository, job.parentId ? this.store.job(job.parentId) : undefined);
         if (this.stopped || this.store.job(job.id).cancelRequested) {
@@ -287,13 +313,68 @@ export class Supervisor {
             : "Do not push, merge, deploy, or access unrelated credentials. later.dog collects your diff.";
         const prompt = `[later.dog job ${job.id}]\n${job.brief}\n\nStanding instructions:\n${job.standingInstructions}\n\nWrite only these relative path prefixes: ${job.writeScopes.join(", ")}. Verify the real behavior. ${delivery} Report exact checks and limitations.`;
         const submitted = await this.adapter(job).submit(environment, prepared.sourceRef, prompt, this.context({ ...job, ...prepared }));
-        this.store.update(job.id, { ...submitted, state: "running" }, "submitted", submitted.taskId);
+        this.store.update(job.id, { ...submitted, state: "running", startedAt: new Date().toISOString() }, "submitted", submitted.taskId);
       } catch (error) {
         const uncertain = error instanceof SubmissionUnknown || this.store.job(job.id).state === "submitting";
         this.store.update(job.id, { state: uncertain ? "submission_unknown" : "needs_attention", blocker: message(error) }, uncertain ? "submission_unknown" : "preparation_blocked");
       } finally { this.inFlight.delete(job.id); }
     }
     if (this.options.workspaceUrl) await deliverOutbox(this.store,this.options.workspaceUrl,this.options.workspaceTokenFile);
+  }
+  /** Compact job views for the desktop's cloud task cards: the named jobs, or one dog's newest. */
+  summaries(query: { ids?: string[]; botId?: string; limit?: number }): CloudTaskSummary[] {
+    const jobs = this.store.jobs();
+    if (query.ids) {
+      const byId = new Map(jobs.map((job) => [job.id, job]));
+      return query.ids.flatMap((id) => { const job = byId.get(id); return job ? [cloudTaskSummary(job)] : []; });
+    }
+    return jobs.filter((job) => !query.botId || job.botId === query.botId).slice(0, query.limit ?? 20).map(cloudTaskSummary);
+  }
+  /** Progress steps after a byte offset: from the kept log once a task has one, else live from the task's own computer. */
+  async activity(id: string, after: number): Promise<CloudTaskActivityPage> {
+    if (!Number.isSafeInteger(after) || after < 0) throw Object.assign(new Error("after must be a byte offset"), { status: 400 });
+    const job = this.store.job(id);
+    if (job.activityArtifact && existsSync(job.activityArtifact)) {
+      const log = readFileSync(job.activityArtifact);
+      const start = Math.min(after, log.length);
+      const { steps, consumedBytes } = parseCloudTaskSteps(log.subarray(start, start + MAX_ACTIVITY_PAGE_BYTES).toString("utf8"));
+      return { steps, cursor: start + consumedBytes, live: activeJob(job) && start + consumedBytes >= log.length, available: true };
+    }
+    const adapter = this.adapters.get(job.profileId);
+    if (!adapter?.activity) return { steps: [], cursor: after, live: false, available: false, reason: "This backend does not report progress steps." };
+    if (!job.taskId) return { steps: [], cursor: after, live: job.state === "queued" || activeJob(job), available: false, reason: job.state === "queued" ? "Waiting to start." : activeJob(job) ? "Starting." : "This task never started." };
+    try {
+      const page = await adapter.activity(job.taskId, after);
+      return job.state === "running" || job.state === "collecting" ? page : { ...page, live: false };
+    } catch (error) {
+      if (job.state !== "running") return { steps: [], cursor: after, live: false, available: false, reason: "This task's progress log was not kept." };
+      throw error;
+    }
+  }
+  async screen(id: string): Promise<{ url: string; expiresAt: number | string }> {
+    const job = this.store.job(id);
+    const adapter = this.adapters.get(job.profileId);
+    if (!adapter?.screen || !job.taskId) throw Object.assign(new Error("This task has no screen to watch."), { status: 409 });
+    if (job.state !== "running") throw Object.assign(new Error("A task's computer is only kept while it runs, so there is no screen to watch now."), { status: 409 });
+    return adapter.screen(job.taskId);
+  }
+  /** Cancel, and for a backend that can stop a running task for real, stop it: later.dog Cloud deletes the task's computer. */
+  async stopJob(id: string, acknowledgeUnknown = false): Promise<Job> {
+    const job = this.store.job(id);
+    const adapter = this.adapters.get(job.profileId);
+    if (job.state !== "running" || !job.taskId || !adapter?.cancel) return this.cancel(id, acknowledgeUnknown);
+    this.store.update(id, { cancelRequested: true }, "cancel_requested", "Deleting the task's computer");
+    await adapter.cancel(job.taskId);
+    if (this.inFlight.has(id)) return this.store.job(id);
+    return this.store.update(id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");
+  }
+  /** later.dog Cloud needs no setup per repository: the first job that names one connects it, starting from its default branch. */
+  async ensureRepository(request: unknown): Promise<void> {
+    const parsed = createJobSchema.safeParse(request);
+    if (!parsed.success || this.store.hasRepository(parsed.data.repository)) return;
+    if (this.adapters.get(parsed.data.profileId)?.capabilities.id !== "laterdog-cloud") return;
+    const baseRef = await this.publisher.defaultBranch(parsed.data.repository);
+    this.store.saveRepository(repositorySchema.parse({ slug: parsed.data.repository, environmentId: "none", environments: { "laterdog-cloud": "auto" }, baseRef, publish: true, merge: false }));
   }
   async drain(): Promise<void> { while (this.inFlight.size) { this.store.lease(this.owner); await new Promise((resolve) => setTimeout(resolve,20)); } this.store.release(this.owner); }
   stop(): void { this.stopped = true; }

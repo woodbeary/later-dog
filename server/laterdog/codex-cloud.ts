@@ -29,6 +29,16 @@ export interface ExecutionAdapter {
   doctor?(): Promise<{ version: string; authenticated: boolean; cloudCommands: string }>;
   /** Start the provider's headless login and return what the operator must do (a URL and a code); the login keeps running in the background. */
   login?(): Promise<LoginStart>;
+  /** What the last status read saw: the task's stage and its latest progress step. */
+  progress?(taskId: string): { stage?: string; lastStep?: import("../../shared/cloud-task.ts").CloudTaskStep } | undefined;
+  /** Progress steps written after a byte offset, read from the task's own computer while it exists. */
+  activity?(taskId: string, after: number): Promise<import("../../shared/cloud-task.ts").CloudTaskActivityPage>;
+  /** The whole progress log, read before the task's computer goes away. */
+  transcript?(taskId: string): Promise<string>;
+  /** A short-lived link to watch the task's screen. */
+  screen?(taskId: string): Promise<{ url: string; expiresAt: number | string }>;
+  /** Stops a submitted task for real; backends without it can only record a cancellation request. */
+  cancel?(taskId: string): Promise<void>;
 }
 export type LoginSpawner = (binary: string, args: string[], options: { env: NodeJS.ProcessEnv; cwd?: string }) => ChildProcess;
 const TASK_ID = /^task_[a-zA-Z0-9_-]+$/;

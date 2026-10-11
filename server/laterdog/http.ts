@@ -76,11 +76,24 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
       if (url.pathname === "/v1/repositories" && method === "POST") {
         const repo = repositorySchema.parse(await readBody(req,50_000)); supervisor.store.saveRepository(repo); return json(res,200,repo);
       }
-      if (url.pathname === "/v1/jobs" && method === "POST") return json(res,202,supervisor.create(scope.jobRequest(await readBody(req,200_000))));
-      const jobPath = /^\/v1\/jobs\/([\w-]+)(?:\/(action|patch))?$/.exec(url.pathname);
+      if (url.pathname === "/v1/jobs" && method === "POST") {
+        const request = scope.jobRequest(await readBody(req,200_000));
+        await supervisor.ensureRepository(request);
+        return json(res,202,supervisor.create(request));
+      }
+      if (url.pathname === "/v1/jobs" && method === "GET") {
+        const ids = url.searchParams.get("ids");
+        const query = ids !== null
+          ? { ids: z.array(idSchema).max(100).parse(ids.split(",").filter(Boolean)) }
+          : { botId: z.string().regex(/^[\w-]{1,100}$/).optional().parse(url.searchParams.get("bot") ?? undefined), limit: z.coerce.number().int().min(1).max(100).default(20).parse(url.searchParams.get("limit") ?? undefined) };
+        return json(res,200,{ jobs: supervisor.summaries(query) });
+      }
+      const jobPath = /^\/v1\/jobs\/([\w-]+)(?:\/(action|patch|activity|screen))?$/.exec(url.pathname);
       if (jobPath) {
         const id = idSchema.parse(jobPath[1]);
         if (method === "GET" && !jobPath[2]) return json(res,200,{ job: supervisor.store.job(id), events: supervisor.store.events(id) });
+        if (method === "GET" && jobPath[2] === "activity") return json(res,200,await supervisor.activity(id,z.coerce.number().int().min(0).default(0).parse(url.searchParams.get("after") ?? undefined)));
+        if (method === "POST" && jobPath[2] === "screen") return json(res,200,await supervisor.screen(id));
         if (method === "GET" && jobPath[2] === "patch") {
           const job = supervisor.store.job(id); if (!job.patchArtifact) return json(res,404,{ error: "No collected diff" });
           return json(res,200,{ patch: readFileSync(job.patchArtifact,"utf8") });
@@ -88,7 +101,7 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
         if (method === "POST" && jobPath[2] === "action") {
           const body = actionSchema.parse(await readBody(req,120_000));
           const result = body.action === "publish" ? await supervisor.publish(id,body.summary) : body.action === "verify" ? await supervisor.verify(id)
-            : body.action === "merge" ? await supervisor.merge(id) : body.action === "cancel" ? supervisor.cancel(id,body.acknowledgeUnknown)
+            : body.action === "merge" ? await supervisor.merge(id) : body.action === "cancel" ? await supervisor.stopJob(id,body.acknowledgeUnknown)
             : body.action === "reconcile" ? await supervisor.reconcile(id,body.taskId)
             : body.action === "correct" ? supervisor.correction(id,body.brief,body.requestKey,body.writeScopes) : supervisor.review(id,body.requestKey,body.profileId);
           return json(res,200,result);

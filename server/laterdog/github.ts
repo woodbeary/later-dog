@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pathInScopes, type Job, type Repository, type Verification } from "../../shared/laterdog.ts";
+import { gitRef, pathInScopes, type Job, type Repository, type Verification } from "../../shared/laterdog.ts";
 import { describeFailure, requireSuccess, runCommand, type CommandRunner } from "./command.ts";
 
 interface GitHubRef { object: { sha: string } }
@@ -32,6 +32,16 @@ export class GitHubPublisher {
     } catch (error) {
       return { authenticated: false, source, detail: error instanceof Error ? error.message : String(error) };
     }
+  }
+  /** The branch a new job starts from when nobody configured one: the repository's own default branch. */
+  async defaultBranch(slug: string): Promise<string> {
+    const result = await this.gh(["api", `repos/${slug}`, "--jq", ".default_branch"]);
+    const branch = result.stdout.trim();
+    if (result.exitCode !== 0 || !branch) {
+      throw Object.assign(new Error(`later.dog could not open ${slug} on GitHub with the supervisor's GitHub login. Check the name, and that this login can read it. ${describeFailure(result, "gh")}`), { status: 409 });
+    }
+    if (!gitRef.safeParse(branch).success) throw new Error(`GitHub named an unusable default branch for ${slug}`);
+    return branch;
   }
   async prepare(job: Job, repo: Repository, parent?: Job): Promise<{ baseSha: string; sourceRef: string }> {
     const sourceRef = `laterdog/input/${job.id}`;

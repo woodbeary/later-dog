@@ -43,3 +43,28 @@ it('confines a paired device to its own queued requests and refuses supervisor o
   expect((await f.request('/bridge/result',{id:task.id,result:{branch:'main'},failed:false},device.token)).status).toBe(200);
   const settled=await (await f.request('/bridge/poll',{},device.token)).json() as {request:unknown}; expect(settled.request).toBeNull();
 });
+it('serves cloud task summaries, progress and screens to the desktop, and keeps them from dogs',async()=>{
+  const f=await fixture();
+  expect((await f.request('/repositories',{slug:'fixture/repo',environmentId:'fixture-env'})).status).toBe(200);
+  const brief={requestKey:randomUUID(),repository:'fixture/repo',title:'Card change',brief:'A long brief the dog already knows',writeScopes:['src']};
+  const receipt=await callTool('delegate_cloud_job',brief,f.origin,f.token) as Record<string,unknown>;
+  expect(Object.keys(receipt).slice(0,5)).toEqual(['id','title','state','repository','backend']);
+  expect(receipt).toMatchObject({title:'Card change',state:'queued',repository:'fixture/repo',backend:'codex-cloud'});
+  expect(JSON.stringify(receipt)).not.toContain('A long brief');
+  expect(String(receipt.note)).toMatch(/cloud task card/);
+  const id=String(receipt.id);
+  const listed=await (await f.request(`/jobs?ids=${id},${randomUUID()}`)).json() as {jobs:{id:string;state:string;title:string}[]};
+  expect(listed.jobs).toEqual([expect.objectContaining({id,state:'queued',title:'Card change'})]);
+  expect((await f.request('/jobs?ids=not-a-uuid')).status).toBe(400);
+  expect((await (await f.request('/jobs?limit=5')).json() as {jobs:unknown[]}).jobs).toHaveLength(1);
+  expect((await (await f.request('/jobs?bot=somebody')).json() as {jobs:unknown[]}).jobs).toHaveLength(0);
+  expect(await (await f.request(`/jobs/${id}/activity?after=0`)).json()).toMatchObject({available:false,live:false,steps:[]});
+  expect((await f.request(`/jobs/${id}/activity?after=-1`)).status).toBe(400);
+  const screen=await f.request(`/jobs/${id}/screen`,{});
+  expect(screen.status).toBe(409); expect((await screen.json() as {error:string}).error).toMatch(/no screen/);
+  const dog=(await import('./dog-access.ts')).dogToken(f.token,'dog-1');
+  for (const path of [`/jobs?ids=${id}`,`/jobs/${id}/activity`]) expect((await f.request(path,undefined,dog,{'x-laterdog-bot':'dog-1'})).status).toBe(403);
+  expect((await f.request(`/jobs/${id}/screen`,{},dog,{'x-laterdog-bot':'dog-1'})).status).toBe(403);
+  const cancelled=await (await f.request(`/jobs/${id}/action`,{action:'cancel'})).json() as {state:string};
+  expect(cancelled.state).toBe('cancelled');
+});

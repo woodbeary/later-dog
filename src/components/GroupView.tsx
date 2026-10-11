@@ -20,6 +20,7 @@ import { PlaceIcon } from "./PlaceIcon";
 import { ScreenFrame } from "./ScreenFrame";
 import { effectivePlace, placeLabelKey } from "@/lib/place";
 import { ThreadChip } from "./ThreadChip";
+import { CloudTaskCard } from "./CloudTaskCard";
 import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { TurnPresence } from "./TurnPresence";
@@ -86,6 +87,7 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
   const { state, dispatch } = useStore();
   const tool = message.tool;
   if (!tool) return null;
+  if (message.cloudTask) return <CloudTaskCard message={message} />;
   if (message.threadRef) return <ThreadChip message={message} />;
   if (failedTurnCause(tool.name) !== null) {
     return <FailedTurnRow tool={tool} engine={botEngine(state.bots.find((b) => b.id === message.from?.botId), state.instances)} botId={message.from?.botId} />;

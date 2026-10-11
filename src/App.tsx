@@ -15,7 +15,7 @@ import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
-  ActivityPanel, BotSettingsDialog, ComputerPanel, InspectorPanel, KeyboardShortcutsModal, NewBotDialog,
+  ActivityPanel, BotSettingsDialog, CloudTaskPanel, ComputerPanel, InspectorPanel, KeyboardShortcutsModal, NewBotDialog,
   preloadScreens, RemoteAgentSettingsPanel, RemoteDesktopPanel, RoutinesPage, SettingsModal, TeamMapPage, TriggersPanel,
 } from "@/components/lazy-screens";
 import { WorkspaceBackupRecovery } from "@/components/WorkspaceBackupSettings";
@@ -99,7 +99,8 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   // A side panel beside the full sidebar leaves the default 1100px window a
   // ~330px chat. Fold the sidebar to its avatar rail for as long as a panel
   // is open and the window is not wide enough for all three.
-  const sidePanelOpen = Boolean(bot) && (state.settingsOpen || state.computerOpen || state.inspectorOpen || state.activityOpen);
+  const sidePanelOpen = (Boolean(bot) && (state.settingsOpen || state.computerOpen || state.inspectorOpen || state.activityOpen))
+    || (state.computerOpen && state.cloudTaskId !== null);
   const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
   const calendarFocus = state.activeView === "routines";
 
@@ -210,7 +211,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   // here (always mounted) when a bot's viewer closes. release() is idempotent.
   useEffect(() => {
     return window.laterdog?.desktopViewer?.onState((viewer) => {
-      if (viewer.open || !viewer.contextId) return;
+      if (viewer.open || !viewer.contextId || viewer.contextId.startsWith("cloud-task:")) return;
       const botId = viewer.contextId;
       void fetch(`/api/bots/${botId}/computer/control`, {
         method: "POST",
@@ -306,7 +307,9 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
           ? <RemoteAgentSettingsPanel bot={bot} overlay={state.computerOpen && !twoSidePanelsFit} />
           : <BotSettingsDialog key={`settings:${bot.id}`} bot={bot} overlay={(state.inspectorOpen || state.computerOpen) && !twoSidePanelsFit} />
       )}
-      {state.computerOpen && bot && (
+      {state.computerOpen && state.cloudTaskId ? (
+        <CloudTaskPanel key={`cloud-task:${state.cloudTaskId}`} jobId={state.cloudTaskId} bot={bot} />
+      ) : state.computerOpen && bot && (
         remoteClient ? (
           <RemoteDesktopPanel key={`computer:${bot.id}`} bot={bot} />
         ) : (

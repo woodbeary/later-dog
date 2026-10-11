@@ -224,6 +224,8 @@ export interface Message {
   comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: DogColor };
   /** thread chips: "Opened thread #Title on Bot" linking to that thread */
   threadRef?: { botId: string; threadId: string; title: string };
+  /** cloud task cards: a job a dog sent to the cloud, opened in the Computer panel. */
+  cloudTask?: import("../../shared/cloud-task").CloudTaskRef;
   /** sent while the bot was mid-turn; auto-sends when the turn settles.
    * Rendered only while the bot is busy, so a flag stranded by a server
    * restart never shows a promise nothing will keep. */
@@ -962,6 +964,8 @@ export interface AppState {
   /** Creation continues even when the role picker is dismissed. */
   botCreationPending: boolean;
   computerOpen: boolean;
+  /** A cloud task shown in the Computer panel's place; null shows the dog's own computer. */
+  cloudTaskId: string | null;
   /** the per-thread event inspector (runtime stream + native protocol tee) */
   inspectorOpen: boolean;
   activityOpen: boolean;
@@ -1246,6 +1250,8 @@ export type Action =
   | { type: "toggleTriggers"; open?: boolean }
   | { type: "toggleNewBot"; open?: boolean }
   | { type: "toggleComputer"; open?: boolean }
+  | { type: "openCloudTask"; jobId: string }
+  | { type: "closeCloudTask" }
   | { type: "toggleInspector"; open?: boolean }
   | { type: "toggleActivity"; open?: boolean }
   | { type: "focusMessage"; threadId: string; messageId: string; matchText?: string }
@@ -2080,11 +2086,24 @@ export function reducer(state: AppState, action: Action): AppState {
     case "focusMessageConsumed":
       if (!state.focusMessage || state.focusMessage.nonce !== action.nonce) return state;
       return { ...state, focusMessage: { ...state.focusMessage, consumed: true } };
+    case "openCloudTask":
+      return {
+        ...state,
+        computerOpen: true,
+        cloudTaskId: action.jobId,
+        settingsOpen: false,
+        inspectorOpen: false,
+        activityOpen: false,
+        appSettingsOpen: false,
+      };
+    case "closeCloudTask":
+      return state.cloudTaskId === null ? state : { ...state, cloudTaskId: null };
     case "toggleComputer": {
       const open = action.open ?? !state.computerOpen;
       return {
         ...state,
         computerOpen: open,
+        cloudTaskId: null,
         settingsOpen: open ? false : state.settingsOpen,
         inspectorOpen: open ? false : state.inspectorOpen,
         activityOpen: open ? false : state.activityOpen,
@@ -2472,6 +2491,7 @@ export const initialState: AppState = {
   newBotOpen: false,
   botCreationPending: false,
   computerOpen: false,
+  cloudTaskId: null,
   inspectorOpen: false,
   activityOpen: false,
   appSettingsOpen: false,

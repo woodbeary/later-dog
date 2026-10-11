@@ -42,6 +42,7 @@ import {
 import { createApprovalModeSupport } from "./harness-capabilities.ts";
 import { escapeAttribute } from "../src/lib/composer-attachments.ts";
 import { threadRefUrl } from "../src/lib/thread-refs.ts";
+import { cloudTaskRefFromToolOutput } from "./laterdog/job-receipt.ts";
 import {
   CREDENTIAL_TARGETS,
   credentialResumeOutcome,
@@ -7785,6 +7786,11 @@ bus.subscribe((event: RuntimeEvent) => {
             tool: { ...existing, name: toolName, ok: event.ok, output: event.output },
           });
           toolMessageByItem.delete(itemKey);
+        }
+        // A job a dog sent to the cloud gets its own card in the chat that started it, with live progress behind it.
+        const cloudTask = event.ok ? cloudTaskRefFromToolOutput(toolName, event.output) : null;
+        if (cloudTask && !store.messagesFor(event.threadId).some((m) => m.cloudTask?.jobId === cloudTask.jobId)) {
+          pushMessage({ role: "bot", kind: "activity", tool: { name: `Cloud task: ${cloudTask.title}`, ok: true, spoken: "started a cloud task" }, cloudTask, turnId: liveTurnId });
         }
         // the bot just acted ON ITS SCREEN — refresh the preview now. Only
         // computer tools can change the screen, and each capture competes
