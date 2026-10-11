@@ -279,8 +279,8 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
                   href={connector.docs}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={t("mcpConnectors.docsAria", { name: connector.name })}
-                  title={t("mcpConnectors.docsAria", { name: connector.name })}
+                  aria-label={t("mcpConnectors.learnMore", { name: connector.name })}
+                  title={t("mcpConnectors.learnMore", { name: connector.name })}
                   className="shrink-0 rounded-lg p-1.5 text-ink-secondary transition-colors hover:bg-raised hover:text-ink"
                 >
                   <ExternalLink size={14} aria-hidden="true" />
@@ -313,7 +313,7 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
               </div>
               {/* limitations stay on the row, not behind a link */}
               {connector.note && <p className="mt-1 text-[11px] leading-snug text-ink-secondary">{t(connector.note)}</p>}
-              {connector.transport === "sse" && <p className="mt-1 text-[11px] leading-snug text-ink-secondary">{t("mcpConnectors.sse")}</p>}
+              {connector.transport === "sse" && <p className="mt-1 text-[11px] leading-snug text-ink-secondary">{t("mcpConnectors.sseDogs")}</p>}
               {error && <p role="alert" className="mt-1.5 text-[12px] leading-relaxed text-danger">{error}</p>}
               {signingIn && (
                 <div className="mt-2 space-y-2 rounded-lg bg-raised px-3 py-3 text-[12px] text-ink-secondary">

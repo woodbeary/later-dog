@@ -15,7 +15,7 @@ import { mcpSignInLink } from "@/lib/mcp-sign-in";
 import { managedConnectorUnavailableReason } from "../../shared/connector-availability";
 import { connectorServiceAccess, isConnectorToolGrantShape } from "@/lib/connector-grants";
 import { MCP_CONNECTORS, connectorMatchesSearch } from "@/lib/mcp-connectors";
-import { ApiKeyRow } from "./ApiKeys";
+import { ComposioKeyNotice } from "./ApiKeys";
 import { BotAvatar } from "./Avatar";
 import { McpConnectorCards } from "./McpConnectorCards";
 import { McpServersPanel } from "./McpServersPanel";
@@ -188,7 +188,7 @@ export function connectedInventoryCopy(phase: ConnectorInventoryPhase) {
   };
   return {
     title: t("connectors.empty.noneTitle"),
-    description: t("connectors.empty.noneDesc"),
+    description: t("connectors.empty.noneHint"),
   };
 }
 
@@ -612,10 +612,11 @@ export function PluginsPanel() {
       .finally(() => setBusySlug(null));
   };
 
-  const matching = (cards ?? []).filter(
-    (c) => !search || `${c.label} ${c.slug} ${c.blurb}`.toLowerCase().includes(search.toLowerCase()),
-  );
   const isConnected = (slug: string) => Boolean(status[slug]?.connected || status[slug]?.accounts?.length);
+  const matching = (cards ?? []).filter(
+    (c) => (!search || `${c.label} ${c.slug} ${c.blurb}`.toLowerCase().includes(search.toLowerCase()))
+      && (isConnected(c.slug) || !MCP_CONNECTORS.some((connector) => connector.id === c.slug)),
+  );
   const filter: AppsFilter = surface === "mcp" ? "mcp" : tab === "connected" ? "connected" : "all";
   const whopMatches = !search || `whop ${t("whop.description")}`.toLowerCase().includes(search.toLowerCase().trim());
   const showWhop = whopMatches && (filter === "all" || (filter === "connected" && whopConnected !== false));
@@ -629,8 +630,6 @@ export function PluginsPanel() {
     .map((card, index) => ({ card, index }))
     .sort((a, b) => Number(isConnected(b.card.slug)) - Number(isConnected(a.card.slug)) || a.index - b.index)
     .map(({ card }) => card);
-  // The full catalog runs past a thousand apps. Without a search, show the
-  // first screenful so the MCP section below stays a short scroll away.
   const capped = filter === "all" && !search && !showAllApps && visible.length > APPS_PREVIEW_COUNT;
   const shown = capped ? visible.slice(0, APPS_PREVIEW_COUNT) : visible;
   const connectedCount = Object.values(status).filter((service) => service.connected || service.accounts?.length).length + Number(whopConnected === true)
@@ -653,7 +652,7 @@ export function PluginsPanel() {
   const filters: Array<{ id: AppsFilter; label: string }> = [
     { id: "all", label: t("apps.filter.all") },
     { id: "connected", label: `${t("apps.filter.connected")}${connectedCount > 0 ? ` ${connectedCount}` : ""}` },
-    { id: "mcp", label: t("apps.filter.mcp") },
+    { id: "mcp", label: t("apps.filter.custom") },
   ];
 
   return (
@@ -678,7 +677,7 @@ export function PluginsPanel() {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <h2 id="plugins-title" className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{t("apps.title")}</h2>
-              <p className="mt-1 text-[13px] text-ink-secondary">{t("apps.subtitle")}</p>
+              <p className="mt-1 text-[13px] text-ink-secondary">{t("apps.subtitleShort")}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <label className="hidden h-10 w-[260px] items-center gap-2.5 rounded-xl bg-control/70 px-3.5 md:flex">
@@ -751,19 +750,9 @@ export function PluginsPanel() {
             </div>
           )}
           {/* Not set up yet is not an outage: see connectorSetupNotice. */}
-          {setupNotice && filter !== "mcp" && (
-            <div
-              className={cn(
-                "mb-2 rounded-xl px-4 py-3 text-[13px]",
-                setupNotice.tone === "warning" ? "bg-warning/10 text-warning" : "glass-card text-ink-secondary",
-              )}
-            >
+          {setupNotice?.tone === "warning" && filter !== "mcp" && (
+            <div className="mb-2 rounded-xl bg-warning/10 px-4 py-3 text-[13px] text-warning">
               {t(whopConnected ? "whop.otherAppsSetup" : setupNotice.key)}
-              {setupNotice.key === "connectors.setupNeeded" && (
-                <div data-connectors-key className="mt-3 text-left">
-                  <ApiKeyRow section="composio" onSaved={(saved) => saved && readCatalogAgain()} />
-                </div>
-              )}
             </div>
           )}
           {botsWithoutApps.length > 0 && (
@@ -819,6 +808,9 @@ export function PluginsPanel() {
                   one click each, with no key to set up first. */}
               <McpConnectorCards connectors={shownConnectors} refreshKey={whopRefresh} onConnected={setConnectedConnectors}
                 onServersChange={() => setWhopRefresh((value) => value + 1)} />
+              {filter === "all" && setupNotice?.tone === "info" && shown.length > 0 && (
+                <ComposioKeyNotice remote={remoteClient} onSaved={readCatalogAgain} />
+              )}
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
                 <div className={showWhop ? "contents" : "hidden"}>
                   <McpServersPanel whopCard refreshKey={whopRefresh} onWhopConnection={setWhopConnected} />
@@ -865,9 +857,9 @@ export function PluginsPanel() {
             </section>
           )}
 
-          {filter !== "connected" && (
-            <div className={cn(filter === "all" && "mt-8 border-t border-hairline/30 pt-6", filter === "mcp" && "pt-3")}>
-              <McpServersPanel embedded hideWhop={filter === "all"} refreshKey={whopRefresh} />
+          {filter === "mcp" && (
+            <div className="pt-3">
+              <McpServersPanel embedded refreshKey={whopRefresh} />
             </div>
           )}
         </div>

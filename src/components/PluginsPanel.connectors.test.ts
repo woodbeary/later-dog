@@ -103,11 +103,32 @@ afterEach(() => vi.unstubAllGlobals());
 describe("setting up connected apps", () => {
   beforeEach(() => fixture.overrides.set(SETUP, "needs-setup"));
 
-  it("takes the Composio key right in the notice, with no Settings page to visit", () => {
+  it("asks for the Composio key in one line above the apps that need it, behind Add key", () => {
     const { html } = render();
-    expect(html).toContain("Paste a Composio project key below");
-    expect(html).toContain('data-api-key-row="composio"');
+    expect(html).toContain("Gmail, Slack and many more connect through Composio. Add a Composio key to use them.");
+    expect(html).toContain(">Add key</button>");
+    expect(html).not.toContain('data-api-key-row="composio"');
     expect(html).not.toContain("Settings →");
+    const notice = html.indexOf("data-connectors-key");
+    expect(notice).toBeGreaterThan(html.indexOf("data-apps-grid"));
+    expect(notice).toBeGreaterThan(html.indexOf("data-connectors="));
+    expect(notice).toBeLessThan(html.indexOf("data-whop-card"));
+    expect(notice).toBeLessThan(html.indexOf('data-app-tile="gmail"'));
+  });
+
+  it("only explains it on a remote screen, where no key can be typed", () => {
+    vi.stubGlobal("window", { laterdog: { remoteClient: { active: true } } });
+    const { html } = render();
+    expect(html).toContain("Ask whoever runs this server to paste a Composio project key into Apps on that computer.");
+    expect(html).not.toContain(">Add key</button>");
+  });
+
+  it("stays away when nothing listed needs the key", () => {
+    fixture.overrides.set(SEARCH, "linear");
+    expect(render().html).not.toContain("data-connectors-key");
+    fixture.overrides.set(SEARCH, "");
+    fixture.overrides.set(TAB, "connected");
+    expect(render().html).not.toContain("data-connectors-key");
   });
 
   it("drops the notice and its key box once the key is in", () => {
@@ -175,14 +196,26 @@ describe("connectors in the Apps pop-up", () => {
 
   it("report their connections to the panel, and refresh the server lists after a change", () => {
     render();
+    expect(fixture.embedded).toBeNull();
     fixture.cards!.onConnected!(["notion", "stripe"]);
     expect(fixture.overrides.get(CONNECTED_CONNECTORS)).toEqual(["notion", "stripe"]);
     expect(fixture.cards!.refreshKey).toBe(0);
-    expect(fixture.embedded!.refreshKey).toBe(0);
     fixture.cards!.onServersChange!();
     expect(fixture.overrides.get(REFRESH)).toBe(1);
     render();
     expect(fixture.cards!.refreshKey).toBe(1);
+    fixture.surface = "mcp";
+    render();
     expect(fixture.embedded!.refreshKey).toBe(1);
+  });
+
+  it("hide Composio's copy of an app that has its own connector, unless it's connected there", () => {
+    fixture.overrides.set(CARDS, [card("gmail"), card("notion")]);
+    let { html } = render();
+    expect(html).toContain('data-app-tile="gmail"');
+    expect(html).not.toContain('data-app-tile="notion"');
+    fixture.overrides.set(STATUS, { notion: { connected: true, accounts: [{ id: "ca_2", status: "ACTIVE" }] } });
+    ({ html } = render());
+    expect(html).toContain('data-app-tile="notion"');
   });
 });

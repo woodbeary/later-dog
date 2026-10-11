@@ -138,10 +138,11 @@ describe("connector rows", () => {
     expect(linear.html).toContain('data-brand-icon="linear" aria-hidden="true"');
     expect(linear.html).toContain(`<path d="${BRAND_MARKS.linear.path}"></path>`);
     expect(linear.html).not.toContain('role="img"');
-    expect(linear.html).toContain('href="https://linear.app/docs/mcp" target="_blank" rel="noopener noreferrer" aria-label="Linear MCP docs"');
-    expect(linear.html).not.toContain("SSE");
+    expect(linear.html).toContain('href="https://linear.app/docs/mcp" target="_blank" rel="noopener noreferrer" aria-label="Learn more about Linear"');
+    expect(linear.html).not.toContain("use this one");
     // limitations stay visible on the row: the older transport, the provider's own
-    expect(tile("webflow").html).toContain("Uses the older SSE connection, which Codex dogs skip.");
+    expect(tile("webflow").html).toContain("ChatGPT and Codex dogs can&#x27;t use this one.");
+    expect(tile("webflow").html).not.toMatch(/SSE|MCP/);
     expect(tile("intercom").html).toContain("For Intercom accounts hosted in the US.");
     expect(linear.html).not.toContain("hosted in the US");
   });

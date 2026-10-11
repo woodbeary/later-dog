@@ -33,6 +33,14 @@
 - The built-in browser line is one short sentence while its download is still to come.
 - Tried in the side instance with a stubbed Local VM status: Start woke a stopped VM with one request and waited for Ready; Set up without the desktop downloaded it first; Add key opened a focused field and Cancel closed it. Not tried with real Docker.
 
+### Apps
+- The Composio key is one line under the apps that need it, with **Add key**, instead of a key box at the top. Apps that sign in by themselves, such as Linear and Notion, connect without it.
+- **MCP servers** is now **Custom**, and your own servers show only there. The list no longer shows later.dog's own server, which was a path to Node.
+- Notion, Linear, Sentry and Stripe show once, as their own sign-in rows. Composio's copy shows only if you connected it there.
+- Webflow says **ChatGPT and Codex dogs can't use this one** instead of naming the SSE connection. The docs links say **Learn more about…**.
+- An empty **Connected** says **Apps you connect show up here.** Before, it pointed to a Marketplace tab that no longer exists.
+- Tried in the side instance: All had no MCP wording and no duplicate tiles, **Add key** opened a focused field and **Cancel** closed it without saving, and Custom showed **No custom MCP servers yet**. Not tried with a real Composio key.
+
 ### Profiles
 - Keep separate setups, such as Personal, Business and Business 2, and switch between them with **Switch profile** in the menu under your name. Each profile has its own dogs, chats and saved keys. Profiles you're not looking at keep running, so a dog working in Business carries on while you're in Personal.
 - **Add profile** asks for a name and sets the profile up, which takes a few seconds. **Edit profiles** renames or removes one. Removing a profile deletes its saved keys and moves its dogs and chats to the Trash. Personal and the profile you're in can't be removed. You can have up to 8 profiles.

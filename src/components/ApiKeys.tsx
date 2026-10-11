@@ -263,6 +263,36 @@ export function CloudComputersRow() {
   );
 }
 
+export function ComposioKeyNotice({ remote, onSaved }: { remote: boolean; onSaved: () => void }) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <div data-connectors-key="" className="glass-card mb-3 rounded-xl px-4 py-3 text-[13px] text-ink-secondary">
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0">{t(remote ? "connectors.setupNeededRemote" : "connectors.keyNeeded")}</p>
+        {!remote && (
+          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setAdding((open) => !open)} className="shrink-0 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-raised-hover">
+            {adding ? t("common.cancel") : t("connectors.addKey")}
+          </button>
+        )}
+      </div>
+      {adding && (
+        <div className="mt-3">
+          <ApiKeyRow section="composio" bare onSaved={(saved) => { if (!saved) return; setAdding(false); onSaved(); }} />
+          <a
+            href={CREDENTIALS.composio.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline"
+          >
+            {t("connectors.getKey")}
+            <ExternalLink size={12} aria-hidden="true" />
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ApiKeyRow({
   section,
   bare = false,

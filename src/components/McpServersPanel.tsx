@@ -226,11 +226,10 @@ function draftFor(server: McpServerListing): McpDraft {
 
 /** `embedded`: a section of the Apps pop-up's one scrolling view, rather
  * than a page that owns its own scroll. */
-export function McpServersPanel({ embedded = false, whopCard = false, hideWhop = false, refreshKey = 0, onWhopConnection }: {
+export function McpServersPanel({ embedded = false, whopCard = false, refreshKey = 0, onWhopConnection }: {
   embedded?: boolean;
   /** Use the same OAuth lifecycle as a normal app tile, without MCP controls. */
   whopCard?: boolean;
-  hideWhop?: boolean;
   refreshKey?: number;
   onWhopConnection?: (connected: boolean) => void;
 } = {}) {
@@ -639,7 +638,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, hideWhop =
     </div>;
   }
 
-  const visibleServers = servers?.filter((server) => !hideWhop || !isRemoteMcpListing(server) || !isWhopServer(server));
+  const visibleServers = servers?.filter((server) => server.name !== "laterdog");
 
   return (
     <section
@@ -654,7 +653,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, hideWhop =
           <div className="min-w-0 flex-[1_1_280px]">
             <h3 id="mcp-servers-title" className="text-[15px] font-semibold text-ink">{t("mcp.title")}</h3>
             <p className="mt-1 max-w-[610px] break-words text-[12.5px] leading-relaxed text-ink-secondary">
-              {t("mcp.subtitle")}
+              {t("mcp.subtitleShort")}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -739,7 +738,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, hideWhop =
         )}
 
         <div className="mt-4 rounded-xl border border-hairline/50 bg-raised/35 px-4 py-3 text-[12px] leading-relaxed text-ink-secondary">
-          {t("mcp.trustNotice")}
+          {t("mcp.trustShort")}
         </div>
 
         {error && <div role="alert" className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">{typeof error === "string" ? error : t(error.key, error.params)}</div>}
@@ -1049,7 +1048,7 @@ function ClaudeMcpSwitch() {
     <div className="mt-4 flex items-start justify-between gap-4 rounded-2xl border border-hairline/50 bg-card px-4 py-4 sm:px-5">
       <div className="min-w-0">
         <div className="text-[14px] font-medium text-ink">{t("mcp.claude.title")}</div>
-        <p className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{t("mcp.claude.desc")}</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{t("mcp.claude.descShort")}</p>
         {failed && <p role="alert" className="mt-1 text-[12px] text-danger">{t("mcp.claude.error")}</p>}
       </div>
       <Switch
