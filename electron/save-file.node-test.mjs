@@ -78,6 +78,20 @@ describe("save-file path validation", () => {
     fs.rmSync(escape);
   });
 
+  it("saves from a profile's own folder and nowhere else", async () => {
+    const profileHome = path.join(home, ".laterdog-profiles", "p00000000000a");
+    fs.mkdirSync(path.join(profileHome, "workspaces"), { recursive: true });
+    const report = path.join(profileHome, "workspaces", "plan.docx");
+    fs.writeFileSync(report, "docx");
+    assert.equal(await resolveSavablePath(report, { home, root: profileHome }), await fs.promises.realpath(report));
+    const rejected = "Only files created by your bots can be saved";
+    await assert.rejects(resolveSavablePath(report, { home }), { message: rejected });
+    await assert.rejects(
+      resolveSavablePath(path.join(botHome, "workspaces", "bot", "report.docx"), { home, root: profileHome }),
+      { message: rejected },
+    );
+  });
+
   it("rejects empty, relative, and non-file targets", async () => {
     await assert.rejects(resolveSavablePath("", { home }), { message: "A file path is required" });
     await assert.rejects(resolveSavablePath("workspaces/bot/report.docx", { home }), { message: "That file path is invalid" });

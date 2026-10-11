@@ -111,7 +111,7 @@ export function createDesktopViewer(deps: {
     // Do not let a saved or constructed socket URL bypass the join refusal:
     // a bot's control lease does not exclude other users of a shared desktop.
     if (botId !== null && (match[1] === "local/shared" || match[1].startsWith("local/pool-"))) {
-      return json(res, 409, { error: "Phone control requires a per-dog Local VM. Select Per dog in Settings → Computers." });
+      return json(res, 409, { error: "Phone control requires a per-dog Local VM; on this computer, dogs share Local VMs." });
     }
     const bound = botId === null ? undefined : deps.lease!(match[1], botId, controlLeaseId!, threadId);
     if (botId !== null && !bound) return json(res, 409, { error: "Take control of this computer first" });

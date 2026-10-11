@@ -4,7 +4,8 @@
 // chat app must not run dpkg itself. Everything before the install is shared.
 // It receives the staged paths and resolves with an optional state patch
 // describing what is left to do, which the card renders.
-import { updateErrorMessage, updateErrorNeedsPerson } from "./update-errors.mjs";
+import { updateErrorMessage, updateErrorNeedsPerson, updateNotPublished } from "./update-errors.mjs";
+import { updateNotes } from "./update-feed.mjs";
 
 export function createUpdaterCoordinator(updater, setState, { handOffInstall = null, nativeStaging = false } = {}) {
   let checkOperation = null;
@@ -28,7 +29,7 @@ export function createUpdaterCoordinator(updater, setState, { handOffInstall = n
     // Nobody asked, and it may pass by itself (offline, a server hiccup): stay
     // quiet and let the next check try again. A failure only the person can
     // fix is shown, and waits for them instead of downloading every hour.
-    const shown = manual || updateErrorNeedsPerson(error);
+    const shown = (manual && !updateNotPublished(error)) || updateErrorNeedsPerson(error);
     actionOwnsState = shown;
     if (error instanceof Error) routedErrors.add(error);
     if (downloadOperation) {
@@ -75,7 +76,7 @@ export function createUpdaterCoordinator(updater, setState, { handOffInstall = n
   // person asked for this check, or when only they can fix it (routeError).
   updater.on("update-available", (info) => {
     if (checkOwnsState()) {
-      download(Boolean(checkOperation?.manual), { version: info?.version, percent: undefined, message: undefined });
+      download(Boolean(checkOperation?.manual), { version: info?.version, notes: updateNotes(info), percent: undefined, message: undefined });
     }
   });
   updater.on("update-not-available", () => {

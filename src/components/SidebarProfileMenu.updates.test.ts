@@ -8,7 +8,7 @@ import type { UpdaterState } from "@/lib/updater";
 // answers, the profile menu has no update entry to offer.
 const fixture = vi.hoisted(() => ({ state: null as UpdaterState | null }));
 vi.mock("@/lib/updater", () => ({ useUpdaterState: () => fixture.state }));
-import { updateNoteworthy, useUpdateItem } from "./SidebarProfileMenu";
+import { useUpdateItem } from "./SidebarProfileMenu";
 
 afterEach(() => vi.unstubAllGlobals());
 function entry(state: UpdaterState | null) {
@@ -37,10 +37,7 @@ it("offers a newer release's download quietly where this build cannot update its
   expect(offered?.phase).toBe("available");
   expect(offered?.label).toBe("later.dog 0.2.0 available — download");
   expect(offered?.item.attention).toBe(true);
-  // Download goes on in the browser, so the menu closes; the profile row
-  // itself stays quiet (the card told the person once).
   expect(offered?.item.keepOpen).toBe(false);
-  expect(updateNoteworthy(offered!.phase)).toBe(false);
   const openExternal = vi.fn(async () => true);
   vi.stubGlobal("window", { laterdog: { updater: {}, openExternal } });
   offered!.item.onSelect();

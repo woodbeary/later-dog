@@ -118,58 +118,58 @@ const FULL = { direct: "direct+skills+shared+voice", room: "room+own-thread+skil
  * by more than 2%, and may not undercut it by more than 2% either: a smaller
  * catalog is the goal, so lock the win in by lowering the number. */
 const BUDGET_BASELINE: Record<string, number> = {
-  "direct": 49106,
-  "direct+voice": 49847,
-  "direct+shared": 50851,
-  "direct+shared+voice": 51592,
-  "direct+skills": 51159,
-  "direct+skills+voice": 51900,
-  "direct+skills+shared": 52904,
-  "direct+skills+shared+voice": 53645,
-  "room": 47531,
-  "room+voice": 48272,
-  "room+shared": 49276,
-  "room+shared+voice": 50017,
-  "room+skills": 49584,
-  "room+skills+voice": 50325,
-  "room+skills+shared": 51329,
-  "room+skills+shared+voice": 52070,
-  "room+own-thread": 48818,
-  "room+own-thread+voice": 49559,
-  "room+own-thread+shared": 50563,
-  "room+own-thread+shared+voice": 51304,
-  "room+own-thread+skills": 50871,
-  "room+own-thread+skills+voice": 51612,
-  "room+own-thread+skills+shared": 52616,
-  "room+own-thread+skills+shared+voice": 53357,
-  "direct+skills+shared+voice+cloud-home": 52700,
-  "room+own-thread+skills+shared+voice+cloud-home": 52412,
-  "direct+non-chief": 40780,
-  "direct+voice+non-chief": 41521,
-  "direct+shared+non-chief": 42525,
-  "direct+shared+voice+non-chief": 43266,
-  "direct+skills+non-chief": 42833,
-  "direct+skills+voice+non-chief": 43574,
-  "direct+skills+shared+non-chief": 44578,
-  "direct+skills+shared+voice+non-chief": 45319,
-  "room+non-chief": 39205,
-  "room+voice+non-chief": 39946,
-  "room+shared+non-chief": 40950,
-  "room+shared+voice+non-chief": 41691,
-  "room+skills+non-chief": 41258,
-  "room+skills+voice+non-chief": 41999,
-  "room+skills+shared+non-chief": 43003,
-  "room+skills+shared+voice+non-chief": 43744,
-  "room+own-thread+non-chief": 40492,
-  "room+own-thread+voice+non-chief": 41233,
-  "room+own-thread+shared+non-chief": 42237,
-  "room+own-thread+shared+voice+non-chief": 42978,
-  "room+own-thread+skills+non-chief": 42545,
-  "room+own-thread+skills+voice+non-chief": 43286,
-  "room+own-thread+skills+shared+non-chief": 44290,
-  "room+own-thread+skills+shared+voice+non-chief": 45031,
-  "direct+skills+shared+voice+non-chief+cloud-home": 44374,
-  "room+own-thread+skills+shared+voice+non-chief+cloud-home": 44086,
+  "direct": 48073,
+  "direct+voice": 48814,
+  "direct+shared": 49818,
+  "direct+shared+voice": 50559,
+  "direct+skills": 50126,
+  "direct+skills+voice": 50867,
+  "direct+skills+shared": 51871,
+  "direct+skills+shared+voice": 52612,
+  "room": 46498,
+  "room+voice": 47239,
+  "room+shared": 48243,
+  "room+shared+voice": 48984,
+  "room+skills": 48551,
+  "room+skills+voice": 49292,
+  "room+skills+shared": 50296,
+  "room+skills+shared+voice": 51037,
+  "room+own-thread": 47785,
+  "room+own-thread+voice": 48526,
+  "room+own-thread+shared": 49530,
+  "room+own-thread+shared+voice": 50271,
+  "room+own-thread+skills": 49838,
+  "room+own-thread+skills+voice": 50579,
+  "room+own-thread+skills+shared": 51583,
+  "room+own-thread+skills+shared+voice": 52324,
+  "direct+skills+shared+voice+cloud-home": 52647,
+  "room+own-thread+skills+shared+voice+cloud-home": 52359,
+  "direct+non-chief": 39747,
+  "direct+voice+non-chief": 40488,
+  "direct+shared+non-chief": 41492,
+  "direct+shared+voice+non-chief": 42233,
+  "direct+skills+non-chief": 41800,
+  "direct+skills+voice+non-chief": 42541,
+  "direct+skills+shared+non-chief": 43545,
+  "direct+skills+shared+voice+non-chief": 44286,
+  "room+non-chief": 38172,
+  "room+voice+non-chief": 38913,
+  "room+shared+non-chief": 39917,
+  "room+shared+voice+non-chief": 40658,
+  "room+skills+non-chief": 40225,
+  "room+skills+voice+non-chief": 40966,
+  "room+skills+shared+non-chief": 41970,
+  "room+skills+shared+voice+non-chief": 42711,
+  "room+own-thread+non-chief": 39459,
+  "room+own-thread+voice+non-chief": 40200,
+  "room+own-thread+shared+non-chief": 41204,
+  "room+own-thread+shared+voice+non-chief": 41945,
+  "room+own-thread+skills+non-chief": 41512,
+  "room+own-thread+skills+voice+non-chief": 42253,
+  "room+own-thread+skills+shared+non-chief": 43257,
+  "room+own-thread+skills+shared+voice+non-chief": 43998,
+  "direct+skills+shared+voice+non-chief+cloud-home": 44321,
+  "room+own-thread+skills+shared+voice+non-chief+cloud-home": 44033,
   "external": 3030,
   "external+everything": 3030,
 };
@@ -276,21 +276,20 @@ describe("agents proxy tools/list golden", () => {
     }
   });
 
-  it("shows a Cloud home's bots no Local VM and no this computer, and every other server both", () => {
+  it("shows a Cloud home's bots no this computer, and every other server both places", () => {
     type SelectTool = Tool & { inputSchema: { properties: { surface: { enum: string[]; description: string } } } };
     const select = (wire: string) => toolsOf(wire).find((tool) => tool.name === "select_computer") as SelectTool;
     const cloudHome = Object.keys(PROFILES).filter((name) => name.endsWith("+cloud-home"));
     expect(cloudHome).toHaveLength(4);
     for (const name of cloudHome) {
       const desktop = wires[name.slice(0, -"+cloud-home".length)]!;
-      const names = toolsOf(wires[name]!).map((tool) => tool.name);
-      expect(names).toEqual(toolsOf(desktop).map((tool) => tool.name).filter((tool) => tool !== "vm_exec"));
-      expect(select(desktop).inputSchema.properties.surface.enum).toEqual(["auto", "cloud", "vm", "local", "browser"]);
-      expect(toolsOf(desktop).map((tool) => tool.name)).toContain("vm_exec");
+      expect(toolsOf(wires[name]!).map((tool) => tool.name)).toEqual(toolsOf(desktop).map((tool) => tool.name));
+      expect(select(desktop).inputSchema.properties.surface.enum).toEqual(["auto", "cloud", "local"]);
       const surface = select(wires[name]!).inputSchema.properties.surface;
-      expect(surface.enum).toEqual(["auto", "cloud", "browser"]);
-      expect(surface.description).not.toMatch(/\b(?:vm|local) =/);
+      expect(surface.enum).toEqual(["auto", "cloud"]);
+      expect(surface.description).not.toMatch(/\blocal =/);
     }
+    for (const wire of Object.values(wires)) expect(toolsOf(wire).map((tool) => tool.name)).not.toContain("vm_exec");
   });
 
   it("shows only a Chief of Staff the Chief-only tools, and for_bot_id on another bot's profile or model", () => {

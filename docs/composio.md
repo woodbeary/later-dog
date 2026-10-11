@@ -7,11 +7,11 @@ later.dog uses one Composio project API key and one reusable Composio Session. T
 1. Open the [Composio Dashboard](https://dashboard.composio.dev).
 2. Select **Platform**, select or create a project, then open **Settings → API Keys**.
 3. Copy a project key beginning with `ak_`.
-4. In later.dog, open **App Settings → Connections** and save it under **Composio project key**.
-5. Open **Connected apps** and choose Gmail, GitHub, Slack, or another service. Enter a unique label such as `work` or `personal`, then finish the authorization in your normal browser.
+4. In later.dog, choose **Apps** in the sidebar. Until a key is saved, Apps asks for one: paste it there.
+5. Choose Gmail, GitHub, Slack, or another service. Enter a unique label such as `work` or `personal`, then finish the authorization in your normal browser.
 6. To connect another account for the same app, choose **Add account**, give it a unique label, and finish the second authorization in your browser.
 
-The Connected tab lists every account separately. **Disconnect** revokes only the account named on that row. later.dog asks for a label for every new account and configures Composio to require explicit selection when more than one account could run a tool; a new OAuth flow never silently becomes the default for an existing connection.
+Under **Connected**, every account has its own row. **Disconnect** revokes only the account named on that row. later.dog asks for a label for every new account and configures Composio to require explicit selection when more than one account could run a tool; a new OAuth flow never silently becomes the default for an existing connection.
 
 The desktop app validates the key before saving it. The key is encrypted using Electron's operating-system-backed `safeStorage`; the local JSON configuration stores only the non-secret Composio user and Session identifiers.
 
@@ -41,7 +41,7 @@ Sessions created by older later.dog versions are upgraded in place by creating a
 
 ## Multiple Google and Slack accounts
 
-Yes. Gmail, Google Calendar, Google Drive, and the other Google toolkits can each hold multiple labeled authorizations, and Slack can hold multiple labeled workspace/account authorizations. Accounts are scoped to the later.dog installation's stable Composio user and appear by alias and connected-account ID in **Connected apps**.
+Yes. Gmail, Google Calendar, Google Drive, and the other Google toolkits can each hold multiple labeled authorizations, and Slack can hold multiple labeled workspace/account authorizations. Accounts are scoped to the later.dog installation's stable Composio user and appear by alias and connected-account ID in **Apps**, under **Connected**.
 
 If a provider or restricted Composio project policy prevents another authorization, the safe fallback is a separate later.dog installation/configuration with its own Composio user. Re-authorizing the same single-account Session is not a safe workaround: it can change which grant is selected. Do not share raw provider tokens or place them in bot prompts.
 
@@ -60,7 +60,7 @@ To grant the permission:
 
 1. In the [Composio Dashboard](https://dashboard.composio.dev), open your project's **Auth Configs** and create an auth config for the app (for example Gmail) that uses your own OAuth app credentials.
 2. Add the permissions you need to it, keep it enabled, and leave it available to Tool Router.
-3. In later.dog, open **Connected apps** and reconnect the account. The consent screen now asks for the added permissions.
+3. In later.dog, open **Apps** and reconnect the account. The consent screen now asks for the added permissions.
 
 later.dog uses your project's own auth config for an app automatically, in place of the Composio-managed one. If there are several for the same app, it uses the most recently updated, and it skips disabled ones and ones turned off for Tool Router. Google may require your OAuth app to list the added permissions on its consent screen, and to be verified before people outside your organization can grant them.
 

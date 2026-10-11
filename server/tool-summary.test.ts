@@ -84,7 +84,7 @@ describe("askInputSummary", () => {
 
   it("keeps a multi-line command multi-line — the card shows it as it will run", () => {
     expect(askInputSummary({ command: "cd repo &&\n  pnpm test \\\n  --run" })).toBe("cd repo &&\n  pnpm test \\\n  --run");
-    expect(askInputSummary({ command: "x".repeat(260) })).toBe("x".repeat(200));
+    expect(askInputSummary({ command: "x".repeat(260) })).toBe(`${"x".repeat(200)}…`);
   });
 
   it("falls back to a url, then to the arguments as JSON, then to nothing", () => {

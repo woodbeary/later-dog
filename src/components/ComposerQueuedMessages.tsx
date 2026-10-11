@@ -4,9 +4,21 @@ import type { SteerQueueReason } from "../../shared/wire";
 import { t } from "@/lib/i18n";
 import { replySnippet } from "@/lib/replies";
 import { splitTranscriptCitations } from "@/lib/citations";
+import { attachmentImageUrl, splitTranscriptAttachments } from "@/lib/composer-attachments";
 
-function queuedMessageLabel(text: string): string {
-  return splitTranscriptCitations(text).citations.length ? replySnippet(text, 500) : text;
+export function queuedMessageParts(text: string): { label: string; pictures: string[] } {
+  const { display, images, files } = splitTranscriptAttachments(text);
+  const words = splitTranscriptCitations(display).citations.length ? replySnippet(display, 500) : display;
+  const pictures = images.map((image) => attachmentImageUrl(image.path)).filter((url): url is string => url !== null);
+  const label =
+    words ||
+    files.map((file) => file.name).filter(Boolean).join(", ") ||
+    (images.length === 1
+      ? t("composer.queued.pictureOne")
+      : images.length > 1
+        ? t("composer.queued.pictureMany", { count: images.length })
+        : "");
+  return { label, pictures };
 }
 
 export function composerCanSteerQueuedMessages(
@@ -118,7 +130,7 @@ export function QueuedComposerMessages({
       )}
       <ul className="divide-y divide-hairline/25" aria-label={t("composer.queued.list")}>
         {items.map((item, index) => {
-          const label = queuedMessageLabel(item.text);
+          const { label, pictures } = queuedMessageParts(item.text);
           return <li key={item.queueId} className="flex min-h-10 min-w-0 items-center gap-2 px-2.5 py-1.5">
             <CornerDownRight
               size={14}
@@ -126,6 +138,9 @@ export function QueuedComposerMessages({
               className="shrink-0 text-ink-secondary"
               aria-hidden="true"
             />
+            {pictures.slice(0, 3).map((url) => (
+              <img key={url} src={url} alt="" className="h-7 w-7 shrink-0 rounded-md border border-hairline/40 object-cover" />
+            ))}
             <span dir="auto" className="min-w-0 flex-1 truncate text-[14px] text-ink" title={label}>
               {label}
             </span>

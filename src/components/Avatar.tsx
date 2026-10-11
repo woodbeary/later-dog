@@ -108,7 +108,6 @@ export type DogAvatarProps = {
   trackPointer?: boolean;
   /** Run the animation. Off renders the state's resting face. */
   animated?: boolean;
-  /** Which body the bot wears. Unknown values fall back to the cursor. */
   bodyId?: MascotBodyId;
 };
 

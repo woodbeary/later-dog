@@ -25,6 +25,7 @@ export interface ExecutionAdapter {
   list(): Promise<unknown>;
   /** Validate a provider task identity for this backend and return where an operator can inspect it. */
   describeTask?(taskId: string): { taskUrl: string };
+  failure?(taskId: string): string | undefined;
   doctor?(): Promise<{ version: string; authenticated: boolean; cloudCommands: string }>;
   /** Start the provider's headless login and return what the operator must do (a URL and a code); the login keeps running in the background. */
   login?(): Promise<LoginStart>;

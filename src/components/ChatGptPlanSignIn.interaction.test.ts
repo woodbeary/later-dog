@@ -19,7 +19,6 @@ vi.mock("@/state/store", async (original) => ({
   useStore: () => ({ dispatch: fixture.dispatch, refreshInstances: fixture.refreshInstances, refreshModels: fixture.refreshModels }),
 }));
 const { DeviceSignIn } = await import("./DeviceSignIn");
-const { AddChatGptAccount } = await import("./CodexAccountSettings");
 
 type Node = ReactElement<{ children?: ReactNode; onClick?: () => Promise<void> }>;
 function nodes(tree: ReactNode): Node[] {
@@ -56,7 +55,7 @@ it("starts only on request, opens the official page, and refreshes models after 
   expect(fixture.api).toHaveBeenCalledWith("/api/instances/chatgpt/auth/start", { method: "POST" });
   expect(fixture.openExternal).toHaveBeenCalledWith(waiting.authorizationUrl);
   render();
-  const cleanup = fixture.effects[0]!();
+  const cleanup = fixture.effects.at(-1)!();
   await vi.advanceTimersByTimeAsync(2_000);
   expect(fixture.api).toHaveBeenCalledWith("/api/instances/chatgpt/auth/status?flowId=flow-one", expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fixture.refreshInstances).toHaveBeenCalledOnce();
@@ -74,22 +73,4 @@ it("cancels the same flow and never opens an untrusted authorization URL", async
   expect(fixture.api).toHaveBeenLastCalledWith("/api/instances/chatgpt/auth/cancel", { method: "POST", body: JSON.stringify({ flowId: "flow-one" }) });
   expect(fixture.values[0]).toMatchObject({ phase: "cancelled", flowId: null });
   expect(fixture.refreshModels).not.toHaveBeenCalled();
-});
-
-it("adds a named account independently without signing it in or replacing an existing identity", async () => {
-  const accounts = [{ instanceId: "chatgpt-second", displayName: "Work" }];
-  fixture.api.mockResolvedValueOnce({ instanceId: "chatgpt-second", instances: accounts });
-  fixture.index = 0;
-  nodes(AddChatGptAccount()).find((node) => node.type === "button")!.props.onClick!();
-  fixture.index = 0;
-  const input = nodes(AddChatGptAccount()).find((node) => node.type === "input") as ReactElement<{ onChange: (event: { target: { value: string } }) => void }>;
-  input.props.onChange({ target: { value: " Work " } });
-  fixture.index = 0;
-  const form = nodes(AddChatGptAccount()).find((node) => node.type === "form") as ReactElement<{ onSubmit: (event: { preventDefault: () => void }) => void }>;
-  form.props.onSubmit({ preventDefault: () => {} });
-  await flush();
-  expect(fixture.api).toHaveBeenCalledWith("/api/instances/chatgpt-accounts", { method: "POST", body: JSON.stringify({ displayName: "Work" }) });
-  expect(fixture.api).toHaveBeenCalledOnce();
-  expect(fixture.dispatch).toHaveBeenCalledWith({ type: "instances", instances: accounts });
-  expect(fixture.openExternal).not.toHaveBeenCalled();
 });

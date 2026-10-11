@@ -14,7 +14,7 @@ export interface RawToggleActionProps {
 
 /** Switch one bot message between rendered markdown and its original source. */
 export function RawToggleAction({ active, onToggle, className }: RawToggleActionProps) {
-  const label = t(active ? "chat.showRenderedMarkdown" : "chat.showRawMarkdown");
+  const label = t(active ? "chat.action.viewFormatted" : "chat.action.viewSource");
   return (
     <button
       type="button"

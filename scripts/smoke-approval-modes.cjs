@@ -126,10 +126,6 @@ app.whenReady().then(async () => {
     });
     return;
   }
-  if (process.argv.includes("--sidebar-attention-only")) {
-    await require("./testing/sidebar-attention-ui-smoke.cjs")({ root, url: `http://127.0.0.1:${port}`, api, until });
-    return;
-  }
   if (process.argv.includes("--ui-only")) { await verifyUi(); return; }
   if (process.argv.includes("--model-ui-only")) {
     await require("./testing/model-switch-ui-smoke.cjs")({ root, url: `http://127.0.0.1:${port}`, api, until,
@@ -399,10 +395,7 @@ app.whenReady().then(async () => {
   const customCalls = JSON.parse(readFileSync(codexDump, "utf8")).calls;
   assert.equal(customCalls.find((call) => call.method === "turn/start")?.params.approvalsReviewer, "auto_review");
   console.log(JSON.stringify({ provider: "codex", mode: "custom", peerInitiated: true, effectiveMode: "auto", nativeApprovalShown: true }));
-  if (process.argv.includes("--ui")) {
-    await verifyUi();
-    await require("./testing/sidebar-attention-ui-smoke.cjs")({ root, url: `http://127.0.0.1:${port}`, api, until });
-  }
+  if (process.argv.includes("--ui")) await verifyUi();
   console.log("Approval smoke passed; HTTP elevation rejected, private grant and resumed mode transitions verified.");
 }).catch((error) => {
   console.error(error);

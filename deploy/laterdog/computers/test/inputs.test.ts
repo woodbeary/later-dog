@@ -11,7 +11,7 @@ describe("parseCreate", () => {
     for (const size of Object.keys(SIZES)) expect(parseCreate({ size })).toMatchObject({ ok: true, value: { size } });
   });
   it("maps sizes onto Cloudflare instance types", () => {
-    expect(SIZES).toEqual({ small: "standard-1", standard: "standard-2", large: "standard-3" });
+    expect(SIZES).toEqual({ small: "standard-1", standard: "standard-2", large: "standard-3", xlarge: "standard-4" });
   });
   it("refuses unknown sizes and bad names", () => {
     expect(parseCreate({ size: "huge" })).toMatchObject({ ok: false, refusal: { status: 400, code: "invalid_size" } });

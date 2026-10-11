@@ -2,10 +2,13 @@
 
 > **Not offered by later.dog.** This page documents code that later.dog carries but does not run as a service: there is no later.dog Cloud, hosted account service, phone app or paid plan. It stays until that code is removed or replaced; see [docs/laterdog/roadmap.md](../laterdog/roadmap.md).
 
-Personal Cloud is independent of Settings → Organization, the hosted Companion
-account, local profile fields, providers, bots and chat history. Fresh startup
-without a saved Cloud credential makes no Cloud request and opens no browser.
-Cloud authentication is optional; its failure never blocks free local use.
+Personal Cloud is independent of the organization connection, the hosted
+Companion account, local profile fields, providers, bots and chat history.
+Fresh startup without a saved Cloud credential makes no Cloud request and
+opens no browser. Cloud authentication is optional; its failure never blocks
+free local use. The desktop app no longer has a Cloud account page: nothing in
+it signs in to or out of Cloud. It only reads the saved session's plan, opens
+the dashboard and connects to My Cloud.
 
 ## Contract and boundaries
 
@@ -43,13 +46,11 @@ These endpoints belong to the remote Cloud service, not the local app server.
   token (`/^[a-z][a-z0-9-]{0,23}$/`); a missing or malformed one is simply no
   tier and never rejects or downgrades a paid entitlement. A plan string newer
   than the app (for example `"max"`) is read as paid with that tier and
-  logged once, instead of failing the whole session. Settings shows
-  "Personal/Pro/Max active", "Cloud active" for a tier it doesn't know, and
-  "Pro active" when there is no tier.
-- Only this verified session can display Pro. Verification lasts at most one
+  logged once, instead of failing the whole session.
+- Only this verified session counts as Pro. Verification lasts at most one
   minute and never past credential or active-entitlement expiry; it is never
   restored from disk. The browser dashboard is the fixed `/cloud` URL. Opening
-  it does not activate Pro. Refresh checks the server after a purchase.
+  it does not activate Pro.
 - Sign-out independently deletes the local credential and requests
   `DELETE https://cloud.later.dog/api/cloud/desktop/session`. A failed
   remote revocation is disclosed; failure to clear the durable record blocks
@@ -64,7 +65,6 @@ Device polling completes browser approval automatically. The existing
 
 ```sh
 node --test electron/cloud-account.node-test.mjs electron/cloud-account-ipc.node-test.mjs electron/organization-reopen.node-test.mjs
-pnpm exec vitest run src/components/CloudAccountSettings.test.ts src/components/SettingsModal.appearance.test.ts src/components/OrganizationSettings.test.ts
 pnpm exec tsc --noEmit
 pnpm check:electron
 pnpm i18n:check
@@ -77,25 +77,8 @@ Storage tests use a temporary file and substitute encryption; they do not touch
 the user's keychain. Production preload/main IPC tests reject remote and child
 frames and verify renderer arguments cannot cross the account boundary.
 
-## Rendered workflow
-
-```sh
-node scripts/verify-cloud-account.mjs
-```
-
-The script accepts no external address. It launches an isolated Vite preview,
-Electron HOME/profile and synthetic Cloud endpoint. It uses the actual settings
-component, production preload and account client. No installed app, user data,
-real browser sign-in, provider, payment, keychain or customer account is used.
-
-It checks no sign-in at startup, cancel/retry, automatic connection after fake
-approval, free state, checkout not activating Pro, verified activation, network
-failure, revocation, confirmed sign-out, 390px overflow and remote-page isolation.
-The printed evidence directory retains `receipt.json`, `electron.log` and two
-screenshots. Its owned temporary HOME/profile are removed on completion.
-
-This is not production qualification: browser opens are captured, approval and
-entitlements are synthetic, and credential storage is in memory. Real OTP,
-billing-webhook activation, keychain persistence and a shipped desktop build
-need separate qualification. Server-side enforcement of paid service requests
-must remain authoritative; the settings display is not an access-control gate.
+This is not production qualification: approval and entitlements are
+synthetic. Real OTP, billing-webhook activation, keychain persistence and a
+shipped desktop build need separate qualification. Server-side enforcement of
+paid service requests must remain authoritative; the desktop's plan check is
+not an access-control gate.

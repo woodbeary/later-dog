@@ -325,7 +325,7 @@ export function initPlan(input: { domain: string; node: string; script: string; 
     ...(input.operator ? [{ kind: "run" as const, argv: ["systemctl", "enable", "--now", "laterdog-fleet.service"], why: `start the fleet agent for ${input.operator}` }] : []),
     { kind: "run", argv: ["systemctl", "reload", "caddy"], why: "start serving the workspaces folder" },
     { kind: "note", text: `point *.${registry.domain} at this server (a wildcard A/AAAA record); each workspace gets its own certificate when created` },
-    ...(input.operator ? [{ kind: "note" as const, text: `the installation running as ${input.operator} can now manage installations from Settings → Installations` }] : []),
+    ...(input.operator ? [{ kind: "note" as const, text: `the installation running as ${input.operator} can now manage the other installations through its /api/fleet routes` }] : []),
   ];
   return { steps, registry };
 }

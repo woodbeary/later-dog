@@ -26,10 +26,8 @@ export function pickComputer<T extends ComputerOption>(
   const isCurrent = (option: T) => option.surface === current && (option.ready || (startsOnFirstCall && option.available));
   const option = requested === "auto"
     ? options.find(isCurrent)
-      ?? options.find((candidate) => candidate.ready && candidate.surface === "vm")
       ?? options.find((candidate) => candidate.ready)
       ?? options.find((candidate) => candidate.canStart)
-      ?? options.find((candidate) => candidate.canCreate && candidate.surface === "vm")
       ?? options.find((candidate) => candidate.canCreate)
     : options.find((candidate) => candidate.surface === requested);
   return { option, current: option !== undefined && isCurrent(option) };

@@ -2,6 +2,7 @@
 // Small on purpose: the interesting settings live in the settings panel, and
 // this exists so a bug report can quote a version number.
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 import {
   APP_NAME,
@@ -36,7 +37,7 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
 
   const platform = platformLabel(window.laterdog?.platform);
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
@@ -75,7 +76,8 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
           Close
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

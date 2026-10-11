@@ -57,6 +57,29 @@ describe("API routes", () => {
   });
 });
 
+describe("free trial routes", () => {
+  it("routes the trial page, the offer and the trial itself", () => {
+    expect(route("GET", "/trial")).toEqual({ kind: "trial_page" });
+    expect(route("POST", "/trial")).toEqual({ kind: "trial_page" });
+    expect(route("GET", "/v1/trials")).toEqual({ kind: "trial_offer" });
+    expect(route("GET", "/v1/trial")).toEqual({ kind: "trial", op: "status" });
+    expect(route("DELETE", "/v1/trial")).toEqual({ kind: "trial", op: "end" });
+  });
+
+  it("names the allowed methods when the method is wrong", () => {
+    expect(route("PUT", "/trial")).toEqual({ kind: "method_not_allowed", allow: ["GET", "POST"] });
+    expect(route("POST", "/v1/trials")).toEqual({ kind: "method_not_allowed", allow: ["GET"] });
+    expect(route("POST", "/v1/trial")).toEqual({ kind: "method_not_allowed", allow: ["GET", "DELETE"] });
+    expect(route("toString", "/v1/trial")).toEqual({ kind: "method_not_allowed", allow: ["GET", "DELETE"] });
+  });
+
+  it("does not stretch the trial paths", () => {
+    expect(route("GET", "/trial/")).toEqual({ kind: "not_found", api: false });
+    expect(route("GET", "/v1/trial/x")).toEqual({ kind: "not_found", api: true });
+    expect(route("GET", "/v1/trials/")).toEqual({ kind: "not_found", api: true });
+  });
+});
+
 describe("desktop routes", () => {
   const base = `/desktop/${ID}/${TOKEN}`;
 

@@ -108,7 +108,7 @@ describe("preparing a harness response for a device", () => {
         const { status, text } = await device(`/api/bots/b1/${path}`, "POST");
         expect(status).toBe(403);
         expect(text).toContain("enable it in later.dog");
-        expect(text).toContain("Settings → Remote access");
+        expect(text).toContain("Connect your phone");
       }
     } finally {
       cloudDesktopAccess = true;

@@ -1,13 +1,6 @@
-// A saved key counts as working until the provider says otherwise. When a
-// real use of it is refused as a bad key (a chat request, or Test in
-// Settings → API keys), every engine on that key and endpoint reports it as
-// not signed in, until the key is saved or cleared again or a later use of
-// it succeeds. In memory only: after a restart the key shows as working
-// until its next use fails. The key itself is never kept, only a hash of it
-// beside the provider's base URL.
 import { createHash } from "node:crypto";
 
-export const KEY_REJECTED_REASON = "The provider rejected this key. Change it in Settings → API keys.";
+export const KEY_REJECTED_REASON = "The provider rejected this key. Change it in the model picker.";
 
 const rejected = new Set<string>();
 const listeners = new Set<() => void>();

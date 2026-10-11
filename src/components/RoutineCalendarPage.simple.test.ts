@@ -11,7 +11,6 @@ const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
   return {
-    advanced: false,
     values: [] as unknown[],
     index: 0,
     state: undefined as AppState | undefined,
@@ -29,7 +28,6 @@ vi.mock("react", async (original) => ({
     }];
   },
 }));
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => fixture.advanced, setAdvancedMode: () => {} }));
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, api: fixture.api, useStore: () => ({ state: fixture.state ?? original.initialState, dispatch: fixture.dispatch }) };
@@ -115,7 +113,6 @@ const routineItem = (definition: Routine, run: RoutineRun | null = null) =>
   ({ kind: "routine" as const, id: `next-${definition.id}`, at: definition.nextRunAt ?? 0, durationMinutes: 30, routine: definition, run });
 
 beforeEach(() => {
-  fixture.advanced = false;
   fixture.values = [];
   fixture.index = 0;
   fixture.dispatch.mockClear();
@@ -160,14 +157,11 @@ describe("Routines header", () => {
     expect(page().find(named("RoutineLogs"))).toBeDefined();
   });
 
-  it("offers the Webhooks tab only in Advanced mode", () => {
+  it("offers no Webhooks tab", () => {
     expect(buttons(page()).has("Webhooks")).toBe(false);
-    fixture.advanced = true;
-    fixture.values = [];
-    expect(buttons(page()).has("Webhooks")).toBe(true);
   });
 
-  it("opens the plain editor from New routine in Simple mode", () => {
+  it("opens the plain editor from New routine", () => {
     click(buttons(page()).get("New routine"));
     expect(page().find(named("EventEditor"))!.props.seed).toMatchObject({ kind: "routine", botIds: [] });
   });
@@ -244,7 +238,7 @@ describe("routine editor", () => {
   }));
   const hidden = ['<select aria-label="Repeat"', "Routine safety limit", "Runs the whole job on the dog&#x27;s cloud computer", "Add attachment", "Post results to", "Routine type"];
 
-  it("keeps Simple mode to the basics with everything else behind More options", () => {
+  it("keeps the editor to the basics with everything else behind More options", () => {
     const html = editor();
     for (const text of ["New routine", 'placeholder="What should happen?"', "Who does it", "When", "Once", "Every day", "Weekdays", "Every week", "More options"]) {
       expect(html, text).toContain(text);
@@ -301,15 +295,5 @@ describe("routine editor", () => {
     click(buttons(tree).get("Save"));
     const [, off] = fixture.api.mock.calls.at(-1) as unknown as [string, { body: string }];
     expect(JSON.parse(off.body)).toMatchObject({ continuity: false });
-  });
-
-  it("leaves the Advanced editor as it was", () => {
-    fixture.advanced = true;
-    const html = editor();
-    for (const text of ['placeholder="Add title"', '<select aria-label="Repeat"', "Assign a dog", "Runs the whole job on the dog&#x27;s cloud computer", "Post results to", "Routine type", "New event"]) {
-      expect(html, text).toContain(text);
-    }
-    expect(html).not.toContain("More options");
-    expect(html).not.toContain("What should happen?");
   });
 });

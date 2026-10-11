@@ -77,25 +77,13 @@ pnpm exec vitest run server/presets.test.ts server/routes/bot-presets.test.ts se
 ## Renderer
 
 ```sh
-pnpm exec vitest run src/lib/bot-presets.test.ts src/components/SharePresetDialog.test.ts src/lib/team-import.test.ts src/lib/team-share.test.ts src/components/ShareTeamDialog.test.ts src/components/NewBotDialog.test.ts src/lib/create-configured-bot.test.ts
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/presets-ui.e2e.test.ts --silent=false
+pnpm exec vitest run src/lib/team-import.test.ts src/lib/team-share.test.ts src/components/ShareTeamDialog.test.ts src/components/NewBotDialog.test.ts
 ```
 
-The first command covers the New bot grouping, the draft fields a preset
-fills (never the model, computer, approval or connected apps), the picture,
-the summary lines, creation passing the preset and leaving its skills and
-notes to the server, the share request, part names, the preset file's
-contents list and its import preview. The second owns a disposable
-`control-laterdog ui` app: **Settings → Share as preset…** shows the counts and
-saves `sky-1.0.0.laterdog.json` (captured in the page); **Templates →
-Import** of that file shows "Preset bots and skills · no team" and **Add
-presets** adds it; **Share team** shows no preset until **Include my New bot
-defaults as a preset** is ticked; then **New bot** lists **From Acme
-Partners**, **Imported presets** and **Built-in roles**, and a bot made from
-the file preset gets its skill off and its notes, one made from the
-organization preset its skill on. Screenshots go to
-`.laterdog-scratch/verify-evidence/presets-*.png`. CI runs it in the advisory
-renderer smoke job next to the Share team recipe.
+The command covers the Share team dialog, the team file's import preview and
+the New bot dialog. The preset screens (**Share as preset…**, the preset
+picker in **New bot**) and their full-app test were removed in 0.3.0; only the
+server checks above still cover presets.
 
 ## 2026-09-24: what was actually run
 

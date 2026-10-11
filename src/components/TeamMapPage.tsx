@@ -12,7 +12,6 @@ import {
   type TeamMapSnapshot,
 } from "@/lib/team-map";
 import { cn } from "@/lib/cn";
-import { placeOffered } from "@/lib/place";
 import { TeamCanvas } from "./TeamCanvas";
 import { TeamDialog } from "./TeamDialog";
 import { TeamMemoryDialog } from "./TeamMemoryDialog";
@@ -341,7 +340,6 @@ export function TeamMapPage() {
               <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => setTeamEditor({})}><Users size={14} />{t("team.create")}</button>
               <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => { setComputersOpen(true); setCreateComputerRequest((value) => value + 1); }}><Box size={14} />Cloud computer</button>
               {/* A later.dog Cloud home has no Local VM (shared/cloud-home.ts). */}
-              {placeOffered("vm", state.config) && <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => dispatch({ type: "toggleAppSettings", section: "computer", open: true })}><Monitor size={14} />Local VM…</button>}
             </div>
           </details>
         </div>}

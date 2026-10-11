@@ -34,8 +34,8 @@ export type PlaceSource = "works-on" | "pin" | "auto-pin" | "routine" | "room";
 /** The next actions a place offers. Each is one button in the app and, on a
  * stored row, one sentence a phone can read. */
 export const PLACE_ACTIONS = [
-  "choose-model", "open-tools", "sign-in", "start", "wake", "watch", "see-plan", "manage-computers",
-  "try-again", "open-my-cloud", "add-boat-key", "turn-on-browser", "open-team-map", "open-vm-settings",
+  "choose-model", "allow-computer", "sign-in", "start", "wake", "watch", "see-plan", "manage-computers",
+  "try-again", "open-my-cloud", "turn-on-browser", "open-team-map", "open-vm-settings",
   "clear-pin", "change-routine", "open-computer-panel",
 ] as const;
 export type PlaceActionId = (typeof PLACE_ACTIONS)[number];
@@ -81,6 +81,15 @@ export interface PlaceView {
 /** Where this server runs, as the Auto line describes it. */
 export type ServerKind = "my-cloud" | "mac" | "pc" | "linux";
 
+type AutoReach = "both" | "cloud" | "local" | "none";
+
+const AUTO_LINE: Record<AutoReach, PlaceKey> = {
+  both: "place.view.auto.lineBoth",
+  cloud: "place.view.auto.lineCloud",
+  local: "place.view.auto.lineLocal",
+  none: "place.view.auto.lineNone",
+};
+
 /** The facts a place's state is read from. */
 export interface PlaceFacts {
   /** The place to describe: Auto, Off, or one of the four places. */
@@ -108,7 +117,6 @@ export interface PlaceFacts {
   /** The built-in browser is switched on for this installation and bot. */
   browserOn: boolean;
   role: "admin" | "user";
-  mode?: "simple" | "advanced";
   /** The cloud computer as last seen; unknown reads as not made yet. */
   computer?: "none" | "starting" | "waking" | "on" | "asleep";
   /** Auto uses a team's shared cloud computer by this name. */
@@ -122,9 +130,10 @@ export interface PlaceFacts {
 /** The English catalog, mirrored by en.json. */
 export const PLACE_EN = {
   "place.view.auto.short": "Chooses for you",
-  "place.view.auto.lineMyCloud": "Uses the built-in browser. In a chat, it starts its cloud computer by itself when a task needs desktop apps.",
-  "place.view.auto.lineDesktop": "Uses the built-in browser, a private desktop on this computer, or this computer's screen, whichever the task needs.",
-  "place.view.auto.lineLinux": "Uses the built-in browser, or a running Local VM when a task needs a desktop.",
+  "place.view.auto.lineBoth": "Picks its cloud computer or this computer when a task needs one.",
+  "place.view.auto.lineCloud": "Starts its cloud computer when a task needs one.",
+  "place.view.auto.lineLocal": "Uses this computer when a task needs one.",
+  "place.view.auto.lineNone": "Works without a computer for now.",
   "place.view.autoTeam.short": "Shared",
   "place.view.autoTeam.line": "Uses {computer}, the cloud computer this pack shares.",
   "place.view.ccCannot.short": "Not with this model",
@@ -160,11 +169,11 @@ export const PLACE_EN = {
   "place.view.ccClearing.short": "Clearing up",
   "place.view.ccClearing.line": "{bot}'s previous cloud computer is still being removed.",
   "place.view.ccProvider.short": "Couldn't start",
-  "place.view.ccProvider.line": "Your Boat account couldn't start {bot}'s cloud computer: {words}",
+  "place.view.ccProvider.line": "{bot}'s cloud computer couldn't start: {words}",
   "place.view.ccOnMyCloud.short": "On My Cloud",
   "place.view.ccOnMyCloud.line": "Cloud computers from your plan work for dogs on My Cloud for now.",
-  "place.view.ccNeedsKey.short": "Needs a Boat key",
-  "place.view.ccNeedsKey.line": "A cloud computer here needs your own Boat key, a paid service.",
+  "place.view.ccNeedsKey.short": "Coming soon",
+  "place.view.ccNeedsKey.line": "Cloud computers are coming soon. They keep your dogs working while your laptop is closed.",
   "place.view.vps.short": "Your server",
   "place.view.vps.line": "Uses your own server, connected over SSH.",
   "place.view.browser.short": "Web pages only",
@@ -186,7 +195,7 @@ export const PLACE_EN = {
   "place.view.off.short": "No screen",
   "place.view.off.line": "{bot} has no screen. It can still chat and do anything that doesn't need one.",
   "place.action.chooseModel": "Choose a model",
-  "place.action.openTools": "Change what {bot} can use",
+  "place.action.allowComputer": "Let {bot} use the computer",
   "place.action.signIn": "Sign in",
   "place.action.start": "Start it now",
   "place.action.wake": "Wake it now",
@@ -195,7 +204,6 @@ export const PLACE_EN = {
   "place.action.manageComputers": "Manage cloud computers",
   "place.action.tryAgain": "Try again",
   "place.action.openMyCloud": "Open My Cloud",
-  "place.action.addBoatKey": "Add Boat key",
   "place.action.turnOnBrowser": "Turn on the browser",
   "place.action.openTeamMap": "Open Pack map",
   "place.action.openVmSettings": "Local VM settings",
@@ -213,19 +221,18 @@ export type PlaceKey = keyof typeof PLACE_EN;
  * the row it ends. */
 export const PLACE_WORDS: Record<PlaceActionId, string> = {
   "choose-model": "Choose another model in {bot}'s settings.",
-  "open-tools": "Change what {bot} can use in its settings.",
+  "allow-computer": "Let {bot} use the computer from the Computer panel.",
   "sign-in": "Sign in to {engine} in Settings.",
   start: "Start it from the Computer panel.",
   wake: "Wake it from the Computer panel.",
   watch: "Watch it from the Computer panel.",
   "see-plan": "See your plan on the Plan page.",
-  "manage-computers": "Manage your cloud computers in Settings → Local VM.",
+  "manage-computers": "Manage your cloud computers in Settings → Computer.",
   "try-again": "Try again.",
   "open-my-cloud": "Open My Cloud from the menu at the top of the sidebar.",
-  "add-boat-key": "Add a Boat key in Settings → API keys.",
   "turn-on-browser": "Turn on the built-in browser in the Computer panel.",
   "open-team-map": "Open Pack map to manage it.",
-  "open-vm-settings": "Check it in Settings → Local VM.",
+  "open-vm-settings": "Check it in Settings → Computer.",
   "clear-pin": "Clear this conversation's place in the composer to continue.",
   "change-routine": "Change where this routine runs.",
   "open-computer-panel": "Check it in the Computer panel.",
@@ -246,7 +253,7 @@ const STATE: Record<PlaceState, { key: string; action: PlaceActionId | null }> =
   auto: { key: "auto", action: null },
   "auto-team": { key: "autoTeam", action: "open-team-map" },
   "cc-cannot": { key: "ccCannot", action: "choose-model" },
-  "cc-tools-off": { key: "ccToolsOff", action: "open-tools" },
+  "cc-tools-off": { key: "ccToolsOff", action: "allow-computer" },
   "cc-sign-in": { key: "ccSignIn", action: "sign-in" },
   "cc-new": { key: "ccNew", action: "start" },
   "cc-starting": { key: "ccStarting", action: "watch" },
@@ -261,7 +268,7 @@ const STATE: Record<PlaceState, { key: string; action: PlaceActionId | null }> =
   "cc-clearing": { key: "ccClearing", action: "try-again" },
   "cc-provider": { key: "ccProvider", action: "try-again" },
   "cc-on-my-cloud": { key: "ccOnMyCloud", action: "open-my-cloud" },
-  "cc-needs-key": { key: "ccNeedsKey", action: "add-boat-key" },
+  "cc-needs-key": { key: "ccNeedsKey", action: null },
   vps: { key: "vps", action: null },
   browser: { key: "browser", action: null },
   "browser-off": { key: "browserOff", action: "turn-on-browser" },
@@ -281,8 +288,8 @@ const PASSING: ReadonlySet<PlaceState> = new Set(["cc-unavailable", "cc-no-start
 /** Actions that change a setting, a sign-in or the plan: a User can't take
  * them, so the line ends "Ask an Admin to change it." instead. */
 const ADMIN_ONLY: ReadonlySet<PlaceActionId> = new Set([
-  "choose-model", "open-tools", "sign-in", "see-plan", "manage-computers", "open-my-cloud",
-  "add-boat-key", "turn-on-browser", "open-team-map", "open-vm-settings", "change-routine",
+  "choose-model", "allow-computer", "sign-in", "see-plan", "manage-computers", "open-my-cloud",
+  "turn-on-browser", "open-team-map", "open-vm-settings", "change-routine",
 ]);
 /** Starting or waking a computer early: a User's own message does it, so
  * there is nothing to ask anyone for. */
@@ -290,7 +297,7 @@ const ADMIN_SHORTCUT: ReadonlySet<PlaceActionId> = new Set(["start", "wake"]);
 
 const ACTION_KEY: Record<PlaceActionId, PlaceKey> = {
   "choose-model": "place.action.chooseModel",
-  "open-tools": "place.action.openTools",
+  "allow-computer": "place.action.allowComputer",
   "sign-in": "place.action.signIn",
   start: "place.action.start",
   wake: "place.action.wake",
@@ -299,7 +306,6 @@ const ACTION_KEY: Record<PlaceActionId, PlaceKey> = {
   "manage-computers": "place.action.manageComputers",
   "try-again": "place.action.tryAgain",
   "open-my-cloud": "place.action.openMyCloud",
-  "add-boat-key": "place.action.addBoatKey",
   "turn-on-browser": "place.action.turnOnBrowser",
   "open-team-map": "place.action.openTeamMap",
   "open-vm-settings": "place.action.openVmSettings",
@@ -366,11 +372,9 @@ function sourceAction(source: PlaceSource, state: PlaceState): PlaceActionId | n
   }
 }
 
-function lineKey(state: PlaceState, params: PlaceParams, server?: ServerKind): PlaceKey {
+function lineKey(state: PlaceState, params: PlaceParams, { server, reach }: PlaceContext): PlaceKey {
   const segment = STATE[state].key;
-  if (state === "auto") {
-    return server === "my-cloud" ? "place.view.auto.lineMyCloud" : server === "linux" ? "place.view.auto.lineLinux" : "place.view.auto.lineDesktop";
-  }
+  if (state === "auto") return AUTO_LINE[reach ?? (server === "my-cloud" || server === "linux" ? "cloud" : "both")];
   if (state === "cc-sign-in" && server === "my-cloud") return "place.view.ccSignIn.lineMyCloud";
   // A refusal read from a code alone has no numbers or names to give.
   if (state === "cc-no-hours" && (params.hours === undefined || !params.month)) return "place.view.ccNoHours.lineUnknown";
@@ -401,10 +405,9 @@ function templateParams(params: PlaceParams, locale: string): Record<string, str
 
 export interface PlaceContext {
   server?: ServerKind;
+  reach?: AutoReach;
   role: "admin" | "user";
-  mode?: "simple" | "advanced";
   source?: PlaceSource;
-  /** Simple mode words a pin's way back as "Use {place}", the grid's own label. */
   worksOnLabel?: string;
   translate?: PlaceTranslate;
   locale?: string;
@@ -415,22 +418,19 @@ export function placeViewOf(state: PlaceState, params: PlaceParams, context: Pla
   const translate = context.translate ?? english;
   const values = templateParams(params, context.locale ?? "en");
   const segment = STATE[state].key;
-  let line = translate(lineKey(state, params, context.server), values);
+  let line = translate(lineKey(state, params, context), values);
   let action: PlaceActionId | null = context.source && PASSING.has(state) ? sourceAction(context.source, state) : STATE[state].action;
   // A failed row never offers what only the panel can do on the spot.
   if (context.source && (action === "start" || action === "wake" || action === "watch")) action = null;
   if (context.source === "auto-pin") line = `${line} ${translate("place.backOnAuto")}`;
-  // Simple mode leaves Local VM setup to Advanced.
-  if (action === "open-vm-settings" && context.mode === "simple") action = null;
+  if (action === "open-vm-settings") action = null;
   if (action && context.role === "user" && ADMIN_SHORTCUT.has(action)) action = null;
   if (action && context.role === "user" && ADMIN_ONLY.has(action)) {
     action = null;
     line = `${line} ${translate("place.askAdmin")}`;
   }
-  // Simple mode has no composer chip, so a pin's way back is the grid's
-  // choice, by the grid's own name for it.
   const label = !action ? null
-    : action === "clear-pin" && context.mode === "simple" && context.worksOnLabel
+    : action === "clear-pin" && context.worksOnLabel
       ? translate("place.action.usePlace", { place: context.worksOnLabel })
       : translate(ACTION_KEY[action], values);
   return {
@@ -445,7 +445,13 @@ export function placeViewOf(state: PlaceState, params: PlaceParams, context: Pla
 /** The view of a place from its facts. */
 export function placeView(facts: PlaceFacts, options: { translate?: PlaceTranslate; locale?: string } = {}): PlaceView {
   const { state, params } = placeState(facts);
-  return placeViewOf(state, params, { server: facts.server, role: facts.role, mode: facts.mode, ...options });
+  return placeViewOf(state, params, { server: facts.server, reach: autoReach(facts), role: facts.role, ...options });
+}
+
+function autoReach(facts: PlaceFacts): AutoReach {
+  const cloud = facts.server === "my-cloud" || facts.boat !== "none";
+  const local = (facts.server === "mac" || facts.server === "pc") && facts.local?.ready !== false;
+  return cloud ? (local ? "both" : "cloud") : local ? "local" : "none";
 }
 
 /** A stored failed-turn row, worded for this reader. */

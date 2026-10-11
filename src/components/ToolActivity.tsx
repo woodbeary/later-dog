@@ -4,7 +4,7 @@ import type { Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { placeLabelKey, type Place } from "@/lib/place";
-import { nameIsCommand } from "@/lib/verify-steps";
+import { nameIsCommand } from "../../shared/tool-name";
 import { PlaceIcon } from "./PlaceIcon";
 import { WorkingDots } from "./WorkingIndicator";
 

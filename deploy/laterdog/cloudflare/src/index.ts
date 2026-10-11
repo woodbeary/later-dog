@@ -18,10 +18,13 @@ declare global {
     LATERDOG_TOKEN: string;
     LATERDOG_BACKUP_KEY: string;
     GH_TOKEN?: string;
+    CLAUDE_CODE_OAUTH_TOKEN?: string;
+    LATERDOG_COMPUTERS_PUBLIC_URL?: string;
   }
 }
 
 const STATE_HOST = "state.r2";
+const COMPUTERS_HOST = "computers.internal";
 const STATE_PREFIX = "latest/";
 const STATE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
 const SUPERVISOR_PORT = 9010;
@@ -42,6 +45,7 @@ export class SupervisorHost extends Container<Env> {
       LATERDOG_STATE_URL: `http://${STATE_HOST}`,
     };
     if (env.GH_TOKEN) envVars.GH_TOKEN = env.GH_TOKEN;
+    if (env.CLAUDE_CODE_OAUTH_TOKEN) envVars.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN;
     if (env.LATERDOG_WORKSPACE_URL) envVars.LATERDOG_WORKSPACE_URL = env.LATERDOG_WORKSPACE_URL;
     this.envVars = envVars;
   }
@@ -83,7 +87,27 @@ export class SupervisorHost extends Container<Env> {
 // modern class-field semantics, leaving the handler unregistered and the container's requests to state.r2 unanswered.
 SupervisorHost.outboundByHost = {
   [STATE_HOST]: (request: Request, env: Env) => stateHandler(request, env),
+  [COMPUTERS_HOST]: (request: Request, env: Env) => computersHandler(request, env),
 };
+
+async function computersHandler(request: Request, env: Env): Promise<Response> {
+  if (!env?.COMPUTERS) {
+    return Response.json({ error: { code: "not_configured", message: "The supervisor Worker has no COMPUTERS service binding to the laterdog-computers Worker" } }, { status: 503 });
+  }
+  try {
+    const incoming = new URL(request.url);
+    const publicUrl = env.LATERDOG_COMPUTERS_PUBLIC_URL?.trim();
+    const target = publicUrl ? `${new URL(publicUrl).origin}${incoming.pathname}${incoming.search}` : request.url;
+    const headers = new Headers(request.headers);
+    headers.delete("origin");
+    const body = request.method === "GET" || request.method === "HEAD" ? null : request.body;
+    return await env.COMPUTERS.fetch(new Request(target, { method: request.method, headers, body, redirect: "manual" }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`laterdog computers: ${request.method} ${new URL(request.url).pathname} failed: ${message}`);
+    return Response.json({ error: { code: "container_error", message: "The laterdog-computers Worker could not be reached through its service binding" } }, { status: 502 });
+  }
+}
 
 /** GET/PUT/HEAD http://state.r2/<name> from inside the container, backed by the R2 bucket binding. */
 async function stateHandler(request: Request, env: Env): Promise<Response> {

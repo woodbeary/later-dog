@@ -988,7 +988,6 @@ export function PhoneSetupFlowView({
         >
           {t("phone.intro.notNow")}
         </button>
-        <p className="mt-1.5 self-center text-[11.5px] text-ink-secondary">{t("phone.intro.resume")}</p>
       </div>
     );
   }
@@ -1034,9 +1033,6 @@ export function PhoneSetupFlowView({
             >
               {t("phone.intro.notNow")}
             </button>
-            <p className={compactHeader ? "mt-2 self-center text-[11.5px] text-ink-secondary" : "mt-2 text-[11.5px] text-ink-secondary"}>
-              {t("phone.intro.resume")}
-            </p>
           </>
         )}
       </div>

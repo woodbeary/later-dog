@@ -52,6 +52,12 @@ function foldable(message: Message): boolean {
 
 type TurnFold = Extract<TranscriptItem, { kind: "turn" }>;
 
+function turnStep(message: Message, turnId: string): boolean {
+  if (message.role !== "bot" || (message.turnId && message.turnId !== turnId)) return false;
+  if (message.kind === "text") return Boolean(message.attachments?.length);
+  return message.kind !== "digest";
+}
+
 /** Settled providers may emit several ordinary assistant messages around
  * tool calls. Keep the terminal answer in the transcript and replace the
  * earlier narration with one reversible row, matching T3 Code's turn fold. */
@@ -70,11 +76,14 @@ function assistantTurnFolds(messages: Message[]): {
       !terminal.turnTerminal
     ) return;
 
-    const narration = messages.slice(0, terminalIndex).filter((message) =>
+    const turnId = terminal.turnId;
+    const narration = messages.slice(0, terminalIndex).filter((message, index) =>
       message.role === "bot" &&
       message.kind === "text" &&
-      message.turnId === terminal.turnId &&
-      !message.turnTerminal
+      message.turnId === turnId &&
+      !message.turnTerminal &&
+      !message.attachments?.length &&
+      messages.slice(index + 1, terminalIndex).some((later) => turnStep(later, turnId))
     );
     if (!narration.length) return;
 

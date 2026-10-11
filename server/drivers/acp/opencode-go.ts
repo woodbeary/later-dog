@@ -784,12 +784,6 @@ function allowOwnedDirectories(env: Record<string, string | undefined>, botId: s
   env.OPENCODE_PERMISSION = JSON.stringify(permission);
 }
 
-/** Account failures in plain words, with the fix, naming the provider that
- * refused: with provider keys and `opencode auth login` a model may be
- * OpenRouter's or Anthropic's, not Zen's. Each stays under the 160
- * characters a chat error row shows. Zen and Go take the key saved in
- * Settings. On a Cloud the owner has no terminal for `opencode auth login`:
- * another provider's key is saved under Keys for other OpenCode providers. */
 export function describeOpenCodeAccountError(
   code: AccountErrorCode,
   model?: string,
@@ -801,12 +795,12 @@ export function describeOpenCodeAccountError(
   const label = providerLabel(provider);
   const name = zen ? "OpenCode Zen" : go ? "OpenCode Go" : provider ? (label.length > 24 ? provider.slice(0, 24) : label) : "OpenCode";
   switch (code) {
-    case "invalid_credentials":
+    case "invalid_credentials": {
+      const fix = where.cloudHome ? "Choose another model." : "Fix it with `opencode auth login`, or choose another model.";
       return zen || go || !provider
-        ? "OpenCode rejected its key, or has none for this model. Add or replace the OpenCode key in Settings → API keys."
-        : where.cloudHome
-          ? `OpenCode's ${name} key for this model is missing or was rejected. Save it under Keys for other OpenCode providers in Settings → API keys.`
-          : `OpenCode's ${name} key for this model is missing or was rejected. Fix it with \`opencode auth login\`, or choose another model.`;
+        ? `OpenCode rejected its key, or has none for this model. ${fix}`
+        : `OpenCode's ${name} key for this model is missing or was rejected. ${fix}`;
+    }
     case "insufficient_funds":
       return zen || !provider
         ? "Your OpenCode Zen balance has run out. Add credit at opencode.ai, or choose one of Zen's free models for this dog."
@@ -842,7 +836,7 @@ const support = (loadCatalog: OpenCodeCatalogLoader): AcpSupport => ({
   models: NO_MODELS,
   defaultCli: "opencode",
   nativeSource: "opencode.acp",
-  loginNote: "OpenCode has no usable models. Add an OpenCode key in Settings → API keys.",
+  loginNote: "OpenCode has no usable models. Sign in with `opencode auth login`, or choose another model.",
   install: {
     command: {
       darwin: "npm install -g opencode-ai",

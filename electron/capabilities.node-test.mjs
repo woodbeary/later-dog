@@ -21,3 +21,12 @@ test("a remote server's page is told this computer offers no screen, voice or lo
   assert.equal(remote.host.homeDir, "");
   assert.notEqual(local.host.homeDir, "");
 });
+
+test("this computer's page learns whether saved sign-ins unlocked; a remote page and an unknown answer get nothing", () => {
+  const base = { platform: "darwin", env: {}, packaged: true, localConnection: { status: "ready", enabled: true } };
+  assert.equal(desktopCapabilities({ ...base, credentialStore: "unavailable" }).credentialStore, "unavailable");
+  assert.equal(desktopCapabilities({ ...base, credentialStore: "ok" }).credentialStore, "ok");
+  assert.equal(Object.hasOwn(desktopCapabilities({ ...base }), "credentialStore"), false);
+  assert.equal(Object.hasOwn(desktopCapabilities({ ...base, credentialStore: "weird" }), "credentialStore"), false);
+  assert.equal(Object.hasOwn(desktopCapabilities({ ...base, credentialStore: "unavailable", remote: true }), "credentialStore"), false);
+});

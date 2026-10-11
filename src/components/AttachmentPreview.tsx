@@ -658,11 +658,13 @@ export function AttachmentPreviewDialog({
 export function AttachmentThumbnail({
   image,
   onPreview,
+  onRatio,
   className,
   eager = false,
 }: {
   image: PreviewImage;
   onPreview: () => void;
+  onRatio?: (ratio: number) => void;
   className?: string;
   eager?: boolean;
 }) {
@@ -740,7 +742,11 @@ export function AttachmentThumbnail({
             fetchPriority={eager ? "high" : undefined}
             onLoad={(event) => {
               const { naturalWidth, naturalHeight } = event.currentTarget;
-              if (naturalWidth > 0 && naturalHeight > 0) setRatio(Math.min(Math.max(naturalWidth / naturalHeight, 0.6), 2.4));
+              if (naturalWidth > 0 && naturalHeight > 0) {
+                const shape = Math.min(Math.max(naturalWidth / naturalHeight, 0.6), 2.4);
+                setRatio(shape);
+                onRatio?.(shape);
+              }
               setState("ready");
             }}
             onError={() => setState("failed")}

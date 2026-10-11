@@ -1,11 +1,3 @@
-// The model picker as Simple mode shows it: every provider the picker knows in
-// a narrow column on the left (one on an API key carries a small key on its
-// mark, one an organisation blocks is dimmed), that provider's models by name
-// on the right, and along the bottom how hard the bot thinks and whether new
-// chats follow. A sign-in with several accounts switches account above its
-// models. A long model list opens in place with "Show all" (and a search box
-// when it is very long), so no model needs the full picker; only setup goes
-// there.
 import type { ReactNode } from "react";
 import { Check, ChevronDown, ChevronRight, KeyRound, Loader2 } from "lucide-react";
 import type { InstanceInfo } from "@/state/store";
@@ -37,7 +29,6 @@ function providerName(provider: RailProvider): string {
 export function SimpleModelPane({
   providers,
   onProvider,
-  account,
   managedBy,
   needsSetup,
   signIn,
@@ -58,8 +49,6 @@ export function SimpleModelPane({
 }: {
   providers: RailProvider[];
   onProvider: (instance: InstanceInfo) => void;
-  /** A sign-in with several accounts: the switch between them. */
-  account?: ReactNode;
   /** The organisation whose policy keeps bots off the browsed provider. */
   managedBy?: string | null;
   /** The browsed provider cannot list models yet (setup or sign-in). */
@@ -144,7 +133,6 @@ export function SimpleModelPane({
 
         {/* Models for the chosen provider, or what it needs first. */}
         <div data-simple-models className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {account && <div data-simple-account className="shrink-0 px-2">{account}</div>}
           {search && <div data-simple-model-search className="shrink-0 pt-2">{search}</div>}
           <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
             {providers.length === 0 ? (

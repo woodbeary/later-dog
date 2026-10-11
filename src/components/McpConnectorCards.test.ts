@@ -50,6 +50,7 @@ vi.mock("@/lib/mcp-servers", () => ({
   useMcpServers: () => ({ servers: null, error: false, refresh: vi.fn() }),
 }));
 vi.mock("@/lib/app-links", () => ({ openExternalLink: fixture.open }));
+import { AddServerToBots } from "./AddServerToBots";
 import { McpConnectorCards } from "./McpConnectorCards";
 
 // state slots, in the order McpConnectorCards declares them
@@ -137,10 +138,11 @@ describe("connector rows", () => {
     expect(linear.html).toContain('data-brand-icon="linear" aria-hidden="true"');
     expect(linear.html).toContain(`<path d="${BRAND_MARKS.linear.path}"></path>`);
     expect(linear.html).not.toContain('role="img"');
-    expect(linear.html).toContain('href="https://linear.app/docs/mcp" target="_blank" rel="noopener noreferrer" aria-label="Linear MCP docs"');
-    expect(linear.html).not.toContain("SSE");
+    expect(linear.html).toContain('href="https://linear.app/docs/mcp" target="_blank" rel="noopener noreferrer" aria-label="Learn more about Linear"');
+    expect(linear.html).not.toContain("use this one");
     // limitations stay visible on the row: the older transport, the provider's own
-    expect(tile("webflow").html).toContain("Uses the older SSE connection, which Codex dogs skip.");
+    expect(tile("webflow").html).toContain("ChatGPT and Codex dogs can&#x27;t use this one.");
+    expect(tile("webflow").html).not.toMatch(/SSE|MCP/);
     expect(tile("intercom").html).toContain("For Intercom accounts hosted in the US.");
     expect(linear.html).not.toContain("hosted in the US");
   });
@@ -197,7 +199,7 @@ describe("connector rows", () => {
     expect(props.onConnected).toHaveBeenCalledWith(["linear", "neon"]);
   });
 
-  it("names the dogs whose own server list leaves a connected connector out", () => {
+  it("offers to add a connected connector to each dog whose own server list leaves it out", () => {
     props.connectors = [byId("linear")];
     fixture.values[SERVERS] = [row({ name: "tracker", url: "https://mcp.linear.app/mcp", enabled: true, auth: "signed-in" })];
     fixture.bots = [
@@ -208,12 +210,9 @@ describe("connector rows", () => {
     ];
     const linear = render().tile("linear");
     expect(linear.html).toContain("Dogs that pick their own servers need it added: 1");
-    expect(linear.button("Scout")).toBeUndefined();
-    click(linear.button("Rex"));
-    expect(fixture.dispatch.mock.calls).toEqual([
-      [{ type: "togglePlugins", open: false }],
-      [{ type: "toggleSettings", open: true, section: "access", botId: "rex" }],
-    ]);
+    expect(linear.html).toContain("Add to Rex");
+    for (const name of ["Scout", "Pip", "Ghost"]) expect(linear.html).not.toContain(`Add to ${name}`);
+    expect(linear.inside.find((node) => node.type === AddServerToBots)?.props.server).toBe("tracker");
   });
 });
 

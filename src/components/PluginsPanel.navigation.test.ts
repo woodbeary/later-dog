@@ -264,25 +264,26 @@ describe("Apps pop-up", () => {
     expect(active).toBe(opener);
   });
 
-  it("is titled Apps and shows app tiles and the MCP servers section on one view", () => {
+  it("is titled Apps and shows the apps in plain words, with your own servers kept under Custom", () => {
     const { html } = render();
     expect(html).toContain(">Apps</h2>");
-    expect(html).toContain("Connect an app or your own MCP server once. Then choose which dogs may use it.");
+    expect(html).toContain("Connect an app once. Then choose which dogs may use it.");
     expect(html).toContain("glass-surface");
     expect(html).toContain("@container");
     expect(html).toContain("grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3");
-    for (const slug of ["gmail", "slack", "notion"]) expect(html).toContain(`data-app-tile="${slug}"`);
-    // the connected app leads the grid
+    for (const slug of ["gmail", "slack"]) expect(html).toContain(`data-app-tile="${slug}"`);
+    expect(html).toContain('data-connector-tile="notion"');
+    expect(html).not.toContain('data-app-tile="notion"');
     expect(html.indexOf('data-app-tile="slack"')).toBeLessThan(html.indexOf('data-app-tile="gmail"'));
-    expect(html).toContain("MCP inventory");
-    expect(html).toContain('data-embedded="true"');
-    // no separate MCP tab any more
+    expect(html).not.toContain("MCP inventory");
+    expect(html).not.toMatch(/\bMCP\b/);
     expect(html).not.toContain('role="tab"');
   });
 
   it("filters with chips, keeping the MCP chip on the store's surface", () => {
     const initial = render();
     expect(chip(initial.nodes, "all").props["aria-pressed"]).toBe(true);
+    expect(chip(initial.nodes, "mcp").props.children).toBe("Custom");
     chip(initial.nodes, "mcp").props.onClick!();
     expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "togglePlugins", open: true, surface: "mcp" });
 
@@ -305,7 +306,7 @@ describe("Apps pop-up", () => {
     expect(html).toContain("Connected 1");
   });
 
-  it("caps the unsearched catalog so the MCP servers stay a short scroll away", () => {
+  it("caps the unsearched catalog at a first screenful", () => {
     fixture.overrides.set(CARDS, Array.from({ length: APPS_PREVIEW_COUNT + 5 }, (_, index) => card(`app${index}`)));
     const { html } = render();
     expect(html.match(/data-app-tile=/g)).toHaveLength(APPS_PREVIEW_COUNT);
@@ -330,6 +331,21 @@ describe("Apps pop-up", () => {
     const { html } = render();
     expect(html).toContain('aria-label="Used by scout"');
     expect(botsUsingService(fixture.bots as Bot[], fixture.instances as InstanceInfo[], "gmail").map((entry) => entry.id)).toEqual(["scout", "narrow"]);
+  });
+
+  it("gives a dog with limited tools every tool of a connected app in one click", () => {
+    fixture.instances = [claude];
+    fixture.bots = [bot("scout"), bot("narrow", { connectorTools: { gmail: { tools: "*" } } })];
+    const { html, nodes: tree } = render();
+    expect(html).toContain("Dogs with limited tools: 1");
+    expect(html).toContain("Give narrow every tool");
+    expect(html).not.toContain("Give scout every tool");
+    tree.find((node) => node.props["data-allow-all-tools"] === "narrow")!.props.onClick!();
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({
+      type: "updateBot",
+      botId: "narrow",
+      patch: { connectorTools: { gmail: { tools: "*" }, slack: { tools: "*" } } },
+    });
   });
 
   it("keeps each bot's avatar inside its round ring, whatever its shape", () => {

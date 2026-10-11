@@ -29,6 +29,8 @@ import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { GroupGoalRunCardData } from "../../shared/group-goal-run";
 import type { PlaceRow } from "../../shared/place-view";
+import type { FailedTurnQuota } from "../../shared/failed-turn";
+import type { SendDelivery } from "../../shared/send-delivery";
 import {
   reviewedSkillSha256,
   skillRequestBehavior,
@@ -37,13 +39,12 @@ import {
 import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { botShowsUnread } from "@/lib/bot-unread";
+import { descendsFrom, newestTip } from "@/lib/leaf-follow";
 import type { ComputerStart } from "@/lib/computer-start";
 import { answerResponse, dismissResponse } from "@/lib/card-answer";
 import { currentCall } from "@/lib/call";
 import { showNotification, type NotificationTarget } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
-import { roleProfilePatch, type BotRole } from "@/lib/bot-roles";
-import { t } from "@/lib/i18n";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
@@ -186,7 +187,7 @@ export interface Message {
    * narration of the same chip ("reading a file"), used by call mode. */
   /** `setup` marks an error fixed by installing something, not by retrying.
    * `summary` is the call's input on one redacted line (the shell command). */
-  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean };
+  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean };
   /** user messages sent into a running turn — the model saw it mid-turn */
   steered?: boolean;
   /** a user message that did not come from typing here: through the
@@ -643,14 +644,13 @@ export interface ConfigStatus {
     features: string[];
     license?: { expiresAt: string; expiresInDays: number; graceEndsAt?: string };
   };
-  /** a fleet agent exists on this server (Settings → Workspaces) */
   fleet?: { available: boolean };
   budgets?: { monthlyUsd?: number; warnAtPercent?: number };
   billing?: { currency?: string; prices?: Record<string, { inputPerMillion: number; outputPerMillion: number; cachedInputPerMillion?: number }> };
   composio: { configured: boolean; mode?: "managed" | "self-hosted" | "unavailable" };
   /** `included`: cloud computers come with Cloud Pro, no key is saved. */
   /** `provider: "laterdog"`: later.dog's own cloud computers on the person's Cloudflare account, so no Boat key is asked for. */
-  box: { configured: boolean; included?: boolean; provider?: "laterdog" };
+  box: { configured: boolean; included?: boolean; provider?: "laterdog"; trial?: boolean };
   vps: { configured: boolean; sshAlias: string };
   rooms: { turnTimeoutMinutes: number };
   /** Per-call ceiling (minutes) for a bot's MCP tools. Absent from servers
@@ -660,13 +660,11 @@ export interface ConfigStatus {
   newBots?: { effort?: EffortLevel };
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };
   automaticRecovery?: { enabled: boolean; backup?: ModelSelection };
-  /** The token battery (server/laterdog/account-battery.ts): on or off, per
-   * engine the accounts in the order turns use them (favourite first), and
-   * the accounts resting until their usage limit resets. */
   accountBattery?: {
     enabled: boolean;
     order: Record<string, string[]>;
     resting?: Record<string, { until: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
+    waiting?: Record<string, string>;
   };
   localVm: { mode: "shared" | "per-bot" | "pool"; maxInstances: number; idleTimeoutMinutes?: number };
   /** `providerKeys`: names of the keys saved for OpenCode's other
@@ -819,7 +817,6 @@ export interface EngineInstall {
   managed?: { label: string; downloadBytes: number };
   /** the server can install or update this engine itself, no terminal */
   server?: { package: string };
-  /** configured with a key in Settings → API keys, not in a terminal */
   settings?: "connections";
 }
 
@@ -871,6 +868,7 @@ export interface InstanceInfo {
     modelVariants?: boolean;
     /** the engine keeps a live session and takes a message mid-turn */
     queueing?: boolean;
+    steerImages?: boolean;
     localComputerMcp?: boolean;
     /** This engine can answer a bounded review prompt without changing the
      * bot's active conversation. */
@@ -895,26 +893,7 @@ export interface InstanceInfo {
   freeUpSpace?: boolean;
 }
 
-export type AppSettingsSection =
-  | "general"
-  | "desktopWorkspaces"
-  | "organization"
-  | "cloudAccount"
-  | "appearance"
-  | "experimental"
-  | "connections"
-  | "decisionModel"
-  | "engines"
-  | "companion"
-  | "remote"
-  | "computer"
-  | "permissions"
-  | "usage"
-  | "people"
-  | "activity"
-  | "backups"
-  | "workspaces"
-  | "skills";
+export type AppSettingsSection = "general" | "computer" | "usage" | "updates";
 
 export type BotSettingsSection =
   | "overview"
@@ -988,16 +967,7 @@ export interface AppState {
   activityOpen: boolean;
   appSettingsOpen: boolean;
   appSettingsSection: AppSettingsSection;
-  /** Non-zero while Settings → later.dog Cloud is open because of the Cloud page's
-   * laterdog://cloud link; each link counts up. Any other
-   * toggleAppSettings (another section, the same one by hand, closing) sets 0. */
-  appSettingsCloudLink: number;
-  /** Counts up each time Settings opens on the phone pairing ("Connect your
-   * phone"): Remote access scrolls to the pairing that fits this window and
-   * focuses the button that shows the code. Any other toggleAppSettings sets 0. */
-  appSettingsPhonePairing: number;
   shortcutsOpen: boolean;
-  /** the first-run welcome tour, also replayable from Settings → General */
   welcomeOpen: boolean;
   /** the guided tour on the live interface that follows the welcome flow */
   tourOpen: boolean;
@@ -1197,6 +1167,7 @@ export type Action =
       sendId?: string;
       replyToId?: string;
       threadId?: string;
+      deliver?: SendDelivery;
       onError?: () => void;
     }
   | { type: "pendingQueued"; threadId: string; queueId: string; text: string; reason?: SteerQueueReason }
@@ -1242,7 +1213,7 @@ export type Action =
   /** Name the thread again from its conversation; the new title arrives with the bot event. */
   | { type: "regenerateTaskTitle"; botId: string; threadId: string; onSettled?: (ok: boolean) => void }
   | { type: "deleteTask"; botId: string; threadId: string }
-  | { type: "newBot"; role?: BotRole; visibility?: BotVisibility; section?: string; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
+  | { type: "newBot"; name?: string; title?: string; modelSelection?: ModelSelection; visibility?: BotVisibility; section?: string; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
   | { type: "botCreationPending"; on: boolean }
   | { type: "updateTask"; botId: string; threadId: string; patch: TaskUpdatePatch }
   | { type: "refreshTaskPermissions"; botId: string; threadId: string; acknowledgeLocalAuto?: boolean }
@@ -1260,8 +1231,6 @@ export type Action =
   | { type: "botPatched"; bot: BotAnnouncement }
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
-  /** `restoreLeafId` puts back the branch an optimistic edit replaced; a
-   * plain send falls back to the removed row's parent. */
   | { type: "optimisticMessageRemoved"; threadId: string; sendId: string; restoreLeafId?: string | null }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
@@ -1281,7 +1250,7 @@ export type Action =
   | { type: "toggleActivity"; open?: boolean }
   | { type: "focusMessage"; threadId: string; messageId: string; matchText?: string }
   | { type: "focusMessageConsumed"; nonce: number }
-  | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection; cloudLink?: boolean; phonePairing?: boolean }
+  | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection }
   | { type: "toggleShortcuts"; open?: boolean }
   | { type: "toggleWelcome"; open?: boolean }
   | { type: "toggleTour"; open?: boolean }
@@ -1488,9 +1457,7 @@ function optimisticUserMessage(
   };
 }
 
-/** Settings → later.dog Cloud as opened by laterdog://cloud (the Cloud page's
- * "Open in the app"); that view then signs in or connects by itself. */
-export const CLOUD_LINK_SETTINGS = { type: "toggleAppSettings", open: true, section: "cloudAccount", cloudLink: true } as const satisfies Action;
+export const CLOUD_LINK_SETTINGS = { type: "toggleAppSettings", open: true, section: "general" } as const satisfies Action;
 
 export function reducer(state: AppState, action: Action): AppState {
   if (action.type === "messageAdded" || action.type === "messagePatched" || action.type === "threadActive" || action.type === "optimisticMessageRemoved") {
@@ -1901,13 +1868,10 @@ export function reducer(state: AppState, action: Action): AppState {
             : current.activeLeafId,
         }));
       }
-      // every server-side append chains onto (and becomes) the active leaf
       const next = updateBot(stamped, bot.id, (b) => {
-        // A message chains onto the leaf → it becomes the leaf (the normal
-        // append). A message parented elsewhere is a chain-insert of a late
-        // turn artifact (settle-time screenshot) — the leaf must stay put,
-        // or the follow-up send it raced would fall off the active branch.
-        const adoptsLeaf = (action.message.parentId ?? null) === (b.activeLeafId ?? null);
+        const parent = action.message.parentId ?? null;
+        const leaf = b.activeLeafId ?? null;
+        const adoptsLeaf = parent === leaf || (leaf !== null && descendsFrom(b.messages, parent, leaf));
         return { ...b, messages: [...b.messages, action.message], activeLeafId: adoptsLeaf ? action.message.id : b.activeLeafId };
       });
       const motion =
@@ -1933,13 +1897,15 @@ export function reducer(state: AppState, action: Action): AppState {
       if (bot) {
         const optimistic = bot.messages.find((message) => message.id === id);
         if (!optimistic) return state;
-        const cleared = updateBot(state, bot.id, (current) => ({
-          ...current,
-          messages: current.messages.filter((message) => message.id !== id),
-          activeLeafId: current.activeLeafId === id
-            ? (action.restoreLeafId !== undefined ? action.restoreLeafId : (optimistic.parentId ?? null))
-            : current.activeLeafId,
-        }));
+        const cleared = updateBot(state, bot.id, (current) => {
+          const messages = current.messages.filter((message) => message.id !== id);
+          const restored = action.restoreLeafId !== undefined ? action.restoreLeafId : (optimistic.parentId ?? null);
+          return {
+            ...current,
+            messages,
+            activeLeafId: current.activeLeafId === id ? newestTip(messages, restored) : current.activeLeafId,
+          };
+        });
         const task = bot.tasks?.find((candidate) => candidate.threadId === action.threadId);
         const kept = cleared.bots.find((candidate) => candidate.id === bot.id)?.messages ?? [];
         return rewindThreadUpdatedAt(cleared, action.threadId, kept, task?.createdAt ?? 0);
@@ -2154,8 +2120,6 @@ export function reducer(state: AppState, action: Action): AppState {
         appSettingsOpen: open,
         activityOpen: open ? false : state.activityOpen,
         appSettingsSection: action.section ?? state.appSettingsSection,
-        appSettingsCloudLink: action.cloudLink && open ? state.appSettingsCloudLink + 1 : 0,
-        appSettingsPhonePairing: action.phonePairing && open ? state.appSettingsPhonePairing + 1 : 0,
         settingsOpen: open ? false : state.settingsOpen,
         computerOpen: open ? false : state.computerOpen,
         inspectorOpen: open ? false : state.inspectorOpen,
@@ -2176,8 +2140,6 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "toggleWelcome": {
       const open = action.open ?? !state.welcomeOpen;
-      // The tour is a full-screen surface; nothing else should stay open
-      // underneath it, and Settings closes so the replay lands on the tour.
       return {
         ...state,
         welcomeOpen: open,
@@ -2514,8 +2476,6 @@ export const initialState: AppState = {
   activityOpen: false,
   appSettingsOpen: false,
   appSettingsSection: "general",
-  appSettingsCloudLink: 0,
-  appSettingsPhonePairing: 0,
   shortcutsOpen: false,
   welcomeOpen: false,
   tourOpen: false,
@@ -2571,26 +2531,50 @@ export class ApiError extends Error {
   }
 }
 
-/** Keep the created bot reachable even when applying its optional preset fails.
- * A restricted `visibility` rides the create itself, so the bot is never
- * announced to people who should not see it. */
-export async function createBotWithRole(role?: BotRole, request: typeof api = api, visibility?: BotVisibility, section?: string): Promise<{ bot: Bot; profileError?: string }> {
-  const restricted = visibility && visibility !== "everyone" ? { visibility } : {};
-  const fields = { ...(role ? { name: role.name, title: role.title, description: role.description } : {}), ...restricted,
-    ...(section !== undefined ? { section } : {}) };
+export interface NewDogFields {
+  name?: string;
+  title?: string;
+  modelSelection?: ModelSelection;
+  visibility?: BotVisibility;
+  section?: string;
+}
+
+export async function createDog(fields: NewDogFields = {}, request: typeof api = api): Promise<{ bot: Bot }> {
+  const name = fields.name?.trim();
+  const title = fields.title?.trim();
+  const body = {
+    ...(name ? { name } : {}),
+    ...(title ? { title } : {}),
+    ...(fields.modelSelection ? { modelSelection: fields.modelSelection, requireAvailableModel: true } : {}),
+    ...(fields.visibility && fields.visibility !== "everyone" ? { visibility: fields.visibility } : {}),
+    ...(fields.section !== undefined ? { section: fields.section } : {}),
+  };
   const { bot } = await request("/api/bots", {
     method: "POST",
-    ...(Object.keys(fields).length ? { body: JSON.stringify(fields) } : {}),
+    ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
   });
-  if (!role) return { bot };
-  try {
-    const { bot: patched } = await request(`/api/bots/${bot.id}`, {
-      method: "PATCH", body: JSON.stringify(roleProfilePatch(role)),
-    });
-    return { bot: { ...bot, ...patched, messages: bot.messages } };
-  } catch (error) {
-    return { bot, profileError: error instanceof Error ? error.message : String(error) };
-  }
+  return { bot };
+}
+
+export function duplicateProfileFor(source: Bot) {
+  return {
+    name: `${source.name} copy`,
+    title: source.title,
+    description: source.description,
+    soul: source.soul,
+    notifications: source.notifications,
+    modelSelection: source.modelSelection,
+    computer: source.computer,
+    cloudBackend: source.cloudBackend,
+    autoStartVps: source.autoStartVps,
+    color: source.color,
+    mascotBody: source.mascotBody,
+    avatarUrl: source.avatarUrl,
+    avatarCrop: source.avatarCrop,
+    avatarZoom: source.avatarZoom,
+    avatarFocusX: source.avatarFocusX,
+    avatarFocusY: source.avatarFocusY,
+  };
 }
 
 /** Messages per thread in a snapshot, and per scrollback page.
@@ -3182,7 +3166,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           void waitForExecutionSettings(botBeforeSend ? [botBeforeSend] : [], threadId)
             .then(() => api(`/api/bots/${action.botId}/messages`, {
                 method: "POST",
-                body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
+                body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId, deliver: action.deliver }),
               }))
             .then((body) => {
               if (body?.message && typeof body.threadId === "string") {
@@ -3341,14 +3325,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (creatingBot) break;
           creatingBot = true;
           rawDispatch({ type: "botCreationPending", on: true });
-          void createBotWithRole(action.role, api, action.visibility, action.section)
-            .then(({ bot, profileError }) => {
+          void createDog({ name: action.name, title: action.title, modelSelection: action.modelSelection, visibility: action.visibility, section: action.section })
+            .then(({ bot }) => {
               rawDispatch({ type: "botAdded", bot, preserveSelection: action.preserveSelection });
               action.onCreated?.(bot);
-              if (profileError) {
-                showError(t("newBot.profileFailed", { error: profileError }));
-                rawDispatch({ type: "toggleSettings", open: true, section: "soul" });
-              }
+              void api(`/api/bots/${bot.id}/hello`, { method: "POST" }).catch(() => {});
             })
             .catch((error) => {
               if (action.onError) action.onError(error instanceof Error ? error.message : String(error));
@@ -3363,22 +3344,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "duplicateBot": {
           const source = stateRef.current.bots.find((b) => b.id === action.botId);
           if (!source) break;
-          const duplicateProfile = {
-            name: `${source.name} copy`,
-            title: source.title,
-            description: source.description,
-            soul: source.soul,
-            notifications: source.notifications,
-            modelSelection: source.modelSelection,
-            computer: source.computer,
-            cloudBackend: source.cloudBackend,
-            autoStartVps: source.autoStartVps,
-            avatarUrl: source.avatarUrl,
-            avatarCrop: source.avatarCrop,
-            avatarZoom: source.avatarZoom,
-            avatarFocusX: source.avatarFocusX,
-            avatarFocusY: source.avatarFocusY,
-          };
+          const duplicateProfile = duplicateProfileFor(source);
           // A copy of a restricted bot is restricted from its first moment.
           api("/api/bots", {
             method: "POST",

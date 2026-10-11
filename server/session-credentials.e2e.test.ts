@@ -117,14 +117,15 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
   }
 }
 
-it("keeps a thread's Claude process and ACP session across turns, with agents and the browser mounted", () => fixture(async (f) => {
+it("keeps a thread's Claude process and ACP session across turns, with agents mounted and no browser even when one is installed", () => fixture(async (f) => {
   const { bot } = await f.cli("new-bot", "--name", "Warm Claude");
   // A first browser turn pins the conversation to the browser, which changes
   // its prompt once; from then on nothing about the launch changes.
   await f.turn(bot, bot.activeTaskId, "First question.");
   await f.turn(bot, bot.activeTaskId, "Second question.");
   const warm = f.launches();
-  expect(warm.at(-1).servers).toEqual(expect.arrayContaining(withBrowser ? ["agents", "browser"] : ["agents"]));
+  expect(warm.at(-1).servers).toEqual(expect.arrayContaining(["agents"]));
+  expect(warm.every((launch: any) => !launch.servers.includes("browser"))).toBe(true);
   await f.turn(bot, bot.activeTaskId, "Third question.");
   await f.turn(bot, bot.activeTaskId, "Fourth question.");
   expect(f.launches()).toHaveLength(warm.length);

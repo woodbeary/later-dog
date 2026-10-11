@@ -8,8 +8,9 @@ import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
+import { SettingRow } from "./SettingsPrimitives";
 
-export type ConfigSection = "composio" | "box" | "opencodeGo" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
+export type ConfigSection = "composio" | "opencodeGo" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
 /** Sections whose key can be tried against the provider from the server. */
 export type TestableProvider = "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
 
@@ -20,18 +21,11 @@ const SECTIONS: Record<
     body: (value: string, firstKey: boolean) => unknown;
     /** A key is saved. */
     flag: (config: ConfigStatus) => boolean;
-    /** Works with no saved key: Cloud Pro includes it. */
-    included?: (config: ConfigStatus) => boolean;
   }
 > = {
   composio: {
     body: (v) => ({ composio: { apiKey: v } }),
     flag: (c) => c.composio.configured,
-  },
-  box: {
-    body: (v) => ({ box: { token: v } }),
-    flag: (c) => c.box.configured && c.box.included !== true,
-    included: (c) => c.box.included === true,
   },
   opencodeGo: { body: (v) => ({ opencodeGo: { apiKey: v } }), flag: (c) => c.opencodeGo?.configured ?? false },
   // A key first saved here runs only "Claude (API key)"; signed-in Claude
@@ -50,9 +44,8 @@ const SECTIONS: Record<
 
 // Provider keys have no desktop-shell slot yet and go through the server's
 // own 0600 config, the same place they live on a hosted server.
-const ELECTRON_CREDENTIAL: Partial<Record<ConfigSection, "composioApiKey" | "boxToken" | "opencodeGoApiKey">> = {
+const ELECTRON_CREDENTIAL: Partial<Record<ConfigSection, "composioApiKey" | "opencodeGoApiKey">> = {
   composio: "composioApiKey",
-  box: "boxToken",
   opencodeGo: "opencodeGoApiKey",
 };
 
@@ -66,10 +59,6 @@ const CREDENTIALS: Record<
     descriptionKey: LocaleKey;
     href: string;
     linkLabelKey: LocaleKey;
-    optional: boolean;
-    /** Shown under the field, not tucked into the help popover: it changes
-     * what the key does to people's existing logins or bills. */
-    warningKey?: LocaleKey;
     /** A quieter line under the field. */
     noteKey?: LocaleKey;
   }
@@ -80,16 +69,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.composio.desc",
     href: "https://dashboard.composio.dev",
     linkLabelKey: "keys.composio.link",
-    optional: true,
-  },
-  box: {
-    labelKey: "keys.boat.label",
-    placeholderKey: "keys.boat.placeholder",
-    descriptionKey: "keys.boat.desc",
-    href: "https://docs.boat.dev/api-keys",
-    linkLabelKey: "keys.boat.link",
-    optional: true,
-    warningKey: "keys.boat.warning",
   },
   opencodeGo: {
     labelKey: "keys.opencode.label",
@@ -97,7 +76,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.opencode.desc",
     href: "https://opencode.ai/docs/providers/",
     linkLabelKey: "keys.opencode.link",
-    optional: true,
   },
   anthropic: {
     labelKey: "keys.anthropic.label",
@@ -105,7 +83,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.anthropic.desc",
     href: "https://console.anthropic.com/settings/keys",
     linkLabelKey: "keys.anthropic.link",
-    optional: true,
   },
   openai: {
     labelKey: "keys.openai.label",
@@ -113,7 +90,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.openai.desc",
     href: "https://platform.openai.com/api-keys",
     linkLabelKey: "keys.openai.link",
-    optional: true,
     noteKey: "keys.openai.note",
   },
   openrouter: {
@@ -122,7 +98,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.openrouter.desc",
     href: "https://openrouter.ai/keys",
     linkLabelKey: "keys.openrouter.link",
-    optional: true,
   },
   openaiCompat: {
     labelKey: "keys.openaiCompat.label",
@@ -130,7 +105,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.openaiCompat.desc",
     href: "https://platform.openai.com/docs/api-reference",
     linkLabelKey: "keys.openaiCompat.link",
-    optional: true,
   },
   mistral: {
     labelKey: "keys.mistral.label",
@@ -138,7 +112,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.mistral.desc",
     href: "https://console.mistral.ai/api-keys",
     linkLabelKey: "keys.mistral.link",
-    optional: true,
   },
   cerebras: {
     labelKey: "keys.cerebras.label",
@@ -146,7 +119,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.cerebras.desc",
     href: "https://cloud.cerebras.ai/",
     linkLabelKey: "keys.cerebras.link",
-    optional: true,
   },
   xai: {
     labelKey: "keys.xai.label",
@@ -154,7 +126,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.xai.desc",
     href: "https://console.x.ai",
     linkLabelKey: "keys.xai.link",
-    optional: true,
   },
 };
 
@@ -167,7 +138,6 @@ function credentialCopy(section: ConfigSection) {
     placeholder: entry.placeholderKey ? t(entry.placeholderKey) : entry.placeholder ?? "",
     description: t(entry.descriptionKey),
     linkLabel: t(entry.linkLabelKey),
-    warning: entry.warningKey ? t(entry.warningKey) : undefined,
     note: entry.noteKey ? t(entry.noteKey) : undefined,
   };
 }
@@ -244,26 +214,50 @@ export function looksLikeKey(value: string): boolean {
   return value.length > 0 && !/\s/.test(value);
 }
 
-/** The cloud computers row: later.dog's own computers need no key here (computers.json and its key file set them up),
- * so the Boat key field shows only while Boat is the computers in use. */
 export function CloudComputersRow() {
-  const { state } = useStore();
-  if (state.config?.box.provider !== "laterdog") return <ApiKeyRow section="box" />;
+  const box = useStore().state.config?.box;
+  if (box?.provider !== "laterdog" || box.trial) return null;
+  return <SettingRow title={t("settings.cloud.own")} subtitle={t("settings.cloud.ownHint")}>{null}</SettingRow>;
+}
+
+export function ComposioKeyNotice({ remote, onSaved }: { remote: boolean; onSaved: () => void }) {
+  const [adding, setAdding] = useState(false);
   return (
-    <div data-api-key-row="box" className="flex items-center gap-2 text-[13px] text-ink-secondary">
-      <span className="size-1.5 rounded-full bg-success" />
-      <span>{t("keys.ownComputers.label")}</span>
-      <span className="text-[11px]">{t("keys.ownComputers.status")}</span>
+    <div data-connectors-key="" className="glass-card mb-3 rounded-xl px-4 py-3 text-[13px] text-ink-secondary">
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0">{t(remote ? "connectors.setupNeededRemote" : "connectors.keyNeeded")}</p>
+        {!remote && (
+          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setAdding((open) => !open)} className="shrink-0 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-raised-hover">
+            {adding ? t("common.cancel") : t("connectors.addKey")}
+          </button>
+        )}
+      </div>
+      {adding && (
+        <div className="mt-3">
+          <ApiKeyRow section="composio" bare onSaved={(saved) => { if (!saved) return; setAdding(false); onSaved(); }} />
+          <a
+            href={CREDENTIALS.composio.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline"
+          >
+            {t("connectors.getKey")}
+            <ExternalLink size={12} aria-hidden="true" />
+          </a>
+        </div>
+      )}
     </div>
   );
 }
 
 export function ApiKeyRow({
   section,
+  bare = false,
   onSaved,
   testProvider,
 }: {
   section: ConfigSection;
+  bare?: boolean;
   /** Called after a successful save with the section's new configured flag. */
   onSaved?: (configured: boolean) => void;
   /** Check the key against the provider as soon as it saves, and offer a
@@ -282,7 +276,6 @@ export function ApiKeyRow({
   const saveAfterPaste = useRef(false);
 
   const configured = state.config ? SECTIONS[section].flag(state.config) : false;
-  const included = state.config ? SECTIONS[section].included?.(state.config) === true : false;
   const clearing = !value.trim() && configured;
   const credential = credentialCopy(section);
 
@@ -349,18 +342,14 @@ export function ApiKeyRow({
 
   return (
     <div data-api-key-row={section}>
-      <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
-        <span className={cn("size-1.5 rounded-full", configured || included ? "bg-success" : "bg-raised-hover")} />
-        <span>{credential.label}</span>
-        {credential.optional && (
-          <span className="rounded bg-control px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-secondary">
-            {t("keys.optional")}
-          </span>
-        )}
-        {configured && <span className="text-[11px] text-ink-secondary">{t("keys.configured")}</span>}
-        {included && <span className="text-[11px] text-ink-secondary">{t("keys.includedWithCloudPro")}</span>}
-        <CredentialHelp section={section} />
-      </div>
+      {!bare && (
+        <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
+          <span className={cn("size-1.5 rounded-full", configured ? "bg-success" : "bg-raised-hover")} />
+          <span>{credential.label}</span>
+          {configured && <span className="text-[11px] text-ink-secondary">{t("keys.configured")}</span>}
+          <CredentialHelp section={section} />
+        </div>
+      )}
       <div className="flex gap-2">
         <div className="relative w-full">
           <input
@@ -374,6 +363,7 @@ export function ApiKeyRow({
             placeholder={configured ? t("keys.replace") : credential.placeholder}
             aria-label={credential.label}
             autoComplete="off"
+            autoFocus={bare}
             className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 pr-8 text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
           />
           {(saving || testing) && (
@@ -402,12 +392,6 @@ export function ApiKeyRow({
           </button>
         )}
       </div>
-      {credential.warning && (
-        <div className="mt-1.5 flex gap-1.5 text-[11.5px] leading-[1.4] text-warning">
-          <TriangleAlert size={13} className="mt-px shrink-0" aria-hidden="true" />
-          <span>{credential.warning}</span>
-        </div>
-      )}
       {credential.note && <p className="mt-1.5 text-[11.5px] leading-[1.4] text-ink-secondary">{credential.note}</p>}
       {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}
       {verdict && <div role="status" className="mt-1 text-[12px] text-ink-secondary">{verdict}</div>}
@@ -557,7 +541,6 @@ export function AnthropicEveryClaudeBot() {
   );
 }
 
-/** Non-secret Docker-over-SSH target. Keys and passwords stay with SSH. */
 export function VpsConnection() {
   const { state, dispatch } = useStore();
   const [alias, setAlias] = useState("");
@@ -590,9 +573,6 @@ export function VpsConnection() {
       <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
         <span className={cn("size-1.5 rounded-full", configured ? "bg-success" : "bg-raised-hover")} />
         <span>{t("keys.vps.label")}</span>
-        <span className="rounded bg-control px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-secondary">
-          {t("keys.optional")}
-        </span>
         {configured && <span className="text-[11px] text-success">{t("keys.connected")}</span>}
       </div>
       <div className="mb-1.5 text-[12px] leading-relaxed text-ink-secondary">

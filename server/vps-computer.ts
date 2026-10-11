@@ -439,7 +439,7 @@ function emptyStatus(botId: string, alias: string | null): VpsComputerStatus {
     desktopReady: false,
     desktop_error: null,
     ready: false,
-    problem: alias ? "Docker over SSH is not reachable" : "Configure a VPS SSH alias in Settings → API keys",
+    problem: alias ? "Docker over SSH is not reachable" : "Configure a VPS SSH alias in the Computer panel",
     image_ref: VPS_IMAGE,
     base_image_ref: BASE_IMAGE,
     driver_version: CUA_DRIVER_VERSION,
@@ -510,7 +510,7 @@ function hasNoPublishedPorts(config: {
 }
 
 function statusProblem(status: VpsComputerStatus): string | null {
-  if (!status.configured) return "Configure a VPS SSH alias in Settings → API keys";
+  if (!status.configured) return "Configure a VPS SSH alias in the Computer panel";
   if (!status.daemonUp) return "Docker over SSH could not reach the VPS; check the SSH alias and Docker on the VPS";
   if (!status.image) return `Prepare the pinned later.dog Cua image on the VPS (Driver ${CUA_DRIVER_VERSION})`;
   if (status.container === "missing") return "No later.dog container exists for this dog on the VPS";
@@ -1119,7 +1119,7 @@ export async function removeManagedVpsComputer(
   cfg = snapshotVpsConfig(cfg);
   const alias = vpsSshAlias(cfg);
   if (!alias) {
-    throw Object.assign(new Error("VPS is not configured — add an SSH config alias in Settings → API keys"), { status: 409 });
+    throw Object.assign(new Error("VPS is not configured — add an SSH config alias in the Computer panel"), { status: 409 });
   }
   if (!MANAGED_VPS_CONTAINER_NAME.test(containerName)) {
     throw Object.assign(new Error("invalid managed VPS computer name"), { status: 400 });
@@ -1176,7 +1176,7 @@ export async function vpsComputerAction(
 ): Promise<VpsComputerStatus> {
   cfg = snapshotVpsConfig(cfg);
   const alias = vpsSshAlias(cfg);
-  if (!alias) throw Object.assign(new Error("VPS is not configured — add an SSH config alias in Settings → API keys"), { status: 409 });
+  if (!alias) throw Object.assign(new Error("VPS is not configured — add an SSH config alias in the Computer panel"), { status: 409 });
   const key = `${alias}:${vpsContainerName(botId)}`;
   const pending = action === "provision" ? pendingProvisions.get(key) : undefined;
   if (pending) return pending;

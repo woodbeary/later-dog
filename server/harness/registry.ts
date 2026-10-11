@@ -298,6 +298,7 @@ export class ProviderRegistry {
             effortLevels: inst.adapter.capabilities.effortLevels,
             modelVariants: inst.adapter.capabilities.modelVariants === true,
             queueing: inst.adapter.capabilities.queueing === true,
+            steerImages: inst.adapter.capabilities.steerImages === true,
             localComputerMcp: inst.adapter.capabilities.localComputerMcp === true,
             approvalReview: inst.reviewPermission !== undefined,
           },

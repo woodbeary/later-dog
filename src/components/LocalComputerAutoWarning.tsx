@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle } from "lucide-react";
 
 export const LOCAL_COMPUTER_AUTO_WARNING =
@@ -30,7 +31,7 @@ export function LocalComputerAutoWarning({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
       onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
@@ -71,6 +72,7 @@ export function LocalComputerAutoWarning({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

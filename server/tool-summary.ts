@@ -3,6 +3,7 @@
 // pasted, and a key sliced in half would slip past the shapes redaction knows.
 import { MAX_QUESTION_TEXT } from "../shared/ask-question.ts";
 import { redactSecrets, redactSecretsInText } from "./redact.ts";
+import { fileChangeDetail } from "./laterdog/file-change-detail.ts";
 
 /** Display-only excerpt, never the raw protocol payload. Bound traversal and
  * omit binary bodies before redacting; truncate only AFTER redaction so a
@@ -55,6 +56,11 @@ function fieldsOf(input: unknown): Record<string, unknown> | undefined {
 
 const cut = (text: string, limit: number) => redactSecretsInText(text).trim().slice(0, limit);
 
+function clipped(text: string, limit: number): string {
+  const safe = redactSecretsInText(text).trim();
+  return safe.length > limit ? `${safe.slice(0, limit)}…` : safe;
+}
+
 /** The shell command a tool call runs, on one redacted line of at most 200
  * characters — what rides beside the tool name on the chip and what the
  * Verify card reads as a step. Only a command: a Read's path or a fetch's
@@ -73,8 +79,10 @@ export function askInputSummary(input: unknown): string | undefined {
   const fields = fieldsOf(input);
   if (!fields) return undefined;
   if (typeof fields.question === "string") return cut(fields.question, MAX_QUESTION_TEXT);
-  if (typeof fields.command === "string") return cut(fields.command, LIMIT);
-  if (typeof fields.url === "string") return cut(fields.url, LIMIT);
+  if (typeof fields.command === "string") return clipped(fields.command, LIMIT);
+  if (typeof fields.url === "string") return clipped(fields.url, LIMIT);
+  const fileChange = fileChangeDetail(fields);
+  if (fileChange) return fileChange;
   const text = JSON.stringify(fields);
-  return text === "{}" ? undefined : cut(text, LIMIT);
+  return text === "{}" ? undefined : clipped(text, LIMIT);
 }

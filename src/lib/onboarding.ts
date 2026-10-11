@@ -142,9 +142,6 @@ export function beatsFor(options: BeatOptions): BeatId[] {
   const beats: BeatId[] = ["hello"];
   if (options.reel) beats.push("reel");
   beats.push("engines");
-  // No permissions step: a dog asks for this Mac's Accessibility or Screen Recording when a task first needs it, and
-  // Settings → Computers keeps the checklist. A first run that opens system prompts nobody asked for yet reads as the
-  // app reaching for access in the background. The phone beat describes a companion app later.dog does not ship.
   beats.push("bot");
   return beats;
 }
@@ -189,10 +186,6 @@ export function flowDotsShown(beat: BeatId): boolean {
 
 // ── engines and organisation sign-in ───────────────────────────────────
 
-/** The Admin portal the welcome flow and Settings sign in to by default: the
- * one this build was given (LATERDOG_ADMIN_ORIGIN, through the desktop
- * bridge), or none. Another address is an advanced choice made in Settings →
- * Organisation, never in the welcome flow. */
 export function defaultAdminOrigin(bridge: { defaultPortalOrigin?: string } | undefined): string | null {
   const value = bridge?.defaultPortalOrigin?.trim();
   return value ? value : null;

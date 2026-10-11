@@ -93,7 +93,6 @@ describe("who gets the welcome flow", () => {
   it("leaves a later.dog Cloud home's first run to its engine sign-in", () => {
     vi.stubGlobal("window", REMOTE_PAGE);
     expect(gate({ hosted: false, canSave: true, cloudHome: true }).tree).toBeNull();
-    // Settings → Replay welcome tour still opens it there
     store.state = { ...store.state, welcomeOpen: true };
     expect(gate({ hosted: false, canSave: true, cloudHome: true }).tree?.type).toBe(WelcomeFlow);
   });
@@ -118,7 +117,6 @@ describe("who gets the welcome flow", () => {
     // once dismissed, a fresh visit in this browser does not show it again
     fixture.values = [];
     expect(render(() => SharedWorkspaceHint({ replay: false, onClose: vi.fn() })).html).toBe("");
-    // but Settings → Replay welcome tour shows it again
     fixture.values = [];
     expect(render(() => SharedWorkspaceHint({ replay: true, onClose: vi.fn() })).html).toContain("shared later.dog");
     // storage that throws (private window) still shows it and never breaks
@@ -143,7 +141,6 @@ describe("who gets the welcome flow", () => {
     const { tree, html } = gate({ hosted: false, canSave: false });
     expect(tree).toBeNull();
     expect(html).toBe("");
-    // an explicit Settings replay still opens the ordinary flow, as before
     store.state = { ...store.state, welcomeOpen: true };
     const replay = gate({ hosted: false, canSave: false }).tree!;
     expect(replay.type).toBe(WelcomeFlow);
@@ -171,15 +168,13 @@ describe("who gets the welcome flow", () => {
     expect(gate(LOCAL_VIEWER).tree).toBeNull();
   });
 
-  it("steps aside for later.dog Cloud opened by the Cloud link, not for a normal visit there", () => {
+  it("steps aside while Settings is open, whichever page", () => {
     vi.stubGlobal("window", LOCAL_PAGE);
-    store.state = { ...store.state, appSettingsOpen: true, appSettingsSection: "cloudAccount", appSettingsCloudLink: 0 };
-    expect(gate(LOCAL_VIEWER).tree).not.toBeNull();
-    store.state = { ...store.state, appSettingsCloudLink: 1 };
+    store.state = { ...store.state, appSettingsOpen: true, appSettingsSection: "general" };
     expect(gate(LOCAL_VIEWER).tree).toBeNull();
-    store.state = { ...store.state, appSettingsSection: "general" };
-    expect(gate(LOCAL_VIEWER).tree).not.toBeNull();
-    store.state = { ...store.state, appSettingsOpen: false, appSettingsSection: "cloudAccount" };
+    store.state = { ...store.state, appSettingsSection: "computer" };
+    expect(gate(LOCAL_VIEWER).tree).toBeNull();
+    store.state = { ...store.state, appSettingsOpen: false };
     expect(gate(LOCAL_VIEWER).tree).not.toBeNull();
   });
 
@@ -187,13 +182,12 @@ describe("who gets the welcome flow", () => {
     vi.stubGlobal("window", LOCAL_PAGE);
     const first = gate(LOCAL_VIEWER).tree!;
     first.props.onOpenOrganisation!();
-    expect(store.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "organization" });
-    store.state = { ...store.state, appSettingsOpen: true, appSettingsSection: "organization" };
+    expect(store.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
+    store.state = { ...store.state, appSettingsOpen: true, appSettingsSection: "general" };
     expect(gate(LOCAL_VIEWER).tree).toBeNull();
     store.state = { ...store.state, appSettingsOpen: false };
     const resumed = gate(LOCAL_VIEWER).tree!;
     expect(resumed.props.initialBeat).toBe("engines");
-    // finishing forgets it: a later Settings replay starts at the greeting
     (resumed.props.onDone as () => void)();
     store.state = { ...store.state, welcomeOpen: true };
     expect(gate(LOCAL_VIEWER).tree?.props.initialBeat).toBeUndefined();

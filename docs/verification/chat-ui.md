@@ -51,8 +51,6 @@ pnpm control:laterdog ui type --ui $H --name "Message Pepper" --text hello
 pnpm control:laterdog ui press --ui $H --keys Enter
 pnpm control:laterdog ui wait-settle --ui $H --timeout 60
 pnpm control:laterdog ui snapshot --ui $H
-pnpm control:laterdog ui click --ui $H --name "Save as skill"
-pnpm control:laterdog ui eval --ui $H --js "document.querySelector('textarea[aria-label=\"Message Pepper\"]').value"
 ```
 
 `snapshot` returns the accessibility tree with `@eN` refs and a `refs` table
@@ -88,48 +86,13 @@ greeting, the sent "hello", a passed Bash chip and the fake reply.
 
 The permanent form of this recipe is `scripts/testing/control-laterdog-ui.e2e.test.ts`:
 
-The fixture also hit-tests the rendered empty band beside **This run**. It
-must target the conversation rather than the transparent dock, while points
-inside the card and composer still target those controls. This checks browser
-pointer targeting, not native OS wheel delivery.
-
 ```sh
 LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/control-laterdog-ui.e2e.test.ts
 ```
 
-The asserted recipe now also covers the floating **This run** card with a
-successful, failed, and dry-run command. The card records every shell command
-the bot ran in the current ask — the commands after the person's last message —
-and marks the ones that went through the control CLI **verified**; reads
-(`cat`, `git log`, `gh pr view`, a `curl` that only fetches) and computer-use
-are left out, and a run of one unverified command shows no card. Those tool
-outcomes are **simulated provider events**, not executions of the commands
-written in the chips; the card's summary reads `3 steps · 3 verified · 1 failed
-· 1 dry run`. The recipe then presses **Save as skill**, which fills the
-composer in one of two shapes. A run with a verified step opens with the
-trigger phrase (`Create a verification skill from the run below.`), then
-`Goal: hello` (the person's request), the rule not to re-run, and one line per
-step with the verified ones tagged `(verified)`. A run with no verified step
-asks in plain words instead — `Save the steps below as a reusable skill for my
-review.`, then `Goal: <request>`, then "Keep the exact commands and note the
-failed ones as gotchas. Do not re-run anything.", then the step lines; the
-server (`server/skill-learn.ts`) expands a turn that opens with that sentence
-into the same skill-authoring turn as `/learn`, so nobody sees or types a slash
-command. In both shapes the caret is in the composer and no new user message
-was sent — the transcript still holds exactly one `StaticText "hello"`. The person adds any notes and
-sends as usual; the card never sends on its own. Separately, the recipe runs a
-real fixture health check and verifies that clicking a deliberately missing
-control fails. The card remains collapsible; the old execution timeline is no
+The asserted recipe also runs a real fixture health check and verifies that
+clicking a deliberately missing control fails. The old execution timeline is no
 longer shown above chat.
-
-For activity detail, click **More → Inspector → Run Log**. It shows the selected
-conversation's recorded commands, statuses and timestamps; command previews
-may be shortened. **Events** and **Raw** retain the underlying technical views.
-The recipe checks tab switching and saves `run-log.png` alongside `chat-ui.png`.
-**Copy redacted run log** copies only the displayed activity (up to 200 entries),
-not chat text or raw protocol data. Review copied logs before sharing: automatic
-redaction is best effort. Neither this log nor a successful command proves an
-unasserted user outcome.
 
 `scripts/testing/usage-details-ui.e2e.test.ts` checks the header's **More** menu,
 usage breakdown, clipboard success and refusal, and responsive geometry at
@@ -187,18 +150,11 @@ checks that the finished reply still moves a following transcript to its end.
 pnpm exec vitest run src/state/store.test.ts src/components/ChatView.follow.test.ts
 ```
 
-## Bot setup and MCP access recipe
+## MCP access
 
-`scripts/testing/bot-tools-ui.e2e.test.ts` uses the same full-app launcher and
-optional `LATERDOG_UI_E2E=1` gate. It verifies profile-only role creation, closing
-and reopening the dialog during a slow creation without duplicate submissions, recovery
-when the preset PATCH fails after creation, the composer’s Tools shortcut,
-optional setup ideas, Paste config importing disabled servers, refreshed
-per-bot MCP switches and saved opt-outs, and modal Tab/Escape containment.
-The MCP command is an inert fixture command; no real accounts are connected.
-The advisory renderer job runs both recipes. Runtime mounting, direct/channel
-turns, busy-state rejection and revoked-session imports are separately exercised
-by `server/mcp-selection.e2e.test.ts` against disposable fake-engine servers.
+Runtime mounting, direct/channel turns, busy-state rejection and revoked-session
+imports are exercised by `server/mcp-selection.e2e.test.ts` against disposable
+fake-engine servers.
 
 ## Cleanup
 
@@ -240,9 +196,8 @@ UI, not a real Claude installation or a successful provider retry.
 
 Proven: the real composer sends a turn on Enter, the fixture runs the scripted
 fake-engine turn, the transcript renders the sent text, the tool chip and the
-reply, a server-side feature flag reaches the renderer live, and Save as skill
-fills the composer without sending — all in a Chromium page, through
-accessibility names, with no mouse coordinates.
+reply, and a server-side feature flag reaches the renderer live — all in a
+Chromium page, through accessibility names, with no mouse coordinates.
 
 Not proven: the Electron shell (menus, preload bridge, screen capture,
 dictation), a real provider, Settings, sidebar drag-and-drop, the VM modal, the

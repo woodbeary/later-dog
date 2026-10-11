@@ -53,7 +53,7 @@ folder whose `server/index.js` exports such a `register()`, and
 ## Unit regressions
 
 ```sh
-pnpm exec vitest run server/spend.test.ts server/model-prices.test.ts server/prices.ts server/config.test.ts src/components/UsageBudget.test.ts server/usage-ledger.test.ts src/lib/notify.test.ts
+pnpm exec vitest run server/spend.test.ts server/model-prices.test.ts server/prices.ts server/config.test.ts server/usage-ledger.test.ts src/lib/notify.test.ts
 ```
 
 These cover price precedence and cached-input pricing, month-to-date sums

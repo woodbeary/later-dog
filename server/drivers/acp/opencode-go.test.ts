@@ -337,32 +337,29 @@ describe("OpenCode catalog", () => {
         expect(text.length, `${code} ${model}`).toBeLessThanOrEqual(160);
         if (model?.startsWith("openrouter/")) {
           expect(text).toContain("OpenRouter");
-          expect(text).not.toMatch(/Zen|OpenCode Go|Settings → API keys/u);
+          expect(text).not.toMatch(/Zen|OpenCode Go/u);
         }
         if (model?.startsWith("anthropic/")) expect(text).toContain("Anthropic");
       }
     },
   );
 
-  it("points a rejected Zen key at the key later.dog saves", () => {
-    expect(describeOpenCodeAccountError("invalid_credentials", "opencode/big-pickle")).toContain("Settings → API keys");
-    // one next action, and one a Cloud owner (who has no terminal there) can take
+  it("sends a rejected Zen or Go key to OpenCode's own sign-in, and on a Cloud to another model", () => {
     for (const model of [undefined, "opencode/big-pickle", "opencode-go/minimax-m3"]) {
-      expect(describeOpenCodeAccountError("invalid_credentials", model)).not.toContain("opencode auth login");
+      expect(describeOpenCodeAccountError("invalid_credentials", model, { cloudHome: false })).toContain("opencode auth login");
+      expect(describeOpenCodeAccountError("invalid_credentials", model, { cloudHome: true }))
+        .toBe("OpenCode rejected its key, or has none for this model. Choose another model.");
     }
     expect(describeOpenCodeAccountError("insufficient_funds", "opencode/big-pickle")).toContain("Zen");
     expect(describeOpenCodeAccountError("inactive_subscription", "opencode-go/minimax-m3")).toContain("OpenCode Go subscription");
   });
 
-  // On a Cloud the owner has no terminal: a key for any other provider is
-  // saved in Settings, under Keys for other OpenCode providers.
-  it("on a Cloud, sends another provider's refused key to Settings, not a terminal", () => {
+  it("on a Cloud, sends another provider's refused key to another model, not a terminal", () => {
     for (const model of ["openrouter/openai/gpt-4o-mini", "venice/llama-3.3-70b", `${"very-long-provider-name".repeat(4)}/model`]) {
       const cloud = describeOpenCodeAccountError("invalid_credentials", model, { cloudHome: true });
       expect(cloud).not.toContain("opencode auth login");
-      expect(cloud).toContain("Save it under Keys for other OpenCode providers in Settings → API keys.");
+      expect(cloud).toMatch(/ key for this model is missing or was rejected\. Choose another model\.$/u);
       expect(cloud.length, model).toBeLessThanOrEqual(160);
-      // on the person's own computer the CLI's sign-in still fixes it
       expect(describeOpenCodeAccountError("invalid_credentials", model, { cloudHome: false })).toContain("opencode auth login");
     }
   });
@@ -660,7 +657,7 @@ describe("OpenCode turns without a sign-in gate", () => {
       const { done, events } = await f.run("t-bad-key", "opencode/big-pickle");
       expect(done, `attempt ${attempt}`).toMatchObject({ ok: false, stopReason: "auth_required" });
       const error = events.find((event) => event.type === "runtime.error");
-      expect(error).toMatchObject({ setup: true, message: expect.stringContaining("Settings → API keys") });
+      expect(error).toMatchObject({ setup: true, message: expect.stringContaining("opencode auth login") });
       expect(error).not.toMatchObject({ message: expect.stringContaining("Internal error") });
     }
     // the retry reused the warm process instead of cold-starting OpenCode

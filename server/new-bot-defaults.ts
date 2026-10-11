@@ -4,6 +4,7 @@ import { EFFORT_LEVELS } from "../shared/wire.ts";
 import { isModelVariant } from "./contracts.ts";
 import { normalizeCronSchedule } from "../shared/routine-schedule.ts";
 import { parseToolScope, type ToolScope } from "../shared/tool-scope.ts";
+import { retireDefaultsPlace } from "./laterdog/places.ts";
 
 const strings = (max: number, length: number) => z.array(z.string().max(length)).max(max);
 const clock = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
@@ -20,13 +21,13 @@ export const botDefaultModelSchema = z.object({
 
 // Preferences only. Consent flags, live grants, bot IDs and execution state
 // cannot be stored here and therefore cannot be replayed as permission grants.
-export const botDefaultsProfileSchema = profilePatchSchema.extend({
+export const botDefaultsProfileSchema = z.preprocess(retireDefaultsPlace, profilePatchSchema.extend({
   name: z.string().max(100).refine(fitsOnOneLine, "name must fit on one line").optional(),
   section: z.string().trim().max(60).optional(),
   color: z.enum(["green", "blue", "red", "orange", "purple", "cyan", "pink", "yellow", "teal", "coral"]).optional(),
   mascotExpression: z.string().max(60).nullable().optional(),
   modelSelection: botDefaultModelSchema.optional(),
-  computer: z.enum(["cloud", "vm", "local", "browser", "off"]).nullable().optional(),
+  computer: z.enum(["cloud", "local", "off"]).nullable().optional(),
   cloudBackend: z.enum(["box", "vps"]).optional(),
   autoStartVps: z.boolean().optional(),
   cwd: z.string().max(4096).nullable().optional(),
@@ -43,7 +44,7 @@ export const botDefaultsProfileSchema = profilePatchSchema.extend({
   toolScope: z.custom<ToolScope>((value) => value !== undefined && parseToolScope(value).ok, "Invalid tool selection")
     .transform((value) => { const parsed = parseToolScope(value); return parsed.ok ? parsed.scope! : value; }).nullable().optional(),
   parkDirectMessages: z.boolean().optional(),
-}).strict();
+}).strict());
 
 const scheduleSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("once"), at: timestamp }).strict(),

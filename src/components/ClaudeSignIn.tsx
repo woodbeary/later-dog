@@ -3,6 +3,7 @@ import { ExternalLink, Loader2, LogIn } from "lucide-react";
 import { api } from "@/state/store";
 import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
+import { openExternalLink } from "@/lib/app-links";
 import { deviceFlowUnavailable, type DeviceSignInStatus } from "./DeviceSignIn";
 
 const SIGN_IN_HOSTS = ["claude.com", "claude.ai", "console.anthropic.com", "platform.claude.com"];
@@ -25,14 +26,21 @@ function endedFlow(phase: "expired" | "failed"): DeviceSignInStatus {
   return { phase, flowId: null, authorizationUrl: null, expiresAt: null, ...(phase === "failed" ? { message: t("engineSetup.device.flowEnded") } : {}) };
 }
 
-/** Settings → Engines → Claude on a hosted server: open Anthropic's sign-in
- * page, paste the code it shows, done. The server drives the unmodified CLI. */
-export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
+export interface ClaudeSignInProps {
+  instanceId: string;
+  autoStart?: boolean;
+  compact?: boolean;
+  onSignedIn?: () => void;
+  onCancelled?: () => void;
+}
+
+export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, onSignedIn, onCancelled }: ClaudeSignInProps) {
   const { refreshInstances, refreshModels } = useStore();
   const [auth, setAuth] = useState<DeviceSignInStatus | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState<"start" | "finish" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
   const base = `/api/instances/${encodeURIComponent(instanceId)}/auth`;
   const link = claudeSignInLink(auth?.authorizationUrl);
 
@@ -41,8 +49,15 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
     await refreshModels(instanceId);
   };
 
-  // Expire the link locally when the server says it does, and poll the
-  // outcome while a code is being checked.
+  const settle = async (next: DeviceSignInStatus) => {
+    setAuth(next);
+    setCode("");
+    if (next.phase === "succeeded") {
+      await refresh();
+      onSignedIn?.();
+    }
+  };
+
   useEffect(() => {
     if (auth?.phase !== "waiting" || !auth.flowId) return;
     const remaining = auth.expiresAt ? Date.parse(auth.expiresAt) - Date.now() : Number.NaN;
@@ -62,9 +77,11 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
     setError(null);
     try {
       const { auth: next }: { auth: DeviceSignInStatus } = await api(`${base}/start`, { method: "POST" });
-      setAuth(next);
-      setCode("");
-      if (next.phase === "succeeded") await refresh();
+      await settle(next);
+      if (compact && next.phase === "waiting") {
+        const page = claudeSignInLink(next.authorizationUrl);
+        if (page) await openExternalLink(page);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("engineSetup.device.failed"));
     } finally {
@@ -72,23 +89,31 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
     }
   };
 
+  useEffect(() => {
+    if (!autoStart || started) return;
+    setStarted(true);
+    void start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the sheet opens
+  }, [autoStart, started]);
+
   const finish = async () => {
     if (!auth?.flowId) return;
     setBusy("finish");
     setError(null);
     try {
-      await api(`${base}/complete`, { method: "POST", body: JSON.stringify({ flowId: auth.flowId, code: code.trim() }) });
+      const completed: { auth?: DeviceSignInStatus } = await api(`${base}/complete`, { method: "POST", body: JSON.stringify({ flowId: auth.flowId, code: code.trim() }) });
+      if (completed.auth) {
+        await settle(completed.auth);
+        return;
+      }
       const { auth: next }: { auth: DeviceSignInStatus } = await api(`${base}/status?flowId=${encodeURIComponent(auth.flowId)}`);
-      setAuth(next);
-      setCode("");
-      if (next.phase === "succeeded") await refresh();
+      await settle(next);
     } catch (cause) {
       if (deviceFlowUnavailable(cause)) {
         // the server already knows the outcome; ask it rather than guess
         try {
           const { auth: next }: { auth: DeviceSignInStatus } = await api(`${base}/status?flowId=${encodeURIComponent(auth.flowId)}`);
-          setAuth(next);
-          if (next.phase === "succeeded") await refresh();
+          await settle(next);
           return;
         } catch {
           setAuth(endedFlow("failed"));
@@ -102,12 +127,16 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
   };
 
   const cancel = async () => {
-    if (!auth?.flowId) return;
+    if (!auth?.flowId) {
+      onCancelled?.();
+      return;
+    }
     setBusy("cancel");
     setError(null);
     try {
       await api(`${base}/cancel`, { method: "POST", body: JSON.stringify({ flowId: auth.flowId }) });
       setAuth({ phase: "cancelled", flowId: null, authorizationUrl: null, expiresAt: null });
+      onCancelled?.();
     } catch (cause) {
       if (deviceFlowUnavailable(cause)) setAuth(endedFlow("failed"));
       else setError(cause instanceof Error ? cause.message : t("engineSetup.device.failed"));
@@ -126,6 +155,68 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
           : auth.message || t("engineSetup.device.failed")
     : null;
 
+  const codeField = (
+    <>
+      <label className="block text-[12px] text-ink-secondary" htmlFor={`claude-code-${instanceId}`}>
+        {t(compact ? "accounts.sheet.pasteCode" : "engineSetup.claude.codeLabel")}
+      </label>
+      <input
+        id={`claude-code-${instanceId}`}
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+        className="w-full rounded-md border border-hairline/40 bg-inset px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent-border"
+      />
+      <button
+        type="button"
+        disabled={busy !== null || code.trim().length < 8}
+        onClick={() => void finish()}
+        className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
+      >
+        {busy === "finish" ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
+        {busy === "finish" ? t("engineSetup.claude.finishing") : t("engineSetup.claude.finish")}
+      </button>
+    </>
+  );
+
+  if (compact) {
+    return (
+      <div className="space-y-3" data-claude-sign-in>
+        {outcome && <p role="status" className={auth?.phase === "succeeded" ? "text-[13px] text-success" : "text-[13px] text-ink-secondary"}>{outcome}</p>}
+        {busy === "start" && !auth && (
+          <p role="status" className="flex items-center gap-1.5 text-[13px] text-ink-secondary"><Loader2 size={13} className="animate-spin" /> {t("engineSetup.claude.starting")}</p>
+        )}
+        {auth?.phase === "waiting" && (link ? (
+          <>
+            <p role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-secondary">
+              <Loader2 size={13} className="animate-spin" /> {t("accounts.sheet.waiting")}
+              <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline" onClick={(event) => {
+                if (window.laterdog?.openExternal) { event.preventDefault(); void openExternalLink(link); }
+              }}>{t("accounts.sheet.reopen")} <ExternalLink size={12} /></a>
+            </p>
+            {codeField}
+          </>
+        ) : (
+          <p role="alert" className="text-[13px] text-danger">{t("engineSetup.claude.invalidChallenge")}</p>
+        ))}
+        {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
+        {auth?.phase !== "succeeded" && (
+          <div className="flex justify-end gap-2">
+            {auth?.phase !== "waiting" && !busy && started && (
+              <button type="button" onClick={() => void start()} className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45">
+                {t("engineSetup.device.tryAgain")}
+              </button>
+            )}
+            <button type="button" disabled={busy === "cancel"} onClick={() => void cancel()} className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45">
+              {busy === "cancel" ? t("engineSetup.device.cancelling") : t("common.cancel")}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="mt-3 space-y-2" data-claude-sign-in>
       {outcome ? (
@@ -137,26 +228,7 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
             <a href={link} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110">
               {t("engineSetup.claude.open")} <ExternalLink size={13} />
             </a>
-            <label className="block text-[12px] text-ink-secondary" htmlFor={`claude-code-${instanceId}`}>
-              {t("engineSetup.claude.codeLabel")}
-            </label>
-            <input
-              id={`claude-code-${instanceId}`}
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              className="w-full rounded-md border border-hairline/40 bg-inset px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent-border"
-            />
-            <button
-              type="button"
-              disabled={busy !== null || code.trim().length < 8}
-              onClick={() => void finish()}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
-            >
-              {busy === "finish" ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
-              {busy === "finish" ? t("engineSetup.claude.finishing") : t("engineSetup.claude.finish")}
-            </button>
+            {codeField}
             {auth.expiresAt && Number.isFinite(Date.parse(auth.expiresAt)) ? (
               <p className="text-[11px] text-ink-secondary">{t("engineSetup.device.expires", { time: new Date(auth.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })}</p>
             ) : null}

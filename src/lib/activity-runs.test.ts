@@ -155,22 +155,86 @@ describe("groupTranscript", () => {
     turnId,
     turnTerminal,
   });
+  const step = (name: string, turnId: string): Message => ({ ...tool(name), turnId });
 
   it("folds settled progress messages and leaves the terminal answer visible", () => {
     const user: Message = { id: "u1", at: 1_000, role: "user", kind: "text", text: "check todoist" };
     const first = assistant("I'm checking connected apps.", "turn-1", false, 2_000);
+    const apps = step("list_apps", "turn-1");
     const second = assistant("I'm reading your tasks.", "turn-1", false, 3_000);
+    const tasks = step("read_tasks", "turn-1");
     const final = assistant("You have three tasks.", "turn-1", true, 5_000);
 
-    const items = groupTranscript([user, first, second, final]);
-    expect(items.map((item) => item.kind)).toEqual(["message", "turn", "message"]);
+    const items = groupTranscript([user, first, apps, second, tasks, final]);
+    expect(items.map((item) => item.kind)).toEqual(["message", "turn", "run", "message"]);
     expect(items[1]).toMatchObject({
       kind: "turn",
       id: "turn:turn-1",
       label: "Worked for 4s",
       messages: [first, second],
     });
-    expect(items[2].kind === "message" && items[2].message).toBe(final);
+    expect(items[2]).toMatchObject({ kind: "run", messages: [apps, tasks] });
+    expect(items[3].kind === "message" && items[3].message).toBe(final);
+  });
+
+  it("keeps an answer no step follows, so a message sent mid-turn never hides it", () => {
+    const user: Message = { id: "u3", at: 1_000, role: "user", kind: "text", text: "write 80 dog facts" };
+    const steer: Message = { id: "u4", at: 2_000, role: "user", kind: "text", text: "end with DONE", steered: true };
+    const list = assistant("1. Dogs sweat through their paws.\n\nDONE", "turn-steer", false, 3_000);
+    const done = assistant("DONE", "turn-steer", true, 4_000);
+
+    expect(groupTranscript([user, steer, list, done])).toEqual(
+      [user, steer, list, done].map((message) => ({ kind: "message", message })),
+    );
+  });
+
+  it("keeps the answer when the mid-turn message lands after it", () => {
+    const user: Message = { id: "u5", at: 1_000, role: "user", kind: "text", text: "write 80 dog facts" };
+    const list = assistant("1. Dogs sweat through their paws.", "turn-late", false, 2_000);
+    const steer: Message = { id: "u6", at: 3_000, role: "user", kind: "text", text: "end with DONE", steered: true };
+    const done = assistant("DONE", "turn-late", true, 4_000);
+
+    expect(groupTranscript([user, list, steer, done]).map((item) => item.kind)).toEqual([
+      "message",
+      "message",
+      "message",
+      "message",
+    ]);
+  });
+
+  it("folds only the narration a step follows and keeps a later answer in place", () => {
+    const user: Message = { id: "u7", at: 1_000, role: "user", kind: "text", text: "list the files" };
+    const narration = assistant("Listing the folder.", "turn-mixed", false, 2_000);
+    const listing = step("Bash", "turn-mixed");
+    const answer = assistant("The folder holds haiku.md.", "turn-mixed", false, 3_000);
+    const steer: Message = { id: "u8", at: 3_500, role: "user", kind: "text", text: "now say DONE", steered: true };
+    const done = assistant("DONE", "turn-mixed", true, 4_000);
+
+    const items = groupTranscript([user, narration, listing, answer, steer, done]);
+    expect(items.map((item) => item.kind)).toEqual(["message", "turn", "message", "message", "message", "message"]);
+    expect(items[1]).toMatchObject({ kind: "turn", messages: [narration] });
+    expect(items[3].kind === "message" && items[3].message).toBe(answer);
+  });
+
+  it("folds narration before a question card, which carries no turn of its own", () => {
+    const ask = assistant("One question first.", "turn-ask", false, 2_000);
+    const card: Message = { id: "c1", at: 2_500, role: "bot", kind: "options" };
+    const final = assistant("Noted.", "turn-ask", true, 3_000);
+
+    const items = groupTranscript([ask, card, final]);
+    expect(items.map((item) => item.kind)).toEqual(["turn", "message", "message"]);
+    expect(items[0]).toMatchObject({ kind: "turn", messages: [ask] });
+  });
+
+  it("does not count another turn's step as this turn's work", () => {
+    const progress = assistant("Checking.", "turn-mine");
+    const elsewhere = step("Bash", "turn-theirs");
+    const final = assistant("Done.", "turn-mine", true);
+    expect(groupTranscript([progress, elsewhere, final]).map((item) => item.kind)).toEqual([
+      "message",
+      "message",
+      "message",
+    ]);
   });
 
   it("keeps every message visible until the turn settles", () => {
@@ -184,14 +248,29 @@ describe("groupTranscript", () => {
     expect(groupTranscript([only])).toEqual([{ kind: "message", message: only }]);
   });
 
+  it("keeps an image taken mid-turn where it was taken instead of folding it into the turn", () => {
+    const user: Message = { id: "u2", at: 1_000, role: "user", kind: "text", text: "show me the page" };
+    const opening = assistant("Opening the page.", "turn-img", false, 2_000);
+    const shot: Message = {
+      ...assistant("", "turn-img", false, 3_000),
+      attachments: [{ kind: "image", path: "/attachments/shot.png", mime: "image/png" }],
+    };
+    const final = assistant("Here it is.", "turn-img", true, 4_000);
+
+    const items = groupTranscript([user, opening, shot, final]);
+    expect(items.map((item) => item.kind)).toEqual(["message", "turn", "message", "message"]);
+    expect(items[1]).toMatchObject({ kind: "turn", messages: [opening] });
+    expect(items[2].kind === "message" && items[2].message).toBe(shot);
+    expect(items[3].kind === "message" && items[3].message).toBe(final);
+  });
+
   it("does not fold narration from a different turn", () => {
     const older = assistant("Previous answer.", "turn-old");
     const progress = assistant("Checking.", "turn-new");
+    const checking = step("Bash", "turn-new");
     const final = assistant("Done.", "turn-new", true);
-    expect(groupTranscript([older, progress, final]).map((item) => item.kind)).toEqual([
-      "message",
-      "turn",
-      "message",
-    ]);
+    const items = groupTranscript([older, progress, checking, final]);
+    expect(items.map((item) => item.kind)).toEqual(["message", "turn", "message", "message"]);
+    expect(items[1]).toMatchObject({ kind: "turn", messages: [progress] });
   });
 });

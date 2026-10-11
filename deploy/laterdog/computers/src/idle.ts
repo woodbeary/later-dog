@@ -20,21 +20,24 @@ export interface IdleInput extends IdlePolicy {
   awakeSince: number;
   viewers: number;
   inFlight: number;
+  budgetEndsAt?: number;
 }
 
-export type IdleDecision = { sleep: true; reason: "idle" | "max_awake" } | { sleep: false; checkAt: number };
+export type IdleDecision = { sleep: true; reason: "idle" | "max_awake" | "budget" } | { sleep: false; checkAt: number };
 
 export function decideIdle(input: IdleInput): IdleDecision {
   const maxAwakeAt = input.awakeSince + input.maxAwakeMs;
   if (input.now >= maxAwakeAt) return { sleep: true, reason: "max_awake" };
-  const soon = (at: number) => ({ sleep: false as const, checkAt: Math.min(at, maxAwakeAt, input.now + HEALTH_CHECK_MS) });
+  const budgetEndsAt = input.budgetEndsAt ?? Number.POSITIVE_INFINITY;
+  if (input.now >= budgetEndsAt) return { sleep: true, reason: "budget" };
+  const soon = (at: number) => ({ sleep: false as const, checkAt: Math.min(at, maxAwakeAt, budgetEndsAt, input.now + HEALTH_CHECK_MS) });
   if (input.viewers > 0 || input.inFlight > 0) return soon(input.now + RECHECK_BUSY_MS);
   const idleAt = input.lastActiveAt + input.idleSleepMs;
   if (input.now >= idleAt) return { sleep: true, reason: "idle" };
   return soon(idleAt);
 }
 
-function bounded(raw: string | undefined, fallback: number, min: number, max: number): number {
+export function bounded(raw: string | undefined, fallback: number, min: number, max: number): number {
   const value = Number(raw);
   if (raw === undefined || raw.trim() === "" || !Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, value));

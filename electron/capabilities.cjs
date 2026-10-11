@@ -97,6 +97,7 @@ function desktopCapabilities({
   // The page asking is a remote server's UI: this computer's screen, voice
   // and local control are not on offer, whatever the host could do.
   remote = false,
+  credentialStore = null,
 } = {}) {
   const hostPlatform = normalizedPlatform(platform);
   const isMac = hostPlatform === "darwin";
@@ -186,7 +187,7 @@ function desktopCapabilities({
     }, unavailable);
   }
 
-  return {
+  const capabilities = {
     remote: Boolean(remote),
     host: {
       platform: hostPlatform,
@@ -211,6 +212,10 @@ function desktopCapabilities({
     dictation,
     localComputer,
   };
+  if (!remote && (credentialStore === "ok" || credentialStore === "unavailable")) {
+    capabilities.credentialStore = credentialStore;
+  }
+  return capabilities;
 }
 
 function connectionEnabled(platform, connection) {

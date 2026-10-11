@@ -14,10 +14,6 @@ ipcRenderer.on("package:install", (_event, url) => {
   for (const listener of packageInstallListeners) listener(url);
 });
 
-// Main can finish loading the document before React subscribes. Retain only
-// the fixed actions (Organisation, the laterdog://cloud link, and plain
-// Settings → later.dog Cloud from the lending menu-bar item), never a destination
-// supplied by a renderer.
 const FIXED_SETTINGS_ACTIONS = new Set(["organization", "cloud", "cloud-settings"]);
 let pendingSettingsAction = null;
 const appSettingsListeners = new Set();
@@ -51,7 +47,20 @@ const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChang
 function updaterOffered() {
   try { return ipcRenderer.sendSync("update:offered") === true; } catch { return false; }
 }
-const remoteKeys = isLocalPage ? REMOTE_SAFE : new Set([...REMOTE_SAFE, ...(updaterOffered() ? ["updater"] : [])]);
+function profilePageOffered() {
+  try { return ipcRenderer.sendSync("profiles:page") === true; } catch { return false; }
+}
+const isProfilePage = !isLocalPage && profilePageOffered();
+const PROFILE_KEYS = new Set([
+  "platform", "workspaces", "getCapabilities", "onCapabilitiesChanged", "approvals",
+  "beginScreenPreviewIntent", "screenFrame", "speechStart", "speechStop", "speechFinish", "onSpeechTranscript", "onSpeechEnd",
+  "onOpenAppSettings", "getPathForFile", "permStatus", "permRequestMic", "permOpenSettings", "permissions",
+  "relaunch", "openInstallTerminal", "copyText", "openExternal", "applySkin", "windowControls", "onPackageInstall", "setUnreadCount",
+  "pickFolder", "exportDiagnostics", "saveFile", "revealInFolder", "setCredential", "updater", "releaseCheck", "confirm", "profiles",
+]);
+const remoteKeys = isLocalPage ? REMOTE_SAFE
+  : isProfilePage ? PROFILE_KEYS
+    : new Set([...REMOTE_SAFE, ...(updaterOffered() ? ["updater"] : [])]);
 
 // Sandboxed preload cannot import TS or sibling modules. Keep this list in
 // parity with shared/workspace-backup-client.ts (covered by the preload test).
@@ -432,6 +441,18 @@ const bridge = {
     activity: id => ipcRenderer.invoke("sharing:activity", id),
   },
   confirm: message => ipcRenderer.invoke("dialog:confirm", message),
+  profiles: process.argv.includes("--laterdog-profiles=1") ? {
+    list: () => ipcRenderer.invoke("profiles:list"),
+    switch: id => ipcRenderer.invoke("profiles:switch", id),
+    add: name => ipcRenderer.invoke("profiles:add", name),
+    rename: (id, name) => ipcRenderer.invoke("profiles:rename", id, name),
+    remove: id => ipcRenderer.invoke("profiles:remove", id),
+    onChanged: cb => {
+      const handler = (_event, state) => cb(state);
+      ipcRenderer.on("profiles:changed", handler);
+      return () => ipcRenderer.removeListener("profiles:changed", handler);
+    },
+  } : undefined,
 };
 
 contextBridge.exposeInMainWorld(

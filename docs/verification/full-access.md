@@ -46,8 +46,8 @@ The desktop smoke uses a disposable Electron utility-process server and the
 real private approval bridge. It covers one confirmed Full Access grant for
 all existing, archived and future threads, including mixed Claude, Codex,
 Grok and Antigravity providers. Other bots and per-thread model choices stay
-unchanged. The real settings confirmation is driven in a hidden fixture
-window, including Cancel, the all-threads checkbox and the committed result.
+unchanged. A thread's Full Access confirmation is driven in a hidden fixture
+window, including Cancel and the committed result.
 Screenshots are saved under `.laterdog-scratch/verify-evidence/provider-fixes/`.
 Provider processes are fake; this does not test live account access.
 

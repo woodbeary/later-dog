@@ -402,21 +402,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
   // when these were the proxy's module-level constants.
   const { botId: BOT_ID, threadId: THREAD_ID, depth: DEPTH, externalRuntime: EXTERNAL_RUNTIME, coordinating: COORDINATING } = context;
   const { api, apiResponse } = context.client;
-  if (name === "vm_exec") {
-    const { ok, body } = await apiResponse("/api/internal/vm-exec", {
-      method: "POST",
-      body: JSON.stringify({ command: args.command, ...(typeof args.timeout_seconds === "number" ? { timeout_seconds: args.timeout_seconds } : {}) }),
-    });
-    if (!ok) return { text: String(body.error ?? "Could not run that command."), isError: true };
-    const exitCode = Number(body.exitCode ?? 0);
-    const stdout = String(body.stdout ?? "");
-    const stderr = String(body.stderr ?? "");
-    const lines = [body.timedOut ? "The command was stopped: it ran past its time limit." : `exit code ${exitCode}`];
-    if (stdout) lines.push("--- stdout ---", stdout.replace(/\s+$/, ""));
-    if (stderr) lines.push("--- stderr ---", stderr.replace(/\s+$/, ""));
-    if (!stdout && !stderr && !body.timedOut) lines.push("(no output)");
-    return { text: lines.join("\n"), ...(exitCode !== 0 || body.timedOut ? { isError: true } : {}) };
-  }
   if (name === "attach_file") {
     const { ok, body } = await apiResponse("/api/internal/attach-file", {
       method: "POST",
@@ -700,8 +685,8 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     return { text: `Task ${taskId} ended without a reply — ${String(r.status ?? "unknown")}${r.result ? `: ${String(r.result)}` : ""}.`, isError: true };
   }
   if (name === "select_computer") {
-    if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "vm", "local", "browser"].includes(args.surface))) {
-      return { text: "Choose auto, cloud, vm, local or browser; omit surface to inspect connected choices.", isError: true };
+    if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "local"].includes(args.surface))) {
+      return { text: "Choose auto, cloud or local; omit surface to inspect connected choices.", isError: true };
     }
     const result = await api("/api/internal/computer/select", args.surface === undefined ? undefined : {
       method: "POST", body: JSON.stringify({ surface: args.surface }),

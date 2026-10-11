@@ -129,11 +129,22 @@ export function DeviceSignInProgress({ auth, browserPkce = false, provider = "co
   );
 }
 
-export function DeviceSignIn({ instanceId, browserPkce = false, provider = "codex" }: { instanceId: string; browserPkce?: boolean; provider?: DeviceSignInProvider }) {
+export interface DeviceSignInProps {
+  instanceId: string;
+  browserPkce?: boolean;
+  provider?: DeviceSignInProvider;
+  autoStart?: boolean;
+  compact?: boolean;
+  onSignedIn?: () => void;
+  onCancelled?: () => void;
+}
+
+export function DeviceSignIn({ instanceId, browserPkce = false, provider = "codex", autoStart = false, compact = false, onSignedIn, onCancelled }: DeviceSignInProps) {
   const { refreshInstances, refreshModels } = useStore();
   const [auth, setAuth] = useState<DeviceSignInStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
   const base = `/api/instances/${encodeURIComponent(instanceId)}/auth`;
   const copy = DEVICE_SIGN_IN_COPY[provider];
   const failed = t(browserPkce ? "engineSetup.chatgpt.failed" : copy.failed);
@@ -141,7 +152,31 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
   const refresh = async () => {
     await refreshInstances();
     await refreshModels(instanceId);
+    onSignedIn?.();
   };
+
+  const start = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { auth: next }: { auth: DeviceSignInStatus } = await api(`${base}/start`, { method: "POST" });
+      setAuth(next);
+      if (next.phase === "succeeded") await refresh();
+      else if (browserPkce && next.phase === "waiting") {
+        const link = chatgptPlanLink(next.authorizationUrl);
+        if (link) await openExternalLink(link);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : failed);
+    } finally { setBusy(false); }
+  };
+
+  useEffect(() => {
+    if (!autoStart || started) return;
+    setStarted(true);
+    void start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the sheet opens
+  }, [autoStart, started]);
 
   useEffect(() => {
     if (busy || auth?.phase !== "waiting" || !auth.flowId) return;
@@ -161,6 +196,7 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
           if (next.phase === "succeeded") {
             await refreshInstances();
             await refreshModels(instanceId);
+            onSignedIn?.();
           }
         })
         .catch((cause: unknown) => {
@@ -180,31 +216,19 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
       if (expiryTimer !== null) window.clearTimeout(expiryTimer);
       controller.abort();
     };
-  }, [auth, base, browserPkce, busy, failed, instanceId, refreshInstances, refreshModels]);
-
-  const start = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const { auth: next }: { auth: DeviceSignInStatus } = await api(`${base}/start`, { method: "POST" });
-      setAuth(next);
-      if (next.phase === "succeeded") await refresh();
-      else if (browserPkce && next.phase === "waiting") {
-        const link = chatgptPlanLink(next.authorizationUrl);
-        if (link) await openExternalLink(link);
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : failed);
-    } finally { setBusy(false); }
-  };
+  }, [auth, base, browserPkce, busy, failed, instanceId, onSignedIn, refreshInstances, refreshModels]);
 
   const cancel = async () => {
-    if (!auth?.flowId) return;
+    if (!auth?.flowId) {
+      onCancelled?.();
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       await api(`${base}/cancel`, { method: "POST", body: JSON.stringify({ flowId: auth.flowId }) });
       setAuth({ phase: "cancelled", flowId: null, authorizationUrl: null, expiresAt: null });
+      onCancelled?.();
     } catch (cause) {
       if (deviceFlowUnavailable(cause)) setAuth(endedFlow("failed", browserPkce));
       else setError(cause instanceof Error ? cause.message : failed);
@@ -215,6 +239,45 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
   const startLabel = busy ? t(browserPkce ? "engineSetup.chatgpt.starting" : "engineSetup.device.starting")
     : auth || error ? t("engineSetup.device.tryAgain")
     : t(browserPkce ? "engineSetup.chatgpt.start" : copy.start);
+
+  if (compact) {
+    const link = auth?.phase === "waiting" ? (browserPkce ? chatgptPlanLink(auth.authorizationUrl) : deviceSignInLink(provider, auth.authorizationUrl, auth.userCode)) : null;
+    const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
+    return (
+      <div className="space-y-3" data-device-sign-in={provider} data-chatgpt-plan-sign-in={browserPkce || undefined}>
+        {auth && auth.phase !== "waiting" && <DeviceSignInProgress auth={auth} browserPkce={browserPkce} provider={provider} />}
+        {busy && !auth && (
+          <p role="status" className="flex items-center gap-1.5 text-[13px] text-ink-secondary"><Loader2 size={13} className="animate-spin" /> {t(browserPkce ? "engineSetup.chatgpt.starting" : "engineSetup.device.starting")}</p>
+        )}
+        {auth?.phase === "waiting" && (link ? (
+          <>
+            {!browserPkce && auth.userCode && (
+              <p className="text-[13px] text-ink-secondary">{t(copy.enterCode)} <code className="select-all font-mono font-semibold tracking-widest text-ink">{auth.userCode}</code></p>
+            )}
+            <p role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-secondary">
+              <Loader2 size={13} className="animate-spin" /> {t("accounts.sheet.waiting")}
+              <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline" onClick={(event) => {
+                if (window.laterdog?.openExternal) { event.preventDefault(); void openExternalLink(link); }
+              }}>{t("accounts.sheet.reopen")} <ExternalLink size={12} /></a>
+            </p>
+          </>
+        ) : (
+          <p role="alert" className="text-[13px] text-danger">{t(browserPkce ? "engineSetup.chatgpt.invalidChallenge" : copy.invalidChallenge)}</p>
+        ))}
+        {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
+        {auth?.phase !== "succeeded" && (
+          <div className="flex justify-end gap-2">
+            {auth?.phase !== "waiting" && !busy && started && (
+              <button type="button" onClick={() => void start()} className={pill}>{t("engineSetup.device.tryAgain")}</button>
+            )}
+            <button type="button" disabled={busy && auth?.phase === "waiting"} onClick={() => void cancel()} className={pill}>
+              {busy && auth?.phase === "waiting" ? t("engineSetup.device.cancelling") : t("common.cancel")}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="mt-3 space-y-2" data-device-sign-in={provider} data-chatgpt-plan-sign-in={browserPkce || undefined}>

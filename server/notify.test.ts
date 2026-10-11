@@ -55,6 +55,13 @@ describe("buildNotification", () => {
     expect(buildNotification("turn-failed", bot, "thread-1", "")).not.toBeNull();
   });
 
+  it("reads a finished reply as plain words and keeps an approval's command exact", () => {
+    expect(buildNotification("done", bot, "thread-1", "## Tool test complete\n\n- [x] Created `notes.md`")?.body)
+      .toBe("Tool test complete Created notes.md");
+    expect(buildNotification("approval", bot, "thread-1", "Bash: find . -name *test*")?.body)
+      .toBe("Bash: find . -name *test*");
+  });
+
   it("uses the thread it was raised on, not the bot's current one", () => {
     // a routine runs a bot in a detached task; the notification has to open
     // that conversation, not whatever the bot happens to be showing

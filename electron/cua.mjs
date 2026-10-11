@@ -14,7 +14,7 @@
 // The resulting connection descriptor is written to
 // <userData>/cua-connection.json for the harness server to hand to drivers.
 
-import { app, ipcMain } from "electron";
+import { app, ipcMain, systemPreferences } from "electron";
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
@@ -24,6 +24,7 @@ import net from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import localOriginModule from "./local-origin.cjs";
+import { permissionChecklist } from "./mac-permissions.mjs";
 
 // Local control answers only the local server's UI (electron/local-origin.cjs).
 const { localOnly } = localOriginModule;
@@ -174,14 +175,7 @@ function socketAlive(sockPath) {
 }
 
 async function loadEmbeddedSdk() {
-  if (!app.isPackaged) {
-    if (process.platform === "win32") return import("@trycua/cua-driver/embedded");
-    const [embedded, permissions] = await Promise.all([
-      import("@trycua/cua-driver/embedded"),
-      import("@trycua/cua-driver/electron"),
-    ]);
-    return { ...embedded, ...permissions };
-  }
+  if (!app.isPackaged) return import("@trycua/cua-driver/embedded");
   const isWindows = process.platform === "win32";
   process.env.LATERDOG_CUA_SDK_LIBRARY = path.join(
     process.resourcesPath,
@@ -233,18 +227,13 @@ async function startEmbedded(binary, signal) {
   // excludes general node_modules, so a bare package import only works in dev.
   const sdk = await loadEmbeddedSdk();
   signal.throwIfAborted();
-  // CUA's embedding contract requires grants before the child daemon starts;
-  // these SDK calls execute in Electron main so macOS attributes them to
-  // later.dog rather than to a terminal or helper process.
   if (process.platform === "darwin") {
-    const permissionStatus = sdk.requestMacOSPermissions();
-    if (!sdk.hasRequiredMacOSPermissions(permissionStatus)) {
-      const missing = [
-        !permissionStatus.accessibility && "Accessibility",
-        !permissionStatus.screenRecording && "Screen Recording",
-      ].filter(Boolean).join(" and ");
-      throw new Error(`${missing || "macOS permissions"} required; grant access in System Settings and restart later.dog`);
-    }
+    const checklist = permissionChecklist({ platform: process.platform, systemPreferences });
+    const missing = [
+      checklist.accessibility !== "granted" && "Accessibility",
+      checklist.screen !== "granted" && "Screen Recording",
+    ].filter(Boolean).join(" and ");
+    if (missing) throw new Error(`${missing} required; later.dog asks for them when a dog first uses this Mac`);
   }
   // The native SDK owns the child lifecycle but exposes no windowsHide option.
   const host = new sdk.EmbeddedCuaDriverHost(resolveEmbeddedDriverBinary(binary), HOST_BUNDLE_ID);

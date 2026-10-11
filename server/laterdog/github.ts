@@ -99,7 +99,7 @@ export class GitHubPublisher {
     if (previousHead && previousHead !== head && previousHead !== job.baseSha) throw new Error("Output branch moved; refusing to overwrite another writer");
     await this.git(dir, ["push", "origin", `HEAD:refs/heads/${job.outputBranch}`]);
     if (existing) return { headSha: head, prUrl: existing.url, prNumber: existing.number };
-    const body = `${summary ?? job.title}\n\nJob: ${job.id}\nWrite scopes: ${job.writeScopes.join(", ")}\nRequirements are retained in the private workspace.\n\nCreated by later.dog.\n\nCloud task: ${job.taskUrl ?? job.taskId}\nStarting commit: ${job.baseSha}\nVerification and independent review are tracked separately; this PR is not yet marked verified.`;
+    const body = `${summary ?? job.title}\n\nJob: ${job.id}\nWrite scopes: ${job.writeScopes.join(", ")}\nRequirements are retained in the private workspace.\n\nCreated by later.dog.\n\nCloud task: ${job.taskUrl || job.taskId}\nStarting commit: ${job.baseSha}\nVerification and independent review are tracked separately; this PR is not yet marked verified.`;
     const bodyPath = join(this.root, `${job.id}-pr.md`); writeFileSync(bodyPath, body, { mode: 0o600 });
     requireSuccess(await this.gh(["pr", "create", "--repo", repo.slug, "--head", job.outputBranch, "--base", repo.baseRef,
       "--title", job.title, "--body-file", bodyPath, "--draft"]), "Open draft PR");

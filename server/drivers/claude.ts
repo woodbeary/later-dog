@@ -204,9 +204,6 @@ function claudeEnvironment(
   // env-injected at boot); none of them are this CLI's to see.
   stripWorkspaceCredentialEnv(env);
   const applied = applyClaudeInject(env, model);
-  // A key set on purpose for this workspace (Settings → API keys, carried
-  // in the instance environment) stays. One riding along in the parent's
-  // env never does: it would flip a subscription login to pay-as-you-go.
   if (!applied.injected && !instanceEnvironment.ANTHROPIC_API_KEY) delete env.ANTHROPIC_API_KEY;
   return env;
 }
@@ -413,7 +410,7 @@ export function claudeCliUpdate(version: string | null, cli: string): ProviderSn
 
 const DRIVER_KIND = "claudeAgent";
 
-const NO_ANTHROPIC_KEY = "No Anthropic API key — open Settings → API keys.";
+const NO_ANTHROPIC_KEY = "No Anthropic API key — add one in the model picker.";
 
 export interface ClaudeConfig {
   cli: string;
@@ -2512,7 +2509,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
      * native turn, which this driver keeps inside the same logical turn.
      * "refused" when nothing is running here to steer or the stdin write
      * provably failed; the caller queues those words. */
-    const steer = async (threadId: string, text: string): Promise<SteerOutcome> => {
+    const steer = async (threadId: string, text: string, images?: readonly ClaudeImage[]): Promise<SteerOutcome> => {
       const s = sessions.get(threadId);
       if (!s || !s.turn || s.turn.settled || s.closing || s.child.exitCode !== null) return "refused";
       const turn = s.turn;
@@ -2521,7 +2518,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       // The uuid is what the CLI's echo names when a model call takes it in.
       const id = randomUUID();
       turn.pendingSteers.add(id);
-      if (!(await writeUser(s, threadId, { ...claudeUserMessage(text, undefined), uuid: id }))) {
+      if (!(await writeUser(s, threadId, { ...claudeUserMessage(text, images), uuid: id }))) {
         turn.pendingSteers.delete(id);
         return "refused";
       }
@@ -2677,6 +2674,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           nativeImageInput: true,
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
           queueing: true,
+          steerImages: true,
           // Only while this CLI can be told to refresh a resumed session's
           // recorded system prompt (--system-prompt-snapshot). Keeping a
           // session across an update from outside it means the harness keeps

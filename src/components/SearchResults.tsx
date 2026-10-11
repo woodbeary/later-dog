@@ -54,7 +54,7 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
 
   return (
     <div className="mt-2 border-t border-hairline/40 pt-2">
-      <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-secondary">
+      <div className="px-3 pb-1 text-[12px] font-semibold text-ink-secondary">
         Messages{hits ? ` · ${hits.length}${hits.length === 40 ? "+" : ""}` : ""}
       </div>
       {error && <div className="px-3 py-2 text-[12.5px] text-danger">couldn't search: {error}</div>}
@@ -77,7 +77,7 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
             )}
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline gap-1.5 text-[12px] text-ink-secondary">
-                <span className="truncate font-medium text-ink">{hit.from ?? hit.name}</span>
+                <span className="max-w-[60%] shrink-0 truncate font-medium text-ink">{hit.from ?? hit.name}</span>
                 {hit.task ? <span className="truncate">· {hit.task}</span> : null}
                 <span className="ml-auto shrink-0 tabular-nums">{formatTime(hit.at)}</span>
               </span>

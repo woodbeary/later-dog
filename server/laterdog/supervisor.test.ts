@@ -140,7 +140,7 @@ describe("durable cloud orchestration",() => {
     expect(submit.mock.calls[0][3]).toMatchObject({ jobId: job.id, repository: "fixture/first", baseSha: SHA, sourceRef: `laterdog/input/${job.id}` });
     const uncertain = claude.create({ requestKey: randomUUID(), repository: "fixture/second", title: "No routine", brief: "x", profileId: "claude" }); await claude.tick();
     expect(f.store.job(uncertain.id).state).toBe("needs_attention"); expect(f.store.job(uncertain.id).blocker).toMatch(/No claude-cloud environment/);
-    expect(claude.snapshot().backends.map((b) => b.id)).toEqual(["claude-cloud","cursor-cloud","cloudflare-sandbox","claude-managed-agents"]);
+    expect(claude.snapshot().backends.map((b) => b.id)).toEqual(["claude-cloud","laterdog-cloud","cursor-cloud","cloudflare-sandbox","claude-managed-agents"]);
     expect(f.supervisor.snapshot().backends.find((b) => b.id === "claude-cloud")?.enabled).toBe(false);
   });
   it("records unsupported native cancellation truthfully",async () => {

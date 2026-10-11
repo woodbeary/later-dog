@@ -2,7 +2,7 @@
 // from /api/connectors/catalog — the full toolkit list with logos when a
 // Composio API key is configured, a curated set otherwise. Icons resolve
 // logo → favicon → monogram.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Check, Loader2, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
 import { api, useStore, type Bot, type InstanceInfo } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -15,6 +15,7 @@ import { mcpSignInLink } from "@/lib/mcp-sign-in";
 import { managedConnectorUnavailableReason } from "../../shared/connector-availability";
 import { connectorServiceAccess, isConnectorToolGrantShape } from "@/lib/connector-grants";
 import { MCP_CONNECTORS, connectorMatchesSearch } from "@/lib/mcp-connectors";
+import { ComposioKeyNotice } from "./ApiKeys";
 import { BotAvatar } from "./Avatar";
 import { McpConnectorCards } from "./McpConnectorCards";
 import { McpServersPanel } from "./McpServersPanel";
@@ -187,7 +188,7 @@ export function connectedInventoryCopy(phase: ConnectorInventoryPhase) {
   };
   return {
     title: t("connectors.empty.noneTitle"),
-    description: t("connectors.empty.noneDesc"),
+    description: t("connectors.empty.noneHint"),
   };
 }
 
@@ -323,6 +324,7 @@ export function PluginsPanel() {
   const [source, setSource] = useState<"api" | "curated">("curated");
   const [pagination, setPagination] = useState<CatalogPagination | null>(null);
   const [configured, setConfigured] = useState(false);
+  const [catalogRead, readCatalogAgain] = useReducer((read: number) => read + 1, 0);
   const [mode, setMode] = useState<"managed" | "self-hosted" | "unavailable">("unavailable");
   const [setup, setSetup] = useState<ConnectorSetup | undefined>(undefined);
   // Paint what we last knew before any request goes out: the module cache if
@@ -471,7 +473,7 @@ export function PluginsPanel() {
     return () => {
       alive = false;
     };
-  }, [loadConnectionInventory]);
+  }, [loadConnectionInventory, catalogRead]);
 
   useEffect(() => {
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -610,10 +612,11 @@ export function PluginsPanel() {
       .finally(() => setBusySlug(null));
   };
 
-  const matching = (cards ?? []).filter(
-    (c) => !search || `${c.label} ${c.slug} ${c.blurb}`.toLowerCase().includes(search.toLowerCase()),
-  );
   const isConnected = (slug: string) => Boolean(status[slug]?.connected || status[slug]?.accounts?.length);
+  const matching = (cards ?? []).filter(
+    (c) => (!search || `${c.label} ${c.slug} ${c.blurb}`.toLowerCase().includes(search.toLowerCase()))
+      && (isConnected(c.slug) || !MCP_CONNECTORS.some((connector) => connector.id === c.slug)),
+  );
   const filter: AppsFilter = surface === "mcp" ? "mcp" : tab === "connected" ? "connected" : "all";
   const whopMatches = !search || `whop ${t("whop.description")}`.toLowerCase().includes(search.toLowerCase().trim());
   const showWhop = whopMatches && (filter === "all" || (filter === "connected" && whopConnected !== false));
@@ -627,8 +630,6 @@ export function PluginsPanel() {
     .map((card, index) => ({ card, index }))
     .sort((a, b) => Number(isConnected(b.card.slug)) - Number(isConnected(a.card.slug)) || a.index - b.index)
     .map(({ card }) => card);
-  // The full catalog runs past a thousand apps. Without a search, show the
-  // first screenful so the MCP section below stays a short scroll away.
   const capped = filter === "all" && !search && !showAllApps && visible.length > APPS_PREVIEW_COUNT;
   const shown = capped ? visible.slice(0, APPS_PREVIEW_COUNT) : visible;
   const connectedCount = Object.values(status).filter((service) => service.connected || service.accounts?.length).length + Number(whopConnected === true)
@@ -651,7 +652,7 @@ export function PluginsPanel() {
   const filters: Array<{ id: AppsFilter; label: string }> = [
     { id: "all", label: t("apps.filter.all") },
     { id: "connected", label: `${t("apps.filter.connected")}${connectedCount > 0 ? ` ${connectedCount}` : ""}` },
-    { id: "mcp", label: t("apps.filter.mcp") },
+    { id: "mcp", label: t("apps.filter.custom") },
   ];
 
   return (
@@ -676,7 +677,7 @@ export function PluginsPanel() {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <h2 id="plugins-title" className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{t("apps.title")}</h2>
-              <p className="mt-1 text-[13px] text-ink-secondary">{t("apps.subtitle")}</p>
+              <p className="mt-1 text-[13px] text-ink-secondary">{t("apps.subtitleShort")}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <label className="hidden h-10 w-[260px] items-center gap-2.5 rounded-xl bg-control/70 px-3.5 md:flex">
@@ -749,27 +750,9 @@ export function PluginsPanel() {
             </div>
           )}
           {/* Not set up yet is not an outage: see connectorSetupNotice. */}
-          {setupNotice && filter !== "mcp" && (
-            <div
-              className={cn(
-                "mb-2 rounded-xl px-4 py-3 text-[13px]",
-                setupNotice.tone === "warning" ? "bg-warning/10 text-warning" : "glass-card text-ink-secondary",
-              )}
-            >
-              {t(whopConnected ? "whop.otherAppsSetup" : setupNotice.key)}{" "}
-              <button
-                className={cn(
-                  "font-medium underline underline-offset-2",
-                  setupNotice.tone === "info" && "text-ink",
-                  remoteClient && "hidden",
-                )}
-                onClick={() => {
-                  close();
-                  dispatch({ type: "toggleAppSettings", open: true, section: "connections" });
-                }}
-              >
-                {t("connectors.openSettings")}
-              </button>
+          {setupNotice?.tone === "warning" && filter !== "mcp" && (
+            <div className="mb-2 rounded-xl bg-warning/10 px-4 py-3 text-[13px] text-warning">
+              {t(whopConnected ? "whop.otherAppsSetup" : setupNotice.key)}
             </div>
           )}
           {botsWithoutApps.length > 0 && (
@@ -792,17 +775,7 @@ export function PluginsPanel() {
           )}
           {configured && !remoteClient && source === "curated" && mode === "self-hosted" && filter !== "mcp" && (
             <div className="mb-2 text-[12px] text-ink-secondary">
-              {t("connectors.featuredBefore")}{" "}
-              <button
-                className="underline underline-offset-2 hover:text-ink"
-                onClick={() => {
-                  close();
-                  dispatch({ type: "toggleAppSettings", open: true });
-                }}
-              >
-                {t("connectors.updateKey")}
-              </button>{" "}
-              {t("connectors.featuredAfter")}
+              {t("connectors.featuredBefore")}
             </div>
           )}
           {error && <div role="alert" className="mb-2 mt-1 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">{typeof error === "string" ? error : t(error.key)}</div>}
@@ -835,6 +808,9 @@ export function PluginsPanel() {
                   one click each, with no key to set up first. */}
               <McpConnectorCards connectors={shownConnectors} refreshKey={whopRefresh} onConnected={setConnectedConnectors}
                 onServersChange={() => setWhopRefresh((value) => value + 1)} />
+              {filter === "all" && setupNotice?.tone === "info" && shown.length > 0 && (
+                <ComposioKeyNotice remote={remoteClient} onSaved={readCatalogAgain} />
+              )}
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
                 <div className={showWhop ? "contents" : "hidden"}>
                   <McpServersPanel whopCard refreshKey={whopRefresh} onWhopConnection={setWhopConnected} />
@@ -881,9 +857,9 @@ export function PluginsPanel() {
             </section>
           )}
 
-          {filter !== "connected" && (
-            <div className={cn(filter === "all" && "mt-8 border-t border-hairline/30 pt-6", filter === "mcp" && "pt-3")}>
-              <McpServersPanel embedded hideWhop={filter === "all"} refreshKey={whopRefresh} />
+          {filter === "mcp" && (
+            <div className="pt-3">
+              <McpServersPanel embedded refreshKey={whopRefresh} />
             </div>
           )}
         </div>
@@ -1053,26 +1029,26 @@ export function PluginsPanel() {
         {(serviceStatus?.connected || included) && (() => {
           const limited = botsWithLimitedServiceTools(state.bots, state.instances, card.slug);
           if (!limited.length) return null;
-          const names = limited.slice(0, 4).map((candidate, index) => (
-            <span key={candidate.id}>
-              {index > 0 && ", "}
-              <button
-                type="button"
-                onClick={() => {
-                  close();
-                  dispatch({ type: "toggleSettings", open: true, botId: candidate.id, section: "access" });
-                }}
-                className="font-medium text-ink underline underline-offset-2 hover:text-accent-text"
-              >
-                {candidate.name}
-              </button>
-            </span>
-          ));
           return (
-            <div className="mt-2 text-[11px] leading-relaxed text-ink-secondary">
-              <span>{t("connectors.grants.limited", { count: limited.length })}</span>{" "}
-              {names}
-              {limited.length > 4 && <span>{t("connectors.grants.more", { count: limited.length - 4 })}</span>}
+            <div data-limited-tools={card.slug} className="mt-2 text-[11px] leading-relaxed text-ink-secondary">
+              <span>{t("connectors.grants.limited", { count: limited.length })}</span>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {limited.map((candidate) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    data-allow-all-tools={candidate.id}
+                    onClick={() => dispatch({
+                      type: "updateBot",
+                      botId: candidate.id,
+                      patch: { connectorTools: { ...candidate.connectorTools, [card.slug]: { tools: "*" } } },
+                    })}
+                    className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-raised-hover"
+                  >
+                    {t("connectors.grants.allowAll", { name: candidate.name })}
+                  </button>
+                ))}
+              </div>
             </div>
           );
         })()}

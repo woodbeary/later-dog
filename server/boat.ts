@@ -504,7 +504,7 @@ const boatIdCache = new Map<string, string>();
 
 function boatInventoryProblem(status: number, body: any, included = false): string {
   if (status === 401 || status === 403) {
-    return included ? INCLUDED_BOAT_UNAVAILABLE : "boat.dev rejected the Boat API key — update it in Settings → API keys";
+    return included ? INCLUDED_BOAT_UNAVAILABLE : "boat.dev rejected the Boat API key — update it in Settings → Computer";
   }
   if (status === 429) return "boat.dev is rate-limiting this account — wait a minute and refresh";
   const message = typeof body?.message === "string" ? body.message.trim() : "";
@@ -827,7 +827,7 @@ function inventoryFailure(inventory: ManagedBoatInventory): Error & { status: nu
   const error = new Error(
     inventory.configured
       ? (inventory.problem ?? "Cloud computer inventory is unavailable")
-      : "Boat is not configured — add its API key in Settings → API keys",
+      : "Boat is not configured — add its API key in Settings → Computer",
   ) as Error & { status: number };
   error.status = inventory.configured ? 503 : 409;
   return error;
@@ -1083,7 +1083,7 @@ export function boatErrorMessage(status: number, what: string, body?: any, inclu
   }
   if (status === 401 || status === 403) {
     if (included) return INCLUDED_BOAT_UNAVAILABLE;
-    return "your box token was rejected by boat.dev — open App Settings and paste a current token (it starts with box_)";
+    return "your box token was rejected by boat.dev — open Settings → Computer and paste a current token under Cloud computers (it starts with box_)";
   }
   if (status === 429) {
     return theirs || "boat.dev is rate-limiting this account — wait a minute and try again";

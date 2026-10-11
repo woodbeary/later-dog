@@ -15,7 +15,7 @@ const binary = resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.e
 const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(binary);
 if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1 to install the pinned browser");
 
-(enabled ? it : it.skip)("creates an empty team, moves bots, and manages shared instructions in the renderer", async () => {
+(enabled ? it : it.skip)("creates an empty pack, moves dogs, and renames and deletes packs from the sidebar", async () => {
   let child: ChildProcess | undefined;
   let preview: MountedPreview | undefined;
   let fixtureHandle: string | undefined;
@@ -62,13 +62,6 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     const snapshot = async () => (await ui("snapshot")).snapshot as string;
     const evaluate = async (source: string) => (await ui("eval", "--js", source)).result;
     const focused = () => evaluate("document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim()");
-    const manage = async (name: string) => {
-      // Native summary nodes have no refs in the pinned browser snapshot.
-      const selector = `[data-team-key=${JSON.stringify(name)}] summary`;
-      await expect.poll(async () => (await ui("eval", "--js", `Boolean(document.querySelector(${JSON.stringify(selector)}))`)).result,
-        { timeout: 10_000 }).toBe(true);
-      await ui("eval", "--js", `(() => { const summary = document.querySelector(${JSON.stringify(selector)}); if (!summary.parentElement.open) summary.click(); return summary.parentElement.open; })()`);
-    };
     const api = (path: string, method = "GET", body?: unknown) => request(path, { method,
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, info.url);
     const control = (...args: string[]) => runControlLaterDog([...args, "--url", info.url]);
@@ -110,16 +103,14 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     await type("Pack name", "Delivery");
     await click("Save name");
     await expect.poll(snapshot).toContain('button "Delivery"');
-    // later.dog's sidebar lists Pack map directly in its Tools navigation; there is no Tools toggle to open first.
-    await click("Pack map");
-    await manage("Delivery");
-    await click("Move dogs to Delivery");
+    await teamMenu("Delivery");
+    await click("Add dogs");
     await click("Researcher");
     await click("Engineer");
     await click("Save");
     await expect.poll(async () => (await api("/api/bots?messages=0")).bots.filter((bot: any) => bot.section === "Delivery").length).toBe(2);
-    await manage("Delivery");
-    await click("Move dogs to Delivery");
+    await teamMenu("Delivery");
+    await click("Add dogs");
     await click("Researcher");
     // Hold only the creation response: persistence and SSE remain real. The
     // user can dismiss the nested dialog while that request is in flight.
@@ -152,32 +143,20 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     await click("Save");
     await expect.poll(async () => (await api("/api/bots?messages=0")).bots.find((bot: any) => bot.id === a.id)?.section).toBeUndefined();
     expect((await api("/api/bots?messages=0")).bots.find((bot: any) => bot.id === created!.id)?.section).toBe("Delivery");
-    await manage("Delivery");
-    await click("Edit Delivery shared instructions");
-    await type("Delivery shared instructions", "Research first, then build and review.");
-    await click("Save shared instructions");
-    expect((await api("/api/section-context?section=Delivery")).text).toBe("Research first, then build and review.");
-
-    await ui("eval", "--js", "location.reload(); true");
-    await expect.poll(snapshot, { timeout: 15_000 }).toContain('button "Delivery"');
-    await click("Pack map");
-    await manage("Delivery");
-    expect(await snapshot()).toContain("Edit Delivery shared instructions");
-    // A second fixture client moves the bots out. SSE must keep the empty
-    // team visible and make rename/delete available without a reload.
+    await api("/api/section-context?section=Delivery", "PUT", { text: "Research first, then build and review." });
     await api("/api/sidebar-sections", "POST", { name: "", botIds: [a.id, b.id, created!.id] });
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("Rename Delivery pack");
-    await click("Rename Delivery pack");
+    await expect.poll(async () => (await api("/api/bots?messages=0")).bots.some((bot: any) => bot.section === "Delivery")).toBe(false);
+    await teamMenu("Delivery");
+    await click("Rename pack");
     await type("Pack name", "Launch");
     await click("Save name");
-    await manage("Launch");
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("Edit Launch shared instructions");
+    await expect.poll(snapshot, { timeout: 10_000 }).toContain('button "Launch"');
     expect((await api("/api/section-context?section=Launch")).text).toBe("Research first, then build and review.");
     const screenshot = join(ROOT, ".laterdog-scratch", "verify-evidence", "team-lifecycle.png");
     await ui("screenshot", "--out", screenshot);
     await teamMenu("Launch");
     await click("Delete pack");
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain('alertdialog "Delete Launch team?"');
+    await expect.poll(snapshot, { timeout: 10_000 }).toContain('alertdialog "Delete Launch pack?"');
     await ui("eval", "--js", `(() => {
       const original = window.fetch.bind(window); window.teamDeleteRequests = 0;
       window.fetch = async (url, init) => {
@@ -187,7 +166,7 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
         }
         return original(url, init);
       };
-      const button = [...document.querySelectorAll('[role="alertdialog"] button')].find(node => node.textContent === 'Delete team');
+      const button = [...document.querySelectorAll('[role="alertdialog"] button')].find(node => node.textContent === 'Delete pack');
       button.click(); button.click(); return true;
     })()`);
     await expect.poll(async () => (await ui("eval", "--js", "document.querySelector('[role=alertdialog]')?.getAttribute('aria-busy')")).result).toBe("true");
@@ -195,7 +174,7 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     expect((await ui("eval", "--js", "document.activeElement.getAttribute('role')")).result).toBe("alertdialog");
     expect((await ui("eval", "--js", "[...document.querySelectorAll('[role=alertdialog] button')].every(button => button.disabled)")).result).toBe(true);
     await ui("press", "--keys", "Escape");
-    expect(await snapshot()).toContain('alertdialog "Delete Launch team?"');
+    expect(await snapshot()).toContain('alertdialog "Delete Launch pack?"');
     await ui("press", "--keys", "Tab");
     expect((await ui("eval", "--js", "document.activeElement.getAttribute('role')")).result).toBe("alertdialog");
     await ui("eval", "--js", "window.releaseTeamDelete(); true");
@@ -209,14 +188,14 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     // The server commits before the pending DELETE response reaches React.
     // Finish this UI action before the next fixture client creates a section;
     // otherwise its SSE update can race the previous response's section list.
-    await expect.poll(snapshot).not.toContain('alertdialog "Delete Launch team?"');
+    await expect.poll(snapshot).not.toContain('alertdialog "Delete Launch pack?"');
 
     // Section management is available where the section lives, without
     // requiring the team map. Cancel and Escape must leave its brief intact.
     await api("/api/sidebar-sections", "POST", { name: "Sidebar empty" });
     await api("/api/section-context?section=Sidebar%20empty", "PUT", { text: "Keep this until deletion is confirmed." });
     await click("Delete Sidebar empty section");
-    await expect.poll(snapshot).toContain('alertdialog "Delete Sidebar empty team?"');
+    await expect.poll(snapshot).toContain('alertdialog "Delete Sidebar empty pack?"');
     expect(await focused()).toBe("Cancel");
     await ui("press", "--keys", "Shift+Tab");
     expect(await focused()).toBe("Delete pack");
@@ -244,7 +223,7 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     expect(transcript.length).toBeGreaterThan(0);
     const deleteSectionByIcon = async (name: string) => {
       await click(`Delete ${name} section`);
-      await expect.poll(snapshot).toContain(`alertdialog "Delete ${name} team?"`);
+      await expect.poll(snapshot).toContain(`alertdialog "Delete ${name} pack?"`);
       expect(await focused()).toBe("Cancel");
       expect(await evaluate("document.querySelector('[role=alertdialog]')?.textContent")).toContain(
         "Dogs and group chats move to General with their conversations intact.",

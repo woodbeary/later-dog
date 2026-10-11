@@ -5,8 +5,6 @@
 // broadcast on every transition, to this computer's page and to the person's
 // own Cloud page.
 //
-// Only runs in the packaged, signed+notarized app (mac auto-update requires
-// signing). In dev it's a no-op so the browser/dev shell is unaffected.
 // electron-updater is vendored (electron/vendor/electron-updater.cjs) because
 // the packaged app ships no node_modules.
 import { app, clipboard, ipcMain } from "electron";
@@ -21,6 +19,7 @@ import {
 } from "./package-install-command.mjs";
 import { startReleaseCheck } from "./release-check.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
+import { updateFeedUrl } from "./update-feed.mjs";
 import { createUpdaterCoordinator } from "./updater-coordinator.mjs";
 
 const require = createRequire(import.meta.url);
@@ -116,9 +115,19 @@ export function attachUpdaterWindow(mainWindow) {
   win = mainWindow;
 }
 
+function packagedUpdateFeed() {
+  let packageJson = null;
+  try {
+    packageJson = JSON.parse(readFileSync(join(app.getAppPath(), "package.json"), "utf8"));
+  } catch {
+    packageJson = null;
+  }
+  return updateFeedUrl({ env: process.env, packageJson });
+}
+
 export function startUpdater() {
-  // dev / unsigned builds can't auto-update — leave the banner dormant
-  if (!app.isPackaged || !process.env.LATERDOG_UPDATE_URL) {
+  const feed = app.isPackaged ? packagedUpdateFeed() : null;
+  if (!feed) {
     updaterCoordinator = null;
     setState({ status: "idle" });
     // A packaged build with no feed still says when GitHub has a newer
@@ -139,14 +148,12 @@ export function startUpdater() {
   // The coordinator starts the download itself the moment a check finds an
   // update, so it owns that download (macOS staging, quiet failures).
   autoUpdater.autoDownload = false;
-  try {
-    const feed = new URL(process.env.LATERDOG_UPDATE_URL);
-    if (feed.protocol !== "https:" || feed.username || feed.password) throw new Error("later.dog updates require an HTTPS feed without URL credentials");
-    autoUpdater.setFeedURL({ provider: "generic", url: feed.href });
-  } catch (error) {
-    setState({ status: "error", message: error.message });
+  autoUpdater.disableDifferentialDownload = true;
+  if (feed.error) {
+    setState({ status: "error", message: feed.error });
     return;
   }
+  autoUpdater.setFeedURL({ provider: "generic", url: feed.url });
   autoUpdater.logger = updaterLogger();
 
   // Broadcast the install flavour before the first check so the banner never

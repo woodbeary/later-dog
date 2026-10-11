@@ -3,27 +3,25 @@
 // renderer's reading of the same facts, for the composer chip, the panel
 // tabs and the place icon on a tool chip.
 import { cloudHomeOffersPlace } from "../../shared/cloud-home";
+import { offersPlace } from "../../shared/places";
 import { toolSurfaceKind } from "../../shared/tool-surface";
 import type { Bot, Task } from "@/state/store";
 import type { LocaleKey } from "@/locales";
 
 export type Place = "cloud" | "vm" | "local" | "browser";
-export const PLACES: readonly Place[] = ["cloud", "vm", "local", "browser"];
+export const PLACES: readonly Place[] = ["cloud", "local"];
 /** What the chip shows: a place, the bot's Auto, or Off. */
 export type EffectivePlace = Place | "auto" | "off";
 
-/** Whether this server offers a place at all. A later.dog Cloud home offers no
- * "this computer" and no Local VM (shared/cloud-home.ts), so the pickers do
- * not list them there; every other server offers all four. */
 export function placeOffered(place: Place, config: { cloudHome?: boolean } | null | undefined): boolean {
-  return !config?.cloudHome || cloudHomeOffersPlace(place);
+  return offersPlace(place) && (!config?.cloudHome || cloudHomeOffersPlace(place));
 }
 
-/** The conversation's pin wins over the bot's Works on, except Off, exactly
- * as the server resolves it. */
 export function effectivePlace(bot: Pick<Bot, "computer">, task?: Pick<Task, "surface"> | null): EffectivePlace {
   if (bot.computer === "off") return "off";
-  return task?.surface ?? bot.computer ?? "auto";
+  const pin = task?.surface;
+  if (offersPlace(pin)) return pin;
+  return offersPlace(bot.computer) ? bot.computer : "auto";
 }
 
 export function isComputerPlace(place: EffectivePlace): place is "cloud" | "vm" | "local" {

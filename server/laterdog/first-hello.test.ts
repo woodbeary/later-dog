@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { SEED_GREETING, firstHelloPrompt, personalGreeting, sayFirstHello, type FirstHelloDeps } from "./first-hello.ts";
 
-function fixture(messages: { id: string; role: string; kind?: string; text?: string }[], canRun = true) {
+function fixture(messages: { id: string; role: string; kind?: string; text?: string }[], canRun = true, title?: string) {
   const patched: { id: string; text: string }[] = [];
   const started: string[] = [];
   const deps: FirstHelloDeps = {
-    bot: (id) => (id === "dog" ? { id: "dog", name: "Biscuit", threadId: "t1", modelSelection: { instanceId: "claude" } } : undefined),
+    bot: (id) => (id === "dog" ? { id: "dog", name: "Biscuit", title, threadId: "t1", modelSelection: { instanceId: "claude" } } : undefined),
     messages: () => messages,
     patchMessage: (_thread, id, patch) => { patched.push({ id, text: patch.text }); },
     personName: () => "Jacob",
@@ -25,6 +25,15 @@ describe("the first dog speaks first", () => {
     expect(started).toHaveLength(1);
     expect(started[0]).toContain("do not greet again");
     expect(started[0]).toContain("what should you help with first");
+  });
+
+  it("tells the dog what the person said it is for, so the options fit that purpose", async () => {
+    const { deps, started } = fixture([seed], true, "Email and calendar");
+    expect(await sayFirstHello(deps, "dog")).toEqual({ greeted: true, asked: true });
+    expect(started[0]).toContain('wrote what you are for: "Email and calendar"');
+    expect(started[0]).toContain("that fit that purpose");
+    expect(started[0]).not.toContain("Code and GitHub");
+    expect(firstHelloPrompt("Jacob", "Biscuit", "  ")).toContain("Code and GitHub");
   });
 
   it("keeps the corrected greeting and starts no turn when the dog's engine cannot answer yet", async () => {

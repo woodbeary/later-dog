@@ -1,9 +1,3 @@
-// The macOS permissions checklist as the renderer sees it: the three grants a
-// bot on this Mac needs, what the desktop bridge reports for each, and the
-// decisions every surface shares (the welcome tour's Permissions step,
-// Settings → Computers → Permissions, the Bot's computer panel). Pure, so the
-// decisions are unit tested without React; the bridge itself is
-// electron/mac-permissions.mjs, exposed as window.laterdog.permissions.
 import { t } from "./i18n";
 import { missingMacCuaPermissions, type MacCuaPermission } from "./mac-cua-permissions";
 

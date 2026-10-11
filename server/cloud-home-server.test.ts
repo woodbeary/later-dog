@@ -360,11 +360,9 @@ it("records when a bot's turn first finished here, once, in the Cloud's own sett
   expect(await first()).toBe(recorded);
 });
 
-it("offers its bots the browser and cloud computers only, and tells them they cannot see the person's computer", async () => {
-  // The browser is on with no welcome to turn it on; the app is told this is
-  // a Cloud home, so it lists no this computer and no Local VM either.
+it("offers its bots cloud computers only, and tells them they cannot see the person's computer", async () => {
   const status = await api("GET", "/api/config");
-  expect(status.body).toMatchObject({ cloudHome: true, features: { browser: true } });
+  expect(status.body).toMatchObject({ cloudHome: true });
   writeFileSync(join(home, "hang"), "");
   const created = await api("POST", "/api/bots", { body: {
     name: "Desk fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true,
@@ -392,21 +390,20 @@ it("offers its bots the browser and cloud computers only, and tells them they ca
     });
     const listed = await (await select()).json() as { canSelect: boolean; options: Array<{ surface: string }> };
     expect(listed.canSelect).toBe(true);
-    expect(listed.options.map((option) => option.surface)).toEqual(["cloud", "browser"]);
-    expect(JSON.stringify(listed)).not.toMatch(/this computer|Local VM|container runtime/i);
-    for (const surface of ["local", "vm"] as const) {
-      const refused = await select(surface);
-      expect(refused.status).toBe(409);
-      expect(((await refused.json()) as { error: string }).error).toBe(cloudHomePlaceRefusal(surface));
-    }
+    expect(listed.options.map((option) => option.surface)).toEqual(["cloud"]);
+    expect(JSON.stringify(listed)).not.toMatch(/this computer|Local VM|container runtime|browser/i);
+    const refused = await select("local");
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe(cloudHomePlaceRefusal("local"));
+    expect((await select("vm")).status).toBe(400);
   } finally {
     rmSync(join(home, "hang"), { force: true });
     await api("POST", `/api/bots/${botId}/interrupt`, { body: {} });
   }
 });
 
-it("refuses a bot still set to this computer or a Local VM, saying what is true on a Cloud home", async () => {
-  for (const computer of ["local", "vm"] as const) {
+it("refuses a bot still set to this computer, saying what is true on a Cloud home", async () => {
+  for (const computer of ["local"] as const) {
     const created = await api("POST", "/api/bots", { body: {
       name: `Earlier ${computer} fixture`, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true,
     } });

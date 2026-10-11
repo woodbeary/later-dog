@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FILE_MAX_BYTES } from "@/lib/composer-attachments";
-import { AttachmentGallery, collectMessageFiles, isAudioAttachment, isVideoAttachment, loadMessageAudio, loadMessageVideo, MessageAttachmentGallery, splitMessageAttachments } from "./AttachmentGallery";
+import { AttachmentGallery, collectMessageFiles, isAudioAttachment, isVideoAttachment, loadMessageAudio, loadMessageVideo, MessageAttachmentGallery, sentRowWidth, splitMessageAttachments } from "./AttachmentGallery";
 
 const message = { threadId: "thread/one", messageId: "message two" };
 const file = { path: "/workspace/demo.mp4", name: "demo.mp4", linked: true };
@@ -170,6 +170,42 @@ describe("message gallery", () => {
     expect(markup).not.toContain("Load video");
     expect(markup).not.toContain("<button");
     expect(markup).not.toContain("<img");
+  });
+});
+
+describe("pictures the person sent", () => {
+  const sent = (count: number) => Array.from({ length: count }, (_, index) => ({
+    path: `/store/${index}23e4567-e89b-42d3-a456-426614174000.png`, name: `photo-${index + 1}.png`, private: true,
+  }));
+  const render = (props: Parameters<typeof AttachmentGallery>[0]) => renderToStaticMarkup(createElement(AttachmentGallery, { message, sent: true, ...props }));
+
+  it("lines pictures up at one height, each as wide as its shape needs", () => {
+    expect(sentRowWidth([0.75])).toBe(144);
+    expect(sentRowWidth([1, 1, 1, 1])).toBe(786);
+    expect(sentRowWidth([16 / 9, 4 / 3])).toBe(603);
+    expect(sentRowWidth([])).toBe(0);
+  });
+
+  it("puts four pictures in one row against the right edge, with no fixed width", () => {
+    const markup = render({ images: sent(4) });
+    expect(markup.match(/data-sent-pictures/g)).toHaveLength(1);
+    expect(markup).toContain("items-end");
+    expect(markup).toContain("width:1042px");
+    expect(markup).not.toContain("34rem");
+    expect(markup).not.toContain("grid-cols");
+  });
+
+  it("keeps more than four behind Show more, still one row", () => {
+    const markup = render({ images: sent(6) });
+    expect(markup.match(/data-sent-pictures/g)).toHaveLength(1);
+    expect(markup.match(/photo-\d\.png/g)?.filter((name, index, all) => all.indexOf(name) === index)).toHaveLength(4);
+    expect(markup).toContain("Show 2 more");
+  });
+
+  it("lines files up on the right under the pictures", () => {
+    const markup = render({ images: sent(1), files: [{ path: "/workspace/report.pdf", name: "report.pdf", linked: true }] });
+    expect(markup.indexOf("data-sent-pictures")).toBeLessThan(markup.indexOf("Save a copy of report.pdf"));
+    expect(markup).toContain("width:256px");
   });
 });
 

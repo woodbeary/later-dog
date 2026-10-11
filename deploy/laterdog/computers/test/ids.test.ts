@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isComputerId, newComputerId } from "../src/ids";
+import { TRIAL_ID, isComputerId, newComputerId, newTrialId } from "../src/ids";
 
 describe("computer ids", () => {
   it("are cmp_ plus 12 lowercase base32 characters", () => {
@@ -26,5 +26,18 @@ describe("computer ids", () => {
     for (const bad of ["", "cmp_", "cmp_AAAAAAAAAAAA", "cmp_aaaaaaaaaaa", "cmp_aaaaaaaaaaaaa", "cmp_aaaaaaaaaaa1", "cmp_aaaaaaaaaaa8", "xmp_aaaaaaaaaaaa", " cmp_aaaaaaaaaaaa", "cmp_aaaaaaaaaaaa/"]) {
       expect(isComputerId(bad), bad).toBe(false);
     }
+  });
+});
+
+
+describe("trial ids", () => {
+  it("are trl_ plus 16 lowercase base32 characters", () => {
+    for (let i = 0; i < 200; i++) expect(newTrialId()).toMatch(TRIAL_ID);
+    expect(newTrialId((bytes) => bytes.fill(0))).toBe("trl_aaaaaaaaaaaaaaaa");
+    expect(newTrialId((bytes) => bytes.fill(255))).toBe("trl_7777777777777777");
+  });
+
+  it("are never computer ids", () => {
+    expect(isComputerId(newTrialId())).toBe(false);
   });
 });

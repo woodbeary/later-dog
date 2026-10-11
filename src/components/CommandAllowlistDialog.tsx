@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, Trash2, X } from "lucide-react";
 import type { CommandAllowRule, CommandAllowlistResponse } from "../../shared/command-allowlist";
 import { api, useStore } from "@/state/store";
@@ -85,7 +86,7 @@ export function CommandAllowlistDialog({ botId, botName, threadId, onClose }: {
     }
   };
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
       onMouseDown={(event) => { event.stopPropagation(); if (event.target === event.currentTarget) onClose(); }}
@@ -171,6 +172,7 @@ export function CommandAllowlistDialog({ botId, botName, threadId, onClose }: {
           </>}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

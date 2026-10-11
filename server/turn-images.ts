@@ -13,10 +13,11 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { ATTACHMENTS_DIR, IMAGE_MAX_BYTES } from "./attachments.ts";
 import type { TurnImageInput } from "./contracts.ts";
 import { decodeAttachmentAttribute } from "./message-file.ts";
+import { PICTURES_PER_MESSAGE } from "../shared/picture-limit.ts";
 
 /** Matches the companion composer policy. Four maximum-sized images are
  * bounded to 40 MiB before a provider is asked to ingest them. */
-export const TURN_IMAGE_MAX_COUNT = 4;
+export const TURN_IMAGE_MAX_COUNT = PICTURES_PER_MESSAGE;
 export const TURN_IMAGE_MAX_BYTES = TURN_IMAGE_MAX_COUNT * IMAGE_MAX_BYTES;
 
 type MarkdownNode = {

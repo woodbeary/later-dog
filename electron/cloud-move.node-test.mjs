@@ -815,7 +815,7 @@ test("a server's Copy opens this computer's Settings → Servers on that server'
   const start = source.indexOf("function openWorkspaceSettings("), end = source.indexOf("\n}\n", start) + 3;
   assert.ok(start >= 0 && end > start);
   const calls = [];
-  const context = vm.createContext({ LOCAL_ID: "local", rendererOrigin: () => LOCAL, environmentsState: { environments: SAVED, activeId: "vps" },
+  const context = vm.createContext({ LOCAL_ID: "local", profiles: null, rendererOrigin: () => LOCAL, environmentsState: { environments: SAVED, activeId: "vps" },
     withActive: (state, id) => ({ ...state, activeId: id }), persistEnvironments: state => calls.push(["persist", state.activeId]),
     navigateMainWindow: url => calls.push(["navigate", url]), senderIsLocal: ({ sender }) => sender === localContents,
     mainWindow: { isDestroyed: () => false, webContents: { ...vpsContents, send: (...args) => calls.push(["send", ...args]) } } });

@@ -1,7 +1,7 @@
 # Motion in later.dog
 
 How the app and its dog move: three durations, two easings, a mascot whose ears carry its state, and one rule for reduced
-motion. The design target is the presence-through-motion of Grok Bot's avatars — the mascot shows that it is alive and what
+motion. The design target is presence through motion — the mascot shows that it is alive and what
 it is doing, and the interface moves only to say that something appeared, arrived or answered.
 
 ## Tokens
@@ -38,7 +38,7 @@ later.dog's dog is a front-facing head per breed, drawn from data in `src/compon
 `src/components/DogAvatar.tsx` and moved by `src/components/dog-avatar.css`. A person checks the same things in any dog
 picture: the ears, a pale muzzle with a big dark nose and a mouth, eyes with a glint. Those parts are shared, so the
 roster reads as one family; the breed comes from ear shape, head shape and markings. (An earlier version cut flat
-eyes out of a round head the way Grok Bot draws its roster; at sidebar size those dogs read as bears and fish.)
+eyes out of a round head; at sidebar size those dogs read as bears and fish.)
 
 - **Construction.** Layers, bottom to top: ears that stand (behind the head), the head, markings clipped to it, a soft
   sheen, the muzzle, ears that hang over the face, wrinkle or curl lines, ink eyes with a white glint, brows (shown only

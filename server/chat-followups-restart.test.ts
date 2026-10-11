@@ -121,7 +121,7 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
     const image = join(attachments, "123e4567-e89b-42d3-a456-426614174000.png");
     writeFileSync(image, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7f8AAAAASUVORK5CYII=", "base64"));
     const text = `Inspect screenshot after the first task\n\n<attached-image path="${image}" name="fixture.png" />`;
-    const body = { text, threadId: bot.threadId, replyToId, sendId: "durable_bot_send_123456" };
+    const body = { text, threadId: bot.threadId, replyToId, sendId: "durable_bot_send_123456", deliver: "queue" };
     const queued = await asPairedPerson(`/api/bots/${bot.id}/messages`, body);
     expect(queued).toMatchObject({ queued: true, queueId: expect.any(String) });
     const cancelledBody = { ...body, text: `${text}\n\nCancelled task`, sendId: "cancelled_bot_send_123456" };

@@ -22,8 +22,9 @@
     "SupervisorHost": { "type": "durable-object", "storage": "sqlite" }
   },
   "r2_buckets": [{ "binding": "STATE", "bucket_name": "laterdog-state" }],
+  "services": [{ "binding": "COMPUTERS", "service": "laterdog-computers", "entrypoint": "ComputersApi" }],
   // Optional: the always-on workspace server for conversational wakeups, once one is deployed.
   "vars": { "LATERDOG_WORKSPACE_URL": "" }
   // Secrets (set with `wrangler secret put` after the first Worker-only deploy, before the container deploy):
-  // LATERDOG_TOKEN, LATERDOG_BACKUP_KEY, GH_TOKEN, and optionally CLAUDE_ROUTINE_TOKEN_<REPO> values.
+  // LATERDOG_TOKEN, LATERDOG_BACKUP_KEY, GH_TOKEN, optionally CLAUDE_CODE_OAUTH_TOKEN for laterdog-cloud profiles, and optionally CLAUDE_ROUTINE_TOKEN_<REPO> values.
 }

@@ -62,6 +62,14 @@ describe("Your MCP servers inside the Apps pop-up", () => {
     expect(html).not.toContain("overflow-y-auto");
   });
 
+  it("leaves later.dog's own server out of the list", () => {
+    fixture.servers = [{ name: "laterdog", command: "/usr/local/bin/node", args: [], envKeys: [], enabled: true }];
+    const html = render(true);
+    expect(html).not.toContain("/usr/local/bin/node");
+    expect(html).not.toContain('aria-label="Edit laterdog"');
+    expect(html).toContain("No custom MCP servers yet");
+  });
+
   it("keeps its own scroll and wording when shown on its own", () => {
     const html = render(false);
     expect(html).toContain("overflow-y-auto");

@@ -179,7 +179,7 @@ export function settleCloudOwnership(options: CloudOwnershipOptions): CloudOwner
   const stopped = attempt(options, "mark routines as nobody's", () => options.writers.reassign((person) => revoked.has(person), options.nobodyKey), []);
   if (stopped.length) attempt(options, "pause their routines", () => options.routines.pause(stopped), undefined);
   if (fresh) {
-    options.log("cloud home: only your own devices can connect now. Review Settings → Remote access → Paired devices, and sign out any device that isn't yours.");
+    options.log("cloud home: only your own devices can connect now. Review the signed-in devices (GET /api/auth/sessions) and sign out any device that isn't yours (DELETE /api/auth/sessions/ID).");
   }
   const restoring = record.pendingRestore !== undefined;
   if (record.settled && !restoring) return settledSets(record);

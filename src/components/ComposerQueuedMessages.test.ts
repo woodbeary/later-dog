@@ -7,6 +7,7 @@ import {
   composerCanSteerQueuedMessages,
   doubleEnterSteerWindowExpiresAt,
   doubleEnterSteersQueue,
+  queuedMessageParts,
 } from "./ComposerQueuedMessages";
 import { citationAttachment, createCitationTextSelector, serializeCitation } from "@/lib/citations";
 
@@ -214,5 +215,27 @@ describe("QueuedComposerMessages", () => {
       createElement(QueuedComposerMessages, { items: [], onCancel: () => undefined }),
     );
     expect(markup).toBe("");
+  });
+});
+
+describe("queuedMessageParts", () => {
+  const picture = '<attached-image path="/home/u/.laterdog/attachments/123e4567-e89b-42d3-a456-426614174000.png" name="shot.png" />';
+
+  it("shows a waiting picture as a thumbnail, never as its file path", () => {
+    const parts = queuedMessageParts(`what about this\n\n${picture}`);
+    expect(parts.label).toBe("what about this");
+    expect(parts.pictures).toEqual(["/api/attachments/123e4567-e89b-42d3-a456-426614174000.png"]);
+  });
+
+  it("names a picture sent without words", () => {
+    expect(queuedMessageParts(picture)).toEqual({
+      label: "A picture",
+      pictures: ["/api/attachments/123e4567-e89b-42d3-a456-426614174000.png"],
+    });
+    expect(queuedMessageParts(`${picture}\n${picture}`).label).toBe("2 pictures");
+  });
+
+  it("keeps plain words as they are", () => {
+    expect(queuedMessageParts("actually stop at 10")).toEqual({ label: "actually stop at 10", pictures: [] });
   });
 });

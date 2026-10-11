@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Optional new tag for an unsigned public preview release
+        description: Optional new tag to publish as a release (vX.Y.Z matching package.json, or vX.Y.Z-preview.N)
         type: string
         default: ''
   push:
@@ -50,6 +50,7 @@ jobs:
           sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing.pem"
           security find-identity -v -p codesigning "$KC"
           echo 'LATERDOG_MAC_IDENTITY=later.dog Developer' >> "$GITHUB_ENV"
+          echo "LATERDOG_UPDATE_FEED=https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/" >> "$GITHUB_ENV"
       - run: pnpm laterdog:package
       - run: pnpm test:packaged-server
       - name: Inspect application identity and bundled supervisor
@@ -65,6 +66,18 @@ jobs:
           codesign --verify --deep --strict "$APP"
           codesign -dr - "$APP" 2>&1 | grep designated
           if [ -n "${LATERDOG_MAC_IDENTITY:-}" ]; then codesign -dr - "$APP" 2>&1 | grep -Eq 'certificate (leaf|root) = H"6ce7d3fb20195fbe66e9bb8dd1d272272977fae2"'; fi
+          FEED="$(ELECTRON_RUN_AS_NODE=1 "$APP/Contents/MacOS/later.dog" -p "require(process.argv[1]).laterdogUpdateFeed ?? ''" "$PWD/$APP/Contents/Resources/app.asar/package.json")"
+          echo "Update feed: ${FEED:-none}"
+          test "$FEED" = "${LATERDOG_UPDATE_FEED:-}"
+          grep -Eq '^updaterCacheDirName: [A-Za-z0-9._-]+$' "$APP/Contents/Resources/app-update.yml"
+      - name: Zip the app for download
+        run: ditto -c -k --sequesterRsrc --keepParent release/mac-arm64/later.dog.app later.dog-macOS-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: later.dog-macOS-arm64
+          path: later.dog-macOS-arm64.zip
+          retention-days: 14
+          if-no-files-found: error
       - name: Publish the requested release
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         env:
@@ -77,26 +90,17 @@ jobs:
             echo 'Release already exists; refusing to replace its binaries.'
             exit 1
           fi
+          APP='release/mac-arm64/later.dog.app'
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+          if [[ "$RELEASE_TAG" != "v$VERSION" && "$RELEASE_TAG" != "v$VERSION"-preview.* ]]; then
+            echo "The app is $VERSION; a $RELEASE_TAG release would offer it as an update forever. Refusing."
+            exit 1
+          fi
           mkdir -p out
-          ditto -c -k --sequesterRsrc --keepParent release/mac-arm64/later.dog.app out/later.dog-macOS-arm64.zip
-          cd out
-          shasum -a 256 later.dog-macOS-arm64.zip > SHA256SUMS.txt
-          cd ..
-          cat > out/NOTES.md <<'EOF'
-          ## later.dog for macOS (Apple silicon)
-
-          **Install:** unzip, drag **later.dog** into Applications, then **right-click → Open** the first time. The app is signed with later.dog's own certificate, not Apple's, so macOS asks once; every release from this one on carries the same signature, so updates keep the keychain access and the Accessibility and Screen Recording permissions you grant. The welcome tour shows which AI providers it found, signs you in to Claude, Codex (your ChatGPT plan) or Cursor with their own flows, and makes your first dog. No API keys.
-
-          **New in 0.2.0**
-          - **later.dog's own repository**, starting from one commit, with later.dog's own names throughout.
-          - **Token battery for Codex too.** Sign in to several ChatGPT accounts as well as several Claude accounts (Settings → AI → Engines). When one runs out of usage, the conversation continues on the next account of the same engine, with its messages carried over, and comes back to your favourite when its limit resets.
-          - **Cloud computers on your own Cloudflare account.** Each dog gets a Linux desktop it drives, which you can watch live and take over. It sleeps when idle and wakes with its files. One command deploys it: `deploy/laterdog/computers`.
-          - First run in three steps; your first dog greets you; any dog can make a dog; Apps with real brand icons; Cloud jobs (formerly Workspace) in Advanced mode; clearer Permissions and Model providers settings.
-
-          **Verified before this release:** the full test suite in CI; the token battery on disposable servers with two fake Claude and two fake Codex accounts; the cloud computers live on Cloudflare (create, command, files, screenshot, live viewer with take-over, sleep and wake with files kept, idle sleep). **Not yet:** a real account reaching its limit with a real second account taking over, notarized builds, voice dictation in locally built apps, and connected apps that need a self-hosted broker. Details: `docs/laterdog/roadmap.md`.
-
-          SHA-256 of the zip is in `SHA256SUMS.txt`.
-          EOF
+          ditto -c -k --sequesterRsrc --keepParent "$APP" out/later.dog-macOS-arm64.zip
+          node scripts/laterdog-release-files.mjs --tag "$RELEASE_TAG" --zip out/later.dog-macOS-arm64.zip --out out
+          assets=(out/later.dog-macOS-arm64.zip out/SHA256SUMS.txt)
+          [[ -f out/latest-mac.yml ]] && assets+=(out/latest-mac.yml)
           prerelease=()
           [[ "$RELEASE_TAG" == *-preview.* ]] && prerelease=(--prerelease)
-          gh release create "$RELEASE_TAG" out/later.dog-macOS-arm64.zip out/SHA256SUMS.txt --target "$GITHUB_SHA" "${prerelease[@]}" --title "later.dog $RELEASE_TAG" --notes-file out/NOTES.md
+          gh release create "$RELEASE_TAG" "${assets[@]}" --target "$GITHUB_SHA" "${prerelease[@]}" --title "later.dog $RELEASE_TAG" --notes-file out/NOTES.md

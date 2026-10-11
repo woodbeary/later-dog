@@ -10,17 +10,18 @@
 // and a single submit that sends every answer back at once — the shape a
 // person can read at a glance and answer without scrolling back up.
 import { useMemo, useState } from "react";
-import { Check, MessageCircleQuestion } from "lucide-react";
+import { Check, MessageCircleQuestion, X } from "lucide-react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import {
-  answerWithoutPreamble,
   formatQuestionAnswers,
   MAX_CUSTOM_ANSWER,
+  QUESTION_DISMISS_MESSAGE,
   type AskQuestion,
 } from "../../shared/ask-question";
 import { ExpandableText } from "./ExpandableText";
+import { settledAnswer } from "@/lib/settled-answer";
 
 /** What each question has been answered with so far. Option labels and the
  * free-text reply are kept apart so toggling "Other" off cannot silently
@@ -64,19 +65,23 @@ export function QuestionCard({
   // The server settles the card, but only after a round trip. Holding the
   // sent answer here closes the window where the buttons are still live.
   const [sent, setSent] = useState<string | null>(null);
+  const [closing, setClosing] = useState(false);
 
   const answered = useMemo(
     () => questions.map((_, index) => answersOf(drafts[index] ?? EMPTY).length > 0),
     [questions, drafts],
   );
 
-  if (!card || !questions.length) return null;
+  if (!card || !questions.length || card.dismissed || closing) return null;
   const settled = Boolean(card.answered) || sent !== null;
   const current = questions[Math.min(active, questions.length - 1)]!;
   const currentIndex = Math.min(active, questions.length - 1);
   const draft = drafts[currentIndex] ?? EMPTY;
   const answeredCount = answered.filter(Boolean).length;
   const complete = answeredCount === questions.length;
+  const answerText = card.answeredText ?? sent;
+  const shownAnswer = settled && answerText ? settledAnswer(answerText, questions) : "";
+  const listsQuestions = questions.length > 1 && shownAnswer.startsWith("Q: ");
 
   const update = (index: number, next: Partial<Draft>) =>
     setDrafts((previous) => ({ ...previous, [index]: { ...(previous[index] ?? EMPTY), ...next } }));
@@ -126,6 +131,20 @@ export function QuestionCard({
     });
   };
 
+  const close = () => {
+    if (settled || !card.requestId) return;
+    setClosing(true);
+    dispatch({
+      type: "decideRequest",
+      threadId,
+      requestId: card.requestId,
+      behavior: "answer",
+      message: QUESTION_DISMISS_MESSAGE,
+      onError: () => setClosing(false),
+    });
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
+  };
+
   return (
     <div
       role="group"
@@ -135,14 +154,30 @@ export function QuestionCard({
         settled ? "border-hairline/30 opacity-70" : "border-accent/40",
       )}
     >
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="text-[15px] font-semibold text-ink">
           {bot ? t("question.card.named", { name: bot.name }) : t("question.card.title")}
         </div>
-        {questions.length > 1 && !settled && (
-          <span className="shrink-0 text-[11px] tabular-nums text-ink-secondary">
-            {t("question.progress", { answered: answeredCount, count: questions.length })}
-          </span>
+        {!settled && (
+          <div className="-my-1 -mr-1 flex shrink-0 items-center gap-2">
+            {questions.length > 1 && (
+              <span className="text-[11px] tabular-nums text-ink-secondary">
+                {t("question.progress", { answered: answeredCount, count: questions.length })}
+              </span>
+            )}
+            {card.requestId && (
+              <button
+                type="button"
+                onClick={close}
+                aria-label={t("question.close")}
+                title={t("question.close")}
+                data-question-close
+                className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -150,7 +185,7 @@ export function QuestionCard({
         <div className="mt-1 text-[12px] text-ink-secondary">{t("question.origin.badge")}</div>
       )}
 
-      {questions.length > 1 && (
+      {questions.length > 1 && !listsQuestions && (
         <div role="tablist" aria-label={t("question.aria.tabs")} className="mt-3 flex flex-wrap gap-1">
           {questions.map((question, index) => (
             <button
@@ -172,7 +207,7 @@ export function QuestionCard({
         </div>
       )}
 
-      <ExpandableText text={current.question} className="mt-3 text-[15px] leading-relaxed text-ink" />
+      {!listsQuestions && <ExpandableText text={current.question} className="mt-3 text-[15px] leading-relaxed text-ink" />}
       {current.multiSelect && !settled && (
         <div className="mt-1 text-[12.5px] text-ink-secondary">{t("question.multiHint")}</div>
       )}
@@ -244,12 +279,7 @@ export function QuestionCard({
       {settled ? (
         <div className="mt-3 flex items-start gap-1.5 text-[13px] text-ink-secondary">
           <Check size={14} className="mt-0.5 shrink-0 text-success" />
-          <span className="whitespace-pre-wrap break-words">
-            {(() => {
-              const answer = card.answeredText ?? sent;
-              return answer ? answerWithoutPreamble(answer) : t("question.status.answered");
-            })()}
-          </span>
+          <span className="whitespace-pre-wrap break-words">{shownAnswer || t("question.status.answered")}</span>
         </div>
       ) : (
         <div className="mt-3 flex items-center justify-end gap-3">

@@ -32,7 +32,7 @@ export function pageHeaders(requestUrl: URL, nonce: string): Record<string, stri
   };
 }
 
-const STYLE = `
+export const STYLE = `
   :root { color-scheme: dark; --bg: #0e1013; --glass: rgba(18, 20, 24, 0.84); --line: rgba(255, 255, 255, 0.14); --text: #eceef1; --muted: #9aa1ab; --live: #3ccf6e; --wait: #f2b33d; --stop: #ff6a5f; --accent: #3d7cf5; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; font: 13px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #screen { position: fixed; inset: 0; }

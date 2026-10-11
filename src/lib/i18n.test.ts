@@ -84,9 +84,7 @@ describe("t", () => {
   it("ships translated model and trusted-access help for threads", () => {
     for (const [code, pack] of Object.entries(locales)) {
       if (code === "en") continue;
-      // approvalMode.threadTrustedNotice was rewritten in English for the dog
-      // vocabulary and falls back to English until it is translated again.
-      for (const key of ["model.threadBusy", "model.chooseThreadHint"] as const) {
+      for (const key of ["model.chooseThreadHint"] as const) {
         expect(pack[key], `${code}: ${key}`).toBeTruthy();
         expect(pack[key], `${code}: ${key}`).not.toBe(en[key]);
       }

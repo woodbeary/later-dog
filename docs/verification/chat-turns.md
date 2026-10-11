@@ -64,7 +64,7 @@ pnpm control:laterdog wait --bot BOT_ID --timeout 40 --url http://127.0.0.1:PORT
 In `fake-claude-dump.json` the Cloud turn's `systemPrompt` must say everything
 on screen happens on the cloud computer, web pages included, carry the
 restate-first sentence, and hold no agent_browser paragraph; the pinned turn's
-prompt must name the built-in browser tab and no computer, and its `mcpConfig`
+prompt must name the built-in browser and no computer, and its `mcpConfig`
 must hold no computer server. The task in `GET /api/bots?messages=0` carries
 `surface: "browser"` after the pin and loses it after `{"surface": null}`.
 
@@ -99,9 +99,7 @@ must say the setting is Off and that no computer and no built-in browser are
 mounted. Repeat through a channel — the room path resolves its surface
 separately — and mention a second Auto bot in the same room as the control.
 
-Proving the browser server's own absence from `mcpConfig` needs a fixture with
-a real browser engine; see [Live browser and profiles](browser-live.md). The
-dump above proves what the model was told, not what a native browser would do.
+The dump above proves what the model was told, not what a native browser would do.
 
 ### Last exercised
 

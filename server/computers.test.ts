@@ -251,6 +251,36 @@ describe("the cloud computer facade", () => {
     expect(ours().filter((request) => request.path.endsWith("/wake"))).toHaveLength(2);
   });
 
+  it("stops at once when a free trial refuses a wake", async () => {
+    for (const [status, code] of [[409, "trial_used_up"], [409, "trial_ended"], [503, "trials_off"]] as const) {
+      const computer = add(`${code}-bot`, "sleeping");
+      failures.set(`POST /v1/computers/${computer.id}/wake`, { status, error: { code, message: `refused: ${code}` } });
+      expect(await computers.readyBoat(noBoat, `${code}-bot`).catch((error: unknown) => error)).toMatchObject({ boatStatus: status, boatCode: code, message: `refused: ${code}` });
+    }
+    expect(ours().filter((request) => request.path.endsWith("/wake"))).toHaveLength(3);
+  });
+
+  it("tells Settings when the cloud computers are a free trial, and never counts the trial as other computers", () => {
+    const trialHome = mkdtempSync(join(tmpdir(), "laterdog-trial-home-"));
+    try {
+      vi.stubEnv("LATERDOG_HOME", trialHome);
+      vi.stubEnv("LATERDOG_COMPUTERS_API", "");
+      expect(computers.describeBoatAccount(noBoat)).toEqual(boat.describeBoatAccount(noBoat));
+      writeFileSync(join(trialHome, "computers-trial-key"), `ldt_${"t".repeat(43)}\n`, { mode: 0o600 });
+      writeFileSync(join(trialHome, "computers-trial.json"), JSON.stringify({ api: `http://127.0.0.1:${port}/v1`, confirmed: true }));
+      expect(computers.describeBoatAccount(withBoat)).toEqual({ configured: true, provider: "laterdog", trial: true });
+      expect(computers.boatConfigured(noBoat)).toBe(true);
+      expect(computers.otherComputersConfigured(noBoat)).toBe(false);
+      expect(computers.otherComputersConfigured(withBoat)).toBe(true);
+      writeFileSync(join(trialHome, "computers.json"), JSON.stringify({ api: `http://127.0.0.1:${port}/v1` }));
+      expect(computers.describeBoatAccount(noBoat)).toEqual({ configured: true, provider: "laterdog" });
+      expect(computers.otherComputersConfigured(noBoat)).toBe(true);
+    } finally {
+      vi.stubEnv("LATERDOG_HOME", undefined);
+      rmSync(trialHome, { recursive: true, force: true });
+    }
+  });
+
   it("runs console commands in the clean environment and refuses oversized ones before any request", async () => {
     add("console-bot", "running");
     await expect(computers.execOnBoat(noBoat, "console-bot", "x".repeat(4001))).rejects.toThrow("maximum 4000 characters");

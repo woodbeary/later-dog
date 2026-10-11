@@ -47,7 +47,7 @@ const render = (members: Bot[], g: Group) => {
   return renderToStaticMarkup(createElement(GroupView, { group: g }));
 };
 
-describe("GroupView: computer/browser session visibility", () => {
+describe("GroupView: computer session visibility", () => {
   it("loads a screenshot message through the image route, matching the 1:1 ChatView", () => {
     const markup = render([bot()], group({
       messages: [{ id: "shot", role: "bot", kind: "screen", hasImage: true, mime: "image/png", at: 1, from: { botId: "aleta", name: "Aleta", color: "green" } }] as Message[],
@@ -70,14 +70,20 @@ describe("GroupView: computer/browser session visibility", () => {
     expect(markup).not.toContain("/messages/shot/image");
   });
 
-  it("marks a busy member working a concrete place (e.g. browser) with that place's icon", () => {
-    const markup = render([bot({ busy: true, computer: "browser" })], group({ busyBotId: "aleta" }));
+  it("marks a busy member working a concrete place (e.g. This Mac) with that place's icon", () => {
+    const markup = render([bot({ busy: true, computer: "local" })], group({ busyBotId: "aleta" }));
     expect(markup).toMatch(/width="9"[^>]*height="9"/);
   });
 
   it("gives the place badge an accessible label naming the place", () => {
+    const markup = render([bot({ busy: true, computer: "local" })], group({ busyBotId: "aleta" }));
+    expect(markup).toContain('aria-label="Where this conversation works: This computer"');
+  });
+
+  it("shows a busy member still set to the retired browser as Auto, with no place badge", () => {
     const markup = render([bot({ busy: true, computer: "browser" })], group({ busyBotId: "aleta" }));
-    expect(markup).toContain('aria-label="Where this conversation works: Browser"');
+    expect(markup).not.toMatch(/width="9"[^>]*height="9"/);
+    expect(markup).not.toContain("Where this conversation works: Browser");
   });
 
   it("falls back to the plain working dot when the busy member's place is Auto", () => {
@@ -86,7 +92,7 @@ describe("GroupView: computer/browser session visibility", () => {
   });
 
   it("shows no place badge at all for an idle member", () => {
-    const markup = render([bot({ computer: "browser" })], group({ busyBotId: null }));
+    const markup = render([bot({ computer: "local" })], group({ busyBotId: null }));
     expect(markup).not.toMatch(/width="9"[^>]*height="9"/);
   });
 });

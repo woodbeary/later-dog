@@ -26,11 +26,15 @@ export function bearerToken(header: string | null): string | null {
 
 const DIGEST = /^[0-9a-f]{64}$/;
 
+export const BROWSER_ORIGIN: Refusal = {
+  status: 403,
+  code: "browser_origin",
+  message: "The computers API is called from servers only; requests with an Origin header are refused.",
+};
+
 /** Undefined when the request may use the API; otherwise why not. */
 export async function refuseApiRequest(headers: Headers, keySha256: string | undefined): Promise<Refusal | undefined> {
-  if (headers.has("origin")) {
-    return { status: 403, code: "browser_origin", message: "The computers API is called from servers only; requests with an Origin header are refused." };
-  }
+  if (headers.has("origin")) return BROWSER_ORIGIN;
   const expected = keySha256?.trim().toLowerCase() ?? "";
   if (!DIGEST.test(expected)) {
     return { status: 503, code: "not_configured", message: "The COMPUTERS_KEY_SHA256 secret is not set on this Worker." };

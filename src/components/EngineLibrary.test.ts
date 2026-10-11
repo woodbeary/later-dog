@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { InstanceInfo } from "@/state/store";
-import { EngineCard, EngineSections, engineReady } from "./EngineLibrary";
+import { engineReady } from "./EngineLibrary";
 import { CursorMark, HermesMark, InstanceProviderMark } from "./ProviderIcons";
 
 const instance = (overrides: Partial<InstanceInfo> = {}): InstanceInfo => ({
@@ -35,65 +35,4 @@ describe("engine library", () => {
     expect(engineReady(instance({ access: "custom", snapshot: { state: "unavailable", authenticated: true } }))).toBe(false);
   });
 
-  it("uses an accessible disclosure and keeps controls mounted while collapsed", () => {
-    const html = renderToStaticMarkup(createElement(EngineCard, { instance: instance(), children: createElement("input", { "aria-label": "Path draft" }) }));
-    expect(html).toContain('<details data-engine-card="claude"');
-    expect(html).toContain("<summary");
-    expect(html).toContain('aria-label="Path draft"');
-    expect(html).toContain("focus-visible:ring-2");
-    expect(html).not.toContain('open=""');
-  });
-
-  it("never displays a stale signed-out account identity", () => {
-    const row = instance({ snapshot: { state: "available", authenticated: false, account: { email: "private@example.test" } } });
-    const render = (value: InstanceInfo) => renderToStaticMarkup(createElement(EngineCard, { instance: value, children: null }));
-    expect(render(row)).not.toContain("private@example.test");
-    expect(render(row)).toContain("Needs setup");
-    expect(render({ ...row, snapshot: { ...row.snapshot, authenticated: true } })).toContain("private@example.test");
-  });
-
-  it("does not present executable names as versions", () => {
-    const render = (version: string) => renderToStaticMarkup(createElement(EngineCard, { instance: instance({ snapshot: { state: "available", version } }), children: null }));
-    expect(render("claude")).not.toContain("vclaude");
-    expect(render("Claude Code 2.1.8")).toContain("v2.1.8");
-  });
-
-  it("keeps cards under the same keyed parent when a refreshed status regroups them", () => {
-    const other = instance({ instanceId: "work" }); // Duplicate display names are valid.
-    const renderEngine = (value: InstanceInfo) => createElement(EngineCard, { instance: value, children: null });
-    const ready = EngineSections({ instances: [instance(), other], renderEngine });
-    const signedOut = EngineSections({ instances: [instance({ snapshot: { state: "available", authenticated: false } }), other], renderEngine });
-    for (const tree of [ready, signedOut]) {
-      expect(tree.type).toBe("div");
-      // This parent/key contract prevents native disclosure state and React
-      // form drafts from being discarded when authentication changes.
-      const card = tree.props.children[0].find((node: { key: string }) => node.key === "claude");
-      expect(card.type).toBe("div");
-      expect(card.props.children.type).toBe(EngineCard);
-      const html = renderToStaticMarkup(tree);
-      expect(html.match(/data-engine-card=/g)).toHaveLength(2);
-    }
-  });
-
-  it("leads with the four products to set up and folds every other unset engine under Coming soon, names first", () => {
-    const renderEngine = (value: InstanceInfo) => createElement(EngineCard, { instance: value, children: null });
-    const signedOut = { snapshot: { state: "available" as const, authenticated: false } };
-    const html = renderToStaticMarkup(EngineSections({
-      instances: [
-        instance({ instanceId: "claude" }),
-        instance({ instanceId: "codex", driverKind: "codex", displayName: "Codex", ...signedOut }),
-        instance({ instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", ...signedOut }),
-        instance({ instanceId: "kimi", driverKind: "kimiAgent", displayName: "Kimi", ...signedOut }),
-        instance({ instanceId: "grok-work", driverKind: "grokAgent", displayName: "Grok" }),
-      ],
-      renderEngine,
-    }));
-    // ready (Claude, and a Grok that already works), then Codex to set up, then the rest folded with their names
-    expect(html.indexOf('data-engine-card="claude"')).toBeLessThan(html.indexOf('data-engine-card="codex"'));
-    expect(html.indexOf('data-engine-card="grok-work"')).toBeLessThan(html.indexOf('data-engine-card="codex"'));
-    expect(html).toContain("<details");
-    expect(html).toContain("Coming soon");
-    expect(html).toContain("Grok, Kimi");
-    expect(html.indexOf("<details")).toBeLessThan(html.indexOf('data-engine-card="grok"'));
-  });
 });

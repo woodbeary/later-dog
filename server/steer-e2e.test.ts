@@ -302,8 +302,8 @@ posixOnly("mid-turn steering e2e", () => {
     const firstAttachedText = `look at this\n\n<attached-image path="${firstImagePath}" name="first.png" />`;
     const secondAttachedText = `and this\n\n<attached-image path="${secondImagePath}" name="second.png" />`;
     try {
-      const firstReceipt = await api("POST", `/api/bots/${created.id}/messages`, { text: firstAttachedText });
-      const secondReceipt = await api("POST", `/api/bots/${created.id}/messages`, { text: secondAttachedText });
+      const firstReceipt = await api("POST", `/api/bots/${created.id}/messages`, { text: firstAttachedText, deliver: "queue" });
+      const secondReceipt = await api("POST", `/api/bots/${created.id}/messages`, { text: secondAttachedText, deliver: "queue" });
 
       expect(firstReceipt.status).toBe(202);
       expect(firstReceipt.body).toMatchObject({ ok: true, queued: true });
@@ -773,7 +773,7 @@ posixOnly("mid-turn steering e2e", () => {
     await waitFor(async () => (await getGroup())?.working === false, "the steered room turn to settle");
   }, 40_000);
 
-  it("a queued room attachment refuses the fold and waits for a real turn", async () => {
+  it("a queued room attachment steers into the running turn as a native picture", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
     const instances = (await api("GET", "/api/instances")).body.instances;
     const model = instances.find((i: any) => i.instanceId === "codex").models.default;
@@ -800,27 +800,22 @@ posixOnly("mid-turn steering e2e", () => {
     const queued = await person("POST", `/api/groups/${room.id}/messages`, { text: imageText });
     expect(queued.body).toMatchObject({ ok: true, queued: true });
 
-    // the fold has no image side channel: Steer leaves the words queued
     const steered = await api("POST", `/api/groups/${room.id}/queue/${queued.body.queueId}/steer`, {
       threadId: room.threadId,
     });
     expect(steered.status).toBe(200);
-    expect(steered.body).toMatchObject({ ok: true, queued: true });
-    expect(steered.body.steered).toBeUndefined();
-    expect((await getGroup())?.working).toBe(true);
-    expect((await getGroup())?.messages.some((m: any) => m.text === imageText)).toBe(false);
-
-    // Stop ends the parked turn; the attachment drains into a REAL turn
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
-    await waitFor(
-      async () => (await getGroup())?.messages.some((m: any) => m.text === imageText),
-      "the attachment line to drain",
-    );
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
-    await waitFor(async () => (await getGroup())?.working === false, "the drained attachment turn to settle");
+    expect(steered.body.steered).toBe(true);
+    expect(steered.body.queueIds).toEqual([queued.body.queueId]);
 
     const nativeRows = readFileSync(join(home, ".laterdog", "native", `${room.threadId}.ndjson`), "utf8")
       .trim().split("\n").map((line) => JSON.parse(line));
-    expect(nativeRows.filter((row) => row.dir === "out" && row.msg?.method === "turn/steer")).toHaveLength(0);
+    const foldInput = nativeRows.find((row) => row.dir === "out" && row.msg?.method === "turn/steer")?.msg.params.input;
+    expect(foldInput).toContainEqual({ type: "localImage", path: imagePath });
+    const foldedText = foldInput.map((block: any) => block.text ?? "").join("\n");
+    expect(foldedText).toContain("look at the clip");
+    expect(foldedText).not.toContain("<attached-image");
+
+    await api("POST", `/api/groups/${room.id}/interrupt`, {});
+    await waitFor(async () => (await getGroup())?.working === false, "the steered room turn to settle");
   }, 40_000);
 });
