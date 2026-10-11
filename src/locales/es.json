@@ -34,6 +34,7 @@
   "settings.language.title": "Idioma",
   "settings.language.subtitle": "La app sigue el idioma de tu sistema salvo que elijas uno aquí. Por ahora solo hay parte de la interfaz traducida: el texto sin traducir se queda en inglés.",
   "settings.language.system": "Sistema",
+  "settings.language.hint": "Algunas pantallas siguen en inglés.",
   "settings.language.aria": "Idioma de la app",
   "settings.language.error": "No se pudo guardar el idioma.",
   "settings.toolCalls.show": "Mostrar llamadas a herramientas",

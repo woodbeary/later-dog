@@ -7,7 +7,7 @@ import { checklistHost, COMPUTER_PERMISSIONS, type DesktopPermission } from "@/l
 import { useDesktopPermissions } from "@/lib/use-desktop-permissions";
 import { browserAvailable, browserUnavailableReason, builtInBrowserEnabled } from "@/lib/feature-flags";
 import { localeChoices } from "@/locales";
-import { t } from "@/lib/i18n";
+import { activeLocale, t } from "@/lib/i18n";
 import { useUpdaterState } from "@/lib/updater";
 import { appVersion, openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
@@ -179,7 +179,7 @@ function LanguageRow() {
   return (
     <SettingRow
       title={t("settings.language.title")}
-      subtitle={t("settings.language.subtitle")}
+      subtitle={activeLocale() === "en" ? undefined : t("settings.language.hint")}
     >
       <select
         value={current}
@@ -201,7 +201,7 @@ function LanguageRow() {
 function NotificationSoundsRow() {
   const enabled = useNotificationSounds();
   return (
-    <SettingRow title={t("settings.notificationSounds.title")} subtitle={t("settings.notificationSounds.subtitle")}>
+    <SettingRow title={t("settings.notificationSounds.title")} subtitle={t("settings.notificationSounds.hint")}>
       <Switch
         checked={enabled}
         aria-label={t("settings.notificationSounds.play")}

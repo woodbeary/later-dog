@@ -125,6 +125,7 @@
   "settings.language.title": "Мова",
   "settings.language.subtitle": "Застосунок слідує мові вашої системи, якщо ви не оберете мову тут. Перекладено лише частину інтерфейсу — неперекладений текст лишається англійською.",
   "settings.language.system": "Системна",
+  "settings.language.hint": "Деякі екрани ще англійською.",
   "settings.language.aria": "Мова застосунку",
   "settings.language.error": "Не вдалося зберегти мову.",
   "settings.toolCalls.show": "Показувати виклики інструментів",

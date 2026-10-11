@@ -166,6 +166,7 @@
   "settings.language.title": "语言",
   "settings.language.subtitle": "除非你在这里选择，应用会跟随系统语言。目前界面只翻译了一部分——未翻译的文字仍为英文。",
   "settings.language.system": "跟随系统",
+  "settings.language.hint": "部分界面仍为英文。",
   "settings.language.aria": "应用语言",
   "settings.language.error": "无法保存语言。",
   "settings.toolCalls.show": "显示工具调用",

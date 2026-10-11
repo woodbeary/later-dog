@@ -23,6 +23,7 @@
 ### Settings
 - **Theme** is one menu: System, Light and Dark, like Grok Bot. System follows your computer and switches when it does. Before, it was nine small cards squeezed into a narrow column. A theme you picked before stays, and shows in the menu until you pick another. A new install follows your computer instead of starting dark.
 - Tried in the browser fixture: System showed Light on a light system and stayed after a reload, and Dark and an older Atelier choice each stayed. Switching the computer between light and dark was tried in tests only.
+- **Language** has no help line in English. In another language it says, in that language, that some screens are still in English. **Notification sounds** says it in one line: a sound when a dog finishes or needs you. Tried in the side instance in English and German.
 - An account whose usage can't be read says **Couldn't check usage**. Before, it said **Signed in** with **Sign in again in Claude** right under it.
 - **Usage** lists only the accounts you sign in to, and says **Not signed in** for one that isn't. The API-key line and the word Codex are gone.
 - **Estimated cost so far** comes from the same record as **History**, for the last 12 months, so the two agree. Before, it could differ because it skipped the dogs' background memory work. The **By dog** table is gone: **History**, **Dog** shows the same for any period.

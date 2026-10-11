@@ -34,6 +34,7 @@
   "settings.language.title": "भाषा",
   "settings.language.subtitle": "जब तक आप यहाँ कोई भाषा नहीं चुनते, ऐप आपके सिस्टम की भाषा पर चलता है। अभी इंटरफ़ेस का कुछ हिस्सा ही अनूदित है — बिना अनुवाद वाला टेक्स्ट अंग्रेज़ी में ही रहता है।",
   "settings.language.system": "सिस्टम",
+  "settings.language.hint": "कुछ स्क्रीन अभी अंग्रेज़ी में ही हैं।",
   "settings.language.aria": "ऐप की भाषा",
   "settings.language.error": "भाषा सहेजी नहीं जा सकी।",
   "settings.toolCalls.show": "टूल कॉल दिखाएँ",

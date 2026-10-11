@@ -166,6 +166,7 @@
   "settings.language.title": "語言",
   "settings.language.subtitle": "除非你在此選擇，否則本軟體會依照系統語言顯示。目前只有部分介面已翻譯，未翻譯的文字會維持英文。",
   "settings.language.system": "系統",
+  "settings.language.hint": "部分介面仍為英文。",
   "settings.language.aria": "軟體語言",
   "settings.language.error": "無法儲存語言設定。",
   "settings.toolCalls.show": "顯示工具呼叫",

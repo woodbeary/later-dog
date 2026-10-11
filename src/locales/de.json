@@ -113,6 +113,7 @@
   "settings.language.title": "Sprache",
   "settings.language.subtitle": "Die App folgt deiner Systemsprache, solange du hier keine wählst. Bisher ist nur ein Teil der Oberfläche übersetzt — nicht übersetzter Text bleibt auf Englisch.",
   "settings.language.system": "System",
+  "settings.language.hint": "Einige Bereiche sind noch auf Englisch.",
   "settings.language.aria": "App-Sprache",
   "settings.language.error": "Die Sprache konnte nicht gespeichert werden.",
   "settings.toolCalls.show": "Werkzeugaufrufe zeigen",

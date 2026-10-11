@@ -34,6 +34,7 @@
   "settings.language.title": "Langue",
   "settings.language.subtitle": "L'application suit la langue de votre système tant que vous n'en choisissez pas une ici. Seule une partie de l'interface est traduite pour l'instant — le texte non traduit reste en anglais.",
   "settings.language.system": "Système",
+  "settings.language.hint": "Certains écrans sont encore en anglais.",
   "settings.language.aria": "Langue de l'application",
   "settings.language.error": "Impossible d'enregistrer la langue.",
   "settings.toolCalls.show": "Afficher les appels d'outils",
