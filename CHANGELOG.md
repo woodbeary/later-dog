@@ -104,6 +104,7 @@
 - My Cloud's sign-in screen offers **Use an Anthropic API key** again. It opens the same key card as the model picker. Before, this version had dropped the choice along with the old API keys page, while the screen still said an API key works best. Tried in tests only.
 - Messages that sent you to Settings pages this version removed now point at what's there: the built-in browser (Settings, Computer, Built-in browser), a rejected Boat token (Settings, Computer, Cloud computers), a Local VM that isn't ready (Settings, Computer), a dog's tricks (the Library tab in its settings), and an expired My Cloud link. Phone control on a shared Local VM now says why it can't run, instead of naming a setting that no longer exists.
 - Phone setup no longer says you can come back to it from the menu under your name, and a phone asking to take control no longer sends you to Connect your phone. Both left that menu in this version.
+- Search shows a dog's whole name beside a matching message and shortens the chat's title instead. Before, Atlas showed as "A…". The **Messages** heading now looks like **Dogs** above it. Tried in the side instance, with a short name and a 40-letter one.
 
 ## 0.3.2 — 2026-10-09
 
