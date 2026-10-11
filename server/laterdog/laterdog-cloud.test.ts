@@ -43,7 +43,7 @@ const STREAM_CLAUDE = [
 
 const roots: string[] = [];
 const cleanups: (() => void)[] = [];
-afterEach(() => { cleanups.splice(0).forEach((cleanup) => cleanup()); roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })); });
+afterEach(() => { cleanups.splice(0).forEach((cleanup) => cleanup()); roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })); });
 
 interface FakeComputer { id: string; name: string; size: string; state: string; error?: string; startingReads: number; home: string }
 interface Recorded { method: string; url: string; headers: Record<string, string>; body: string }
@@ -411,7 +411,7 @@ describe("later.dog Cloud through the supervisor", () => {
     const longTask = store.job(long.id).taskId!;
     cleanups.push(() => writeFileSync(join(api.root, "computers", longTask, "home", "task", "stop"), ""));
     const deadline = Date.now() + 20_000;
-    while ((store.job(quick.id).state === "running" || store.job(long.id).stage !== "claude") && Date.now() < deadline) { await new Promise((resolve) => setTimeout(resolve, 50)); await supervisor.tick(); }
+    while ((store.job(quick.id).state === "running" || store.job(long.id).lastStep?.k !== "say") && Date.now() < deadline) { await new Promise((resolve) => setTimeout(resolve, 50)); await supervisor.tick(); }
     const done = store.job(quick.id);
     expect(done).toMatchObject({ state: "ready", changes: { files: 1, additions: 1, deletions: 1 } });
     expect(Date.parse(done.startedAt!)).toBeLessThanOrEqual(Date.parse(done.finishedAt!));
