@@ -15,3 +15,9 @@ export function retirePlaces(bot: BotRecord): boolean {
   }
   return changed;
 }
+
+export function retireDefaultsPlace(profile: unknown): unknown {
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) return profile;
+  const { computer, ...rest } = profile as Record<string, unknown>;
+  return computer === "vm" || computer === "browser" ? rest : profile;
+}

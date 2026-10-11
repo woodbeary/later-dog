@@ -2077,3 +2077,48 @@ describe("a value derived from config.json", () => {
     },
   );
 });
+
+describe("retired new-dog places in a saved config", () => {
+  const path = join(DATA_DIR, "config.json");
+  beforeEach(() => {
+    mkdirSync(DATA_DIR, { recursive: true });
+    rmSync(path, { force: true });
+  });
+  afterEach(() => {
+    rmSync(path, { force: true });
+  });
+
+  it.each(["vm", "browser"])("loads a 0.2.0 config.json whose new-dog defaults chose %s, keeping everything else and moving it to Auto", (computer) => {
+    const modelSelection = { instanceId: "claude", model: "claude-sonnet-5" };
+    writeFileSync(path, JSON.stringify({
+      language: "fr",
+      profile: { name: "Ada" },
+      defaultModelSelection: modelSelection,
+      newBotDefaults: { profile: { computer, color: "blue", notifications: false, modelSelection }, routines: [] },
+    }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const cfg = loadConfig();
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("ignoring"));
+      expect(cfg.language).toBe("fr");
+      expect(cfg.profile).toEqual({ name: "Ada" });
+      expect(cfg.defaultModelSelection).toEqual(modelSelection);
+      expect(cfg.newBotDefaults?.profile).toEqual({ color: "blue", notifications: false, modelSelection });
+      expect(cfg.newBotDefaults?.profile).not.toHaveProperty("computer");
+    } finally {
+      warn.mockRestore();
+    }
+    const next = { instanceId: "codex", model: "gpt-5" };
+    saveConfig({ defaultModelSelection: next });
+    const disk = JSON.parse(readFileSync(path, "utf8"));
+    expect(disk.language).toBe("fr");
+    expect(disk.newBotDefaults.profile).toEqual({ color: "blue", notifications: false, modelSelection: next });
+  });
+
+  it("keeps Cloud computer, This Mac and Off as saved new-dog defaults", () => {
+    for (const computer of ["cloud", "local", "off"]) {
+      writeFileSync(path, JSON.stringify({ newBotDefaults: { profile: { computer } } }));
+      expect(loadConfig().newBotDefaults?.profile.computer).toBe(computer);
+    }
+  });
+});
