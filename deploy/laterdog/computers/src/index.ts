@@ -31,7 +31,8 @@ import {
   verifyTurnstile,
 } from "./trial";
 import { trialPage, trialPageHeaders } from "./trial-page";
-import { trials } from "./trial-registry";
+import { type PlanRow, planPolicy, trials } from "./trial-registry";
+import { cancelSubscription, createPlanLink, customerPlan, orderCustomer, paidThrough, squareConfigured, subscription } from "./square";
 import { messagePage, newNonce } from "./viewer";
 import { INCLUDED_VOICES, VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, elevenLabsRequest, speechRequest, voiceInput } from "./voice";
 
@@ -48,12 +49,14 @@ declare global {
     TRIAL_NETWORK_KEY?: string;
     AI_GATEWAY_ID?: string;
     ELEVENLABS_API_KEY?: string;
+    SQUARE_ACCESS_TOKEN?: string;
+    SQUARE_ENVIRONMENT?: string;
     XAI_API_KEY?: string;
     TRIAL_AI_MODEL?: string;
   }
 }
 
-type Caller = { registry: DurableObjectStub<ComputerRegistry>; trial?: TrialRecord };
+type Caller = { registry: DurableObjectStub<ComputerRegistry>; trial?: TrialRecord; keySha256?: string };
 
 type Identified = { ok: true; caller: Caller } | { ok: false; response: Response };
 
@@ -101,9 +104,10 @@ async function identify(request: Request, env: Env, via: Via): Promise<Identifie
   const token = bearerToken(request.headers.get("authorization"));
   if (token !== null && TRIAL_TOKEN.test(token) && !request.headers.has("origin")) {
     if (!(await allowed(env.TRIAL_API_LIMIT, networkKey(request)))) return { ok: false, response: apiError(TOO_MANY) };
-    const trial = await trials(env).find(await sha256Hex(token));
+    const keySha256 = await sha256Hex(token);
+    const trial = await trials(env).find(keySha256);
     if (!trial) return { ok: false, response: apiError(NO_TRIAL, CHALLENGE) };
-    return { ok: true, caller: { registry: registry(env, trialListing(trial.id)), trial } };
+    return { ok: true, caller: { registry: registry(env, trialListing(trial.id)), trial, keySha256 } };
   }
   const refusal = await refuseApiRequest(request.headers, env.COMPUTERS_KEY_SHA256);
   if (refusal) return { ok: false, response: apiError(refusal, refusal.status === 401 ? CHALLENGE : {}) };
@@ -239,14 +243,110 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
 async function trialRequest(op: TrialOp, env: Env, caller: Caller): Promise<Response> {
   const trial = caller.trial;
   if (!trial) return apiError({ status: 404, code: "no_trial", message: "This key is not a free trial key." });
+  const plan = caller.keySha256 ? await trials(env).planFor(caller.keySha256) : null;
   if (op === "end") {
+    if (plan && (plan.status === "active" || plan.status === "canceled")) {
+      return apiError({ status: 409, code: "plan_active", message: "This computer is on later.dog Cloud. Cancel the plan to stop it." });
+    }
     await trials(env).end(trial.id);
     return json({ ended: true });
   }
   for (const listed of await caller.registry.list()) await computer(env, listed.id).meter();
   const current = await trials(env).lookup(trial.id);
   if (!current) return apiError(NO_TRIAL, CHALLENGE);
-  return json({ trial: trialView(current) });
+  return json({ trial: trialView(current), ...(plan ? { plan: planView(plan) } : {}) });
+}
+
+function planView(plan: PlanRow) {
+  return { status: plan.status, ...(plan.period_end ? { periodEnd: new Date(plan.period_end).toISOString() } : {}) };
+}
+
+const PLANS_CLOSED: Refusal = { status: 503, code: "plans_closed", message: "later.dog Cloud isn't open for sign-ups yet." };
+const PLAN_REFRESH_MS = 6 * 60 * 60 * 1000;
+
+function planKey(request: Request): string | null {
+  if (request.headers.has("origin")) return null;
+  const token = bearerToken(request.headers.get("authorization"));
+  return token && TRIAL_TOKEN.test(token) ? token : null;
+}
+
+async function settlePlan(env: Env, plan: PlanRow): Promise<PlanRow> {
+  const registry = trials(env);
+  let customerId = plan.customer_id;
+  if (!customerId) {
+    const order = await orderCustomer(env, plan.order_id);
+    customerId = order.customerId;
+    if (!customerId) return plan;
+  }
+  const current = plan.subscription_id ? await subscription(env, plan.subscription_id) : await customerPlan(env, customerId);
+  const until = current ? paidThrough(current, Date.now()) : null;
+  if (!current || until === null) {
+    if (plan.status === "active" || plan.status === "canceled") registry.markPlan(plan.key_sha256, "ended");
+    return (await registry.planFor(plan.key_sha256)) ?? plan;
+  }
+  const policy = planPolicy(env);
+  await registry.applyPlan({
+    keySha256: plan.key_sha256, customerId, subscriptionId: current.id, status: current.status === "CANCELED" ? "canceled" : "active",
+    periodEnd: until, limitMs: policy.limitMs, graceMs: policy.graceMs,
+  });
+  return (await registry.planFor(plan.key_sha256)) ?? plan;
+}
+
+async function planRequest(op: "status" | "checkout" | "cancel", request: Request, env: Env, url: URL): Promise<Response> {
+  const token = planKey(request);
+  if (!token) return apiError(request.headers.has("origin") ? BROWSER_ORIGIN : NO_TRIAL, CHALLENGE);
+  if (!(await allowed(env.TRIAL_API_LIMIT, networkKey(request)))) return apiError(TOO_MANY);
+  const keySha256 = await sha256Hex(token);
+  const registry = trials(env);
+  let plan = await registry.planFor(keySha256);
+  if (op === "status") {
+    if (plan && squareConfigured(env) && (plan.status === "pending" || !plan.checked_at || Date.now() - plan.checked_at > PLAN_REFRESH_MS)) {
+      plan = await settlePlan(env, plan).catch((error) => {
+        console.error(`laterdog computers: plan check failed: ${error instanceof Error ? error.message : String(error)}`);
+        return plan;
+      });
+    }
+    return json({ plan: plan ? planView(plan) : { status: "none" } });
+  }
+  if (!squareConfigured(env)) return apiError(PLANS_CLOSED);
+  if (op === "checkout") {
+    if (plan?.status === "active") return json({ plan: planView(plan) });
+    const ref = newPlanRef();
+    const link = await createPlanLink(env, { idempotencyKey: ref, redirectUrl: `${url.origin}/plan/done?ref=${ref}` });
+    registry.planPending({ keySha256, ref, linkId: link.id, orderId: link.orderId });
+    return json({ url: link.url }, 201);
+  }
+  if (!plan?.subscription_id || plan.status !== "active") return apiError({ status: 404, code: "no_plan", message: "There is no later.dog Cloud plan to cancel." });
+  const canceled = await cancelSubscription(env, plan.subscription_id);
+  const until = canceled ? paidThrough(canceled, Date.now()) : null;
+  if (canceled && until !== null && plan.customer_id) {
+    const policy = planPolicy(env);
+    await registry.applyPlan({ keySha256, customerId: plan.customer_id, subscriptionId: canceled.id, status: "canceled", periodEnd: until, limitMs: policy.limitMs, graceMs: 0 });
+  } else {
+    registry.markPlan(keySha256, "canceled");
+  }
+  return json({ plan: planView((await registry.planFor(keySha256)) ?? plan) });
+}
+
+function htmlPage(status: number, title: string, message: string, openApp?: { href: string; label: string }): Response {
+  const nonce = newNonce();
+  return new Response(messagePage({ title, message, nonce, ...(openApp ? { openApp } : {}) }), { status, headers: trialPageHeaders(nonce) });
+}
+
+function newPlanRef(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function planDonePage(env: Env, url: URL): Promise<Response> {
+  const page = htmlPage;
+  const ref = url.searchParams.get("ref") ?? "";
+  const plan = /^[a-f0-9]{32}$/.test(ref) ? await trials(env).planByRef(ref) : null;
+  if (!plan) return page(404, "We couldn't find that checkout", "Start again from later.dog.");
+  const settled = squareConfigured(env) ? await settlePlan(env, plan).catch(() => plan) : plan;
+  if (settled.status === "active" || settled.status === "canceled") {
+    return page(200, "You're on later.dog Cloud", "Your cloud computer and included features are ready. later.dog picks this up by itself.", { href: "laterdog://plan", label: "Open later.dog" });
+  }
+  return page(202, "Almost there", "Square hasn't confirmed the payment yet. Refresh this page in a moment.");
 }
 
 async function grantTrial(request: Request, env: Env, caller: Caller): Promise<Response> {
@@ -469,6 +569,10 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return await decideRequest(request, env);
       case "voices":
         return await voicesRequest(request);
+      case "plan":
+        return await planRequest(target.op, request, env, url);
+      case "plan_done":
+        return await planDonePage(env, url);
       case "chat":
         return await chatRequestHandler(request, env, (work) => (ctx ? ctx.waitUntil(work) : void work));
       case "speak":

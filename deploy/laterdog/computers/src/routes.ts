@@ -22,6 +22,8 @@ export type Route =
   | { kind: "decide" }
   | { kind: "voices" }
   | { kind: "chat" }
+  | { kind: "plan"; op: "status" | "checkout" | "cancel" }
+  | { kind: "plan_done" }
   | { kind: "speak"; voiceId: string }
   | { kind: "not_found"; api: boolean }
   | { kind: "method_not_allowed"; allow: string[] };
@@ -58,6 +60,12 @@ export function route(method: string, pathname: string): Route {
   if (pathname === "/v1/systemone") return method === "POST" ? { kind: "decide" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/voice/voices") return method === "GET" ? { kind: "voices" } : { kind: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/v1/ai/chat/completions") return method === "POST" ? { kind: "chat" } : { kind: "method_not_allowed", allow: ["POST"] };
+  if (pathname === "/v1/plan") {
+    const op = method === "GET" ? "status" : method === "DELETE" ? "cancel" : undefined;
+    return op ? { kind: "plan", op } : { kind: "method_not_allowed", allow: ["GET", "DELETE"] };
+  }
+  if (pathname === "/v1/plan/checkout") return method === "POST" ? { kind: "plan", op: "checkout" } : { kind: "method_not_allowed", allow: ["POST"] };
+  if (pathname === "/plan/done") return method === "GET" ? { kind: "plan_done" } : { kind: "method_not_allowed", allow: ["GET"] };
   const speak = VOICE_PATH.exec(pathname);
   if (speak) return method === "POST" ? { kind: "speak", voiceId: speak[1]! } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/trial") {

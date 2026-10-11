@@ -51,9 +51,20 @@
     "TRIAL_COUNTRIES": "",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFToUIA2DvjWJrmf",
     // AI Gateway for included decisions (Workers AI Clef) and voice (ElevenLabs, its key stored in the gateway).
-    "AI_GATEWAY_ID": "default"
+    "AI_GATEWAY_ID": "default",
+    // later.dog Cloud, $10/month through Square (location "later.dog", plan "later.dog Cloud").
+    "SQUARE_API_VERSION": "2026-05-20",
+    "SQUARE_LOCATION_ID": "L7GC619QNDQ55",
+    "SQUARE_PLAN_VARIATION_ID": "H7QYVJZLBX4NCKAP6LT7HQDA",
+    "PLAN_PRICE_CENTS": "1000",
+    // Cloud computer hours each paid month, and the days a lapsed payment keeps working.
+    "PLAN_HOURS": "40",
+    "PLAN_GRACE_DAYS": "3"
   }
   // Secrets (wrangler secret put, values piped on stdin):
   // COMPUTERS_KEY_SHA256 - lowercase hex SHA-256 of the API key ("ldc_..."); the key itself is never stored here.
   // DESKTOP_SIGNING_KEY  - random HMAC key for signed desktop viewer links.
+  // ELEVENLABS_API_KEY   - restricted ElevenLabs key for included voice (Text to Speech + Voices read).
+  // XAI_API_KEY          - xAI key for later.dog AI, the free trial's included model.
+  // SQUARE_ACCESS_TOKEN  - Square production access token for the later.dog Cloud plan.
 }

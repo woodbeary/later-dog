@@ -3,9 +3,32 @@ import type { Refusal } from "./auth";
 import { newTrialId } from "./ids";
 import { MINUTE } from "./idle";
 import { type UsageKind, utcDay } from "./decide";
+import { paidThrough, squareConfigured, subscription } from "./square";
 import { type TrialRecord, trialListing } from "./trial";
 
 const RETRY_MS = 60 * MINUTE;
+
+export type PlanRow = {
+  key_sha256: string;
+  ref: string;
+  link_id: string;
+  order_id: string;
+  customer_id: string | null;
+  subscription_id: string | null;
+  status: "pending" | "active" | "canceled" | "ended";
+  period_end: number | null;
+  checked_at: number | null;
+  created_at: number;
+};
+
+export function planPolicy(env: { PLAN_HOURS?: string; PLAN_GRACE_DAYS?: string }) {
+  const hours = Number(env.PLAN_HOURS ?? "40");
+  const grace = Number(env.PLAN_GRACE_DAYS ?? "3");
+  return {
+    limitMs: (Number.isFinite(hours) && hours > 0 ? hours : 40) * 60 * MINUTE,
+    graceMs: (Number.isFinite(grace) && grace >= 0 ? grace : 3) * 24 * 60 * MINUTE,
+  };
+}
 
 export type Activation = { ok: true; trial: TrialRecord; replayed: boolean } | { ok: false; refusal: Refusal };
 
@@ -41,6 +64,18 @@ export class TrialRegistry extends DurableObject<Env> {
     )`);
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY, until INTEGER NOT NULL)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, started INTEGER NOT NULL)");
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS plans (
+      key_sha256 TEXT PRIMARY KEY,
+      ref TEXT NOT NULL UNIQUE,
+      link_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      customer_id TEXT,
+      subscription_id TEXT,
+      status TEXT NOT NULL,
+      period_end INTEGER,
+      checked_at INTEGER,
+      created_at INTEGER NOT NULL
+    )`);
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS usage (key_sha256 TEXT NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (key_sha256, day, kind))");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS usage_totals (day TEXT NOT NULL, kind TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (day, kind))");
   }
@@ -62,6 +97,53 @@ export class TrialRegistry extends DurableObject<Env> {
     sql.exec("INSERT INTO usage (key_sha256, day, kind, used) VALUES (?, ?, ?, ?) ON CONFLICT (key_sha256, day, kind) DO UPDATE SET used = used + ?", input.keySha256, day, input.kind, amount, amount);
     sql.exec("INSERT INTO usage_totals (day, kind, used) VALUES (?, ?, ?) ON CONFLICT (day, kind) DO UPDATE SET used = used + ?", day, input.kind, amount, amount);
     return { ok: true };
+  }
+
+  planPending(input: { keySha256: string; ref: string; linkId: string; orderId: string }): void {
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO plans (key_sha256, ref, link_id, order_id, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)
+       ON CONFLICT (key_sha256) DO UPDATE SET ref = excluded.ref, link_id = excluded.link_id, order_id = excluded.order_id,
+         status = CASE WHEN plans.status = 'active' THEN plans.status ELSE 'pending' END`,
+      input.keySha256, input.ref, input.linkId, input.orderId, now,
+    );
+  }
+
+  planByRef(ref: string): PlanRow | null {
+    return this.ctx.storage.sql.exec<PlanRow>("SELECT * FROM plans WHERE ref = ?", ref).toArray()[0] ?? null;
+  }
+
+  planFor(keySha256: string): PlanRow | null {
+    return this.ctx.storage.sql.exec<PlanRow>("SELECT * FROM plans WHERE key_sha256 = ?", keySha256).toArray()[0] ?? null;
+  }
+
+  async applyPlan(input: { keySha256: string; customerId: string; subscriptionId: string; status: "active" | "canceled"; periodEnd: number; limitMs: number; graceMs: number }): Promise<TrialRecord> {
+    const sql = this.ctx.storage.sql;
+    const now = Date.now();
+    const plan = this.planFor(input.keySha256);
+    const newPeriod = !plan?.period_end || input.periodEnd > plan.period_end;
+    sql.exec(
+      "UPDATE plans SET customer_id = ?, subscription_id = ?, status = ?, period_end = ?, checked_at = ? WHERE key_sha256 = ?",
+      input.customerId, input.subscriptionId, input.status, input.periodEnd, now, input.keySha256,
+    );
+    const expiresAt = input.periodEnd + input.graceMs;
+    const prior = sql.exec<Row>("SELECT * FROM trials WHERE key_sha256 = ?", input.keySha256).toArray()[0];
+    let trial: TrialRecord;
+    if (prior) {
+      const usedMs = newPeriod ? 0 : prior.used_ms;
+      const until = Math.max(prior.expires_at, expiresAt);
+      sql.exec("UPDATE trials SET expires_at = ?, limit_ms = ?, used_ms = ? WHERE id = ?", until, input.limitMs, usedMs, prior.id);
+      trial = { id: prior.id, createdAt: prior.created_at, expiresAt: until, limitMs: input.limitMs, usedMs };
+    } else {
+      trial = this.insert(input.keySha256, now, input.limitMs, expiresAt - now);
+    }
+    await this.wakeBy(trial.expiresAt);
+    console.log(`laterdog computers: plan ${input.status} for trial ${trial.id} until ${new Date(input.periodEnd).toISOString()}`);
+    return trial;
+  }
+
+  markPlan(keySha256: string, status: "canceled" | "ended"): void {
+    this.ctx.storage.sql.exec("UPDATE plans SET status = ?, checked_at = ? WHERE key_sha256 = ?", status, Date.now(), keySha256);
   }
 
   usageLeft(input: { keySha256: string; kind: UsageKind; perKey: number; total: number }): { ok: true } | { ok: false; refusal: Refusal } {
@@ -161,6 +243,23 @@ export class TrialRegistry extends DurableObject<Env> {
     this.ctx.storage.sql.exec("UPDATE trials SET used_ms = MIN(limit_ms, used_ms + ?) WHERE id = ?", Math.round(ms), id);
   }
 
+  private async renewedPlan(keySha256: string): Promise<boolean> {
+    const plan = this.planFor(keySha256);
+    if (!plan?.subscription_id || !plan.customer_id || plan.status === "ended" || !squareConfigured(this.env)) return false;
+    const current = await subscription(this.env, plan.subscription_id);
+    const until = current ? paidThrough(current, Date.now()) : null;
+    if (!current || until === null || until <= Date.now()) {
+      this.markPlan(keySha256, "ended");
+      return false;
+    }
+    await this.applyPlan({
+      keySha256, customerId: plan.customer_id, subscriptionId: plan.subscription_id,
+      status: current.status === "CANCELED" ? "canceled" : "active", periodEnd: until,
+      limitMs: planPolicy(this.env).limitMs, graceMs: planPolicy(this.env).graceMs,
+    });
+    return true;
+  }
+
   async end(id: string): Promise<void> {
     const listing = this.env.REGISTRY.get(this.env.REGISTRY.idFromName(trialListing(id)));
     for (const computer of await listing.list()) {
@@ -176,8 +275,9 @@ export class TrialRegistry extends DurableObject<Env> {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     let failed = false;
-    for (const { id } of sql.exec<{ id: string }>("SELECT id FROM trials WHERE expires_at <= ? ORDER BY expires_at", now).toArray()) {
+    for (const { id, key_sha256 } of sql.exec<{ id: string; key_sha256: string }>("SELECT id, key_sha256 FROM trials WHERE expires_at <= ? ORDER BY expires_at", now).toArray()) {
       try {
+        if (await this.renewedPlan(key_sha256)) continue;
         await this.end(id);
       } catch (error) {
         failed = true;
