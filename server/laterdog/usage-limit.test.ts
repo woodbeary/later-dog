@@ -84,6 +84,8 @@ describe("claudeUsageLimit", () => {
       .toEqual({ resetsAt: "2026-10-10T00:00:00.000Z", kind: "weekly" });
     const opus = "You've hit your Opus limit · resets 3pm (America/Los_Angeles)";
     expect(claudeUsageLimit({ is_api_error_message: true }, opus, NOW)).toEqual({ resetsAt: "2026-10-07T22:00:00.000Z", kind: "opus" });
+    const fable = "You've reached your Fable limit. Switch to another model to continue.";
+    expect(claudeUsageLimit({ is_api_error_message: true }, fable, NOW)).toEqual({ kind: "fable" });
     const legacy = `Claude AI usage limit reached|${IN_TWO_HOURS}`;
     expect(claudeUsageLimit({ error: "rate_limit", is_api_error_message: true }, legacy, NOW)).toEqual({ resetsAt: iso(IN_TWO_HOURS) });
   });

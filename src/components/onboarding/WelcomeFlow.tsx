@@ -56,7 +56,7 @@ function beatTitle(beat: BeatId): string | null {
     case "hello":
       return t("onboarding.welcome", { app: brand().name });
     case "engines":
-      return t("onboarding.engines.title");
+      return t("onboarding.engines.heading");
     case "permissions":
       return t("onboarding.perms.title");
     case "bot":
@@ -245,7 +245,7 @@ export function WelcomeFlow({
               <img src={logo} alt="" width={72} height={72} className="h-[72px] w-[72px] object-contain" />
             ) : (
               <DogAvatar
-                color="green"
+                color="yellow"
                 state={mascot}
                 motion={motion.kind}
                 motionKey={motion.key}

@@ -828,8 +828,6 @@
   "computer.askedHands": "pidió tu ayuda:",
   "computer.takeControl": "Tomar el control",
   "computer.dismiss": "Descartar",
-  "computer.youHaveWheel": "Tienes el mando: los clics y las teclas del perro se rechazan hasta que lo devuelvas.",
-  "computer.handBack": "Devolver el control",
   "computer.takeControlVmTitle": "Pausar el control del perro y abrir el escritorio en vivo de la VM local",
   "computer.takeControlTitle": "Pausar el control del perro y manejar este equipo tú mismo",
   "computer.sleepTitle": "Poner el equipo en reposo",

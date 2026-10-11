@@ -9,6 +9,7 @@ export function trialPageHeaders(nonce: string): Record<string, string> {
     "cache-control": "no-store",
     "referrer-policy": "strict-origin",
     "x-content-type-options": "nosniff",
+    "cross-origin-opener-policy": "same-origin",
     "content-security-policy": [
       "default-src 'none'",
       `script-src 'nonce-${nonce}' ${TURNSTILE_ORIGIN}`,
@@ -40,7 +41,7 @@ export function trialPage(options: { claim: string; siteKey: string; minutes: nu
 <title>Free trial · later.dog</title>
 <style nonce="${nonce}">${STYLE}${PAGE_STYLE}</style>
 <script nonce="${nonce}">
-window.laterdogTrialReady = () => { document.getElementById("start").disabled = false; };
+window.laterdogTrialReady = () => { const start = document.getElementById("start"); start.disabled = false; start.form.requestSubmit(start); };
 window.laterdogTrialWait = () => { document.getElementById("start").disabled = true; };
 </script>
 <script nonce="${nonce}" src="${TURNSTILE_ORIGIN}/turnstile/v0/api.js" async defer></script>

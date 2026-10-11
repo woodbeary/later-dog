@@ -22,9 +22,9 @@ describe("viewer page", () => {
     expect(html).toContain(`<style nonce="${nonce}">`);
   });
 
-  it("starts in watch mode and stops reconnecting at expiry", () => {
-    expect(html).toContain("rfb.viewOnly = !controlling;");
-    expect(html).toContain("let controlling = false;");
+  it("takes the mouse and keyboard from the first frame and stops reconnecting at expiry", () => {
+    expect(html).toContain("rfb.viewOnly = false;");
+    expect(html).not.toContain("Take over");
     expect(html).toContain("const EXPIRES_AT = 1800007200000;");
   });
 });
@@ -56,5 +56,12 @@ describe("helpers", () => {
   });
   it("render message pages escaped", () => {
     expect(messagePage({ title: "Link <ended>", message: "Open it again.", nonce: "n" })).toContain("Link &#60;ended&#62;");
+  });
+
+  it("offers to open the app and opens it once, under the page's nonce", () => {
+    const page = messagePage({ title: "Started", message: "Done.", nonce: "n", openApp: { href: "laterdog://trial", label: "Open later.dog" } });
+    expect(page).toContain('<a href="laterdog://trial">Open later.dog</a>');
+    expect(page).toContain('<script nonce="n">window.setTimeout(() => { location.href = "laterdog://trial"; }, 400);</script>');
+    expect(messagePage({ title: "Started", message: "Done.", nonce: "n" })).not.toContain("<script");
   });
 });

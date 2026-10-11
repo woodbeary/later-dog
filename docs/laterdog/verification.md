@@ -41,11 +41,12 @@ Run against the real services the night before launch.
 - **The download.** The release linked from later.dog (v0.3.7, 279 MB) matches its published SHA-256, carries a valid signature and needs macOS 12. Gatekeeper refuses it as not notarized, so the first open needs Open Anyway, as the site says.
 - **A clean install.** That zip, unpacked and opened with its own home folder, a mock keychain and a stand-in Claude CLI: the welcome flow ran (name, model providers, first dog) with no macOS permission prompt at launch; the first dog started Off-leash, greeted by name and answered; Settings, Computer offered the free trial from cloud.later.dog; Check for updates found 0.3.7 is the newest.
 - **The free trial on cloud.later.dog.** Offer, link, an owner grant in place of the human check, active in the app and the service, a cloud computer started, the dog's screenshot tool on it, minutes counted, its live screen in the Computer panel, ended, the key refused afterwards, the computer deleted.
-- **The human check.** The trial page loads Cloudflare Turnstile with later.dog's widget, which shows "Verify you are human" with no domain error; Start free trial stays off until it passes, and a forged token is refused. No person passing it is on record yet.
+- **The human check, passed by a person.** On the afternoon of 2026-10-11 a person opened later.dog 0.3.8 in a fresh profile (its own home folder and a stand-in Claude CLI), pressed **Try a cloud computer free** in a This Mac dog's Computer panel, ticked Cloudflare's check in their own browser and started the trial. cloud.later.dog accepted the token for its hostname, the `trial` action and that claim; the trial read active with 27 of 30 minutes left, and its cloud computer was running in the dog's Computer panel. A forged token is still refused.
 - **Cloud tasks.** A real task (a security review of the cloud service) ran on the hosted supervisor in about four minutes and returned its diff.
 - **Token battery.** See the [live record of 2026-10-10](token-battery.md#verification-and-limits).
+- **An update.** The released 0.3.7, opened with its own home folder, found v0.3.8 on GitHub, downloaded it and, on quit, installed it in about eight seconds; the bundle then read 0.3.8 with a valid signature and the same designated requirement, and reopened on the same profile with its dog and messages.
 
-Still unproven: a person passing the human check, a notarized build, and ChatGPT (Codex) accounts at a real limit.
+Still unproven: a notarized build, and ChatGPT (Codex) accounts at a real limit.
 
 ## Live Codex Cloud acceptance
 

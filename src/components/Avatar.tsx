@@ -12,7 +12,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { DOG_COLORS, type DogColor, type DogMotion, type DogState } from "@/lib/mascot";
+import { DEFAULT_DOG_COLOR, DOG_COLORS, type DogColor, type DogMotion, type DogState } from "@/lib/mascot";
 import { CursorAvatar, type CursorAvatarHandle } from "./CursorAvatar";
 import { BreedAvatar, isDogBreed, type BreedAvatarHandle } from "./DogAvatar";
 import { avatarCropRadius, botAvatarProfile, clampAvatarFocus, clampAvatarZoom, type BotAvatarCrop } from "../../shared/bot-avatar";
@@ -74,7 +74,7 @@ function mix(hex: string, toward: string, t: number): string {
  * ["#9FE6B5", "#3FAE6E", "#1C7A4C"].
  */
 const gradientFor = (color: DogColor): [string, string, string] => {
-  const fill = DOG_COLORS[color] ?? DOG_COLORS.green;
+  const fill = DOG_COLORS[color] ?? DOG_COLORS[DEFAULT_DOG_COLOR];
   return [mix(fill, "#ffffff", 0.55), fill, mix(fill, "#000000", 0.42)];
 };
 
@@ -183,7 +183,7 @@ function DogAvatarComponent(
         <BreedAvatar
           ref={dog}
           breed={body}
-          color={DOG_COLORS[color] ?? DOG_COLORS.green}
+          color={DOG_COLORS[color] ?? DOG_COLORS[DEFAULT_DOG_COLOR]}
           state={motionState ?? state}
           size={size}
           title={label ?? null}

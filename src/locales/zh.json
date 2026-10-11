@@ -1234,8 +1234,6 @@
   "computer.askedHands": "请求你接手：",
   "computer.takeControl": "接管控制",
   "computer.dismiss": "忽略",
-  "computer.youHaveWheel": "现在由你操作——在你交还之前，狗狗的点击和按键都会被拒绝。",
-  "computer.handBack": "交还控制",
   "computer.takeControlVmTitle": "暂停狗狗的操作并打开本地虚拟机的实时桌面",
   "computer.takeControlTitle": "暂停狗狗的操作，自己来操作这台电脑",
   "computer.sleepTitle": "让电脑进入休眠",

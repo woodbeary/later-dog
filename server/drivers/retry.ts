@@ -56,7 +56,7 @@ const TERMINAL_PATTERNS: Array<{ pattern: RegExp; reason: TerminalReason }> = [
   // checked before the transient 429 pattern for that reason.
   // Claude Code 2.1.x: "You've hit your session limit · resets 3pm (…)",
   // and the weekly, Opus and Sonnet limits alike.
-  { pattern: /\busage limit\b|\bhit your (?:(?:session|weekly|daily|monthly|opus|sonnet|usage) )?limit\b|\b(?:weekly|daily|monthly|subscription|usage) limit reached\b|\bout of credits\b/i, reason: "quota" },
+  { pattern: /\busage limit\b|\b(?:hit|reached) your (?:(?:session|weekly|daily|monthly|opus|sonnet|haiku|fable|usage) )?limit\b|\b(?:weekly|daily|monthly|subscription|usage) limit reached\b|\bout of credits\b/i, reason: "quota" },
   { pattern: /\b402\b|\bquota\b|\bbilling\b|\bsubscription\b/i, reason: "quota" },
   { pattern: /\bmodel not found\b|\bunknown model\b|\bdoes not exist for model\b|\bunsupported model\b/i, reason: "unknown_model" },
   { pattern: /\b400\b|\b422\b|\binvalid request\b|\bmalformed\b|\bunexpected status\b/i, reason: "invalid_request" },

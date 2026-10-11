@@ -497,6 +497,7 @@ function tightenRegistryFile(file: string): void {
 const messagesFile = (threadId: string) => join(DATA_DIR, `messages-${threadId}.json`);
 
 const COLORS: DogColor[] = [
+  "yellow",
   "green",
   "blue",
   "red",
@@ -504,7 +505,6 @@ const COLORS: DogColor[] = [
   "purple",
   "cyan",
   "pink",
-  "yellow",
   "teal",
   "coral",
 ];

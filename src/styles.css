@@ -145,12 +145,12 @@
      light skins that leaves little room below the secondary ink, so there
      size carries the hierarchy. Measured by pnpm check:contrast. */
   --color-ink-tertiary: #fcfcfc90;
-  --color-accent: #1084fe;
-  --color-accent-border: #459ffe;
+  --color-accent: #ededed;
+  --color-accent-border: #d4d4d4;
   /* the ring a keyboard user follows; sits on the accent so focus reads as
      "the app is talking to you", not as a browser default */
-  --color-focus: #459ffe;
-  --color-accent-text: #7fc0ff;
+  --color-focus: #ededed;
+  --color-accent-text: #ededed;
   --color-bubble-user: #5a5a5a;
   --color-success: #38d591;
   --color-danger: #ff5667;
@@ -166,7 +166,7 @@
   --code-color-scheme: dark;
   /* ink carried by a filled accent / danger surface (see the rule at the
      bottom of this file, which is what makes them take effect) */
-  --color-accent-ink: #ffffff;
+  --color-accent-ink: #0d0d0d;
   --color-danger-ink: #ffffff;
   /* ink carried by the user's own bubble. A hex rather than the ink token so
      the contrast check can measure it; every dark skin repeats its ink here. */
@@ -198,10 +198,9 @@
    (rather than relying on the `@theme` defaults) so that a `[data-skin]`
    subtree can switch *back* to it — the picker needs that.
 
-   Two upstream contrast gaps are preserved deliberately, because this skin's
-   job is to be the original: white on the accent fill measures 3.65:1 and
-   white on the danger fill 3.32:1, both short of AA for the 13–15px labels
-   they carry. Atelier and Foundry fix this via --color-accent-ink.
+   later.dog is monochrome: the filled accent is near-white and carries
+   near-black ink, so buttons read like the site's. White on the danger fill
+   measures 3.32:1, an upstream gap kept deliberately.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="midnight"] {
   --code-color-scheme: dark;
@@ -219,10 +218,11 @@
   --color-ink: #fcfcfc;
   --color-ink-secondary: #fcfcfc99;
   --color-ink-tertiary: #fcfcfc90;
-  --color-accent: #1084fe;
-  --color-accent-border: #459ffe;
-  --color-accent-text: #7fc0ff;
-  --color-accent-ink: #ffffff;
+  --color-accent: #ededed;
+  --color-accent-border: #d4d4d4;
+  --color-accent-text: #ededed;
+  --color-focus: #ededed;
+  --color-accent-ink: #0d0d0d;
   --color-bubble-user: #5a5a5a;
   --color-bubble-user-ink: #fcfcfc;   /* = ink: unchanged */
   --color-success: #38d591;
@@ -582,10 +582,10 @@
   /* The upstream blue is #1084fe, which carries white at 3.1:1 — fine for the
      unread dot it is mostly used for, not for a filled button's label. The
      fill is darkened until white clears AA; the dot keeps reading as blue. */
-  --color-accent: #0b62c4;
-  --color-accent-border: #1084fe;
-  --color-accent-text: #0b5cb8;
-  --color-focus: #0b62c4;
+  --color-accent: #111111;
+  --color-accent-border: #3a3a3a;
+  --color-accent-text: #111111;
+  --color-focus: #111111;
   --color-accent-ink: #ffffff;
   /* The composer is the page with a ring around it, not a grey slab —
      the one surface where this skin departs from `raised`. */
@@ -1956,10 +1956,10 @@ body {
     --color-raised-hover: #3d3d3d;
     --color-control: #2f2f2f;
     --color-hairline: #666666;
-    --color-accent: #7fc0ff;
-    --color-accent-text: #7fc0ff;
+    --color-accent: #fcfcfc;
+    --color-accent-text: #fcfcfc;
     --color-accent-ink: #070707;
-    --color-focus: #7fc0ff;
+    --color-focus: #fcfcfc;
     --color-danger: #ff7788;
     --color-danger-ink: #070707;
     --color-success: #63b58a;

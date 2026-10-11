@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.9 — 2026-10-11
+
+- **Black and white.** Buttons are black in light mode and white in dark mode, and new dogs start as the classic golden dog. Pick any color for a dog in its settings.
+- **Simpler setup.** The welcome tour asks only for Claude or ChatGPT, with one **Sign in** button each that installs what it needs.
+- **Only your accounts.** Settings lists the accounts you added, each with an X to remove it, and nothing for ones you never added.
+- **The screen is the button.** Click a dog's cloud screen to open it, and use it right away. It goes to sleep by itself when nobody uses it. **Take over** appears only when the dog asks for your help.
+- **The free cloud computer starts itself.** After the quick check in your browser, the dog moves to its cloud computer and starts it. No more clicks in the app.
+- A dog working on This Mac no longer shows a copy of your own screen in its Computer panel.
+- The step dots in the welcome tour line up.
+
 ## 0.3.8 — 2026-10-11
 
 - A dog working on This Mac now offers **Try a cloud computer free** in its Computer panel too, under its screen. Before, only a dog with no computer showed it, so most people never saw the trial outside Settings.

@@ -159,12 +159,11 @@ export function previousBeat(beats: readonly BeatId[], current: BeatId): BeatId 
 }
 
 /** The card is one element for the whole flow; its width is the one thing
- * that morphs between beats. Engines lays tiles out two across and needs
- * the room; the rest read best narrow. */
+ * that morphs between beats. */
 export function beatWidth(beat: BeatId): number {
   switch (beat) {
     case "engines":
-      return 680;
+      return 520;
     case "phone":
       return 620;
     case "reel":
@@ -230,45 +229,44 @@ export function engineSummary<Instance extends SummaryInstance>(
   return { ready: personal, setup, company, allReady: company > 0 || (personal.length > 0 && setup.length === 0) };
 }
 
-/** The products first run leads with, in order, and the drivers behind each. Codex has two routes (the CLI sign-in and
- * the ChatGPT plan) that a person thinks of as one product. */
-const ONBOARDING_PRODUCTS = [
-  { id: "claude", kinds: ["claudeAgent"], primary: "claude" },
-  { id: "codex", kinds: ["codex"], primary: "codex" },
-  { id: "cursor", kinds: ["cursorAgent"], primary: "cursor" },
-  { id: "openaiCompat", kinds: ["openai-compat"], primary: "openaiCompat" },
+const ONBOARDING_ACCOUNTS = [
+  { id: "claude", driverKind: "claudeAgent", primary: "claude", method: "paste-code" },
+  { id: "chatgpt", driverKind: "codex", primary: "chatgpt", method: "browser-pkce" },
 ] as const;
-export type OnboardingProductId = (typeof ONBOARDING_PRODUCTS)[number]["id"];
+export type OnboardingAccountId = (typeof ONBOARDING_ACCOUNTS)[number]["id"];
+export const ONBOARDING_ACCOUNT_IDS: readonly OnboardingAccountId[] = ONBOARDING_ACCOUNTS.map((account) => account.id);
 
-interface ProviderInstance { instanceId: string; driverKind: string; displayName: string; managed?: unknown }
-export interface OnboardingProvider<Instance extends ProviderInstance = ProviderInstance> {
-  /** A product id for the featured four, else the instance id. */
-  id: string;
-  /** The instance this row signs in to or shows; null when the build has none for the product. */
-  instance: Instance | null;
-  /** Set for an engine outside the four: its own display name. */
-  name?: string;
+interface AccountInstance {
+  instanceId: string;
+  driverKind: string;
+  access?: string;
+  readOnly?: boolean;
+  managed?: unknown;
+  policy?: unknown;
+  snapshot: { state: string; authenticationUnavailableReason?: string };
+  authentication?: { method: string };
+  install?: { server?: unknown };
 }
 
-/** First run's provider rows: the four products (each backed by its ready instance, else its default one), every
- * other engine that already works, and the names of the rest as "coming soon". Company instances are not rows. */
-export function onboardingProviders<Instance extends ProviderInstance>(
+export type OnboardingAccount = { id: OnboardingAccountId } & (
+  | { status: "ready" | "unavailable" }
+  | { status: "signIn"; instanceId: string; install: boolean }
+);
+
+export function onboardingAccounts<Instance extends AccountInstance>(
   instances: readonly Instance[],
   ready: (instance: Instance) => boolean,
-): { featured: OnboardingProvider<Instance>[]; working: OnboardingProvider<Instance>[]; comingSoon: string[] } {
-  const personal = instances.filter((instance) => !instance.managed);
-  const featuredKinds = new Set<string>(ONBOARDING_PRODUCTS.flatMap((product) => product.kinds));
-  const featured = ONBOARDING_PRODUCTS.map((product) => {
-    const candidates = personal.filter((instance) => (product.kinds as readonly string[]).includes(instance.driverKind));
-    const instance = candidates.find(ready) ?? candidates.find((candidate) => candidate.instanceId === product.primary) ?? candidates[0] ?? null;
-    return { id: product.id, instance };
-  // a product this build has no engine for would be a row with nothing to press
-  }).filter((product) => product.instance !== null);
-  const others = personal.filter((instance) => !featuredKinds.has(instance.driverKind));
-  const working = others.filter(ready).map((instance) => ({ id: instance.instanceId, instance, name: instance.displayName }));
-  const waiting = [...new Set(others.filter((instance) => !ready(instance)).map((instance) => instance.displayName))];
-  const comingSoon = waiting.length > 6 ? [...waiting.slice(0, 6), `+${waiting.length - 6}`] : waiting;
-  return { featured, working, comingSoon };
+): OnboardingAccount[] {
+  return ONBOARDING_ACCOUNTS.map(({ id, driverKind, primary, method }): OnboardingAccount => {
+    const own = instances.filter((instance) => instance.driverKind === driverKind && !instance.managed && !instance.policy && !instance.readOnly);
+    if (own.some(ready)) return { id, status: "ready" };
+    const targets = own.filter((instance) => instance.authentication?.method === method
+      && (instance.access ?? "subscription") === "subscription" && !instance.snapshot.authenticationUnavailableReason);
+    const target = targets.find((instance) => instance.instanceId === primary) ?? targets[0];
+    const installed = target?.snapshot.state === "available";
+    if (!target || (!installed && !target.install?.server)) return { id, status: "unavailable" };
+    return { id, status: "signIn", instanceId: target.instanceId, install: !installed };
+  });
 }
 
 /** Whether a Cloud home shows its engine sign-in in place of a chat: the

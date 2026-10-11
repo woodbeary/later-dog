@@ -41,7 +41,7 @@ export const brandSchema = z
 
 export type Brand = z.infer<typeof brandSchema>;
 
-export const DEFAULT_BRAND: Brand = { name: "later.dog", tagline: "Dog food your way to the top!", accent: "#24624e" };
+export const DEFAULT_BRAND: Brand = { name: "later.dog", tagline: "Dog food your way to the top!" };
 
 export interface BrandStatus {
   brand: Brand;

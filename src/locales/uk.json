@@ -1096,8 +1096,6 @@
   "computer.askedHands": "попросив ваших рук:",
   "computer.takeControl": "Перехопити керування",
   "computer.dismiss": "Приховати",
-  "computer.youHaveWheel": "Керування у вас — кліки й натискання собаки відхиляються, доки ви не повернете йому керування.",
-  "computer.handBack": "Повернути керування",
   "computer.takeControlVmTitle": "Призупинити дії собаки і відкрити живий стіл локальної ВМ",
   "computer.takeControlTitle": "Призупинити дії собаки і керувати цим комп'ютером самому",
   "computer.sleepTitle": "Приспати комп'ютер",

@@ -14,6 +14,7 @@ import {
   hintSeenPatch,
   LOCAL_VIEWER,
   nextBeat,
+  onboardingAccounts,
   organisationSignIn,
   previousBeat,
   welcomeDue,
@@ -187,6 +188,72 @@ describe("engineSummary", () => {
   });
 });
 
+describe("first run's two accounts", () => {
+  type Row = {
+    instanceId: string;
+    driverKind: string;
+    ok?: boolean;
+    access?: string;
+    readOnly?: boolean;
+    managed?: object;
+    policy?: object;
+    snapshot: { state: string; authenticationUnavailableReason?: string };
+    authentication?: { method: string };
+    install?: { server?: object };
+  };
+  const ready = (row: Row) => row.ok === true;
+  const row = (instanceId: string, driverKind: string, method: string | undefined, patch: Partial<Row> = {}): Row => ({
+    instanceId,
+    driverKind,
+    snapshot: { state: "available" },
+    install: { server: { package: "fixture" } },
+    ...(method ? { authentication: { method } } : {}),
+    ...patch,
+  });
+  const claude = (patch: Partial<Row> = {}) => row("claude", "claudeAgent", "paste-code", patch);
+  const chatgpt = (patch: Partial<Row> = {}) => row("chatgpt", "codex", "browser-pkce", patch);
+  const codex = (patch: Partial<Row> = {}) => row("codex", "codex", "device-code", patch);
+  const notInstalled = { snapshot: { state: "unavailable" } };
+
+  it("always lists Claude, then ChatGPT, and nothing else", () => {
+    expect(onboardingAccounts([], ready)).toEqual([{ id: "claude", status: "unavailable" }, { id: "chatgpt", status: "unavailable" }]);
+    const others = [row("grok", "grokAgent", "device-code", { ok: true }), row("cursor", "cursorAgent", undefined), row("openaiCompat", "openai-compat", undefined, { access: "custom", ok: true })];
+    expect(onboardingAccounts([...others, chatgpt(), claude()], ready).map((account) => account.id)).toEqual(["claude", "chatgpt"]);
+  });
+
+  it("is ready when any of the person's own engines of that kind can run", () => {
+    expect(onboardingAccounts([claude(), row("claudeApi", "claudeAgent", undefined, { access: "api", ok: true }), codex({ ok: true }), chatgpt()], ready))
+      .toEqual([{ id: "claude", status: "ready" }, { id: "chatgpt", status: "ready" }]);
+  });
+
+  it("does not count a Company engine, a read-only one, or one an organisation's policy blocks", () => {
+    const company = { managed: { organizationId: "org", organizationName: "Org" }, readOnly: true, ok: true };
+    expect(onboardingAccounts([claude({ instanceId: "company.claude", ...company }), chatgpt({ policy: { organizationName: "Org", reason: "Not allowed" }, ok: true })], ready))
+      .toEqual([{ id: "claude", status: "unavailable" }, { id: "chatgpt", status: "unavailable" }]);
+  });
+
+  it("signs in to the default account with the browser sign-in, never a device code", () => {
+    expect(onboardingAccounts([row("claude-work", "claudeAgent", "paste-code"), claude(), codex(), chatgpt()], ready)).toEqual([
+      { id: "claude", status: "signIn", instanceId: "claude", install: false },
+      { id: "chatgpt", status: "signIn", instanceId: "chatgpt", install: false },
+    ]);
+    expect(onboardingAccounts([row("claude-work", "claudeAgent", "paste-code"), codex()], ready)).toEqual([
+      { id: "claude", status: "signIn", instanceId: "claude-work", install: false },
+      { id: "chatgpt", status: "unavailable" },
+    ]);
+  });
+
+  it("installs first when the engine is missing and this Mac can install it, and is unavailable when it cannot", () => {
+    expect(onboardingAccounts([claude(notInstalled), chatgpt(notInstalled)], ready)).toEqual([
+      { id: "claude", status: "signIn", instanceId: "claude", install: true },
+      { id: "chatgpt", status: "signIn", instanceId: "chatgpt", install: true },
+    ]);
+    const blocked = { snapshot: { state: "unavailable", authenticationUnavailableReason: "Hosted Pro sign-in needs approval." } };
+    expect(onboardingAccounts([claude({ ...notInstalled, install: {} }), chatgpt(blocked)], ready))
+      .toEqual([{ id: "claude", status: "unavailable" }, { id: "chatgpt", status: "unavailable" }]);
+  });
+});
+
 describe("persistence patches", () => {
   it("stamps completion with the current version", () => {
     expect(completionPatch(new Date("2026-09-09T12:34:56.000Z"))).toEqual({
@@ -241,9 +308,10 @@ describe("beat machine", () => {
     expect(nextBeat(beats, "reel")).toBeNull();
   });
 
-  it("gives the engines beat the widest card", () => {
+  it("gives the engines and bot beats more room than the greeting, and two sign-in rows no more than the next beat", () => {
     expect(beatWidth("engines")).toBeGreaterThan(beatWidth("hello"));
     expect(beatWidth("bot")).toBeGreaterThan(beatWidth("hello"));
+    expect(beatWidth("engines")).toBeLessThanOrEqual(beatWidth("bot"));
   });
 
   it("shows one row of dots at a time: the reel's own scene dots replace the flow's", () => {

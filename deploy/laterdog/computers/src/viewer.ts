@@ -1,7 +1,7 @@
 // The desktop viewer later.dog links to: one full-window page that shows the computer's screen through noVNC.
 // It is served at /desktop/<id>/<token>/ and loads noVNC's RFB module by relative URL, so the module (proxied from the
-// container's own noVNC files) and the WebSocket both stay under the same signed path. The person watches by default and
-// presses "Take over" to use the mouse and keyboard; "Hand back" returns control to the dog.
+// container's own noVNC files) and the WebSocket both stay under the same signed path. The person can use the mouse and
+// keyboard as soon as the screen appears.
 
 export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -69,7 +69,6 @@ export function viewerPage(options: { name: string; expiresAtMs: number; nonce: 
 <body>
 <div id="screen" role="application" aria-label="${escapeHtml(name)} desktop"></div>
 <div id="bar">
-  <button id="control" type="button" aria-pressed="false" hidden>Take over</button>
   <div class="pill" id="status" data-state="wait" role="status" aria-live="polite"><span class="dot"></span><span id="label">Connecting…</span></div>
 </div>
 <script type="module" nonce="${nonce}">
@@ -79,10 +78,8 @@ const EXPIRES_AT = ${Math.floor(expiresAtMs)};
 const screen = document.getElementById("screen");
 const pill = document.getElementById("status");
 const label = document.getElementById("label");
-const control = document.getElementById("control");
 let rfb = null;
 let failures = 0;
-let controlling = false;
 let finished = false;
 let retry = 0;
 
@@ -91,14 +88,9 @@ function show(state, text) {
   label.textContent = text;
 }
 
-function liveText() {
-  return controlling ? "Live · you have control" : "Live";
-}
-
 function finish(text) {
   finished = true;
   clearTimeout(retry);
-  control.hidden = true;
   show("stop", text);
 }
 
@@ -128,18 +120,17 @@ function connect() {
   rfb = new RFB(screen, socketUrl(), { shared: true });
   rfb.scaleViewport = true;
   rfb.resizeSession = false;
-  rfb.viewOnly = !controlling;
+  rfb.viewOnly = false;
   rfb.background = "#0e1013";
   rfb.qualityLevel = 6;
   rfb.compressionLevel = 2;
   rfb.addEventListener("connect", () => {
     failures = 0;
-    control.hidden = false;
-    show("live", liveText());
+    show("live", "Live");
+    rfb.focus();
   });
   rfb.addEventListener("disconnect", async () => {
     rfb = null;
-    control.hidden = true;
     if (finished) return;
     const state = await linkState();
     if (state === "ended") return finish("This link has ended. Open the desktop again from later.dog.");
@@ -152,17 +143,6 @@ function connect() {
   });
 }
 
-control.addEventListener("click", () => {
-  controlling = !controlling;
-  control.setAttribute("aria-pressed", String(controlling));
-  control.textContent = controlling ? "Hand back" : "Take over";
-  if (rfb) {
-    rfb.viewOnly = !controlling;
-    if (controlling) rfb.focus();
-    show("live", liveText());
-  }
-});
-
 connect();
 </script>
 </body>
@@ -170,8 +150,11 @@ connect();
 `;
 }
 
-export function messagePage(options: { title: string; message: string; nonce: string }): string {
-  const { title, message, nonce } = options;
+export function messagePage(options: { title: string; message: string; nonce: string; openApp?: { href: string; label: string } }): string {
+  const { title, message, nonce, openApp } = options;
+  const action = openApp
+    ? `<p class="open"><a href="${escapeHtml(openApp.href)}">${escapeHtml(openApp.label)}</a></p><script nonce="${nonce}">window.setTimeout(() => { location.href = ${JSON.stringify(openApp.href).replace(/</g, "\\u003c")}; }, 400);</script>`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -183,9 +166,11 @@ export function messagePage(options: { title: string; message: string; nonce: st
   main { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; }
   h1 { font-size: 17px; font-weight: 600; margin: 0 0 6px; }
   p { margin: 0; color: var(--muted); max-width: 36em; }
+  .open { margin-top: 18px; }
+  .open a { display: inline-block; padding: 9px 16px; border-radius: 999px; background: var(--text); color: var(--bg); font-weight: 600; text-decoration: none; }
 </style>
 </head>
-<body><main><div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></div></main></body>
+<body><main><div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${action}</div></main></body>
 </html>
 `;
 }

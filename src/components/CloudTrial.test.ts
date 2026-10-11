@@ -197,6 +197,22 @@ describe("the Computer panel's trial offer", () => {
     expect(fixture.open).toHaveBeenCalledTimes(2);
   });
 
+  it("moves the dog to the free computer by itself once the browser check passes", async () => {
+    let state: "offered" | "pending" | "active" = "offered";
+    fixture.serve = (method) => {
+      if (method === "POST") state = "pending";
+      return state === "offered" ? offered : state === "pending" ? pending : active(30);
+    };
+    const use = vi.fn();
+    await mount(createElement(CloudTrialOffer, { onUse: use }));
+    await click("Try a cloud computer free");
+    expect(use).not.toHaveBeenCalled();
+    state = "active";
+    await vi.advanceTimersByTimeAsync(3_000);
+    await flush();
+    expect(use).toHaveBeenCalledTimes(1);
+  });
+
   it("offers the running trial's computer to a dog that has none", async () => {
     fixture.serve = () => active(29);
     const use = vi.fn();

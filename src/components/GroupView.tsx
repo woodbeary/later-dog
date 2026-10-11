@@ -1437,7 +1437,7 @@ export function GroupView({ group }: { group: Group }) {
               avatar={
                 // the speaker's real profile image when it has one, as in ChatView
                 <BotAvatar
-                  bot={presenceSpeaker ?? { color: "green" }}
+                  bot={presenceSpeaker ?? { color: "yellow" }}
                   state={toolInFlight && !awaited ? "working" : "thinking"}
                   size={36}
                   forward={false}

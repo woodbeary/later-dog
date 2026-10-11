@@ -26,7 +26,7 @@ const fixture = vi.hoisted(() => {
   };
 });
 
-const PHASE_OFFSETS = { phase: 0, resolved: 2, vmViewerUrl: 10, vmStatus: 11, error: 16 } as const;
+const PHASE_OFFSETS = { phase: 0, resolved: 2, vmViewerUrl: 10, vmStatus: 11, error: 15 } as const;
 let phaseIndex = -1;
 
 vi.mock("react", async (original) => ({
@@ -310,12 +310,19 @@ describe("Technical controls", () => {
     expect(render(makeBot({ computer: "vm" })).html).not.toContain("VM settings");
   });
 
-  it("shows Take control, Full screen and Sleep under a ready cloud screen", () => {
+  it("puts no buttons under a ready cloud screen: the screen opens itself and sleeps on its own", () => {
     fixture.seed = { phase: "ready", resolved: { botId: "scout", threadId: "thread-scout", computer: "cloud", cloudBackend: "box" } };
     const simple = render(cloud());
-    const row = simple.nodes.find((node) => node.props["data-testid"] === "computer-actions")!;
-    expect(nodes(row.props.children).filter((node) => node.type === "button").map((node) => text(node.props.children)))
-      .toEqual(["Take control", "Full screen", "Sleep"]);
+    expect(simple.nodes.find((node) => node.props["data-testid"] === "computer-actions")).toBeUndefined();
+    for (const label of ["Take control", "Full screen", "Sleep"]) expect(simple.button(label)).toBeUndefined();
+    expect(simple.html).toContain("Scout&#x27;s screen");
+  });
+
+  it("says a dog on this Mac works here, without mirroring the Mac's own screen", () => {
+    fixture.seed = { phase: "local", resolved: { botId: "scout", threadId: "thread-scout", computer: "local", cloudBackend: "box" } };
+    const rendered = render(makeBot({ computer: "local" }));
+    expect(rendered.html).toContain("Scout works on this Mac.");
+    expect(rendered.html).not.toContain("Capturing this computer");
   });
 
   it("has no two desktops or Delete VM under a running VM", () => {
@@ -329,9 +336,7 @@ describe("Technical controls", () => {
     const rendered = render(makeBot({ computer: "vm" }));
     expect(rendered.html).not.toContain("two desktops");
     expect(rendered.html).not.toContain("Delete");
-    const row = rendered.nodes.find((node) => node.props["data-testid"] === "computer-actions")!;
-    expect(nodes(row.props.children).filter((node) => node.type === "button").map((node) => text(node.props.children)))
-      .toEqual(["Take control", "Full screen"]);
+    expect(rendered.nodes.find((node) => node.props["data-testid"] === "computer-actions")).toBeUndefined();
   });
 
   it("says a VPS computer is stopped and offers one Start, with no VPS setup controls", () => {

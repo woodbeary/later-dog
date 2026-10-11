@@ -13,6 +13,7 @@ export const LEGACY_TEAM_MANIFEST_VERSION = 1 as const;
 export const MAX_TEAM_MEMBERS = 200;
 
 const COLORS = [
+  "yellow",
   "green",
   "blue",
   "red",
@@ -20,7 +21,6 @@ const COLORS = [
   "purple",
   "cyan",
   "pink",
-  "yellow",
   "teal",
   "coral",
 ] as const satisfies readonly DogColor[];

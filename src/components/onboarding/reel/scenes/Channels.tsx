@@ -14,7 +14,7 @@ import type { SceneProps } from "./types";
 const CHANNELS_MS = 6000;
 
 const MEMBERS: Array<{ name: string; title: string; color: DogColor }> = [
-  { name: "Dog", title: "Chief of staff", color: "green" },
+  { name: "Dog", title: "Chief of staff", color: "yellow" },
   { name: "Researcher", title: "Finds and checks facts", color: "blue" },
   { name: "Writer", title: "Drafts and edits", color: "orange" },
 ];
@@ -205,7 +205,7 @@ export function Channels({ playing, onCue, onEnded, label }: SceneProps) {
       {/* the guide keeps its distance: this room belongs to the members */}
       <div className="flex h-11 shrink-0 items-center justify-center">
         <div className="drop-shadow-[0_8px_18px_rgba(0,0,0,0.45)]">
-          <DogAvatar color="green" state={replied ? "proud" : busy ? "listening" : "idle"} size={28} animated={!still} trackPointer={false} />
+          <DogAvatar color="yellow" state={replied ? "proud" : busy ? "listening" : "idle"} size={28} animated={!still} trackPointer={false} />
         </div>
       </div>
     </div>

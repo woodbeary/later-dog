@@ -291,6 +291,12 @@ describe("the trial page", () => {
     expect(html.match(/<(script|style)(?![^>]*nonce="n0nce")[\s>]/g)).toBeNull();
   });
 
+  it("starts the trial as soon as the check passes", () => {
+    const html = trialPage({ claim: CLAIM, siteKey: "1x00000000000000000000AA", minutes: 30, days: 7, nonce: "n0nce" });
+    expect(html).toContain('data-callback="laterdogTrialReady"');
+    expect(html).toContain("start.form.requestSubmit(start);");
+  });
+
   it("escapes what it is given", () => {
     const html = trialPage({ claim: CLAIM, siteKey: '"><script>alert(1)</script>', minutes: 30, days: 7, nonce: "n0nce" });
     expect(html).not.toContain("<script>alert(1)");
@@ -302,6 +308,7 @@ describe("the trial page", () => {
     expect(headers["referrer-policy"]).toBe("strict-origin");
     expect(headers["cache-control"]).toBe("no-store");
     expect(headers["x-content-type-options"]).toBe("nosniff");
+    expect(headers["cross-origin-opener-policy"]).toBe("same-origin");
     expect(headers["content-security-policy"]!.split("; ")).toEqual([
       "default-src 'none'",
       `script-src 'nonce-n0nce' ${TURNSTILE_ORIGIN}`,

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { api } from "@/state/store";
 import { openExternalLink } from "@/lib/app-links";
@@ -79,6 +79,11 @@ export function useCloudTrial() {
 
 export function CloudTrialOffer({ onUse, className = "mt-3" }: { onUse?: () => void; className?: string }) {
   const { status, busy, error, start } = useCloudTrial();
+  const previous = useRef(status?.state);
+  useEffect(() => {
+    if (previous.current === "pending" && status?.state === "active") onUse?.();
+    previous.current = status?.state;
+  }, [status?.state, onUse]);
   if (status?.state === "active" && onUse) {
     return (
       <div data-cloud-trial-offer="active" className={`${className} flex flex-col items-center gap-1.5`}>

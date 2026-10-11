@@ -48,6 +48,7 @@ export const STATE_GROUPS = {
 } satisfies Record<string, DogState[]>;
 
 export const DOG_COLOR_NAMES = [
+  "yellow",
   "green",
   "blue",
   "red",
@@ -55,12 +56,13 @@ export const DOG_COLOR_NAMES = [
   "purple",
   "cyan",
   "pink",
-  "yellow",
   "teal",
   "coral",
 ] as const;
 
 export type DogColor = (typeof DOG_COLOR_NAMES)[number];
+
+export const DEFAULT_DOG_COLOR: DogColor = "yellow";
 
 export const DOG_COLORS = {
   green: "#009957",
