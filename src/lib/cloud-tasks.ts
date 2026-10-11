@@ -14,6 +14,12 @@ export function cloudTaskActive(summary: CloudTaskSummary | undefined): boolean 
   return Boolean(summary && ACTIVE.has(summary.state));
 }
 
+const AGENT_AT_WORK = new Set(["queued", "preparing", "submitting", "running", "collecting"]);
+
+export function cloudTaskWorking(summary: CloudTaskSummary | undefined): boolean {
+  return Boolean(summary && AGENT_AT_WORK.has(summary.state));
+}
+
 function pollDelay(entry: CloudTaskEntry | undefined): number | null {
   if (!entry || (!entry.summary && !entry.missing)) return 0;
   const summary = entry.summary;

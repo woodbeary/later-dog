@@ -77,7 +77,10 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
         const repo = repositorySchema.parse(await readBody(req,50_000)); supervisor.store.saveRepository(repo); return json(res,200,repo);
       }
       if (url.pathname === "/v1/jobs" && method === "POST") {
-        const request = scope.jobRequest(await readBody(req,200_000));
+        const body = await readBody(req,200_000);
+        // A delegation that names no account profile goes to later.dog Cloud when it is set up, else to the default profile.
+        if (body && typeof body === "object" && !Array.isArray(body) && !("profileId" in body)) (body as Record<string, unknown>).profileId = supervisor.preferredProfile();
+        const request = scope.jobRequest(body);
         await supervisor.ensureRepository(request);
         return json(res,202,supervisor.create(request));
       }

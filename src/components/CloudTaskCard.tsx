@@ -28,12 +28,12 @@ export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message:
   const status = cloudTaskStatus(entry);
   const title = summary?.title ?? ref.title;
   const elapsed = elapsedLabel(summary, now);
-  const progress = running && summary?.lastStep ? stepHeadline(summary.lastStep) : "";
+  const progress = summary?.state === "running" && summary.lastStep ? stepHeadline(summary.lastStep) : "";
   const changes = summary?.changes && summary.changes.files > 0
     ? changesLabel(summary.changes)
     : "";
   const repository = summary?.repository ?? ref.repository ?? "";
-  const subline = progress || status.detail || [repository, changes].filter(Boolean).join(" · ");
+  const subline = progress || status.detail || [repository, summary?.prUrl ? "" : changes].filter(Boolean).join(" · ");
   const open = () => dispatch({ type: "openCloudTask", jobId: ref.jobId });
 
   return (

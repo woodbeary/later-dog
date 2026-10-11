@@ -431,6 +431,8 @@ describe("later.dog Cloud through the supervisor", () => {
     await expect(supervisor.screen(quick.id)).rejects.toThrow(/only kept while it runs/);
     const stopped = await supervisor.stopJob(long.id);
     expect(stopped).toMatchObject({ state: "cancelled", cancelRequested: true });
+    expect(stopped.activityArtifact).toMatch(/\.activity\.jsonl$/);
+    expect((await supervisor.activity(long.id, 0)).steps.find((step) => step.k === "say")).toMatchObject({ text: "Still at it." });
     expect(stopped.finishedAt).toBeTruthy();
     expect(api.computers.has(longTask)).toBe(false);
     await supervisor.tick();

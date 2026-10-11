@@ -5,7 +5,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import {
-  cloudTaskActive, cloudTaskPatch, cloudTaskScreen, cloudTaskStatus, elapsedLabel, filesChangedLabel, publishCloudTask, stageLabel, stopCloudTask, TONE_CLASS, toolVerb,
+  cloudTaskActive, cloudTaskPatch, cloudTaskWorking, cloudTaskScreen, cloudTaskStatus, elapsedLabel, filesChangedLabel, publishCloudTask, stageLabel, stopCloudTask, TONE_CLASS, toolVerb,
   useCloudTask, useCloudTaskActivity,
 } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
@@ -142,7 +142,8 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
   const entry = useCloudTask(jobId);
   const summary = entry?.summary;
   const active = cloudTaskActive(summary);
-  const activity = useCloudTaskActivity(jobId, active);
+  const working = cloudTaskWorking(summary);
+  const activity = useCloudTaskActivity(jobId, working);
   const status = cloudTaskStatus(entry);
   const [pending, setPending] = useState<null | "screen" | "stop" | "publish">(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -161,18 +162,22 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
     }
     return null;
   }, [activity.steps]);
-  const steps = useMemo(() => activity.steps.filter((step, index, all) => {
-    if (step.k === "plan") return false;
-    const previous = all[index - 1];
-    return !(step.k === "stage" && previous?.k === "stage" && previous.stage === step.stage);
-  }), [activity.steps]);
+  const steps = useMemo(() => {
+    const finalWords = new Set(activity.steps.flatMap((step) => (step.k === "done" && step.text ? [step.text.trim()] : [])));
+    return activity.steps.filter((step, index, all) => {
+      if (step.k === "plan") return false;
+      if (step.k === "say" && finalWords.has(step.text.trim())) return false;
+      const previous = all[index - 1];
+      return !(step.k === "stage" && previous?.k === "stage" && previous.stage === step.stage);
+    });
+  }, [activity.steps]);
 
   const feed = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   useEffect(() => {
     const node = feed.current;
-    if (node && pinned.current) node.scrollTop = node.scrollHeight;
-  }, [steps.length]);
+    if (node && working && pinned.current) node.scrollTop = node.scrollHeight;
+  }, [steps.length, working]);
 
   const run = async (kind: "screen" | "stop" | "publish") => {
     setPending(kind);
@@ -240,11 +245,7 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
 
       <div ref={feed} onScroll={(event) => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80; }} className="flex-1 overflow-y-auto px-5 pb-6">
         <h3 className="text-[16px] font-semibold leading-snug text-ink">{summary?.title ?? "…"}</h3>
-        {summary && (
-          <div className="mt-0.5 truncate text-[12.5px] text-ink-secondary">
-            {summary.repository}{summary.prUrl ? "" : ` · ${summary.outputBranch}`}
-          </div>
-        )}
+        {summary && <div className="mt-0.5 truncate text-[12.5px] text-ink-secondary">{summary.repository}</div>}
         <div className="mt-2 flex items-center gap-1.5 text-[12.5px]">
           <span aria-live="polite" className={cn("inline-flex items-center gap-1 font-semibold", TONE_CLASS[status.tone])}>
             {status.live && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
@@ -312,7 +313,7 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
           {!activity.loading && !steps.length && (
             <p className="text-[12.5px] text-ink-secondary">{activity.reason ?? activity.error ?? (activity.live ? t("cloudTask.noStepsYet") : t("cloudTask.noSteps"))}</p>
           )}
-          {steps.length > 0 && activity.live && active && (
+          {steps.length > 0 && activity.live && working && (
             <div className="mt-3 flex items-center gap-1.5 text-[12px] text-ink-tertiary"><Loader2 size={12} className="animate-spin" aria-hidden="true" />{t("cloudTask.stillWorking")}</div>
           )}
           {activity.error && steps.length > 0 && <p className="mt-2 text-[12px] text-warning">{activity.error}</p>}

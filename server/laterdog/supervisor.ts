@@ -321,6 +321,11 @@ export class Supervisor {
     }
     if (this.options.workspaceUrl) await deliverOutbox(this.store,this.options.workspaceUrl,this.options.workspaceTokenFile);
   }
+  /** The profile a delegation uses when it names none: the first later.dog Cloud profile, else the configured default. */
+  preferredProfile(): string {
+    for (const [id, adapter] of this.adapters) if (adapter.capabilities.id === "laterdog-cloud") return id;
+    return "default";
+  }
   /** Compact job views for the desktop's cloud task cards: the named jobs, or one dog's newest. */
   summaries(query: { ids?: string[]; botId?: string; limit?: number }): CloudTaskSummary[] {
     const jobs = this.store.jobs();
@@ -338,7 +343,7 @@ export class Supervisor {
       const log = readFileSync(job.activityArtifact);
       const start = Math.min(after, log.length);
       const { steps, consumedBytes } = parseCloudTaskSteps(log.subarray(start, start + MAX_ACTIVITY_PAGE_BYTES).toString("utf8"));
-      return { steps, cursor: start + consumedBytes, live: activeJob(job) && start + consumedBytes >= log.length, available: true };
+      return { steps, cursor: start + consumedBytes, live: false, available: true };
     }
     const adapter = this.adapters.get(job.profileId);
     if (!adapter?.activity) return { steps: [], cursor: after, live: false, available: false, reason: "This backend does not report progress steps." };
@@ -364,6 +369,7 @@ export class Supervisor {
     const adapter = this.adapters.get(job.profileId);
     if (job.state !== "running" || !job.taskId || !adapter?.cancel) return this.cancel(id, acknowledgeUnknown);
     this.store.update(id, { cancelRequested: true }, "cancel_requested", "Deleting the task's computer");
+    await this.keepActivity(job);
     await adapter.cancel(job.taskId);
     if (this.inFlight.has(id)) return this.store.job(id);
     return this.store.update(id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");

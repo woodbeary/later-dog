@@ -14,7 +14,7 @@ function message(jobId = ID): Message {
 }
 
 function render(value: Message) {
-  return renderToStaticMarkup(createElement(BotEditorStore, { value: { state: initialState, dispatch: vi.fn() } as never }, createElement(CloudTaskCard, { message: value })));
+  return renderToStaticMarkup(createElement(BotEditorStore, { value: { state: initialState, dispatch: vi.fn() } as never, children: createElement(CloudTaskCard, { message: value }) }));
 }
 
 function remember(id: string, patch: Partial<CloudTaskSummary>) {

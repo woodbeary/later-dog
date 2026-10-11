@@ -68,3 +68,16 @@ it('serves cloud task summaries, progress and screens to the desktop, and keeps 
   const cancelled=await (await f.request(`/jobs/${id}/action`,{action:'cancel'})).json() as {state:string};
   expect(cancelled.state).toBe('cancelled');
 });
+it('sends a delegation that names no profile to later.dog Cloud when it is set up',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'laterdog-http-')); const store=new WorkspaceStore(join(dir,'workspace.sqlite'));
+  const supervisor=new Supervisor(store,{ dataDir:dir,profiles:[{id:'default',label:'Codex'},{id:'cloud',label:'later.dog Cloud',backend:'laterdog-cloud'}],concurrency:4,publishingHost:'local' });
+  const token='fixture-supervisor-token-'.repeat(3); const server=createSupervisorServer(supervisor,token); resources.push({ server,supervisor,store,dir });
+  server.listen(0,'127.0.0.1'); await once(server,'listening'); const address=server.address(); if (!address || typeof address==='string') throw new Error('No fixture address');
+  const origin=`http://127.0.0.1:${address.port}`;
+  store.saveRepository({slug:'fixture/repo',environmentId:'env',environments:{},generation:'unqualified',baseRef:'main',publish:true,merge:false,behavioralChecks:[],verification:[]});
+  expect(supervisor.preferredProfile()).toBe('cloud');
+  const unnamed=await callTool('delegate_cloud_job',{requestKey:randomUUID(),repository:'fixture/repo',title:'No profile named',brief:'x',writeScopes:['src']},origin,token) as {id:string;backend:string};
+  expect(unnamed.backend).toBe('laterdog-cloud'); expect(store.job(unnamed.id).profileId).toBe('cloud');
+  const named=await callTool('delegate_cloud_job',{requestKey:randomUUID(),repository:'fixture/repo',title:'Codex named',brief:'x',writeScopes:['docs'],profileId:'default'},origin,token) as {id:string;backend:string};
+  expect(named.backend).toBe('codex-cloud');
+});
