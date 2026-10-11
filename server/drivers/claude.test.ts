@@ -1193,6 +1193,52 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.mcpConfig.mcpServers.dog.alwaysLoad).toBe(true);
   });
 
+  it.each(["ask", "auto"] as const)("pre-allows later.dog's own cloud tools except merge in %s approval", async (approvalMode) => {
+    await create();
+    const dump = join(scratch, "dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({
+      threadId: "t-laterdog-tools",
+      text: "hi",
+      approvalMode,
+      integrations: {
+        custom: {
+          laterdog: { command: "/bin/sh", args: ["-c", "exec \"$0\" \"$@\"", process.execPath, "/Applications/later.dog.app/Contents/Resources/app.asar/dist-server/laterdog/mcp.js"], env: {} },
+          other: { command: process.execPath, args: ["/fake/other-server.js"], env: {} },
+        },
+      },
+    });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    const allowed = seen.argv[seen.argv.indexOf("--allowedTools") + 1].split(",");
+    expect(allowed).toContain("mcp__laterdog__laterdog_workspace");
+    expect(allowed).toContain("mcp__laterdog__delegate_cloud_job");
+    expect(allowed).toContain("mcp__laterdog__publish_cloud_job");
+    expect(allowed).not.toContain("mcp__laterdog__merge_cloud_job");
+    expect(allowed).not.toContain("mcp__laterdog");
+    expect(allowed.some((name: string) => name.startsWith("mcp__other"))).toBe(false);
+    expect(seen.argv[seen.argv.indexOf("--permission-mode") + 1]).toBe(approvalMode === "auto" ? "auto" : "default");
+  });
+
+  it("does not pre-allow a person's own server that happens to be named laterdog", async () => {
+    await create();
+    const dump = join(scratch, "dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({
+      threadId: "t-laterdog-impostor",
+      text: "hi",
+      approvalMode: "ask",
+      integrations: { custom: { laterdog: { command: process.execPath, args: ["/somewhere/else/server.js"], env: {} } } },
+    });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv[seen.argv.indexOf("--allowedTools") + 1]).not.toContain("mcp__laterdog__");
+  });
+
   // The harness hands the same per-session bearer to every turn; rewriting
   // the file each time cost an fsync on the event loop. A rotated bearer
   // must still be on disk before the CLI reads it.
