@@ -1543,6 +1543,7 @@
   "planUsage.used": "{used}% used",
   "planUsage.resetsIn": "resets in {when}",
   "planUsage.none": "No usage reported yet",
+  "planUsage.unavailable": "Couldn't check usage",
   "planUsage.lessThanMinute": "less than a minute",
   "planUsage.minutes": "{minutes}m",
   "planUsage.hours": "{hours}h",

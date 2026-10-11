@@ -29,11 +29,12 @@ export interface UsageSummary {
   total: UsageGroup;
 }
 
-export function usagePeriodRange(period: UsagePeriod, now = new Date()): { from: string; to: string } {
+export function usagePeriodRange(period: UsagePeriod | "year", now = new Date()): { from: string; to: string } {
   const day = (date: Date) => date.toISOString().slice(0, 10);
   const year = now.getUTCFullYear();
   const month = now.getUTCMonth();
   if (period === "month") return { from: day(new Date(Date.UTC(year, month, 1))), to: day(now) };
+  if (period === "year") return { from: day(new Date(now.getTime() - 365 * 24 * 60 * 60_000)), to: day(now) };
   if (period === "lastMonth") return { from: day(new Date(Date.UTC(year, month - 1, 1))), to: day(new Date(Date.UTC(year, month, 0))) };
   return { from: day(new Date(now.getTime() - 29 * 24 * 60 * 60_000)), to: day(now) };
 }
@@ -99,7 +100,7 @@ export function UsageHistoryTable({ summary }: { summary: UsageSummary }) {
   );
 }
 
-async function fetchUsage(range: { from: string; to: string }, groupBy: UsageGroupBy): Promise<UsageSummary> {
+export async function fetchUsage(range: { from: string; to: string }, groupBy: UsageGroupBy): Promise<UsageSummary> {
   return api(`/api/usage?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}&groupBy=${groupBy}`);
 }
 

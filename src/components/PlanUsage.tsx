@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
 import { api } from "@/state/store";
 import { activeLocale, t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -265,7 +264,7 @@ export function AccountUsage({ provider, now, loading = false, resting }: {
     return <p className={cn(quiet, "text-warning")}>{t("accounts.resting", { time: resetClock(resting.until, now) })}</p>;
   }
   if (!provider) return <p className={quiet}>{loading ? t("planUsage.loading") : t("planUsage.none")}</p>;
-  if (!provider.ok) return <p className={quiet}>{provider.error || t("planUsage.none")}</p>;
+  if (!provider.ok) return <p className={quiet}>{t("planUsage.unavailable")}</p>;
   const session = windowLine(t("planUsage.fiveHour"), provider.fiveHour, now);
   const weekly = windowLine(t("planUsage.weekly"), provider.weekly, now);
   if (!session && !weekly) return <p className={quiet}>{t("planUsage.none")}</p>;
@@ -279,40 +278,5 @@ export function AccountUsage({ provider, now, loading = false, resting }: {
       )}
       {weekly && <p className={cn(quiet, "tabular-nums")}>{weekly}</p>}
     </div>
-  );
-}
-
-export function PlanUsage() {
-  const { report, loading, error, now, reload } = usePlanUsage();
-  return (
-    <section data-plan-usage="" className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between pl-4">
-        <h3 className="text-[12px] font-medium text-ink-secondary">{t("accounts.title")}</h3>
-        <button
-          type="button"
-          onClick={() => void reload(true)}
-          disabled={loading}
-          aria-label={t("planUsage.refresh")}
-          title={t("planUsage.refresh")}
-          className="rounded-md p-1.5 text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-45"
-        >
-          {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-        </button>
-      </div>
-      <div className="rounded-xl bg-card">
-        {error && <p role="alert" className="px-4 py-3 text-[13px] text-danger">{error}</p>}
-        {!error && loading && !report && <p role="status" className="px-4 py-3 text-[13px] text-ink-secondary">{t("planUsage.loading")}</p>}
-        {!error && report && report.providers.length === 0 && <p className="px-4 py-3 text-[13px] text-ink-secondary">{t("planUsage.empty")}</p>}
-        {report && report.providers.map((provider, index) => (
-          <div key={provider.id} className={cn("flex flex-col gap-2 px-4 py-3", index > 0 && "border-t border-hairline/40")}>
-            <div className="flex min-w-0 items-baseline gap-2">
-              <span className="truncate text-[13px] font-medium text-ink">{provider.name}</span>
-              {provider.plan && <span className="truncate text-[12px] text-ink-secondary">{provider.plan}</span>}
-            </div>
-            <AccountUsage provider={provider} now={now} />
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }

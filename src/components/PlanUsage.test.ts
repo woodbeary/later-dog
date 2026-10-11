@@ -1,14 +1,9 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ report: null as unknown }));
-vi.mock("react", async (original) => ({
-  ...await original<typeof import("react")>(),
-  useSyncExternalStore: () => ({ report: fixture.report, loading: false, error: "", fetchedAt: 1 }),
-}));
 vi.mock("@/state/store", () => ({ api: vi.fn() }));
-import { AccountUsage, PlanUsage, keepLastGood, resetDistance, type PlanProvider } from "./PlanUsage";
+import { AccountUsage, keepLastGood, resetDistance, type PlanProvider } from "./PlanUsage";
 
 const HOUR = 60 * 60 * 1000;
 const provider = (overrides: Partial<PlanProvider> = {}): PlanProvider => ({
@@ -18,8 +13,6 @@ const provider = (overrides: Partial<PlanProvider> = {}): PlanProvider => ({
   extra: [], models: [],
   ...overrides,
 });
-
-beforeEach(() => { fixture.report = null; });
 
 describe("reset distance", () => {
   it("counts down in days, hours and minutes through the catalog", () => {
@@ -63,23 +56,16 @@ describe("Account usage presentation", () => {
     expect(resting).not.toContain('role="meter"');
     const none = renderToStaticMarkup(createElement(AccountUsage, { provider: undefined, now: Date.now() }));
     expect(none).toContain("No usage reported yet");
-    const failed = renderToStaticMarkup(createElement(AccountUsage, { provider: provider({ ok: false, error: "Sign in to this account." }), now: Date.now() }));
-    expect(failed).toContain("Sign in to this account.");
+    const failed = renderToStaticMarkup(createElement(AccountUsage, { provider: provider({ ok: false, error: "Could not reach Claude" }), now: Date.now() }));
+    expect(failed).toContain("Couldn&#x27;t check usage");
     expect(failed).not.toContain('role="meter"');
   });
-});
 
-describe("Plan usage list", () => {
-  it("lists one row per account under one label, with the plan beside the name", () => {
-    fixture.report = { fetchedAt: "2026-10-02T09:00:00Z", providers: [provider(), provider({ id: "work", name: "Work", plan: null, ok: false, error: "Not signed in." })] };
-    const html = renderToStaticMarkup(createElement(PlanUsage));
-    expect(html).toContain(">Accounts<");
-    expect(html).toContain("Fixture provider");
-    expect(html).toContain(">Pro<");
-    expect(html).toContain("Not signed in.");
-    expect(html).toContain('aria-label="Refresh"');
-    expect(html.match(/role="meter"/g)).toHaveLength(1);
-    expect((html.match(/rounded-xl bg-card/g) ?? []).length).toBe(1);
+  it("never tells a signed-in account to sign in again, and never names Codex", () => {
+    for (const error of ["Sign in again in Claude", "Sign in again in Codex", "Could not reach Codex", "Codex returned an unexpected usage response"]) {
+      const html = renderToStaticMarkup(createElement(AccountUsage, { provider: provider({ ok: false, error }), now: Date.now() }));
+      expect(html).toBe('<p class="text-[12px] text-ink-secondary">Couldn&#x27;t check usage</p>');
+    }
   });
 });
 
