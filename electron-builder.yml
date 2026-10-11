@@ -60,6 +60,20 @@ extraResources:
     to: licenses/models-dev-LICENSE.txt
   - from: third_party/opencode/LICENSE
     to: licenses/opencode-LICENSE.txt
+  - from: third_party/t3-code/LICENSE
+    to: licenses/t3-code-LICENSE.txt
+  - from: third_party/provider-icons/LICENSE-Lobe-Icons.txt
+    to: licenses/lobe-icons-LICENSE.txt
+  - from: third_party/cua-driver/LICENSE.md
+    to: licenses/cua-driver-LICENSE.md
+  - from: third_party/cua-driver/THIRD_PARTY_NOTICES.md
+    to: licenses/cua-driver-THIRD_PARTY_NOTICES.md
+  - from: src/assets/whop/LICENSE.txt
+    to: licenses/whop-assets-LICENSE.txt
+  - from: src/data/given-names/female-LICENSE
+    to: licenses/given-names-female-LICENSE.txt
+  - from: src/data/given-names/male-LICENSE
+    to: licenses/given-names-male-LICENSE.txt
   - from: dist
     to: ui
   - from: dist-server

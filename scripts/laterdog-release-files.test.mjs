@@ -134,6 +134,11 @@ describe("the release files command", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(fs.readdirSync(out).sort()).toEqual(["NOTES.md", "SHA256SUMS.txt", "latest-mac.yml"]);
     expect(parse(fs.readFileSync(path.join(out, "latest-mac.yml"), "utf8")).version).toBe("0.3.4");
+    const notes = fs.readFileSync(path.join(out, "NOTES.md"), "utf8");
+    expect(notes).toContain("open it once");
+    expect(notes).toContain("System Settings → Privacy & Security");
+    expect(notes).toContain("**Open Anyway**");
+    expect(notes).not.toContain("right-click");
 
     const refused = spawnSync(process.execPath, [SCRIPT, "--tag", "v0.3.4", "--zip", zip, "--out", out, "--repository", "not a repo", "--changelog", path.join(directory, "CHANGELOG.md"), "--package", path.join(directory, "package.json")], { encoding: "utf8" });
     expect(refused.status).not.toBe(0);
