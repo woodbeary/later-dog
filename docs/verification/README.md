@@ -133,13 +133,6 @@ against an isolated server for image decoding, loading, and recovery UI checks.
 The [VPS recovery fixtures](vps-recovery.md) reproduce preview/startup contention
 and Docker-over-SSH timeout cleanup without contacting a real server.
 
-The [live browser fixture](browser-live.md) mounts the real Browser panel with
-an explicitly selected native engine and Chrome in a disposable home, covering
-watching, takeover, input, and profile switching.
-
-The [Local VM resume fixture](local-vm-resume.md) checks idle stop, restart
-recovery, guarded resume and the stopped-to-ready Computer panel flow.
-
 The [local computer launch regression](local-computer-launch.md) starts the
 host CUA gate through real Electron in a disposable home, without opening the
 desktop app or controlling the user's computer.
@@ -218,9 +211,6 @@ flow, credential rotation, account ownership, and native Responses routing.
 
 The [mention fixture](mentions.md) checks candidate selection, composer highlighting,
 sent mentions, multiline scrolling and responsive wrapping in real chat views.
-
-The [Group and Goal Local VM recipe](group-local-vm.md) checks per-speaker
-desktop routing, cancellation, and computer authority cleanup.
 
 ## Evidence
 

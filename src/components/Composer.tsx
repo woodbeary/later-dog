@@ -683,9 +683,6 @@ export function Composer({
    * @param e - Clipboard event from the composer textarea.
    */
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    // an image from the clipboard becomes an uploaded attachment —
-    // but only for engines that can open one; a grok bot politely
-    // refuses instead of receiving a path it cannot read
     const imageFiles = clipboardImageFiles(e.clipboardData);
     if (imageFiles.length > 0 || clipboardHasImages(e.clipboardData)) {
       e.preventDefault();

@@ -15,10 +15,10 @@ maintenance: provider CLIs that move every week, inherited code to replace, rele
 
 ## Where the money goes
 
-- Maintenance first: the time it takes to keep later.dog working against Codex, Claude Code, Grok and macOS as they change.
+- Maintenance first: the time it takes to keep later.dog working against Codex, Claude Code and macOS as they change.
 - A share of every sponsorship goes to organisations that shelter, feed and rehome dogs. The exact share and the
   recipients are published here when the first payout happens, with amounts — no "proceeds may" language.
-- If later.dog ever offers a paid plan (metered model access the way Cursor, Cline or OpenRouter do), the same rule
+- If later.dog ever offers a paid plan (metered model access), the same rule
   applies and is written into the plan's terms before the first invoice: a stated share of what you spend goes to animal
   rescue, and the harness still spends your tokens as frugally as it can. You should never be in doubt whether the app is
   optimising for your bill or for the margin.
