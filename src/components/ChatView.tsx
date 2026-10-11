@@ -60,7 +60,7 @@ import { BotAvatar } from "./Avatar";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
-import { normalizeState, restingStateForBot, turnState, userBubbleColor } from "@/lib/mascot";
+import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
 import { MOTION } from "@/lib/motion";
@@ -364,7 +364,7 @@ class MessageBoundary extends Component<{ children: ReactNode; fallbackText: str
   render() {
     if (this.state.failed) {
       return (
-        <div className="chat-text w-fit max-w-[min(42rem,78%)] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
+        <div className="chat-text w-fit max-w-[min(42rem,78%)] rounded-[18px] bg-card px-3 py-[7px] text-[14px] leading-[21px] whitespace-pre-wrap text-ink">
           {this.props.fallbackText}
         </div>
       );
@@ -396,7 +396,7 @@ function BubbleEditor({
     if (draft.trim()) onSubmit(draft.trim());
   };
   return (
-    <div className="w-full max-w-[min(42rem,78%)] rounded-2xl border border-hairline/40 bg-bubble-user px-4 py-3">
+    <div className="w-full max-w-[min(42rem,78%)] rounded-[18px] border border-hairline/40 bg-bubble-user px-3 py-2">
       <textarea
         ref={ref}
         value={draft}
@@ -588,7 +588,7 @@ const Bubble = memo(function Bubble({
                   : "bg-card px-3 py-[7px] text-ink",
           )}
           title={new Date(message.at).toLocaleString()}
-          style={user && !webhookView && !attachmentsOnly ? { backgroundColor: userBubbleColor(bots.find((candidate) => candidate.id === botId)?.color) } : undefined}
+          data-dog-tint={user && !webhookView && !attachmentsOnly ? dogTint(bots.find((candidate) => candidate.id === botId)?.color) : undefined}
         >
           {replyTarget && (
             <div className="mb-2">
