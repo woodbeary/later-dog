@@ -1,16 +1,13 @@
 # Changelog
 
-## 0.3.10 — 2026-10-11
+## 0.3.9 — 2026-10-11
 
+- **Black and white.** Buttons are black in light mode and white in dark mode, and new dogs start as the classic golden dog. Pick any color for a dog in its settings.
 - **Feels like a Mac app.** The system font, 14-point chat text, rounder bubbles and a softer message box with a hairline edge.
 - **Your messages take your dog's color.** Each chat's bubbles match the dog you're talking to.
 - **Calmer thinking.** The green dot by the dog's name is gone; the dog's face and a soft moving line under the last message show it's working.
 - **Softer cards.** A failed turn reads like a normal message with a quiet Try again. A permission request asks a plain question, keeps the details one click away, and makes Always allow the main button where it's offered.
 - @mentions show the dog's name in its color, without the box and underline.
-
-## 0.3.9 — 2026-10-11
-
-- **Black and white.** Buttons are black in light mode and white in dark mode, and new dogs start as the classic golden dog. Pick any color for a dog in its settings.
 - **Simpler setup.** The welcome tour asks only for Claude or ChatGPT, with one **Sign in** button each that installs what it needs.
 - **Only your accounts.** Settings lists the accounts you added, each with an X to remove it, and nothing for ones you never added.
 - **The screen is the button.** Click a dog's cloud screen to open it, and use it right away. It goes to sleep by itself when nobody uses it. **Take over** appears only when the dog asks for your help.
