@@ -116,8 +116,8 @@ export { cloudHomeOffersPlace } from "../shared/cloud-home.ts";
  * the person's, no Local VM), in the words the person reads; undefined for a
  * place it offers. A turn's error shows 160 characters, so each fits. */
 export function cloudHomePlaceRefusal(place: Surface): string | undefined {
-  if (place === "local") return "This computer isn't a place on My Cloud. Set Works on to Auto, Cloud computer or Browser.";
-  if (place === "vm") return "Dogs on My Cloud can't use a Local VM. Set Works on to Auto, Cloud computer or Browser.";
+  if (place === "local") return "This computer isn't a place on My Cloud. Set Works on to Auto or Cloud computer.";
+  if (place === "vm") return "Dogs on My Cloud can't use a Local VM. Set Works on to Auto or Cloud computer.";
   return undefined;
 }
 
