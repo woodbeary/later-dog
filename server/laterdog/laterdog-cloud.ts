@@ -49,6 +49,7 @@ export function laterdogCloudSettings(env: NodeJS.ProcessEnv): LaterdogCloudSett
   if (key && !OWNER_KEY.test(key)) throw new Error("LATERDOG_COMPUTERS_KEY does not hold a later.dog computers key (they start with ldc_)");
   const claudeToken = env.CLAUDE_CODE_OAUTH_TOKEN?.replace(/\s+/g, "");
   if (!claudeToken) throw new Error("later.dog Cloud needs CLAUDE_CODE_OAUTH_TOKEN in the supervisor's environment");
+  if (!/^sk-ant-oat\d{2}-[A-Za-z0-9_-]{90,}$/.test(claudeToken)) throw new Error(`CLAUDE_CODE_OAUTH_TOKEN is not a whole Claude token (${claudeToken.length} characters, starts ${claudeToken.startsWith("sk-ant-oat") ? "like" : "unlike"} one); store the full output of claude setup-token again`);
   const githubToken = env.GH_TOKEN?.trim();
   return { api, claudeToken, ...(key ? { key } : {}), ...(githubToken ? { githubToken } : {}) };
 }
@@ -275,9 +276,8 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
   }
 
   async doctor(): Promise<{ version: string; authenticated: boolean; cloudCommands: string }> {
-    let authenticated = false;
-    try { laterdogCloudSettings(this.env); authenticated = true; } catch { authenticated = false; }
-    return { version: "laterdog-computers-v1", authenticated,
+    laterdogCloudSettings(this.env);
+    return { version: "laterdog-computers-v1", authenticated: true,
       cloudCommands: "POST /v1/computers, POST /v1/computers/:id/exec, GET and PUT /v1/computers/:id/files, DELETE /v1/computers/:id; Claude Code runs headless in each job's own computer" };
   }
 

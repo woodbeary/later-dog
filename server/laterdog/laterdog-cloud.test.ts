@@ -14,7 +14,7 @@ import {
   COMPUTER_PREFIX, ComputerSubmissionUnknown, INTERNAL_COMPUTERS_API, LATERDOG_CLOUD_CAPABILITIES, LaterdogCloudAdapter, laterdogCloudSettings, shellQuote, taskScript,
 } from "./laterdog-cloud.ts";
 
-const CLAUDE_TOKEN = "sk-ant-oat01-fixture-claude-secret";
+const CLAUDE_TOKEN = `sk-ant-oat01-fixture_claude_secret_${"x".repeat(80)}`;
 const GITHUB_TOKEN = "ghp_fixtureGithubSecret0000";
 const COMPUTERS_KEY = "ldc_fixtureComputersKey000";
 const API = "https://computers.fixture.test/v1";
@@ -261,14 +261,16 @@ describe("later.dog Cloud adapter", () => {
     expect(laterdogCloudSettings(env)).toEqual({ api: INTERNAL_COMPUTERS_API, claudeToken: CLAUDE_TOKEN });
     const wrapped = `${CLAUDE_TOKEN.slice(0, 10)}\n ${CLAUDE_TOKEN.slice(10)}\n`;
     expect(laterdogCloudSettings({ CLAUDE_CODE_OAUTH_TOKEN: wrapped }).claudeToken).toBe(CLAUDE_TOKEN);
+    expect(() => laterdogCloudSettings({ CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN.slice(0, 80) })).toThrow(/not a whole Claude token \(80 characters/);
+    expect(() => laterdogCloudSettings({ CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN.slice(0, 80) })).not.toThrow(new RegExp(CLAUDE_TOKEN.slice(13, 40)));
     const adapter = new LaterdogCloudAdapter(profile, { fetch: api.fetch, env });
     expect(await adapter.list()).toEqual({ tasks: [] });
     expect(api.requests[0].url).toBe(`${INTERNAL_COMPUTERS_API}/computers`);
     expect(api.requests[0].headers.authorization).toBeUndefined();
     expect((await adapter.doctor()).authenticated).toBe(true);
-    expect((await new LaterdogCloudAdapter(profile, { env: {} }).doctor()).authenticated).toBe(false);
-    expect((await new LaterdogCloudAdapter(profile, { env: { ...env, LATERDOG_COMPUTERS_KEY: "not-a-key" } }).doctor()).authenticated).toBe(false);
-    expect((await new LaterdogCloudAdapter(profile, { env: { ...env, LATERDOG_COMPUTERS_URL: "http://example.com/v1" } }).doctor()).authenticated).toBe(false);
+    await expect(new LaterdogCloudAdapter(profile, { env: {} }).doctor()).rejects.toThrow(/CLAUDE_CODE_OAUTH_TOKEN/);
+    await expect(new LaterdogCloudAdapter(profile, { env: { ...env, LATERDOG_COMPUTERS_KEY: "not-a-key" } }).doctor()).rejects.toThrow(/ldc_/);
+    await expect(new LaterdogCloudAdapter(profile, { env: { ...env, LATERDOG_COMPUTERS_URL: "http://example.com/v1" } }).doctor()).rejects.toThrow(/credential-free/);
     expect(() => laterdogCloudSettings({ ...env, LATERDOG_COMPUTERS_URL: `https://user:${COMPUTERS_KEY}@example.com/v1` })).toThrow(/credential-free/);
   });
 
