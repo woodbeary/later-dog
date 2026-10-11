@@ -1204,8 +1204,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       approvalMode,
       integrations: {
         custom: {
-          laterdog: { command: "/bin/sh", args: ["-c", "exec \"$0\" \"$@\"", process.execPath, "/Applications/later.dog.app/Contents/Resources/app.asar/dist-server/laterdog/mcp.js"] },
-          other: { command: process.execPath, args: ["/fake/other-server.js"] },
+          laterdog: { command: "/bin/sh", args: ["-c", "exec \"$0\" \"$@\"", process.execPath, "/Applications/later.dog.app/Contents/Resources/app.asar/dist-server/laterdog/mcp.js"], env: {} },
+          other: { command: process.execPath, args: ["/fake/other-server.js"], env: {} },
         },
       },
     });
@@ -1231,7 +1231,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       threadId: "t-laterdog-impostor",
       text: "hi",
       approvalMode: "ask",
-      integrations: { custom: { laterdog: { command: process.execPath, args: ["/somewhere/else/server.js"] } } },
+      integrations: { custom: { laterdog: { command: process.execPath, args: ["/somewhere/else/server.js"], env: {} } } },
     });
     await recorder.until((e) => e.type === "turn.completed");
 
