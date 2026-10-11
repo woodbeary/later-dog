@@ -105,6 +105,8 @@
 - Messages that sent you to Settings pages this version removed now point at what's there: the built-in browser (Settings, Computer, Built-in browser), a rejected Boat token (Settings, Computer, Cloud computers), a Local VM that isn't ready (Settings, Computer), a dog's tricks (the Library tab in its settings), and an expired My Cloud link. Phone control on a shared Local VM now says why it can't run, instead of naming a setting that no longer exists.
 - Phone setup no longer says you can come back to it from the menu under your name, and a phone asking to take control no longer sends you to Connect your phone. Both left that menu in this version.
 - Search shows a dog's whole name beside a matching message and shortens the chat's title instead. Before, Atlas showed as "A…". The **Messages** heading now looks like **Dogs** above it. Tried in the side instance, with a short name and a 40-letter one.
+- When a dog says something and keeps working, **Thinking** comes back under its message after 2 seconds. Before, nothing showed until the dog's next step. Tried in the side instance with a turn held open for 17 seconds.
+- Once a dog has answered, **Thinking** no longer shows under the answer while later.dog tidies up. Before, a dog in a project folder or on a computer could show it there for up to 10 seconds. Checked in tests and in the code, not live.
 
 ## 0.3.2 — 2026-10-09
 

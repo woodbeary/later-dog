@@ -62,7 +62,7 @@ import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
-import { showWorkingDots } from "@/lib/turn-tail";
+import { useWorkingDots } from "@/lib/working-dots";
 import { MOTION } from "@/lib/motion";
 import { useArrivals } from "@/lib/arrivals";
 import { liveActivityLabel } from "@/lib/live-activity";
@@ -1196,11 +1196,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   // is finished, the whole bubble pops in above the mascot.
   const lastMessage = messages.at(-1);
   const activityLabel = liveActivityLabel(lastMessage);
-  const waiting = Boolean(
-    bot.busy &&
-      bot.activity !== "waiting-on-you" &&
-      showWorkingDots(bot.busy, lastMessage),
-  );
+  const working = useWorkingDots(bot.busy, lastMessage, bot.turnStartedAt);
+  const waiting = Boolean(bot.busy && bot.activity !== "waiting-on-you" && working);
   const wasWaiting = useRef(false);
   const [popping, setPopping] = useState<string | null>(null);
   const poppingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
