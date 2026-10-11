@@ -2087,6 +2087,7 @@
   "computer.chooseWhereWorks": "Choose where {name} works",
   "computer.trial.try": "Try a cloud computer free",
   "computer.trial.hint": "{minutes} minutes, no card needed",
+  "computer.trial.use": "Use the free cloud computer",
   "computer.simple.dest.thisMac": "This Mac",
   "computer.simple.dest.thisPc": "This PC",
   "computer.close": "Close computer panel",

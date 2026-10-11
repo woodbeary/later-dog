@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.7 — 2026-10-11
+
+- Once your free trial starts, a dog with no computer shows **Use the free cloud computer** in its Computer panel, with the minutes left. Before, the trial was running but the panel still said the dog had no screen until you picked Cloud computer in its settings.
+
 ## 0.3.6 — 2026-10-11
 
 - **Try a cloud computer free.** A dog with no computer offers **Try a cloud computer free** in its Computer panel: 30 minutes on a later.dog cloud computer, to use within 7 days. No account and no card; a quick check in your browser starts it. Settings, Computer shows the trial too, with the minutes left.

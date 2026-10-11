@@ -77,8 +77,22 @@ export function useCloudTrial() {
   return { status, busy, error, start: () => void act("POST"), cancel: () => void act("DELETE"), end };
 }
 
-export function CloudTrialOffer() {
+export function CloudTrialOffer({ onUse }: { onUse?: () => void }) {
   const { status, busy, error, start } = useCloudTrial();
+  if (status?.state === "active" && onUse) {
+    return (
+      <div data-cloud-trial-offer="active" className="mt-3 flex flex-col items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onUse}
+          className="rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-medium text-white hover:brightness-110"
+        >
+          {t("computer.trial.use")}
+        </button>
+        <span className="text-[11px] text-ink-tertiary">{trialSubtitle(status)}</span>
+      </div>
+    );
+  }
   if (status?.state !== "offered" && status?.state !== "pending") return null;
   return (
     <div data-cloud-trial-offer={status.state} className="mt-3 flex flex-col items-center gap-1.5">

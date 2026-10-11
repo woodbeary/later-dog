@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,11 +34,11 @@ let root: Root | null = null;
 const flush = async () => {
   for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(0);
 };
-const mount = async (component: typeof CloudTrialRow | typeof CloudTrialOffer = CloudTrialRow) => {
+const mount = async (element: ReactElement = createElement(CloudTrialRow)) => {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  flushSync(() => root!.render(createElement(component)));
+  flushSync(() => root!.render(element));
   await flush();
 };
 const text = () => document.body.textContent ?? "";
@@ -188,7 +188,7 @@ describe("the Computer panel's trial offer", () => {
       if (method === "POST") started = true;
       return started ? pending : offered;
     };
-    await mount(CloudTrialOffer);
+    await mount(createElement(CloudTrialOffer));
     expect(text()).toBe("Try a cloud computer free30 minutes, no card needed");
     await click("Try a cloud computer free");
     expect(fixture.open).toHaveBeenCalledExactlyOnceWith(PAGE);
@@ -197,10 +197,19 @@ describe("the Computer panel's trial offer", () => {
     expect(fixture.open).toHaveBeenCalledTimes(2);
   });
 
+  it("offers the running trial's computer to a dog that has none", async () => {
+    fixture.serve = () => active(29);
+    const use = vi.fn();
+    await mount(createElement(CloudTrialOffer, { onUse: use }));
+    expect(text()).toBe("Use the free cloud computer29 minutes left");
+    await click("Use the free cloud computer");
+    expect(use).toHaveBeenCalledTimes(1);
+  });
+
   it("stays out of the way without an offer, and once the trial runs", async () => {
     for (const answer of [{ state: "none" }, active(20), { state: "ended" }] as TrialStatus[]) {
       fixture.serve = () => answer;
-      await mount(CloudTrialOffer);
+      await mount(createElement(CloudTrialOffer));
       expect(text()).toBe("");
       root!.unmount();
       root = null;

@@ -158,7 +158,7 @@ describe("free trials, end to end", () => {
     const key = trialKey("a");
     const claim = await sha256Hex(key);
     const fields = { claim, "cf-turnstile-response": `pass:${claim}` };
-    const incomplete = { status: 400, title: "This link is not complete", message: "Start the free trial from later.dog: Settings, then Cloud computers." };
+    const incomplete = { status: 400, title: "This link is not complete", message: "Start the free trial from later.dog, in a dog's Computer panel." };
     const unfinished = { status: 400, title: "The check did not finish", message: "Go back, wait for the check to pass, then press Start free trial." };
     const foreign = { status: 403, title: "This form came from another page", message: AGAIN };
     const unreadable = (status: number) => ({ status, title: "This form could not be read", message: AGAIN });
@@ -334,6 +334,34 @@ describe("free trials, end to end", () => {
       code: "unauthorized",
       message: "Send the API key as Authorization: Bearer ldc_...",
     });
+  });
+
+  it("lets the owner grant a free trial without the browser check or a network's slot", async () => {
+    const w = await world({ TRIALS_PER_DAY: "1" });
+    const verify = siteverify();
+    const key = trialKey("g");
+    const claim = await sha256Hex(key);
+    const grant = (bearer: string, input: unknown) => w.fetch(apiRequest("POST", "/v1/trials/grant", bearer, { body: input }));
+    const active = { trial: { state: "active", minutes: 30, minutesLeft: 30, expiresAt: new Date(T0 + 7 * DAY).toISOString() } };
+
+    const granted = await grant(OWNER_KEY, { claim });
+    expect(granted.status).toBe(201);
+    expect(await body(granted)).toEqual(active);
+    expect(w.logs).toHaveBeenCalledWith(expect.stringMatching(/^laterdog computers: trial trl_[a-z2-7]{16} granted$/));
+    expect((await grant(OWNER_KEY, { claim })).status).toBe(200);
+    expect(await body(await w.fetch(apiRequest("GET", "/v1/trial", key)))).toEqual(active);
+    expect(await createdId(w, key)).toMatch(/^cmp_/);
+    expect(verify).not.toHaveBeenCalled();
+
+    expect((await startTrial(w, trialKey("n"))).status).toBe(200);
+    expect(await refusal(await grant(key, { claim: await sha256Hex(trialKey("x")) }))).toEqual({
+      status: 403,
+      code: "owner_only",
+      message: "Only the owner's key can grant a free trial.",
+    });
+    expect((await refusal(await grant(OWNER_KEY, { claim: "not-a-claim" }))).code).toBe("invalid_claim");
+    expect((await w.fetch(new Request(`${ORIGIN}/v1/trials/grant`, { method: "POST" }))).status).toBe(401);
+    expect((await w.fetch(apiRequest("GET", "/v1/trials/grant", OWNER_KEY))).status).toBe(405);
   });
 
   it("slows down a network that sends too many trial forms or trial requests", async () => {

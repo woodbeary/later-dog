@@ -18,6 +18,7 @@ export type Route =
   | { kind: "trial_page" }
   | { kind: "trial"; op: TrialOp }
   | { kind: "trial_offer" }
+  | { kind: "trial_grant" }
   | { kind: "not_found"; api: boolean }
   | { kind: "method_not_allowed"; allow: string[] };
 
@@ -48,6 +49,7 @@ export function route(method: string, pathname: string): Route {
   if (pathname === "/healthz") return method === "GET" ? { kind: "health" } : { kind: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/trial") return method === "GET" || method === "POST" ? { kind: "trial_page" } : { kind: "method_not_allowed", allow: ["GET", "POST"] };
   if (pathname === "/v1/trials") return method === "GET" ? { kind: "trial_offer" } : { kind: "method_not_allowed", allow: ["GET"] };
+  if (pathname === "/v1/trials/grant") return method === "POST" ? { kind: "trial_grant" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/trial") {
     const op = allow(TRIAL, method) as TrialOp | undefined;
     return op ? { kind: "trial", op } : { kind: "method_not_allowed", allow: Object.keys(TRIAL) };
