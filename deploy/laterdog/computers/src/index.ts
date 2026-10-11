@@ -242,13 +242,27 @@ async function trialRequest(op: TrialOp, env: Env, caller: Caller): Promise<Resp
   return json({ trial: trialView(current) });
 }
 
+async function grantTrial(request: Request, env: Env, caller: Caller): Promise<Response> {
+  if (caller.trial) return apiError({ status: 403, code: "owner_only", message: "Only the owner's key can grant a free trial." });
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const claim = (body.value as { claim?: unknown } | undefined)?.claim;
+  if (typeof claim !== "string" || !TRIAL_CLAIM.test(claim)) {
+    return apiError({ status: 400, code: "invalid_claim", message: "Send { \"claim\": \"<the trial link's 64-character claim>\" }." });
+  }
+  const policy = trialPolicy(env);
+  const granted = await trials(env).grant({ keySha256: claim, limitMs: policy.limitMs, windowMs: policy.windowMs });
+  if (!granted.ok) return apiError(granted.refusal);
+  return json({ trial: trialView(granted.trial) }, granted.replayed ? 200 : 201);
+}
+
 async function trialPageRequest(request: Request, env: Env, url: URL): Promise<Response> {
   const nonce = newNonce();
   const page = (status: number, title: string, message: string) => new Response(messagePage({ title, message, nonce }), { status, headers: trialPageHeaders(nonce) });
   const policy = trialPolicy(env);
   if (!policy.enabled) return page(503, "Free trials are not available", "Free trials are switched off on this service right now.");
   const { minutes, days } = trialOffer(policy);
-  const incomplete = () => page(400, "This link is not complete", "Start the free trial from later.dog: Settings, then Cloud computers.");
+  const incomplete = () => page(400, "This link is not complete", "Start the free trial from later.dog, in a dog's Computer panel.");
   if (request.method === "GET") {
     const claim = url.searchParams.get("claim") ?? "";
     if (!TRIAL_CLAIM.test(claim)) return incomplete();
@@ -321,12 +335,14 @@ async function serve(request: Request, env: Env, via: Via): Promise<Response> {
         if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
         return json(trialOffer(trialPolicy(env)));
       case "trial":
+      case "trial_grant":
       case "collection":
       case "computer": {
         const identified = await identify(request, env, via);
         if (!identified.ok) return identified.response;
         const { caller } = identified;
         if (target.kind === "trial") return await trialRequest(target.op, env, caller);
+        if (target.kind === "trial_grant") return await grantTrial(request, env, caller);
         if (target.kind === "collection") return target.op === "list" ? await listComputers(caller) : await createComputer(request, env, caller);
         return await computerRequest(target.op, target.id, request, env, url, caller);
       }

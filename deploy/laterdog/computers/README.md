@@ -208,6 +208,7 @@ Who gets one:
 | `GET /v1/trials`, no key | `{ offered, minutes, days }`. Like the rest of the API, refused with an `Origin` header. |
 | `GET /v1/trial` | `{ trial: { state, minutes, minutesLeft, expiresAt } }`. `state` is `active`, or `used_up` with under a minute left. 401 once the trial has ended, or before it starts. 404 `no_trial` for the owner's key. |
 | `DELETE /v1/trial` | `{ ended: true }`. Deletes the trial's computers and ends it now. Its network stays used until the window ends. |
+| `POST /v1/trials/grant`, owner's key | Body `{ "claim": "<64 hex>" }`, the claim from a trial link. Starts that trial without the browser check and without using a network's trial or the day's count, for gifting a trial or testing the whole flow. 201 with `{ trial }`, 200 when that claim already has one, 403 `owner_only` for a trial key. |
 | `GET /trial?claim=` | The page with the check (HTML). |
 | `POST /trial` | The form. It answers with a page: 200 when the trial started, else 400, 403, 413, 415, 429 (the network had a trial, or the day's trials are taken), 502 (siteverify could not be reached) or 503 (trials are off). |
 

@@ -1406,7 +1406,7 @@ export function ComputerPanel({
                   onRelaunch={() => void window.laterdog?.relaunch?.()}
                 />
               )}
-              {phase === "off" && livePlace !== "off" && <CloudTrialOffer />}
+              {phase === "off" && livePlace !== "off" && <CloudTrialOffer onUse={() => updateComputerSelection({ computer: "cloud" })} />}
               {phase === "off" && (
                 <button
                   type="button"

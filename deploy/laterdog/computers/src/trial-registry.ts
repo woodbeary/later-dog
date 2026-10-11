@@ -61,23 +61,37 @@ export class TrialRegistry extends DurableObject<Env> {
     if (started >= input.perDay) {
       return { ok: false, refusal: { status: 429, code: "trials_busy", message: "Today's free trials are all taken. Try again tomorrow." } };
     }
-    let id = newTrialId();
-    while (sql.exec("SELECT 1 FROM trials WHERE id = ?", id).toArray().length > 0) id = newTrialId();
-    const expiresAt = now + input.windowMs;
-    sql.exec(
-      "INSERT INTO trials (id, key_sha256, created_at, expires_at, limit_ms, used_ms) VALUES (?, ?, ?, ?, ?, 0)",
-      id,
-      input.keySha256,
-      now,
-      expiresAt,
-      input.limitMs,
-    );
+    const trial = this.insert(input.keySha256, now, input.limitMs, input.windowMs);
     sql.exec("INSERT INTO networks (network, until) VALUES (?, ?)", input.network, now + input.windowMs);
     sql.exec("INSERT INTO days (day, started) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET started = started + 1", day);
+    await this.wakeBy(trial.expiresAt);
+    console.log(`laterdog computers: trial ${trial.id} started`);
+    return { ok: true, trial, replayed: false };
+  }
+
+  async grant(input: { keySha256: string; limitMs: number; windowMs: number }): Promise<Activation> {
+    const now = Date.now();
+    const prior = this.ctx.storage.sql.exec<Row>("SELECT * FROM trials WHERE key_sha256 = ?", input.keySha256).toArray()[0];
+    if (prior && prior.expires_at > now) return { ok: true, trial: trialOf(prior), replayed: true };
+    if (prior) return { ok: false, refusal: { status: 409, code: "trial_ended", message: "This free trial has ended." } };
+    const trial = this.insert(input.keySha256, now, input.limitMs, input.windowMs);
+    await this.wakeBy(trial.expiresAt);
+    console.log(`laterdog computers: trial ${trial.id} granted`);
+    return { ok: true, trial, replayed: false };
+  }
+
+  private insert(keySha256: string, now: number, limitMs: number, windowMs: number): TrialRecord {
+    const sql = this.ctx.storage.sql;
+    let id = newTrialId();
+    while (sql.exec("SELECT 1 FROM trials WHERE id = ?", id).toArray().length > 0) id = newTrialId();
+    const expiresAt = now + windowMs;
+    sql.exec("INSERT INTO trials (id, key_sha256, created_at, expires_at, limit_ms, used_ms) VALUES (?, ?, ?, ?, ?, 0)", id, keySha256, now, expiresAt, limitMs);
+    return { id, createdAt: now, expiresAt, limitMs, usedMs: 0 };
+  }
+
+  private async wakeBy(at: number): Promise<void> {
     const alarm = await this.ctx.storage.getAlarm();
-    if (alarm === null || alarm > expiresAt) await this.ctx.storage.setAlarm(expiresAt);
-    console.log(`laterdog computers: trial ${id} started`);
-    return { ok: true, trial: { id, createdAt: now, expiresAt, limitMs: input.limitMs, usedMs: 0 }, replayed: false };
+    if (alarm === null || alarm > at) await this.ctx.storage.setAlarm(at);
   }
 
   find(keySha256: string): TrialRecord | null {
