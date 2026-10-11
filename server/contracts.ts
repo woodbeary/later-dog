@@ -430,7 +430,7 @@ export interface EngineInstall {
    * server, as the server's own user, into a directory the app owns. Set by
    * the registry when the install one-liner is an npm package and npm is on
    * PATH; never something a client chooses. */
-  server?: { package: string };
+  server?: { package: string; native?: boolean };
 }
 
 export interface ProviderAuthenticationStart {

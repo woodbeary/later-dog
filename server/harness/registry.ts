@@ -6,6 +6,7 @@
 // touching its siblings.
 import { findCliCandidates } from "../env-path.ts";
 import { installNpmEngine, npmAvailable, serverInstallFor } from "../engine-install.ts";
+import { installNative, nativeInstallFor } from "../laterdog/native-install.ts";
 import type {
   AnyProviderDriver,
   EngineAccess,
@@ -32,9 +33,11 @@ export type RegistryEntry =
   | { instanceId: InstanceId; live?: undefined; shadow: ShadowInstance };
 
 /** The driver's install descriptor plus what this machine can do about it. */
-function withServerInstall(install: AnyProviderDriver["install"], npmPresent: boolean): AnyProviderDriver["install"] {
+function withServerInstall(install: AnyProviderDriver["install"], npmPresent: boolean, cli?: string): AnyProviderDriver["install"] {
   const server = install ? serverInstallFor(install, npmPresent) : null;
-  return server ? { ...install, server } : install;
+  if (server) return { ...install, server };
+  const native = install && !install.managed ? nativeInstallFor(cli) : null;
+  return native && install ? { ...install, server: { package: cli ?? "", native: true } } : install;
 }
 
 /** The `cli` field off a driver's default config, when it has one — the
@@ -207,7 +210,12 @@ export class ProviderRegistry {
     }
     const driver = this.driversByKind.get(entry.shadow?.driverKind ?? entry.live!.driverKind);
     const server = serverInstallFor(driver?.install, this.npmPresent());
-    if (!server) return false;
+    if (!server) {
+      const native = driver?.install && !driver.install.managed ? nativeInstallFor(cliDefaultOf(driver)) : null;
+      if (!native) return false;
+      await installNative(native, { baseDir: this.enginesBaseDir });
+      return true;
+    }
     await installNpmEngine(server.package, { baseDir: this.enginesBaseDir, cli: cliDefaultOf(driver) });
     return true;
   }
@@ -264,7 +272,7 @@ export class ProviderRegistry {
             capabilities: { computerMcp: false, agentsMcp: false, localComputerMcp: false },
             // an unknown driver has no driver record, hence no install path
             access: driver?.metadata.access ?? "subscription",
-            install: withServerInstall(driver?.install, npmPresent),
+            install: withServerInstall(driver?.install, npmPresent, cliDefaultOf(driver)),
             cli: entry.shadow.cli,
             cliDefault: cliDefaultOf(driver),
             // a shadow is exactly the "your CLI is broken, pick another"
@@ -303,7 +311,7 @@ export class ProviderRegistry {
             approvalReview: inst.reviewPermission !== undefined,
           },
           access: driver?.metadata.access ?? "subscription",
-          install: withServerInstall(driver?.install, npmPresent),
+          install: withServerInstall(driver?.install, npmPresent, cliDefaultOf(driver)),
           authentication: inst.startAuthentication
             ? {
                 method: inst.authenticationMethod ?? (inst.getAuthentication && inst.completeAuthentication
