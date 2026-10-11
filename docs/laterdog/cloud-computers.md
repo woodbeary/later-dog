@@ -1,8 +1,9 @@
 # Cloud computers for dogs
 
 A dog that keeps working after the laptop closes needs a computer that is not the laptop. This page sets out the design
-for a per-dog cloud computer on the operator's own Cloudflare account. Cloud computers are coming soon: they are not part
-of the 0.3.3 release, and the app shows them as "Coming soon". Facts about Cloudflare are from Cloudflare's Containers and
+for a per-dog cloud computer on the operator's own Cloudflare account. Since 0.3.6 the app offers a free 30-minute trial
+on later.dog's own service (`cloud.later.dog`); running them on your own account takes the deploy in
+[deploy/laterdog/computers](../../deploy/laterdog/computers/README.md). Facts about Cloudflare are from Cloudflare's Containers and
 Sandbox documentation, read 2026-10-06; its scheduling-policy, snapshot and limits pages were read 2026-10-08. The design
 below is direction b of the roadmap. A prototype service, a one-command deploy and measured timings are in
 [deploy/laterdog/computers](../../deploy/laterdog/computers/README.md).

@@ -29,7 +29,7 @@ export function trialSubtitle(status: TrialStatus): string {
   }
 }
 
-export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
+export function useCloudTrial() {
   const [status, setStatus] = useState<TrialStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +74,42 @@ export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
     if (window.confirm(t("vm.trial.endConfirm"))) void act("DELETE");
   };
 
+  return { status, busy, error, start: () => void act("POST"), cancel: () => void act("DELETE"), end };
+}
+
+export function CloudTrialOffer() {
+  const { status, busy, error, start } = useCloudTrial();
+  if (status?.state !== "offered" && status?.state !== "pending") return null;
+  return (
+    <div data-cloud-trial-offer={status.state} className="mt-3 flex flex-col items-center gap-1.5">
+      {status.state === "offered" ? (
+        <>
+          <button
+            type="button"
+            onClick={start}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-medium text-white hover:brightness-110 disabled:opacity-50"
+          >
+            {busy && <Loader2 size={12} className="animate-spin" />}
+            {t("computer.trial.try")}
+          </button>
+          <span className="text-[11px] text-ink-tertiary">{t("computer.trial.hint", { minutes: status.minutes })}</span>
+        </>
+      ) : (
+        <>
+          <span className="text-[12px]">{t("vm.trial.pending")}</span>
+          <button type="button" onClick={() => void openExternalLink(status.url)} className="rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover">
+            {t("vm.trial.open")}
+          </button>
+        </>
+      )}
+      {error && <p role="alert" className="text-[11px] text-danger">{error}</p>}
+    </div>
+  );
+}
+
+export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
+  const { status, busy, error, start, cancel, end } = useCloudTrial();
   const spinner = busy && <Loader2 size={12} className="animate-spin" />;
 
   return (
@@ -84,7 +120,7 @@ export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
         <SettingRow title={t("vm.trial.title")} subtitle={trialSubtitle(status)}>
           <div data-cloud-trial={status.state} className="flex flex-wrap gap-2 sm:justify-end">
             {status.state === "offered" && (
-              <button type="button" onClick={() => void act("POST")} disabled={busy} className={`${pillButton} flex items-center gap-1.5`}>
+              <button type="button" onClick={start} disabled={busy} className={`${pillButton} flex items-center gap-1.5`}>
                 {spinner}
                 {t("vm.trial.start")}
               </button>
@@ -94,7 +130,7 @@ export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
                 <button type="button" onClick={() => void openExternalLink(status.url)} disabled={busy} className={pillButton}>
                   {t("vm.trial.open")}
                 </button>
-                <button type="button" onClick={() => void act("DELETE")} disabled={busy} className={`${pillButton} flex items-center gap-1.5`}>
+                <button type="button" onClick={cancel} disabled={busy} className={`${pillButton} flex items-center gap-1.5`}>
                   {spinner}
                   {t("common.cancel")}
                 </button>

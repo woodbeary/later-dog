@@ -23,6 +23,7 @@ delete process.env.HERMES_HOME;
 // wholesale, and "it is safe because of a line in another file" is not the
 // footing that delete should stand on.
 process.env.LATERDOG_COMPANION_DIR = join(home, ".laterdog-companion");
+process.env.LATERDOG_TRIAL_API = "off";
 
 // Product code follows navigator.language, which makes English assertions
 // depend on the developer or CI host locale. Keep the shared default stable;

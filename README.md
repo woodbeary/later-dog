@@ -4,9 +4,11 @@
 
 <p align="center">Your dogs, on your Mac. Open source.</p>
 
+<p align="center"><a href="https://later.dog">later.dog</a> · <a href="https://github.com/woodbeary/later-dog/releases/latest">Download for Mac</a> · <a href="docs/laterdog/README.md">User guide</a></p>
+
 later.dog is a desktop home for AI agents that do real work. We call them dogs. Each dog is a contact in your sidebar
-with its own files and its own conversation; dogs message each other, run on a schedule, and check with you before they
-act. It runs on the subscriptions you already pay for — ChatGPT and Claude — through their official sign-in flows, so
+with its own files and its own conversation. Dogs message each other, run on a schedule, and hand coding work to the
+cloud. It runs on the subscriptions you already pay for, ChatGPT and Claude, through their official sign-in flows, so
 there are no API keys to paste. New to later.dog? Start with the [user guide](docs/laterdog/README.md).
 
 ## Install (macOS, Apple silicon)
@@ -28,16 +30,18 @@ appears at the top of the sidebar, and **Restart to update** installs it.
 
 ## The first five minutes
 
-- **Talk to a dog like a teammate.** It answers, runs commands in its working folder, and works with its files. Keep it on **Heel** and it checks with you before commands and file changes (changes to its own routines, tricks and profile apply at once, with Undo); let it **Off-leash** and it acts,
-  then tells you.
+- **Talk to a dog like a teammate.** It answers, runs commands in its working folder, and works with its files. New
+  dogs start **Off-leash**: they act, then tell you, and the provider's own automatic review still asks you about
+  anything it won't approve. Put a dog on **Heel** and it checks with you before commands and file changes (changes to
+  its own routines, tricks and profile apply at once, with Undo).
 - **Pick a breed and a role.** New dog → a breed (retriever, beagle, shepherd, corgi, husky, pug, poodle, chihuahua), a
   color, and a starting role: chief of staff, engineer, nightly audit engineer, reviewer, project manager, inbox manager,
-  intel scout, gatekeeper — job descriptions distilled from how people actually run agent teams.
+  intel scout, gatekeeper. The job descriptions are distilled from how people actually run agent teams.
 - **Teach it tricks.** A trick is a skill: a playbook the dog follows when asked.
 - **Send it to fetch.** The Fetch chip (or `/goal`) gives a dog something to keep working on until it is done.
 - **Run a pack.** A group chat with a roster; @-mention one dog and it can consult another and relay the answer.
 - **Put it on a clock.** Ask a dog to make itself a routine; you confirm the schedule once and it runs in its own thread.
-- **Switch models any time.** Codex on your ChatGPT plan or Claude Code — per dog or per conversation, with the
+- **Switch models any time.** Codex on your ChatGPT plan or Claude Code, per dog or per conversation, with the
   reasoning effort you want.
 - **Never run dry.** Sign in to several Claude accounts and several ChatGPT (Codex) accounts in Settings → General →
   Accounts and switch on Keep going when an account runs out. When one hits its usage limit, the conversation continues
@@ -45,25 +49,31 @@ appears at the top of the sidebar, and **Restart to update** installs it.
   picks up where it stopped ([how it works](docs/laterdog/token-battery.md)).
 - **Give a treat.** The bone under a dog's reply makes it happy and counts on its profile. It does nothing else.
 
-## Cloud computers: coming soon
+## Cloud
 
-A computer in the cloud for each dog, on your own Cloudflare account, so a dog can keep working while your Mac sleeps, is
-coming soon. It is not in this release; the design is in [docs/laterdog/cloud-computers.md](docs/laterdog/cloud-computers.md).
+- **Try a cloud computer free.** A dog with no computer offers **Try a cloud computer free** in its Computer panel:
+  30 minutes on a later.dog cloud computer, to use within 7 days. No account and no card; a quick check in your
+  browser starts it.
+- **Cloud tasks.** A dog can hand a coding job to the cloud: a fresh cloud computer clones the repository and does the
+  work with Claude Code. A card in the chat shows what it is doing; click it to follow its steps, see the changed files
+  and watch its screen, then open a draft pull request with one click. Cloud tasks run on a later.dog supervisor you deploy to your
+  own Cloudflare account ([how](docs/laterdog/cloudflare.md)), and they never merge anything.
+- **later.dog Cloud**, cloud computers and cloud tasks with nothing to set up, is coming soon at $10 a month.
 
 ## Send your agent
 
 Most people will not set this up by hand. Point your coding agent (Codex, Claude Code, …) at this repository and
 say *"clone later.dog and set it up for me"*. It will find:
 
-- [`AGENTS.md`](AGENTS.md) — the rules of this repo.
-- [`skills/laterdog/setup-laterdog/SKILL.md`](skills/laterdog/setup-laterdog/SKILL.md) — the setup procedure, including
+- [`AGENTS.md`](AGENTS.md): the rules of this repo.
+- [`skills/laterdog/setup-laterdog/SKILL.md`](skills/laterdog/setup-laterdog/SKILL.md): the setup procedure, including
   the things only you can do (click Open Anyway in System Settings, sign in to your providers, grant macOS permissions).
-- [`llms.txt`](llms.txt) — an index of every document that matters.
+- [`llms.txt`](llms.txt): an index of every document that matters.
 
 ## Support later.dog, and the dogs
 
 later.dog is free and open source and stays that way. Sponsorships keep it maintained, and a share of every one goes to
-animal rescue — the amounts and recipients are published in [docs/laterdog/support.md](docs/laterdog/support.md), and
+animal rescue. The amounts and recipients are published in [docs/laterdog/support.md](docs/laterdog/support.md), and
 nothing in the app nags you about it. Pull requests are welcome too: [CONTRIBUTING.md](CONTRIBUTING.md) says what a
 mergeable one looks like (proof over promises).
 
@@ -89,8 +99,9 @@ dictation needs a signed build.
 
 The direction, in order (details and status in the [roadmap](docs/laterdog/roadmap.md)):
 
-1. **A cloud computer per dog on your own Cloudflare account**, with a live desktop you can watch and take over, asleep
-   when idle. Coming soon.
+1. **A cloud computer per dog**, with a live desktop you can watch and take over, asleep when idle. Works on your own
+   Cloudflare account today ([deploy/laterdog/computers](deploy/laterdog/computers/README.md)), with a free 30-minute
+   trial on later.dog's. The later.dog Cloud plan is next.
 2. **Any model through Cloudflare AI Gateway** on your own account, next to the Claude and Codex subscriptions. Planned.
 3. **Everything deployable to your own Cloudflare with one command.** Planned.
 

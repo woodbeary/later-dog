@@ -86,9 +86,12 @@ describe("the free trial offer", () => {
     expect(service.calls).toHaveLength(1);
   });
 
-  it("is never offered when this version names no trial service", async () => {
-    expect(DEFAULT_TRIAL_API).toBe("");
-    vi.stubEnv("LATERDOG_TRIAL_API", "");
+  it("asks later.dog's own trial service unless LATERDOG_TRIAL_API names another", () => {
+    expect(DEFAULT_TRIAL_API).toBe("https://cloud.later.dog/v1");
+  });
+
+  it("is never offered when the trial service is switched off", async () => {
+    vi.stubEnv("LATERDOG_TRIAL_API", "off");
     expect(await trialStatus(options)).toEqual({ state: "none" });
     expect(await rejection(startTrial(options))).toMatchObject({ status: 409, message: "Free trials are not offered by this version of later.dog" });
     expect(service.calls).toHaveLength(0);

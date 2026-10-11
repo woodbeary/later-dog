@@ -10,9 +10,13 @@ import { DOG_COLOR_NAMES, DOG_COLORS, type DogColor } from "@/lib/mascot";
 import { api, type Bot } from "@/state/store";
 import { DEFAULT_MASCOT_BODY, MASCOT_BODIES, MASCOT_BODY_IDS, type MascotBodyId } from "../../../../shared/mascot-bodies";
 import { isDogBreed } from "@/components/DogAvatar";
+import { approvalModeFor } from "../../../../shared/approval-mode";
 import { inputClass, PrimaryButton, QuietButton, staggerIndex, type BeatProps } from "./shared";
 
 const BREEDS = MASCOT_BODY_IDS.filter((id) => isDogBreed(id));
+
+export const startsOffLeash = (bot: Pick<Bot, "approvalMode" | "autoApprove" | "computer">) =>
+  approvalModeFor(bot) === "ask" && bot.computer !== "local";
 
 export function MeetYourBotBeat({
   bot,
@@ -48,6 +52,7 @@ export function MeetYourBotBeat({
     if (trimmedName && trimmedName !== bot.name) patch.name = trimmedName;
     if (color !== bot.color) patch.color = color;
     if (breed !== (bot.mascotBody ?? DEFAULT_MASCOT_BODY)) patch.mascotBody = breed;
+    if (startsOffLeash(bot)) patch.approvalMode = "auto";
     if (!Object.keys(patch).length) {
       sayHello(bot.id);
       onFinish();

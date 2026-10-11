@@ -268,14 +268,14 @@ describe("Cloud computer", () => {
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "computer" });
   });
 
-  it("says cloud computers are coming soon, with no key to add", () => {
+  it("says cloud computers are not set up, with no key to add", () => {
     fixture.config = { ...fixture.config, box: { configured: false } };
     fixture.seed = { phase: "unconfigured", resolved: cloudBox };
     for (const ownerOrAdmin of [null, false]) {
       fresh();
       fixture.ownerOrAdmin = ownerOrAdmin;
       const rendered = render(makeBot({ computer: "cloud" }));
-      expect(rendered.html).toContain("Cloud computers are coming soon. They keep your dogs working while your laptop is closed.");
+      expect(rendered.html).toContain("Cloud computers aren’t set up here yet.");
       expect(rendered.html).not.toContain("BOAT-KEY-ROW");
       expect(rendered.byTestId("place-action")).toBeUndefined();
     }

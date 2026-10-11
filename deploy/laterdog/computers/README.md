@@ -225,8 +225,9 @@ same day, and a computer whose snapshot keeps failing can run 10 minutes over.
 
 Settings shows the trial under Computer, Cloud computers. later.dog asks `GET /v1/trials` only while no cloud computers
 are set up: no `computers.json`, no `LATERDOG_COMPUTERS_API` and no Boat key. It asks the service in
-`DEFAULT_TRIAL_API` (`server/laterdog/cloud-trial.ts`). That is empty, so the app offers no trial until a release sets
-it. `LATERDOG_TRIAL_API` overrides it, for testing.
+`DEFAULT_TRIAL_API` (`server/laterdog/cloud-trial.ts`), which is `https://cloud.later.dog/v1` since 0.3.6: this Worker's
+custom domain on later.dog's own deployment. `LATERDOG_TRIAL_API` overrides it, for testing, and `off` switches the
+trial off. Tests and isolated fixtures run with it off.
 
 - **Start free trial** writes the key to `~/.laterdog/computers-trial-key` and the trial's state to
   `~/.laterdog/computers-trial.json`, both mode 600, and opens the page. While Settings is open, it checks every 3
@@ -307,9 +308,13 @@ Trials stay off until all of this is done. Nothing here prints a secret.
    known is then refused.
 4. Set `TRIALS_ENABLED` to `"true"` and run `pnpm run deploy:worker`.
 5. `curl -s https://laterdog-computers.<subdomain>.workers.dev/v1/trials` should answer `{"offered":true,...}`.
-6. To offer trials in the app, set `DEFAULT_TRIAL_API` in `server/laterdog/cloud-trial.ts` to
-   `https://laterdog-computers.<subdomain>.workers.dev/v1`, change the test that expects it to be empty, and release.
-   To try it first, start later.dog with `LATERDOG_TRIAL_API` set to that address.
+6. To offer trials from your own fork of the app, set `DEFAULT_TRIAL_API` in `server/laterdog/cloud-trial.ts` to your
+   service, `https://<your domain>/v1`, change the test that names it, and release. To try it first, start later.dog
+   with `LATERDOG_TRIAL_API` set to that address.
+
+`wrangler.jsonc` is later.dog's own deployment: it serves `cloud.later.dog` as a custom domain beside its `workers.dev`
+address, with trials on and later.dog's public Turnstile site key. For your own deployment, point `routes` at a domain
+on your account (or remove it) and set your own site key.
 
 `TrialRegistry` is declared in `exports` like the other classes. Wrangler 4.149 treats `exports` as the Durable Object
 declaration and refuses `migrations` alongside it, so no migration is written. That was read in wrangler's code, not

@@ -219,11 +219,11 @@ describe("Where the dog works", () => {
   it("says cloud computers are coming soon when there are none, with no key to add", () => {
     fixture.config = { ...fixture.config, box: { configured: false } };
     const cloud = render(makeBot()).options.find((node) => node.props.value === "cloud")!;
-    expect(text(cloud.props.children)).toBe("Cloud computer · Coming soon");
+    expect(text(cloud.props.children)).toBe("Cloud computer · Not set up");
     expect(cloud.props.disabled).toBe(true);
     fresh();
     const chosen = render(makeBot({ computer: "cloud" }));
-    expect(chosen.line).toBe("Cloud computers are coming soon. They keep your dogs working while your laptop is closed.");
+    expect(chosen.line).toBe("Cloud computers aren’t set up here yet.");
     expect(chosen.action).toBeUndefined();
   });
 

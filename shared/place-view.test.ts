@@ -98,7 +98,7 @@ describe("U1: one line and at most one action for every state", () => {
     expect(placeViewOf("cc-provider", { bot: "Scout", words: "No capacity in this region." }, admin))
       .toMatchObject({ short: "Couldn't start", line: "Scout's cloud computer couldn't start: No capacity in this region." });
     expect(placeViewOf("cc-needs-key", {}, { role: "admin", server: "mac" })).toMatchObject({
-      short: "Coming soon", line: "Cloud computers are coming soon. They keep your dogs working while your laptop is closed.", action: null,
+      short: "Not set up", line: "Cloud computers aren’t set up here yet.", action: null,
     });
   });
 });

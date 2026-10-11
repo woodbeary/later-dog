@@ -10,7 +10,7 @@ Every guide describes a bot the same six ways. later.dog already has a home for 
 | --- | --- | --- |
 | Job description | "What it owns, the KPI it's responsible for, and where it has to stop and ask you" — one lane, and the work it refuses | New Bot → **Identity** (name, job) and **Soul** (standing instructions). The starting roles below are written this way |
 | Connections | the accounts it is signed into, read or draft scopes first | **Apps** (Composio-backed connectors, once a broker is configured) and per-bot **MCP servers**; engine sign-ins in Settings → AI |
-| A computer | its own machine, running whether or not yours is on | **Bot's computer** (Computer / Files) on this Mac or a paired computer; a cloud computer per dog on your own Cloudflare is coming soon (roadmap, direction b) |
+| A computer | its own machine, running whether or not yours is on | **Bot's computer** (Computer / Files) on this Mac or a paired computer; a cloud computer per dog: a free 30-minute trial, or your own Cloudflare (roadmap, direction b) |
 | Routines | standing work on a clock or an event; "created Disabled until I hit Enable" | **Routines** (schedules, webhooks); every routine has an enabled flag — create them paused |
 | Skills | playbooks the bot replays; recorded once, reused everywhere | **Skills** per bot; the repo's canonical skills in `skills/laterdog/` (verify, orchestrate, correct, review, ship, architect, benchmark) |
 | Handoffs | "the ability to hand work to another bot directly, without routing through you" | `ask_bot` / `send_to_bot` tools, @mentions, **group chats** and **teams** |
@@ -86,7 +86,7 @@ tasks opened. The Workspace is the shared board the guides keep in Notion.
 | Persistent per-bot memory; corrections become rules | Memory per bot; `correct-recurring-errors` skill | Have |
 | Skills recorded from a demonstration | Skills are written, not recorded | Roadmap (record-to-skill) |
 | Connectors via OAuth (Gmail, Slack, Notion, Salesforce…) | Composio-backed Apps once a broker is configured; MCP servers per bot | **Gap**: needs a self-hosted broker on your Cloudflare and a Composio key — see `cloudflare/composio-broker/` and roadmap item 7 |
-| Per-bot always-on cloud computer with stored logins | This Mac or a paired computer | Coming soon: one per dog on your own Cloudflare, asleep when idle (roadmap, direction b) |
+| Per-bot always-on cloud computer with stored logins | This Mac or a paired computer | One per dog on your own Cloudflare, asleep when idle; a free 30-minute trial on later.dog's (roadmap, direction b) |
 | Cloud coding agents that open PRs and never merge | Codex Cloud and Claude Code routines through the supervisor, draft PRs, verification at the commit, independent review | Have |
 | Templates / packs ("recipe, not meal"), "Add X" links | Preset files and team packages; the Templates shelf reads any GitHub repo of packages | Have; a later.dog pack repo is roadmap |
 | Approval queue / drafts folder | Approval cards in chat | Partial (cards only) |

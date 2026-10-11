@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6 — 2026-10-11
+
+- **Try a cloud computer free.** A dog with no computer offers **Try a cloud computer free** in its Computer panel: 30 minutes on a later.dog cloud computer, to use within 7 days. No account and no card; a quick check in your browser starts it. Settings, Computer shows the trial too, with the minutes left.
+- **New dogs start Off-leash.** A dog you make acts, then tells you, instead of asking before every command. Pick Heel in the chat's approval menu for a dog that should check with you first. Dogs you already have keep their setting, and a default you saved yourself still wins.
+- Your first dog starts Off-leash too, once you finish the welcome tour.
+- A cloud computer that isn't set up says so ("Not set up") instead of "Coming soon".
+
 ## 0.3.5 — 2026-10-11
 
 ### Cloud tasks you can watch
