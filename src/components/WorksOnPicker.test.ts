@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Bot, InstanceInfo } from "@/state/store";
-import type { FeatureFlagConfig } from "@/lib/feature-flags";
 
 const fixture = vi.hoisted(() => {
   const laterdog: Record<string, unknown> = {};
@@ -16,7 +15,7 @@ const fixture = vi.hoisted(() => {
     values: [] as unknown[],
     index: 0,
     own: 0,
-    config: {} as FeatureFlagConfig & { cloudHome?: boolean; box?: { configured: boolean } },
+    config: {} as { cloudHome?: boolean; box?: { configured: boolean } },
     instances: [] as InstanceInfo[],
     dispatch: (() => {}) as (...args: unknown[]) => void,
     api: (() => Promise.resolve({})) as (...args: unknown[]) => Promise<unknown>,
@@ -130,27 +129,32 @@ beforeEach(() => {
   fixture.localComputer = { available: true, support: "supported", enabled: true, status: "ready" } as DesktopCapabilities["localComputer"];
   fresh();
   fixture.index = 0;
-  fixture.config = { features: { browser: true }, browserEngine: { kind: "engine" } };
+  fixture.config = {};
   fixture.instances = [engine()];
   fixture.dispatch = vi.fn();
-  fixture.api = vi.fn(() => Promise.resolve({ features: { browser: true } }));
+  fixture.api = vi.fn(() => Promise.resolve({}));
   fixture.ownerOrAdmin = null;
   for (const key of Object.keys(fixture.laterdog)) delete fixture.laterdog[key];
 });
 
 describe("Where the dog works", () => {
-  it("offers six places in plain names, Auto when nothing is chosen, with Auto's line under them", () => {
+  it("offers four places in plain names, Auto when nothing is chosen, with Auto's line under them", () => {
     const rendered = render(makeBot());
     expect(rendered.html).toContain("Where Scout works");
-    expect(rendered.labels).toEqual(["Auto", "Cloud computer", "Local VM", "This Mac", "Browser", "Off"]);
+    expect(rendered.labels).toEqual(["Auto", "Cloud computer", "This Mac", "Off"]);
     expect(rendered.select.props.value).toBe("auto");
-    expect(rendered.line).toBe("Uses the built-in browser, a private desktop on this computer, or this computer's screen, whichever the task needs.");
+    expect(rendered.line).toBe("Picks its cloud computer or this computer when a task needs one.");
     expect(rendered.action).toBeUndefined();
   });
 
+  it("names only this computer in Auto's line while cloud computers are coming soon", () => {
+    fixture.config = { box: { configured: false } };
+    expect(render(makeBot()).line).toBe("Uses this computer when a task needs one.");
+  });
+
   it("shows the chosen place and its own line", () => {
-    const rendered = render(makeBot({ computer: "browser" }));
-    expect(rendered.select.props.value).toBe("browser");
+    const rendered = render(makeBot({ computer: "local" }));
+    expect(rendered.select.props.value).toBe("local");
     expect(rendered.line).not.toBe(render(makeBot()).line);
   });
 
@@ -158,13 +162,13 @@ describe("Where the dog works", () => {
     fixture.platform = "win32";
     const rendered = render(makeBot());
     expect(rendered.labels).toContain("This PC");
-    expect(rendered.line).not.toMatch(/Local VM|Boat|cloud box/i);
+    expect(rendered.line).not.toMatch(/Local VM|Boat|browser|cloud box/i);
   });
 
-  it("leaves out this computer and a Local VM on My Cloud, and says what Auto does there", () => {
+  it("leaves out this computer on My Cloud, and says what Auto does there", () => {
     fixture.config = { ...fixture.config, cloudHome: true };
-    expect(render(makeBot()).labels).toEqual(["Auto", "Cloud computer", "Browser", "Off"]);
-    expect(render(makeBot()).line).toBe("Uses the built-in browser. In a chat, it starts its cloud computer by itself when a task needs desktop apps.");
+    expect(render(makeBot()).labels).toEqual(["Auto", "Cloud computer", "Off"]);
+    expect(render(makeBot()).line).toBe("Starts its cloud computer when a task needs one.");
   });
 
   it("names a place's problem in a few words and greys it out, with the whole line on hover", () => {
@@ -173,28 +177,6 @@ describe("Where the dog works", () => {
     expect(text(cloud.props.children)).toBe("Cloud computer · Not with this model");
     expect(cloud.props.disabled).toBe(true);
     expect(cloud.props.title).toBe("M can't use a computer. Choose a model that can, such as Claude or ChatGPT.");
-  });
-
-  it("lets an Admin pick Browser while the browser is off, since the line under it turns it on", () => {
-    fixture.config = { features: { browser: false }, browserEngine: { kind: "engine" } };
-    const browser = render(makeBot()).options.find((node) => node.props.value === "browser")!;
-    expect(text(browser.props.children)).toBe("Browser · Browser is off");
-    expect(browser.props.disabled).toBe(false);
-    fixture.ownerOrAdmin = false;
-    fresh();
-    expect(render(makeBot()).options.find((node) => node.props.value === "browser")!.props.disabled).toBe(true);
-  });
-
-  it("counts a browser that still needs its one-time download as ready, and greys it where it can never run", () => {
-    fixture.config = { features: { browser: true }, browserEngine: { kind: "unavailable", installable: true } };
-    const browser = render(makeBot()).options.find((node) => node.props.value === "browser")!;
-    expect(text(browser.props.children)).toBe("Browser");
-    expect(browser.props.disabled).toBe(false);
-    for (const features of [{ browser: true }, { browser: false }]) {
-      fixture.config = { features, browserEngine: { kind: "unavailable", installable: false } };
-      fresh();
-      expect(render(makeBot()).options.find((node) => node.props.value === "browser")!.props.disabled).toBe(true);
-    }
   });
 
   it("keeps This Mac pickable before macOS grants, which later.dog asks for on first use", () => {
@@ -206,15 +188,8 @@ describe("Where the dog works", () => {
     expect(local.props.disabled).toBeFalsy();
   });
 
-  it("saves each place as the dog's choice, turning the browser on with Browser", () => {
-    const expected = [
-      { computer: null },
-      { computer: "cloud" },
-      { computer: "vm" },
-      { computer: "local" },
-      { computer: "browser", browser: true },
-      { computer: "off" },
-    ];
+  it("saves each place as the dog's choice", () => {
+    const expected = [{ computer: null }, { computer: "cloud" }, { computer: "local" }, { computer: "off" }];
     for (const [index, patch] of expected.entries()) {
       fresh();
       fixture.dispatch = vi.fn();
@@ -241,18 +216,21 @@ describe("Where the dog works", () => {
     expect(render(bot).nodes.find((node) => node.type === LocalComputerAutoWarning)!.props.open).toBe(false);
   });
 
-  it("offers the one next step for the chosen place, and tells a User to ask an Admin", () => {
+  it("says cloud computers are coming soon when there are none, with no key to add", () => {
     fixture.config = { ...fixture.config, box: { configured: false } };
-    const admin = render(makeBot({ computer: "cloud" }));
-    expect(admin.line).toBe("A cloud computer here needs your own Boat key, a paid service.");
-    expect(text(admin.action!.props.children)).toBe("Add Boat key");
-    (admin.action!.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "computer" });
-
-    fixture.ownerOrAdmin = false;
+    const cloud = render(makeBot()).options.find((node) => node.props.value === "cloud")!;
+    expect(text(cloud.props.children)).toBe("Cloud computer · Coming soon");
+    expect(cloud.props.disabled).toBe(true);
     fresh();
-    const user = render(makeBot({ computer: "cloud" }));
-    expect(user.line).toBe("A cloud computer here needs your own Boat key, a paid service. Ask an Admin to change it.");
+    const chosen = render(makeBot({ computer: "cloud" }));
+    expect(chosen.line).toBe("Cloud computers are coming soon. They keep your dogs working while your laptop is closed.");
+    expect(chosen.action).toBeUndefined();
+  });
+
+  it("tells a User to ask an Admin to let the dog use the computer", () => {
+    fixture.ownerOrAdmin = false;
+    const user = render(makeBot({ computer: "cloud", toolScope: { deny: ["mcp:computer:*"] } }));
+    expect(user.line).toBe("What Scout can use doesn't include a computer. Ask an Admin to change it.");
     expect(user.action).toBeUndefined();
   });
 
@@ -264,21 +242,6 @@ describe("Where the dog works", () => {
     await vi.waitFor(() => expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout", {
       method: "PATCH", body: JSON.stringify({ toolScope: { deny: ["native:bash"] } }),
     }));
-  });
-
-  it("turns on the browser for a Browser dog when it is off for everyone", async () => {
-    fixture.config = { features: { browser: false }, browserEngine: { kind: "engine" } };
-    const rendered = render(makeBot({ computer: "browser" }));
-    (rendered.action!.props.onClick as () => void)();
-    await vi.waitFor(() => expect(fixture.dispatch).toHaveBeenCalledWith({ type: "configStatus", config: { features: { browser: true } } }));
-    expect(fixture.api).toHaveBeenCalledWith("/api/config", { method: "PATCH", body: JSON.stringify({ features: { browser: true } }) });
-  });
-
-  it("turns on only this dog's browser when only that is off", async () => {
-    const rendered = render(makeBot({ computer: "browser", browser: false }));
-    (rendered.action!.props.onClick as () => void)();
-    await vi.waitFor(() => expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "scout", patch: { browser: true } }));
-    expect(fixture.api).not.toHaveBeenCalled();
   });
 
   it("shows why a step failed", async () => {

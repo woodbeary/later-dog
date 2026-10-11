@@ -176,7 +176,7 @@ describe("Computer panel", () => {
   it("pulses its live dot while a turn runs wherever the dog works, and never for Off", () => {
     expect(render(makeBot({ computer: "cloud", busy: true })).byTestId("computer-live")).toBeDefined();
     fresh();
-    expect(render(makeBot({ computer: "browser", busy: true })).byTestId("computer-live")).toBeDefined();
+    expect(render(makeBot({ computer: "local", busy: true })).byTestId("computer-live")).toBeDefined();
     fresh();
     expect(render(makeBot({ computer: "cloud" })).byTestId("computer-live")).toBeUndefined();
     fresh();
@@ -191,72 +191,6 @@ describe("Computer panel", () => {
     expect(text(choose.props.children)).toBe("Choose where Scout works");
     (choose.props.onClick as () => void)();
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleSettings", open: true, section: "access", botId: "scout" });
-  });
-});
-
-describe("The built-in browser", () => {
-  const turnOn = (rendered: ReturnType<typeof render>) => rendered.byTestId("browser-turn-on")!;
-
-  it("is the whole panel for a dog that works in the browser", () => {
-    const rendered = render(makeBot({ computer: "browser" }));
-    expect(rendered.byTestId("computer-browser")).toBeDefined();
-    expect(rendered.html).toContain("BROWSER-PANEL");
-    expect(rendered.html).not.toContain("Scout&#x27;s screen");
-  });
-
-  it("never shows for a dog that works anywhere else", () => {
-    for (const computer of [undefined, "cloud", "vm", "local", "off"] as const) {
-      fresh();
-      const rendered = render(makeBot({ computer }));
-      expect(rendered.html, String(computer)).not.toContain("BROWSER-PANEL");
-      expect(rendered.html, String(computer)).toContain("Scout&#x27;s screen");
-    }
-  });
-
-  it("explains when it is off and turns on the same installation setting as Settings", async () => {
-    fixture.config = { features: { browser: false }, browserEngine: { kind: "engine" } };
-    const rendered = render(makeBot({ computer: "browser" }));
-    expect(rendered.html).toContain("The browser is off");
-    expect(rendered.html).toContain("Turn on the built-in browser to watch Scout browse the web, and take over any time.");
-    expect(rendered.html).not.toContain("BROWSER-PANEL");
-    (turnOn(rendered).props.onClick as () => void)();
-    await vi.waitFor(() => expect(fixture.dispatch).toHaveBeenCalledWith({ type: "configStatus", config: { features: { browser: true } } }));
-    expect(fixture.api).toHaveBeenCalledWith("/api/config", {
-      method: "PATCH",
-      body: JSON.stringify({ features: { browser: true } }),
-    });
-  });
-
-  it("turns on only this dog's browser when only that is off", async () => {
-    const rendered = render(makeBot({ computer: "browser", browser: false }));
-    expect(rendered.html).toContain("The browser is off");
-    (turnOn(rendered).props.onClick as () => void)();
-    await vi.waitFor(() => expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "scout", patch: { browser: true } }));
-    expect(fixture.api).not.toHaveBeenCalled();
-  });
-
-  it("tells a User to ask an Admin instead of offering a switch only an Admin can use", () => {
-    fixture.config = { features: { browser: false }, browserEngine: { kind: "engine" } };
-    fixture.ownerOrAdmin = false;
-    const rendered = render(makeBot({ computer: "browser" }));
-    expect(rendered.html).toContain("The browser is off");
-    expect(rendered.html).toContain("The built-in browser is switched off. Ask an Admin to change it.");
-    expect(rendered.byTestId("browser-turn-on")).toBeUndefined();
-  });
-
-  it("says why when this server cannot have a browser", () => {
-    fixture.config = { features: { browser: false }, browserEngine: { kind: "unavailable", reason: "No engine here." } };
-    const rendered = render(makeBot({ computer: "browser" }));
-    expect(rendered.html).toContain("No engine here.");
-    expect(turnOn(rendered).props.disabled).toBe(true);
-  });
-
-  it("names a model that cannot browse and offers a different one", () => {
-    fixture.instances = [plainEngine()];
-    const rendered = render(makeBot({ computer: "browser" }));
-    expect(text(rendered.byTestId("browser-cannot")!.props.children)).toBe("M can't use the built-in browser.Choose a model");
-    (rendered.byTestId("place-action")!.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleSettings", open: true, section: "model", botId: "scout" });
   });
 });
 
@@ -334,19 +268,17 @@ describe("Cloud computer", () => {
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "computer" });
   });
 
-  it("puts the Boat key row under an Admin's screen, and tells a User to ask an Admin", () => {
+  it("says cloud computers are coming soon, with no key to add", () => {
     fixture.config = { ...fixture.config, box: { configured: false } };
     fixture.seed = { phase: "unconfigured", resolved: cloudBox };
-    const admin = render(makeBot({ computer: "cloud" }));
-    expect(admin.html).toContain("A cloud computer here needs your own Boat key, a paid service.");
-    expect(admin.html).toContain("BOAT-KEY-ROW");
-
-    fresh();
-    fixture.ownerOrAdmin = false;
-    const user = render(makeBot({ computer: "cloud" }));
-    expect(user.html).toContain("A cloud computer here needs your own Boat key, a paid service. Ask an Admin to change it.");
-    expect(user.html).not.toContain("BOAT-KEY-ROW");
-    expect(user.byTestId("place-action")).toBeUndefined();
+    for (const ownerOrAdmin of [null, false]) {
+      fresh();
+      fixture.ownerOrAdmin = ownerOrAdmin;
+      const rendered = render(makeBot({ computer: "cloud" }));
+      expect(rendered.html).toContain("Cloud computers are coming soon. They keep your dogs working while your laptop is closed.");
+      expect(rendered.html).not.toContain("BOAT-KEY-ROW");
+      expect(rendered.byTestId("place-action")).toBeUndefined();
+    }
   });
 
   it("lets a dog whose tools leave out the computer use it, in one click from here", async () => {

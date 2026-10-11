@@ -37,12 +37,12 @@ export function MessageActions({
       {more.length > 0 && (
         <SidebarPopoverMenu
           items={more}
-          ariaLabel={t("chat.more")}
+          ariaLabel={t("chat.messageActions")}
           placement="auto"
           align={side === "user" ? "start" : "end"}
           onOpenChange={setMenuOpen}
           renderTrigger={({ open: shown }) => (
-            <span title={t("chat.more")} className={cn(messageActionClass, "flex", shown && "bg-raised text-ink")}>
+            <span title={t("chat.messageActions")} className={cn(messageActionClass, "flex", shown && "bg-raised text-ink")}>
               <Ellipsis size={14} aria-hidden="true" />
             </span>
           )}

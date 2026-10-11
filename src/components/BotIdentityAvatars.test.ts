@@ -43,7 +43,6 @@ vi.mock("./DesktopCapabilities", () => ({
 }));
 vi.mock("react-dom", async (original) => ({ ...await original<object>(), createPortal: (children: unknown) => children }));
 import { GroupView, RoomToolChip } from "./GroupView";
-import { UsageSection } from "./UsageSection";
 import { TeamMapPage } from "./TeamMapPage";
 const render = (component: Parameters<typeof renderToStaticMarkup>[0]) => {
   vi.stubGlobal("window", { laterdog: undefined });
@@ -73,7 +72,7 @@ describe("uploaded bot identity portraits", () => {
     const html = render(createElement(GroupView, { group: { ...avatarGroup, messages: [] } }));
     expect(html.match(/<img src="\/api\/attachments\/fixture-0.png"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
-  it.each([["usage", UsageSection], ["team map", TeamMapPage]] as const)("renders the uploaded portrait in %s", (_name, Component) => {
-    expect(render(createElement(Component))).toContain('<img src="/api/attachments/fixture-0.png"');
+  it("renders the uploaded portrait in the team map", () => {
+    expect(render(createElement(TeamMapPage))).toContain('<img src="/api/attachments/fixture-0.png"');
   });
 });

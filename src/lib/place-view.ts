@@ -85,8 +85,8 @@ export function placeRowViewFor(row: PlaceRow, seat: PlaceSeat, worksOnLabel?: s
 
 /** Whether a place can't be picked at all: no setting here makes it work. */
 export function placeBlocked(view: PlaceView): boolean {
-  return view.state === "cc-cannot" || view.state === "cc-on-my-cloud" || view.state === "browser-off" || view.state === "browser-cannot"
-    || view.state === "vm-cannot" || view.state === "local-unavailable";
+  return view.state === "cc-cannot" || view.state === "cc-on-my-cloud" || view.state === "cc-needs-key" || view.state === "browser-off"
+    || view.state === "browser-cannot" || view.state === "vm-cannot" || view.state === "local-unavailable";
 }
 
 /** Whether a place's state is a problem to name on its card, not its usual description. */
@@ -130,7 +130,6 @@ export function openPlaceAction(
     case "change-routine": dispatch({ type: "toggleSettings", open: true, section: "routines", botId: target.botId }); return true;
     case "sign-in": appSettings("general"); return true;
     case "manage-computers": appSettings("computer"); return true;
-    case "add-boat-key": appSettings("computer"); return true;
     case "open-vm-settings": appSettings("computer"); return true;
     case "open-team-map": dispatch({ type: "showTeamMap" }); return true;
     case "see-plan": {

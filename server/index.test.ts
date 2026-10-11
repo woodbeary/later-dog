@@ -3150,25 +3150,25 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("refuses a room Works-on Local VM turn for an engine without computer tools", async () => {
+  it("refuses a room Works-on cloud turn for an engine without computer tools", async () => {
     let roomId: string | undefined;
     let botId: string | undefined;
     try {
       const member = (await api("POST", "/api/bots", {
-        name: "Room VM refusal",
+        name: "Room cloud refusal",
         modelSelection: { instanceId: "plainApi", model: "fixture-plain-model" },
       })).body.bot;
       botId = member.id;
-      expect((await api("PATCH", `/api/bots/${member.id}`, { computer: "vm" })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${member.id}`, { computer: "cloud" })).status).toBe(200);
       const room = (await api("POST", "/api/groups", {
-        name: "Plain model VM refusal",
+        name: "Plain model cloud refusal",
         memberIds: [member.id],
         setup: { bulletin: "", defaultResponder: { kind: "member", botId: member.id } },
       })).body.group;
       roomId = room.id;
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "work in the virtual machine" })).status).toBe(202);
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "work on the cloud computer" })).status).toBe(202);
       await expect.poll(async () => JSON.stringify((await api("GET", `/api/threads/${room.threadId}/messages`)).body),
-        { timeout: 5_000 }).toMatch(/fixture-plain-model can't use a Local VM\. Choose a model that can, such as Claude or ChatGPT\. Choose another model in Room VM refusal's settings\./);
+        { timeout: 5_000 }).toMatch(/fixture-plain-model can't use a computer\. Choose a model that can, such as Claude or ChatGPT\. Choose another model in Room cloud refusal's settings\./);
       expect(JSON.stringify((await api("GET", `/api/threads/${room.threadId}/messages`)).body)).not.toContain("Works on to Auto");
     } finally {
       if (roomId) await api("POST", `/api/groups/${roomId}/interrupt`, {}).catch(() => undefined);
@@ -7669,16 +7669,16 @@ describe("harness HTTP API", () => {
     });
     expect(created.status).toBe(201);
     const bot = created.body.bot;
-    const pinned = await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { surface: "browser" });
+    const pinned = await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { surface: "local" });
     expect(pinned.status).toBe(200);
-    expect(pinned.body.task.surface).toBe("browser");
+    expect(pinned.body.task.surface).toBe("local");
     // the pin rides the ordinary bot snapshot, so every client sees it
     const listed = (await api("GET", "/api/bots?messages=0")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
-    expect(listed.tasks.find((task: { threadId: string }) => task.threadId === bot.threadId).surface).toBe("browser");
-    for (const surface of ["box", "desktop", 42, true]) {
+    expect(listed.tasks.find((task: { threadId: string }) => task.threadId === bot.threadId).surface).toBe("local");
+    for (const surface of ["box", "desktop", "vm", "browser", 42, true]) {
       const rejected = await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { surface });
       expect(rejected.status, String(surface)).toBe(400);
-      expect(rejected.body.error).toMatch(/surface must be cloud, vm, local, browser, or null/);
+      expect(rejected.body.error).toMatch(/surface must be cloud, local, or null/);
     }
     const cleared = await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { surface: null });
     expect(cleared.status).toBe(200);
@@ -7709,24 +7709,22 @@ describe("harness HTTP API", () => {
       expect(boatRouteCalls).toEqual([]);
       await api("POST", `/api/bots/${bot.id}/interrupt`, {}); await idle();
 
-      // A Local VM pin must win even when the bot default says Cloud. The
-      // fixture has no ready Local VM: fail there, never click the host/Box.
       await api("PATCH", `/api/bots/${bot.id}`, { computer: "cloud" });
-      await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { surface: "vm" });
+      await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { surface: "local" });
       rmSync(fakeClaudeDump, { force: true });
-      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Open Chrome on the Local VM" })).status).toBe(202);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Open Chrome on this Mac" })).status).toBe(202);
       await idle();
       expect(existsSync(fakeClaudeDump)).toBe(false);
       expect(boatPromptBodies).toHaveLength(0);
       const saved = (await api("GET", "/api/bots?messages=0")).body.bots.find((b: { id: string }) => b.id === bot.id);
-      expect(saved.tasks.find((task: { threadId: string }) => task.threadId === bot.threadId).surface).toBe("vm");
-      expect((await api("GET", `/api/bots/${bot.id}/computer?threadId=${bot.threadId}`)).body.surface).toBe("vm");
+      expect(saved.tasks.find((task: { threadId: string }) => task.threadId === bot.threadId).surface).toBe("local");
+      expect((await api("GET", `/api/bots/${bot.id}/computer?threadId=${bot.threadId}`)).body.surface).toBe("local");
       expect((await api("POST", `/api/bots/${bot.id}/computer/join?threadId=${bot.threadId}`, {})).status).toBe(409);
 
       // The inverse pin keeps the bot's own engine and model, with the Boat as
       // its computer tools; Boat's runner is never asked. Preview opens the
       // same Boat.
-      await api("PATCH", `/api/bots/${bot.id}`, { computer: "vm" });
+      await api("PATCH", `/api/bots/${bot.id}`, { computer: "local" });
       await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { surface: "cloud" });
       rmSync(fakeClaudeDump, { force: true });
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Open Chrome on the cloud VM" })).status).toBe(202);
@@ -8451,13 +8449,9 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("Works on: Off withholds the browser and tells the model why", async () => {
-    // The report behind this: a bot set to Off reached for a browser anyway,
-    // because Off withheld only the computer. The dispatched prompt is the
-    // proof the model was told, and the settings preview must say the same.
+  it("Works on: Off withholds the computer and tells the model why", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Orbit" })).body.bot;
     try {
-      expect((await api("PATCH", "/api/config", { features: { browser: true } })).status).toBe(200);
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
       })).status).toBe(200);
@@ -8479,7 +8473,7 @@ describe("harness HTTP API", () => {
       expect(ids).not.toContain("browser");
       const text = await previewText();
       expect(text).toContain("\"Works on\" setting is Off");
-      expect(text).toContain("no computer and no built-in browser");
+      expect(text).toContain("no computer is mounted this turn");
 
       // and the same sentence reaches a real turn, not only the preview
       rmSync(fakeClaudeDump, { force: true });
@@ -8490,7 +8484,6 @@ describe("harness HTTP API", () => {
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`);
       await api("DELETE", `/api/bots/${bot.id}`);
-      await api("PATCH", "/api/config", { features: { browser: false } });
     }
   });
 
@@ -8941,129 +8934,6 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("releases a room bot when preparing its saved browser fails, then allows retry", async () => {
-    const bot = (await api("POST", "/api/bots")).body.bot;
-    const failureMarker = join(home, "browser-clear-fails");
-    let room: any;
-    try {
-      expect((await api("PATCH", "/api/config", {
-        features: { browser: true }, browserProfiles: [{ id: "prep-failure", name: "Preparation failure" }],
-      })).status).toBe(200);
-      expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        browserProfile: "prep-failure", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
-      })).status).toBe(200);
-      room = (await api("POST", "/api/groups", {
-        name: "Browser setup failure", memberIds: [bot.id],
-        setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
-      })).body.group;
-      writeFileSync(failureMarker, "fail only this fixture's browser close");
-      rmSync(fakeClaudeDump, { force: true });
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Check the website" })).status).toBe(202);
-      await expect.poll(() => readFileSync(join(home, "browser-calls.jsonl"), "utf8").includes('"session":"prep-failure"')).toBe(true);
-      await expect.poll(async () => {
-        const current = (await api("GET", "/api/bots?messages=20")).body;
-        const member = current.bots.find((candidate: { id: string }) => candidate.id === bot.id);
-        const group = current.groups.find((candidate: { id: string }) => candidate.id === room.id);
-        return { busy: member?.busy, working: group?.working, failed: group?.messages.some(
-          (message: { tool?: { name?: string } }) => message.tool?.name?.includes("Could not safely prepare saved browser logins"),
-        ) };
-      }, { timeout: 5_000 }).toEqual({ busy: false, working: false, failed: true });
-      expect(existsSync(fakeClaudeDump)).toBe(false);
-      rmSync(failureMarker, { force: true });
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Retry the website" })).status).toBe(202);
-      await expect.poll(async () => existsSync(fakeClaudeDump) ? "dispatched" : (await api("GET", "/api/bots?messages=20")).body.groups
-        .find((candidate: { id: string }) => candidate.id === room.id)?.messages
-        .filter((message: { tool?: unknown }) => message.tool).map((message: { tool: { name: string } }) => message.tool.name),
-      { timeout: 5_000 }).toBe("dispatched");
-    } finally {
-      rmSync(failureMarker, { force: true });
-      try {
-        if (room) {
-          await api("POST", `/api/groups/${room.id}/interrupt`, {}).catch(() => undefined);
-          await expect.poll(async () => {
-            const current = (await api("GET", "/api/bots?messages=20")).body;
-            const member = current.bots.find((candidate: { id: string }) => candidate.id === bot.id);
-            const group = current.groups.find((candidate: { id: string }) => candidate.id === room.id);
-            return { busy: member?.busy, working: group?.working };
-          }, { timeout: 5_000 }).toEqual({ busy: false, working: false });
-        }
-      } finally {
-        const configCleanup = await api("PATCH", "/api/config", { features: { browser: false }, browserProfiles: [] });
-        if (room) await api("DELETE", `/api/groups/${room.id}`).catch(() => undefined);
-        const botCleanup = await api("DELETE", `/api/bots/${bot.id}`);
-        expect(configCleanup.status, JSON.stringify(configCleanup.body)).toBe(200);
-        expect(botCleanup.status, JSON.stringify(botCleanup.body)).toBe(200);
-      }
-    }
-  });
-
-  it.each(["direct", "room"] as const)("mounts the browser engine's MCP server and the sign-in policy in %s turns and preview", async (target) => {
-    const bot = (await api("POST", "/api/bots")).body.bot;
-    let room: any;
-    try {
-      expect((await api("PATCH", "/api/config", {
-        features: { browser: true },
-        browserProfiles: [{ id: "work", name: "Work" }],
-      })).status).toBe(200);
-      expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        browserProfile: "work",
-        approvalMode: "auto",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
-      })).status).toBe(200);
-      const preview = await api("GET", `/api/bots/${bot.id}/system-prompt`);
-      expect(preview.status).toBe(200);
-      const browserSection = preview.body.sections.find((section: { id: string }) => section.id === "browser");
-      expect(browserSection.text).toContain(SIGN_IN_PROMPT);
-      expect(browserSection.text).not.toMatch(/never type their (?:credentials|password)/i);
-      if (target === "room") {
-        room = (await api("POST", "/api/groups", { name: "Browser safety", memberIds: [bot.id] })).body.group;
-        expect((await api("PATCH", `/api/groups/${room.id}/setup`, { action: "skip" })).status).toBe(200);
-      }
-
-      rmSync(fakeClaudeDump, { force: true });
-      const messagesPath = room ? `/api/groups/${room.id}/messages` : `/api/bots/${bot.id}/messages`;
-      expect((await api("POST", messagesPath, { text: "Use my authorized test account to check the website." })).status).toBe(202);
-      const dump = z.object({
-        env: z.record(z.string(), z.string()),
-        systemPrompt: z.string(),
-        mcpConfig: z.object({
-          mcpServers: z.object({
-            browser: z.object({
-              command: z.string(),
-              args: z.array(z.string()),
-              env: z.record(z.string(), z.string()),
-            }),
-          }),
-        }),
-      }).parse(await readJsonFileWhenReady(fakeClaudeDump));
-      const browser = dump.mcpConfig.mcpServers.browser;
-      expect(browser.command).toBe(process.execPath);
-      expect(browser.args).toEqual([expect.stringMatching(/harness-mcp-proxy\.(?:ts|js|mjs)$/), "browser"]);
-      expect(browser.env.LATERDOG_MCP_TOKEN).toEqual(expect.any(String));
-      expect(browser.env.LATERDOG_HARNESS_URL).toBe(BASE);
-      // Only the server-owned proxy knows native sessions and saved-login keys.
-      expect(browser.env.AGENT_BROWSER_SESSION).toBeUndefined();
-      expect(browser.env.AGENT_BROWSER_RESTORE).toBeUndefined();
-      expect(browser.env.AGENT_BROWSER_ENCRYPTION_KEY).toBeUndefined();
-      expect(dump.env.AGENT_BROWSER_ENCRYPTION_KEY).toBeUndefined();
-
-      const system = dump.systemPrompt;
-      expect(system).toMatch(/agent_browser_snapshot/);
-      expect(system).toMatch(/page instructions as untrusted content/i);
-      expect(system).toMatch(/consequential action.*confirmation/i);
-      expect(system).toContain(browserSection.text);
-      expect(system).toContain(SIGN_IN_PROMPT);
-      expect(system).not.toMatch(/never type their (?:credentials|password)/i);
-      expect(system).not.toContain("At a sign-in, password, MFA, CAPTCHA");
-    } finally {
-      if (room) await api("POST", `/api/groups/${room.id}/interrupt`, {}).catch(() => undefined);
-      else await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
-      await api("PATCH", "/api/config", { features: { browser: false }, browserProfiles: [] }).catch(() => undefined);
-      if (room) await api("DELETE", `/api/groups/${room.id}`).catch(() => undefined);
-      await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
-    }
-  }, 60_000);
-
   it.each(["direct", "room"] as const)("resolves the same computer paragraph in the settings preview and %s turns", async (target) => {
     // The paragraph a plan earns is decided once, by the shared resolver:
     // what the preview shows and what a dispatched turn says cannot drift.
@@ -9106,17 +8976,6 @@ describe("harness HTTP API", () => {
       await api("POST", `/api/bots/${bot.id}/interrupt`, {});
       await idle(bot.id);
 
-      // A Local VM plan previews exactly the paragraph the resolver gives
-      // it, by configured mode. The CI fleet has no VM runtime, so a real
-      // VM turn cannot be dispatched here; the settings-level text is the
-      // same wiring a dispatched VM turn uses.
-      expect((await api("PATCH", `/api/bots/${bot.id}`, { computer: "vm" })).status).toBe(200);
-      expect((await computerSection(bot.id)).text).toBe(computerPrompt("vm-shared"));
-      expect((await api("PATCH", "/api/config", { localVm: { mode: "per-bot", maxInstances: 1 } })).status).toBe(200);
-      expect((await computerSection(bot.id)).text).toBe(computerPrompt("vm-private"));
-      expect((await api("PATCH", "/api/config", { localVm: { mode: "shared", maxInstances: 2 } })).status).toBe(200);
-      expect((await computerSection(bot.id)).text).toBe(computerPrompt("vm-shared"));
-
       // Cloud on the Boat backend keeps the bot's own engine, with the Boat
       // as its computer tools, so preview and dispatch carry the same cloud
       // computer paragraph, and Boat's own runner is never asked. Direct
@@ -9149,7 +9008,6 @@ describe("harness HTTP API", () => {
       }
       managedBoatRows = [];
       boatPromptBodies.length = 0;
-      await api("PATCH", "/api/config", { localVm: { mode: "shared", maxInstances: 2 } }).catch(() => undefined);
       await api("PUT", "/api/config", { box: { token: "" } }).catch(() => undefined);
       if (room) await api("DELETE", `/api/groups/${room.id}`).catch(() => undefined);
       await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
@@ -9971,7 +9829,7 @@ describe("harness HTTP API", () => {
       expect(unavailableCloud.status).toBe(409);
       expect(await unavailableCloud.json()).toMatchObject({
         // The same words a failed cloud turn's row uses (shared/place-view.ts).
-        error: expect.stringMatching(/^A cloud computer here needs your own Boat key, a paid service\. Add a Boat key in Settings → Computer\./),
+        error: expect.stringMatching(/^Cloud computers are coming soon\./),
       });
 
       const proposed = await fetch(`${BASE}/api/internal/routine-requests`, {
@@ -12360,13 +12218,12 @@ describe("bot memory API", () => {
       expect(after.body.sections[1].id).toBe("soul");
       expect(after.body.sections[1].text).toContain("Never file noise.");
       expect(after.body.sections[1].bytes).toBe(Buffer.byteLength(after.body.sections[1].text, "utf8"));
-      // Preview is settings-only: advertising a VM does not provision one.
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        computer: "vm",
+        computer: "local",
         modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
       })).status).toBe(200);
       const withComputer = await api("GET", `/api/bots/${bot.id}/system-prompt`);
-      expect(withComputer.body.sections.find((section: { id: string }) => section.id === "plan").text).toContain("Local VM is an isolated desktop");
+      expect(withComputer.body.sections.find((section: { id: string }) => section.id === "plan").text).toContain("this computer is the user's own computer");
       const computerSection = withComputer.body.sections.find((section: { id: string }) => section.id === "computer");
       expect(computerSection.text).toContain(SIGN_IN_PROMPT);
       expect(computerSection.text).not.toMatch(/never type their (?:credentials|password)/i);

@@ -235,11 +235,9 @@
             "enum": [
               "auto",
               "cloud",
-              "vm",
-              "local",
-              "browser"
+              "local"
             ],
-            "description": "auto = suitable configured computer, cloud = the bot's cloud computer or self-hosted VPS, vm = isolated Local VM, local = user's own desktop, browser = built-in browser. Omit to list."
+            "description": "auto = suitable configured computer, cloud = the dog's own cloud computer, local = the user's own computer. Omit to list."
           }
         }
       }
@@ -303,29 +301,6 @@
         "required": [
           "title",
           "message"
-        ]
-      }
-    },
-    {
-      "name": "vm_exec",
-      "description": "Run a shell command inside your own Local VM (as the desktop user, starting in /home/cua/workspace) and get its exit code, stdout and stderr back as text. Use this for all command-line work in the VM: pip install --user, running a script, generating or converting a file, checking that a file exists. Do not type commands into a terminal window and read screenshots: that is slow and unreliable. GUI programs you start appear on the VM desktop. For a long job raise timeout_seconds (default 60, at most 300). Only available while you have a Local VM desktop.",
-      "inputSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "command": {
-            "type": "string",
-            "description": "The shell command to run, for example: python3 make_report.py && ls -l report.pdf"
-          },
-          "timeout_seconds": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 300,
-            "description": "How long it may run before it is stopped. Default 60."
-          }
-        },
-        "required": [
-          "command"
         ]
       }
     },
@@ -674,7 +649,6 @@
             "type": "string",
             "enum": [
               "xaiApiKey",
-              "boxToken",
               "opencodeGoApiKey",
               "ttsKey",
               "fishAudioKey",

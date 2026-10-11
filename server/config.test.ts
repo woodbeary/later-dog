@@ -552,7 +552,7 @@ describe("configuration boundaries", () => {
     expect(localVmMode({})).toBe("shared");
   });
 
-  it("keeps skill authoring on by default with an explicit opt-out, and the browser off by default", () => {
+  it("keeps skill authoring on by default with an explicit opt-out, and the built-in browser always off", () => {
     expect(skillAuthoringEnabled({})).toBe(true);
     expect(skillAuthoringEnabled({ features: {} })).toBe(true);
     expect(skillAuthoringEnabled({ features: { skillAuthoring: true } })).toBe(true);
@@ -563,17 +563,11 @@ describe("configuration boundaries", () => {
     // the pre-rename flag is dropped as a no-op rather than rejected, so a
     // stale client's PATCH cannot fail the request or re-enable anything
     expect(parseConfigPatch({ features: { skillRecorder: true } })).toEqual({ features: {} });
-    // the built-in browser is on unless the person switched it off
-    expect(builtInBrowserEnabled({})).toBe(true);
-    expect(builtInBrowserEnabled({ features: { skillAuthoring: true } })).toBe(true);
-    expect(parseConfigPatch({ features: { browser: false } })).toEqual({ features: { browser: false } });
-    expect(builtInBrowserEnabled({ features: { browser: false } })).toBe(false);
-    expect(builtInBrowserEnabled({ features: { browser: true } })).toBe(true);
-    // same everywhere: a later.dog Cloud home and a self-hosted server alike
     const cloudHome = { LATERDOG_CLOUD_ROLE: "home", LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93" };
-    expect(builtInBrowserEnabled({}, { LATERDOG_PUBLIC_URL: "https://selfhosted.example.test" })).toBe(true);
-    expect(builtInBrowserEnabled({}, cloudHome)).toBe(true);
-    expect(builtInBrowserEnabled({ features: { browser: false } }, cloudHome)).toBe(false);
+    for (const features of [{}, { browser: true }, { browser: false }]) {
+      expect(builtInBrowserEnabled({ features })).toBe(false);
+      expect(builtInBrowserEnabled({ features }, cloudHome)).toBe(false);
+    }
     // named browser profiles: the list is the unit, ids are partition-safe
     expect(parseConfigPatch({ browserProfiles: [{ id: "work", name: " Work " }] })).toEqual({
       browserProfiles: [{ id: "work", name: "Work" }],

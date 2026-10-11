@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { api } from "@/state/store";
 import { openExternalLink } from "@/lib/app-links";
@@ -29,8 +29,8 @@ export function trialSubtitle(status: TrialStatus): string {
   }
 }
 
-export function CloudTrialRow() {
-  const [status, setStatus] = useState<TrialStatus>({ state: "none" });
+export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
+  const [status, setStatus] = useState<TrialStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +42,7 @@ export function CloudTrialRow() {
   }, []);
 
   useEffect(() => {
-    const ms = POLL_MS[status.state];
+    const ms = status && POLL_MS[status.state];
     if (!ms) return;
     const controller = new AbortController();
     let timer = window.setTimeout(function check() {
@@ -54,7 +54,7 @@ export function CloudTrialRow() {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [status.state]);
+  }, [status?.state]);
 
   const act = async (method: "POST" | "DELETE") => {
     setBusy(true);
@@ -78,9 +78,9 @@ export function CloudTrialRow() {
 
   return (
     <>
-      {status.state === "ended" ? (
+      {status?.state === "ended" ? (
         <p data-cloud-trial="ended" className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary">{t("vm.trial.ended")}</p>
-      ) : status.state !== "none" && (
+      ) : status?.state === "none" ? fallback : status && (
         <SettingRow title={t("vm.trial.title")} subtitle={trialSubtitle(status)}>
           <div data-cloud-trial={status.state} className="flex flex-wrap gap-2 sm:justify-end">
             {status.state === "offered" && (

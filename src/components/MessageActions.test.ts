@@ -22,7 +22,7 @@ const render = (props: Partial<Omit<Props, "children">> = {}) => {
   })));
   return document.querySelector<HTMLElement>('[data-testid="message-actions"]')!;
 };
-const more = () => document.querySelector<HTMLButtonElement>('button[aria-label="More"]');
+const more = () => document.querySelector<HTMLButtonElement>('button[aria-label="Message actions"]');
 const items = () => [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent);
 
 afterEach(() => {

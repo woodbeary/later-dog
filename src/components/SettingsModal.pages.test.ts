@@ -31,7 +31,6 @@ vi.mock("./SavedApiKeys", async (importOriginal) => ({
   SavedApiKeys: ({ instances }: { instances: readonly InstanceInfo[] }) => `MARKER:api-keys=${instances.map((instance) => instance.instanceId).join("+")};`,
 }));
 vi.mock("./UsageSection", () => ({ UsageSection: marker("usage") }));
-vi.mock("./LocalVmRows", () => ({ LocalVmRows: marker("local-vm") }));
 vi.mock("./CloudComputerRows", () => ({ CloudComputerRows: marker("cloud-computers") }));
 vi.mock("./PermissionChecklist", () => ({
   PermissionChecklist: ({ permissions }: { permissions: readonly string[] }) => `MARKER:permissions=${permissions.join("+")};`,
@@ -156,33 +155,20 @@ describe("General", () => {
 describe("Computer", () => {
   beforeEach(() => { fixture.section = "computer"; });
 
-  it("shows this Mac's computer-control permissions, the Local VM, cloud computers and the built-in browser", () => {
+  it("shows this Mac's computer-control permissions and cloud computers, nothing else", () => {
     const html = render();
     expect(currentPage(html)).toBe("computer");
-    expect(groups(html)).toEqual(["this-mac", "local-vm", "cloud-computers", "browser"]);
-    expect(markers(html)).toEqual(["permissions=accessibility+screen", "local-vm", "cloud-computers"]);
+    expect(groups(html)).toEqual(["this-mac", "cloud-computers"]);
+    expect(markers(html)).toEqual(["permissions=accessibility+screen", "cloud-computers"]);
     expect(html).toContain("What macOS lets later.dog do on this Mac.");
-    expect(html).toContain("data-built-in-browser");
-    expect(html).toMatch(/aria-label="Enable the built-in browser"[^>]*role="switch" aria-checked="false"/);
-    for (const gone of ["VPS", "alias"]) expect(html).not.toContain(gone);
+    for (const gone of ["VPS", "alias", "Local VM", "Boat", "built-in browser", "data-built-in-browser"]) expect(html).not.toContain(gone);
   });
 
-  it("says what the browser switch does before and after its download", () => {
-    expect(render()).toContain("Off. Turn it on to let dogs browse the web");
-    fixture.config = { features: { browser: true }, browserEngine: { kind: "unavailable", installable: true } };
-    expect(render()).toContain("asked to download about 160 MB.");
-    fixture.config = { features: { browser: true }, browserEngine: { kind: "engine" } };
-    expect(render()).toContain("On. Dogs can browse the web");
-  });
-
-  it("has no Mac group in a browser or on another platform, and no Local VM on a Cloud home", () => {
+  it("has no Mac group in a browser or on another platform", () => {
     vi.stubGlobal("window", {});
-    expect(groups(render())).toEqual(["local-vm", "cloud-computers", "browser"]);
+    expect(groups(render())).toEqual(["cloud-computers"]);
     vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, platform: "linux" } });
-    expect(groups(render())).toEqual(["local-vm", "cloud-computers", "browser"]);
-    fixture.config = { ...fixture.config, cloudHome: true };
-    vi.stubGlobal("window", MAC);
-    expect(groups(render())).toEqual(["this-mac", "cloud-computers", "browser"]);
+    expect(groups(render())).toEqual(["cloud-computers"]);
   });
 
   it("shows nothing of the server's computer from a paired remote client", () => {

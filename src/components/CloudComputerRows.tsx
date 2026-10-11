@@ -46,6 +46,7 @@ const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve,
 
 export function CloudComputerRows() {
   const keyConfigured = useStore().state.config?.box?.configured === true;
+  const soon = !keyConfigured && <SettingRow title={t("settings.cloud.soon")} subtitle={t("settings.cloud.soonHint")}>{null}</SettingRow>;
   const [computers, setComputers] = useState<CloudComputer[]>([]);
   const [listed, setListed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -110,7 +111,7 @@ export function CloudComputerRows() {
   return (
     <div data-cloud-computer-rows="" className="rounded-xl bg-card px-4">
       <CloudComputersRow />
-      <CloudTrialRow />
+      <CloudTrialRow fallback={soon} />
       {loading && computers.length === 0 ? (
         <div className="flex items-center gap-2 border-t border-hairline/40 py-4 text-[13px] text-ink-secondary">
           <Loader2 size={13} className="animate-spin" /> {t("vm.cloud.checkingList")}

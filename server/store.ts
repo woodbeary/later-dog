@@ -18,6 +18,7 @@ import * as mdb from "./message-db.ts";
 import { runCommand, type Command } from "./commands.ts";
 import { workspaceDir } from "./workspace.ts";
 import type { Destination } from "./surface.ts";
+import { retirePlaces } from "./laterdog/places.ts";
 import { newId, type ModelSelection } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
 import { redactSecretsInText } from "./redact.ts";
@@ -702,6 +703,7 @@ export class Store {
         delete b.cloudBackend;
         botsMigrated = true;
       }
+      if (retirePlaces(b)) botsMigrated = true;
       if (b.autoStartVps !== undefined && b.autoStartVps !== true && b.autoStartVps !== false) {
         delete b.autoStartVps;
         botsMigrated = true;

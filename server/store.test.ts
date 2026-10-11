@@ -351,16 +351,16 @@ describe("Store", () => {
     store.patchTask(bot.id, autoMismatch.threadId, { surface: "local", surfaceSource: "auto" });
     store.patchTask(bot.id, personMismatch.threadId, { surface: "local", surfaceSource: "user" });
     store.patchTask(bot.id, legacyMismatch.threadId, { surface: "local" });
-    store.patchTask(bot.id, autoMatch.threadId, { surface: "vm", surfaceSource: "auto" });
+    store.patchTask(bot.id, autoMatch.threadId, { surface: "cloud", surfaceSource: "auto" });
     const changes = vi.fn();
     store.onChange(changes);
-    expect(store.clearAutoSurfacePins(bot.id, "vm")).toBe(1);
+    expect(store.clearAutoSurfacePins(bot.id, "cloud")).toBe(1);
     const cleared = store.taskByThread(bot.id, autoMismatch.threadId)!;
     expect(cleared.surface).toBeUndefined();
     expect(cleared.surfaceSource).toBeUndefined();
     expect(store.taskByThread(bot.id, personMismatch.threadId)).toMatchObject({ surface: "local", surfaceSource: "user" });
     expect(store.taskByThread(bot.id, legacyMismatch.threadId)).toMatchObject({ surface: "local" });
-    expect(store.taskByThread(bot.id, autoMatch.threadId)).toMatchObject({ surface: "vm" });
+    expect(store.taskByThread(bot.id, autoMatch.threadId)).toMatchObject({ surface: "cloud" });
     expect(changes).toHaveBeenCalledTimes(1);
     // A cleared pin leaves no residue in the durable record…
     const saved = JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8")) as any[];
@@ -368,13 +368,43 @@ describe("Store", () => {
     expect(savedCleared).not.toHaveProperty("surface");
     expect(savedCleared).not.toHaveProperty("surfaceSource");
     // …and a sweep with nothing conflicting is a no-op.
-    expect(store.clearAutoSurfacePins(bot.id, "vm")).toBe(0);
+    expect(store.clearAutoSurfacePins(bot.id, "cloud")).toBe(0);
     const reloaded = new Store(selection);
     expect(reloaded.taskByThread(bot.id, personMismatch.threadId)).toMatchObject({ surface: "local", surfaceSource: "user" });
     expect(reloaded.taskByThread(bot.id, legacyMismatch.threadId)).toMatchObject({ surface: "local" });
     expect(reloaded.taskByThread(bot.id, legacyMismatch.threadId)?.surfaceSource).toBeUndefined();
-    expect(reloaded.taskByThread(bot.id, autoMatch.threadId)).toMatchObject({ surface: "vm" });
+    expect(reloaded.taskByThread(bot.id, autoMatch.threadId)).toMatchObject({ surface: "cloud" });
     expect(reloaded.taskByThread(bot.id, autoMismatch.threadId)!.surface).toBeUndefined();
+  });
+
+  it("reads a retired Local VM or browser as Auto on load, keeping the places it still offers", () => {
+    const store = new Store(selection);
+    const vm = store.createBot({}, { seedMessages: false });
+    const browser = store.createBot({}, { seedMessages: false });
+    const kept = store.createBot({}, { seedMessages: false });
+    const vmPin = store.createTask(kept.id, "VM pin", false)!;
+    const browserPin = store.createTask(kept.id, "Browser pin", false)!;
+    const cloudPin = store.createTask(kept.id, "Cloud pin", false)!;
+    const file = join(DATA_DIR, "bots.json");
+    const saved = JSON.parse(readFileSync(file, "utf8")) as any[];
+    const byId = (id: string) => saved.find((bot) => bot.id === id);
+    byId(vm.id).computer = "vm";
+    byId(browser.id).computer = "browser";
+    byId(kept.id).computer = "local";
+    const pin = (threadId: string, surface: string) => Object.assign(byId(kept.id).tasks.find((task: any) => task.threadId === threadId), { surface, surfaceSource: "user" });
+    pin(vmPin.threadId, "vm");
+    pin(browserPin.threadId, "browser");
+    pin(cloudPin.threadId, "cloud");
+    writeFileSync(file, JSON.stringify(saved));
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(vm.id)?.computer).toBeUndefined();
+    expect(reloaded.bot(browser.id)?.computer).toBeUndefined();
+    expect(reloaded.bot(kept.id)?.computer).toBe("local");
+    expect(reloaded.taskByThread(kept.id, vmPin.threadId)).not.toHaveProperty("surface");
+    expect(reloaded.taskByThread(kept.id, browserPin.threadId)).not.toHaveProperty("surfaceSource");
+    expect(reloaded.taskByThread(kept.id, cloudPin.threadId)).toMatchObject({ surface: "cloud", surfaceSource: "user" });
+    const resaved = JSON.parse(readFileSync(file, "utf8")) as any[];
+    expect(resaved.find((bot) => bot.id === vm.id)).not.toHaveProperty("computer");
   });
 
   // Every turn re-saves the same resume cursor and the same context model;

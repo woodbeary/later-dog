@@ -61,17 +61,16 @@ describe("U1: one line and at most one action for every state", () => {
   });
 
   it("keeps jargon out of what subscribers read", () => {
-    const boatAllowed = new Set<PlaceState>(["cc-needs-key", "cc-provider"]);
     for (const state of PLACE_STATES) {
       const view = placeViewOf(state, { ...PARAMS, words: "x" }, { role: "admin", server: "my-cloud" });
       const words = `${view.short} ${view.line} ${view.action?.label ?? ""}`;
-      if (!boatAllowed.has(state)) expect(words, state).not.toMatch(/Boat/);
+      expect(words, state).not.toMatch(/Boat/);
       expect(words, state).not.toMatch(/\bbox\b|\blaterdog\b|Hosted desktop|Cloud box|Works on to Auto|\btools?\b/i);
       if (state.startsWith("cc-")) expect(words, state).not.toMatch(/\bVM\b/);
     }
     for (const [id, sentence] of Object.entries(PLACE_WORDS)) {
       expect(sentence, id).not.toMatch(/\bbox\b|\blaterdog\b|Hosted desktop|Cloud box|Works on to Auto|\btools?\b/i);
-      if (id !== "add-boat-key") expect(sentence, id).not.toMatch(/Boat/);
+      expect(sentence, id).not.toMatch(/Boat/);
     }
   });
 
@@ -95,9 +94,12 @@ describe("U1: one line and at most one action for every state", () => {
       line: "Cloud computers from your plan work for dogs on My Cloud for now.", action: { id: "open-my-cloud", label: "Open My Cloud" },
     });
     expect(placeViewOf("auto", {}, { role: "admin", server: "mac" }).line)
-      .toBe("Uses the built-in browser, a private desktop on this computer, or this computer's screen, whichever the task needs.");
-    expect(placeViewOf("cc-provider", { bot: "Scout", words: "Start the $20/month Boat plan." }, admin))
-      .toMatchObject({ short: "Couldn't start", line: "Your Boat account couldn't start Scout's cloud computer: Start the $20/month Boat plan." });
+      .toBe("Picks its cloud computer or this computer when a task needs one.");
+    expect(placeViewOf("cc-provider", { bot: "Scout", words: "No capacity in this region." }, admin))
+      .toMatchObject({ short: "Couldn't start", line: "Scout's cloud computer couldn't start: No capacity in this region." });
+    expect(placeViewOf("cc-needs-key", {}, { role: "admin", server: "mac" })).toMatchObject({
+      short: "Coming soon", line: "Cloud computers are coming soon. They keep your dogs working while your laptop is closed.", action: null,
+    });
   });
 });
 
@@ -134,9 +136,12 @@ describe("placeState", () => {
   });
 
   it("words the Auto line for where this server runs", () => {
-    expect(placeView(facts({ place: "auto" })).line).toMatch(/starts its cloud computer by itself/);
-    expect(placeView(facts({ place: "auto", server: "pc" })).line).not.toMatch(/Local VM/);
-    expect(placeView(facts({ place: "auto", server: "linux" })).line).toMatch(/Local VM/);
+    expect(placeView(facts({ place: "auto" })).line).toBe("Starts its cloud computer when a task needs one.");
+    expect(placeView(facts({ place: "auto", server: "pc" })).line).toBe("Picks its cloud computer or this computer when a task needs one.");
+    expect(placeView(facts({ place: "auto", server: "linux" })).line).toBe("Starts its cloud computer when a task needs one.");
+    expect(placeView(facts({ place: "auto", server: "mac", boat: "none" })).line).toBe("Uses this computer when a task needs one.");
+    expect(placeView(facts({ place: "auto", server: "mac", boat: "none", local: { ready: false } })).line).toBe("Works without a computer for now.");
+    expect(placeView(facts({ place: "auto", server: "linux", boat: "none" })).line).toBe("Works without a computer for now.");
     expect(placeView(facts({ engine: { name: "Claude", computer: true, browser: true, signedIn: false } })).line)
       .toBe("Sign in to Claude on My Cloud first. Scout uses it on the cloud computer too.");
   });

@@ -86,7 +86,7 @@ async function draw() {
 }
 function moreMenus() {
   const menus: Record<string, string[]> = {};
-  for (const trigger of document.querySelectorAll<HTMLButtonElement>(`[data-mid] button[aria-label="${t("chat.more")}"]`)) {
+  for (const trigger of document.querySelectorAll<HTMLButtonElement>(`[data-mid] button[aria-label="${t("chat.messageActions")}"]`)) {
     flushSync(() => trigger.click());
     const items = trigger.parentElement!.querySelectorAll('[role="menu"] [role="menuitem"]');
     menus[trigger.closest("[data-mid]")!.getAttribute("data-mid")!] = [...items].map((item) => item.textContent ?? "");

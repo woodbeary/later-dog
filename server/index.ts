@@ -634,6 +634,7 @@ import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { DOG_CREATION_REFUSAL, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
+import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import {
   AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, MAX_BATTERY_RERUNS, backNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
@@ -2667,8 +2668,6 @@ async function cloudComputerHolders(botId: string): Promise<string[]> {
     return [];
   }
 }
-/** Cloud chosen with no cloud computers here: on a Cloud home they are the
- * plan's, so they are only unavailable; anywhere else they need a Boat key. */
 function boatNotConfigured(bot: { name: string }, source: PlaceSource): PlaceUnavailableError {
   return placeUnavailable("cloud", { state: CLOUD_HOME ? "cc-unavailable" : "cc-needs-key", params: { bot: bot.name }, source }, Boolean(CLOUD_HOME));
 }
@@ -7258,12 +7257,6 @@ async function computerPreviewSurface(bot: BotRecord, threadId?: string) {
     const remote = await vps.vpsComputerStatus(cfg, bot.id);
     if (remote.ready) return "cloud";
   }
-  const target = localVmTargetForStatus(bot.id, threadId);
-  // A Cloud home has neither place (cloud-home.ts), so Auto never shows one.
-  if (!CLOUD_HOME && instance?.adapter.capabilities.computerMcp && localVmSeen.has(target.key)) {
-    const vm = await containerComputerStatus(undefined, undefined, target).catch(() => null);
-    if (vm && autoLocalVmAttachable(vm)) return "vm";
-  }
   if (!CLOUD_HOME && shouldMountLocalComputer({ requested: undefined, hostPlatform: process.platform,
     providerSupportsLocal: instance?.adapter.capabilities.localComputerMcp === true }) && readCuaConnection()) return "local";
   if (bot.cloudBackend === "vps") return "cloud"; // show its unavailable reason
@@ -7280,7 +7273,7 @@ async function selectableComputers(bot: BotRecord) {
   const off = bot.computer === "off";
   // A desktop the bot's tools cannot reach is not offered, and not probed.
   const toolsLeaveOut = computerToolsRefusal(bot.toolScope, "works-on", bot.name)?.message;
-  const surfaces = (["cloud", "vm", "local", "browser"] as const).filter(surface => !CLOUD_HOME || cloudHomeOffersPlace(surface));
+  const surfaces = (["cloud", "local"] as const).filter(surface => !CLOUD_HOME || cloudHomeOffersPlace(surface));
   return Promise.all(surfaces.map(async surface => {
     let ready = false;
     let canStart = false;
@@ -7292,7 +7285,7 @@ async function selectableComputers(bot: BotRecord) {
       : "This computer is not configured or running. Open the Computer panel to set it up.";
     try {
       if (off) reason = "Computer access is Off in this dog's settings.";
-      else if (toolsLeaveOut && surface !== "browser") reason = toolsLeaveOut;
+      else if (toolsLeaveOut) reason = toolsLeaveOut;
       else if (surface === "cloud") {
         if (bot.cloudBackend === "vps") {
           const status = canWorkOnCloud(cloudEngine(instance)) ? await vps.vpsComputerStatus(cfg, bot.id) : null;
@@ -7312,24 +7305,14 @@ async function selectableComputers(bot: BotRecord) {
           reason = (cloudPlaceRefusal(cloudEngine(instance, bot.modelSelection.model), "works-on", bot.name)
             ?? boatNotConfigured(bot, "works-on")).message;
         }
-      } else if (surface === "vm" && caps?.computerMcp) {
-        const target = localVmTargetForStatus(bot.id);
-        const status = await containerComputerStatus(undefined, undefined, target);
-        ready = status.ready;
-        canCreate = !ready && autoLocalVmAttachable(status);
-        if (ready || canCreate) noteLocalVmSeen(target, status);
-        reason = status.problem ?? reason;
       } else if (surface === "local") {
         ready = shouldMountLocalComputer({ requested: "local", hostPlatform: process.platform,
           providerSupportsLocal: caps?.localComputerMcp === true }) && Boolean(readCuaConnection());
-      } else if (surface === "browser") {
-        ready = caps?.browserMcp === true && builtInBrowserEnabled(cfg) && bot.browser !== false && browserEngineStatus().kind === "ready";
-        reason = "The built-in browser is disabled, not installed, or unsupported by this model.";
       }
     } catch (error) { reason = error instanceof Error ? error.message : String(error); }
     // Not offered at all when the organisation disallows it.
-    const kind = surface === "local" ? "thisComputer" : surface === "vm" ? "localVm" : surface === "cloud" ? (bot.cloudBackend === "vps" ? "vps" : "box") : undefined;
-    const managed = kind && managedPolicy.computerRefusal(kind);
+    const kind = surface === "local" ? "thisComputer" : bot.cloudBackend === "vps" ? "vps" : "box";
+    const managed = managedPolicy.computerRefusal(kind);
     if (managed) return { surface, label: surfaceLabel(surface), available: false, ready: false, canStart: false, canCreate: false, reason: managed };
     const available = ready || canStart || canCreate;
     return { surface, label: surfaceLabel(surface), available, ready, canStart, canCreate, ...(!available ? { reason } : {}) };
@@ -10688,10 +10671,6 @@ async function startTurn(
 
       // Auto-only host fallback. Electron owns cua-driver/TCC attribution;
       // the harness only reads its already-running connection descriptor.
-      // Auto reaches a Local VM this bot already has before it ever touches the
-      // host's own desktop: on a headless server that VM is the only desktop
-      // there is, and a person who prepared one meant it to be used.
-      if (wants === undefined && !integrations.localComputer && !computerPlaceRefusal("localVm") && await attachLocalVm(false)) computerKind = "vm";
       // An unattended run on a bot with a VPS configured never lands on the
       // host's own desktop instead: a scheduled job clicking on someone's
       // laptop is worse than a scheduled job that fails and says why.
@@ -16889,8 +16868,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!bot) return json(res, 403, { error: "Computer selection belongs to a direct bot conversation." });
         const requested = method === "POST" ? (await readInternalBody()).surface : undefined;
         if (method === "POST" && !canSelect) return json(res, 403, { error: "Computer selection is only available once per direct user request, with computer access enabled." });
-        if (method === "POST" && requested !== "auto" && !parseSurface(requested)) {
-          return json(res, 400, { error: "surface must be auto, cloud, vm, local, or browser" });
+        if (method === "POST" && requested !== "auto" && !offersPlace(requested)) {
+          return json(res, 400, { error: "surface must be auto, cloud or local" });
         }
         const unoffered = CLOUD_HOME && method === "POST" && requested !== "auto" ? cloudHomePlaceRefusal(parseSurface(requested)!) : undefined;
         const options = await selectableComputers(bot);
@@ -21680,13 +21659,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           requestedComputer = undefined;
           patch.computer = undefined;
         } else if (
-          typeof body.computer === "string" &&
-          ["cloud", "vm", "local", "browser", "off"].includes(body.computer)
+          body.computer === "off" || offersPlace(body.computer)
         ) {
           requestedComputer = body.computer;
           patch.computer = body.computer;
         } else {
-          return json(res, 400, { error: "computer must be null (Auto), cloud, vm, local, browser, or off" });
+          return json(res, 400, { error: "computer must be null (Auto), cloud, local, or off" });
         }
       }
       if (normalizedSelection) patch.modelSelection = normalizedSelection;
@@ -23428,10 +23406,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (body.surface === null) {
           patch.surface = undefined;
           patch.surfaceSource = undefined;
-        } else if (parseSurface(body.surface)) {
-          patch.surface = parseSurface(body.surface);
+        } else if (offersPlace(body.surface)) {
+          patch.surface = body.surface;
           patch.surfaceSource = "user";
-        } else return json(res, 400, { error: "surface must be cloud, vm, local, browser, or null to follow the bot" });
+        } else return json(res, 400, { error: "surface must be cloud, local, or null to follow the bot" });
       }
       if (body.pinnedMessageId !== undefined) {
         if (body.pinnedMessageId === null || body.pinnedMessageId === "") patch.pinnedMessageId = undefined;

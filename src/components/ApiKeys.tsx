@@ -8,10 +8,9 @@ import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
-import { pillButton } from "./LocalVmRows";
 import { SettingRow } from "./SettingsPrimitives";
 
-export type ConfigSection = "composio" | "box" | "opencodeGo" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
+export type ConfigSection = "composio" | "opencodeGo" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
 /** Sections whose key can be tried against the provider from the server. */
 export type TestableProvider = "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
 
@@ -22,18 +21,11 @@ const SECTIONS: Record<
     body: (value: string, firstKey: boolean) => unknown;
     /** A key is saved. */
     flag: (config: ConfigStatus) => boolean;
-    /** Works with no saved key: Cloud Pro includes it. */
-    included?: (config: ConfigStatus) => boolean;
   }
 > = {
   composio: {
     body: (v) => ({ composio: { apiKey: v } }),
     flag: (c) => c.composio.configured,
-  },
-  box: {
-    body: (v) => ({ box: { token: v } }),
-    flag: (c) => c.box.configured && c.box.included !== true,
-    included: (c) => c.box.included === true,
   },
   opencodeGo: { body: (v) => ({ opencodeGo: { apiKey: v } }), flag: (c) => c.opencodeGo?.configured ?? false },
   // A key first saved here runs only "Claude (API key)"; signed-in Claude
@@ -52,9 +44,8 @@ const SECTIONS: Record<
 
 // Provider keys have no desktop-shell slot yet and go through the server's
 // own 0600 config, the same place they live on a hosted server.
-const ELECTRON_CREDENTIAL: Partial<Record<ConfigSection, "composioApiKey" | "boxToken" | "opencodeGoApiKey">> = {
+const ELECTRON_CREDENTIAL: Partial<Record<ConfigSection, "composioApiKey" | "opencodeGoApiKey">> = {
   composio: "composioApiKey",
-  box: "boxToken",
   opencodeGo: "opencodeGoApiKey",
 };
 
@@ -78,13 +69,6 @@ const CREDENTIALS: Record<
     descriptionKey: "keys.composio.desc",
     href: "https://dashboard.composio.dev",
     linkLabelKey: "keys.composio.link",
-  },
-  box: {
-    labelKey: "keys.boat.label",
-    placeholderKey: "keys.boat.placeholder",
-    descriptionKey: "keys.boat.desc",
-    href: "https://docs.boat.dev/api-keys",
-    linkLabelKey: "keys.boat.link",
   },
   opencodeGo: {
     labelKey: "keys.opencode.label",
@@ -232,35 +216,8 @@ export function looksLikeKey(value: string): boolean {
 
 export function CloudComputersRow() {
   const box = useStore().state.config?.box;
-  const [adding, setAdding] = useState(false);
-  if (box?.provider === "laterdog") {
-    return box.trial ? null : <SettingRow title={t("settings.cloud.own")} subtitle={t("settings.cloud.ownHint")}>{null}</SettingRow>;
-  }
-  const saved = box?.configured === true && box.included !== true;
-  return (
-    <SettingRow
-      title={t("settings.cloud.boat")}
-      subtitle={box?.included ? t("keys.includedWithCloudPro") : saved ? t("settings.cloud.keySaved") : t("settings.cloud.boatHint")}
-      message={adding && (
-        <>
-          <ApiKeyRow section="box" bare onSaved={() => setAdding(false)} />
-          <a
-            href={CREDENTIALS.box.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 inline-flex items-center gap-1.5 font-medium text-accent hover:underline"
-          >
-            {t("settings.cloud.getKey")}
-            <ExternalLink size={12} aria-hidden="true" />
-          </a>
-        </>
-      )}
-    >
-      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setAdding((open) => !open)} className={pillButton}>
-        {adding ? t("common.cancel") : saved ? t("settings.cloud.changeKey") : t("settings.cloud.addKey")}
-      </button>
-    </SettingRow>
-  );
+  if (box?.provider !== "laterdog" || box.trial) return null;
+  return <SettingRow title={t("settings.cloud.own")} subtitle={t("settings.cloud.ownHint")}>{null}</SettingRow>;
 }
 
 export function ComposioKeyNotice({ remote, onSaved }: { remote: boolean; onSaved: () => void }) {
@@ -319,7 +276,6 @@ export function ApiKeyRow({
   const saveAfterPaste = useRef(false);
 
   const configured = state.config ? SECTIONS[section].flag(state.config) : false;
-  const included = state.config ? SECTIONS[section].included?.(state.config) === true : false;
   const clearing = !value.trim() && configured;
   const credential = credentialCopy(section);
 
@@ -388,10 +344,9 @@ export function ApiKeyRow({
     <div data-api-key-row={section}>
       {!bare && (
         <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
-          <span className={cn("size-1.5 rounded-full", configured || included ? "bg-success" : "bg-raised-hover")} />
+          <span className={cn("size-1.5 rounded-full", configured ? "bg-success" : "bg-raised-hover")} />
           <span>{credential.label}</span>
           {configured && <span className="text-[11px] text-ink-secondary">{t("keys.configured")}</span>}
-          {included && <span className="text-[11px] text-ink-secondary">{t("keys.includedWithCloudPro")}</span>}
           <CredentialHelp section={section} />
         </div>
       )}

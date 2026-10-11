@@ -892,11 +892,8 @@ export function routinesInConversationEnabled(cfg: AppConfig): boolean {
   return cfg.features?.routinesInConversation === true;
 }
 
-/** Workspace-level gate for the built-in browser. A bot's own switch sits
- * under it, so either can withhold the browser. On unless the person switched
- * it off: an explicit `false` (Settings, or a bot's computer panel) is kept. */
-export function builtInBrowserEnabled(cfg: AppConfig, _env: NodeJS.ProcessEnv = process.env): boolean {
-  return cfg.features?.browser !== false;
+export function builtInBrowserEnabled(_cfg: AppConfig, _env: NodeJS.ProcessEnv = process.env): boolean {
+  return false;
 }
 
 /** Opt-in computer sharing: the routes, the agent tools, the advertised

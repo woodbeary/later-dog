@@ -16,7 +16,7 @@ import {
 import { api, ApiError, currentTaskBot, useStore, type Bot } from "@/state/store";
 import { effectivePlace, placeOffered } from "@/lib/place";
 import type { CloudBackend } from "../../shared/wire";
-import { ApiKeyRow, VpsConnection } from "./ApiKeys";
+import { VpsConnection } from "./ApiKeys";
 import { cn } from "@/lib/cn";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import { usePageVisible } from "@/lib/page-visible";
@@ -346,10 +346,7 @@ export function ComputerPanel({
   const browserEnabled = builtInBrowserEnabled(state.config) && bot.browser !== false
     && (browserAvailableHere || state.config?.browserEngine?.installable === true);
   const showBrowser = bot.computer === "browser";
-  // bumped when a Boat API key is saved inline, to re-run the spin-up flow
   const [retry, setRetry] = useState(0);
-  // Auto is a server decision (including an existing Local VM). Do not guess
-  // host-vs-cloud from desktop capabilities and show a different computer.
   useEffect(() => {
     if (livePlace !== "auto" || !computerSelectionPersisted) return;
     const controller = new AbortController();
@@ -1371,7 +1368,7 @@ export function ComputerPanel({
                       : emptyState[phase]}
               </span>}
               {currentTeamComputer && placeActionButton(autoView)}
-              {bot.computer === "cloud" && (phase === "unconfigured" || phase === "error") && cloudView.action?.id !== "add-boat-key" && placeActionButton(cloudView)}
+              {bot.computer === "cloud" && (phase === "unconfigured" || phase === "error") && placeActionButton(cloudView)}
               {computerStatusCurrent && phase === "vps-stopped" && canManageCloud && (
                 <button
                   type="button"
@@ -1477,16 +1474,6 @@ export function ComputerPanel({
             {errorText}
           </div>
         )}
-        {/* "Needs a Boat key": the key row is the action, right here. */}
-        {phase === "unconfigured" && cloudView.action?.id === "add-boat-key" && (
-          <div className="mt-3 rounded-xl bg-card p-4">
-            <ApiKeyRow
-              section="box"
-              onSaved={(configured) => configured && setRetry((n) => n + 1)}
-            />
-          </div>
-        )}
-
         {/* Who is driving — take the wheel / hand it back */}
         {(cloudPreviewReady || phase === "vm" || currentTeamComputer) && control.helpReason && !control.held && (
           <div className="mt-3 rounded-xl border border-warning/25 bg-warning/10 p-4">

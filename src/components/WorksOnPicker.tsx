@@ -2,29 +2,26 @@ import { useId, useState } from "react";
 import { useStore, type Bot } from "@/state/store";
 import type { BotUpdatePatch } from "@/state/bot-patch-queue";
 import { allowComputer } from "@/lib/allow-computer";
-import { browserAvailable } from "@/lib/feature-flags";
 import { t } from "@/lib/i18n";
 import { instanceSupportsLocalComputer, localComputerDisabledReason, localComputerSelectable } from "@/lib/local-computer";
 import { placeOffered } from "@/lib/place";
 import { openPlaceAction, placeBlocked, placeFacts, placeHasIssue, placeViewFor, usePlaceSeat, worksOnSimpleLabel } from "@/lib/place-view";
-import { turnOnBrowser } from "@/lib/turn-on-browser";
 import { approvalModeFor } from "../../shared/approval-mode";
+import { offersPlace } from "../../shared/places";
 import type { PlaceActionId } from "../../shared/place-view";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 
 export type WorksOn = NonNullable<Bot["computer"]> | "auto";
 
-export const WORKS_ON: readonly WorksOn[] = ["auto", "cloud", "vm", "local", "browser", "off"];
+export const WORKS_ON: readonly WorksOn[] = ["auto", "cloud", "local", "off"];
 
 const PICKER_ACTIONS: ReadonlySet<PlaceActionId> = new Set([
-  "choose-model", "allow-computer", "sign-in", "see-plan", "manage-computers", "open-my-cloud", "add-boat-key", "turn-on-browser",
+  "choose-model", "allow-computer", "sign-in", "see-plan", "manage-computers", "open-my-cloud",
 ]);
 
 export function worksOnPatch(place: WorksOn): BotUpdatePatch {
-  if (place === "auto") return { computer: null };
-  if (place === "browser") return { computer: "browser", browser: true };
-  return { computer: place };
+  return { computer: place === "auto" ? null : place };
 }
 
 export function WorksOnPicker({ bot }: { bot: Bot }) {
@@ -42,14 +39,13 @@ export function WorksOnPicker({ bot }: { bot: Bot }) {
     reason: localComputerDisabledReason({ capabilities, providerSupportsLocal }) ?? t("computer.unavailableLocal"),
   };
   const policy = state.config?.managedPolicy;
-  const current: WorksOn = bot.computer ?? "auto";
-  const browserCanTurnOn = browserAvailable(state.config) || state.config?.browserEngine?.installable === true;
+  const current: WorksOn = bot.computer === "off" || offersPlace(bot.computer) ? bot.computer : "auto";
   const options = WORKS_ON.filter((place) => place === "auto" || place === "off" || placeOffered(place, state.config)).map((place) => {
     const view = placeViewFor(placeFacts({ bot, place, seat, config: state.config, instances: state.instances, local }));
-    const managedKind = place === "local" ? "thisComputer" : place === "vm" ? "localVm" : place === "cloud" ? (bot.cloudBackend === "vps" ? "vps" : "box") : null;
+    const managedKind = place === "local" ? "thisComputer" : place === "cloud" ? (bot.cloudBackend === "vps" ? "vps" : "box") : null;
     const managedBy = policy && managedKind && !policy.computers[managedKind] ? t("policy.managedBy", { organization: policy.organizationName }) : undefined;
     const note = managedBy ?? (placeHasIssue(view) ? view.short : undefined);
-    const blocked = placeBlocked(view) && !(view.state === "browser-off" && view.action && browserCanTurnOn);
+    const blocked = placeBlocked(view);
     const label = worksOnSimpleLabel(place === "auto" ? undefined : place, platform);
     return {
       place,
@@ -71,7 +67,7 @@ export function WorksOnPicker({ bot }: { bot: Bot }) {
     dispatch({ type: "updateBot", botId: bot.id, patch: worksOnPatch(place) });
   };
   const run = async (id: PlaceActionId) => {
-    if (id !== "allow-computer" && id !== "turn-on-browser") {
+    if (id !== "allow-computer") {
       openPlaceAction(id, { botId: bot.id, threadId: bot.threadId }, dispatch);
       return;
     }
@@ -79,8 +75,7 @@ export function WorksOnPicker({ bot }: { bot: Bot }) {
     setWorking(true);
     setError(null);
     try {
-      if (id === "allow-computer") await allowComputer(bot);
-      else await turnOnBrowser(state.config, bot, dispatch);
+      await allowComputer(bot);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

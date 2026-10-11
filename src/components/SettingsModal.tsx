@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
-import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
+import { useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { analyticsConfigured } from "@/lib/laterdog-analytics";
 import { checklistHost, COMPUTER_PERMISSIONS, type DesktopPermission } from "@/lib/desktop-permissions";
 import { useDesktopPermissions } from "@/lib/use-desktop-permissions";
-import { browserAvailable, browserUnavailableReason, builtInBrowserEnabled } from "@/lib/feature-flags";
 import { localeChoices } from "@/locales";
 import { activeLocale, t } from "@/lib/i18n";
 import { useUpdaterState } from "@/lib/updater";
@@ -16,7 +15,6 @@ import { AboutMeSettings } from "./AboutMeSettings";
 import { AccountsPanel } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { CloudComputerRows } from "./CloudComputerRows";
-import { LocalVmRows } from "./LocalVmRows";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, Switch } from "./SettingsPrimitives";
 import { shortcutLabel } from "./ShortcutHint";
@@ -211,57 +209,6 @@ function NotificationSoundsRow() {
   );
 }
 
-export function BuiltInBrowserRow() {
-  const { state, dispatch } = useStore();
-  const browser = builtInBrowserEnabled(state.config);
-  const desktopBrowser = browserAvailable(state.config);
-  const browserInstallable = state.config?.browserEngine?.installable === true;
-  const browserBlockedOnWindows = window.laterdog?.platform === "win32" && !desktopBrowser && !browserInstallable;
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const toggle = async (next: boolean) => {
-    if (saving) return;
-    setSaving(true);
-    setError("");
-    try {
-      const config: ConfigStatus = await api("/api/config", {
-        method: "PATCH",
-        body: JSON.stringify({ features: { browser: next } }),
-      });
-      dispatch({ type: "configStatus", config });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("settings.experimental.error"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <SettingsRows data-built-in-browser>
-      <SettingRow
-        title={t("settings.experimental.browserAria")}
-        subtitle={desktopBrowser || browserInstallable
-          ? browser
-            ? t(desktopBrowser ? "settings.experimental.browserOn" : "settings.experimental.browserFirstUse")
-            : t("settings.experimental.browserOff")
-          : browserBlockedOnWindows
-            ? t("settings.experimental.browserWindows")
-            : browserUnavailableReason(state.config)}
-        message={error ? <p role="alert" className="text-danger">{error}</p> : null}
-      >
-        <Switch
-          checked={browser}
-          aria-label={t("settings.experimental.browserAria")}
-          disabled={saving || (!browser && !desktopBrowser && !browserInstallable)}
-          onClick={() => void toggle(!browser)}
-          className="disabled:cursor-wait disabled:opacity-50"
-        />
-      </SettingRow>
-    </SettingsRows>
-  );
-}
-
 function MacPermissions({ permissions, intro }: { permissions: readonly DesktopPermission[]; intro?: string }) {
   const host = "mac" as const;
   const { checklist, busy, request, openSettings } = useDesktopPermissions();
@@ -327,7 +274,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
   );
 }
 
-function ComputerPage({ mac, remoteActive, cloudHome }: { mac: boolean; remoteActive: boolean; cloudHome: boolean }) {
+function ComputerPage({ mac, remoteActive }: { mac: boolean; remoteActive: boolean }) {
   return (
     <>
       {mac && (
@@ -335,19 +282,9 @@ function ComputerPage({ mac, remoteActive, cloudHome }: { mac: boolean; remoteAc
           <MacPermissions permissions={COMPUTER_PERMISSIONS} intro={t("settings.computer.macIntro", { app: brand().name })} />
         </SettingsGroup>
       )}
-      {!remoteActive && !cloudHome && (
-        <SettingsGroup label={t("vm.main.title")} testId="local-vm">
-          <LocalVmRows />
-        </SettingsGroup>
-      )}
       {!remoteActive && (
         <SettingsGroup label={t("vm.cloud.title")} testId="cloud-computers">
           <CloudComputerRows />
-        </SettingsGroup>
-      )}
-      {!remoteActive && (
-        <SettingsGroup label={t("settings.experimental.browser")} testId="browser">
-          <BuiltInBrowserRow />
         </SettingsGroup>
       )}
     </>
@@ -377,7 +314,6 @@ export function SettingsModal() {
   const dialogRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const remoteActive = window.laterdog?.remoteClient?.active === true;
-  const cloudHome = state.config?.cloudHome === true;
   const mac = !remoteActive && checklistHost(window.laterdog) === "mac";
 
   useEffect(() => {
@@ -499,7 +435,7 @@ export function SettingsModal() {
           </div>
           <div ref={scrollRef} data-settings-content={section} className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4 sm:px-5 sm:pb-5">
             {section === "general" && <GeneralPage mac={mac} />}
-            {section === "computer" && <ComputerPage mac={mac} remoteActive={remoteActive} cloudHome={cloudHome} />}
+            {section === "computer" && <ComputerPage mac={mac} remoteActive={remoteActive} />}
             {section === "usage" && <UsageSection />}
             {section === "updates" && <UpdatesPage />}
           </div>

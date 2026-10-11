@@ -547,7 +547,7 @@ createServer(socket => socket.end()).listen(port, '127.0.0.1');
       // the VPS clause, including the disposable-filesystem warning
       expect(echo).toContain("self-hosted remote Linux computer");
       expect(echo).toContain("This is the user's own VPS");
-      expect(echo).toContain("using it does not require a Boat API key");
+      expect(echo).not.toContain("Boat");
       expect(echo).toContain("wiped whenever its container is recreated");
 
       // the official Cua MCP server was mounted through the VPS bridge
