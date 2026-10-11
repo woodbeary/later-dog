@@ -6,10 +6,11 @@ import { z } from "zod";
 
 export const configSchema = z.object({
   profiles: z.array(z.object({ id: z.string().regex(/^[a-zA-Z0-9_-]+$/), label: z.string().min(1).max(100),
-    backend: z.enum(["codex-cloud", "claude-cloud"]).default("codex-cloud"),
+    backend: z.enum(["codex-cloud", "claude-cloud", "laterdog-cloud"]).default("codex-cloud"),
     codexHome: z.string().refine(isAbsolute, "codexHome must be absolute").optional(), cli: z.string().min(1).optional(),
     routineId: z.string().regex(/^trig_[A-Za-z0-9_-]+$/, "routineId must look like trig_…").optional(),
-    routineTokenEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/, "routineTokenEnv must be an environment variable name").optional() }).strict()
+    routineTokenEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/, "routineTokenEnv must be an environment variable name").optional(),
+    computerSize: z.enum(["small", "standard", "large", "xlarge"]).optional() }).strict()
     .refine((p) => p.backend !== "claude-cloud" || p.routineTokenEnv, "A claude-cloud profile needs routineTokenEnv")).min(1)
     .default([{ id: "default", label: "My Codex subscription", backend: "codex-cloud" }]).refine((p) => new Set(p.map((x) => x.id)).size === p.length, "Profile IDs must be unique"),
   concurrency: z.number().int().min(1).max(100).default(4),

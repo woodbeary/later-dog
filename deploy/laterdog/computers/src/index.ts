@@ -5,6 +5,7 @@
 // a DogComputer Durable Object addressed by its id (src/computer.ts); one ComputerRegistry Durable Object lists them
 // (src/registry.ts). README.md describes the API, the costs and the idle policy.
 
+import { WorkerEntrypoint } from "cloudflare:workers";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
@@ -49,6 +50,8 @@ type Caller = { registry: DurableObjectStub<ComputerRegistry>; trial?: TrialReco
 
 type Identified = { ok: true; caller: Caller } | { ok: false; response: Response };
 
+type Via = "public" | "binding";
+
 const CHALLENGE = { "www-authenticate": 'Bearer realm="laterdog-computers"' };
 const TRIALS_OFF: Refusal = { status: 503, code: "trials_off", message: "Free trials are switched off on this service right now." };
 const NO_COMPUTER: Refusal = { status: 404, code: "not_found", message: "No computer with that id." };
@@ -71,7 +74,11 @@ function countryOf(request: Request): string | undefined {
   return typeof country === "string" ? country : undefined;
 }
 
-async function identify(request: Request, env: Env): Promise<Identified> {
+async function identify(request: Request, env: Env, via: Via): Promise<Identified> {
+  if (via === "binding") {
+    if (request.headers.has("origin")) return { ok: false, response: apiError(BROWSER_ORIGIN) };
+    return { ok: true, caller: { registry: registry(env) } };
+  }
   const token = bearerToken(request.headers.get("authorization"));
   if (token !== null && TRIAL_TOKEN.test(token) && !request.headers.has("origin")) {
     const trial = await trials(env).find(await sha256Hex(token));
@@ -275,43 +282,54 @@ async function trialPageRequest(request: Request, env: Env, url: URL): Promise<R
   return page(200, "Your free trial has started", message);
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const target = route(request.method, url.pathname);
-    try {
-      switch (target.kind) {
-        case "health":
-          return new Response("ok\n", { headers: { "cache-control": "no-store" } });
-        case "redirect":
-          return new Response(null, { status: 302, headers: { location: target.location, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
-        case "desktop":
-          // The computer's Durable Object checks the link against its current boot and serves or proxies the request.
-          return await computer(env, target.id).fetch(request);
-        case "not_found":
-          return target.api ? apiError({ status: 404, code: "not_found", message: "No such endpoint." }) : new Response("Not found\n", { status: 404 });
-        case "method_not_allowed":
-          return apiError({ status: 405, code: "method_not_allowed", message: `Use ${target.allow.join(" or ")}.` }, { allow: target.allow.join(", ") });
-        case "trial_page":
-          return await trialPageRequest(request, env, url);
-        case "trial_offer":
-          if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
-          return json(trialOffer(trialPolicy(env)));
-        case "trial":
-        case "collection":
-        case "computer": {
-          const identified = await identify(request, env);
-          if (!identified.ok) return identified.response;
-          const { caller } = identified;
-          if (target.kind === "trial") return await trialRequest(target.op, env, caller);
-          if (target.kind === "collection") return target.op === "list" ? await listComputers(caller) : await createComputer(request, env, caller);
-          return await computerRequest(target.op, target.id, request, env, url, caller);
-        }
+const NO_ENDPOINT: Refusal = { status: 404, code: "not_found", message: "No such endpoint." };
+
+async function serve(request: Request, env: Env, via: Via): Promise<Response> {
+  const url = new URL(request.url);
+  const target = route(request.method, url.pathname);
+  try {
+    if (via === "binding" && target.kind !== "health" && !url.pathname.startsWith("/v1/")) return apiError(NO_ENDPOINT);
+    switch (target.kind) {
+      case "health":
+        return new Response("ok\n", { headers: { "cache-control": "no-store" } });
+      case "redirect":
+        return new Response(null, { status: 302, headers: { location: target.location, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+      case "desktop":
+        // The computer's Durable Object checks the link against its current boot and serves or proxies the request.
+        return await computer(env, target.id).fetch(request);
+      case "not_found":
+        return target.api ? apiError(NO_ENDPOINT) : new Response("Not found\n", { status: 404 });
+      case "method_not_allowed":
+        return apiError({ status: 405, code: "method_not_allowed", message: `Use ${target.allow.join(" or ")}.` }, { allow: target.allow.join(", ") });
+      case "trial_page":
+        return await trialPageRequest(request, env, url);
+      case "trial_offer":
+        if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+        return json(trialOffer(trialPolicy(env)));
+      case "trial":
+      case "collection":
+      case "computer": {
+        const identified = await identify(request, env, via);
+        if (!identified.ok) return identified.response;
+        const { caller } = identified;
+        if (target.kind === "trial") return await trialRequest(target.op, env, caller);
+        if (target.kind === "collection") return target.op === "list" ? await listComputers(caller) : await createComputer(request, env, caller);
+        return await computerRequest(target.op, target.id, request, env, url, caller);
       }
-    } catch (error) {
-      const path = url.pathname.replace(/^(\/desktop\/[^/]+\/)[^/]+/, "$1<token>");
-      console.error(`laterdog computers: ${request.method} ${path} failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
-      return apiError({ status: 500, code: "internal", message: "Something went wrong; the error was logged." });
     }
-  },
+  } catch (error) {
+    const path = url.pathname.replace(/^(\/desktop\/[^/]+\/)[^/]+/, "$1<token>");
+    console.error(`laterdog computers: ${request.method} ${path} failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+    return apiError({ status: 500, code: "internal", message: "Something went wrong; the error was logged." });
+  }
+}
+
+export default {
+  fetch: (request: Request, env: Env): Promise<Response> => serve(request, env, "public"),
 } satisfies ExportedHandler<Env>;
+
+export class ComputersApi extends WorkerEntrypoint<Env> {
+  override fetch(request: Request): Promise<Response> {
+    return serve(request, this.env, "binding");
+  }
+}
