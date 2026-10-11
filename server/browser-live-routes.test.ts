@@ -50,7 +50,9 @@ describe("live browser route authorization", () => {
     expect(crossOrigin.status).toBe(403);
     expect(crossOrigin.body.error).toContain("cross-origin");
     expect((await call("PATCH", "/api/config", { features: { browser: true } })).status).toBe(200);
-    expect((await call(method, path, body, { ...remote, cookie: ownerCookie })).status).toBe(409);
+    const owner = await call(method, path, body, { ...remote, cookie: ownerCookie });
+    expect(owner.status).toBe(409);
+    expect(owner.body.error).toBe("Enable this dog's browser in its profile first.");
   });
 
   it("does not let client sessions change the bot's browser identity or shared logins", async () => {

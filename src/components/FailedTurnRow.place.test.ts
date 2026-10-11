@@ -77,9 +77,11 @@ describe("J11: a failed place's row", () => {
     expect(buttons).toHaveLength(0);
   });
 
-  it("reads Needs a Boat key as My Cloud's on a desktop with a paid plan", () => {
+  it("reads Coming soon with no Boat key, and as My Cloud's on a desktop with a paid plan", () => {
     const needsKey: PlaceRow = { state: "cc-needs-key", params: { bot: "Scout" }, source: "works-on" };
-    expect(show(stored(needsKey)).html).toContain("A cloud computer here needs your own Boat key, a paid service.");
+    const html = show(stored(needsKey)).html;
+    expect(html).toContain("Cloud computers are coming soon. They keep your dogs working while your laptop is closed.");
+    expect(html).not.toMatch(/\bboat\b/i);
     const seat = { server: "mac", plan: true, role: "admin" } as const;
     expect(placeRowViewFor(needsKey, seat)).toMatchObject({
       state: "cc-on-my-cloud", line: "Cloud computers from your plan work for dogs on My Cloud for now.", action: { id: "open-my-cloud" },
