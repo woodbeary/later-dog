@@ -98,7 +98,7 @@ describe("the message box", () => {
   it("is one line when empty: attach on the left, the words, then permissions and send on the right", async () => {
     await mount();
     expect(expanded()).toBe(false);
-    expect(box().className).toContain("rounded-3xl");
+    expect(box().className).toContain("rounded-[22px]");
     expect(row().classList.contains("flex-wrap")).toBe(false);
     expect(editor().classList.contains("basis-full")).toBe(false);
 

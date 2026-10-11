@@ -213,6 +213,7 @@
   "approval.aria.pendingProfile": "Pending profile confirmation",
   "approval.aria.pending": "Pending approval",
   "approval.pending": "Pending approval",
+  "approval.viewDetails": "View details",
   "approval.position": "{index} of {count}",
   "approval.aria.reviewSkill": "Trick details to review",
   "approval.aria.reviewRoutine": "Routine details to review",

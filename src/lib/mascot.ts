@@ -64,6 +64,11 @@ export type DogColor = (typeof DOG_COLOR_NAMES)[number];
 
 export const DEFAULT_DOG_COLOR: DogColor = "yellow";
 
+export function userBubbleColor(color: string | undefined): string {
+  const base = color && Object.hasOwn(DOG_COLORS, color) ? DOG_COLORS[color as DogColor] : DOG_COLORS[DEFAULT_DOG_COLOR];
+  return `color-mix(in oklab, ${base} 62%, black)`;
+}
+
 export const DOG_COLORS = {
   green: "#009957",
   blue: "#377FE6",
