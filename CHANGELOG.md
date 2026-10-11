@@ -5,7 +5,6 @@
 - A dog working on This Mac now offers **Try a cloud computer free** in its Computer panel too, under its screen. Before, only a dog with no computer showed it, so most people never saw the trial outside Settings.
 - The Cursor row shows Cursor's own logo. It was a plain pointer arrow.
 - When an update doesn't finish, the update icon offers the newest version on later.dog as well as **Try again**.
-- Releases can be signed with an Apple Developer ID and notarized, so later.dog opens without the Open Anyway step. It switches on with one command; see the release guide. The first notarized version can't install itself over an earlier one, so download it once from later.dog.
 
 ## 0.3.7 — 2026-10-11
 
