@@ -53,6 +53,7 @@ import { appendNative } from "./native.ts";
 import { claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
+import { laterdogPreallowedTools } from "../laterdog/own-tools.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
 import {
   ASK_USER_QUESTION_TOOL,
@@ -1615,6 +1616,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (gated) mcpServers[name] = { ...gated, ...((mcpServers[name] as { alwaysLoad?: unknown })?.alwaysLoad === true ? { alwaysLoad: true } : {}) };
       }
       allowed.splice(0, allowed.length, ...allowed.filter((name) => Object.hasOwn(mcpServers, name.slice("mcp__".length))));
+      allowed.push(...laterdogPreallowedTools(turn.integrations?.custom ?? {}, mcpServers));
       // Keep ask_user available even in Full access. Native bypass skips
       // permission prompts, not questions requiring a person's answer.
       let broker: Awaited<ReturnType<typeof createPermissionBroker>> | undefined;

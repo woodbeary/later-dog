@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4 — 2026-10-10
+
+- A dog can use later.dog's cloud tools without asking you each time: checking the workspace, sending work to the cloud, following a job, and publishing a draft PR. Before, the first call asked for approval, and in Auto mode Claude's safety check could refuse it outright. Merging a pull request still asks you first.
+
 ## 0.3.3 — 2026-10-10
 
 Everything new and better since 0.3.0.
