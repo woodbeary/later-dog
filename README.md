@@ -92,8 +92,10 @@ ditto release/mac-arm64/later.dog.app /Applications/later.dog.app && open -a lat
 
 ## What is proven, and what is not
 
-[docs/laterdog/verification.md](docs/laterdog/verification.md) is the fixture map: what each test proves. Still open: the
-token battery is proven against fake Claude and Codex CLIs, not yet against two real accounts at their limits; connected
+[docs/laterdog/verification.md](docs/laterdog/verification.md) is the fixture map: what each test proves. The token
+battery switched live between two real Claude accounts when one hit its 5-hour limit (2026-10-10,
+[the record](docs/laterdog/token-battery.md#verification-and-limits)). Still open: ChatGPT (Codex) accounts at a real
+limit, and a real reset with every account out, are proven only against fake CLIs; connected
 apps (Gmail, Slack, …) need a self-hosted Composio broker; local computer control needs macOS permission grants; voice
 dictation needs a signed build.
 
