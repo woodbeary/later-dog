@@ -1307,7 +1307,7 @@ export function ComputerPanel({
                 alt={t("computer.screenOf", { name: bot.name })}
                 className="h-full w-full object-contain transition group-hover:brightness-75 group-focus-visible:brightness-75"
               />
-              <span className="pointer-events-none absolute flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-sm transition group-hover:opacity-100 group-focus-visible:opacity-100">
+              <span className="pointer-events-none absolute flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-sm transition group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100">
                 {pending === "join" ? <Loader2 size={12} className="animate-spin" /> : <Maximize2 size={12} />}
                 {t("computer.open")}
               </span>
