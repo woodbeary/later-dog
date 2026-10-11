@@ -109,7 +109,7 @@ export function CloudComputerRows() {
 
   return (
     <div data-cloud-computer-rows="" className="rounded-xl bg-card px-4">
-      <div className="py-4"><CloudComputersRow /></div>
+      <CloudComputersRow />
       <CloudTrialRow />
       {loading && computers.length === 0 ? (
         <div className="flex items-center gap-2 border-t border-hairline/40 py-4 text-[13px] text-ink-secondary">

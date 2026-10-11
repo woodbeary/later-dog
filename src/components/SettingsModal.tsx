@@ -241,9 +241,9 @@ export function BuiltInBrowserRow() {
     <SettingsRows data-built-in-browser>
       <SettingRow
         title={t("settings.experimental.browserAria")}
-        subtitle={desktopBrowser
+        subtitle={desktopBrowser || browserInstallable
           ? browser
-            ? t("settings.experimental.browserOn")
+            ? t(desktopBrowser ? "settings.experimental.browserOn" : "settings.experimental.browserFirstUse")
             : t("settings.experimental.browserOff")
           : browserBlockedOnWindows
             ? t("settings.experimental.browserWindows")

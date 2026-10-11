@@ -27,6 +27,11 @@
 - **Usage** lists only the accounts you sign in to, and says **Not signed in** for one that isn't. The API-key line and the word Codex are gone.
 - **Estimated cost so far** comes from the same record as **History**, for the last 12 months, so the two agree. Before, it could differ because it skipped the dogs' background memory work. The **By dog** table is gone: **History**, **Dog** shows the same for any period.
 - Tried in the browser fixture: Accounts said **Couldn't check usage** for Claude, Usage listed Claude and ChatGPT, and the cost so far and History's total were both $0.04. Not tried yet with real accounts.
+- **Computer** says what the Local VM is doing in plain words: **Needs Docker** with **Get Docker**, **Docker isn't running**, **Not set up**, **Stopped**, **Starting…**, **Ready** with **Open**, or **Needs a reset**. Before, it showed container-runtime messages over a row of buttons.
+- **Set up** downloads the desktop and creates the VM in one go. **Reset** has its own row and asks first.
+- The **Boat** key is behind **Add key**. No key says OPTIONAL any more, and the orange Boat warning is gone; the row still says Boat charges for use.
+- The built-in browser line is one short sentence while its download is still to come.
+- Tried in the side instance with a stubbed Local VM status: Start woke a stopped VM with one request and waited for Ready; Set up without the desktop downloaded it first; Add key opened a focused field and Cancel closed it. Not tried with real Docker.
 
 ### Profiles
 - Keep separate setups, such as Personal, Business and Business 2, and switch between them with **Switch profile** in the menu under your name. Each profile has its own dogs, chats and saved keys. Profiles you're not looking at keep running, so a dog working in Business carries on while you're in Personal.

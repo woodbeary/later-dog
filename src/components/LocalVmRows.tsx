@@ -1,16 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Circle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { waitForLocalVmReady } from "@/lib/local-vm-readiness";
 import { SettingRow } from "./SettingsPrimitives";
 
 export const LOCAL_VM_POLL_MS = 5000;
+export const DOCKER_URL = "https://www.docker.com/products/docker-desktop/";
+
+const RUNTIME_NAMES = { docker: "Docker", podman: "Podman", container: "Apple container" } as const;
 
 export interface LocalVmStatus {
   ready: boolean;
+  runtime: keyof typeof RUNTIME_NAMES | null;
+  daemonUp: boolean;
+  image: boolean;
   container: "running" | "stopped" | "missing";
   problem: string | null;
+  imageMatches?: boolean;
+  managed?: boolean;
+  network?: string;
+  security?: string;
+  persistence?: string;
+  desktop_error?: string | null;
   resumable?: boolean;
   stop_reason?: "idle" | null;
   viewer_url?: string;
@@ -18,6 +29,7 @@ export interface LocalVmStatus {
 }
 
 type VmAction = "start" | "run" | "recreate";
+type Stage = "checking" | "unavailable" | "noRuntime" | "runtimeOff" | "notSetUp" | "settingUp" | "stopped" | "starting" | "ready" | "stuck";
 
 export const pillButton = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
 
@@ -28,7 +40,7 @@ async function readStatus(signal?: AbortSignal): Promise<LocalVmStatus> {
   return body as LocalVmStatus;
 }
 
-async function post(action: "start" | "run" | "remove", signal: AbortSignal): Promise<LocalVmStatus> {
+async function post(action: "pull" | "start" | "run" | "remove", signal: AbortSignal): Promise<LocalVmStatus> {
   const response = await fetch(`/api/local-computer/${action}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -36,16 +48,25 @@ async function post(action: "start" | "run" | "remove", signal: AbortSignal): Pr
     signal,
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error ?? t(action === "remove" ? "vm.deleteError" : action === "run" ? "vm.err.create" : "vm.err.start"));
+  if (!response.ok) throw new Error(body.error ?? t(action === "remove" ? "vm.deleteError" : action === "start" ? "vm.err.start" : "vm.err.create"));
   signal.throwIfAborted();
   return body as LocalVmStatus;
 }
 
-export function localVmStatusLabel(status: LocalVmStatus | null, loading: boolean): string {
-  if (loading) return t("common.checking");
-  if (!status) return t("vm.main.statusUnavailable");
-  if (status.ready) return t("vm.main.ready");
-  return status.problem ?? t("vm.main.notReady");
+function needsRebuild(status: LocalVmStatus): boolean {
+  return Boolean(status.desktop_error) || status.imageMatches === false || status.managed === false
+    || [status.network, status.security, status.persistence].includes("unsafe");
+}
+
+function localVmStage(status: LocalVmStatus | null, loading: boolean): Stage {
+  if (loading) return "checking";
+  if (!status) return "unavailable";
+  if (status.ready) return "ready";
+  if (!status.runtime) return "noRuntime";
+  if (!status.daemonUp) return "runtimeOff";
+  if (status.container === "missing") return "notSetUp";
+  if (status.container === "stopped") return status.resumable === false ? "stuck" : "stopped";
+  return needsRebuild(status) ? "stuck" : "starting";
 }
 
 export function LocalVmRows() {
@@ -95,7 +116,8 @@ export function LocalVmRows() {
     setPending(action);
     setError(null);
     try {
-      if (action === "recreate" && !(await confirmAction(t("vm.confirm.recreate")))) return;
+      if (action === "recreate" && !(await confirmAction(t("settings.vm.resetConfirm")))) return;
+      if (action !== "start" && status?.image === false) await post("pull", controller.signal);
       if (action === "recreate") await post("remove", controller.signal);
       let result = await post(action === "start" ? "start" : "run", controller.signal);
       setStatus(result);
@@ -115,51 +137,47 @@ export function LocalVmRows() {
     }
   };
 
-  const ready = status?.ready === true;
-  const stopped = status?.container === "stopped" && status.resumable !== false;
-  const waiting = pending !== null && status?.container === "running" && !ready;
+  const stage: Stage = pending === "start" ? "starting" : pending ? "settingUp" : localVmStage(status, loading);
+  const runtime = RUNTIME_NAMES[status?.runtime ?? "docker"];
   const viewer = status?.viewer_url || status?.commands?.view || null;
+  const title = {
+    checking: t("common.checking"),
+    unavailable: t("settings.vm.unavailable"),
+    noRuntime: t("settings.vm.needsDocker"),
+    runtimeOff: t("settings.vm.runtimeOff", { runtime }),
+    notSetUp: t("settings.vm.notSetUp"),
+    settingUp: t("settings.vm.settingUp"),
+    stopped: t("settings.vm.stopped"),
+    starting: t("settings.vm.starting"),
+    ready: t("vm.main.ready"),
+    stuck: t("settings.vm.stuck"),
+  }[stage];
+  const hint = stage === "noRuntime" ? t("settings.vm.needsDockerHint")
+    : stage === "runtimeOff" ? t("settings.vm.runtimeOffHint", { runtime })
+      : stage === "notSetUp" || stage === "settingUp" ? t("settings.vm.setUpHint")
+        : stage === "stopped" ? t(status?.stop_reason === "idle" ? "settings.vm.stoppedIdle" : "settings.vm.stoppedHint")
+          : stage === "starting" ? t("settings.vm.startingHint")
+            : stage === "stuck" ? t("settings.vm.stuckHint")
+              : t("settings.vm.about");
+  const button = (action: VmAction, label: string) => (
+    <button type="button" onClick={() => void act(action)} disabled={loading} className={pillButton}>{label}</button>
+  );
   return (
     <div data-local-vm-rows className="rounded-xl bg-card px-4">
-      <SettingRow
-        title={t("settings.vm.status")}
-        subtitle={error
-          ? <span role="alert" className="text-danger">{error}</span>
-          : stopped ? t(status.stop_reason === "idle" ? "vm.stopped.idle" : "vm.stopped.detail") : undefined}
-      >
-        <span
-          aria-live="polite"
-          data-local-vm-status={loading ? "checking" : ready ? "ready" : "not-ready"}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px]",
-            ready ? "bg-success/15 text-success" : "bg-control text-ink-secondary",
-          )}
-        >
-          {loading ? <Loader2 size={12} className="animate-spin" /> : ready ? <Check size={12} /> : <Circle size={9} />}
-          {waiting ? t("vm.setup.waiting") : localVmStatusLabel(status, loading)}
-        </span>
-      </SettingRow>
-      <SettingRow title={t("settings.vm.actions")} subtitle={t("settings.vm.actionsHint")}>
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          {ready && viewer && (
-            <a href={viewer} target="_blank" rel="noreferrer" className={pillButton}>{t("settings.vm.open")}</a>
-          )}
-          {(stopped || pending === "start") && (
-            <button type="button" onClick={() => void act("start")} disabled={loading || pending !== null} aria-busy={pending === "start"} className={pillButton}>
-              {t(pending === "start" ? "vm.setup.starting" : "vm.setup.start")}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => void act(status?.container === "missing" ? "run" : "recreate")}
-            disabled={loading || pending !== null}
-            aria-busy={pending === "run" || pending === "recreate"}
-            className={pillButton}
-          >
-            {pending === "run" || pending === "recreate" ? t("settings.vm.working") : status?.container === "missing" ? t("settings.vm.create") : t("settings.vm.reset")}
-          </button>
-        </div>
-      </SettingRow>
+      <div aria-live="polite" data-local-vm-status={stage}>
+        <SettingRow title={title} subtitle={error ? <span role="alert" className="text-danger">{error}</span> : hint}>
+          {stage === "noRuntime" && <a href={DOCKER_URL} target="_blank" rel="noreferrer" className={pillButton}>{t("settings.vm.getDocker")}</a>}
+          {stage === "notSetUp" && button("run", t("settings.vm.setUp"))}
+          {stage === "stopped" && button("start", t("settings.vm.start"))}
+          {stage === "ready" && viewer && <a href={viewer} target="_blank" rel="noreferrer" className={pillButton}>{t("settings.vm.open")}</a>}
+          {stage === "stuck" && button("recreate", t("settings.vm.reset"))}
+        </SettingRow>
+      </div>
+      {(stage === "ready" || stage === "stopped" || stage === "starting") && pending === null && (
+        <SettingRow title={t("settings.vm.reset")} subtitle={t("settings.vm.resetHint")}>
+          <button type="button" onClick={() => void act("recreate")} disabled={loading} className={cn(pillButton, "text-danger")}>{t("settings.vm.reset")}</button>
+        </SettingRow>
+      )}
     </div>
   );
 }

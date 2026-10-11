@@ -167,6 +167,14 @@ describe("Computer", () => {
     for (const gone of ["VPS", "alias"]) expect(html).not.toContain(gone);
   });
 
+  it("says what the browser switch does before and after its download", () => {
+    expect(render()).toContain("Off. Turn it on to let dogs browse the web");
+    fixture.config = { features: { browser: true }, browserEngine: { kind: "unavailable", installable: true } };
+    expect(render()).toContain("asked to download about 160 MB.");
+    fixture.config = { features: { browser: true }, browserEngine: { kind: "engine" } };
+    expect(render()).toContain("On. Dogs can browse the web");
+  });
+
   it("has no Mac group in a browser or on another platform, and no Local VM on a Cloud home", () => {
     vi.stubGlobal("window", {});
     expect(groups(render())).toEqual(["local-vm", "cloud-computers", "browser"]);
