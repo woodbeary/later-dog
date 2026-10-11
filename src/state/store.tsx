@@ -39,6 +39,7 @@ import {
 import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { botShowsUnread } from "@/lib/bot-unread";
+import { jevRoomRoutingOn } from "@/lib/group-routing";
 import { descendsFrom, newestTip } from "@/lib/leaf-follow";
 import type { ComputerStart } from "@/lib/computer-start";
 import { answerResponse, dismissResponse } from "@/lib/card-answer";
@@ -3429,9 +3430,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               memberIds: action.memberIds,
               name: action.name,
               section: action.section,
-              ...(window.laterdog?.remoteClient?.active
-                ? { setup: { bulletin: "", defaultResponder: { kind: "mentions" } } }
-                : {}),
+              setup: {
+                bulletin: "",
+                defaultResponder: window.laterdog?.remoteClient?.active
+                  ? { kind: "mentions" }
+                  : jevRoomRoutingOn(stateRef.current.config)
+                    ? { kind: "auto", fallbackBotId: action.memberIds[0] }
+                    : { kind: "member", botId: action.memberIds[0] },
+              },
             }),
           })
             .then(({ group }) => {

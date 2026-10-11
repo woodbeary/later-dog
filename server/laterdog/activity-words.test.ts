@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { botNames, dogActivityWords } from "./activity-words.ts";
+import { botNames, dogActivityWords, teammateResultLabel } from "./activity-words.ts";
 
 const store = {
   bots: [{ id: "b1", name: "Scout", hidden: false }, { id: "b2", name: "Rex", hidden: false }, { id: "b3", name: "Pip", hidden: false }, { id: "b4", name: "Ghost", hidden: true }],
@@ -39,5 +39,15 @@ describe("what the working line says", () => {
   it("stays quiet for the harness's own approval and error chips", () => {
     expect(dogActivityWords("auto-approved: Bash", undefined, nameOf)).toBeNull();
     expect(dogActivityWords("error: something", undefined, nameOf)).toBeNull();
+  });
+});
+
+describe("what a teammate's result chip says", () => {
+  it("says who replied, and never shows a raw budget or routing error", () => {
+    expect(teammateResultLabel("Scout", "completed", undefined)).toBe("Scout replied");
+    expect(teammateResultLabel("Scout", "completed", undefined, "Launch")).toBe("Scout replied · Launch");
+    expect(teammateResultLabel("Scout", "failed", undefined)).toBe("Scout couldn't finish");
+    expect(teammateResultLabel("Scout", "cancelled", undefined)).toBe("Scout stopped");
+    expect(teammateResultLabel("Scout", "completed", "Destination bot task no longer exists")).toBe("Scout's reply was held back");
   });
 });

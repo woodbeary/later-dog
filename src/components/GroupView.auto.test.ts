@@ -11,7 +11,7 @@ vi.mock("@/state/store", async (original) => ({
 }));
 vi.mock("./DesktopCapabilities", () => ({ useDesktopCapabilities: () => ({}) }));
 
-import { DefaultResponderSelect, RoutedByLine, Transcript } from "./GroupView";
+import { DefaultResponderSelect, Transcript } from "./GroupView";
 
 const members = [
   { id: "maya", name: "Maya" },
@@ -35,17 +35,17 @@ beforeEach(() => {
 });
 
 describe("room responder selector", () => {
-  it("offers Auto (Jev) and shows it selected on an Auto room", () => {
+  it("offers Auto and shows it selected on an Auto room", () => {
     const markup = renderToStaticMarkup(createElement(DefaultResponderSelect, { group: room({ kind: "auto" }), members }));
-    expect(markup).toContain('<option value="auto" selected="">Auto (Jev)</option>');
-    expect(markup).toContain("Jev picks who answers each plain message");
+    expect(markup).toContain('<option value="auto" selected="">Auto</option>');
+    expect(markup).toContain("The best-fit dog answers each message");
   });
 
-  it("reads plain Auto, and names who answers, while Jev is off", () => {
+  it("reads plain Auto, and names who answers, while automatic routing is off", () => {
     fixture.config = jev(false);
     const markup = renderToStaticMarkup(createElement(DefaultResponderSelect, { group: room({ kind: "auto", fallbackBotId: "theo" }), members }));
     expect(markup).toContain('<option value="auto" selected="">Auto</option>');
-    expect(markup).toContain("Jev is off, so plain messages go to Theo");
+    expect(markup).toContain("Theo answers plain messages");
   });
 
   it("switching a lead room to Auto keeps the lead as its fallback", () => {
@@ -56,12 +56,8 @@ describe("room responder selector", () => {
   });
 });
 
-describe("routed-by line", () => {
-  it("says Jev picked the speaker, with how sure it was", () => {
-    expect(renderToStaticMarkup(createElement(RoutedByLine, { routedBy: { provider: "jev", probability: 0.94 } }))).toContain("Picked by Jev · 94%");
-  });
-
-  it("appears under a Jev-routed reply only", () => {
+describe("a reply the decision model routed", () => {
+  it("reads like any other reply, with no routing label or percentage", () => {
     const reply = (id: string, extra: Partial<Message> = {}): Message =>
       ({ id, role: "bot", kind: "text", text: `reply ${id}`, at: 1_000, from: { botId: "theo", name: "Theo", color: "green" }, ...extra });
     const messages = [reply("routed", { routedBy: { provider: "jev", probability: 0.94 } }), reply("plain", { at: 2_000 })];
@@ -70,9 +66,9 @@ describe("routed-by line", () => {
       group: { ...room({ kind: "auto" }), threadId: "thread", messages } as Group, members, locale: "en",
       messages, transcript: messages, onReply: () => undefined,
     }));
-    expect(markup.match(/Picked by Jev/g)).toHaveLength(1);
-    expect(markup.indexOf("Picked by Jev")).toBeGreaterThan(markup.indexOf("reply routed"));
-    expect(markup.indexOf("Picked by Jev")).toBeLessThan(markup.indexOf("reply plain"));
+    expect(markup).toContain("reply routed");
+    expect(markup).not.toContain("Picked by Jev");
+    expect(markup).not.toContain("94%");
     vi.unstubAllGlobals();
   });
 });

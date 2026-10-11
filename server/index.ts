@@ -635,7 +635,7 @@ import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
-import { botNames, dogActivityWords } from "./laterdog/activity-words.ts";
+import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
@@ -4797,13 +4797,13 @@ function updateChannel(groupId: string, value: unknown): GroupRecord {
   const existing = store.group(groupId);
   if (!existing) throw Object.assign(new Error("no such room"), { status: 404 });
   if (body.memberIds !== undefined && phoneSecretSubmissions.hasGroup(existing.id)) {
-    throw Object.assign(new Error("this channel is securely saving a credential — try again when it finishes"), { status: 409 });
+    throw Object.assign(new Error("This group chat is saving a sign-in. Try again in a moment."), { status: 409 });
   }
   if (
     channelTaskBlocked(existing) &&
     (body.memberIds !== undefined || body.defaultResponder !== undefined || body.bulletin !== undefined)
   ) {
-    throw Object.assign(new Error("this channel is working or waiting on you — finish that turn first"), { status: 409 });
+    throw Object.assign(new Error("This group chat is busy. Try again when it's done."), { status: 409 });
   }
   const patch: Record<string, unknown> = {};
   if (body.name !== undefined) {
@@ -5027,9 +5027,8 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
       roomRequest: { id: child.id, phase: "result" },
       from: bot ? { botId: bot.id, name: bot.name, color: bot.color } : undefined,
       tool: {
-        name: problem ? `Result withheld: ${problem}`
-          : child.status === "completed" ? `${bot?.name ?? "Teammate"} replied${child.groupId ? ` · ${store.group(child.groupId)?.name ?? "Room"}` : ""}`
-          : `${bot?.name ?? "Teammate"} — ${child.status}: ${child.result.slice(0, 180)}`,
+        name: teammateResultLabel(bot?.name ?? "Teammate", child.status, problem,
+          child.groupId ? store.group(child.groupId)?.name ?? "Room" : undefined),
         ok: child.status === "completed" && !problem,
         // The chip label stays short; the report itself rides along so a
         // phone can show what the teammate said without opening its thread.
@@ -16960,7 +16959,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const room = store.groupByThread(internalCapability.threadId);
         if (room && !roomFeedsBot(room, internalSender)) {
-          return json(res, 403, { error: "This room is visible to fewer people than you are, so notes from it can't go into your memory. Keep them in the room." });
+          return json(res, 403, { error: "Fewer people can see this group chat than can see your memory, so notes from it stay in the group chat." });
         }
       }
       // On a Cloud home only the owner's conversations get here (above): the
@@ -20652,10 +20651,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!group) return json(res, 404, { error: "no such channel" });
       if (group.dm) return json(res, 400, { error: "bot-to-bot channels keep one canonical conversation" });
       if (channelTaskBlocked(group)) {
-        return json(res, 409, { error: "this channel is working or waiting on you — finish that turn first" });
+        return json(res, 409, { error: "This group chat is busy. Try again when it's done." });
       }
       if (phoneSecretSubmissions.hasGroup(group.id)) {
-        return json(res, 409, { error: "this channel is securely saving a credential — try again when it finishes" });
+        return json(res, 409, { error: "This group chat is saving a sign-in. Try again in a moment." });
       }
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return json(res, 400, { error: "body must be a JSON object" });
@@ -20675,7 +20674,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!group) return json(res, 404, { error: "no such channel" });
       if (group.dm) return json(res, 400, { error: "bot-to-bot channels keep one canonical conversation" });
       if (phoneSecretSubmissions.hasGroup(group.id)) {
-        return json(res, 409, { error: "this channel is securely saving a credential — try again when it finishes" });
+        return json(res, 409, { error: "This group chat is saving a sign-in. Try again in a moment." });
       }
       if (channelTaskSwitchBlocked(group, m[2])) {
         return json(res, 409, { error: "this channel is working or waiting on you in another task" });
@@ -20728,7 +20727,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // this one is still running. A rename still waits.
       const settingsOnly = !titleChange && (pinning || limiting);
       if (channelTaskBlocked(group) && !settingsOnly) {
-        return json(res, 409, { error: "this channel is working or waiting on you — finish that turn first" });
+        return json(res, 409, { error: "This group chat is busy. Try again when it's done." });
       }
       let task = existing;
       if (limiting && parsedLimit?.ok) {
@@ -20756,7 +20755,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "this task is securely saving a credential — try again when it finishes" });
       }
       if (channelTaskBlocked(group)) {
-        return json(res, 409, { error: "this channel is working or waiting on you — finish that turn first" });
+        return json(res, 409, { error: "This group chat is busy. Try again when it's done." });
       }
       if (!store.groupTaskByThread(group.id, m[2])) return json(res, 404, { error: "no such channel task" });
       const notYours = cloudThreadRefusal(auth, m[2]);
@@ -20801,7 +20800,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const group = store.group(m[1]);
       if (!group) return json(res, 404, { error: "no such room" });
       if (phoneSecretSubmissions.hasGroup(group.id)) {
-        return json(res, 409, { error: "this channel is securely saving a credential — try again when it finishes" });
+        return json(res, 409, { error: "This group chat is saving a sign-in. Try again in a moment." });
       }
       if (groupIsWorking(group)) {
         return json(res, 409, { error: "this channel is working — stop that turn first" });

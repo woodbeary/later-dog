@@ -108,3 +108,10 @@ export function botNames(store: Pick<Store, "bot" | "bots">): NameOf {
     return store.bot(idOrName)?.name ?? store.bots.find((bot) => !bot.hidden && bot.name.trim().toLowerCase() === lower)?.name;
   };
 }
+
+export function teammateResultLabel(name: string, status: string, withheld: string | null | undefined, room?: string): string {
+  if (withheld) return `${name}'s reply was held back`;
+  if (status === "completed") return room ? `${name} replied · ${room}` : `${name} replied`;
+  if (status === "cancelled") return `${name} stopped`;
+  return `${name} couldn't finish`;
+}

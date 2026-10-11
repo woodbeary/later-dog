@@ -101,7 +101,7 @@ it("refuses queued same-room supervisor work when the owner revokes supervision"
   expect(f.nodes().find((node: any) => node.parentId).status).toBe("failed");
   expect(f.provider().some((turn: any) => turn.botId === chief.id)).toBe(false);
   expect(JSON.stringify(await f.messages(f.source.activeTaskId))).not.toContain("PRIVATE_SUPERVISOR_RESULT");
-  expect((await f.messages(f.source.activeTaskId)).some((message: any) => message.tool?.name.includes("Result withheld"))).toBe(true);
+  expect((await f.messages(f.source.activeTaskId)).some((message: any) => message.tool?.name.includes("reply was held back"))).toBe(true);
 }), 45_000);
 
 it("refuses a disallowed peer without starting the recipient", () => withRooms(async f => {
@@ -175,7 +175,7 @@ it("withholds a cross-team result if the owner revokes access while it runs", ()
   expect(f.nodes().find((n: any) => n.parentId).status).toBe("failed");
   const messages = await f.messages(f.source.activeTaskId);
   expect(JSON.stringify(messages)).not.toContain("PRIVATE_RESULT_AFTER_REVOCATION");
-  expect(messages.some((m: any) => m.tool?.name.includes("Result withheld"))).toBe(true);
+  expect(messages.some((m: any) => m.tool?.name.includes("reply was held back"))).toBe(true);
 }), 45_000);
 
 it.each(["rename", "delete"])("withholds an in-flight result after team %s and recreation", mode => withRooms(async f => {
@@ -198,7 +198,7 @@ it.each(["rename", "delete"])("withholds an in-flight result after team %s and r
   expect(f.nodes().find((n: any) => n.parentId).status).toBe("failed");
   const messages = await f.messages(f.source.activeTaskId);
   expect(JSON.stringify(messages)).not.toContain("PRIVATE_RESULT_AFTER_TEAM_RECREATION");
-  expect(messages.some((m: any) => m.tool?.name.includes("Result withheld"))).toBe(true);
+  expect(messages.some((m: any) => m.tool?.name.includes("reply was held back"))).toBe(true);
 }), 45_000);
 
 it.each(["recipient", "source-reader", "destination-reader"])("refuses cross-section work involving a %s without leaking room history", role => withRooms(async f => {
@@ -239,7 +239,7 @@ it("rechecks section membership before queued work dispatch and withholds its re
   expect((await f.wait()).status).toBe("settled");
   expect(f.nodes().find((n: any) => n.parentId).status).toBe("failed");
   expect(await f.messages(f.destination.activeTaskId)).toEqual([]);
-  expect((await f.messages(f.source.activeTaskId)).some((m: any) => m.tool?.name.includes("Result withheld"))).toBe(true);
+  expect((await f.messages(f.source.activeTaskId)).some((m: any) => m.tool?.name.includes("reply was held back"))).toBe(true);
   await f.cli("wait", "--bot", f.target.id, "--timeout", "15");
 }), 45_000);
 
