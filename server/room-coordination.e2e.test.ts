@@ -270,7 +270,7 @@ it("returns a provider failure to the sender and resumes it to handle the failur
   const child = f.nodes().find((n: any) => n.parentId);
   expect(child.status).toBe("failed");
   const source = await f.messages(f.source.activeTaskId);
-  expect(source.some((m: any) => m.roomRequest?.phase === "result" && m.tool?.name.includes("failed"))).toBe(true);
+  expect(source.some((m: any) => m.roomRequest?.phase === "result" && m.tool?.name.includes("couldn't finish"))).toBe(true);
   expect(source.some((m: any) => m.text === "Reviewed downstream outcome")).toBe(true);
 }), 45_000);
 
