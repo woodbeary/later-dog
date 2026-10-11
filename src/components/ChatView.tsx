@@ -6,6 +6,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Code,
   Copy,
   Crown,
   Download,
@@ -19,6 +20,7 @@ import {
   PinOff,
   RefreshCw,
   Search,
+  Volume2,
   Webhook,
   X,
 } from "lucide-react";
@@ -94,7 +96,8 @@ import {
 } from "@/lib/export-transcript";
 import { CitationSelectionToolbar, SentCitations } from "./CitationUI";
 
-import { SpeakButton } from "./SpeakButton";
+import { canSpeak, StopSpeakingButton } from "./SpeakButton";
+import { speaker } from "@/lib/tts";
 import { CallOverlay } from "./CallView";
 import { LiveCallBar } from "./LiveCallBar";
 import { LiveCallChip } from "./LiveCallPill";
@@ -518,6 +521,23 @@ const Bubble = memo(function Bubble({
   };
   const togglePin = () =>
     dispatch({ type: "updateTask", botId, threadId, patch: { pinnedMessageId: pinned ? "" : message.id } });
+  const pinItem: SidebarMenuItem[] = remoteClient ? [] : [{
+    key: "pin",
+    label: t(pinned ? "chat.unpin" : "chat.action.pin"),
+    icon: pinned ? <PinOff size={16} /> : <Pin size={16} />,
+    onSelect: togglePin,
+  }];
+  const botMore: SidebarMenuItem[] = [
+    ...(message.kind === "text" && text && !peer && !speaking && canSpeak(tts, voiceId, localVoice) ? [{
+      key: "speak",
+      label: t("chat.action.readAloud"),
+      icon: <Volume2 size={16} />,
+      onSelect: () => void speaker.speak(text, { botId, messageId: message.id, voiceId }),
+    }] : []),
+    ...(text && !viewRaw ? [{ key: "source", label: t("chat.action.viewSource"), icon: <Code size={16} />, onSelect: () => setViewRaw(true) }] : []),
+    ...(!busy && onRegenerate ? [{ key: "retry", label: t("chat.retry"), icon: <RefreshCw size={16} />, onSelect: onRegenerate }] : []),
+    ...pinItem,
+  ];
 
   return (
     <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
@@ -527,7 +547,7 @@ const Bubble = memo(function Bubble({
       )}
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
-          <MessageActions side="user">
+          <MessageActions side="user" more={pinItem}>
             {/* editing rewinds the thread, so it waits for the turn to end —
                 same rule as the version switcher below */}
             {message.kind === "text" && !webhookView && !hasAttachments && !busy && !message.id.startsWith("optimistic-") && (
@@ -549,14 +569,6 @@ const Bubble = memo(function Bubble({
               className={messageActionClass}
             >
               <MessageSquareReply size={14} />
-            </button>
-            <button
-              onClick={togglePin}
-              aria-label={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
-              title={pinned ? t("chat.unpinHint") : t("chat.pinHint")}
-              className={cn(messageActionClass, remoteClient && "hidden")}
-            >
-              {pinned ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
           </MessageActions>
         )}
@@ -665,23 +677,11 @@ const Bubble = memo(function Bubble({
           )}
         </div>
         {!user && (
-          <MessageActions side="bot" forceOpen={viewRaw || speaking}>
+          <MessageActions side="bot" forceOpen={viewRaw || speaking} more={botMore}>
+            {speaking && <StopSpeakingButton preparing={speech.status === "preparing"} />}
+            {viewRaw && text && <RawToggleAction active onToggle={() => setViewRaw(false)} className="opacity-100" />}
             {text && <CopyButton text={text} className="opacity-100" />}
-            {text && <RawToggleAction active={viewRaw} onToggle={() => setViewRaw((r) => !r)} className="opacity-100" />}
-            {message.kind === "text" && text && !peer && (
-              <SpeakButton text={text} botId={botId} messageId={message.id} voiceId={voiceId} tts={tts} localVoice={localVoice} className="opacity-100" />
-            )}
             {!peer && <TreatButton botId={botId} name={botName} onTreat={() => dispatch({ type: "giveTreat", botId })} />}
-            {!busy && onRegenerate && (
-              <button
-                onClick={onRegenerate}
-                aria-label={t("chat.regenerate")}
-                title={t("chat.regenerate")}
-                className={messageActionClass}
-              >
-                <RefreshCw size={14} />
-              </button>
-            )}
             <button
               type="button"
               onClick={() => onReply(message)}
@@ -690,14 +690,6 @@ const Bubble = memo(function Bubble({
               className={messageActionClass}
             >
               <MessageSquareReply size={14} />
-            </button>
-            <button
-              onClick={togglePin}
-              aria-label={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
-              title={pinned ? t("chat.unpinHint") : t("chat.pinHint")}
-              className={cn(messageActionClass, remoteClient && "hidden")}
-            >
-              {pinned ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
           </MessageActions>
         )}
@@ -1394,6 +1386,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       <div
         ref={scrollRef}
         className="glass-scroller h-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-5 [overflow-anchor:none]"
+        style={{ scrollPaddingBottom: composerDock.height }}
         {...scrollHandlers}
       >
         <div

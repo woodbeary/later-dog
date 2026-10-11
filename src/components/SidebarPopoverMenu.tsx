@@ -47,18 +47,30 @@ export interface SidebarMenuItem {
 const OPEN_DELAY_MS = 80;
 const CLOSE_DELAY_MS = 250;
 
+function clipEdges(node: HTMLElement): { top: number; bottom: number } {
+  for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+    const style = getComputedStyle(parent);
+    if (!/auto|scroll|hidden/.test(style.overflowY)) continue;
+    const box = parent.getBoundingClientRect();
+    return { top: box.top + (parseFloat(style.scrollPaddingTop) || 0), bottom: box.bottom - (parseFloat(style.scrollPaddingBottom) || 0) };
+  }
+  return { top: 0, bottom: window.innerHeight };
+}
+
 export function SidebarPopoverMenu({
   items,
   ariaLabel,
   openOnHover = false,
   placement = "above",
+  align = "end",
   renderTrigger,
   onOpenChange,
 }: {
   /** "above" stretches over the trigger's width and opens upward (the
    * sidebar's profile menu); "below" hangs a fixed-width sheet under the
    * trigger's right edge (a header icon). */
-  placement?: "above" | "below";
+  placement?: "above" | "below" | "auto";
+  align?: "start" | "end";
   items: SidebarMenuItem[];
   ariaLabel: string;
   openOnHover?: boolean;
@@ -67,6 +79,7 @@ export function SidebarPopoverMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [up, setUp] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const openChange = useRef(onOpenChange);
@@ -105,6 +118,15 @@ export function SidebarPopoverMenu({
   usePopoverDismiss(open, rootRef, close);
 
   useLayoutEffect(() => openChange.current?.(open), [open]);
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const menu = menuRef.current;
+    if (placement !== "auto" || !open || !root || !menu) return;
+    const box = root.getBoundingClientRect();
+    const edges = clipEdges(root);
+    const below = edges.bottom - box.bottom;
+    setUp(below < menu.offsetHeight + 8 && box.top - edges.top > below);
+  }, [open, placement]);
   useEffect(() => {
     const changed = shownKeys.current !== itemKeys;
     shownKeys.current = itemKeys;
@@ -155,7 +177,11 @@ export function SidebarPopoverMenu({
           {...motion.exitProps}
           className={cn(
             "absolute z-40 overflow-hidden rounded-xl border border-hairline/50 bg-menu py-1.5 shadow-2xl shadow-black/50",
-            placement === "below" ? "top-full right-0 mt-1 w-72 max-w-[calc(100vw-2rem)]" : "bottom-full left-0 right-0 mb-1",
+            placement === "below"
+              ? "top-full right-0 mt-1 w-72 max-w-[calc(100vw-2rem)]"
+              : placement === "auto"
+                ? cn("w-52", up ? "bottom-full mb-1" : "top-full mt-1", align === "start" ? "left-0" : "right-0")
+                : "bottom-full left-0 right-0 mb-1",
             motion.className,
           )}
         >

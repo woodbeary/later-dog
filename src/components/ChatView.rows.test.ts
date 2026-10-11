@@ -10,7 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AppState, Bot, InstanceInfo, Message } from "@/state/store";
 
-const renders = vi.hoisted(() => ({ botText: 0, userText: 0, toolChip: 0, speak: 0 }));
+const renders = vi.hoisted(() => ({ botText: 0, userText: 0, toolChip: 0 }));
 vi.mock("./ChatMarkdown", async (importOriginal) => ({
   ...await importOriginal<typeof import("./ChatMarkdown")>(),
   ChatMarkdown: ({ text }: { text: string }) => {
@@ -32,17 +32,6 @@ vi.mock("./ToolActivity", async (importOriginal) => ({
     return createElement("span", null, tool.name);
   },
 }));
-// The real button, run inside a counting component: whatever it subscribes
-// to re-renders this component, so every render of it is counted.
-vi.mock("./SpeakButton", async (importOriginal) => {
-  const { SpeakButton } = await importOriginal<typeof import("./SpeakButton")>();
-  return {
-    SpeakButton: (props: Parameters<typeof SpeakButton>[0]) => {
-      renders.speak++;
-      return SpeakButton(props);
-    },
-  };
-});
 vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   ...await importOriginal<typeof import("./DesktopCapabilities")>(),
   useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false }, host: { packaged: true, platform: "other" }, localComputer: { available: false } }, ready: true }),
@@ -95,8 +84,19 @@ async function draw() {
   flushSync(() => root.render(createElement(BotEditorStore, { value, children })));
   await settle();
 }
+function moreMenus() {
+  const menus: Record<string, string[]> = {};
+  for (const trigger of document.querySelectorAll<HTMLButtonElement>(`[data-mid] button[aria-label="${t("chat.more")}"]`)) {
+    flushSync(() => trigger.click());
+    const items = trigger.parentElement!.querySelectorAll('[role="menu"] [role="menuitem"]');
+    menus[trigger.closest("[data-mid]")!.getAttribute("data-mid")!] = [...items].map((item) => item.textContent ?? "");
+    flushSync(() => trigger.click());
+  }
+  return menus;
+}
+const offering = (label: string) => Object.entries(moreMenus()).filter(([, items]) => items.includes(label)).map(([mid]) => mid);
 async function rowRendersAfter(change: (current: AppState) => AppState) {
-  renders.botText = renders.userText = renders.toolChip = renders.speak = 0;
+  renders.botText = renders.userText = renders.toolChip = 0;
   state = change(state);
   await draw();
   return { ...renders };
@@ -130,20 +130,20 @@ describe("chat transcript rows", () => {
   it("renders no row when another bot changes", async () => {
     const scout = state.bots.find((bot) => bot.id === "scout")!;
     expect(await rowRendersAfter((current) => reducer(current, { type: "botPatched", bot: { ...scout, busy: true } })))
-      .toEqual({ botText: 0, userText: 0, toolChip: 0, speak: 0 });
+      .toEqual({ botText: 0, userText: 0, toolChip: 0 });
   });
 
   it("renders no row when this bot changes in a way no row shows", async () => {
     expect(await rowRendersAfter((current) => {
       const { messages: _transcript, ...frame } = current.bots.find((bot) => bot.id === "pepper")!;
       return reducer(current, { type: "botPatched", bot: { ...frame, turnStartedAt: 5, tasks: frame.tasks?.map((task) => ({ ...task, updatedAt: 99 })) } });
-    })).toEqual({ botText: 0, userText: 0, toolChip: 0, speak: 0 });
+    })).toEqual({ botText: 0, userText: 0, toolChip: 0 });
   });
 
   it("renders only the tool chip that changed", async () => {
     expect(await rowRendersAfter((current) => reducer(current, {
       type: "messagePatched", threadId: "pepper-thread", message: { ...running, tool: { name: "Read file 2, page 2" } },
-    }))).toEqual({ botText: 0, userText: 0, toolChip: 1, speak: 0 });
+    }))).toEqual({ botText: 0, userText: 0, toolChip: 1 });
     expect(document.body.textContent).toContain("Read file 2, page 2");
   });
 
@@ -156,9 +156,19 @@ describe("chat transcript rows", () => {
     expect(document.body.textContent).not.toContain("Today");
   });
 
-  it("offers Regenerate on the last answer only, and not during a turn", async () => {
-    const regenerate = () => [...document.querySelectorAll(`button[aria-label="${t("chat.regenerate")}"]`)]
-      .map((button) => button.closest("[data-mid]")?.getAttribute("data-mid"));
+  it("shows Copy, a treat and Reply on hover, with the rest under More", () => {
+    const row = (mid: string) => [...document.querySelectorAll(`[data-mid="${mid}"] [data-testid="message-actions"] > button`)]
+      .map((button) => button.getAttribute("aria-label"));
+    expect(row("m5")).toEqual([t("chat.copyMessage"), t("chat.giveTreat", { name: "pepper" }), t("chat.replyToMessage")]);
+    expect(row("m3")).toEqual([t("chat.editMessage"), t("chat.copyMessage"), t("chat.replyToMessage")]);
+    expect(moreMenus()).toMatchObject({
+      m3: [t("chat.action.pin")],
+      m5: [t("chat.action.viewSource"), t("chat.retry"), t("chat.action.pin")],
+    });
+  });
+
+  it("offers Retry on the last answer only, and not during a turn", async () => {
+    const regenerate = () => offering(t("chat.retry"));
     expect(regenerate()).toEqual(["m5"]);
     const busy = (value: boolean) => (current: AppState) => {
       const { messages: _transcript, ...frame } = current.bots.find((bot) => bot.id === "pepper")!;
@@ -171,19 +181,14 @@ describe("chat transcript rows", () => {
     expect(regenerate()).toEqual(["m5"]);
   });
 
-  // A paired Mac keeps its voice choice ("This Mac" or "Host voice") on the
-  // device, outside the store. The read-aloud buttons pick up a switch at the
-  // next store event, here the settings beside the chat closing.
-  it("follows this device's voice choice at the next store event", async () => {
+  it("offers Read aloud only with a voice, following this device's choice at the next store event", async () => {
     const bridge = window.laterdog;
     window.laterdog = { ...bridge, platform: "darwin", remoteClient: { active: true } } as typeof window.laterdog;
     const kept = new Map<string, string>();
     vi.stubGlobal("localStorage", { getItem: (key: string) => kept.get(key) ?? null, setItem: (key: string, value: string) => kept.set(key, value) });
     vi.stubGlobal("speechSynthesis", { getVoices: () => [] });
     vi.stubGlobal("SpeechSynthesisUtterance", class {});
-    const speak = () => [...document.querySelectorAll<HTMLButtonElement>("button[aria-label]")]
-      .filter((button) => button.getAttribute("aria-label") === t("chat.speak.read") || button.getAttribute("aria-label") === t("chat.speak.needsKey"))
-      .map((button) => `${button.getAttribute("aria-label")}${button.disabled ? " (off)" : ""}`);
+    const speak = () => offering(t("chat.action.readAloud"));
     const switchTo = async (provider: "host" | "system") => {
       await rowRendersAfter((current) => reducer(current, { type: "toggleSettings", open: true }));
       setRemoteVoiceProvider(provider);
@@ -191,10 +196,9 @@ describe("chat transcript rows", () => {
     };
     try {
       await switchTo("system");
-      expect(speak()).toEqual([t("chat.speak.read"), t("chat.speak.read")]);
-      // no speech key on the host, so Host voice cannot read aloud
+      expect(speak()).toEqual(["m2", "m5"]);
       await switchTo("host");
-      expect(speak()).toEqual([`${t("chat.speak.needsKey")} (off)`, `${t("chat.speak.needsKey")} (off)`]);
+      expect(speak()).toEqual([]);
     } finally {
       // the stubbed globals go in afterAll
       window.laterdog = bridge;

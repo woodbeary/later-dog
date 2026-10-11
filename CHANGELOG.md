@@ -41,6 +41,13 @@
 - An empty **Connected** says **Apps you connect show up here.** Before, it pointed to a Marketplace tab that no longer exists.
 - Tried in the side instance: All had no MCP wording and no duplicate tiles, **Add key** opened a focused field and **Cancel** closed it without saving, and Custom showed **No custom MCP servers yet**. Not tried with a real Composio key.
 
+### Messages
+- Hovering a dog's message shows **Copy**, a treat and **Reply**, and **⋯** for the rest: **Read aloud**, **View source**, **Retry** on the last answer, and **Pin to top**. Your own messages show **Edit**, **Copy** and **Reply**, with **Pin to top** under **⋯**. Before, a "…" handle slid out up to seven icons.
+- **Read aloud** shows only once a voice is ready. Before, it sat greyed out in every answer.
+- The **⋯** menu opens upward when there isn't room below, so the message box never covers it.
+- Rooms keep their own buttons for now.
+- Tried in the side instance: both menus, the upward menu on the last answer, View source and back, and Pin and Unpin. Not tried with a real voice.
+
 ### Profiles
 - Keep separate setups, such as Personal, Business and Business 2, and switch between them with **Switch profile** in the menu under your name. Each profile has its own dogs, chats and saved keys. Profiles you're not looking at keep running, so a dog working in Business carries on while you're in Personal.
 - **Add profile** asks for a name and sets the profile up, which takes a few seconds. **Edit profiles** renames or removes one. Removing a profile deletes its saved keys and moves its dogs and chats to the Trash. Personal and the profile you're in can't be removed. You can have up to 8 profiles.

@@ -21,8 +21,8 @@ describe("RawToggleAction", () => {
       }),
     );
 
-    expect(markup).toContain('aria-label="Show raw markdown"');
-    expect(markup).toContain('title="Show raw markdown"');
+    expect(markup).toContain('aria-label="View source"');
+    expect(markup).toContain('title="View source"');
     expect(markup).not.toContain("text-accent");
     expect(markup).toContain('type="button"');
     expect(markup).toContain('aria-pressed="false"');
@@ -36,8 +36,8 @@ describe("RawToggleAction", () => {
       }),
     );
 
-    expect(markup).toContain('aria-label="Show rendered markdown"');
-    expect(markup).toContain('title="Show rendered markdown"');
+    expect(markup).toContain('aria-label="View formatted"');
+    expect(markup).toContain('title="View formatted"');
     expect(markup).toContain("text-accent");
     expect(markup).toContain("bg-raised");
     expect(markup).toContain("opacity-100");
@@ -46,11 +46,11 @@ describe("RawToggleAction", () => {
 
   it("uses the active language for both toggle states", () => {
     locales["raw-toggle-test"] = {
-      "chat.showRawMarkdown": "Voir le Markdown brut",
-      "chat.showRenderedMarkdown": "Voir le Markdown rendu",
+      "chat.action.viewSource": "Voir la source",
+      "chat.action.viewFormatted": "Voir la mise en forme",
     };
     setLocale("raw-toggle-test");
-    for (const [active, label] of [[false, "Voir le Markdown brut"], [true, "Voir le Markdown rendu"]] as const) {
+    for (const [active, label] of [[false, "Voir la source"], [true, "Voir la mise en forme"]] as const) {
       const markup = renderToStaticMarkup(createElement(RawToggleAction, { active, onToggle: () => undefined }));
       expect(markup).toContain(`aria-label="${label}"`);
       expect(markup).toContain(`title="${label}"`);
