@@ -181,6 +181,7 @@ export async function world(vars: Record<string, string> = {}) {
     return instance;
   });
   Object.assign(env, { COMPUTER: computers, REGISTRY: registries, TRIALS: trials });
+  const background: Promise<unknown>[] = [];
 
   return {
     env,
@@ -191,7 +192,8 @@ export async function world(vars: Record<string, string> = {}) {
     computers,
     registries,
     trials,
-    fetch: (request: Request) => worker.fetch(request, typed),
+    background,
+    fetch: (request: Request) => worker.fetch(request, typed, { waitUntil: (work: Promise<unknown>) => void background.push(work), passThroughOnException: () => undefined, props: {} } as unknown as ExecutionContext),
     async advance(ms: number): Promise<void> {
       const until = clock.now + ms;
       for (let fired = 0; ; fired++) {

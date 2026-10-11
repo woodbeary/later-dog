@@ -64,6 +64,31 @@ export class TrialRegistry extends DurableObject<Env> {
     return { ok: true };
   }
 
+  usageLeft(input: { keySha256: string; kind: UsageKind; perKey: number; total: number }): { ok: true } | { ok: false; refusal: Refusal } {
+    const sql = this.ctx.storage.sql;
+    const now = Date.now();
+    if (sql.exec("SELECT 1 FROM trials WHERE key_sha256 = ? AND expires_at > ?", input.keySha256, now).toArray().length === 0) {
+      return { ok: false, refusal: { status: 401, code: "unauthorized", message: "This free trial has ended or has not started yet." } };
+    }
+    const day = utcDay(now);
+    const mine = sql.exec<{ used: number }>("SELECT used FROM usage WHERE key_sha256 = ? AND day = ? AND kind = ?", input.keySha256, day, input.kind).toArray()[0]?.used ?? 0;
+    if (mine >= input.perKey) return { ok: false, refusal: { status: 429, code: "daily_limit", message: "This installation has used today's allowance. It resets at midnight UTC." } };
+    const all = sql.exec<{ used: number }>("SELECT used FROM usage_totals WHERE day = ? AND kind = ?", day, input.kind).toArray()[0]?.used ?? 0;
+    if (all >= input.total) return { ok: false, refusal: { status: 503, code: "busy_today", message: "later.dog's included service is at today's limit. Try again tomorrow, or add your own key." } };
+    return { ok: true };
+  }
+
+  chargeUsage(input: { keySha256: string; kind: UsageKind; amount: number }): void {
+    const amount = Math.ceil(input.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const sql = this.ctx.storage.sql;
+    const day = utcDay(Date.now());
+    sql.exec("DELETE FROM usage WHERE day <> ?", day);
+    sql.exec("DELETE FROM usage_totals WHERE day <> ?", day);
+    sql.exec("INSERT INTO usage (key_sha256, day, kind, used) VALUES (?, ?, ?, ?) ON CONFLICT (key_sha256, day, kind) DO UPDATE SET used = used + ?", input.keySha256, day, input.kind, amount, amount);
+    sql.exec("INSERT INTO usage_totals (day, kind, used) VALUES (?, ?, ?) ON CONFLICT (day, kind) DO UPDATE SET used = used + ?", day, input.kind, amount, amount);
+  }
+
   async activate(input: { keySha256: string; network: string; limitMs: number; windowMs: number; perDay: number }): Promise<Activation> {
     const sql = this.ctx.storage.sql;
     const now = Date.now();

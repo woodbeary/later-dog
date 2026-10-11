@@ -9,6 +9,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
+import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, chatRequest, grokRequest, streamedTokens, tokensOf } from "./ai";
 import { CLEF_MODEL, DECIDE_MAX_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, VOICE_CHARS_TOTAL_PER_DAY, clefInput, decisionFrom } from "./decide";
 import { maxComputers } from "./idle";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
@@ -47,6 +48,8 @@ declare global {
     TRIAL_NETWORK_KEY?: string;
     AI_GATEWAY_ID?: string;
     ELEVENLABS_API_KEY?: string;
+    XAI_API_KEY?: string;
+    TRIAL_AI_MODEL?: string;
   }
 }
 
@@ -402,7 +405,45 @@ async function speakRequest(request: Request, env: Env, url: URL, voiceId: strin
   }
 }
 
-async function serve(request: Request, env: Env, via: Via): Promise<Response> {
+async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: Promise<unknown>) => void): Promise<Response> {
+  if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+  const token = includedKey(request);
+  if (!token) return apiError(NO_TRIAL, CHALLENGE);
+  const keySha256 = await sha256Hex(token);
+  if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
+  const key = env.XAI_API_KEY?.trim();
+  if (!key || !env.AI) return apiError(NOT_INCLUDED);
+  const body = await readBody(request, AI_MAX_BODY_BYTES);
+  if (!body.ok) return body.response;
+  const parsed = chatRequest(body.value, env.TRIAL_AI_MODEL?.trim() || AI_DEFAULT_MODEL);
+  if (!parsed.ok) return apiError(parsed.refusal);
+  const registry = trials(env);
+  const left = await registry.usageLeft({ keySha256, kind: "ai_tokens", perKey: AI_TOKENS_PER_DAY, total: AI_TOKENS_TOTAL_PER_DAY });
+  if (!left.ok) return apiError(left.refusal, left.refusal.status === 401 ? CHALLENGE : {});
+  const charge = (amount: number) => registry.chargeUsage({ keySha256, kind: "ai_tokens", amount });
+  let upstream: Response;
+  try {
+    upstream = await env.AI.gateway(aiGateway(env).gateway.id).run(grokRequest(parsed.request, key));
+  } catch (error) {
+    console.error(`laterdog computers: chat failed: ${error instanceof Error ? error.message : String(error)}`);
+    return apiError(INCLUDED_FAILED);
+  }
+  if (!upstream.ok || !upstream.body) {
+    const detail = (await upstream.text().catch(() => "")).slice(0, 500);
+    console.error(`laterdog computers: chat answered ${upstream.status}: ${detail}`);
+    return apiError({ status: upstream.status === 400 ? 400 : 502, code: upstream.status === 400 ? "invalid_request" : "upstream_failed", message: upstream.status === 400 ? "The model refused this request." : "The model did not answer. Try again." });
+  }
+  if (!parsed.request.stream) {
+    const answer = (await upstream.json()) as { usage?: unknown };
+    await charge(tokensOf(answer.usage));
+    return json(answer);
+  }
+  const [toClient, toCount] = upstream.body.tee();
+  waitUntil(streamedTokens(toCount).then((tokens) => charge(tokens)).catch((error) => console.error(`laterdog computers: counting chat tokens failed: ${String(error)}`)));
+  return new Response(toClient, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
+}
+
+async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const target = route(request.method, url.pathname);
   try {
@@ -428,6 +469,8 @@ async function serve(request: Request, env: Env, via: Via): Promise<Response> {
         return await decideRequest(request, env);
       case "voices":
         return await voicesRequest(request);
+      case "chat":
+        return await chatRequestHandler(request, env, (work) => (ctx ? ctx.waitUntil(work) : void work));
       case "speak":
         return await speakRequest(request, env, url, target.voiceId);
       case "trial":
@@ -451,11 +494,11 @@ async function serve(request: Request, env: Env, via: Via): Promise<Response> {
 }
 
 export default {
-  fetch: (request: Request, env: Env): Promise<Response> => serve(request, env, "public"),
+  fetch: (request: Request, env: Env, ctx: ExecutionContext): Promise<Response> => serve(request, env, "public", ctx),
 } satisfies ExportedHandler<Env>;
 
 export class ComputersApi extends WorkerEntrypoint<Env> {
   override fetch(request: Request): Promise<Response> {
-    return serve(request, this.env, "binding");
+    return serve(request, this.env, "binding", this.ctx);
   }
 }

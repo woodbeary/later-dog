@@ -10,7 +10,7 @@ export const DECISIONS_PER_DAY = 500;
 export const DECISIONS_TOTAL_PER_DAY = 100_000;
 export const VOICE_CHARS_TOTAL_PER_DAY = 400_000;
 
-export type UsageKind = "decisions" | "voice_chars";
+export type UsageKind = "decisions" | "voice_chars" | "ai_tokens";
 
 export const KEY_CHECK_STATE = { purpose: "later.dog is checking that a decision-model key works." };
 export const KEY_CHECK_QUESTION = "Is this a connection check?";

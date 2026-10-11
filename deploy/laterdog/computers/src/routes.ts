@@ -21,6 +21,7 @@ export type Route =
   | { kind: "trial_grant" }
   | { kind: "decide" }
   | { kind: "voices" }
+  | { kind: "chat" }
   | { kind: "speak"; voiceId: string }
   | { kind: "not_found"; api: boolean }
   | { kind: "method_not_allowed"; allow: string[] };
@@ -56,6 +57,7 @@ export function route(method: string, pathname: string): Route {
   if (pathname === "/v1/trials/grant") return method === "POST" ? { kind: "trial_grant" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/systemone") return method === "POST" ? { kind: "decide" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/voice/voices") return method === "GET" ? { kind: "voices" } : { kind: "method_not_allowed", allow: ["GET"] };
+  if (pathname === "/v1/ai/chat/completions") return method === "POST" ? { kind: "chat" } : { kind: "method_not_allowed", allow: ["POST"] };
   const speak = VOICE_PATH.exec(pathname);
   if (speak) return method === "POST" ? { kind: "speak", voiceId: speak[1]! } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/trial") {
