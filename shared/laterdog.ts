@@ -7,7 +7,7 @@ export const gitRef = z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9/_
 export const scopePath = z.string().min(1).max(300).refine((s) => s === "*" ||
   (!s.startsWith("/") && !s.includes("\\") && !s.split("/").some((p) => ["..", ".git", ""].includes(p))), "Use a relative path prefix or *");
 export const commandSchema = z.array(z.string().min(1).max(2000)).min(1).max(30);
-export const BACKENDS = ["codex-cloud", "claude-cloud"] as const;
+export const BACKENDS = ["codex-cloud", "claude-cloud", "laterdog-cloud"] as const;
 export type BackendId = typeof BACKENDS[number];
 export const repositorySchema = z.object({
   slug: repoSlug,
@@ -82,6 +82,7 @@ export interface Profile {
   routineId?: string;
   /** claude-cloud: the environment variable holding that routine's API-trigger token; the value never enters config files. */
   routineTokenEnv?: string;
+  computerSize?: "small" | "standard" | "large" | "xlarge";
 }
 export interface BackendCapabilities {
   id: string;

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { activeJob, createJobSchema, scopesOverlap, type BackendId, type CreateJob, type Job, type Profile, type WorkspaceSnapshot } from "../../shared/laterdog.ts";
 import { CodexCloudAdapter, SubmissionUnknown, type ExecutionAdapter, type JobContext } from "./codex-cloud.ts";
 import { ClaudeCloudAdapter, CLAUDE_CLOUD_CAPABILITIES } from "./claude-cloud.ts";
+import { LaterdogCloudAdapter, LATERDOG_CLOUD_CAPABILITIES } from "./laterdog-cloud.ts";
 import { GitHubPublisher } from "./github.ts";
 import { GitHubDeviceLogin } from "./github-login.ts";
 import { WorkspaceStore } from "./store.ts";
@@ -52,7 +53,8 @@ export class Supervisor {
     this.publisher = options.publisher ?? new GitHubPublisher(join(options.dataDir, "checkouts"));
     this.githubLogin = options.githubLogin ?? new GitHubDeviceLogin();
     for (const profile of options.profiles) this.adapters.set(profile.id, options.adapter?.(profile) ?? (profile.backend === "claude-cloud"
-      ? new ClaudeCloudAdapter(profile, { cwd: options.dataDir }) : new CodexCloudAdapter(profile, undefined, { cwd: options.dataDir })));
+      ? new ClaudeCloudAdapter(profile, { cwd: options.dataDir }) : profile.backend === "laterdog-cloud" ? new LaterdogCloudAdapter(profile)
+        : new CodexCloudAdapter(profile, undefined, { cwd: options.dataDir })));
   }
   private context(job: Job): JobContext {
     return { jobId: job.id, repository: job.repository, sourceRef: job.sourceRef, baseSha: job.baseSha, createdAt: job.createdAt };
@@ -97,9 +99,10 @@ export class Supervisor {
     const configured = new Map<string, WorkspaceSnapshot["backends"][number]>();
     for (const adapter of this.adapters.values()) configured.set(adapter.capabilities.id, adapter.capabilities);
     if (!configured.has(CLAUDE_CLOUD_CAPABILITIES.id)) configured.set(CLAUDE_CLOUD_CAPABILITIES.id, { ...CLAUDE_CLOUD_CAPABILITIES, enabled: false, limitation: `Add an account profile with backend "claude-cloud", a routine token environment variable and a per-repository routine ID to enable it. ${CLAUDE_CLOUD_CAPABILITIES.limitation}` });
+    if (!configured.has(LATERDOG_CLOUD_CAPABILITIES.id)) configured.set(LATERDOG_CLOUD_CAPABILITIES.id, { ...LATERDOG_CLOUD_CAPABILITIES, enabled: false, limitation: `Add an account profile with backend "laterdog-cloud", set CLAUDE_CODE_OAUTH_TOKEN on the supervisor, give it the computers service (the hosted supervisor's COMPUTERS binding, or LATERDOG_COMPUTERS_URL and LATERDOG_COMPUTERS_KEY), and set each repository's laterdog-cloud setup command (or "none") to enable it. ${LATERDOG_CLOUD_CAPABILITIES.limitation}` });
     return [...configured.values(),
       { id: "cursor-cloud", label: "Cursor Cloud", enabled: false, submission: false, continuation: false, cancellation: false, activity: "polled", billing: "api-and-compute", limitation: "Adapter workflow is not yet qualified. Conversation providers remain available independently." },
-      { id: "cloudflare-sandbox", label: "Cloudflare sandbox runner", enabled: false, submission: false, continuation: false, cancellation: false, activity: "streamed", billing: "api-and-compute", limitation: "Hosting the supervisor on Cloudflare is supported; running agents inside Cloudflare sandboxes is not, because only API-key billing is documented there and subscription authentication inside a sandbox is unqualified. No paid fallback is enabled." },
+      { id: "cloudflare-sandbox", label: "Cloudflare sandbox runner", enabled: false, submission: false, continuation: false, cancellation: false, activity: "streamed", billing: "api-and-compute", limitation: "Hosting the supervisor on Cloudflare is supported; running agents inside Cloudflare's Sandbox SDK is not, because only API-key billing is documented there and subscription authentication inside a sandbox is unqualified. No paid fallback is enabled. later.dog Cloud (laterdog-cloud) runs Claude Code on the owner's own later.dog computers instead." },
       { id: "claude-managed-agents", label: "Claude Managed Agents", enabled: false, submission: false, continuation: false, cancellation: false, activity: "polled", billing: "api-and-compute", limitation: "Has a real session API but bills Claude Platform usage, not the subscription; not qualified." },
     ];
   }
@@ -242,7 +245,7 @@ export class Supervisor {
       let collecting = false;
       try {
         const state = await this.adapter(job).inspect(job.taskId!, this.context(job));
-        if (state === "failed") { this.lastPolled.delete(job.id); this.store.update(job.id, { state: "needs_attention", blocker: "Provider reports this task failed; an agent can investigate and choose a repair" }, "provider_failed"); }
+        if (state === "failed") { this.lastPolled.delete(job.id); this.store.update(job.id, { state: "needs_attention", blocker: this.adapter(job).failure?.(job.taskId!) ?? "Provider reports this task failed; an agent can investigate and choose a repair" }, "provider_failed"); }
         else if (state === "ready") {
           this.lastPolled.delete(job.id); collecting = true;
           this.store.update(job.id, { state: "collecting" }, "collecting"); await this.collect(job);
@@ -265,7 +268,9 @@ export class Supervisor {
       try {
         this.store.update(job.id, { state: "preparing", blocker: undefined }, "preparing");
         const access = await this.adapter(job).doctor?.();
-        if (access && !access.authenticated) throw new Error("Sign this native Codex profile in with its supported subscription before submitting cloud work");
+        if (access && !access.authenticated) throw new Error(job.backend === "laterdog-cloud"
+          ? "later.dog Cloud is not configured on this supervisor: set CLAUDE_CODE_OAUTH_TOKEN, and LATERDOG_COMPUTERS_URL (with LATERDOG_COMPUTERS_KEY) unless the hosted supervisor's COMPUTERS binding serves it"
+          : "Sign this native Codex profile in with its supported subscription before submitting cloud work");
         // Resolve the backend's environment before pinning an input ref so a misconfigured repository blocks preparation, not submission.
         const repository = this.store.repository(job.repository);
         const environment = repository.environments[job.backend] ?? (job.backend === "codex-cloud" ? repository.environmentId : "");
@@ -277,7 +282,9 @@ export class Supervisor {
         this.store.update(job.id, { ...prepared, state: "submitting" }, "submitting", "Starting ref is pinned; it is not the output branch");
         const delivery = job.backend === "claude-cloud"
           ? "Push only to the branch named in the routine payload and open no pull request; later.dog collects your diff from that branch."
-          : "Do not push, merge, deploy, or access unrelated credentials. later.dog collects your diff.";
+          : job.backend === "laterdog-cloud"
+            ? "Leave your changes in this checkout. Do not push, open pull requests, merge, deploy, or access unrelated credentials; later.dog collects your diff from this computer."
+            : "Do not push, merge, deploy, or access unrelated credentials. later.dog collects your diff.";
         const prompt = `[later.dog job ${job.id}]\n${job.brief}\n\nStanding instructions:\n${job.standingInstructions}\n\nWrite only these relative path prefixes: ${job.writeScopes.join(", ")}. Verify the real behavior. ${delivery} Report exact checks and limitations.`;
         const submitted = await this.adapter(job).submit(environment, prepared.sourceRef, prompt, this.context({ ...job, ...prepared }));
         this.store.update(job.id, { ...submitted, state: "running" }, "submitted", submitted.taskId);
