@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.8 — 2026-10-11
+
+- A dog working on This Mac now offers **Try a cloud computer free** in its Computer panel too, under its screen. Before, only a dog with no computer showed it, so most people never saw the trial outside Settings.
+- The Cursor row shows Cursor's own logo. It was a plain pointer arrow.
+- When an update doesn't finish, the update icon offers the newest version on later.dog as well as **Try again**.
+
 ## 0.3.7 — 2026-10-11
 
 - Once your free trial starts, a dog with no computer shows **Use the free cloud computer** in its Computer panel, with the minutes left. Before, the trial was running but the panel still said the dog had no screen until you picked Cloud computer in its settings.

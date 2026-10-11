@@ -1568,6 +1568,9 @@ export function ComputerPanel({
           <LinuxLocalControl />
           {bot.computer === "local" && !askingForGrants && <MacLocalControl />}
         </>}
+        {(phase === "local" || phase === "local-unavailable") && livePlace !== "cloud" && (
+          <CloudTrialOffer className="mt-4 border-t border-hairline/40 pt-4" onUse={() => updateComputerSelection({ computer: "cloud" })} />
+        )}
         <CloudTasksSection botId={profileBot.id} botName={bot.name} />
       </div>
       )}

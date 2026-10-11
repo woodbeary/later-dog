@@ -77,8 +77,8 @@ at the top of the sidebar. Click it to see what's new and choose **Restart to up
 
 ## Cloud computers
 
-A dog with no computer offers **Try a cloud computer free** in its Computer panel: 30 minutes on a later.dog cloud
-computer, to use within 7 days, with no account and no card. A quick check in your browser starts it, and Settings,
+A dog's Computer panel offers **Try a cloud computer free**, and so does Settings, Computer: 30 minutes on a later.dog
+cloud computer, to use within 7 days, with no account and no card. A quick check in your browser starts it, and Settings,
 Computer shows the minutes left. When the trial ends, its computer and the files on it are deleted. To keep cloud
 computers after that, deploy the computers service to your own Cloudflare account
 ([deploy/laterdog/computers](../../deploy/laterdog/computers/README.md)). A later.dog Cloud plan is coming soon.
