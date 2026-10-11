@@ -28,6 +28,25 @@ reviewer. Pick the provider you signed in with. Send a message to start working.
 Keep a dog on **Heel** and it checks with you before it runs commands or changes files. Let it go **Off-leash** and it
 acts first, then tells you.
 
+## Cloud tasks
+
+A dog can hand a coding job to its own temporary cloud computer (later.dog Cloud, on your own Cloudflare account). The
+work runs there, not on your Mac, so your Mac stays free and several tasks can run at the same time.
+
+To start one, ask a dog in plain words, for example "do this in the cloud" or "split this into cloud tasks and run them
+in parallel".
+
+A Cloud task card appears in the chat that started it. It shows the task's live status (Setting up, Working, Ready for
+review or Needs attention) and what it is doing right now. Click the card to open the task beside the chat. There you can
+see its progress step by step, its plan and the files it changed. **Watch screen** shows its live screen while it runs,
+**Stop** ends it, and **Open draft PR** opens the result. The dog's Computer panel lists its cloud tasks too.
+
+The result goes to a draft pull request on GitHub. Merging stays with you.
+
+A cloud task needs later.dog Cloud set up on your Cloudflare account, and a GitHub repository its GitHub login can read.
+The repository needs no setup: the first task connects it, starts from its default branch and installs its dependencies
+itself.
+
 ## Add a Claude or ChatGPT account
 
 Go to **Settings → General → Accounts** and choose **Add account**.
@@ -58,7 +77,7 @@ at the top of the sidebar. Click it to see what's new and choose **Restart to up
 
 ## Cloud computers
 
-Cloud computers for dogs are coming soon and are not in this release. Today your dogs work on your Mac.
+Cloud computers for dogs are coming soon and are not in this release. To hand a coding job to the cloud today, see Cloud tasks above.
 
 ## Get help
 
