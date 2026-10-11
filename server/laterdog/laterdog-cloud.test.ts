@@ -259,6 +259,8 @@ describe("later.dog Cloud adapter", () => {
     const api = new FakeComputersApi(); api.key = undefined;
     const env = { CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN };
     expect(laterdogCloudSettings(env)).toEqual({ api: INTERNAL_COMPUTERS_API, claudeToken: CLAUDE_TOKEN });
+    const wrapped = `${CLAUDE_TOKEN.slice(0, 10)}\n ${CLAUDE_TOKEN.slice(10)}\n`;
+    expect(laterdogCloudSettings({ CLAUDE_CODE_OAUTH_TOKEN: wrapped }).claudeToken).toBe(CLAUDE_TOKEN);
     const adapter = new LaterdogCloudAdapter(profile, { fetch: api.fetch, env });
     expect(await adapter.list()).toEqual({ tasks: [] });
     expect(api.requests[0].url).toBe(`${INTERNAL_COMPUTERS_API}/computers`);

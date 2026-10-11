@@ -47,7 +47,7 @@ export function laterdogCloudSettings(env: NodeJS.ProcessEnv): LaterdogCloudSett
   const api = computersApi(env.LATERDOG_COMPUTERS_URL?.trim() || INTERNAL_COMPUTERS_API);
   const key = env.LATERDOG_COMPUTERS_KEY?.trim();
   if (key && !OWNER_KEY.test(key)) throw new Error("LATERDOG_COMPUTERS_KEY does not hold a later.dog computers key (they start with ldc_)");
-  const claudeToken = env.CLAUDE_CODE_OAUTH_TOKEN?.trim();
+  const claudeToken = env.CLAUDE_CODE_OAUTH_TOKEN?.replace(/\s+/g, "");
   if (!claudeToken) throw new Error("later.dog Cloud needs CLAUDE_CODE_OAUTH_TOKEN in the supervisor's environment");
   const githubToken = env.GH_TOKEN?.trim();
   return { api, claudeToken, ...(key ? { key } : {}), ...(githubToken ? { githubToken } : {}) };
