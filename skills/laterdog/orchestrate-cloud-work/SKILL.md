@@ -14,7 +14,7 @@ Use when the work is bigger than one change: several jobs, several repositories,
 
 ## Delegate and follow
 
-3. **`delegate_cloud_job`** for each job, with a `requestKey` tied to that intent (reuse it on a retry, never for different work), the `repository`, a `title`, a `brief` holding the goal and acceptance criteria, `writeScopes`, `dependencies`, the `profileId`, and the program's `standingInstructions` on every job. A brief goes to the cloud: no credentials or private material in it.
+3. **`delegate_cloud_job`** for each job, with a `requestKey` tied to that intent (reuse it on a retry, never for different work), the `repository`, a `title`, a `brief` holding the goal and acceptance criteria, `writeScopes`, `dependencies`, and the program's `standingInstructions` on every job. Leave `profileId` out to use later.dog Cloud; name a profile only to send the job to a different backend the workspace lists as enabled. The person sees each job as a cloud task card in the chat, with its live progress, so tell them what you started rather than polling it. A brief goes to the cloud: no credentials or private material in it.
 4. **`inspect_cloud_job`** reads a job and its receipts without touching the provider task. Never resume a task just to see whether it is alive.
 5. **A finished job is a result to judge, not proof.** Read the diff with `collect_cloud_diff`, publish it as a draft PR with `publish_cloud_job` (only the remote publishing host can; a supervisor on the local computer refuses), then follow the `monitor-and-ship` skill. Merging stays with the person.
 
