@@ -56,6 +56,18 @@ const CHALLENGE = { "www-authenticate": 'Bearer realm="laterdog-computers"' };
 const TRIALS_OFF: Refusal = { status: 503, code: "trials_off", message: "Free trials are switched off on this service right now." };
 const NO_COMPUTER: Refusal = { status: 404, code: "not_found", message: "No computer with that id." };
 const NO_TRIAL: Refusal = { status: 401, code: "unauthorized", message: "This free trial has ended or has not started yet." };
+const TOO_MANY: Refusal = { status: 429, code: "rate_limited", message: "Too many requests from this network. Wait a minute, then try again." };
+
+async function allowed(limiter: RateLimit | undefined, key: string): Promise<boolean> {
+  if (!limiter) return true;
+  try {
+    return (await limiter.limit({ key })).success;
+  } catch {
+    return true;
+  }
+}
+
+const networkKey = (request: Request) => networkOf(request.headers.get("cf-connecting-ip")) ?? "unknown";
 
 function computer(env: Env, id: string): DurableObjectStub<DogComputer> {
   return env.COMPUTER.get(env.COMPUTER.idFromName(id));
@@ -81,6 +93,7 @@ async function identify(request: Request, env: Env, via: Via): Promise<Identifie
   }
   const token = bearerToken(request.headers.get("authorization"));
   if (token !== null && TRIAL_TOKEN.test(token) && !request.headers.has("origin")) {
+    if (!(await allowed(env.TRIAL_API_LIMIT, networkKey(request)))) return { ok: false, response: apiError(TOO_MANY) };
     const trial = await trials(env).find(await sha256Hex(token));
     if (!trial) return { ok: false, response: apiError(NO_TRIAL, CHALLENGE) };
     return { ok: true, caller: { registry: registry(env, trialListing(trial.id)), trial } };
@@ -259,6 +272,7 @@ async function trialPageRequest(request: Request, env: Env, url: URL): Promise<R
   const ip = request.headers.get("cf-connecting-ip") ?? undefined;
   const network = networkOf(ip);
   if (!network) return page(400, "Your network could not be identified", "Try again from another network.");
+  if (!(await allowed(env.TRIAL_FORM_LIMIT, network))) return page(429, "Too many tries", "Wait a minute, then try again.");
   const verdict = await verifyTurnstile({
     secret: env.TURNSTILE_SECRET_KEY?.trim() ?? "",
     token: form.token,

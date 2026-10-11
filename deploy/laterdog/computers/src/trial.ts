@@ -45,10 +45,14 @@ export interface TrialView {
   expiresAt: string;
 }
 
+const TURNSTILE_TEST_KEY = /^[123]x0{10,}/;
+
 export function trialPolicy(env: TrialEnv): TrialPolicy {
   const siteKey = env.TURNSTILE_SITE_KEY?.trim() ?? "";
+  const secret = env.TURNSTILE_SECRET_KEY?.trim() ?? "";
   const perDay = Math.floor(bounded(env.TRIALS_PER_DAY, 20, 0, 10_000));
-  const configured = siteKey !== "" && Boolean(env.TURNSTILE_SECRET_KEY?.trim()) && Boolean(env.TRIAL_NETWORK_KEY?.trim());
+  const configured = siteKey !== "" && secret !== "" && Boolean(env.TRIAL_NETWORK_KEY?.trim())
+    && !TURNSTILE_TEST_KEY.test(siteKey) && !TURNSTILE_TEST_KEY.test(secret);
   return {
     enabled: env.TRIALS_ENABLED?.trim() === "true" && configured && perDay > 0,
     siteKey,

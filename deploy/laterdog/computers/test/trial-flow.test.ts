@@ -87,7 +87,7 @@ describe("free trials, end to end", () => {
     expect(form.headers.get("referrer-policy")).toBe("strict-origin");
     const html = await form.text();
     expect(html).toContain(`<input type="hidden" name="claim" value="${claim}">`);
-    expect(html).toContain(`data-sitekey="1x00000000000000000000AA" data-action="trial" data-cdata="${claim}"`);
+    expect(html).toContain(`data-sitekey="0x4AAAAAAAtestsitekey000" data-action="trial" data-cdata="${claim}"`);
     expect(html).toContain("<p>30 minutes of use within 7 days. No card needed. One free trial per network.</p>");
     expect(verify).not.toHaveBeenCalled();
 
@@ -334,6 +334,33 @@ describe("free trials, end to end", () => {
       code: "unauthorized",
       message: "Send the API key as Authorization: Bearer ldc_...",
     });
+  });
+
+  it("slows down a network that sends too many trial forms or trial requests", async () => {
+    const w = await world();
+    siteverify();
+    const key = trialKey("a");
+    await startTrial(w, key);
+    const limits: string[] = [];
+    const limiter = (success: boolean | "throws") => ({
+      limit: async ({ key: limited }: { key: string }) => {
+        limits.push(limited);
+        if (success === "throws") throw new Error("limiter unavailable");
+        return { success };
+      },
+    });
+
+    w.env.TRIAL_API_LIMIT = limiter(false);
+    const slowed = await w.fetch(apiRequest("GET", "/v1/trial", key, { headers: { "cf-connecting-ip": IP } }));
+    expect(await refusal(slowed)).toEqual({ status: 429, code: "rate_limited", message: "Too many requests from this network. Wait a minute, then try again." });
+    expect(limits).toEqual([`4:${IP}`]);
+    expect((await w.fetch(apiRequest("GET", "/v1/computers", OWNER_KEY))).status).toBe(200);
+
+    w.env.TRIAL_API_LIMIT = limiter("throws");
+    expect((await w.fetch(apiRequest("GET", "/v1/trial", key))).status).toBe(200);
+
+    w.env.TRIAL_FORM_LIMIT = limiter(false);
+    expect(await shown(await startTrial(w, trialKey("b")))).toEqual({ status: 429, title: "Too many tries", message: "Wait a minute, then try again." });
   });
 
   it("puts a trial computer to sleep when the trial's minutes run out", async () => {

@@ -153,6 +153,7 @@ async function same(presented: string, expected: string): Promise<boolean> {
 async function caller(request: Request, env: Env): Promise<"admin" | "dog" | undefined> {
   const presented = request.headers.get("authorization")?.replace(/^Bearer /, "").trim() ?? "";
   const admin = env.LATERDOG_TOKEN.trim();
+  if (admin.length < 32) return undefined;
   const bot = request.headers.get(DOG_HEADER);
   if (bot === null) return (await same(presented, admin)) ? "admin" : undefined;
   return DOG_BOT_ID.test(bot) && (await same(presented, await dogToken(admin, bot))) ? "dog" : undefined;
