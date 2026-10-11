@@ -20,10 +20,12 @@ export function cloudTaskWorking(summary: CloudTaskSummary | undefined): boolean
   return Boolean(summary && AGENT_AT_WORK.has(summary.state));
 }
 
+const RETRY_MS = 10_000;
+
 function pollDelay(entry: CloudTaskEntry | undefined): number | null {
-  if (!entry || (!entry.summary && !entry.missing)) return 0;
+  if (!entry) return 0;
   const summary = entry.summary;
-  if (!summary) return null;
+  if (!summary) return entry.missing ? null : entry.error ? RETRY_MS : 0;
   if (ACTIVE.has(summary.state)) return ACTIVE_POLL_MS;
   if (summary.state === "ready" && !summary.prUrl && summary.publishable) return WAITING_POLL_MS;
   return null;
