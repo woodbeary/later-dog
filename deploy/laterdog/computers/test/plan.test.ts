@@ -60,6 +60,7 @@ describe("later.dog Cloud through Square", () => {
     const { w, key, sq } = await paid({});
     expect((await checkout(w, key)).status).toBe(503);
     expect(await body(await w.fetch(apiRequest("GET", "/v1/plan", key)))).toEqual({ plan: { status: "none" } });
+    expect((await body(await w.fetch(new Request(`${ORIGIN}/v1/trials`)))).planOffered).toBeUndefined();
     expect(sq.calls).toEqual([]);
   });
 
@@ -82,6 +83,8 @@ describe("later.dog Cloud through Square", () => {
     expect(await page.text()).toContain("You&#39;re on later.dog Cloud");
     const status = await body(await w.fetch(apiRequest("GET", "/v1/trial", key)));
     expect(status.trial).toMatchObject({ state: "active", minutes: 2400, minutesLeft: 2400 });
+    expect(status.planOffered).toBe(true);
+    expect((await body(await w.fetch(new Request(`${ORIGIN}/v1/trials`)))).planOffered).toBe(true);
     expect(status.plan).toEqual({ status: "active", periodEnd: new Date(Date.parse(`${day(T0 + 30 * DAY)}T00:00:00Z`)).toISOString() });
     expect((await w.fetch(apiRequest("DELETE", "/v1/trial", key))).status).toBe(409);
     expect((await checkout(w, key)).status).toBe(200);

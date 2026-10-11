@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ComputersApiError, ComputersClient, ComputersConfigError, TRIAL_KEY, computersConnection, computersSelected, savedTrial, trialInUse,
 } from "./cloud-computers.ts";
-import { DEFAULT_TRIAL_API, endTrial, startTrial, trialStatus, type TrialOptions } from "./cloud-trial.ts";
+import { DEFAULT_TRIAL_API, cancelPlan, endTrial, startPlan, startTrial, trialStatus, type TrialOptions } from "./cloud-trial.ts";
 
 const API = "https://trial.example.test/v1";
 const EXPIRES = "2026-10-17T12:00:00.000Z";
@@ -25,6 +25,8 @@ function trialService() {
     offerStatus: 200,
     down: false,
     held: null as Promise<void> | null,
+    planClaims: [] as string[],
+    paid: new Map<string, string>(),
     claim(url: string) {
       trials.set(new URL(url).searchParams.get("claim") ?? "", { minutesLeft: 30, ended: false });
     },
@@ -36,6 +38,22 @@ function trialService() {
       if (call.url.pathname === "/v1/trial" && call.method === "GET" && world.held) await world.held;
       const bearer = /^Bearer (\S+)$/.exec(call.headers.get("authorization") ?? "")?.[1];
       const trial = bearer ? trials.get(sha256(bearer)) : undefined;
+      if (call.url.pathname === "/v1/plan/checkout" && call.method === "POST") {
+        const claim = sha256(bearer ?? "");
+        world.planClaims.push(claim);
+        if (world.paid.has(claim)) return json(200, { plan: { status: "active", periodEnd: EXPIRES } });
+        return json(201, { url: "https://square.link/u/fixture" });
+      }
+      if (call.url.pathname === "/v1/plan" && call.method === "DELETE") {
+        const claim = sha256(bearer ?? "");
+        if (!world.paid.has(claim)) return json(404, { error: { code: "no_plan", message: "There is no later.dog Cloud plan to cancel." } });
+        world.paid.set(claim, "canceled");
+        return json(200, { plan: { status: "canceled", periodEnd: EXPIRES } });
+      }
+      if (call.url.pathname === "/v1/trial" && call.method === "GET" && bearer && world.paid.has(sha256(bearer))) {
+        return json(200, { trial: { state: "active", minutes: 2400, minutesLeft: 2340, expiresAt: EXPIRES }, plan: { status: world.paid.get(sha256(bearer)), periodEnd: EXPIRES } });
+      }
+
       if (!trial || trial.ended) return json(401, { error: { code: "unauthorized", message: ENDED } });
       if (call.url.pathname === "/v1/computers" && call.method === "GET") return json(200, { computers: [] });
       if (call.url.pathname !== "/v1/trial") return json(404, { error: { code: "not_found", message: "no such route" } });
@@ -299,5 +317,32 @@ describe("the saved trial", () => {
     write({ api: API, confirmed: true });
     expect(trialInUse()).toBe(true);
     expect(() => new ComputersClient(computersConnection()!)).toThrow(/does not hold a later.dog free trial key/);
+  });
+});
+
+describe("later.dog Cloud from the app", () => {
+  it("opens Square checkout with this Mac's trial key, and reads the paid plan once Square confirms it", async () => {
+    const started = await startTrial(options);
+    service.claim(started.state === "pending" ? started.url : "");
+    await trialStatus(options);
+    const checkout = await startPlan(options);
+    expect(checkout).toEqual({ state: "checkout", url: "https://square.link/u/fixture" });
+    expect(service.planClaims).toEqual([sha256(savedKey())]);
+    service.paid.set(sha256(savedKey()), "active");
+    expect(await trialStatus(options)).toEqual({ state: "active", minutes: 2400, minutesLeft: 2340, expiresAt: EXPIRES, plan: { status: "active", periodEnd: EXPIRES } });
+    expect(await cancelPlan(options)).toMatchObject({ state: "active", plan: { status: "canceled" } });
+  });
+
+  it("makes a fresh key to buy with after the free trial has ended", async () => {
+    const started = await startTrial(options);
+    service.claim(started.state === "pending" ? started.url : "");
+    await trialStatus(options);
+    const before = savedKey();
+    await endTrial(options);
+    expect(existsSync(keyFile())).toBe(false);
+    expect(await startPlan(options)).toEqual({ state: "checkout", url: "https://square.link/u/fixture" });
+    expect(savedKey()).not.toBe(before);
+    expect(mode(keyFile())).toBe(0o600);
+    expect(saved()).toEqual({ api: API });
   });
 });

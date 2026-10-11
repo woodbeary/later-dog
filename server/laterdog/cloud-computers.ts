@@ -127,9 +127,12 @@ const execBody = z.object({ exitCode: z.number().int().nullable(), stdout: z.str
 export type ExecResult = z.infer<typeof execBody>;
 const desktopBody = z.object({ url: z.string().min(1).max(8192), expiresAt: z.union([z.string(), z.number()]).optional() });
 const errorBody = z.object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }) });
-const trialBody = z.object({ trial: z.object({ state: z.enum(["active", "used_up"]), minutes: z.number().int().min(1).max(600),
-  minutesLeft: z.number().int().min(0).max(600), expiresAt: z.string().min(1).max(64) }) });
-export type TrialView = z.infer<typeof trialBody>["trial"];
+const planInfo = z.object({ status: z.enum(["none", "pending", "active", "canceled", "ended"]), periodEnd: z.string().min(1).max(64).optional() });
+export type PlanInfo = z.infer<typeof planInfo>;
+const trialBody = z.object({ trial: z.object({ state: z.enum(["active", "used_up"]), minutes: z.number().int().min(1).max(100_000),
+  minutesLeft: z.number().int().min(0).max(100_000), expiresAt: z.string().min(1).max(64) }), plan: planInfo.optional(), planOffered: z.boolean().optional() });
+export type TrialView = z.infer<typeof trialBody>["trial"] & { plan?: PlanInfo; planOffered?: boolean };
+const checkoutBody = z.union([z.object({ url: z.string().url().max(4096) }), z.object({ plan: planInfo })]);
 
 const unexpected = (what = "an unexpected answer") => new ComputersApiError(`later.dog's computers service returned ${what}`, 502, "invalid_response");
 
@@ -298,7 +301,23 @@ export class ComputersClient {
     let response: Response;
     try { response = await this.#send("/trial", { timeoutMs: 15_000 }); }
     catch (error) { if (error instanceof ComputersApiError && error.httpStatus === 401) return null; throw error; }
-    return (await this.#read(response, trialBody)).trial;
+    const read = await this.#read(response, trialBody);
+    return { ...read.trial, ...(read.plan ? { plan: read.plan } : {}), ...(read.planOffered ? { planOffered: true } : {}) };
+  }
+
+  async planCheckout(): Promise<{ url: string } | { plan: PlanInfo }> {
+    const response = await this.#send("/plan/checkout", { method: "POST", timeoutMs: 30_000 });
+    const body = await this.#read(response, checkoutBody);
+    if ("url" in body) {
+      const url = new URL(body.url);
+      if (url.protocol !== "https:" || url.username || url.password) throw unexpected("an unusable checkout link");
+    }
+    return body;
+  }
+
+  async cancelPlan(): Promise<PlanInfo> {
+    const response = await this.#send("/plan", { method: "DELETE", timeoutMs: 30_000 });
+    return (await this.#read(response, z.object({ plan: planInfo }))).plan;
   }
 
   async endTrial(): Promise<void> {

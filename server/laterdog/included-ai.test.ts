@@ -46,7 +46,7 @@ describe("later.dog AI", () => {
     startTrial();
     expect((await instance.snapshot()).state).toBe("available");
     const text = await instance.generateText?.({ prompt: "Say hi", model: "later-dog" } as never);
-    expect(String(text?.text ?? text)).toContain("Hi!");
+    expect(String(text)).toContain("Hi!");
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://cloud.later.dog/v1/ai/chat/completions");
     expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${KEY}`);

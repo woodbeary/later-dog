@@ -13,10 +13,10 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("@/state/store", () => ({
   api: async (path: string, init?: { method?: string }) => {
-    if (path !== "/api/computers/trial") throw new Error(`unexpected ${path}`);
+    if (path !== "/api/computers/trial" && path !== "/api/computers/plan") throw new Error(`unexpected ${path}`);
     const method = init?.method ?? "GET";
-    fixture.calls.push(method);
-    const answer = fixture.serve(method);
+    fixture.calls.push(path === "/api/computers/plan" ? `PLAN ${method}` : method);
+    const answer = fixture.serve(path === "/api/computers/plan" ? `PLAN ${method}` : method);
     if (answer instanceof Error) throw answer;
     return answer;
   },
@@ -232,6 +232,25 @@ describe("the Computer panel's trial offer", () => {
     fixture.serve = () => ({ state: "none" });
     await mount(createElement("div", { "data-testid": "host" }, createElement(CloudTrialOffer, { className: "mt-4 border-t pt-4" })));
     expect(document.querySelector('[data-testid="host"]')?.innerHTML).toBe("");
+  });
+
+  it("offers later.dog Cloud once the free minutes are used, when plans are open, and opens Square checkout", async () => {
+    fixture.serve = (method) => method === "PLAN POST"
+      ? { state: "checkout", url: "https://square.link/u/fixture" }
+      : { state: "used_up", minutes: 30, expiresAt: "2026-10-17T12:00:00.000Z", planOffered: true };
+    await mount(createElement(CloudTrialOffer));
+    expect(text()).toContain("Keep going for $10/month");
+    expect(text()).toContain("40 hours a month");
+    await click("Keep going for $10/month");
+    expect(fixture.calls).toContain("PLAN POST");
+    expect(fixture.open).toHaveBeenCalledWith("https://square.link/u/fixture");
+    expect(text()).toContain("Finish checking out in your browser");
+  });
+
+  it("never offers a plan that isn't open yet", async () => {
+    fixture.serve = () => ({ state: "used_up", minutes: 30, expiresAt: "2026-10-17T12:00:00.000Z" });
+    await mount(createElement(CloudTrialOffer));
+    expect(text()).toBe("");
   });
 
   it("stays out of the way without an offer, and once the trial runs", async () => {

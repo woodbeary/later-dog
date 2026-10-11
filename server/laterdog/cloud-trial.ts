@@ -3,7 +3,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import {
-  ComputersClient, TRIAL_KEY, readCapped, savedTrial, serviceApi, trialKeyFile, trialStateFile, type SavedTrial, type TrialView,
+  ComputersClient, TRIAL_KEY, readCapped, savedTrial, serviceApi, trialKeyFile, trialStateFile, type PlanInfo, type SavedTrial, type TrialView,
 } from "./cloud-computers.ts";
 
 export const DEFAULT_TRIAL_API = "https://cloud.later.dog/v1";
@@ -12,9 +12,9 @@ export type TrialStatus =
   | { state: "none" }
   | { state: "offered"; minutes: number; days: number }
   | { state: "pending"; url: string }
-  | { state: "active"; minutes: number; minutesLeft: number; expiresAt: string }
-  | { state: "used_up"; minutes: number; expiresAt: string }
-  | { state: "ended" };
+  | { state: "active"; minutes: number; minutesLeft: number; expiresAt: string; plan?: PlanInfo; planOffered?: true }
+  | { state: "used_up"; minutes: number; expiresAt: string; plan?: PlanInfo; planOffered?: true }
+  | { state: "ended"; planOffered?: true };
 
 export interface TrialOptions { otherComputers: () => boolean; fetch?: typeof fetch }
 
@@ -54,11 +54,39 @@ function end(saved: SavedTrial): void {
 const client = (saved: SavedTrial, options: TrialOptions) =>
   new ComputersClient({ api: saved.api, keyFile: trialKeyFile(), source: "trial" }, { fetch: options.fetch });
 
-const view = (trial: TrialView): TrialStatus => trial.state === "active"
-  ? { state: "active", minutes: trial.minutes, minutesLeft: trial.minutesLeft, expiresAt: trial.expiresAt }
-  : { state: "used_up", minutes: trial.minutes, expiresAt: trial.expiresAt };
+const extras = (trial: TrialView) => ({ ...(trial.plan ? { plan: trial.plan } : {}), ...(trial.planOffered ? { planOffered: true as const } : {}) });
 
-const finished = (options: TrialOptions): TrialStatus => options.otherComputers() ? { state: "none" } : { state: "ended" };
+const view = (trial: TrialView): TrialStatus => trial.state === "active"
+  ? { state: "active", minutes: trial.minutes, minutesLeft: trial.minutesLeft, expiresAt: trial.expiresAt, ...extras(trial) }
+  : { state: "used_up", minutes: trial.minutes, expiresAt: trial.expiresAt, ...extras(trial) };
+
+const PLAN_OPEN_TTL_MS = 10 * 60_000;
+let planOpenCache: { api: string; at: number; open: boolean } | null = null;
+
+async function planOpen(options: TrialOptions): Promise<boolean> {
+  const api = savedTrial()?.api ?? trialApi();
+  if (!api) return false;
+  if (planOpenCache?.api === api && Date.now() - planOpenCache.at < PLAN_OPEN_TTL_MS) return planOpenCache.open;
+  const open = await askPlanOpen(api, options);
+  planOpenCache = { api, at: Date.now(), open };
+  return open;
+}
+
+async function askPlanOpen(api: string, options: TrialOptions): Promise<boolean> {
+  try {
+    const response = await (options.fetch ?? fetch)(`${api}/trials`, {
+      headers: { accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(OFFER_TIMEOUT_MS),
+    });
+    if (!response.ok) { await response.body?.cancel().catch(() => {}); return false; }
+    const body = z.object({ planOffered: z.literal(true).optional() }).safeParse(JSON.parse((await readCapped(response, MAX_OFFER_BYTES, () => new Error("too large"))).toString("utf8")));
+    return body.success && body.data.planOffered === true;
+  } catch { return false; }
+}
+
+const finished = async (options: TrialOptions): Promise<TrialStatus> => {
+  if (options.otherComputers()) return { state: "none" };
+  return (await planOpen(options)) ? { state: "ended", planOffered: true } : { state: "ended" };
+};
 
 async function offer(options: TrialOptions): Promise<TrialStatus> {
   if (options.otherComputers()) return { state: "none" };
@@ -124,6 +152,33 @@ export function endTrial(options: TrialOptions): Promise<TrialStatus> {
       if (readKey()) await client(saved, options).endTrial();
       end(saved);
     }
+    return current(options);
+  });
+}
+
+export type PlanCheckout = { state: "checkout"; url: string } | TrialStatus;
+
+export function startPlan(options: TrialOptions): Promise<PlanCheckout> {
+  return serial(async () => {
+    const api = savedTrial()?.api ?? trialApi();
+    if (!api) throw refused("later.dog Cloud is not offered by this version of later.dog");
+    let key = readKey();
+    if (!key) {
+      key = `ldt_${randomBytes(32).toString("base64url")}`;
+      writeFileAtomic(trialKeyFile(), `${key}\n`, { mode: 0o600 });
+      save({ api });
+    }
+    const checkout = await client({ api }, options).planCheckout();
+    if ("url" in checkout) return { state: "checkout", url: checkout.url };
+    return current(options);
+  });
+}
+
+export function cancelPlan(options: TrialOptions): Promise<TrialStatus> {
+  return serial(async () => {
+    const saved = savedTrial();
+    if (!saved || !readKey()) throw refused("There is no later.dog Cloud plan here");
+    await client(saved, options).cancelPlan();
     return current(options);
   });
 }

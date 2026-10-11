@@ -254,7 +254,7 @@ async function trialRequest(op: TrialOp, env: Env, caller: Caller): Promise<Resp
   for (const listed of await caller.registry.list()) await computer(env, listed.id).meter();
   const current = await trials(env).lookup(trial.id);
   if (!current) return apiError(NO_TRIAL, CHALLENGE);
-  return json({ trial: trialView(current), ...(plan ? { plan: planView(plan) } : {}) });
+  return json({ trial: trialView(current), ...(squareConfigured(env) ? { planOffered: true } : {}), ...(plan ? { plan: planView(plan) } : {}) });
 }
 
 function planView(plan: PlanRow) {
@@ -564,7 +564,7 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return await trialPageRequest(request, env, url);
       case "trial_offer":
         if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
-        return json(trialOffer(trialPolicy(env)));
+        return json({ ...trialOffer(trialPolicy(env)), ...(squareConfigured(env) ? { planOffered: true } : {}) });
       case "decide":
         return await decideRequest(request, env);
       case "voices":
