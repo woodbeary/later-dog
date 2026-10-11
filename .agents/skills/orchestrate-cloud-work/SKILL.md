@@ -9,7 +9,7 @@ Use when the work is bigger than one change: several jobs, several repositories,
 
 ## Plan
 
-1. **Read the workspace.** `laterdog_workspace` lists repositories, account profiles, backends and their stated limits, slots in use, existing jobs and measured outcomes. `inspect_provider_access` shows a profile's sign-in and CLI capabilities, not its remaining allowance; treat allowance as unknown.
+1. **Read the workspace.** `laterdog_workspace` lists repositories, account profiles, backends and their stated limits, slots in use, existing jobs and measured outcomes. `inspect_provider_access` shows a profile's sign-in and CLI capabilities, not its remaining allowance; treat allowance as unknown. A backend listed as enabled is ready to use: later.dog Cloud runs each job in its own cloud computer on the owner's Cloudflare with their Claude plan, and needs no keys from the person. Say a key or setup step is missing only when the workspace shows that backend disabled, and quote its stated reason.
 2. **Split the work by what each piece owns.** Every job gets a goal, acceptance criteria, write scopes as narrow as the change allows, and `dependencies` on the jobs it builds on. The supervisor holds a job until its dependencies are ready and runs overlapping scopes in one repository one at a time; choosing good boundaries is still your call.
 
 ## Delegate and follow

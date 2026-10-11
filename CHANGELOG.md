@@ -3,6 +3,8 @@
 ## 0.3.4 — 2026-10-10
 
 - A dog can use later.dog's cloud tools without asking you each time: checking the workspace, sending work to the cloud, following a job, and publishing a draft PR. Before, the first call asked for approval, and in Auto mode Claude's safety check could refuse it outright. Merging a pull request still asks you first.
+- Asked what it has been working on, a dog checks the repository, its pull requests and its cloud jobs first, and marks anything it only remembers as possibly out of date. Before, it could report work as unfinished after it had already shipped.
+- A dog no longer tells you cloud jobs need keys when later.dog Cloud is already set up.
 
 ## 0.3.3 — 2026-10-10
 
