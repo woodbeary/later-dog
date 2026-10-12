@@ -461,6 +461,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       open: (ask) => emit({
         ...base(turn.threadId, turnId), type: "request.opened", requestType: "permission",
         requestId: ask.id, tool: ask.tool, summary: ask.summary, allowSession: false,
+        ...(ask.approvalScope ? { approvalScope: ask.approvalScope } : {}),
       }),
       resolved: (ask, allowed, source) => emit({
         ...base(turn.threadId, turnId), type: "request.resolved", requestId: ask.id,
@@ -659,7 +660,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
                 const shownPreview = shown.input === args ? inputPreview : preview(shown.input);
                 const allowed = turn.approvalMode === "full" || !shown.ask
                   || (turn.approvalMode === "auto" && shown.ownComputer === true)
-                  || await approval.ask(shown.title, shownPreview ?? "This tool has no arguments.");
+                  || await approval.ask(shown.title, shownPreview ?? "This tool has no arguments.", shown.approvalScope);
                 abort.signal.throwIfAborted();
                 emit({ ...base(turn.threadId, turnId), type: "item.started", itemType: "tool", itemId: call.id,
                   title: shown.title, ...(shownPreview ? { input: shownPreview } : {}),

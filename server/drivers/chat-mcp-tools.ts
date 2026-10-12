@@ -16,7 +16,7 @@ export interface ChatToolDefinition {
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 export interface ChatToolResult { text: string; ok: boolean; images?: ChatImagePart[] }
-export interface ChatToolCallView { title: string; input: Record<string, unknown>; ask: boolean; ownComputer?: boolean }
+export interface ChatToolCallView { title: string; input: Record<string, unknown>; ask: boolean; ownComputer?: boolean; approvalScope?: "local-computer" }
 export class ChatToolSessionError extends Error {}
 export interface ChatToolSession {
   definitions: ChatToolDefinition[];
@@ -249,7 +249,7 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
   const cancel = () => { void close().catch(() => {}); };
   signal.addEventListener("abort", cancel, { once: true });
   const definitions: ChatToolDefinition[] = [];
-  const registered = new Map<string, { client: ChatMcpClient; server: string; builtInBrowser: boolean; builtInAgents: boolean; builtInComputer: boolean; name: string; schema: ValidateFunction; searched: boolean }>();
+  const registered = new Map<string, { client: ChatMcpClient; server: string; builtInBrowser: boolean; builtInAgents: boolean; builtInComputer: boolean; controlsHost: boolean; name: string; schema: ValidateFunction; searched: boolean }>();
   try {
     if (signal.aborted) throw aborted();
     const mounts = await Promise.allSettled(servers.map(async ([name, descriptor]) => {
@@ -260,11 +260,12 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
         && ((searchable.has(name) && isDirectoryTool(tool.name)) || allowsTool(scope, { kind: "mcp", server: name, name: tool.name })));
       const tools = await client.tools(signal, include, searchable.has(name) ? REMOTE_MCP_STARTUP_MS : STARTUP_MS);
       return { name, client, builtInBrowser: descriptor === integrations?.browser, builtInAgents: descriptor === integrations?.agents,
-        builtInComputer: descriptor === integrations?.localComputer && integrations?.localComputer?.scope !== "local-computer", tools };
+        builtInComputer: descriptor === integrations?.localComputer && integrations?.localComputer?.scope !== "local-computer",
+        controlsHost: descriptor === integrations?.localComputer && integrations?.localComputer?.scope === "local-computer", tools };
     }));
     for (const mount of mounts) {
       if (mount.status === "rejected") throw mount.reason;
-      const { name: server, client, builtInBrowser, builtInAgents, builtInComputer, tools } = mount.value;
+      const { name: server, client, builtInBrowser, builtInAgents, builtInComputer, controlsHost, tools } = mount.value;
       const originalNames = new Set<string>();
       for (const tool of tools) {
         if (!object(tool) || typeof tool.name !== "string" || !tool.name.trim() || originalNames.has(tool.name)) throw new Error("MCP server advertised an invalid or duplicate tool name");
@@ -285,7 +286,7 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
         const base = chatToolName(server, tool.name);
         let name = base;
         for (let index = 2; registered.has(name); index += 1) { const suffix = `_${index}`; name = base.slice(0, 64 - suffix.length) + suffix; }
-        registered.set(name, { client, server, builtInBrowser, builtInAgents, builtInComputer, name: tool.name, schema, searched: searchable.has(server) });
+        registered.set(name, { client, server, builtInBrowser, builtInAgents, builtInComputer, controlsHost, name: tool.name, schema, searched: searchable.has(server) });
         definitions.push({ type: "function", function: { name, description, parameters } });
         if (Buffer.byteLength(JSON.stringify(definitions)) > CATALOG_BYTES) throw new Error("MCP tool catalog exceeds the 1MB limit");
       }
@@ -315,7 +316,8 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
       if (args.surface === "cloud") return { title: name, input: args, ask: true, ownComputer: true };
     }
     if (!tool?.searched || tool.name !== CALL_TOOL) {
-      return { title: name, input: args, ask: true, ...(tool && (tool.builtInComputer || tool.builtInBrowser) ? { ownComputer: true } : {}) };
+      return { title: name, input: args, ask: true, ...(tool && (tool.builtInComputer || tool.builtInBrowser) ? { ownComputer: true } : {}),
+        ...(tool?.controlsHost ? { approvalScope: "local-computer" as const } : {}) };
     }
     return { title: chatToolName(tool.server, runs), input: object(args.arguments) ? args.arguments : {}, ask: true };
   };

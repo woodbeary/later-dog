@@ -382,7 +382,7 @@ describe("OpenAI-compatible computer images", () => {
     await mac.start({ approvalMode: "auto", integrations: { localComputer: desktop } });
     await mac.decide();
     expect(await mac.completed()).toMatchObject({ ok: true });
-    expect(mac.recorder.events.some((event) => event.type === "request.opened")).toBe(true);
+    expect(mac.recorder.events.find((event) => event.type === "request.opened")).toMatchObject({ approvalScope: "local-computer" });
   });
 
   it.each(["localComputer", "browser"] as const)("delivers %s screenshots after tool results and preserves approval", async (source) => {
