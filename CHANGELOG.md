@@ -3,6 +3,7 @@
 ## 0.3.11 — 2026-10-11
 
 - **Chat right away, free.** Start the free trial and your dogs can chat and use their computer on later.dog AI, with no account to sign in to. It runs Kimi K2.6 on Cloudflare, later.dog keeps none of your prompts, and it comes with a daily allowance. When that runs out, sign in to Claude or ChatGPT, or keep going on later.dog Cloud.
+- **Voice in the free trial.** Read aloud and spoken replies work during the free trial with no key, in natural voices running on Cloudflare.
 - **No Node needed.** On a Mac without Node, **Sign in** for Claude or ChatGPT installs them straight from Anthropic and OpenAI. Codex's download is checked against OpenAI's published checksum before it runs.
 - **Dogs that make dogs hand over the work.** A dog made by another dog starts with its creator's apps and approval level (never more, and never Full access), and the creator hands it the job right away, so you don't have to approve every step in a thread you aren't watching.
 - **Plain words while a dog works.** "Checking with Scout", "Making Scout", "Working in Gmail" and "Sniffing around the web" instead of tool names like "Running create_bot".
