@@ -2193,6 +2193,7 @@
   "computer.handBack": "I'm done",
   "computer.onThisMac": "{name} works on this Mac.",
   "computer.needsYou": "{name} needs you.",
+  "computer.needsYouOpen": "Open",
   "computer.takeOver": "Take over",
   "computer.skip": "Skip",
   "computer.takeControlVmTitle": "Pause the dog's control and open the Local VM's live desktop",

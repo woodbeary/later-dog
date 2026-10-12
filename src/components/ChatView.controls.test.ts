@@ -10,13 +10,15 @@ const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
   return { showThreads: true, menus: [] as { ariaLabel: string; items: { key: string; disabled?: boolean; heading?: string; active?: boolean }[] }[], dispatch: vi.fn(), canWrite: null as boolean | null, showToolCalls: false, platform: "other", localReasonCode: "cua-driver-unavailable", localMessage: "", model: null as ComponentProps<typeof ModelPicker> | null,
-    approval: null as ComponentProps<typeof ApprovalModeSelector> | null };
+    approval: null as ComponentProps<typeof ApprovalModeSelector> | null,
+    control: {} as Record<string, { held: boolean; helpReason: string | null }>, computerOpen: false };
 });
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, useStore: () => ({
     state: { ...original.initialState, config: fixture.showToolCalls ? { features: { showToolCalls: true } } : null,
-      instances: [{ instanceId: "test", driverKind: "codex", displayName: "Test" } as InstanceInfo] },
+      instances: [{ instanceId: "test", driverKind: "codex", displayName: "Test" } as InstanceInfo],
+      computerControl: fixture.control, computerOpen: fixture.computerOpen },
     dispatch: fixture.dispatch,
   }) };
 });
@@ -153,6 +155,18 @@ describe("thread control placement", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     expect(markup).not.toContain('aria-label="All threads"');
     expect(markup).toContain('data-testid="chat-more"');
+  });
+
+  it("says in the chat when the dog needs your hands on its computer, with Open", () => {
+    expect(renderToStaticMarkup(createElement(ChatView, { bot }))).not.toContain("data-needs-you");
+    fixture.control = { [bot.id]: { held: false, helpReason: "Sign in to the site, then hand it back." } };
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
+    expect(markup).toContain("data-needs-you");
+    expect(markup).toContain("Sign in to the site, then hand it back.");
+    fixture.computerOpen = true;
+    expect(renderToStaticMarkup(createElement(ChatView, { bot }))).not.toContain("data-needs-you");
+    fixture.control = {};
+    fixture.computerOpen = false;
   });
 
   it("calls from the composer once voice mode is on in Settings, never from the header", () => {

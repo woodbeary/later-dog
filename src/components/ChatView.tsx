@@ -12,6 +12,7 @@ import {
   Crown,
   Download,
   Gauge,
+  Hand,
   MessageSquareReply,
   Monitor,
   MoreHorizontal,
@@ -1502,6 +1503,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           composer so the transcript stays in view. In the dock, so the
           transcript pad grows with it. */}
       <LiveCallBar bot={bot} />
+      <NeedsYouRow botId={bot.id} name={bot.name} />
       {canWrite === false ? (
         <NewConversationInstead onNew={() => dispatch({ type: "newTask", botId: bot.id })} />
       ) : (
@@ -1638,5 +1640,25 @@ function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
         </span>
       )}
     />
+  );
+}
+
+/** A dog that asked for your hands on its computer says so in the chat too,
+ * not only inside the Computer panel; Open shows its screen. */
+function NeedsYouRow({ botId, name }: { botId: string; name: string }) {
+  const { state, dispatch } = useStore();
+  const control = state.computerControl[botId];
+  if (!control?.helpReason || control.held || state.computerOpen) return null;
+  return (
+    <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[min(48rem,calc(100%-2.5rem))] items-center gap-2 rounded-xl bg-card px-3 py-2 text-[13px] text-ink ring-[0.5px] ring-ink/10" data-needs-you>
+      <Hand size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />
+      <span className="min-w-0 flex-1 truncate">
+        <b className="font-medium">{t("computer.needsYou", { name })}</b> <span className="text-ink-secondary">{control.helpReason}</span>
+      </span>
+      <button type="button" onClick={() => dispatch({ type: "toggleComputer", open: true })}
+        className="shrink-0 rounded-full bg-control px-3 py-1 text-[12.5px] font-medium hover:bg-raised-hover">
+        {t("computer.needsYouOpen")}
+      </button>
+    </div>
   );
 }
