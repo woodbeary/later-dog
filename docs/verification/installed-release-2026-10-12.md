@@ -37,6 +37,7 @@ folders changed during those runs either.
 | A cloud task on the live supervisor | A later.dog Cloud job sent to the hosted supervisor over its API (not from the app: the copies run with a dead supervisor address) removed an unused string from this repository. It ran 47 s, changed one line, and publishing it opened a draft pull request for a person to merge. |
 | Grok 4.3 on its own computer (0.3.21) | Same request as above, no card, but Grok stopped on the desktop's "Choose Preferred Application" window after 16 s. After the computers Worker change below, the same request on a fresh computer answered with the headline in 18 s, no card and no window. |
 | Updating in place (0.3.21 to 0.3.22) | A 0.3.21 copy found 0.3.22 by itself and showed the update button; its panel read "later.dog 0.3.22 is ready. Restart later.dog to finish. Your dogs and chats are kept." above the release notes. Quitting normally, without Restart to update, let macOS install 0.3.22 into the copy in about 6 s and relaunch nothing (the installer's request said `launchAfterInstallation: false`). The installed copy passed `codesign` and Gatekeeper. Reopened on the same home it reported 0.3.22, skipped the first run, showed the earlier chat, and the dog answered "pineapple" when asked for the word it had been told to remember before the update. The update button was gone. `scripts/sealed-update-check.sh v0.3.21` repeated the run: all 40 of the copy's data files were still there and the dog recalled its word again. |
+| Code without comments (0.3.22-preview.1) | A signed, notarized preview of the comment-free code (#29) ran sealed: the copy claimed its own trial, Kimi answered the first message in about 6 s, a message sent mid-reply got its answer in the same turn, and the app used about 590 MB across 6 processes. |
 | Ending the trial | `DELETE /v1/trial` answered 200; the copy's folder and its Launch Services registrations were removed, and `laterdog://` links opened the installed app again. |
 
 ## Corrected during the run
@@ -59,6 +60,12 @@ folders changed during those runs either.
   Live for every app version.
 - **0.3.21, mid-reply messages:** words still parked when a reply settles now get one more
   round in the same turn (0.3.22).
+- **0.3.22, a card about the person's Mac:** in a story turn on the preview, a Kimi dog
+  asked for the Mac's screen size and the card read "wants to use its computer", the
+  words used for its own cloud computer: the chat driver behind Kimi and Grok never
+  marked the request as local. The test driver allowed it, so the copy read this Mac's
+  display size; nothing else ran. Test drivers now deny every card, and 0.3.23 names
+  the Mac on the card.
 - **The check itself:** a launch with only `HOME` changed reads the Mac's real
   later.dog data, because the app finds its folders through Foundation. The script
   above replaced hand launches.
