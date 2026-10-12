@@ -86,12 +86,12 @@ describe("the composer's + menu", () => {
     const plus = host.querySelector<HTMLButtonElement>("[data-composer-plus]")!;
     await act(async () => plus.click());
     expect(host.textContent).toContain("Attach a file");
-    expect(host.textContent).toContain("Connectors");
+    expect(host.textContent).toContain("Connect apps");
     expect(host.textContent).toContain("Permissions");
     await act(async () => host.querySelector<HTMLButtonElement>("[data-plus-permission=auto]")!.click());
     expect(onSelect).toHaveBeenCalledWith("auto");
     await act(async () => plus.click());
-    await act(async () => [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent === "Connectors")!.click());
+    await act(async () => [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent === "Connect apps")!.click());
     expect(onConnectors).toHaveBeenCalled();
     await act(async () => plus.click());
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent === "Attach a file")!.click());

@@ -7,7 +7,7 @@
 - **Fast mode** for the models that have it (Claude's Opus models, through Claude Code's own fast mode), in the effort popup.
 - **Accounts on top, nothing repeated.** The chat header's account button lists the accounts you're signed in to (and the free Kimi and Grok), under the names you gave them, with Add account at the end.
 - **Sign in when you need to.** Pick Claude or ChatGPT before you've signed in and the first message you send opens their sign-in; it sends once you're in.
-- **One + button.** Attach files, open Connectors and choose Permissions from a single + beside the message field, in place of the paperclip and the shield.
+- **One + button.** Attach files, connect apps and choose permissions from a single + beside the message field, in place of the paperclip and the shield.
 - **Voice mode is a setting.** The voice chat button shows only after you turn on Voice mode in Settings, General. Dictation's mic stays where it was.
 - **Voice notes are never lost.** Dictating also saves the recording on your Mac; if turning it into text fails, Retry transcribes the saved note into the message box. The last ten notes are kept.
 
