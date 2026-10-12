@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "../src/auth";
-import { AI_DEFAULT_MODEL, chatRequest, streamedTokens, tokensOf } from "../src/ai";
+import { AI_DEFAULT_MODEL, AI_WORKERS_MODEL, chatRequest, openAiStream, streamedTokens, tokensOf } from "../src/ai";
 import { DAY } from "../src/trial";
 import { ORIGIN, apiRequest, body, siteverify, startTrial, trialKey, world } from "./fakes";
 
@@ -33,18 +33,41 @@ const sse = (chunks: unknown[]) => new ReadableStream<Uint8Array>({
   },
 });
 
-async function ai(vars: Record<string, string> = { XAI_API_KEY: "xai-test" }) {
-  const gatewayRun = vi.fn(async (request: { query: { stream?: boolean } }) => request.query.stream
-    ? new Response(sse([{ choices: [{ delta: { content: "Hi" } }] }, { choices: [], usage: { prompt_tokens: 900, completion_tokens: 100, total_tokens: 1000 } }]), { headers: { "content-type": "text/event-stream" } })
-    : Response.json({ choices: [{ message: { role: "assistant", content: "Hi" } }], usage: { prompt_tokens: 40, completion_tokens: 2, total_tokens: 42 } }));
+const workersSse = (lines: unknown[]) => new ReadableStream<Uint8Array>({
+  start(controller) {
+    const encoder = new TextEncoder();
+    for (const line of lines) controller.enqueue(encoder.encode(`data: ${JSON.stringify(line)}\n\n`));
+    controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+    controller.close();
+  },
+});
+
+const KIMI_STREAM = [
+  { id: "c1", object: "chat.completion.chunk", created: 1, model: AI_WORKERS_MODEL, choices: [{ index: 0, delta: { role: "assistant", content: "" } }], usage: { prompt_tokens: 900, completion_tokens: 0, total_tokens: 900 }, p: "pad" },
+  { id: "c1", object: "chat.completion.chunk", created: 1, model: AI_WORKERS_MODEL, choices: [{ index: 0, delta: { content: "Hi" } }], usage: { prompt_tokens: 0, completion_tokens: 1, total_tokens: 1 }, p: "pad" },
+  { id: "c1", object: "chat.completion.chunk", created: 1, model: AI_WORKERS_MODEL, choices: [], usage: { prompt_tokens: 0, completion_tokens: 1, total_tokens: 1 }, p: "pad" },
+  { response: "", usage: { prompt_tokens: 900, completion_tokens: 100, total_tokens: 1000 } },
+];
+
+async function ai(vars: Record<string, string> = { XAI_API_KEY: "xai-test" }, grok: "ok" | "down" = "ok") {
+  const gatewayRun = vi.fn(async (request: { query: { stream?: boolean } }) => grok === "down"
+    ? new Response("{\"error\":\"Model not found\"}", { status: 404 })
+    : request.query.stream
+      ? new Response(sse([{ choices: [{ delta: { content: "Hi" } }] }, { choices: [], usage: { prompt_tokens: 900, completion_tokens: 100, total_tokens: 1000 } }]), { headers: { "content-type": "text/event-stream" } })
+      : Response.json({ choices: [{ message: { role: "assistant", content: "Hi" } }], usage: { prompt_tokens: 40, completion_tokens: 2, total_tokens: 42 } }));
   const gateway = vi.fn(() => ({ run: gatewayRun }));
-  const w = await world({ AI: { run: vi.fn(), gateway }, ...vars } as unknown as Record<string, string>);
+  const run = vi.fn(async (_model: string, input: { stream?: boolean }) => input.stream
+    ? workersSse(KIMI_STREAM)
+    : { id: "c2", object: "chat.completion", model: AI_WORKERS_MODEL, choices: [{ index: 0, message: { role: "assistant", content: "Hi" } }], usage: { prompt_tokens: 40, completion_tokens: 2, total_tokens: 42 } });
+  const w = await world({ AI: { run, gateway }, ...vars } as unknown as Record<string, string>);
   siteverify();
   const key = trialKey("k");
   expect((await startTrial(w, key)).status).toBe(200);
   const used = async () => (await w.trials.named("trials").usageLeft({ keySha256: await sha256Hex(key), kind: "ai_tokens", perKey: 1_041, total: 10_000_000 })).ok;
-  return { w, key, gateway, gatewayRun, used };
+  return { w, key, gateway, gatewayRun, run, used };
 }
+
+const frames = (text: string) => text.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).filter((data) => data !== "[DONE]").map((data) => JSON.parse(data) as Record<string, unknown>);
 
 const chat = (stream: boolean, extra: Record<string, unknown> = {}) => ({ model: "grok-4.7", stream, messages: [{ role: "user", content: "hello" }], ...extra });
 
@@ -81,8 +104,51 @@ describe("the included AI", () => {
     await w.advance(8 * DAY);
     expect((await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false) }))).status).toBe(401);
     expect(gatewayRun).not.toHaveBeenCalled();
-    const bare = await ai({});
-    expect((await bare.w.fetch(apiRequest("POST", "/v1/ai/chat/completions", bare.key, { body: chat(false) }))).status).toBe(503);
+    const bare = await world();
+    siteverify();
+    const bareKey = trialKey("b");
+    expect((await startTrial(bare, bareKey)).status).toBe(200);
+    expect((await bare.fetch(apiRequest("POST", "/v1/ai/chat/completions", bareKey, { body: chat(false) }))).status).toBe(503);
+  });
+
+  it("answers on Workers AI without an xAI key, with thinking off and only the fields it allows", async () => {
+    const { w, key, gatewayRun, run, used } = await ai({});
+    const response = await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false, { api_key: "x", tools: [{ type: "function", function: { name: "f" } }] }) }));
+    expect(response.status).toBe(200);
+    expect((await body(response)).choices[0].message.content).toBe("Hi");
+    expect(gatewayRun).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledWith(AI_WORKERS_MODEL, { stream: false, messages: chat(false).messages, tools: [{ type: "function", function: { name: "f" } }], max_tokens: 32_000, chat_template_kwargs: { thinking: false } }, { gateway: { id: "default", collectLog: false } });
+    expect(await used()).toBe(true);
+  });
+
+  it("turns the Workers AI stream into plain OpenAI chunks with one final usage, and charges it", async () => {
+    const { w, key, used } = await ai({});
+    const response = await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(true) }));
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    const text = await response.text();
+    expect(text.trimEnd().endsWith("data: [DONE]")).toBe(true);
+    const sent = frames(text);
+    expect(sent.map((frame) => ("usage" in frame) || ("p" in frame))).toEqual([false, false, true]);
+    expect(sent[1]).toMatchObject({ choices: [{ delta: { content: "Hi" } }] });
+    expect(sent[2]).toEqual({ id: "c1", created: 1, model: AI_WORKERS_MODEL, object: "chat.completion.chunk", choices: [], usage: { prompt_tokens: 900, completion_tokens: 100, total_tokens: 1000 } });
+    await Promise.all(w.background);
+    expect(await used()).toBe(true);
+    await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false) }));
+    expect(await used()).toBe(false);
+  });
+
+  it("falls back to Workers AI when xAI does not answer", async () => {
+    const { w, key, gatewayRun, run } = await ai({ XAI_API_KEY: "xai-test" }, "down");
+    const response = await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false) }));
+    expect(response.status).toBe(200);
+    expect(gatewayRun).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds up per-chunk usage when a stream never sends its total", async () => {
+    const text = await new Response(openAiStream(workersSse(KIMI_STREAM.slice(0, 3)))).text();
+    expect(frames(text).at(-1)).toMatchObject({ choices: [], usage: { prompt_tokens: 900, completion_tokens: 2, total_tokens: 902 } });
+    expect(text.match(/\[DONE\]/g)).toHaveLength(1);
   });
 
   it("reads token counts from answers and streams", async () => {

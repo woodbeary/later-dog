@@ -9,7 +9,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
-import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, chatRequest, grokRequest, streamedTokens, tokensOf } from "./ai";
+import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, streamedTokens, tokensOf, workersInput, type ChatRequest } from "./ai";
 import { CLEF_MODEL, DECIDE_MAX_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, VOICE_CHARS_TOTAL_PER_DAY, clefInput, decisionFrom } from "./decide";
 import { maxComputers } from "./idle";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
@@ -53,6 +53,7 @@ declare global {
     SQUARE_ENVIRONMENT?: string;
     XAI_API_KEY?: string;
     TRIAL_AI_MODEL?: string;
+    TRIAL_AI_WORKERS_MODEL?: string;
   }
 }
 
@@ -259,7 +260,7 @@ async function trialRequest(op: TrialOp, env: Env, caller: Caller): Promise<Resp
 
 function includedServices(env: Env): string[] {
   if (!env.AI) return [];
-  return ["decisions", ...(env.ELEVENLABS_API_KEY?.trim() ? ["voice"] : []), ...(env.XAI_API_KEY?.trim() ? ["ai"] : [])];
+  return ["decisions", ...(env.ELEVENLABS_API_KEY?.trim() ? ["voice"] : []), "ai"];
 }
 
 function includedField(env: Env): { included?: string[] } {
@@ -515,14 +516,42 @@ async function speakRequest(request: Request, env: Env, url: URL, voiceId: strin
   }
 }
 
+type ChatAnswer = { stream: ReadableStream<Uint8Array> } | { answer: Record<string, unknown> };
+
+const isAnswer = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value) && !(value instanceof ReadableStream);
+
+async function grokAnswer(env: Env, request: ChatRequest, key: string): Promise<ChatAnswer | null> {
+  try {
+    const upstream = await env.AI.gateway(aiGateway(env).gateway.id).run(grokRequest(request, key));
+    if (upstream.ok && upstream.body) return request.stream ? { stream: upstream.body } : { answer: (await upstream.json()) as Record<string, unknown> };
+    const detail = (await upstream.text().catch(() => "")).slice(0, 500);
+    console.error(`laterdog computers: chat answered ${upstream.status}: ${detail}`);
+  } catch (error) {
+    console.error(`laterdog computers: chat failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return null;
+}
+
+async function workersAnswer(env: Env, request: ChatRequest): Promise<ChatAnswer | null> {
+  try {
+    const model = env.TRIAL_AI_WORKERS_MODEL?.trim() || AI_WORKERS_MODEL;
+    const result: unknown = await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(model, workersInput(request), aiGateway(env));
+    if (result instanceof ReadableStream) return { stream: openAiStream(result as ReadableStream<Uint8Array>) };
+    if (isAnswer(result)) return { answer: result };
+    console.error("laterdog computers: Workers AI chat returned nothing usable");
+  } catch (error) {
+    console.error(`laterdog computers: Workers AI chat failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return null;
+}
+
 async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: Promise<unknown>) => void): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   const token = includedKey(request);
   if (!token) return apiError(NO_TRIAL, CHALLENGE);
   const keySha256 = await sha256Hex(token);
   if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
-  const key = env.XAI_API_KEY?.trim();
-  if (!key || !env.AI) return apiError(NOT_INCLUDED);
+  if (!env.AI) return apiError(NOT_INCLUDED);
   const body = await readBody(request, AI_MAX_BODY_BYTES);
   if (!body.ok) return body.response;
   const parsed = chatRequest(body.value, env.TRIAL_AI_MODEL?.trim() || AI_DEFAULT_MODEL);
@@ -531,24 +560,14 @@ async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: 
   const left = await registry.usageLeft({ keySha256, kind: "ai_tokens", perKey: AI_TOKENS_PER_DAY, total: AI_TOKENS_TOTAL_PER_DAY });
   if (!left.ok) return apiError(left.refusal, left.refusal.status === 401 ? CHALLENGE : {});
   const charge = (amount: number) => registry.chargeUsage({ keySha256, kind: "ai_tokens", amount });
-  let upstream: Response;
-  try {
-    upstream = await env.AI.gateway(aiGateway(env).gateway.id).run(grokRequest(parsed.request, key));
-  } catch (error) {
-    console.error(`laterdog computers: chat failed: ${error instanceof Error ? error.message : String(error)}`);
-    return apiError(INCLUDED_FAILED);
+  const key = env.XAI_API_KEY?.trim();
+  const result = (key ? await grokAnswer(env, parsed.request, key) : null) ?? (await workersAnswer(env, parsed.request));
+  if (!result) return apiError({ status: 502, code: "upstream_failed", message: "The model did not answer. Try again." });
+  if ("answer" in result) {
+    await charge(tokensOf(result.answer.usage));
+    return json(result.answer);
   }
-  if (!upstream.ok || !upstream.body) {
-    const detail = (await upstream.text().catch(() => "")).slice(0, 500);
-    console.error(`laterdog computers: chat answered ${upstream.status}: ${detail}`);
-    return apiError({ status: upstream.status === 400 ? 400 : 502, code: upstream.status === 400 ? "invalid_request" : "upstream_failed", message: upstream.status === 400 ? "The model refused this request." : "The model did not answer. Try again." });
-  }
-  if (!parsed.request.stream) {
-    const answer = (await upstream.json()) as { usage?: unknown };
-    await charge(tokensOf(answer.usage));
-    return json(answer);
-  }
-  const [toClient, toCount] = upstream.body.tee();
+  const [toClient, toCount] = result.stream.tee();
   waitUntil(streamedTokens(toCount).then((tokens) => charge(tokens)).catch((error) => console.error(`laterdog computers: counting chat tokens failed: ${String(error)}`)));
   return new Response(toClient, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
 }

@@ -6,7 +6,7 @@ import { trialAi } from "./included-trial.ts";
 export const INCLUDED_AI_DRIVER = "laterdogAi";
 export const INCLUDED_AI_INSTANCE = "laterdogAi";
 const FALLBACK_URL = "https://cloud.later.dog/v1/ai";
-const MODELS = { default: "later-dog", options: [{ id: "later-dog", label: "later.dog AI", contextWindow: 2_000_000 }] };
+const MODELS = { default: "later-dog", options: [{ id: "later-dog", label: "later.dog AI", contextWindow: 256_000 }] };
 const NOT_STARTED = "Start the free trial to use later.dog AI.";
 const ENDED = "Your free later.dog AI has ended. Sign in to Claude or ChatGPT, or keep going on later.dog Cloud in Settings, Computer.";
 const DAILY = "You've used today's free later.dog AI. It comes back tomorrow, or sign in to Claude or ChatGPT to keep going now.";
