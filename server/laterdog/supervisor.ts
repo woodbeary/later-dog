@@ -294,13 +294,17 @@ export class Supervisor {
       try {
         this.store.update(job.id, { state: "preparing", blocker: undefined }, "preparing");
         const access = await this.adapter(job).doctor?.();
-        if (access && !access.authenticated) throw new Error(job.backend === "laterdog-cloud"
-          ? "later.dog Cloud is not configured on this supervisor: set CLAUDE_CODE_OAUTH_TOKEN, and LATERDOG_COMPUTERS_URL (with LATERDOG_COMPUTERS_KEY) unless the hosted supervisor's COMPUTERS binding serves it"
-          : "Sign this native Codex profile in with its supported subscription before submitting cloud work");
+        if (access && !access.authenticated) {
+          // Plain words for the card and the dog; the setup detail goes to the log.
+          if (job.backend === "laterdog-cloud") console.warn("[cloud tasks] later.dog Cloud needs CLAUDE_CODE_OAUTH_TOKEN and the computers service (COMPUTERS binding, or LATERDOG_COMPUTERS_URL with LATERDOG_COMPUTERS_KEY) on this supervisor");
+          throw new Error(job.backend === "laterdog-cloud"
+            ? "Cloud tasks aren't set up on this later.dog yet, so this one can't start. The dog can do it here in the chat instead."
+            : "Cloud tasks here run on Codex Cloud, which needs your ChatGPT account. Sign in to ChatGPT in Settings, then try again.");
+        }
         // Resolve the backend's environment before pinning an input ref so a misconfigured repository blocks preparation, not submission.
         const repository = this.store.repository(job.repository);
         const environment = repository.environments[job.backend] ?? (job.backend === "codex-cloud" ? repository.environmentId : job.backend === "laterdog-cloud" ? "auto" : "");
-        if (!environment) throw new Error(`No ${job.backend} environment is configured for ${repository.slug}; connect one before delegating`);
+        if (!environment) throw new Error(`${repository.slug} isn't connected to ${job.backend === "codex-cloud" ? "Codex Cloud" : "cloud tasks"} yet. Connect it there, then try again.`);
         const prepared = await this.publisher.prepare(job, repository, job.parentId ? this.store.job(job.parentId) : undefined);
         if (this.stopped || this.store.job(job.id).cancelRequested) {
           this.store.update(job.id,{ ...prepared, state: "cancelled" },"cancelled","Stopped before provider submission"); continue;

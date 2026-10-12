@@ -139,7 +139,7 @@ describe("durable cloud orchestration",() => {
     expect(submit.mock.calls[0][0]).toBe("trig_fixture"); expect(submit.mock.calls[0][2]).toContain("Push only to the branch named in the routine payload");
     expect(submit.mock.calls[0][3]).toMatchObject({ jobId: job.id, repository: "fixture/first", baseSha: SHA, sourceRef: `laterdog/input/${job.id}` });
     const uncertain = claude.create({ requestKey: randomUUID(), repository: "fixture/second", title: "No routine", brief: "x", profileId: "claude" }); await claude.tick();
-    expect(f.store.job(uncertain.id).state).toBe("needs_attention"); expect(f.store.job(uncertain.id).blocker).toMatch(/No claude-cloud environment/);
+    expect(f.store.job(uncertain.id).state).toBe("needs_attention"); expect(f.store.job(uncertain.id).blocker).toMatch(/isn't connected to cloud tasks yet/);
     expect(claude.snapshot().backends.map((b) => b.id)).toEqual(["claude-cloud","laterdog-cloud","cursor-cloud","cloudflare-sandbox","claude-managed-agents"]);
     expect(f.supervisor.snapshot().backends.find((b) => b.id === "claude-cloud")?.enabled).toBe(false);
   });
@@ -187,7 +187,7 @@ it("retains the result of an uncancellable cloud task but stops further publicat
 });
 it("blocks unauthenticated profiles before preparing or submitting any cloud task",async () => {
   const f=fixture();f.adapter.doctor=async()=>({version:"fixture",authenticated:false,cloudCommands:"fixture"});const job=f.create();await f.supervisor.tick();
-  expect(f.store.job(job.id).state).toBe("needs_attention");expect(f.submit).not.toHaveBeenCalled();expect(f.publisher.prepare).not.toHaveBeenCalled();expect(f.store.job(job.id).blocker).toContain("supported subscription");
+  expect(f.store.job(job.id).state).toBe("needs_attention");expect(f.submit).not.toHaveBeenCalled();expect(f.publisher.prepare).not.toHaveBeenCalled();expect(f.store.job(job.id).blocker).toContain("needs your ChatGPT account");
 });
 it("records a merge performed on GitHub without claiming the harness performed it",async () => {
  const f=fixture({remote:true});const job=f.create();f.store.update(job.id,{state:"ready",prUrl:"https://github.com/fixture/first/pull/1",prNumber:1,headSha:SHA});vi.mocked(f.publisher.inspectPublished).mockResolvedValue({headSha:SHA,state:"MERGED"});
