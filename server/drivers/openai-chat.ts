@@ -692,6 +692,13 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
               stopReason = "tool_error";
               throw new ChatProtocolError("Some steps didn't work or weren't allowed, so check them before relying on this answer.");
             }
+            // Words the person sent while this reply was being written are
+            // still parked: answer them in this turn rather than leaving them
+            // unread until the person writes again.
+            if (turnEntry.asides.length && round + 1 < MAX_CHAT_ROUNDS) {
+              messages.push({ role: "assistant", content: completion.text });
+              continue;
+            }
             ok = true;
             break;
           }
