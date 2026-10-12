@@ -20,7 +20,7 @@ folders changed during those runs either.
 
 | Check | Result |
 | --- | --- |
-| Release assets | v0.3.16 to v0.3.22: the zip matched `SHA256SUMS.txt` and the updater's `latest-mac.yml` sha512. |
+| Release assets | v0.3.16 to v0.3.24: the zip matched `SHA256SUMS.txt` and the updater's `latest-mac.yml` sha512. |
 | Signature and Gatekeeper | `codesign --verify --deep --strict` passed; `spctl` accepted the copy marked as downloaded (Notarized Developer ID); the ticket was stapled. |
 | First run | Name, then a first dog (breed, colour, name), then the chat. The dog greeted the person by name on Kimi K2.6 and asked one question with options; answering it got a reply. The five-step tour ran and ended back in the chat. |
 | Composer | `+` (attach, connect apps, Heel or Off-leash), the model button (Kimi K2.6, Grok 4.3), dictation's mic once the dog was idle; no voice-chat button with Voice mode off. |
@@ -40,6 +40,8 @@ folders changed during those runs either.
 | Code without comments (0.3.22-preview.1) | A signed, notarized preview of the comment-free code (#29) ran sealed: the copy claimed its own trial, Kimi answered the first message in about 6 s, a message sent mid-reply got its answer in the same turn, and the app used about 590 MB across 6 processes. |
 | A card about the person's Mac (0.3.23) | Asked to check this Mac's display size, a Kimi dog's two requests read "Quill wants to use this Mac" and "Let Quill use this Mac?". Both were denied and neither ran. The dog then blamed missing permissions instead of saying it had been told no (0.3.24 changes what it is told). In this run Kimi's first reply listed its options as text instead of the question card. |
 | Updating in place (0.3.22 to 0.3.23) | `scripts/sealed-update-check.sh v0.3.22`: the copy staged 0.3.23 by itself, installed it on quit, Gatekeeper accepted the result, and it reopened as 0.3.23 with all 39 data files and the chat; the dog recalled its word. An earlier attempt stopped at the download (GitHub closed the connection) before the app started. |
+| Telling a dog no (0.3.24) | The same request on the released 0.3.24 raised one card, "Let Poppy use this Mac?", which was denied. The dog tried nothing else and replied "I wasn't able to check the display size — that tool call wasn't allowed." |
+| Updating in place (0.3.23 to 0.3.24) | `scripts/sealed-update-check.sh v0.3.23`: staged by itself, installed on quit, Gatekeeper accepted the result, and the copy reopened as 0.3.24 with all 40 data files and the chat; the dog recalled its word. |
 | Ending the trial | `DELETE /v1/trial` answered 200; the copy's folder and its Launch Services registrations were removed, and `laterdog://` links opened the installed app again. |
 
 ## Corrected during the run
@@ -68,6 +70,9 @@ folders changed during those runs either.
   marked the request as local. The test driver allowed it, so the copy read this Mac's
   display size; nothing else ran. Test drivers now deny every card, and 0.3.23 names
   the Mac on the card.
+- **0.3.23, a refused step:** the model was told "Permission denied or expired", so the
+  dog tried another tool on the Mac and then blamed missing permissions. 0.3.24 tells it
+  the person did not allow the step and not to try another way.
 - **The check itself:** a launch with only `HOME` changed reads the Mac's real
   later.dog data, because the app finds its folders through Foundation. The script
   above replaced hand launches.
