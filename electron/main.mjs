@@ -2904,7 +2904,10 @@ ipcMain.handle("speech:start", localOnly("speech:start", (event, options) => {
     win.webContents.send("speech:end", { code: 2, reason: "unsupported-platform" });
     return;
   }
-  startSpeech(win, options);
+  // a retry names a saved voice note; speech.mjs accepts only its own
+  startSpeech(win, options && typeof options === "object"
+    ? { endpointMs: options.endpointMs, ...(typeof options.file === "string" ? { file: options.file } : {}) }
+    : undefined);
 }));
 ipcMain.handle("speech:stop", localOnly("speech:stop", () => {
   if (nativeActions.appleSpeech) stopSpeech();

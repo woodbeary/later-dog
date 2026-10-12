@@ -6,6 +6,10 @@
 // electron/speech.mjs as this background app bundle so macOS can resolve the
 // microphone and speech purpose strings in its Info.plist.
 //
+// `--record PATH` also saves what the microphone hears to PATH (16-bit CAF),
+// so a voice note survives a recognition error and can be transcribed again.
+// `--file PATH` transcribes such a recording instead of the microphone.
+//
 // `--endpoint-ms N` ends the audio stream after N milliseconds without a
 // transcript change. SFSpeechRecognizer does not finalize a buffer-backed
 // request on silence by itself; it only produces `isFinal` after endAudio().
@@ -24,10 +28,29 @@ func emit(_ obj: [String: Any]) {
   }
 }
 
+// The voice note on disk: written from the tap, closed before every exit so
+// its header is complete. One lock for both.
+var recordFile: AVAudioFile?
+let recordLock = NSLock()
+func closeRecording() {
+  recordLock.lock()
+  recordFile = nil
+  recordLock.unlock()
+}
+
 func fail(_ message: String) -> Never {
+  closeRecording()
   emit(["error": message])
   exit(1)
 }
+
+func argValue(_ name: String) -> String? {
+  let args = CommandLine.arguments
+  guard let index = args.firstIndex(of: name), index + 1 < args.count else { return nil }
+  return args[index + 1]
+}
+let recordPath = argValue("--record")
+let filePath = argValue("--file")
 
 let endpointMs: Int = {
   let args = CommandLine.arguments
@@ -59,7 +82,10 @@ if let stopFile {
   let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
   timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(100))
   timer.setEventHandler {
-    if FileManager.default.fileExists(atPath: stopFile) { exit(0) }
+    if FileManager.default.fileExists(atPath: stopFile) {
+      closeRecording()
+      exit(0)
+    }
   }
   stopTimer = timer
   timer.resume()
@@ -140,6 +166,21 @@ SFSpeechRecognizer.requestAuthorization { status in
       .first(where: { $0.isAvailable })
   else { fail("recognizer-unavailable") }
 
+  // A saved voice note: transcribe the file, no microphone.
+  if let filePath {
+    let fileRequest = SFSpeechURLRecognitionRequest(url: URL(fileURLWithPath: filePath))
+    fileRequest.shouldReportPartialResults = true
+    if recognizer.supportsOnDeviceRecognition { fileRequest.requiresOnDeviceRecognition = true }
+    recognizer.recognitionTask(with: fileRequest) { result, error in
+      if let result = result {
+        emit(["partial": !result.isFinal, "text": result.bestTranscription.formattedString])
+        if result.isFinal { exit(0) }
+      }
+      if error != nil { fail("recognition-error") }
+    }
+    return
+  }
+
   let request = SFSpeechAudioBufferRecognitionRequest()
   request.shouldReportPartialResults = true
   if recognizer.supportsOnDeviceRecognition {
@@ -169,8 +210,24 @@ SFSpeechRecognizer.requestAuthorization { status in
     }
     endpointer?.start()
   }
-  node.installTap(onBus: 0, bufferSize: 1024, format: node.outputFormat(forBus: 0)) { buffer, _ in
+  let inputFormat = node.outputFormat(forBus: 0)
+  if let recordPath {
+    let settings: [String: Any] = [
+      AVFormatIDKey: kAudioFormatLinearPCM,
+      AVSampleRateKey: inputFormat.sampleRate,
+      AVNumberOfChannelsKey: inputFormat.channelCount,
+      AVLinearPCMBitDepthKey: 16,
+      AVLinearPCMIsFloatKey: false,
+    ]
+    recordFile = try? AVAudioFile(
+      forWriting: URL(fileURLWithPath: recordPath), settings: settings,
+      commonFormat: inputFormat.commonFormat, interleaved: inputFormat.isInterleaved)
+  }
+  node.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, _ in
     request.append(buffer)
+    recordLock.lock()
+    try? recordFile?.write(from: buffer)
+    recordLock.unlock()
   }
   do {
     engine.prepare()
@@ -182,7 +239,10 @@ SFSpeechRecognizer.requestAuthorization { status in
       let text = result.bestTranscription.formattedString
       endpointer?.saw(text)
       emit(["partial": !result.isFinal, "text": text])
-      if result.isFinal { exit(0) }
+      if result.isFinal {
+        closeRecording()
+        exit(0)
+      }
     }
     if let error {
       let nsError = error as NSError

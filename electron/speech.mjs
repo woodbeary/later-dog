@@ -5,7 +5,9 @@
 import { spawn } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -37,6 +39,30 @@ const BIN = app.isPackaged
 
 let child = null;
 
+// Voice notes: a dictation is also saved as audio, so a recognition error
+// never loses what was said. The last few stay; Try again transcribes one.
+const VOICE_NOTES_KEPT = 10;
+export function voiceNotesDir() {
+  return path.join(app.getPath("userData"), "voice-notes");
+}
+function newVoiceNotePath() {
+  const dir = voiceNotesDir();
+  mkdirSync(dir, { recursive: true });
+  try {
+    const old = readdirSync(dir).filter((name) => name.endsWith(".caf")).sort();
+    for (const name of old.slice(0, Math.max(0, old.length - (VOICE_NOTES_KEPT - 1)))) {
+      rmSync(path.join(dir, name), { force: true });
+    }
+  } catch {}
+  return path.join(dir, `${new Date().toISOString().replace(/[:.]/g, "-")}.caf`);
+}
+/** Only a voice note this app saved can be transcribed again. */
+export function isVoiceNote(file) {
+  if (typeof file !== "string" || !file.endsWith(".caf")) return false;
+  const resolved = path.resolve(file);
+  return path.dirname(resolved) === voiceNotesDir() && existsSync(resolved);
+}
+
 function ensureBuilt() {
   if (app.isPackaged) return;
   const binaryMtime = existsSync(BIN) ? statSync(BIN).mtimeMs : 0;
@@ -63,7 +89,15 @@ export function startSpeech(win, options = {}) {
   const endpointMs = Number.isFinite(requested) && requested > 0
     ? Math.min(5_000, Math.max(250, Math.round(requested)))
     : 0;
-  const args = endpointMs ? ["--endpoint-ms", String(endpointMs)] : [];
+  // A retry transcribes a saved voice note; composer dictation saves one.
+  const file = isVoiceNote(options?.file) ? path.resolve(options.file) : null;
+  const recording = !file && !endpointMs ? newVoiceNotePath() : null;
+  const args = [
+    ...(endpointMs ? ["--endpoint-ms", String(endpointMs)] : []),
+    ...(file ? ["--file", file] : []),
+    ...(recording ? ["--record", recording] : []),
+  ];
+  const note = file ?? recording;
 
   try {
     ensureBuilt();
@@ -165,12 +199,13 @@ export function startSpeech(win, options = {}) {
     // not look like the natural end of a spoken turn.
     if (child !== speechSession) return;
     child = null;
+    const kept = note && existsSync(note) ? { recording: note } : {};
     if (reportedError) {
-      sendEnd(win, { code: 1, reason: reportedError });
+      sendEnd(win, { code: 1, reason: reportedError, ...kept });
     } else if (completed && code === 0) {
       sendEnd(win, { code: 0, reason: "completed" });
     } else {
-      sendEnd(win, { code: 1, reason: "helper-exited" });
+      sendEnd(win, { code: 1, reason: "helper-exited", ...kept });
     }
   });
   proc.on("error", () => {
