@@ -10,6 +10,12 @@ changed). The app was driven over its devtools port. The free trial was a real o
 on production `cloud.later.dog`, granted to the copy with the service owner's key and
 ended when the run stopped. No Claude or ChatGPT account was signed in.
 
+The in-place update ran without the sandbox profile (now
+`scripts/sealed-update-check.sh`): macOS refuses to submit the updater's installer
+job from inside one (launchd error 4 on the first attempt). `CFFIXED_USER_HOME`
+still held the copy in its temporary home, and no file in the real later.dog
+folders changed during those runs either.
+
 ## Observed results
 
 | Check | Result |
@@ -27,7 +33,10 @@ ended when the run stopped. No Claude or ChatGPT account was signed in.
 | A new user's own trial (0.3.21) | Without an owner grant the copy claimed its own free trial from `cloud.later.dog` within seconds, as a stranger's install does, and Kimi answered the first message in about 6 s. The six processes of the app used about 645 MB together. |
 | A message sent mid-reply (0.3.21) | The second message showed as "sent mid-turn", but the turn ended with the first reply and the message stayed unread until the next one. |
 | A message sent mid-reply (0.3.22) | "Make the dog a corgi named Waffles.", sent while Kimi wrote a story, got its own answer in the same turn: the story again with Waffles the corgi. |
+| An image added mid-reply (0.3.22) | A picture (a red square with the word DOG) attached and sent while Kimi wrote a story waited its turn, then got its own answer in the same turn: "The picture is red … the word on it is "DOG" in white letters." |
+| A cloud task on the live supervisor | A later.dog Cloud job sent to the hosted supervisor over its API (not from the app: the copies run with a dead supervisor address) removed an unused string from this repository. It ran 47 s, changed one line, and publishing it opened a draft pull request for a person to merge. |
 | Grok 4.3 on its own computer (0.3.21) | Same request as above, no card, but Grok stopped on the desktop's "Choose Preferred Application" window after 16 s. After the computers Worker change below, the same request on a fresh computer answered with the headline in 18 s, no card and no window. |
+| Updating in place (0.3.21 to 0.3.22) | A 0.3.21 copy found 0.3.22 by itself and showed the update button; its panel read "later.dog 0.3.22 is ready. Restart later.dog to finish. Your dogs and chats are kept." above the release notes. Quitting normally, without Restart to update, let macOS install 0.3.22 into the copy in about 6 s and relaunch nothing (the installer's request said `launchAfterInstallation: false`). The installed copy passed `codesign` and Gatekeeper. Reopened on the same home it reported 0.3.22, skipped the first run, showed the earlier chat, and the dog answered "pineapple" when asked for the word it had been told to remember before the update. The update button was gone. `scripts/sealed-update-check.sh v0.3.21` repeated the run: all 40 of the copy's data files were still there and the dog recalled its word again. |
 | Ending the trial | `DELETE /v1/trial` answered 200; the copy's folder and its Launch Services registrations were removed, and `laterdog://` links opened the installed app again. |
 
 ## Corrected during the run
@@ -60,6 +69,8 @@ ended when the run stopped. No Claude or ChatGPT account was signed in.
   account's chat (no account was signed in).
 - Dictation and saved voice notes with a real microphone (no permission prompt was
   answered).
-- Cloud tasks against a live supervisor, connected apps' OAuth, and later.dog Cloud
-  checkout.
-- Updating in place from an older install.
+- A cloud task started from the app on the live supervisor (the supervisor's own
+  API is above), connected apps' OAuth, and later.dog Cloud checkout.
+- Restart to update: it relaunches the app through Launch Services, outside the
+  sealed home and onto the Mac's real later.dog data, so it was not clicked.
+  Updating from releases older than 0.3.21.

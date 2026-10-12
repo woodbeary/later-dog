@@ -229,8 +229,22 @@ finds its data folders through Foundation, which ignores `HOME`, so a plain
 `HOME=… later.dog` opens the person's real dogs and sign-ins. The script sets
 `CFFIXED_USER_HOME` as well and runs the app in a sandbox that cannot reach the
 real later.dog data at all. The copy inherits this Mac's Accessibility and
-Screen Recording grants, so its dogs never get a task on "this Mac". End the
-free trial it starts (Settings, Computer) before pressing Ctrl-C.
+Screen Recording grants, so its dogs never get a task on "this Mac". Ctrl-C ends
+the free trial it holds, stops it and removes its temporary folder.
+
+An update in place is checked from the release before:
+
+```sh
+scripts/sealed-update-check.sh v0.3.21
+```
+
+The older copy stages the newest release by itself; the script quits it without
+"Restart to update", so macOS installs the update and relaunches nothing, then
+reopens the updated copy on the same temporary home and checks its data files.
+Never click "Restart to update" in a copy: the relaunch comes from Launch
+Services, outside the temporary home, onto the real data. This script runs
+without the sandbox profile, which blocks the installer's launchd job, and
+reports any file that changed in the real later.dog folders.
 
 ## Evidence
 
