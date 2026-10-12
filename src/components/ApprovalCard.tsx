@@ -113,8 +113,9 @@ export function toolLabel(tool?: string): string {
     think: "approval.tool.think",
     other: "approval.tool.takeAction",
     tool: "approval.tool.useTool",
+    select_computer: "approval.tool.chooseComputer",
   };
-  const key = nice[tool];
+  const key = nice[tool] ?? nice[tool.replace(/^mcp__[^_]+__/, "").replace(/^agents_/, "")];
   if (key) return t(key);
   const phrase = composioActionPhrase(tool.replace(/^mcp__(.+?)__/, ""));
   if (phrase) return phrase;

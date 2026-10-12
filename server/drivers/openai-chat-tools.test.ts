@@ -14,6 +14,7 @@ import { removeTempDir } from "../testing/cleanup.ts";
 import { recordEvents } from "../testing/events.ts";
 import { startFakeHttpMcp } from "../testing/fake-http-mcp-server.ts";
 import { whopLikeCatalog } from "../testing/whop-like-catalog.ts";
+import { OLDER_SCREENSHOT } from "./chat-images.ts";
 import { GrokDriver } from "./grok.ts";
 import { CerebrasDriver } from "./cerebras.ts";
 import { MinimaxDriver } from "./minimax.ts";
@@ -394,6 +395,27 @@ describe("OpenAI-compatible computer images", () => {
         { type: "text", text: "Screenshot result from tool call second:" }, { type: "image_url" },
       ] },
     ]);
+  });
+
+  it("sends only the newest round of screenshots", async () => {
+    const f = await fixture((_body, response, round) => {
+      if (round <= 2) sse(response, [chunk({ tool_calls: [toolCall("computer_write", `{"name":"round${round}","value":"done"}`, `shot${round}`)] }, "tool_calls")]);
+      else answer(response);
+    });
+    writeFileSync(join(f.directory, "mcp.mjs"), MCP_SCRIPT.replace(
+      'text: "Stored " + args.name + "=" + args.value',
+      `text: "Screenshot captured" }, { type: "image", mimeType: "image/png", data: ${JSON.stringify(png)}`,
+    ));
+    const stop = f.instance.adapter.onEvent(event => {
+      if (event.type === "request.opened") void f.instance.adapter.respondToRequest(f.threadId, event.requestId!, { behavior: "allow" });
+    });
+    await f.start({ integrations: { localComputer: f.integrations!.custom!.audit as NonNullable<SendTurnInput["integrations"]>["localComputer"] } });
+    expect(await f.completed()).toMatchObject({ ok: true });
+    stop();
+    const last = JSON.stringify(f.requests[2].messages);
+    expect(last.match(/"type":"image_url"/g)).toHaveLength(1);
+    expect(last).toContain(OLDER_SCREENSHOT.slice(1, 40));
+    expect(f.requests[2].messages.at(-1)).toMatchObject({ role: "user", content: [{ type: "text", text: "Screenshot result from tool call shot2:" }, { type: "image_url" }] });
   });
 
   it("does not execute a denied computer action", async () => {

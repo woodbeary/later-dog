@@ -92,3 +92,27 @@ describe("closing a dog's question", () => {
     expect(host.textContent).toBe("");
   });
 });
+
+describe("answering a dog's question", () => {
+  it("sends a single choice the moment it is picked", () => {
+    mount(question());
+    const option = [...host.querySelectorAll<HTMLButtonElement>("[role=radio]")].find((button) => button.textContent?.includes("Research and writing"));
+    act(() => option?.click());
+    expect(fixture.dispatch).toHaveBeenCalledTimes(1);
+    expect(fixture.dispatch.mock.calls[0]![0]).toMatchObject({ type: "decideRequest", requestId: "req-1", behavior: "answer", message: expect.stringContaining("A: Research and writing") });
+  });
+
+  it("waits for Submit when there is more than one question", () => {
+    mount(question({
+      questionRequest: {
+        version: 1,
+        questions: [
+          { question: "What first?", options: [{ label: "Code" }, { label: "Writing" }] },
+          { question: "How often?", options: [{ label: "Daily" }, { label: "Weekly" }] },
+        ],
+      },
+    }));
+    act(() => host.querySelector<HTMLButtonElement>("[role=radio]")?.click());
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+  });
+});

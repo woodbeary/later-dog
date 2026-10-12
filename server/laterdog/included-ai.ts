@@ -14,11 +14,13 @@ const ENDED_WITH_PLAN = "Your free later.dog AI has ended. Sign in to Claude or 
 const ended = () => (planOfferedNow() ? ENDED_WITH_PLAN : ENDED);
 const DAILY = "You've used today's free later.dog AI. It comes back tomorrow, or sign in to Claude or ChatGPT to keep going now.";
 const BUSY = "later.dog AI is busy right now. Try again in a minute, or sign in to Claude or ChatGPT.";
+const TOO_LARGE = "That was too much for later.dog AI to take in at once, most likely a large screenshot. Try again, or start a new chat.";
 
 export function includedAiError(status: number, body: string): string | undefined {
   let code = "";
   try { code = String((JSON.parse(body) as { error?: { code?: unknown } }).error?.code ?? ""); } catch { code = ""; }
   if (status === 401) return ended();
+  if (status === 413) return TOO_LARGE;
   if (status === 429 && code === "daily_limit") return DAILY;
   if (status === 429 || status === 503 || status === 502) return BUSY;
   return undefined;

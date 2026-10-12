@@ -181,7 +181,7 @@ posixOnly("authorization decisions are logged", () => {
       expect(row!.botName).toBe("Granted");
       expect(row!.threadId).toBeTruthy();
       expect(row!.requestId).toBeTruthy();
-      expect(card.card.held).toBe("The provider requires your approval for this action.");
+      expect(card.card.held).toBe("This always asks you first.");
       expect(card.card.allowSession).toBe(true);
     },
     60_000,

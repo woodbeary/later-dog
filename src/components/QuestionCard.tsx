@@ -98,6 +98,10 @@ export function QuestionCard({
     // Single-select is a radio group: picking replaces, and picking an
     // option means the free-text answer was not the one they wanted.
     update(currentIndex, { picked: [label], other: false });
+    if (questions.length === 1) {
+      send([[label]]);
+      return;
+    }
     // Move to the next question they still owe an answer to, the way the
     // tabs would have been clicked anyway. The last one stays put so the
     // submit button is under the cursor that just chose.
@@ -115,8 +119,13 @@ export function QuestionCard({
   };
 
   const submit = () => {
-    if (settled || !complete || !card.requestId) return;
-    const answer = formatQuestionAnswers(questions, questions.map((_, index) => answersOf(drafts[index] ?? EMPTY)));
+    if (!complete) return;
+    send(questions.map((_, index) => answersOf(drafts[index] ?? EMPTY)));
+  };
+
+  const send = (answers: string[][]) => {
+    if (settled || !card.requestId) return;
+    const answer = formatQuestionAnswers(questions, answers);
     if (!answer) return;
     setSent(answer);
     dispatch({
@@ -226,8 +235,9 @@ export function QuestionCard({
                 role={current.multiSelect ? "checkbox" : "radio"}
                 aria-checked={picked}
                 onClick={() => choose(option.label)}
+                title={option.description}
                 className={cn(
-                  "flex w-full items-start gap-3 px-3 py-2.5 text-left",
+                  "flex w-full items-start gap-3 px-3 py-2 text-left",
                   index > 0 && "border-t border-hairline/40",
                   // `raised` is the same value as the card in the light
                   // skins; `raised-hover` is the one tone every skin
@@ -236,10 +246,10 @@ export function QuestionCard({
                 )}
               >
                 <Marker checked={picked} multi={Boolean(current.multiSelect)} />
-                <span className="min-w-0">
-                  <span className="block text-[14px] font-medium text-ink">{option.label}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-medium text-ink">{option.label}</span>
                   {option.description && (
-                    <span className="block text-[13px] leading-snug text-ink-secondary">{option.description}</span>
+                    <span className="block truncate text-[12.5px] leading-snug text-ink-secondary">{option.description}</span>
                   )}
                 </span>
               </button>
@@ -250,7 +260,7 @@ export function QuestionCard({
             aria-checked={draft.other}
             onClick={toggleOther}
             className={cn(
-              "flex w-full items-center gap-3 px-3 py-2.5 text-left",
+              "flex w-full items-center gap-3 px-3 py-2 text-left",
               current.options.length > 0 && "border-t border-hairline/40",
               draft.other ? "bg-raised-hover" : "hover:bg-raised-hover/60",
             )}

@@ -4,20 +4,29 @@
 // completely functional until the first message, then fails with a raw spawn
 // error. Every engine unavailable is a setup state, not an error state, so it
 // gets a screen that says what to do rather than a bot that can't answer.
-import { Loader2, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
+import { useCallback, useState } from "react";
 import { useStore } from "@/state/store";
 import { EngineGroupLabel } from "@/components/EngineGroupLabel";
+import { engineReady } from "@/components/EngineLibrary";
 import { EngineSetup, installCommandFor } from "@/components/EngineSetup";
+import { AccountRow, type Report } from "@/components/onboarding/beats/EnginesBeat";
+import { FreeAiRow } from "@/components/onboarding/beats/FreeAiRow";
 import { InstanceProviderMark } from "@/components/ProviderIcons";
 import { splitEngineRail } from "@/lib/engine-rail";
 import { t } from "@/lib/i18n";
-import { brand } from "../lib/brand";
+import { ONBOARDING_ACCOUNT_IDS, onboardingAccounts, type OnboardingAccountId } from "@/lib/onboarding";
 
 export function NoEngines() {
   const { state, refreshInstances } = useStore();
   const remoteClient = window.laterdog?.remoteClient?.active === true;
   const [rechecking, setRechecking] = useState(false);
+  const [more, setMore] = useState(false);
+  const [message, setMessage] = useState<{ id: OnboardingAccountId; text: string } | null>(null);
+  const report = useCallback<Report>((id, text) => {
+    setMessage((current) => (text ? { id, text } : current?.id === id ? null : current));
+  }, []);
+  const accounts = onboardingAccounts(state.instances, engineReady);
   const recheck = async () => {
     setRechecking(true);
     try {
@@ -63,10 +72,27 @@ export function NoEngines() {
       <div className="mx-auto w-full max-w-[560px] px-6 py-12">
         <h1 className="text-[20px] font-semibold text-ink">{t("noEngines.title")}</h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">
-          {t("noEngines.intro", { app: brand().name })}
+          {t("noEngines.intro")}
         </p>
 
-        <div className="mt-6 flex flex-col gap-2.5">
+        <ul className="mt-6 divide-y divide-hairline/40 overflow-hidden rounded-xl bg-card">
+          <FreeAiRow primary onReady={() => void refreshInstances()} />
+          {ONBOARDING_ACCOUNT_IDS.map((id) => (
+            <AccountRow key={id} id={id} account={accounts.find((account) => account.id === id) ?? null} report={report} />
+          ))}
+        </ul>
+        <p aria-live="polite" className="mt-2 min-h-5 text-[13px] leading-5 text-danger">{message?.text ?? ""}</p>
+
+        <button
+          type="button"
+          aria-expanded={more}
+          onClick={() => setMore((open) => !open)}
+          className="mt-4 flex items-center gap-1.5 text-[13px] text-ink-secondary hover:text-ink"
+        >
+          <ChevronDown size={14} className={more ? "rotate-180 transition-transform" : "transition-transform"} />
+          {t("noEngines.more")}
+        </button>
+        {more && <div className="mt-3 flex flex-col gap-2.5">
           {(() => {
             const { subscription, custom } = splitEngineRail(engines);
             const card = (instance: (typeof engines)[number]) => (
@@ -91,7 +117,7 @@ export function NoEngines() {
               </>
             );
           })()}
-        </div>
+        </div>}
 
         <button
           onClick={recheck}

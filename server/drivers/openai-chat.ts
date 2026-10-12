@@ -13,7 +13,7 @@ import { allowsTool, parseToolScope } from "../../shared/tool-scope.ts";
 import { redactSecretsInText } from "../redact.ts";
 import { toolDetailPreview } from "../tool-summary.ts";
 import { ChatToolSessionError, mountChatTools, type ChatToolDefinition, type ChatToolSession, type ChatToolResult } from "./chat-mcp-tools.ts";
-import { assertImageTransport, chatImageBudget, chatToolImages, chatUserContent, type ChatContentPart } from "./chat-images.ts";
+import { assertImageTransport, chatImageBudget, chatToolImages, chatUserContent, retireScreenshots, type ChatContentPart } from "./chat-images.ts";
 import { promptHalves, volatileContextNote, withContextNote } from "./prompt-split.ts";
 import { createChatToolApproval } from "./chat-tool-approval.ts";
 import { ChatProtocolError, ChatReasoningDetails, ChatToolCalls, object, type ChatToolCall } from "./openai-chat-protocol.ts";
@@ -482,7 +482,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     const turnId = newId();
     const abort = new AbortController();
     const messages = messagesFor(turn);
-    const retainImages = chatImageBudget();
+    let retainImages = chatImageBudget();
     for (const message of messages) retainImages(message.content);
     const model = turn.model || options.models().default;
     const secrets = [apiKeyOf(options)].filter((value): value is string => Boolean(value));
@@ -781,7 +781,13 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
             abort.signal.throwIfAborted();
             if (fatal) throw fatal;
           }
-          if (screenshotParts.length) messages.push({ role: "user", content: screenshotParts });
+          if (screenshotParts.length) {
+            retireScreenshots(messages);
+            retainImages = chatImageBudget();
+            for (const message of messages) retainImages(message.content);
+            retainImages(screenshotParts);
+            messages.push({ role: "user", content: screenshotParts });
+          }
         }
         if (!ok) throw new ChatProtocolError(stoppedAfter(`${MAX_CHAT_ROUNDS} steps`));
       } catch (value) {

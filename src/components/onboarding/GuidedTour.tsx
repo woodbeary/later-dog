@@ -4,7 +4,7 @@ import { t } from "@/lib/i18n";
 import type { DogState } from "@/lib/mascot";
 import { hintSeenPatch } from "@/lib/onboarding";
 import type { LocaleKey } from "@/locales";
-import { api, useStore } from "@/state/store";
+import { api, useStore, visibleMessages, type Bot } from "@/state/store";
 import { Spotlight } from "./Spotlight";
 
 const MASCOT: Record<TourStep["id"], DogState> = {
@@ -33,6 +33,14 @@ function press(anchor: string): boolean {
   if (!el) return false;
   el.click();
   return true;
+}
+
+/** A question or approval the person still owes the open chat. The tour waits
+ * for it rather than cover it on a dog's first message. */
+export function waitingOnPerson(bot: Pick<Bot, "messages" | "activeLeafId"> | undefined): boolean {
+  if (!bot) return false;
+  return visibleMessages(bot).some((message) => message.kind === "options" && Boolean(message.card?.requestId)
+    && !message.card?.answered && !message.card?.dismissed && !message.card?.expired);
 }
 
 export function GuidedTour() {
@@ -116,7 +124,8 @@ export function GuidedTour() {
     dispatch({ type: "toggleTour", open: false });
   }, [state.pluginsOpen, run, save, dispatch]);
 
-  const active = !dismissed && Boolean(record?.completedAt) && !state.welcomeOpen && step !== null;
+  const waiting = waitingOnPerson(state.bots.find((bot) => bot.id === state.selectedId));
+  const active = !dismissed && Boolean(record?.completedAt) && !state.welcomeOpen && step !== null && !waiting;
 
   // entering a step runs its effect once per step
   useEffect(() => {
