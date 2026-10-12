@@ -54,6 +54,12 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
+# The packaged app always serves on 8799, so it would meet a running later.dog there.
+if lsof -nP -iTCP:8799 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "something already serves on port 8799 (a running later.dog?); quit it first"
+  exit 1
+fi
+
 mkdir -p "$ROOT/dl" "$ROOT/verify" "$ROOT/run" "$SEALED/tmp" "$SEALED/.laterdog"
 if [ -n "${LATERDOG_TRIAL_GRANT_KEY_FILE:-}" ]; then
   trial_key="ldt_$(openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n')"
