@@ -1,5 +1,3 @@
-// Disposable real-Electron check. No workspace, server, credentials or CUA.
-// Run with Node: node scripts/verify-startup-tray.mjs
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -63,7 +61,6 @@ if (!process.versions.electron) {
     writeFileSync(join(output, "startup-screen.png"), (await active.webContents.capturePage()).toPNG());
     assert.equal(await active.webContents.executeJavaScript("document.querySelector('h1').textContent"), "later.dog Bot");
     assert.equal(await active.webContents.executeJavaScript("typeof process"), "undefined");
-    // Exercise the actual renderer close button.
     await active.webContents.executeJavaScript("document.querySelector('button').click()");
     record("clicked close");
     await delay(100);
@@ -88,7 +85,6 @@ if (!process.versions.electron) {
     for (let i = 0; i < 50 && !win.isVisible(); i++) await delay(20);
     assert.equal(win.isVisible(), true);
     assert.equal(tray.isHidden(), false);
-    // Select the real native MenuItem without manipulating the operator's tray.
     trayMenu.items[2].click();
     assert.equal(quitting, true);
     tray.destroy(); win.destroy();

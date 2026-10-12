@@ -1,4 +1,3 @@
-// Actual Apps modal/card in Chromium, with fake authorize responses only.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -29,8 +28,6 @@ const pauseAuthorize = (fail = false) => {
 };
 try {
   await runControlLaterDog(["doctor", "--url", fixture.info.url]);
-  // All native popups use this dedicated test hostname mapped to loopback.
-  // Its ephemeral certificate and ignored trust live only in this fixture.
   const key = join(fixture.info.dataDir, "oauth-fixture.key");
   const certificate = join(fixture.info.dataDir, "oauth-fixture.crt");
   await promisify(execFile)("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", certificate, "-subj", "/CN=auth.example.test", "-days", "1"]);
@@ -98,7 +95,6 @@ try {
     window.open=(url,target)=>{window.__oauthTrace.push({event:'open',url,active:navigator.userActivation.isActive});const page=window.__blockOAuth?null:window.__nativeOpen(url,target);if(page)window.__oauthPages.push(page);return page;};
     const originalFetch=window.fetch.bind(window);window.fetch=(input,init)=>{const auth=String(input).includes('/authorize');if(auth)window.__oauthTrace.push({event:'fetch'});return originalFetch(input,init).then(response=>{if(auth)window.__oauthResponses++;return response;});};`);
   const assertReserved = async () => {
-    // Native popups become the browser's active tab; inspect the app tab.
     await command("tab", "t1");
     const trace = await evaluate("window.__oauthTrace.slice(-2)");
     assert.deepEqual(trace, [{ event: "open", url: "", active: true }, { event: "fetch" }]);
@@ -123,7 +119,6 @@ try {
     await command("tab", "t1");
   };
 
-  // Settings reserves synchronously even though the returned URL is delayed.
   await click("Settings Apps");
   await wait("document.querySelector('[data-app-tile=gmail] button[type=button]:not([aria-label]):not(:disabled)')!==null");
   await command("click", "[data-app-tile=gmail] button[type=button]:not([aria-label])");
@@ -133,7 +128,6 @@ try {
   await checkLink("[data-app-tile=gmail] a[target=_blank]", 1);
   await checkAuthorizationTab(1);
   await command("screenshot", join(evidence, "settings-authorizing.png"), "--full");
-  // The same real modal remains usable when a later popup is blocked.
   await evaluate("window.__blockOAuth=true");
   await command("click", "[data-app-tile=gmail] button[type=button]:not([aria-label])");
   await wait("document.querySelector('[role=alert]').textContent.includes('blocked')");
@@ -144,7 +138,6 @@ try {
   assert.equal(((await command("tab", "list")).tabs as unknown[]).length, beforeSettingsLink + 1);
   await checkAuthorizationTab(1);
   await command("screenshot", join(evidence, "settings-popup-blocked.png"), "--full");
-  // Closing Settings while another toolkit request is pending cancels its tab.
   await evaluate("window.__blockOAuth=false");
   await command("click", "[data-app-tile=slack] button[type=button]:not([aria-label])");
   await command("fill", "[data-app-tile=slack] form input", "fixture-slack");
@@ -154,7 +147,6 @@ try {
   release();
   await wait("window.__oauthResponses===2&&window.__oauthPages.at(-1).closed");
   assert.equal(await evaluate("document.querySelector('[data-tour=apps-panel]')===null"), true);
-  // Reopening loses the memory-only URL, not the unfinished upstream account.
   await click("Settings Apps");
   await command("find", "role", "button", "click", "--name", "Refresh connection status", "--exact");
   await wait("document.querySelector('[data-app-tile=gmail]').textContent.includes('fixture-work')");
@@ -162,7 +154,6 @@ try {
   pauseAuthorize(); await command("click", "[data-app-tile=gmail] button[type=button]:not([aria-label])");
   await assertReserved(); assert.equal(attempts, 3); assert.equal(requestBodies[2]!.alias, undefined); release();
   await checkLink("[data-app-tile=gmail] a[target=_blank]", 3); await checkAuthorizationTab(3);
-  // A stale anchor must authorize again without replaying its old alias.
   await evaluate("window.__realNow=Date.now;Date.now=()=>window.__realNow()+600001");
   pauseAuthorize(); await command("click", "[data-app-tile=gmail] a[target=_blank]");
   await assertReserved(); assert.equal(attempts, 4); assert.equal(requestBodies[3]!.alias, undefined); release();
@@ -170,7 +161,6 @@ try {
   await command("find", "role", "button", "click", "--name", "Close plugins", "--exact");
   await evaluate("Date.now=window.__realNow");
 
-  // Deliberately blocked window.open leaves a native, safe authorization link.
   await evaluate("window.__blockOAuth=true");
   pauseAuthorize(); await click("Connect securely");
   assert.equal(attempts, 5); release();
@@ -184,7 +174,6 @@ try {
   assert.equal(((await command("tab", "list")).tabs as unknown[]).length, beforeCardLink + 1);
   await checkAuthorizationTab(5);
 
-  // A failed request closes only its reserved blank; the real retry can launch.
   await click("Replace card target"); await evaluate("window.__blockOAuth=false");
   pauseAuthorize(true); await click("Connect securely"); await assertReserved(); release();
   await wait("document.body.textContent.includes('Synthetic authorization outage')");
@@ -194,7 +183,6 @@ try {
   await click("Card authorizing");
   await checkLink("[data-tour=connector] a[target=_blank]", 7);
 
-  // Replacement/unmount cannot late-open the old account after its response.
   await click("Replace card target"); pauseAuthorize(); await click("Connect securely"); await assertReserved();
   await click("Replace card target"); release();
   await wait("window.__oauthResponses===8&&window.__oauthPages.at(-1).closed");

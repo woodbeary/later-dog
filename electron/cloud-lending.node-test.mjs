@@ -1,8 +1,3 @@
-// "Let my Cloud use this Mac" on the Mac side: the real connector and
-// executor against a scripted Cloud home. Lending is bound to the signed-in
-// Cloud account and its machine, never to the maintainer flag; signing out,
-// another account or another machine ends it and cancels running work; Stop
-// lending is instant; the menu-bar indicator follows it.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -20,11 +15,8 @@ const env = { id: "my-cloud", name: "My Cloud", origin: ORIGIN };
 test("the Cloud verdict: same account and machine run, anything else ends or pauses", () => {
   const connected = { status: "connected", accountId: "acct_1", origin: ORIGIN };
   assert.deepEqual(cloudLendingVerdict(binding, connected, env), { allow: true });
-  // A minute-by-minute re-verification or an unreachable Admin does not stop lending.
   assert.deepEqual(cloudLendingVerdict(binding, { status: "unavailable", accountId: "acct_1", origin: null }, env), { allow: true });
   assert.deepEqual(cloudLendingVerdict(binding, { status: "signed-out", accountId: null, origin: null }, env), { stop: "signed-out" });
-  // A sign-in that cannot be read right now (no Cloud client yet, a failed
-  // restore) pauses; it never ends lending the person turned on.
   assert.deepEqual(cloudLendingVerdict(binding, null, env), { pause: "unverified" });
   assert.deepEqual(cloudLendingVerdict(binding, { status: "unavailable", accountId: null, origin: null }, env), { pause: "unverified" });
   assert.deepEqual(cloudLendingVerdict(binding, { ...connected, accountId: "acct_2" }, env), { stop: "account-changed" });
@@ -40,8 +32,6 @@ async function scratch(t) {
   return dir;
 }
 
-/** A Cloud home that answers the desktop's own session and hands out the
- * queued jobs; `paired` says whether this desktop is signed in there yet. */
 function cloudHome({ cloudHome = true, scopes = ["admin", "client"] } = {}) {
   const json = (value, status = 200) => ({ ok: status < 400, status, body: (async function* () { yield Buffer.from(JSON.stringify(value)); })() });
   const state = { paired: true, environmentId: randomUUID(), sessionId: randomUUID(), connects: [], disconnects: 0, results: [], queue: [], waiting: null };
@@ -69,7 +59,6 @@ function cloudHome({ cloudHome = true, scopes = ["admin", "client"] } = {}) {
   return state;
 }
 
-/** A computer-control driver that records calls and never answers `drag`. */
 async function hangingDriver(dir) {
   const calls = path.join(dir, "driver-calls.log");
   const pid = path.join(dir, "driver.pid");
@@ -96,7 +85,6 @@ async function lendingFixture(t, options = {}) {
   const driver = await hangingDriver(dir);
   const sharing = createComputerSharing({
     file: path.join(dir, "profile", "computer-sharing.json"), fetch: home.fetch, environments: () => [env],
-    // The maintainer flag is off, as for every Cloud Pro user.
     enabled: async () => { maintainerChecks++; return false; },
     cloud: () => cloud, home: path.join(dir, "home"),
     cuaConnection: async () => driver.connection,
@@ -159,7 +147,7 @@ test("a switch turned on before the first connect waits, then binds to that Clou
   assert.equal(lent.enabled, true);
   await until(() => sharing.cloudState(env).problem === "connect-first", "connect-first");
   assert.equal(home.connects.length, 0);
-  home.paired = true; // Connect to my Cloud paired this desktop
+  home.paired = true;
   await until(() => home.connects.length === 1, "first connect", 8000);
   assert.equal(home.connects[0].environmentId, home.environmentId);
 });
@@ -197,7 +185,6 @@ test("signing out of later.dog Cloud ends lending at once and cancels an action 
   await until(() => !alive(pid), "the driver transport to be closed");
   await until(() => leases.some(entry => entry.startsWith("release:")), "the screen lease to be released");
   assert.ok(home.disconnects >= 1);
-  // It stays off: signing back in does not lend again by itself.
   setCloud({ status: "connected", accountId: "acct_1", origin: ORIGIN });
   sharing.cloudChanged();
   await delay(100);
@@ -258,8 +245,6 @@ test("quitting the app pauses lending; it never switches it off, even mid-reconn
   const { dir, folderPath, home, sharing } = await lendingFixture(t);
   await sharing.saveCloud(env, { folders: [{ id: randomUUID(), path: folderPath, write: false }], screen: false });
   await connected(sharing, 1, home);
-  // The Cloud answers slowly: the app quits while this Mac is checking which
-  // Cloud it is talking to (a reconnect, e.g. after the Mac woke up).
   const answer = home.fetch;
   let identityStarted;
   const started = new Promise(resolve => { identityStarted = resolve; });

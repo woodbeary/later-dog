@@ -1,6 +1,3 @@
-// Grok Build's sign-in through the real HTTP server: the same
-// /api/instances/:id/auth routes the app calls for every engine, a disposable
-// home, and the offline fake grok. No real Grok and no call to xAI.
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +10,6 @@ import { freePortBlock } from "./testing/ports.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FAKE_GROK = join(ROOT, "server/testing/fake-grok-login-cli.ts");
-// A one-off instance name keeps the product fleet's other engines out.
 const ID = "fixture-grok";
 let child: ChildProcess | undefined;
 let home: string;

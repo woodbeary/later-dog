@@ -1,8 +1,3 @@
-// Issue #1650: the Auto host fallback must mount the gated CUA integration
-// without taking the exclusive computer:host seat, and a conversation pins
-// the host desktop only when a screen tool call actually claims it. Real
-// server, fake engine, a reachable CUA descriptor, and no Local VM in the
-// inventory so Auto falls through to the host desktop.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,8 +20,6 @@ describe("lazy host claim and pin on use (issue #1650)", () => {
   let child: ChildProcess | null = null;
   let base = "";
 
-  // No Local VM anywhere: the boot inventory marks nothing seen, so an Auto
-  // turn falls past attachLocalVm to the host fallback.
   const vmState = () => writeFileSync(stateFile, JSON.stringify({ noContainers: true }));
   const resetTurn = () => { vmState(); rmSync(dumpFile, { force: true }); rmSync(finishFile, { force: true }); };
   const api = async (method: string, path: string, body?: unknown) => {
@@ -50,7 +43,6 @@ describe("lazy host claim and pin on use (issue #1650)", () => {
       await new Promise(resolve => setTimeout(resolve, 40));
     }
   }
-  // The dump file is rewritten by every dispatch; wait for THIS bot's turn.
   const dumpFor = (botId: string): Promise<any> => until((): any => {
     if (!existsSync(dumpFile)) return null;
     try {
@@ -59,7 +51,6 @@ describe("lazy host claim and pin on use (issue #1650)", () => {
     } catch { return null; }
   }, Boolean);
   const mountedComputer = (sent: any) => sent.mcpConfig.mcpServers.computer;
-  // The first screen tools/call, exactly as the mounted proxy issues it.
   const gate = (computer: any) => fetch(computer.env.LATERDOG_CONTROL_URL, {
     headers: { authorization: `Bearer ${computer.env.LATERDOG_CONTROL_TOKEN}` },
   }).then(response => response.json() as Promise<any>);
@@ -101,7 +92,6 @@ describe("lazy host claim and pin on use (issue #1650)", () => {
     writeFileSync(finishFile, "finish");
     await waitForExit(proc, { signal: "SIGTERM" });
   }
-  // Auto may land on the person's own desktop only on macOS and Windows.
   const itAutoHost = process.platform === "linux" ? it.skip : it;
 
   beforeAll(async () => {
@@ -140,14 +130,9 @@ describe("lazy host claim and pin on use (issue #1650)", () => {
     await apiOk("POST", `/api/bots/${holder.id}/messages`, { text: "Work slowly without touching the screen.", threadId: task.threadId });
     await busy(holder.id, task.threadId);
     const computer = mountedComputer(await dumpFor(holder.id));
-    // The gated host integration is mounted…
     expect(computer.env.LATERDOG_CUA_COMMAND).toBe("/fixture/cua-driver");
     expect(computer.args.some((arg: string) => arg.includes("local-computer-proxy"))).toBe(true);
-    // …but the turn pinned nothing and took no seat.
     expect(savedTask(holder.id, task.threadId)).not.toHaveProperty("surface");
-    // Another turn's first screen call claims instantly — proof the
-    // screen-less turn holds no computer:host claim — and pins its own
-    // conversation, never the screen-less one's.
     const { bot: claimer } = await apiOk("POST", "/api/bots", { name: "Host Claim Bot" });
     const { task: claimTask } = await apiOk("POST", `/api/bots/${claimer.id}/tasks`, {});
     await apiOk("POST", `/api/bots/${claimer.id}/messages`, { text: "Work slowly too.", threadId: claimTask.threadId });
@@ -169,13 +154,9 @@ describe("lazy host claim and pin on use (issue #1650)", () => {
     await busy(bot.id, task.threadId);
     const computer = mountedComputer(await dumpFor(bot.id));
     expect(savedTask(bot.id, task.threadId)).not.toHaveProperty("surface");
-    // First screen tools/call: the gate fires the deferred exclusive claim…
     expect(await gate(computer)).toEqual({ held: false, helpOpen: false });
-    // …and the conversation pins the desktop this turn now actually holds.
     await until(() => savedTask(bot.id, task.threadId)?.surface === "local", Boolean);
     expect(savedTask(bot.id, task.threadId)).toMatchObject({ surface: "local", surfaceSource: "auto" });
-    // The seat stays held for the rest of the turn: another turn's first
-    // screen call is answered with real contention, not let through.
     const { bot: second } = await apiOk("POST", "/api/bots", { name: "Host Contended Bot" });
     const { task: secondTask } = await apiOk("POST", `/api/bots/${second.id}/tasks`, {});
     await apiOk("POST", `/api/bots/${second.id}/messages`, { text: "Also work slowly.", threadId: secondTask.threadId });

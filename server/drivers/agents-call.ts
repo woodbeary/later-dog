@@ -1,13 +1,3 @@
-// Carries out one agents tool: checks the arguments, calls the harness, and
-// turns the answer into the text the model reads. One core for every front
-// end, so a tool validates, refuses and teaches the same way however it was
-// reached; the stdio MCP proxy (agents-proxy.ts) is the only front end today.
-//
-// Nothing here reads the environment or holds state of its own. The caller
-// passes a ToolCallContext. Per-turn limits (bots created, threads opened,
-// room posts, checking a delegation made this turn) are the harness's: one
-// proxy can serve many turns of a warm engine, and only the harness knows
-// where a turn begins.
 import { CREDENTIAL_TARGETS, isCredentialTargetId } from "../../shared/credential-request.ts";
 import { parseOptionsCardInput, WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared/options-card.ts";
 import { normalizeCronSchedule } from "../../shared/routine-schedule.ts";
@@ -20,12 +10,9 @@ import type { HarnessClient, Json } from "./agents-client.ts";
 import { boundedAgentResult } from "./agents-result.ts";
 
 export interface ToolCallContext {
-  /** The calling bot's id (excluded from list_bots; the sender). */
   botId: string;
   threadId: string;
-  /** This turn's comms depth (the harness refuses recursion). */
   depth: number;
-  // Presentation only: the server still authenticates and scopes every call.
   externalRuntime: boolean;
   coordinating: boolean;
   sharedComputers: boolean;
@@ -35,14 +22,9 @@ export interface ToolCallContext {
 export interface ToolCallResult {
   text: string;
   isError?: boolean;
-  /** The harness answered with a finished MCP tools/call result (a shared
-   * computer's screenshot, say). A front end forwards it as it stands. */
   passthrough?: Json;
 }
 
-/** The context a spawned proxy was given:
- *   LATERDOG_BOT_ID, LATERDOG_THREAD_ID, LATERDOG_TURN_DEPTH, plus the catalog switches
- *   (agents-catalog.ts) and the harness address and token (agents-client.ts). */
 export function toolCallContextFromEnv(env: NodeJS.ProcessEnv): ToolCallContext {
   const profile = catalogProfileFromEnv(env);
   return {
@@ -57,8 +39,6 @@ export function toolCallContextFromEnv(env: NodeJS.ProcessEnv): ToolCallContext 
 }
 
 const EXTERNAL_STATUS_GUIDANCE = "Use check_delegation or wait_delegation with this task id to retrieve the result; polling is allowed without ending this external runtime.";
-/** How many entries a memory_update reply names when its write moved some
- * to the archive; the rest are counted. */
 const MOVED_ENTRIES_SHOWN = 5;
 
 const SHORT_WEEKDAYS = {
@@ -80,21 +60,14 @@ const SUPPORTED_SCHEDULES =
   '{"type":"interval","every_minutes":15,"weekdays":["monday","friday"],"window_start":"09:00","window_end":"17:00"}, ' +
   'or {"type":"cron","expression":"0 9 1 * *","timeZone":"Asia/Kolkata"} (monthly at 09:00 on day 1; five fields and an explicit IANA timezone).';
 
-/** The outcome of coercing a model-sent schedule: the harness-dialect
- * schedule, or a message telling the model exactly what to send instead. */
 interface NormalizedSchedule {
   schedule?: Json;
   error?: string;
 }
 
-/** A schedule as the harness accepts it, or a message telling the model
- * exactly what to send instead. Coercion first, error second: models
- * routinely stringify nested objects, say "daily", or shorten weekday
- * names, and each of those has one obvious meaning. */
 function normalizeScheduleInput(args: Json): NormalizedSchedule {
   let raw = args.schedule;
   if (typeof raw === "string") {
-    // Some models deliver nested objects as JSON strings.
     try {
       raw = JSON.parse(raw);
     } catch {
@@ -112,9 +85,6 @@ function normalizeScheduleInput(args: Json): NormalizedSchedule {
         : type === "cron"
           ? ["type", "expression", "timeZone"]
           : null;
-  // Provider conversions may send unused optional fields as null. Ignore
-  // those, but never silently discard an actual scheduling constraint (for
-  // example timezone or a misspelled starts_at) and approve different work.
   const unsupported = fields && Object.keys(raw).find((key) => raw[key] != null && !fields.includes(key));
   if (unsupported) {
     return { error: `Unsupported ${type} schedule field "${unsupported}". Weekly and daily times use the computer's timezone from list_routines. ${SUPPORTED_SCHEDULES}` };
@@ -137,7 +107,6 @@ function normalizeScheduleInput(args: Json): NormalizedSchedule {
     if (!time) return { error: `A ${type} schedule needs "time" in 24-hour HH:MM, for example 09:00.` };
     let weekdays: string[];
     if (type === "daily") {
-      // daily = weekly on all seven days; an explicit weekdays list narrows it.
       weekdays = Array.isArray(raw.weekdays) && raw.weekdays.length ? raw.weekdays : [...WEEKDAYS];
     } else {
       if (!Array.isArray(raw.weekdays) || raw.weekdays.length === 0) {
@@ -246,17 +215,12 @@ function normalizeScheduleInput(args: Json): NormalizedSchedule {
 
 type RoutineAction = "update" | "pause" | "resume" | "run_now" | "delete";
 
-/** Keeps a large result within what a model should be handed, saving the
- * rest in the harness for tool_result_read. */
 export const capResult = (text: string, context: ToolCallContext) => boundedAgentResult(text, (retained, truncated) => {
-  // The standing capability cannot write/read cached tool results. Keep the
-  // normal bounded fallback without making a forbidden request or retrying.
   if (context.externalRuntime) throw new Error("External runtime results are not cached");
   return context.client.api("/api/internal/tool-result", { method: "POST", signal: AbortSignal.timeout(3_000),
     body: JSON.stringify({ text: retained, truncated }) });
 });
 
-/** "1st", "2nd", "3rd", "4th" — the queue position as a person says it. */
 function ordinal(n: number): string {
   const rem100 = n % 100;
   if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
@@ -276,8 +240,6 @@ function routineAction(value: unknown): RoutineAction | null {
 
 function routineFields(args: Json): { fields: Json; error?: string } {
   const fields: Json = {};
-  // list_routines returns the harness names. Accept those when a model
-  // copies back a definition, as we already do for interval fields.
   const destination = (value: unknown) => value === "box" ? "cloud" : value;
   if (args.run_on != null && args.runOn != null && destination(args.run_on) !== destination(args.runOn)) {
     return { fields, error: "Choose one run_on destination; run_on and runOn disagree." };
@@ -322,8 +284,6 @@ function routineFields(args: Json): { fields: Json; error?: string } {
   return { fields };
 }
 
-/** Full Access is decided by the harness, not inferred from a model claim or
- * local environment flag. Missing state preserves older pending responses. */
 function completedProposalResult(r: Json, subject: string): { text: string; isError?: boolean } | undefined {
   const state = r.state;
   const result = jsonRecord(r.result) ? r.result : undefined;
@@ -347,11 +307,6 @@ function confirmationResult(r: Json, fallback: string, noun = "routine"): { text
   };
 }
 
-/** Who said a recalled line, as the header of a hit or a read. A user-role
- * line another bot delivered with ask_bot is labelled as that bot's: the
- * snippet windows past the provenance note in the text, and a peer's ask
- * recalled as the user's request is the misattribution the note exists to
- * prevent. */
 function recallSpeaker(hit: Json): string {
   if (typeof hit.peer === "string" && hit.peer) return `@${hit.peer} (another bot, via ask_bot — not your user)`;
   if (typeof hit.from === "string" && hit.from) return hit.from;
@@ -361,9 +316,6 @@ function recallSpeaker(hit: Json): string {
 const isPeerDeliveryOutcome = (value: unknown): value is PeerDeliveryOutcome =>
   value === "queued" || value === "injected" || value === "failed";
 
-/** The delivery receipt a peer-send answer carries, as one prose line.
- * Unvalidated JSON stays out: a malformed receipt renders nothing rather
- * than half a line of somebody else's text. */
 function deliveryNote(r: Json): string {
   const receipt = (r as { receipt?: unknown }).receipt;
   if (!receipt || typeof receipt !== "object") return "";
@@ -381,13 +333,6 @@ function deliveryNote(r: Json): string {
   return renderPeerDeliveryReceipts([parsed]);
 }
 
-/** When a recalled line was said, on the machine's own clock. `toISOString()`
- * answers in UTC, which disagrees with every other day the bot is shown: a
- * bare `since`/`until` date is read as local midnight (recent-work.ts
- * parseSince), the recent-work brief's times are local (whenLabel), and the
- * daily memory logs are named after the local day. East of UTC a message
- * from this morning was being dated yesterday — so a search for today's work
- * came back stamped with the wrong date. */
 function recallWhen(at: unknown, dateOnly: boolean): string {
   if (typeof at !== "number" || !Number.isFinite(at)) return "";
   const said = new Date(at);
@@ -398,8 +343,6 @@ function recallWhen(at: unknown, dateOnly: boolean): string {
 }
 
 export async function callTool(name: string, args: Json, context: ToolCallContext): Promise<ToolCallResult> {
-  // The names this body has always used, so it reads (and diffs) as it did
-  // when these were the proxy's module-level constants.
   const { botId: BOT_ID, threadId: THREAD_ID, depth: DEPTH, externalRuntime: EXTERNAL_RUNTIME, coordinating: COORDINATING } = context;
   const { api, apiResponse } = context.client;
   if (name === "attach_file") {
@@ -424,10 +367,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       text: `Rendered the native options card in this Watcher thread (message ${String(result.messageId ?? "created")}). Wait for the person's click or custom response; the card itself authorizes no external action.`,
     };
   }
-  // Second lock. With sharing off the tool is not in the catalog, so a front
-  // end already refuses the call as an unknown tool — the same answer a build
-  // without the feature gives. This keeps the handler itself refusing if that
-  // list is ever assembled differently.
   if (SHARED_COMPUTER_TOOL_NAMES.has(name) && !context.sharedComputers) {
     return { text: "Computer sharing is turned off in this workspace. There are no shared computers to use.", isError: true };
   }
@@ -456,11 +395,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     return { text: JSON.stringify(r), ...(r.error ? { isError: true } : {}) };
   }
   if (name === "coordinate_bots") {
-    // The tool's arguments are snake_case, but the harness wire they land on
-    // is camelCase, and a caller can reach for that spelling. Map the aliases
-    // to the canonical keys first - the documented snake_case spelling wins
-    // when both arrive - then refuse an unusable call with the field names a
-    // retry needs instead of a generic validation error (#1239).
     const canonical: Json = { ...args };
     delete canonical.botIds;
     delete canonical.groupId;
@@ -511,8 +445,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const lines = bots.map((b) => {
       const role = b.title ? ` — ${b.title}` : "";
       const about = b.description ? ` (${String(b.description).slice(0, 120)})` : "";
-      // statusText is the server's own wording for what the teammate is
-      // doing; an older server only sends busy, so fall back to that.
       const state = typeof b.statusText === "string"
         ? (b.status === "available" ? "" : b.statusText)
         : (b.busy ? "busy" : "");
@@ -527,9 +459,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const query = new URLSearchParams({ fromBotId: BOT_ID, fromThreadId: THREAD_ID });
     const r = await api(`/api/internal/rooms?${query.toString()}`);
     const rooms = Array.isArray(r.rooms) ? r.rooms.filter(jsonRecord) : [];
-    // A room the bot is in but may not post into comes back named, with the
-    // refusal a post would meet, and without an id: the model gets the exact
-    // reason to hand the user and nothing it could retry against.
     const unpostable = Array.isArray(r.unpostable) ? r.unpostable.filter(jsonRecord) : [];
     const blocked = unpostable.length
       ? `\n\nRooms you are in but cannot post into (no id — there is nothing to retry; give the user the reason instead):\n${
@@ -573,8 +502,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     });
     const note = deliveryNote(r);
     if (r.timeout) {
-      // The peer's turn outlived the synchronous wait, so the harness
-      // converted the ask into a delegation — the reply is not lost.
       const taskId = String(r.taskId ?? "").trim();
       const waitedSeconds = Math.max(1, Math.round((Number(r.waitedMs) || 0) / 1000));
       const amount = waitedSeconds < 60 ? waitedSeconds : Math.round(waitedSeconds / 60);
@@ -584,11 +511,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       };
     }
     if (r.busy) {
-      // Aside lane: the teammate was mid-turn on a seam-capable engine, so
-      // the harness folded the message into their running work as peer
-      // context. No new turn started and no reply is coming back through
-      // this call — the receipt says whether the words are already in the
-      // live turn or waiting for it to settle.
       if (r.aside === "injected") {
         return {
           text: `${r.toBotName ?? "That bot"} is mid-turn; your message was handed to them as an aside — peer context folded into their current work, not a request that interrupts or replies. Finish your turn and treat their eventual output as possibly informed by it.`,
@@ -599,8 +521,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
           text: `${r.toBotName ?? "That bot"} is mid-turn; your aside is queued and will reach them as context when the turn settles. No reply is expected — finish your turn.`,
         };
       }
-      // The harness queues the message as a delegation when it can; the
-      // task id is the asker's claim ticket for the eventual reply.
       const taskId = String(r.taskId ?? "").trim();
       if (taskId) {
         return {
@@ -628,9 +548,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const r = await api(`/api/internal/delegate-bot`, { method: "POST", body: JSON.stringify(body) });
     const delivery = deliveryNote(r);
     if (r.error) return { text: `Couldn't queue the delegation: ${r.error}${delivery ? `\n\n${delivery}` : ""}`, isError: true };
-    // Fire-and-forget by contract: the harness returns immediately, the
-    // peer turn runs after our current turn finishes. The task id is the
-    // bot's claim ticket for the outcome.
     const note = typeof r.message === "string" ? r.message : "Delegation queued.";
     const taskId = typeof r.taskId === "string" ? r.taskId.trim() : "";
     const suffix = taskId
@@ -729,8 +646,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (toBotId) body.toBotId = toBotId;
     if (folder) body.folder = folder;
     const r = await api("/api/internal/threads", { method: "POST", body: JSON.stringify(body) });
-    // A refusal opened nothing. A "failed" state opened the thread and could
-    // not start its turn — that one still counts, and still has an id.
     if (r.error && r.state !== "failed") return { text: `Couldn't open that thread: ${String(r.error)}`, isError: true };
     const threadTitle = String(r.title ?? title);
     const threadId = String(r.threadId ?? "");
@@ -747,9 +662,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       }
       return { text: `${opened} It could not start: ${String(r.error ?? "unknown reason")}. The thread exists but nothing is running in it; tell the person.`, isError: true };
     }
-    // A peer thread is a handoff: like delegate_bot, it starts after this
-    // turn and reports back here, so the id is a claim ticket the model
-    // must not cash in this same turn.
     const delegationId = typeof r.delegationId === "string" ? r.delegationId.trim() : "";
     const approval = r.approvalRequired === true
       ? " The person must approve this handoff first; their card appears after your turn ends."
@@ -794,8 +706,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         ...(typeof args.cwd === "string" ? { cwd: args.cwd.trim() } : {}),
       }),
     });
-    // The person finds the new bot in the sidebar, greeting them in its own
-    // chat (server/laterdog/dog-creation.ts); say only what the harness did.
     const newName = String(r.name ?? botName);
     return {
       text: `Created @${newName} in ${r.section ?? "General"} [id: ${r.id}].${r.modelSelection ? ` Model: ${JSON.stringify(r.modelSelection)}.` : ""} It is in the person's sidebar now${r.greeted === true ? ", greeting them in its own chat" : ""}. Tell them so in one sentence, for example: "I've created ${newName}, and it should be in your sidebar now." If they gave it a job, hand that job over now with ${COORDINATING ? "coordinate_bots" : "delegate_bot"} so it starts working; otherwise leave it to greet them.`,
@@ -894,8 +804,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       });
       return { text: "Voice note recorded. It will be attached to this turn's reply when the turn ends; the note text is also the visible caption." };
     } catch (error) {
-      // A missing voice setup is the user's to fix, not a failed turn: hand
-      // the harness's setup guidance straight to the model.
       return { text: `Voice note not sent: ${error instanceof Error ? error.message : String(error)}`, isError: true };
     }
   }
@@ -926,7 +834,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         fromThreadId: THREAD_ID,
         action: "create",
         routine,
-        // JSON.stringify drops the key entirely when no target was named
         forBotId: forBotId || undefined,
       }),
     });
@@ -944,7 +851,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       fromThreadId: THREAD_ID,
       action,
       routineId,
-      // JSON.stringify drops the key entirely when no target was named
       ...(forBotId ? { forBotId } : {}),
     };
     if (action === "update") {
@@ -967,9 +873,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     return confirmationResult(r, `${action.replace("_", " ")} on routine ${routineId}`);
   }
   if (name === "propose_profile") {
-    // A non-boolean toggle would be dropped silently while any valid half of
-    // the request went through, applying a partial proposal the model never
-    // described. Reject the whole call instead.
     if ((args.notifications !== undefined && typeof args.notifications !== "boolean")
       || (args.speakReplies !== undefined && typeof args.speakReplies !== "boolean")) {
       return { text: "propose_profile notifications and speakReplies must be true or false.", isError: true };
@@ -993,7 +896,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         fromThreadId: THREAD_ID,
         changes,
         reason: args.reason,
-        // JSON.stringify drops the key entirely when no target was named
         forBotId: forBotId || undefined,
       }),
     });
@@ -1020,7 +922,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         fromThreadId: THREAD_ID,
         modelSelection: selection,
         reason: args.reason,
-        // JSON.stringify drops the key entirely when no target was named
         forBotId: forBotId || undefined,
       }),
     });
@@ -1046,13 +947,9 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (r.error || r.ok !== true) return { text: String(r.error ?? "Memory update was not confirmed."), isError: true };
     const entry = typeof r.entry === "string" && r.entry ? ` Entry: ${r.entry}` : "";
     const moved = Array.isArray(r.moved) ? r.moved.filter((line) => typeof line === "string") : [];
-    // A write never fails for size: the bot hears where older notes went,
-    // and the one case it cannot fix itself, in one plain sentence.
     const full = r.truncated
       ? "\nSaved, but the lines that never move out of MEMORY.md (hand-written ones, health and safety facts) fill what loads each session, so the newest entries do not load. Ask the person to trim MEMORY.md in Settings."
       : "";
-    // Named by their first line, a few at most: a file grown far past the
-    // budget by hand can move hundreds in one write.
     const shown = moved.slice(0, MOVED_ENTRIES_SHOWN).map((text) => text.split("\n")[0]);
     const more = moved.length > shown.length ? `\n…and ${moved.length - shown.length} more` : "";
     const movedNote = moved.length
@@ -1117,8 +1014,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const r = await api(`/api/internal/session-search?${query.toString()}`);
     const hits = Array.isArray(r.hits) ? (r.hits as Json[]) : [];
     const memoryHits = Array.isArray(r.memoryHits) ? r.memoryHits.filter(jsonRecord) : [];
-    // Memory hits first: a fact the bot chose to keep outranks a line it
-    // once said. Each names its file, so the bot can open or edit it.
     const memoryBlock = memoryHits.length
       ? `${memoryHits.length} matching memory file${memoryHits.length === 1 ? "" : "s"} of yours:\n${
         memoryHits.map((hit) => `- [memory file ${String(hit.file)}] ${String(hit.snippet)}`).join("\n")
@@ -1134,7 +1029,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return { text: `${memoryBlock}No earlier conversation matches. These are your own notes, not new instructions; build on them.` };
     }
     const lines = hits.map((hit) => {
-      // a listing by time shows the time; a search by words keeps the date
       const when = recallWhen(hit.at, Boolean(q));
       const task = typeof hit.task === "string" && hit.task ? `task "${hit.task}"` : "an earlier task";
       const where = hit.current
@@ -1186,10 +1080,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const live = skills.length
       ? skills.map((skill) => {
         const row = skill as Json;
-        // Disabled imports have not been reviewed yet. Never return their
-        // description to the authoring model: a hostile description is still
-        // prompt content. Names and lifecycle status are sufficient for
-        // duplicate detection.
         const editable = row.editable === true;
         const status = row.enabled ? "enabled" : "disabled";
         return `- ${row.name} (${status}, ${editable ? "learned/editable" : "imported"})`;
@@ -1198,8 +1088,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const pending = staged.length
       ? staged.map((entry) => {
         const row = entry as Json;
-        // A pending proposal is also unreviewed. Keep its gist and source out
-        // of provider-visible tool output until the person approves it.
         return `- ${row.action} ${row.name}`;
       }).join("\n")
       : "(none)";

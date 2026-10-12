@@ -33,7 +33,6 @@ const safeError = (error, signal) => {
   if (signal?.aborted || error?.name === "AbortError") return new CompanyBackupError("cancelled", "The backup transfer was cancelled or timed out.");
   if (error?.code === "ENOSPC") return new CompanyBackupError("no_space", "There is not enough free disk space for this backup transfer.");
   if (error?.status === 401 || error?.status === 403) return new CompanyBackupError("access_changed", "Company access changed. Reconnect your desktop and try again.");
-  // Fetch/provider exceptions may contain signed URLs. Never forward them.
   return new CompanyBackupError("transfer_failed", "The backup transfer could not be completed. Please try again.");
 };
 async function discard(response) { try { await response?.body?.cancel(); } catch {} }
@@ -63,7 +62,6 @@ function liveExpiry(value) {
   if (!Number.isSafeInteger(value) || value <= Date.now() || value > Date.now() + 15 * 60_000) fail("invalid_response", "The storage link has expired or has an invalid lifetime. Try again.");
 }
 
-/** Transfer existing encrypted .dogbackup archives. Never commits a restore. */
 export function createCompanyBackups({ localRequest, portalRequest, tempRoot, fetchImpl = fetch, allowLoopbackForTests = false, availableBytes }) {
   if (typeof localRequest !== "function" || typeof portalRequest !== "function" || typeof fetchImpl !== "function" || typeof tempRoot !== "string" ||
       !isAbsolute(tempRoot) || resolve(tempRoot) === parse(resolve(tempRoot)).root) throw new Error("A private backup transfer directory and request adapters are required.");
@@ -129,7 +127,7 @@ export function createCompanyBackups({ localRequest, portalRequest, tempRoot, fe
     const report = (phase, bytesTransferred = 0, totalBytes = 0) => {
       if (phase === lastPhase && bytesTransferred !== totalBytes && Date.now() - lastAt < 250) return;
       lastPhase = phase; lastAt = Date.now();
-      try { onProgress?.({ phase, bytesTransferred, totalBytes }); } catch { /* A view closing must not interrupt cleanup. */ }
+      try { onProgress?.({ phase, bytesTransferred, totalBytes }); } catch {}
     };
     try {
       operationSignal.throwIfAborted();
@@ -198,7 +196,7 @@ export function createCompanyBackups({ localRequest, portalRequest, tempRoot, fe
           pendingId = null; report("ready", exported.bytes, exported.bytes); return result;
         } finally {
           if (pendingId) {
-            try { await portalRequest(`${CLOUD}/${pendingId}/abort`, { method: "POST", body: {}, signal: AbortSignal.timeout(10_000) }); } catch { /* Server expiry and durable cleanup remain the backstop. */ }
+            try { await portalRequest(`${CLOUD}/${pendingId}/abort`, { method: "POST", body: {}, signal: AbortSignal.timeout(10_000) }); } catch {}
           }
         }
       });
@@ -208,14 +206,11 @@ export function createCompanyBackups({ localRequest, portalRequest, tempRoot, fe
         if (!identifier(input?.id)) fail("invalid_archive", "Select a valid cloud backup.");
         const signed = await portalRequest(`${CLOUD}/${input.id}/download`, { method: "POST", body: {}, signal: operationSignal });
         const backup = cloudMetadata(signed, "ready");
-        // Keys stay in the native process, never in the renderer or object URL.
         const password = backup.passwordRequired ? input.password : signed.unlockKey;
         checkPassword(password);
         if (backup.id !== input.id) fail("invalid_response", "The backup service returned a different archive.");
         liveExpiry(signed.expiresAt);
         const url = signedUrl(signed.url, allowLoopbackForTests);
-        // Version 1 is uncompressed tar: encrypted transfer, local upload,
-        // decrypted tar and extracted staging can coexist during preview.
         await checkSpace(directory, backup.sizeBytes * 4);
         report("downloading", 0, backup.sizeBytes);
         const downloaded = await storageRequest(url, { method: "GET", signal: operationSignal });
@@ -230,8 +225,6 @@ export function createCompanyBackups({ localRequest, portalRequest, tempRoot, fe
         try { response = await localRequest(`${LOCAL}/upload`, { method: "POST", headers: { "content-type": "application/octet-stream", "content-length": String(backup.sizeBytes) }, body: stream, duplex: "half", signal: operationSignal, redirect: "error" }); }
         finally { stream.destroy(); }
         if (!response.ok) { await discard(response); fail("local_backup_failed", "The verified archive could not be staged in this installation."); }
-        // The upload receipt is tiny; use the same bounded JSON reader without
-        // making another request or retaining an unbounded response body.
         const receipt = await readUploadReceipt(response, operationSignal);
         if (!identifier(receipt.id)) fail("invalid_response", "This installation returned an invalid upload receipt.");
         await checkSpace(directory, backup.sizeBytes * 2); operationSignal.throwIfAborted();

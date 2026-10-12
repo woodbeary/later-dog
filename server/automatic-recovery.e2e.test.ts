@@ -11,8 +11,6 @@ const backup = { instanceId: "claude", model: "claude-sonnet-5" };
 const transient = { code: -32603, message: "Internal error", data: { details: "Upstream connection timed out" } };
 const jsonLines = (path: string): any[] => existsSync(path)
   ? readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
-// At boot OpenCode lists its models by opening one ACP session in this
-// folder. Those calls are catalog discovery, not the turns under test.
 const CATALOG_PROBE_FOLDER = ["", "providers", "opencode", "discovery"].join(sep);
 const turnCalls = (path: string) => jsonLines(path).filter((call) => !String(call.cwd ?? "").endsWith(CATALOG_PROBE_FOLDER));
 
@@ -87,8 +85,6 @@ async function withRecoveryFixture(
     await expect.poll(async () => {
       try { return (await fetch(url + "/api/health", { signal: AbortSignal.timeout(1_000) })).ok; } catch { return false; }
     }, { timeout: 20_000 }).toBe(true);
-    // Armed once the server is up: the failure is the turns' to meet, not the
-    // model discovery the server runs while it starts.
     writeFileSync(failureFile, JSON.stringify(options.error ?? transient));
     await check({
       api, control, calls: () => turnCalls(rpcFile), backupPrompts: () => jsonLines(backupFile),
@@ -250,8 +246,6 @@ it.each([
     await api("PATCH", `/api/bots/${bot.id}/tasks/${threadId}`, { modelSelection: primary, updateBotDefault: true });
     await api("PATCH", `/api/bots/${bot.id}`, { fallback: [{ instanceId: "secondary", model: primary.model }, backup] });
     await control("send", "--bot", bot.id, "--task", threadId, "--text", "DO_NOT_REPLAY_THIS_9S");
-    // The control surface calls a partial-output failure settled; the
-    // transcript's terminal error is the failure evidence in that case.
     expect((await control("wait", "--bot", bot.id, "--task", threadId, "--timeout", "30")).status)
       .toBe(options.afterOutput ? "settled" : "failed");
     expect(backupPrompts()).toHaveLength(0);
@@ -295,8 +289,6 @@ it("stops after one failed backup instead of looping between engines", async () 
     expect(calls().filter((call) => call.method === "initialize.error")).toHaveLength(1);
     const { messages } = await control("messages", "--bot", bot.id, "--task", threadId, "--limit", "20");
     expect(messages.filter((message: any) => message.role === "user" && message.text === "ONLY_ONE_BACKUP_4T")).toHaveLength(1);
-    // the backup's sign-in failure is the one failed-turn row every client
-    // reads (shared/failed-turn.ts): whole, with the flag its sign-in needs
     expect(messages.map((message: any) => message.tool).filter((tool: any) => tool?.ok === false))
       .toEqual([{ name: "error: Not logged in · Please run /login", ok: false, setup: true }]);
   });
@@ -311,8 +303,6 @@ it.each(["Stop", "new message"])("does not recover a superseded turn after %s", 
     await expect.poll(() => calls().some((call) => call.method === "initialize"), { timeout: 20_000 }).toBe(true);
     if (action === "Stop") await control("interrupt", "--bot", bot.id, "--task", threadId);
     else await control("send", "--bot", bot.id, "--task", threadId, "--text", "NEW_INTENT_6V");
-    // The process already holds the first failure. A new process will work;
-    // this distinguishes draining the new message from replaying the old one.
     rmSync(failureFile);
     writeFileSync(gateFile, "release");
     await pendingSend;

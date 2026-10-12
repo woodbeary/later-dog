@@ -1,8 +1,3 @@
-// The fleet agent: the one root process on a shared server, listening on a
-// Unix socket only the operator's user may open. It answers a small JSON API
-// by planning with fleet.ts and running the plan with the same executor the
-// CLI uses. Every request is validated here, every action is written to an
-// audit log, and nothing arrives as a command string.
 import { appendFileSync, chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname } from "node:path";
@@ -11,14 +6,12 @@ import { assertSlug, fleetLayout, fleetUser, openRouterModelIds, workspaceDataDi
 
 export interface FleetAgentOptions {
   socketPath: string;
-  /** Unix group (the operator's user) that may open the socket. */
   group?: string;
   node: string;
   script: string;
   licenseKey?: string;
   root?: string;
   deps?: FleetDeps;
-  /** Where actions are recorded; the layout's audit file by default. */
   auditFile?: string;
   now?: () => Date;
 }
@@ -39,7 +32,6 @@ export function readBody(req: IncomingMessage): Promise<Record<string, unknown>>
       if (tooLarge) return;
       bytes += chunk.length;
       if (bytes > MAX_BODY) {
-        // Keep draining so the 413 can still be sent, but stop holding bytes.
         tooLarge = true;
         chunks.length = 0;
         return reject(Object.assign(new Error("request too large"), { status: 413 }));
@@ -48,7 +40,6 @@ export function readBody(req: IncomingMessage): Promise<Record<string, unknown>>
     });
     req.on("end", () => {
       if (tooLarge) return;
-      // Decode once: a character split across two chunks stays whole.
       const text = Buffer.concat(chunks).toString("utf8");
       if (!text.trim()) return resolve({});
       try {
@@ -70,7 +61,6 @@ const models = (value: unknown): string[] => {
   catch (error) { throw Object.assign(error as Error, { status: 400 }); }
 };
 
-/** Only bounded, unprivileged aggregates cross back into the root process. */
 export function workspaceUsage(layout: FleetLayout, slug: string, now: Date, deps: FleetDeps): FleetWorkspaceView["usage"] {
   const month = now.toISOString().slice(0, 7);
   try { return { month, ...deps.usage(workspaceDataDir(layout, slug), fleetUser(slug), now) }; }
@@ -91,9 +81,7 @@ export function createFleetAgent(options: FleetAgentOptions): Server {
     try {
       mkdirSync(dirname(auditFile), { recursive: true, mode: 0o750 });
       appendFileSync(auditFile, `${JSON.stringify({ at: now().toISOString(), ...entry })}\n`, { mode: 0o600 });
-    } catch {
-      /* the audit line must never fail the action it records */
-    }
+    } catch {}
   };
 
   const runAction = async (input: FleetInput): Promise<{ status: number; body: unknown }> => {
@@ -124,8 +112,6 @@ export function createFleetAgent(options: FleetAgentOptions): Server {
     return code === 0 ? { status: 200, body: { ok: true, log } } : { status: 500, body: { error: errors[0] ?? "the step failed", log: [...log, ...errors] } };
   };
 
-  // Planning reads the registry too: serialize the entire read/modify/execute
-  // sequence, not just the subprocesses, so ports and updates cannot collide.
   let mutationTail: Promise<unknown> = Promise.resolve();
   const act = (input: FleetInput) => {
     const result = mutationTail.then(() => runAction(input));
@@ -208,7 +194,6 @@ export function createFleetAgent(options: FleetAgentOptions): Server {
   return server;
 }
 
-/** Listen on the socket, reachable by root and the given group only. */
 export async function startFleetAgent(options: FleetAgentOptions, io: { log(line: string): void }): Promise<Server> {
   const server = createFleetAgent(options);
   mkdirSync(dirname(options.socketPath), { recursive: true, mode: 0o755 });

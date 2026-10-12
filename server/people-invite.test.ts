@@ -1,8 +1,3 @@
-// End to end: adding people to a hosted workspace. The owner bootstraps the
-// first admin from the box, that admin signs in with an emailed code (the
-// control plane is stubbed) and, through the same requests Settings → People
-// sends, invites a member, promotes them and removes them, immediately ending
-// their account sessions. Everything the People card reads answers in the shape it renders.
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
@@ -60,9 +55,7 @@ function send(path: string, init: CallInit, headers: Record<string, string>): Pr
           let body: unknown = raw;
           try {
             body = JSON.parse(raw);
-          } catch {
-            /* not json */
-          }
+          } catch {}
           resolve({ status: res.statusCode ?? 0, headers: res.headers, body });
         });
       },
@@ -73,11 +66,8 @@ function send(path: string, init: CallInit, headers: Record<string, string>): Pr
   });
 }
 
-/** The box itself: a loopback Host and Origin, nothing forwarded. This is the
- * owner, the way `laterdog` on the server or a bootstrap script talks. */
 const owner = (path: string, init: CallInit = {}) => send(path, init, { host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` });
 
-/** A browser somewhere else, reaching the server through its proxy. */
 const remote = (path: string, init: CallInit = {}) =>
   send(path, init, { host: HOST, "x-forwarded-for": init.from ?? "203.0.113.7", "x-forwarded-proto": "https", origin: `https://${HOST}` });
 
@@ -87,7 +77,6 @@ const cookieOf = (reply: Reply): string => {
   return (first ?? "").split(";")[0];
 };
 
-/** What the sign-in page does with an emailed code: a cookie session. */
 async function signIn(email: string, label: string): Promise<{ reply: Reply; cookie: string }> {
   const started = await remote("/api/auth/email/start", { body: { email } });
   if (started.status !== 200) return { reply: started, cookie: "" };
@@ -105,7 +94,6 @@ beforeAll(async () => {
   mkdirSync(join(home, ".laterdog"), { recursive: true });
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Served UI</title>");
-  // No sign-in list on disk and none in the environment: nobody is welcome yet.
   writeFileSync(join(home, ".laterdog", "config.json"), JSON.stringify({ instances: { fixture: { driver: "people-invite-test-shadow" } } }));
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
     cwd: ROOT,
@@ -135,9 +123,7 @@ beforeAll(async () => {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1_000) });
       if (res.ok) return;
-    } catch {
-      /* not up yet */
-    }
+    } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`server did not start:\n${stderr}`);
@@ -174,7 +160,6 @@ describe("adding people to a hosted workspace", () => {
     expect(adaSignIn.reply.body.session).toMatchObject({ email: ADA, scopes: ["admin", "client"] });
     ada = as(adaSignIn.cookie);
 
-    // What the card loads: the list, the devices, this month's spend, the public address for links.
     const config = await ada("/api/config");
     expect(config.status).toBe(200);
     expect(config.body.signIn).toEqual({ admins: [ADA], members: [] });
@@ -186,12 +171,10 @@ describe("adding people to a hosted workspace", () => {
     const domain = await ada("/api/settings/custom-domain");
     expect(domain.body.publicUrl).toBe(`https://${HOST}`);
 
-    // Invite: the card writes the whole list back, then shows the link.
     const invited = await ada("/api/config", { method: "PUT", body: { signIn: { admins: [ADA], members: [BOB] } } });
     expect(invited.status).toBe(200);
     expect((await ada("/api/config")).body.signIn).toEqual({ admins: [ADA], members: [BOB] });
 
-    // The link opens the served sign-in page for anyone, with the address in the query.
     const page = await remote(`/pair?email=${encodeURIComponent(BOB)}`);
     expect(page.status).toBe(200);
     expect(String(page.headers["content-type"])).toMatch(/text\/html/);
@@ -202,17 +185,14 @@ describe("adding people to a hosted workspace", () => {
     expect(bob.reply.body.session).toMatchObject({ email: BOB, scopes: ["client"] });
     bobCookie = bob.cookie;
     expect((await as(bobCookie)("/api/bots")).status).toBe(200);
-    // a member chats; the sign-in list is not theirs to change
     expect((await as(bobCookie)("/api/config", { method: "PUT", body: { signIn: { admins: [BOB], members: [] } } })).status).toBe(403);
     expect((await ada("/api/config")).body.signIn).toEqual({ admins: [ADA], members: [BOB] });
-    // and Bob's device now shows on Ada's list, by address
     const listed = await ada("/api/auth/sessions");
     expect(listed.body.sessions.find((s: { email?: string; label: string }) => s.email === BOB)?.label).toBe("Bob's phone");
   });
 
   it("applies a promotion to the next sign-in, and refuses new sign-ins after removal", async () => {
     expect((await ada("/api/config", { method: "PUT", body: { signIn: { admins: [ADA, BOB], members: [] } } })).status).toBe(200);
-    // the device Bob already has keeps the scopes it was issued with
     expect((await as(bobCookie)("/api/config", { method: "PUT", body: { language: "en" } })).status).toBe(403);
     const again = await signIn(BOB, "Bob's laptop");
     expect(again.reply.body.session.scopes).toEqual(["admin", "client"]);

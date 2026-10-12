@@ -1,8 +1,3 @@
-// Surface-pin provenance end to end: a person's pin survives a Works on
-// change, the machine's recorded pin yields, and the boot repair preserves
-// unknown pins from before provenance existed. Real server, fake engine, and a
-// restartable fixture home so tests can seed bots.json between boots — the
-// sourceless pin shapes only exist on disk.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -127,8 +122,6 @@ describe("surface pin provenance against the real server", () => {
     boatApi = `http://127.0.0.1:${(boatServer.address() as { port: number }).port}`;
     writeFileSync(join(data, "config.json"), JSON.stringify({ instances: { claude: {
       driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
-      // A turn on the cloud computer uses it: its first computer call is
-      // what reaches the Boat, as with a real model.
       environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile, FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1" },
     } } }));
   });
@@ -298,16 +291,11 @@ describe("surface pin provenance against the real server", () => {
       mcpCommand: "/fixture/cua-driver", mcpArgs: ["mcp"], mcpEnv: {},
     }), { mode: 0o600 });
     try {
-      // Validate the fixture on every host before waiting for a provider.
-      // The obsolete "bundled" shape is refused, so no dump can ever arrive.
-      // Windows cannot emulate the POSIX ownership check used on macOS.
       const platforms: NodeJS.Platform[] = process.platform === "win32" ? ["win32"] : ["darwin", "win32"];
       for (const platform of platforms) {
         expect(readCuaConnection({ platform, userData: dirname(cuaDescriptor), home }))
           .toMatchObject({ command: "/fixture/cua-driver", platform, scope: "local-computer" });
       }
-      // The incident's other half: the person's pin still wins the mount.
-      // Linux requires a separately validated native runtime descriptor.
       if (process.platform !== "linux") {
         resetTurn();
         await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Stay where I pinned you.", threadId: task.threadId });
@@ -325,15 +313,11 @@ describe("surface pin provenance against the real server", () => {
     await stop();
   });
 
-  // A place that fails never sticks (the Hosted desktop incident): the
-  // machine's own pin to it is cleared so the next message runs on Auto,
-  // while a person's pin stays and the failure names the composer control.
   it("clears a select_computer pin to a cloud computer that fails, and keeps a person's pin", async () => {
     await start();
     const { bot } = await apiOk("POST", "/api/bots", { name: "Failed place bot" });
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
     await apiOk("PUT", "/api/config", { box: { token: "box_fixture" } });
-    // The last row a person reads; a turn's digest comes after it.
     const lastRow = async () => {
       const { messages } = await apiOk("GET", `/api/threads/${task.threadId}/messages?limit=30`);
       return String(messages.filter((message: any) => message.kind !== "digest").at(-1)?.tool?.name ?? "");
@@ -345,7 +329,6 @@ describe("surface pin provenance against the real server", () => {
     const selected = await fetch(base + "/api/internal/computer/select", { method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ surface: "cloud" }) });
     expect(await selected.json()).toMatchObject({ status: "pending", surface: "cloud" });
-    // The Boat goes down before the continuation's first computer call.
     boatDown = true;
     writeFileSync(finishFile, "finish");
     await until(() => lastRow(), row => row.startsWith("error:"));
@@ -354,7 +337,6 @@ describe("surface pin provenance against the real server", () => {
     const cleared = savedTask(bot.id, task.threadId)!;
     expect(cleared.surface).toBeUndefined();
     expect(cleared.surfaceSource).toBeUndefined();
-    // The next message runs on Auto, with the Boat still down.
     resetTurn();
     await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Carry on where you can.", threadId: task.threadId });
     const next = await dump();
@@ -363,7 +345,6 @@ describe("surface pin provenance against the real server", () => {
     await idle(bot.id, task.threadId);
     expect(await lastRow()).not.toMatch(/^error:/);
 
-    // A person's pin to the same failing place stays, and says how to clear it.
     await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${task.threadId}`, { surface: "cloud" });
     resetTurn();
     await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Use the cloud computer.", threadId: task.threadId });

@@ -80,7 +80,6 @@ describe("control-laterdog command mapping", () => {
       writeFileSync(join(app, "Google Chrome for Testing"), "");
       expect(installedChrome(dir, "darwin")).toBe(join(app, "Google Chrome for Testing"));
     } finally {
-      // synchronous removal is fine here: nothing spawned inside the directory
       void removeTempDir(dir);
     }
   });
@@ -156,9 +155,6 @@ describe("control-laterdog command mapping", () => {
   });
 
   it("maps the rewind that makes the harness rebuild instead of resume", async () => {
-    // `edit` is the composer rewind. It is the only mapped way to reach a
-    // replay path, which is what compaction needs to be observable at all —
-    // a cleanly resumed turn never compacts.
     const callTool = vi.fn(async (name: string, args: Record<string, unknown>) => ({ name, args }));
     const env = { LATERDOG_URL: "http://127.0.0.1:19999" };
     await expect(runControlLaterDog(
@@ -180,8 +176,6 @@ describe("control-laterdog command mapping", () => {
   });
 
   it("treats edit as mutating, so it cannot reach a silently discovered app", async () => {
-    // it forks a live conversation and starts a turn; it must never land on
-    // whatever instance happened to be running
     await expect(runControlLaterDog(["edit", "--bot", "b", "--message", "m", "--text", "x"], {
       callTool: vi.fn() as any,
       env: {},
@@ -272,7 +266,6 @@ describe("control-laterdog isolated verification loop", () => {
       expect(fixtureEnv).not.toHaveProperty("LATERDOG_SKILLS_DIR");
       expect(fixtureEnv).not.toHaveProperty("XAI_API_KEY");
       expect(JSON.stringify(fixtureEnv)).not.toContain("must-not-reach-the-fixture");
-      // The fake engine's own knobs are the one thing that crosses.
       expect(fixtureEnv.FAKE_CLAUDE_PROBE).toBe("fixture-scripting-knob");
     } finally {
       await session.close();
@@ -322,8 +315,6 @@ describe("control-laterdog isolated verification loop", () => {
         .filter((message: { kind?: string }) => message.kind === "activity")
         .map((message: { tool?: { name?: string; ok?: boolean } }) => ({ name: message.tool?.name, ok: message.tool?.ok }));
       expect(tools).toEqual([{ name: "Bash", ok: true }, { name: "Bash", ok: false }]);
-      // The model-facing control transcript stays compact. The renderer's
-      // own HTTP hydration path, not that projection, carries display details.
       for (const message of transcript.messages.filter((message: { tool?: unknown }) => message.tool)) {
         expect(message.tool).not.toHaveProperty("input");
         expect(message.tool).not.toHaveProperty("output");
@@ -337,8 +328,6 @@ describe("control-laterdog isolated verification loop", () => {
       expect(recorded[1].tool?.output).toBe("fixture command failed");
       expect(JSON.stringify(recorded)).not.toContain("fixture-secret");
       expect(JSON.stringify(recorded)).not.toContain("fixture-output-secret");
-      // Read only the fixture database: completed previews survive hydration
-      // from disk and are redacted before being persisted, not just in the UI.
       const db = new DatabaseSync(join(session.info.dataDir, "messages.db"), { readOnly: true });
       try {
         const rows = db.prepare("SELECT json FROM messages WHERE thread_id = ? AND kind = 'activity' ORDER BY rowid").all(created.bot.activeTaskId);

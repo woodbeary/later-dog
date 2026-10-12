@@ -1,8 +1,3 @@
-// Grok Build signs in from the app with a one-time code: `grok login
-// --device-auth`, run by the same instance, binary and environment its turns
-// use, through the one device-code controller Codex uses too. Every process
-// here is the offline fake grok in a disposable HOME: no real Grok, no call
-// to xAI, nobody's credentials.
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +15,6 @@ const PAGE = "https://accounts.x.ai/device";
 const CODE = "WDJB-MJHT";
 
 describe("Grok stored sign-in", () => {
-  // grok 1.0.46 refuses an empty `{}` auth.json as signed out; the app must not call that Ready.
   it("needs a credential file with content, not just a file", () => {
     const home = mkdtempSync(join(tmpdir(), "grok-home-"));
     try {
@@ -37,14 +31,12 @@ describe("Grok stored sign-in", () => {
 });
 
 describe("Grok device prompt", () => {
-  // What the server reads: grok's own lines, with its terminal styling removed.
   const printed = (page: string, code = CODE) => stripVTControlCharacters(
     `\nTo sign in, open this URL in your browser:\n    \u001b[1m${page}\u001b[0m\n\nThen enter this code:\n    ${code}\nWaiting for authorization...\n`);
 
   it("reads xAI's page and the code from whole lines only", () => {
     expect(deviceSignInPrompt("grok", printed(PAGE))).toEqual({ authorizationUrl: PAGE, userCode: CODE });
     expect(deviceSignInPrompt("grok", printed("https://auth.x.ai/device"))).toEqual({ authorizationUrl: "https://auth.x.ai/device", userCode: CODE });
-    // a code still arriving is not a code yet
     expect(deviceSignInPrompt("grok", `${PAGE}\nWDJB-MJ`)).toBeNull();
     expect(deviceSignInPrompt("grok", `${PAGE}\n${CODE}\n`)).toEqual({ authorizationUrl: PAGE, userCode: CODE });
   });
@@ -82,7 +74,6 @@ describe.skipIf(process.platform === "win32")("Grok Build sign-in with a device 
     const instance = await GrokAgentDriver.create({
       instanceId: "grok", displayName: "Grok", enabled: true,
       config: GrokAgentDriver.decodeConfig({ cli: FAKE_GROK }),
-      // A stray xAI key must not reach the subscription login (transformEnv).
       environment: { HOME: home, USERPROFILE: home, LATERDOG_DEVICE_AUTH_FIXTURE: "1", FAKE_GROK_MODE: mode, XAI_API_KEY: "xai-fixture-must-not-leak", ...environment },
     });
     instances.push(instance);
@@ -111,7 +102,6 @@ describe.skipIf(process.platform === "win32")("Grok Build sign-in with a device 
       .toEqual({ phase: "succeeded", flowId: start.flowId, authorizationUrl: null, expiresAt: null });
     expect(existsSync(join(home, ".grok", "auth.json"))).toBe(true);
     expect((await instance.snapshot()).authenticated).toBe(true);
-    // One login, run as the turns run: this HOME, no API key riding along.
     const logins = calls().filter((call) => call.args[0] === "login");
     expect(logins).toEqual([{ args: ["login", "--device-auth"], home, grokHome: join(home, ".grok"), xaiKey: null }]);
   });
@@ -128,7 +118,6 @@ describe.skipIf(process.platform === "win32")("Grok Build sign-in with a device 
   });
 
   it("signs in again over a stored login instead of trusting it", async () => {
-    // A stored login can be the stale one a failed turn just refused. It still holds a credential; an empty `{}` is a sign-out.
     mkdirSync(join(home, ".grok"));
     writeFileSync(join(home, ".grok", "auth.json"), JSON.stringify({ access_token: "stale-fixture-only" }));
     const instance = await grok("waiting");
@@ -150,8 +139,6 @@ describe.skipIf(process.platform === "win32")("Grok Build sign-in with a device 
   });
 
   it("times out an unattended code and stops its process", async () => {
-    // An instance's code lives fifteen minutes; the same controller with a
-    // short lifetime shows what happens when nobody finishes.
     const controller = new DeviceAuthController(GROK_DEVICE_SIGN_IN, {
       cli: FAKE_GROK, lifetimeMs: 1_500, terminateTimeoutMs: 50,
       environment: () => ({ ...process.env, HOME: home, LATERDOG_DEVICE_AUTH_FIXTURE: "1", FAKE_GROK_MODE: "waiting" }),

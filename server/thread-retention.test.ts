@@ -1,6 +1,3 @@
-// Retention for per-thread event logs (#1280): only the NDJSON logs of
-// threads idle — closed or archived — longer than the window are removed,
-// and busy/unread/handoff threads are never touched.
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -100,7 +97,6 @@ describe("thread event log retention", () => {
     await writeLogs("old");
 
     expect(sweepThreadEventLogs([old], 30, now)).toBe(1);
-    // the files are gone, so a repeat sweep has nothing to do
     expect(sweepThreadEventLogs([old], 30, now)).toBe(0);
   });
 
@@ -112,7 +108,6 @@ describe("thread event log retention", () => {
     const missing = candidate({ threadId: "missing", closedAt: now - 31 * DAY_MS });
     await writeLogs("blocked");
     await writeLogs("half-blocked");
-    // a directory where a log file belongs makes unlink fail without ENOENT
     rmSync(join(EVENTS_DIR, "blocked.ndjson"));
     rmSync(join(NATIVE_DIR, "blocked.ndjson"));
     mkdirSync(join(EVENTS_DIR, "blocked.ndjson"));
@@ -122,7 +117,6 @@ describe("thread event log retention", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect(sweepThreadEventLogs([blocked, halfBlocked, missing], 30, now)).toBe(1);
-    // half-blocked still lost its native/ log, so only that thread counts
     expect(existsSync(join(NATIVE_DIR, "half-blocked.ndjson"))).toBe(false);
     expect(warn).toHaveBeenCalledTimes(3);
     const warned = warn.mock.calls[0]!.join(" ");

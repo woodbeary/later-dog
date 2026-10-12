@@ -4,11 +4,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
-/** The versioned LLM-judge layer. The prompt is a committed, checksummed
- * artifact: a manifest pins every prompt file's sha256, the loader refuses
- * a mismatched or missing prompt, and verdict parsing is strict so a chatty
- * model cannot flatter a scenario into passing. */
-
 const JUDGE_DIR = join(dirname(fileURLToPath(import.meta.url)));
 export const PROMPTS_DIR = join(JUDGE_DIR, "prompts");
 
@@ -52,8 +47,6 @@ const verdictSchema = z.object({
 
 export type JudgeVerdict = z.infer<typeof verdictSchema>;
 
-/** Extracts the first JSON object in the reply (tolerating code fences or
- * stray prose) and strictly validates it. */
 export function parseJudgeVerdict(reply: string): JudgeVerdict {
   const fenced = reply.match(/```(?:json)?\s*([\s\S]*?)```/);
   const candidates = [fenced?.[1], reply];
@@ -64,9 +57,7 @@ export function parseJudgeVerdict(reply: string): JudgeVerdict {
     if (start === -1 || end <= start) continue;
     try {
       return verdictSchema.parse(JSON.parse(candidate.slice(start, end + 1)));
-    } catch {
-      // try the next candidate shape
-    }
+    } catch {}
   }
   throw new Error("judge reply was not valid JSON matching the verdict contract");
 }

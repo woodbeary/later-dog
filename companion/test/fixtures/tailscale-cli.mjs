@@ -1,5 +1,3 @@
-// Offline standalone-app double: without CLI mode it exits 0 with GUI text,
-// just like the reported macOS install when launched from a desktop sidecar.
 const mode = process.env.FAKE_TAILSCALE_OUTPUT;
 if (mode === "gui" || process.env.TAILSCALE_BE_CLI !== "1") {
   console.log("The Tailscale GUI failed to start: private diagnostic omitted");

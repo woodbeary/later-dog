@@ -1,7 +1,3 @@
-// Speech helper lifecycle, main-process side. The Swift recognizer is a tiny
-// background app because current macOS privacy enforcement requires the code
-// calling Speech/AVFoundation to be launched with its own Info.plist identity.
-// Compiled lazily in development; each recording session is one helper app.
 import { spawn } from "node:child_process";
 import {
   existsSync,
@@ -28,8 +24,6 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, "resources", "speech-helper.swift");
 const INFO = path.join(__dirname, "resources", "speech-helper-Info.plist");
-// Packaged: the helper bundle ships pre-built + signed in Resources. A signed
-// app bundle must never be rewritten — lazy compilation would break its seal.
 const BUNDLE = app.isPackaged
   ? path.join(process.resourcesPath, "later.dog Speech.app")
   : speechHelperBundle;
@@ -39,8 +33,6 @@ const BIN = app.isPackaged
 
 let child = null;
 
-// Voice notes: a dictation is also saved as audio, so a recognition error
-// never loses what was said. The last few stay; Try again transcribes one.
 const VOICE_NOTES_KEPT = 10;
 export function voiceNotesDir() {
   return path.join(app.getPath("userData"), "voice-notes");
@@ -56,7 +48,6 @@ function newVoiceNotePath() {
   } catch {}
   return path.join(dir, `${new Date().toISOString().replace(/[:.]/g, "-")}.caf`);
 }
-/** Only a voice note this app saved can be transcribed again. */
 export function isVoiceNote(file) {
   if (typeof file !== "string" || !file.endsWith(".caf")) return false;
   const resolved = path.resolve(file);
@@ -75,10 +66,6 @@ function sendEnd(win, info) {
   if (!win.isDestroyed()) win.webContents.send("speech:end", info);
 }
 
-/**
- * Start one recognition session. `endpointMs` is call-mode-only: composer
- * dictation deliberately keeps listening until its mic button is pressed.
- */
 export function startSpeech(win, options = {}) {
   stopSpeech();
   if (process.platform !== "darwin") {
@@ -89,7 +76,6 @@ export function startSpeech(win, options = {}) {
   const endpointMs = Number.isFinite(requested) && requested > 0
     ? Math.min(5_000, Math.max(250, Math.round(requested)))
     : 0;
-  // A retry transcribes a saved voice note; composer dictation saves one.
   const file = isVoiceNote(options?.file) ? path.resolve(options.file) : null;
   const recording = !file && !endpointMs ? newVoiceNotePath() : null;
   const args = [
@@ -106,10 +92,6 @@ export function startSpeech(win, options = {}) {
     return;
   }
 
-  // A direct spawn of Contents/MacOS/speech-helper loses the app-bundle
-  // identity and TCC kills it for lacking a usage description. LaunchServices
-  // preserves that identity. `open` redirects its stdout/stderr to files,
-  // which we tail to retain the helper's NDJSON streaming contract.
   const sessionDir = mkdtempSync(path.join(app.getPath("temp"), "laterdog-speech-"));
   const outputPath = path.join(sessionDir, "stdout.ndjson");
   const errorPath = path.join(sessionDir, "stderr.log");
@@ -172,14 +154,10 @@ export function startSpeech(win, options = {}) {
         const parsed = JSON.parse(line);
         if (typeof parsed.error === "string") reportedError = parsed.error;
         if (parsed.partial === false && typeof parsed.text === "string") completed = true;
-        // A stopped/replaced helper can flush one last chunk. Never leak it
-        // into the session that replaced it.
         if (child === speechSession && !win.isDestroyed()) {
           win.webContents.send("speech:transcript", parsed);
         }
-      } catch {
-        /* non-JSON noise on stdout — ignore */
-      }
+      } catch {}
     }
   };
   watchFile(outputPath, { interval: 50, persistent: false }, drain);
@@ -194,9 +172,6 @@ export function startSpeech(win, options = {}) {
   proc.on("close", (code) => {
     drain();
     cleanup();
-    // stopSpeech() clears child before creating the stop marker. Suppressing
-    // that close event is essential in call mode: intentional TTS muting must
-    // not look like the natural end of a spoken turn.
     if (child !== speechSession) return;
     child = null;
     const kept = note && existsSync(note) ? { recording: note } : {};
@@ -225,8 +200,6 @@ export function stopSpeech() {
   } catch {}
 }
 
-/** Finalize the active request and keep it owned until the recognizer emits
- * its final transcript. Used by push-to-talk key release. */
 export function finishSpeech() {
   if (!child) return;
   try {

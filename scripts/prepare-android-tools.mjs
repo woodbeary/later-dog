@@ -1,5 +1,3 @@
-// Stage Google's official Android Platform Tools beside the packaged app so
-// USB phone support works on a clean machine without Homebrew or an SDK.
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -32,17 +30,10 @@ try {
     writeFileSync(zip, Buffer.from(await response.arrayBuffer()));
     const extraction = join(temporary, "extracted");
     mkdirSync(extraction);
-    // A bare "tar" is Windows' bundled bsdtar (zip-capable) in cmd/PowerShell
-    // but git-bash puts GNU tar (cannot read .zip) ahead of it on PATH, so
-    // name the System32 binary absolutely — it extracts zips and understands
-    // C:\ paths from any shell. unzip is the fallback for the rare Windows
-    // without System32 tar, and the norm everywhere else.
     const systemTar = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
     const extractors = process.platform === "win32"
       ? [[systemTar, ["-xf", zip, "-C", extraction]], ["unzip", ["-q", zip, "-d", extraction]]]
       : [["unzip", ["-q", zip, "-d", extraction]]];
-    // spawnSync leaves stdout/stderr undefined when the binary itself is
-    // missing (ENOENT) — report result.error instead of crashing on .trim().
     const describeFailure = (r) => r.error?.message ?? (`${r.stderr || r.stdout || ""}`.trim() || `exit status ${r.status}`);
     let result;
     for (const [command, args] of extractors) {

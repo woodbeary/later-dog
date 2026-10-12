@@ -2,40 +2,17 @@ import { z } from "zod";
 import { scenarioSchema, type Assertion, type Scenario, type ScriptedToolCall, type Step } from "../../types.ts";
 import { formatFindings, scanSerialized, scanStrings, survivorsOf } from "./leak-scan.ts";
 
-/** Tier 2, step one: an in-repo redaction step that turns a real thread
- * export into a synthetic tier-1 scenario fixture. The input is the exact
- * shape the product serves at /api/threads/<id>/messages (plus the thread
- * owner's display name and optional handoff participants), never a live
- * store. The output is pure scenario data that replays through the mock
- * provider; no real content survives into it.
- *
- * Redaction rules:
- * - participant names/ids become synthetic keys (@bot1, @bot2, ...)
- * - user and bot text become positional placeholders (<user message 1>)
- * - tool arguments keep their key structure; values become type-preserving
- *   placeholders, except values that name a participant, which become bot
- *   references so coordinate_bots replay still dispatches
- * - timestamps, ids, attachments and every other message field are dropped
- * - the serialized fixture is scanned for sensitive patterns, and every
- *   source string of length >= 8 is proven absent, before anything is
- *   returned; a leak aborts the redaction with the pattern categories. */
-
 export const REDACTOR_VERSION = 1;
 
 const TERMINAL_HANDOFF_STATUSES = new Set(["completed", "failed"]);
 
 export const goldenExportSchema = z.object({
   meta: z.object({
-    /** The scenario id the redacted fixture will carry. */
     id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "scenario id must be kebab-case"),
     title: z.string().optional(),
-    /** One sentence stating the behavior the golden thread pins. */
     behavior: z.string().optional(),
-    /** Optional participant table so id-valued tool arguments (for example
-     * bot_ids carrying live uuids) can be mapped to synthetic references. */
     participants: z.array(z.object({ name: z.string(), id: z.string().optional() })).optional(),
   }),
-  /** Display name of the bot whose thread was exported. */
   bot: z.string().min(1),
   messages: z.array(
     z.object({
@@ -45,8 +22,6 @@ export const goldenExportSchema = z.object({
       tool: z.object({ name: z.string().optional(), arguments: z.record(z.string(), z.unknown()).optional() }).optional(),
     }),
   ),
-  /** Optional handoff nodes; display-name keyed. Only all-terminal trees
-   * are pinned (replay drives every node to a terminal status). */
   handoffs: z.array(z.object({ bot: z.string(), status: z.string(), hasParent: z.boolean().optional() })).optional(),
 });
 
@@ -59,8 +34,6 @@ export interface RedactionReport {
   userMessages: number;
   turnsDerived: number;
   toolCallsDerived: number;
-  /** Replies synthesized for handoff bots whose real replies live outside
-   * the exported thread. */
   synthesizedReplies: number;
   handoffsPinned: boolean;
   handoffsOmittedReason?: string;
@@ -70,7 +43,6 @@ export interface RedactionReport {
 
 export interface RedactionResult {
   scenario: Scenario;
-  /** The fixture exactly as it must be serialized (stable key order). */
   serialized: string;
   report: RedactionReport;
 }
@@ -123,9 +95,6 @@ class ParticipantMap {
   }
 }
 
-/** Argument skeleton: keys stay (they are tool schema, not user data),
- * values become type-preserving placeholders; participant references map
- * to @bot keys so replay dispatches to the synthetic bots. */
 function skeletonArguments(args: Record<string, unknown> | undefined, participants: ParticipantMap): Record<string, unknown> {
   if (args === undefined) return {};
   const skeleton = (value: unknown, depth: number): unknown => {
@@ -147,19 +116,12 @@ function skeletonArguments(args: Record<string, unknown> | undefined, participan
   };
  return Object.fromEntries(
     Object.entries(args).map(([key, value]) => {
-      // coordinate_bots validates request_key as [\\w-]{1,100} server-side;
-      // a markup placeholder would be refused and the recorded dispatch
-      // could never replay. The key is an opaque slug, never content worth
-      // preserving, so it always becomes the same replay-safe placeholder.
       if (key === "request_key") return [key, "redacted-request"];
       return [key, skeleton(value, 0)];
     }),
   );
 }
 
-/** Participant references (@botN) inside a coordinate_bots call's skeleton
- * arguments, in order of first appearance: the bots replay will dispatch
- * to, whose turns interleave with the owner's in the evidence log. */
 function collectParticipantRefs(value: unknown): string[] {
   if (typeof value === "string") {
     return /^@bot\d+$/.test(value) ? [value.slice(1)] : [];
@@ -235,8 +197,6 @@ export function redactThread(exported: GoldenThreadExport): RedactionResult {
   }
   closeTurn();
 
-  // Handoff pins only when the exported tree is all-terminal; a live tree
-  // would not reproduce its exported statuses under replay.
   const handoffs = exported.handoffs ?? [];
   const handoffsPinned = handoffs.length > 0 && handoffs.every((node) => TERMINAL_HANDOFF_STATUSES.has(node.status));
   const handoffsOmittedReason = handoffs.length === 0
@@ -245,11 +205,6 @@ export function redactThread(exported: GoldenThreadExport): RedactionResult {
       ? undefined
       : "exported handoff tree had non-terminal statuses; replay would drift";
 
-  // Waits are state-based only: after every send, the owner goes idle; at
-  // the end, each pinned handoff bot reaches its exported terminal status.
-  // Exact turn-count waits are deliberately absent: when a handoff settles,
-  // the harness wakes the coordinator with one extra turn, so replay turn
-  // counts depend on that behavior rather than the export's shape.
   const waitSteps: Step[] = [];
   let pendingSend = false;
   for (const step of steps) {
@@ -269,9 +224,6 @@ export function redactThread(exported: GoldenThreadExport): RedactionResult {
     waitSteps.push({ kind: "waitForNodeStatus", bot: ownerKey, status: ownerStatus, timeoutMs: 20_000 });
   }
 
-  // Bots: the owner plus every other participant the pinned tree or the
-  // declared participants mention. Non-owner bots get one synthesized
-  // placeholder turn so a replayed dispatch completes.
   const keys = participants.keyList();
   const names = participants.nameList();
   const bots = keys.map((key, index) => {
@@ -285,22 +237,11 @@ export function redactThread(exported: GoldenThreadExport): RedactionResult {
           ...(turn.steps.length === 0 ? {} : { steps: turn.steps }),
           ...(turn.reply === undefined ? {} : { reply: turn.reply }),
         }))
-        // When a handoff settles, the harness wakes the coordinator with
-        // one more turn. A real export usually already contains that reply;
-        // the spare scripted turn covers exports that ended before it.
         .concat(handoffsPinned ? [{ reply: "<settled reply>" }] : []),
     };
   });
   const synthesizedReplies = bots.filter((bot) => bot.key !== ownerKey).length;
 
-  // turnOrder is pinned only for single-send threads, and as the replay's
-  // room-wide order: the owner's turn, then one turn per bot the owner's
-  // coordinate_bots calls dispatch to (each dispatched bot's scripted turn
-  // runs as its handoff completes), then the owner's wake turn. The
-  // scripted engine's evidence log is room-wide, so pinning only the
-  // exported owner turns would compare two different sequences. Multi-send
-  // histories interleave steering and wakes in orders replay cannot pin
-  // without the real timing, so they assert traces and outcomes instead.
   const dispatchedKeys = [
     ...new Set(
       turns

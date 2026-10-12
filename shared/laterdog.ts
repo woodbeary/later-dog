@@ -11,9 +11,7 @@ export const BACKENDS = ["codex-cloud", "claude-cloud", "laterdog-cloud"] as con
 export type BackendId = typeof BACKENDS[number];
 export const repositorySchema = z.object({
   slug: repoSlug,
-  /** The published Codex Cloud environment ID; kept as the primary field for existing records and the Workspace form. */
   environmentId: z.string().trim().min(1).max(200),
-  /** Per-backend environment identities beyond Codex (for claude-cloud: the routine ID whose API trigger starts sessions for this repository). */
   environments: z.partialRecord(z.enum(BACKENDS), z.string().trim().min(1).max(200)).default({}),
   generation: z.enum(["current", "legacy", "unqualified"]).default("unqualified"),
   baseRef: gitRef.default("main"),
@@ -80,13 +78,10 @@ export interface JobEvent { sequence: number; jobId: string; at: string; type: s
 export interface Profile {
   id: string;
   label: string;
-  /** Which execution backend this account profile submits to; defaults to native Codex Cloud. */
   backend?: BackendId;
   codexHome?: string;
   cli?: string;
-  /** claude-cloud: the default routine (`trig_…`) when a repository does not name one. */
   routineId?: string;
-  /** claude-cloud: the environment variable holding that routine's API-trigger token; the value never enters config files. */
   routineTokenEnv?: string;
   computerSize?: "small" | "standard" | "large" | "xlarge";
 }
@@ -114,9 +109,7 @@ export interface WorkspaceSnapshot {
   measurements?: { interventions: number; regressions: number; reportedTokens: number | null; reportedModelCostUsd: number | null; reportedComputeCostUsd: number | null; averageObservedCompletionMs: number | null; receipts: number; coverage: string };
 }
 
-/** One message the supervisor holds for the conversation that delegated a job, until a desktop hands it over (or gives up on it). */
 export interface Wakeup { id: number; botId: string; threadId: string; sendId: string; text: string }
-/** How a desktop settles a wake-up: handed to the conversation, or dropped because that conversation is gone (the reason lands on the job). */
 export type WakeupSettlement = { outcome: "delivered" } | { outcome: "dropped"; reason: string };
 
 export function scopesOverlap(a: readonly string[], b: readonly string[]): boolean {

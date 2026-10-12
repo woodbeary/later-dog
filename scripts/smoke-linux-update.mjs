@@ -1,18 +1,3 @@
-// End-to-end proof that an AppImage update lands on the path the user
-// launches, run against the real release feed.
-//
-// The unit tests drive AppImageUpdater.doInstall with hand-made files. This
-// drives the whole thing: the shipped bundle, extracted from the packaged
-// AppImage, checking the real canonical release feed, downloading the real
-// asset, and installing it over a copy that carries a version in its name —
-// the exact shape that used to orphan the launcher.
-//
-// The current version is reported by the app adapter, not read from the file,
-// so a build newer than the latest release can still be told to update: we
-// claim an old version and let the published release be the newer one.
-//
-// Runs under Electron (electron-updater needs its net stack):
-//   xvfb-run -a pnpm exec electron scripts/smoke-linux-update.mjs
 import { createHash } from "node:crypto";
 import {
   copyFileSync,
@@ -35,8 +20,6 @@ const { app } = require("electron");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDir = path.join(root, "release");
 
-// A version older than the oldest release we would ever test against, so the
-// published feed is always an upgrade regardless of what is packaged here.
 const PRETEND_VERSION = "0.0.1";
 
 function fail(message) {
@@ -44,8 +27,6 @@ function fail(message) {
   app.exit(1);
 }
 
-// Missing is an answer, not a crash: when the install renames instead of
-// overwriting, the launched path is gone and that is the finding to report.
 function sha512(file) {
   try {
     return createHash("sha512").update(readFileSync(file)).digest("base64");
@@ -68,7 +49,6 @@ async function main() {
   mkdirSync(installDir);
   mkdirSync(applications);
 
-  // The bug shape: a version in the filename, and a launcher pinned to it.
   const launched = path.join(installDir, "laterdog-0.0.1-x86_64.AppImage");
   copyFileSync(packaged, launched);
   const desktopEntry = path.join(applications, "dog.later.app.desktop");
@@ -77,16 +57,10 @@ async function main() {
     `[Desktop Entry]\nName=later.dog\nExec=${launched} %U\nType=Application\n`,
   );
 
-  // Isolate every path the updater writes to.
   process.env.XDG_CACHE_HOME = path.join(workspace, "cache");
   process.env.APPIMAGE = launched;
   app.setPath("userData", path.join(workspace, "userdata"));
 
-  // The updater under test is the one that ships, not the one in the tree.
-  // Electron resolves paths inside an asar natively, so this loads the exact
-  // module the packaged app would require. An explicit path lets the same
-  // harness run against an unpatched bundle, which must fail — a smoke that
-  // cannot fail proves nothing.
   const bundle =
     process.argv.find((argument) => argument.startsWith("--updater="))?.slice("--updater=".length) ??
     path.join(root, "release/linux-unpacked/resources/app.asar/electron/vendor/electron-updater.cjs");
@@ -96,9 +70,6 @@ async function main() {
   const updateConfig = path.join(workspace, "app-update.yml");
   copyFileSync(path.join(root, "release/linux-unpacked/resources/app-update.yml"), updateConfig);
 
-  // The constructor parses the current version once, so this has to be in
-  // place before the updater exists. Without it the comparison runs against
-  // Electron's own version and every real release looks like a downgrade.
   app.getVersion = () => PRETEND_VERSION;
 
   const updater = new AppImageUpdater();
@@ -114,9 +85,6 @@ async function main() {
   console.log("[smoke-linux-update] checking the real release feed…");
   const result = await updater.checkForUpdates();
   if (!result?.updateInfo?.version) throw new Error("the feed returned no update");
-  // A feed response alone is not an offer: a version comparison that decided
-  // "not available" still carries updateInfo, and reading only that would let
-  // this smoke pass without ever installing anything.
   if (result.isUpdateAvailable !== true) {
     throw new Error(
       `the feed's ${result.updateInfo.version} was not treated as an update over ${PRETEND_VERSION}`,
@@ -131,8 +99,6 @@ async function main() {
   console.log("[smoke-linux-update] downloading…");
   await updater.downloadUpdate(result.cancellationToken);
 
-  // Record the queued relaunch instead of starting a second app. The native
-  // relauncher would otherwise run it when this fixture exits.
   let relaunched = null;
   app.relaunch = (options) => {
     relaunched = options.execPath;

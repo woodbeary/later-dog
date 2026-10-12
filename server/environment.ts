@@ -1,7 +1,3 @@
-// What a client learns about this server before it authenticates: a stable
-// identity, a label, the version, and what it can do. Served without auth at
-// /.well-known/laterdog/environment so a saved connection can check it is
-// still talking to the same server, and so version skew is visible.
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -24,17 +20,10 @@ export interface EnvironmentDescriptor {
   platform: NodeJS.Platform;
   version: string;
   capabilities: {
-    /** Pairing and sessions are available (this build). */
     remoteSessions: true;
-    /** This server accepts computer sharing. Present only while the
-     * maintainer flag `features.sharedComputers` is on: a server with it off
-     * advertises nothing, exactly like a build that predates the feature. */
     sharedComputers?: true;
-    /** A person's own later.dog Cloud home (docs/cloud-pro.md). Absent elsewhere. */
     cloudHome?: true;
-    /** Who can update the server: the desktop app that runs it, or the operator. */
     selfUpdate: "desktop-managed" | "operator";
-    /** Whether /pair offers "sign in with your email" (an allow-list is set). */
     emailSignIn?: boolean;
   };
 }
@@ -63,7 +52,6 @@ function readEnvironmentId(file: string): string | undefined {
   return id;
 }
 
-/** Read or create the id. Written once, never rotated by the server itself. */
 export function loadEnvironmentId(dataDir: string): string {
   const file = join(dataDir, "environment-id");
   const existing = readEnvironmentId(file);
@@ -84,9 +72,6 @@ export function loadEnvironmentId(dataDir: string): string {
     descriptor = undefined;
 
     try {
-      // The temporary file is complete before it becomes visible at the final
-      // path. A hard link is an atomic, no-replace publish on every supported
-      // desktop platform, unlike rename (which overwrites on POSIX).
       linkSync(temporaryFile, file);
       return id;
     } catch (error) {
@@ -99,15 +84,10 @@ export function loadEnvironmentId(dataDir: string): string {
     if (descriptor !== undefined) closeSync(descriptor);
     try {
       unlinkSync(temporaryFile);
-    } catch {
-      // A leftover private temporary file is harmless and must not make a
-      // successfully published identity unusable.
-    }
+    } catch {}
   }
 }
 
-/** The desktop app passes its own version; a checkout reads package.json;
- * an image sets LATERDOG_APP_VERSION at build time. */
 export function serverVersion(): string {
   const fromEnv = process.env.LATERDOG_APP_VERSION?.trim();
   if (fromEnv) return fromEnv;
@@ -115,9 +95,7 @@ export function serverVersion(): string {
     const pkg: unknown = JSON.parse(readFileSync(join(SERVER_ROOT, "..", "package.json"), "utf8"));
     const version = Reflect.get(Object(pkg), "version");
     if (typeof version === "string" && version) return version;
-  } catch {
-    /* no package.json next to the bundle */
-  }
+  } catch {}
   return "unknown";
 }
 
@@ -129,11 +107,7 @@ export function environmentDescriptor(input: { environmentId: string; desktopMan
     version: serverVersion(),
     capabilities: {
       remoteSessions: true,
-      // Never advertise a protocol this server would refuse: the routes are
-      // gone unless features.sharedComputers is on, so the capability is too.
       ...(input.sharedComputers === true ? { sharedComputers: true as const } : {}),
-      // A later.dog Cloud home: its pairing page says "Opening your Cloud…" and
-      // where to connect from, not "the code shown on the server".
       ...(input.cloudHome === true ? { cloudHome: true as const } : {}),
       selfUpdate: input.desktopManaged ? "desktop-managed" : "operator",
       emailSignIn: input.emailSignIn === true,

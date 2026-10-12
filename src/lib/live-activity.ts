@@ -2,8 +2,6 @@ import type { Message } from "@/state/store";
 import { t } from "./i18n";
 import type { LocaleKey } from "@/locales";
 
-// keys, not labels: t() reads the active pack when it is called, and this
-// array is built once at import time
 const FALLBACK_LABELS: Array<[RegExp, LocaleKey]> = [
   [/\b(?:bash|shell|terminal|exec|command|run_command)\b/i, "chat.activity.runCommand"],
   [/\b(?:read|read_file|view|open_file)\b/i, "chat.activity.readFile"],
@@ -28,12 +26,6 @@ function sentenceCase(value: string): string {
   return `${trimmed[0].toUpperCase()}${trimmed.slice(1)}`;
 }
 
-/**
- * The one quiet line shown while an agent is working. This follows t3code's
- * live-activity model: thinking before a tool starts, then the current verb.
- * The server-provided narration is authoritative; fallbacks cover older
- * messages and third-party drivers that only report a tool name.
- */
 export function liveActivityLabel(message?: Message): string {
   if (
     message?.kind !== "activity" ||

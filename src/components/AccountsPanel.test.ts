@@ -232,7 +232,6 @@ describe("Accounts", () => {
       expect(panelText()).not.toContain(noise);
     }
     expect(button("Add account")).toBeDefined();
-    // one account has no next one to switch to
     expect(panelText()).not.toContain("Keep going when an account runs out");
   });
 

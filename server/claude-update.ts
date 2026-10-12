@@ -55,9 +55,6 @@ function updateFailure(error: unknown, cli: string): Error {
   return new Error(`Claude update failed${detail ? `: ${detail}` : ""}. ${FALLBACK}`);
 }
 
-/** Run Claude Code's own updater, then prove which version is now installed.
- * The caller owns the environment so credentials can be stripped before the
- * executable (including a configured wrapper) is launched. */
 export async function updateClaudeCli(
   cli: string,
   env: NodeJS.ProcessEnv,

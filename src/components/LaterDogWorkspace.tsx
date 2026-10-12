@@ -35,15 +35,12 @@ export function LaterDogWorkspace({ conversationId, botId, openConversation }: {
   const [events,setEvents] = useState<JobEvent[]>([]); const [modal,setModal] = useState<"job" | "repo" | "pair" | null>(null);
   const [pending,setPending] = useState(false); const [correction,setCorrection] = useState("");
   const [pairCode,setPairCode] = useState("");
-  // GitHub access as the supervisor itself sees it (`gh api user` there, never here): a supervisor without a GitHub login
-  // cannot open PRs, and that should be visible — and fixable in one click — before the first publish fails.
   const [github,setGithub] = useState<GitHubAccess | null>(null);
   const connected = workspace !== null;
   const signingIn = github?.signIn?.phase === "waiting";
   useEffect(() => { if (!connected) return; const abort = new AbortController();
     const check = () => request<GitHubAccess>("/github/access",undefined,abort.signal).then(setGithub).catch(() => { if (!abort.signal.aborted) setGithub(null); });
     void check();
-    // While a device sign-in waits for the person, look again every few seconds so "Connected" appears on its own.
     const timer = signingIn ? setInterval(() => void check(),4000) : undefined;
     return () => { abort.abort(); if (timer) clearInterval(timer); }; },[connected,signingIn]);
   const connectGitHub = async () => {

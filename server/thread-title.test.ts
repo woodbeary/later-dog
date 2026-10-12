@@ -32,7 +32,6 @@ describe("titleConversationExcerpt", () => {
     const excerpt = titleConversationExcerpt(messages);
     const lines = excerpt.split("\n");
     expect(excerpt.length).toBeLessThanOrEqual(TITLE_INPUT_MAX_CHARS);
-    // each line is clipped, and the last line is the newest message
     expect(lines.every((line) => line.length <= 306)).toBe(true);
     expect(lines.at(-1)).toMatch(/^Bot: 29 /);
     expect(excerpt).not.toContain("User: 0 ");

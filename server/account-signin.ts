@@ -1,25 +1,12 @@
-// Sign in with your email on a hosted server. The emailed code comes from the
-// later.dog control plane (the account service the desktop companion and
-// `laterdog login` already use), and this server decides who is welcome
-// with an allow-list its owner controls. The result is an ordinary local
-// session, the same thing a pairing code produces, so every gate applies.
-//
-// Why through the control plane rather than a mail provider per server: a
-// self-hoster then needs no email credentials at all; the code arrives from
-// accounts.later.dog. The exchange happens server-side, so a browser
-// only ever talks to this server, and a server with an empty allow-list does
-// not expose the routes.
 import { resolveCompanionControlPlaneURL } from "../electron/companion-account-service.mjs";
 import { ControlPlaneError, createControlPlaneClient, normalizeAccountEmail, type ControlPlaneClient } from "../electron/control-plane-client.mjs";
 import type { Scope } from "./sessions.ts";
 
-/** Who may sign in. `a@b.com` is that address; `@b.com` is everyone at b.com. */
 export interface SignInAllowList {
   admins: string[];
   members: string[];
 }
 
-/** Commas, spaces or newlines between entries; case does not matter. */
 export function parseAllowList(value: string | undefined | null): string[] {
   return (value ?? "")
     .split(/[,\s]+/)
@@ -67,8 +54,6 @@ export function createEmailSignIn(options: {
     return client;
   };
   return {
-    // An allow-list without an account service to send the codes is not a
-    // way in; the routes stay off and pairing codes remain the way.
     enabled: () => signInEnabled(allow()) && Boolean(client || resolveCompanionControlPlaneURL({ environment: env })),
     async start(rawEmail) {
       const email = normalizeAccountEmail(rawEmail);
@@ -88,8 +73,6 @@ export function createEmailSignIn(options: {
       try {
         verified = await controlPlane().verifyOTP(email, code);
       } catch (error) {
-        // The client refuses a malformed code before any request (status 0);
-        // the control plane's own "invalid_otp" is a wrong or expired code.
         if (error instanceof ControlPlaneError && error.code === "invalid_otp" && !error.status) {
           return { ok: false, status: 400, error: "enter the 8-digit code from the email" };
         }
@@ -101,7 +84,6 @@ export function createEmailSignIn(options: {
         }
         return unavailable(error);
       }
-      // The account session on the control plane has done its job.
       void controlPlane()
         .signOut(verified.accountToken)
         .catch(() => undefined);

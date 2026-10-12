@@ -1,25 +1,3 @@
-// later.dog Cloud Pro home machine: the boot contract, the places it offers, the
-// Admin's signed pairing request, and the volume the machine lives on. docs/cloud-pro.md is the
-// contract of record (and laterdog-cloud docs/consumer-cloud.md its Admin
-// half); keep them in step.
-//
-// One Fly app per customer runs this server behind an edge proxy on
-// 0.0.0.0:8080 (server/cloud-home-start.ts). The server itself still binds
-// 127.0.0.1 and every request reaches it with X-Forwarded-* headers, so no
-// request from the network is ever the loopback owner.
-//
-// The Admin never holds a session on the machine. It signs a request with
-// the machine's bootstrap secret (HMAC-SHA256 over the method, path, a
-// timestamp, a nonce and the body's hash); each valid request opens one
-// ordinary pairing window (sessions.ts: single use, at most ten minutes),
-// which the Admin hands to the person's signed-in desktop app. A request for
-// a browser sign-in (the Cloud page's "Use in your browser") names the
-// account that owns this Cloud and opens a window only this machine's web
-// page redeems, for at most two minutes, after showing whose Cloud it is.
-//
-// Cloud Pro includes no AI. The person signs in on the machine with their own
-// Claude or ChatGPT account, or an API key, exactly as on any server; nothing
-// on a Cloud home is ever routed to a platform model gateway.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
@@ -29,22 +7,14 @@ import { writeFileAtomic } from "./atomic.ts";
 import { hostedWorkspaceConfigured } from "./enterprise.ts";
 import { formatPairingCode, type SessionRegistry } from "./sessions.ts";
 
-/** Any of these switches the server into Cloud home mode; then all are required. */
 export const CLOUD_HOME_KEYS = ["LATERDOG_CLOUD_ROLE", "LATERDOG_CLOUD_MACHINE_ID", "LATERDOG_CLOUD_ADMIN_URL", "LATERDOG_CLOUD_BOOTSTRAP_SECRET"] as const;
-/** A platform model gateway's settings. A Cloud home never uses them: given
- * any, it logs one warning, and neither the server nor anything it starts
- * ever sees them. */
 export const CLOUD_IGNORED_KEYS = ["LATERDOG_HOSTED_MODEL_URL", "LATERDOG_HOSTED_MODEL_TOKEN", "LATERDOG_HOSTED_MODELS"] as const;
 export const CLOUD_PAIRING_PATH = "/api/cloud/pairing";
 export const CLOUD_PAIRING_DEFAULT_TTL_S = 300;
 export const CLOUD_PAIRING_MAX_TTL_S = 600;
-/** A browser sign-in's owner: printable ASCII with no space, `<` or `>`, and exactly one `@`. */
 const OWNER_EMAIL = /^[!-;=?A-~]{1,64}@[!-;=?A-~]{1,189}$/;
-/** A browser sign-in is redeemed the moment its tab loads. */
 export const CLOUD_BROWSER_SIGN_IN_MAX_TTL_S = 120;
-/** How far a signed request's timestamp may be from this machine's clock. */
 export const CLOUD_PAIRING_SKEW_S = 300;
-/** How long a used nonce is refused. Longer than the whole accepted window. */
 export const CLOUD_PAIRING_NONCE_MS = 10 * 60_000;
 const MAX_NONCES = 10_000;
 export const CLOUD_HOME_MARKER = ".laterdog-cloud-home.json";
@@ -54,7 +24,6 @@ export interface CloudHomeConfig {
   adminOrigin: string;
   publicOrigin: string;
   bootstrapSecret: string;
-  /** Safe degradations worth an operator's attention, for the startup log. */
   warnings: string[];
 }
 
@@ -78,8 +47,6 @@ function exactHttpsOrigin(raw: string | undefined, name: string): string {
   return url.origin;
 }
 
-/** Read the boot contract. Null on any machine that is not a Cloud home;
- * throws (so the server refuses to start) on a partial or invalid one. */
 export function cloudHomeConfiguration(env: NodeJS.ProcessEnv = process.env): CloudHomeConfig | null {
   if (!cloudHomeConfigured(env)) return null;
   if (env.LATERDOG_DESKTOP_PARENT === "1") invalid("the desktop app cannot run as a Cloud home machine");
@@ -97,43 +64,27 @@ export function cloudHomeConfiguration(env: NodeJS.ProcessEnv = process.env): Cl
   return { machineId, adminOrigin, publicOrigin, bootstrapSecret, warnings };
 }
 
-// The secrets and their pipe live in cloud-secrets.ts, which the server
-// reads before anything else (cloud-secrets-boot.ts).
 export { CLOUD_HOME_SECRET_KEYS, CLOUD_SECRETS_FD_ENV, cloudHomeSecrets, takeCloudSecrets, withoutCloudSecrets } from "./cloud-secrets.ts";
 
-/** The environment without a platform gateway's settings (CLOUD_IGNORED_KEYS). */
 export function withoutIgnoredCloudKeys(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const kept = { ...env };
   for (const key of CLOUD_IGNORED_KEYS) delete kept[key];
   return kept;
 }
 
-// The places a Cloud home offers live in shared/cloud-home.ts, so the app
-// lists exactly what the server accepts.
 export { cloudHomeOffersPlace } from "../shared/cloud-home.ts";
 
-/** Why a Cloud home refuses a place it never offers (no "this computer" of
- * the person's, no Local VM), in the words the person reads; undefined for a
- * place it offers. A turn's error shows 160 characters, so each fits. */
 export function cloudHomePlaceRefusal(place: Surface): string | undefined {
   if (place === "local") return "This computer isn't a place on My Cloud. Set Works on to Auto or Cloud computer.";
   if (place === "vm") return "Dogs on My Cloud can't use a Local VM. Set Works on to Auto or Cloud computer.";
   return undefined;
 }
 
-/** The Cloud's setup checklist (docs/cloud-pro.md) has a "try something"
- * step that is done once a bot's turn finishes on the machine itself. The
- * server records when, once, in this Cloud's own onboarding record: that
- * section never travels with Move to Cloud (workspace-backup-policy.ts), so a
- * moved-in history of turns does not count. Null when there is nothing to
- * record: not a Cloud home, already recorded, a failed or stopped turn, or a
- * thread that is no bot's conversation or room. */
 export function firstCloudTurnPatch(turn: { cloudHome: boolean; recorded: string | undefined; ok: boolean; known: boolean; now?: Date }): { onboarding: { firstTurnAt: string } } | null {
   if (!turn.cloudHome || turn.recorded || !turn.ok || !turn.known) return null;
   return { onboarding: { firstTurnAt: (turn.now ?? new Date()).toISOString() } };
 }
 
-/** The Admin's side of the signature (laterdog-cloud cloudPairingSignature). */
 export function cloudPairingSignature(secret: string, timestamp: string, nonce: string, body: Buffer | string): string {
   const bodyHash = createHash("sha256").update(body).digest("base64url");
   return createHmac("sha256", secret).update(`v1\n${timestamp}\n${nonce}\nPOST\n${CLOUD_PAIRING_PATH}\n${bodyHash}`).digest("base64url");
@@ -146,7 +97,6 @@ export interface CloudPairingResult {
 
 type PairingSessions = Pick<SessionRegistry, "openPairing" | "attemptAllowed" | "noteFailure" | "clearFailures">;
 
-/** The Admin's signed request for one pairing window on this machine. */
 export function createCloudPairing(options: {
   secret: string;
   sessions: PairingSessions;
@@ -157,9 +107,6 @@ export function createCloudPairing(options: {
   const nonces = new Map<string, number>();
   const refused = (error: string): CloudPairingResult => ({ status: 401, body: { error } });
   return {
-    /** Everything is checked before anything is opened: the signature (in
-     * constant time; a bad one counts toward the pairing lockout), then the
-     * clock, then the nonce, then the body. Nothing here is ever logged. */
     handle(input: { timestamp: string | undefined; nonce: string | undefined; signature: string | undefined; body: Buffer; source: string }): CloudPairingResult {
       const lock = sessions.attemptAllowed(input.source);
       if (!lock.ok) return { status: 429, body: { error: "rate_limited", retryAfterSeconds: Math.ceil(lock.retryAfterMs / 1000) } };
@@ -188,8 +135,6 @@ export function createCloudPairing(options: {
       if (ttlSeconds !== undefined && (!Number.isSafeInteger(ttlSeconds) || (ttlSeconds as number) < 1)) return { status: 400, body: { error: "invalid_ttl" } };
       if (purpose !== undefined && purpose !== "browser") return { status: 400, body: { error: "invalid_purpose" } };
       const browser = purpose === "browser";
-      // A browser sign-in names its Cloud's owner (the account's email), which the sign-in page shows before the
-      // person continues: one address in printable ASCII, as the Admin's email schemas allow, with no `<` or `>`.
       if ((browser || owner !== undefined) && (typeof owner !== "string" || owner.length > 254 || !OWNER_EMAIL.test(owner))) {
         return { status: 400, body: { error: "invalid_owner" } };
       }
@@ -201,15 +146,12 @@ export function createCloudPairing(options: {
         browser,
         ...(browser ? { owner: owner as string } : {}),
       });
-      // A browser sign-in has no code to type: only its credential redeems it, and saying `purpose` back tells the
-      // Admin this machine made one (a machine from before this ignores `purpose` and opens an ordinary window).
       if (browser) return { status: 200, body: { credential: opened.credential, expiresAt: opened.expiresAt, purpose: "browser" } };
       return { status: 200, body: { code: formatPairingCode(opened.code), credential: opened.credential, expiresAt: opened.expiresAt } };
     },
   };
 }
 
-/** The exact bytes the Admin signed, bounded. */
 export function readSignedBody(req: IncomingMessage, limit = 4096): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -225,12 +167,8 @@ export function readSignedBody(req: IncomingMessage, limit = 4096): Promise<Buff
   });
 }
 
-// The image's home directory may carry the shell files useradd seeds; a
-// fresh Fly volume carries lost+found. Anything else is someone's data.
 const ADOPTABLE = new Set(["lost+found", ".bash_logout", ".bashrc", ".profile"]);
 
-/** Bind the volume to this machine on first boot and refuse any other
- * machine's volume afterwards. Never deletes or rewrites existing data. */
 export function prepareCloudHomeVolume(home: string, machineId: string): "new" | "existing" {
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const marker = join(home, CLOUD_HOME_MARKER);
@@ -251,7 +189,6 @@ export function prepareCloudHomeVolume(home: string, machineId: string): "new" |
   return "new";
 }
 
-/** What the edge proxy may answer for: the machine's own public name. */
 export function cloudHomeHost(config: Pick<CloudHomeConfig, "publicOrigin">): string {
   return new URL(config.publicOrigin).hostname;
 }

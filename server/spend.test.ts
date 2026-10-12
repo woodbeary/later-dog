@@ -22,9 +22,7 @@ describe("prices", () => {
     expect(priceFor({ driverKind: "claudeAgent", model: "claude-sonnet-5" }, prices)?.inputPerMillion).toBe(3);
     expect(priceFor({ driverKind: "x", model: "unknown" }, prices)?.inputPerMillion).toBe(1);
     expect(priceFor({ driverKind: "x", model: "unknown" }, { "claude-sonnet-5": prices["claude-sonnet-5"]! })).toBeNull();
-    // 1M fresh input at 3, 1M cached at 0.3, 100k output at 15
     expect(billableFor({ driverKind: "claudeAgent", model: "claude-sonnet-5", input: 2_000_000, cachedInput: 1_000_000, output: 100_000 }, prices)).toBeCloseTo(3 + 0.3 + 1.5, 9);
-    // cached input never exceeds input, and a missing price is null, not zero
     expect(billableFor({ driverKind: "codex", model: "gpt-5", input: 10, cachedInput: 50, output: 0 }, prices)).toBeCloseTo(10 * 2 / 1_000_000, 12);
     expect(billableFor({ driverKind: "x", model: "y", input: 10, output: 10 }, {})).toBeNull();
   });
@@ -48,38 +46,30 @@ describe("spend against a monthly cap", () => {
     appendUsage(dataDir, row("2026-09-14T00:00:00.000Z", 0.6));
     await flushUsageLedger(dataDir);
     expect(monthToDateSpend(dataDir, now)).toBeCloseTo(1.0, 9);
-    // written behind the cache's back: the file is not re-read inside the window
     appendUsage(dataDir, row("2026-09-15T11:00:00.000Z", 0.25));
     await flushUsageLedger(dataDir);
     expect(monthToDateSpend(dataDir, now)).toBeCloseTo(1.0, 9);
-    // booked through noteSpend: counted at once, and once
     const booked = row("2026-09-15T11:30:00.000Z", 0.25);
     noteSpend(dataDir, booked, appendUsage(dataDir, booked));
     expect(monthToDateSpend(dataDir, now)).toBeCloseTo(1.25, 9);
     await flushUsageLedger(dataDir);
     await Promise.resolve();
     expect(monthToDateSpend(dataDir, now)).toBeCloseTo(1.25, 9);
-    // a new month starts from zero
     expect(monthToDateSpend(dataDir, new Date("2026-10-01T00:00:01Z"))).toBe(0);
   });
 
   it("counts a turn longer than the cache window the moment it is booked, before its row lands", async () => {
     const cfg = { budgets: { monthlyUsd: 1, warnAtPercent: 80 } };
     const start = new Date("2026-09-15T12:00:00Z");
-    // the turn starts: its admission check fills the cache with an empty month
     expect(spendState(cfg, dataDir, start, yes)).toMatchObject({ spentUsd: 0, exceeded: false });
-    // it settles 60 s later, $1.20 against a $1 cap; the append is still in flight
     const end = new Date(start.getTime() + 60_000);
     const booked = row(end.toISOString(), 1.2);
     const written = appendUsage(dataDir, booked);
     noteSpend(dataDir, booked, written);
     const crossed = spendState(cfg, dataDir, end, yes);
     expect(crossed).toMatchObject({ spentUsd: 1.2, exceeded: true, warn: true });
-    // so the turn that crossed the line raises the notice...
     expect(takeSpendAlert(dataDir, crossed)).toBe("cap");
-    // ...and the next turn is refused, not let through on a stale read
     expect(() => assertWithinBudget(cfg, dataDir, new Date(end.getTime() + 1_000), yes)).toThrow(expect.objectContaining({ code: "spend_cap" }));
-    // once the row lands it counts once: from the cached read, and from a fresh one
     expect(await written).toBe(true);
     await Promise.resolve();
     expect(monthToDateSpend(dataDir, new Date(end.getTime() + 2_000))).toBeCloseTo(1.2, 9);
@@ -89,7 +79,6 @@ describe("spend against a monthly cap", () => {
   it("never counts a booked turn twice when a re-read already sees its row, and drops one whose write failed", async () => {
     const onDisk = row("2026-09-15T11:00:00.000Z", 0.5);
     await appendUsage(dataDir, onDisk);
-    // the write landed but its promise has not been observed yet
     noteSpend(dataDir, onDisk, new Promise<boolean>(() => {}));
     expect(monthToDateSpend(dataDir, now)).toBeCloseTo(0.5, 9);
     const lost = row("2026-09-15T11:05:00.000Z", 0.3);
@@ -98,7 +87,6 @@ describe("spend against a monthly cap", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(monthToDateSpend(dataDir, now)).toBeCloseTo(0.5, 9);
-    // an unpriced turn books nothing
     noteSpend(dataDir, row("2026-09-15T11:06:00.000Z", null), new Promise<boolean>(() => {}));
     expect(monthToDateSpend(dataDir, now)).toBeCloseTo(0.5, 9);
   });
@@ -154,7 +142,7 @@ describe("spend notices", () => {
 
   it("remembers across a restart, and starts over for a new month or a new cap", () => {
     expect(takeSpendAlert(dataDir, state({ warn: true, percent: 90 }))).toBe("warn");
-    resetSpendAlertsForTests(); // a restart: only the file remains
+    resetSpendAlertsForTests();
     expect(takeSpendAlert(dataDir, state({ warn: true, percent: 91 }))).toBeNull();
     expect(takeSpendAlert(dataDir, state({ month: "2026-10", warn: true, percent: 90 }))).toBe("warn");
     expect(takeSpendAlert(dataDir, state({ month: "2026-10", monthlyUsd: 200, spentUsd: 170, warn: true, percent: 85 }))).toBe("warn");

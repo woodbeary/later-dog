@@ -1,14 +1,9 @@
 import { ObservationCoordinator } from "../server/computer-observation.ts";
 
-// Stable fixture: every requested observation still captures, because pages
-// can update asynchronously. Only byte-identical frames are withheld from the
-// model; deterministic actions therefore always receive fresh evidence.
 const frames = ["initial", "initial", "after-click", "after-click", "after-submit", "after-submit", "after-submit"];
 const baselineSent = frames.length;
 const coordinator = new ObservationCoordinator();
 for (const [index, frame] of frames.entries()) {
-  // index 1 deliberately models an action whose pixels do not change: it
-  // must still capture once, while duplicate suppression avoids a model send.
   if (index === 1 || index === 2 || index === 4) coordinator.noteAction();
   coordinator.observeFrame(frame, null);
 }

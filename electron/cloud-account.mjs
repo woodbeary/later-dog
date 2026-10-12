@@ -1,8 +1,6 @@
 import { createManagedDesktopStore, retryDelay, unreadableRecord } from "./managed-desktop.mjs";
 import { CLOUD_MACHINE_CONNECTABLE, parseCloudPurchase, parseCloudSummary, parsePairingGrant } from "./cloud-home.mjs";
 
-/** The Cloud this build signs in to: none unless the build names one (an
- * exact HTTPS origin). */
 export function configuredCloudOrigin(environment = process.env) {
   for (const name of ["LATERDOG_CLOUD_ORIGIN"]) {
     const value = typeof environment[name] === "string" ? environment[name].trim() : "";
@@ -14,21 +12,11 @@ const TOKEN = /^omc_[A-Za-z0-9_-]{43}$/;
 const CODE = /^[A-HJ-NP-Z2-9]{5}-[A-HJ-NP-Z2-9]{5}$/;
 const PRIVATE_CODE = /^[A-Za-z0-9_-]{43}$/;
 const TIER = /^[a-z][a-z0-9-]{0,23}$/;
-/** A verified session is asked again this often... */
 const REFRESH_MS = 60_000;
-/** ...and stays current this long without a newer answer. A check that fails
- * in between keeps it: one dropped request is not news, so the plan, the
- * Cloud card and Connect never blink out. Only a longer outage turns it into
- * "unavailable", and even then the plan last seen is still shown. */
 const STEADY_MS = 15 * 60_000;
-/** While the Cloud is being set up (or a payment is being linked), progress is asked for this often. */
 const SETUP_REFRESH_MS = 15_000;
-/** Failed checks in a row before the snapshot quietly says it is checking. */
 const CHECKING_AFTER = 2;
-/** The longest sign-in window accepted from the Admin (it may allow 15 minutes). */
 const MAX_ENROLL_SECONDS = 1800;
-// Never accept an address from the renderer: only the build's configured
-// origin, or loopback for an explicit test fixture.
 export function cloudOrigin(value = configuredCloudOrigin(), fixture = false) {
   if (!value) throw new Error("later.dog Cloud is not configured in this build (LATERDOG_CLOUD_ORIGIN).");
   let url;
@@ -40,37 +28,24 @@ export function cloudOrigin(value = configuredCloudOrigin(), fixture = false) {
   }
   return value;
 }
-// Reuse the encrypted, atomic, serialized record mechanism, not organization identity.
-// The caller supplies a DIFFERENT file; no entitlement is persisted in this record.
 export const createCloudAccountStore = createManagedDesktopStore;
 // oxlint-disable-next-line no-control-regex
 const text = (value, max) => typeof value === "string" && value.length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/.test(value);
 const timestamp = value => Number.isSafeInteger(value) && value > 0;
-/** The paid plan last verified for this sign-in, kept beside the credential
- * for display only: what Settings shows while later.dog Cloud cannot be asked, or
- * after this computer's sign-in has ended. It activates nothing, and is never
- * an entitlement. */
 function planHint(value) {
   if (!value || typeof value !== "object" || typeof value.active !== "boolean") return null;
   return { ...(typeof value.tier === "string" && TIER.test(value.tier) ? { tier: value.tier } : {}), active: value.active };
 }
-/** The Admin's own answer that this computer's sign-in no longer counts: its
- * JSON "invalid_token" (a page from in between carries no code). */
 const signInEnded = error => [401, 403].includes(error?.status) && error.code === "invalid_token";
 const sameHint = (left, right) => (left?.tier ?? null) === (right?.tier ?? null) && (left?.active ?? null) === (right?.active ?? null);
 
-/** Personal account only. No model provider, organization policy, workspace,
- * local settings or companion state is changed by this client. */
 export function createCloudAccountClient({ store, openBrowser, platform, deviceName, appVersion,
   origin = configuredCloudOrigin(), fixture = false, fetch: fetcher = globalThis.fetch, now = Date.now, onState = () => {},
   setTimer = setTimeout, clearTimer = clearTimeout, warn = message => console.warn(message) }) {
   origin = cloudOrigin(origin, fixture);
   let grant = null, issued = null, cleanup = null, pending = null, cleanupNeeded = false;
-  // "restoring": not yet known whether a saved sign-in exists. Nobody is
-  // offered a plan or a sign-in for it (start() settles it).
   let value = { status: "signed-out", message: "restoring" }, generation = 0, timer = null, closed = false, clearing = null, refreshing = null;
   let verifiedUntil = 0, restoring = false, controller = new AbortController(), failures = 0;
-  // `plan`: the last verified paid plan of this account (display only); `savedHint`: what the record holds.
   let plan = null, savedHint = null;
   const newerPlans = new Set();
   const lastPlan = () => plan && grant && plan.accountId === grant.account.id ? { ...(plan.tier ? { tier: plan.tier } : {}), active: plan.active } : null;
@@ -112,9 +87,6 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
     finally { reader?.releaseLock(); }
     let data;
     try { data = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch {
-      // Not an answer from the Admin's API: a route this Admin does not have,
-      // or a page from something in between (a firewall or bot check). The
-      // status is kept for growDisk; `opaque` keeps it from ending anything.
       if (!response.ok) throw Object.assign(new Error("Cloud request failed."), { status: response.status, opaque: true });
       throw new Error("Invalid Cloud response.");
     }
@@ -130,9 +102,6 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
     if (saved?.origin !== origin || !TOKEN.test(saved.token)) throw new Error("Invalid Cloud credential.");
     return { origin, token: saved.token, ...identity({ ...saved, cloudContractVersion: 1 }) };
   }
-  /** `plan` stays "free" or "pro" (any paid plan); `tier` names the paid plan
-   * when the Admin says. A plan newer than this app ("personal", "max") is
-   * paid with that tier, never a lockout; a malformed tier is no tier. */
   function entitlement(input) {
     const newer = typeof input?.plan === "string" && !["free", "pro"].includes(input.plan) && TIER.test(input.plan);
     if (!input || !(newer || ["free", "pro"].includes(input.plan)) || !["active", "inactive"].includes(input.status) ||
@@ -146,18 +115,13 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
   }
   async function revoke(previous) {
     try { await request("session", { method: "DELETE", body: {}, token: previous.token, signal: AbortSignal.timeout(20_000) }); }
-    // Already ended, by the Admin's own answer; a page from in between revoked nothing.
     catch (error) { if (![401, 403].includes(error?.status) || error.opaque) throw error; }
   }
-  /** The verified machine to connect to; null unless a current session
-   * reports one that is running. */
   function homeTarget() {
     const current = state();
     const machine = current.status === "connected" ? current.machine : undefined;
     return machine?.origin && CLOUD_MACHINE_CONNECTABLE.includes(machine.status) ? { origin: machine.origin } : null;
   }
-  /** Forget this computer's sign-in. `quiet`: on the way to signing in
-   * again, so "signed out" is never shown in between. */
   function forget({ quiet = false } = {}) {
     if (clearing) return clearing;
     const previous = grant ?? issued ?? cleanup, stamp = reset();
@@ -176,8 +140,6 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
   const signOut = () => forget();
   async function synchronize(stamp) {
     if (!grant || !current(stamp)) return state();
-    // A sign-in this computer holds lasts as long as later.dog Cloud said; after
-    // that, signing in again is the one next step (the plan is unaffected).
     if (grant.expiresAt <= now()) { stopTimer(); return publish(view("reauth-required", "expired")); }
     try {
       const previous = grant, result = await request("session", { token: previous.token });
@@ -187,8 +149,6 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
         throw Object.assign(new Error("Cloud identity changed."), { status: 401, code: "invalid_token" });
       }
       const access = entitlement(result.entitlement);
-      // The Admin's state decides what the machine allows (a lapsed payment
-      // is "payment-problem", not a hidden machine). A malformed one is none.
       const machine = parseCloudSummary(result.cloud);
       const purchase = parseCloudPurchase(result.cloud?.purchase);
       const hint = access.plan === "pro" ? { ...(access.tier ? { tier: access.tier } : {}), active: access.status === "active" } : null;
@@ -198,8 +158,7 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
         if (!current(stamp) || grant !== previous) return state();
         grant = replacement; savedHint = hint;
       } else if (!sameHint(savedHint, hint)) {
-        // Display only: a locked keychain must not hold up the verified state.
-        try { await store.write(record(previous, hint)); savedHint = hint; } catch { /* tried again next time */ }
+        try { await store.write(record(previous, hint)); savedHint = hint; } catch {}
         if (!current(stamp) || grant !== previous) return state();
       }
       plan = hint ? { accountId: grant.account.id, ...hint } : null;
@@ -207,18 +166,11 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
       verifiedUntil = Math.min(grant.expiresAt, now() + STEADY_MS,
         access.status === "active" && access.expiresAt !== null ? access.expiresAt : Infinity);
       publish({ ...view("connected"), entitlement: access, ...(machine ? { machine } : {}), ...(purchase ? { purchase } : {}), verifiedAt: now(), verifiedUntil });
-      // The next check comes well before this one stops counting.
       const settingUp = machine?.status === "provisioning" || (access.status === "active" && !machine) || Boolean(purchase);
       schedule(refresh, Math.min(settingUp ? SETUP_REFRESH_MS : REFRESH_MS, verifiedUntil - now()));
     } catch (error) {
       if (!current(stamp)) return state();
-      // Only the Admin itself ends a sign-in: its JSON "invalid_token". A
-      // 401/403 page from anything in between (Cloudflare, a proxy) is a
-      // failed check like any other, never "sign in again".
       if (signInEnded(error)) { verifiedUntil = 0; failures = 0; stopTimer(); return publish(view("reauth-required", "access-ended")); }
-      // Not an answer (offline, a timeout, a malformed reply): the last
-      // verified snapshot stands while it is current, and is never replaced
-      // by what failed. state() says "checking" after repeated failures.
       failures++;
       if (value.status === "connected") publish(value);
       else publish(view("unavailable", "unreachable"));
@@ -276,9 +228,6 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
     } catch { if (current(stamp)) { pending = null; publish({ status: "signed-out", message: "signin-failed" }); } }
     return state();
   }
-  /** The saved sign-in could not be used. One that never will be is removed,
-   * and signing in again is the one next step. One that may only be locked
-   * (the keychain) is kept, never removed, and read again shortly. */
   async function restoreFailed(stamp, unreadable) {
     cleanupNeeded = true;
     if (unreadable) {
@@ -296,7 +245,6 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
     restoring = true; verifiedUntil = 0;
     let saved, restored = null, failed = false, unreadable = false;
     try { saved = await store.read(); } catch (error) { failed = true; unreadable = unreadableRecord(error); }
-    // Read, but not a sign-in this app can use: as unreadable as a record the key no longer opens.
     if (!failed) try { restored = saved ? validateGrant(saved) : null; } catch { failed = unreadable = true; }
     restoring = false;
     if (!current(stamp)) return state();
@@ -311,9 +259,6 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
     state,
     start,
     begin,
-    /** After this computer's sign-in ended (it lasts a set time, or was
-     * removed): forget it and start a new sign-in in one step, never showing
-     * "signed out" in between. */
     async signInAgain() {
       if (state().status !== "reauth-required") throw new Error("This computer is still signed in to later.dog Cloud.");
       publish({ status: "connecting" });
@@ -329,9 +274,6 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
     refresh, signOut,
     async openDashboard() { await openBrowser(`${origin}/cloud`); return state(); },
     homeTarget,
-    /** Ask later.dog Cloud to grow this account's Cloud disk to `sizeGb` (at most
-     * the plan's own maximum), for a move that needs the room now rather than
-     * as the disk fills. `supported: false`: this Admin cannot do that yet. */
     async growDisk(sizeGb) {
       const current = grant;
       if (!current || state().status !== "connected") throw new Error("My Cloud is not ready yet.");
@@ -346,8 +288,6 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
       if (!disk || !Number.isSafeInteger(disk.gb) || !Number.isSafeInteger(disk.maxGb) || disk.gb < 1 || disk.maxGb < disk.gb) throw new Error("Invalid Cloud disk response.");
       return { supported: true, disk: { gb: disk.gb, maxGb: disk.maxGb } };
     },
-    /** Ask the Admin for one single-use pairing code on that machine. The
-     * code is returned to main only, for one navigation; it is not kept. */
     async pairHome() {
       const target = homeTarget(), current = grant;
       if (!target || !current) throw new Error("My Cloud is not ready to connect yet.");
@@ -360,15 +300,10 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
   };
 }
 
-/** What the person's own Cloud, open in this app's window, may show of the
- * plan in its Settings: the plan's name and whether it is active. Never the
- * account, a credential or an address. */
 export function cloudPlanSnapshot(state) {
   const tier = state?.status === "connected" ? state.entitlement?.tier : state?.lastPlan?.tier;
   const named = typeof tier === "string" ? { tier } : {};
   if (state?.status === "connected" && state.entitlement?.plan === "pro") return { status: state.entitlement.status === "active" ? "paid" : "attention", ...named };
-  // This computer's sign-in ended: the plan still shows (`tier` "pro" when it
-  // had none), and the next step is on the computer, not here.
   if (state?.status === "reauth-required") return { status: "signin", ...(state.lastPlan ? { tier: state.lastPlan.tier ?? "pro" } : {}) };
   if (state?.status !== "connected" && state?.lastPlan) return { status: "checking", ...named };
   return { status: "none" };

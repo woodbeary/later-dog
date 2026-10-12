@@ -1,37 +1,22 @@
-// What the app says about the person's later.dog Cloud plan, in one place: Settings
-// → later.dog Cloud, the Pro card in Settings and the Pro introduction all read it,
-// so no two of them can disagree. The rule the owner set: after buying,
-// nothing unexpected or contradictory, never an offer to buy to someone who
-// pays (or may pay: an unknown state is not "free"), and every state has one
-// message and one next step.
 import type { CloudAccountState } from "../../electron/cloud-account.mjs";
 import { openExternalLink } from "@/lib/app-links";
 import { t } from "@/lib/i18n";
 import { api } from "@/state/store";
 
 const PLAN_LABEL: Record<string, string> = { personal: "Personal", pro: "Pro", max: "Max" };
-/** A paid plan's product name. No tier is an Admin that sells only Pro; a
- * tier newer than this app reads "Cloud". */
 export function cloudPlanLabel(tier?: string): string {
   return tier === undefined ? "Pro" : Object.hasOwn(PLAN_LABEL, tier) ? PLAN_LABEL[tier] : "Cloud";
 }
 
 export type CloudPlanView =
-  /** Not known yet: no snapshot, or a saved sign-in still being read. */
   | { kind: "unknown" }
   | { kind: "signed-out" }
   | { kind: "connecting" }
-  /** Verified: signed in, no plan, no Cloud, no payment being linked. */
   | { kind: "free" }
-  /** Verified and active. `checking`: the last checks failed; this is the last verified answer. */
   | { kind: "paid"; label: string; checking: boolean }
-  /** A plan that is not active (a payment problem, or it ended) or a Cloud still there without one. */
   | { kind: "attention"; label: string | null }
-  /** A payment later.dog Cloud received and is linking to this account. */
   | { kind: "purchase"; label: string | null; paidAt?: number }
-  /** later.dog Cloud cannot be asked right now. `label`: the plan last verified. */
   | { kind: "unverified"; label: string | null }
-  /** This computer's sign-in ended. The plan is unaffected. */
   | { kind: "reauth"; label: string | null; reason: "expired" | "access-ended" };
 
 export function cloudPlanView(account: CloudAccountState | null | undefined): CloudPlanView {
@@ -46,19 +31,15 @@ export function cloudPlanView(account: CloudAccountState | null | undefined): Cl
   if (account.purchase) {
     return { kind: "purchase", label: account.purchase.tier ? cloudPlanLabel(account.purchase.tier) : null, ...(account.purchase.paidAt ? { paidAt: account.purchase.paidAt } : {}) };
   }
-  // A lapsed plan, or a Cloud still there (a payment problem, stopped): never "free", never a new purchase.
   if (entitlement?.plan === "pro") return { kind: "attention", label: cloudPlanLabel(entitlement.tier) };
   if (account.machine) return { kind: "attention", label: null };
   return { kind: "free" };
 }
 
-/** Only these two may see an offer to buy: nobody who pays, may pay, or
- * whose state is unknown. Signed out, the offer leads with signing in. */
 export function buyOfferAllowed(view: CloudPlanView): boolean {
   return view.kind === "signed-out" || view.kind === "free";
 }
 
-/** The plan in one line, or null where there is no plan to name. */
 export function cloudPlanLine(view: CloudPlanView): string | null {
   switch (view.kind) {
     case "paid": return t("cloudAccount.pro", { plan: view.label });
@@ -71,9 +52,6 @@ export function cloudPlanLine(view: CloudPlanView): string | null {
   }
 }
 
-/** Start buying later.dog Cloud: the server answers with Square's checkout
- * page, which opens in the browser. Throws when the plan can't be bought
- * here, so the caller can fall back to Settings. */
 export async function startCloudPlan(): Promise<void> {
   const next = await api<{ state: string; url?: string }>("/api/computers/plan", { method: "POST" });
   if (next.state !== "checkout" || !next.url) throw new Error("later.dog Cloud isn't available to buy here.");

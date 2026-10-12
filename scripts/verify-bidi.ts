@@ -1,10 +1,3 @@
-// Right-to-left message rendering in the real app, one disposable home.
-//
-// A unit test can only prove the markup; whether an Arabic answer actually
-// reads correctly is a question about the rendered bubble. This seeds a
-// scripted reply that exercises every block a bot reply can contain — prose
-// around inline code, a list, a table, a quote, a fenced block, and a trailing
-// English paragraph — and mounts the real renderer against it.
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,9 +51,6 @@ const ENGLISH_REPLY = [
   "وهذه فقرة عربية تُغلق ردًّا إنجليزيًّا — يجب أن تُقرأ من اليمين وحدها.",
 ].join("\n");
 
-// Each turn spawns a fresh CLI, so the reply cursor lives in a file — in this
-// launcher's own scratch directory, since the fixture home does not exist
-// until the server is up. The launcher forwards FAKE_CLAUDE_* to its engine.
 const scratch = mkdtempSync(join(tmpdir(), "laterdog-verify-bidi-"));
 const fixture = await launchVerificationServer({
   ...process.env,
@@ -79,8 +69,6 @@ try {
   const { bots } = await api("GET", "/api/bots?messages=0");
   const probe = bots.find((bot: { name: string }) => bot.name === "Probe");
 
-  // A multi-line user turn that mixes scripts: the sent bubble must resolve
-  // each line on its own, not let the first line decide for all of them.
   await control(["send", "--bot", probe.id, "--text", [
     "شغّل الاختبارات وقل لي أين المشكلة",
     "Then run pnpm typecheck and paste the output",

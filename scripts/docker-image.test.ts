@@ -5,12 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-// The published images: the self-hosted server (the default target) and the
-// Cloud home (docs/cloud-pro.md). A pull downloads every layer whose digest
-// changed, and a layer's digest changes when anything beneath it does.
 const dockerfile = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
-// later.dog publishes no server image, so its fork has no docker.yml: the
-// Dockerfile checks always run, the publishing checks only where the workflow is.
 const workflowFile = new URL("../.github/workflows/docker.yml", import.meta.url);
 const workflow = existsSync(workflowFile) ? parse(readFileSync(workflowFile, "utf8")) : null;
 const publishes = workflow !== null;
@@ -36,7 +31,6 @@ function stages(text: string): Stage[] {
 }
 
 const all = stages(dockerfile);
-/** Every instruction a target's image is built from, its parents' first. */
 function chain(target: string): Step[] {
   const stage = all.find(s => s.name === target);
   if (!stage) throw new Error(`the Dockerfile has no ${target} stage`);
@@ -46,7 +40,6 @@ const shipped = () => all.filter(s => s.name !== "build" && s.name !== "edge").f
 const npmInstall = (step: Step) => step.op === "RUN" && /\bnpm install\b/.test(step.args);
 const browserRun = () => chain("runtime").find(step => step.op === "RUN" && step.args.includes("agent-browser install"))!;
 const grokRun = (steps: Step[]) => steps.findIndex(step => step.op === "RUN" && step.args.includes("https://x.ai/cli/install.sh"));
-// The keys step parses Chrome for Testing's JSON with jq, as on GitHub's runners.
 const jq = process.platform === "win32" ? "" : spawnSync("sh", ["-c", "command -v jq"], { encoding: "utf8" }).stdout.trim();
 
 const temporaryDirectories: string[] = [];
@@ -59,7 +52,6 @@ describe("container images", () => {
     expect(all.at(-1)!.name).toBe("server");
     expect(all.find(s => s.name === "cloud-home")!.from).toBe("runtime");
     expect(all.find(s => s.name === "server")!.from).toBe("runtime");
-    // the build arg docker-compose.yml passes keeps its name and empty default
     expect(chain("server")).toContainEqual({ op: "ARG", args: 'ENGINES=""' });
   });
 
@@ -68,7 +60,6 @@ describe("container images", () => {
       const steps = chain(target);
       const heavy = steps.flatMap((step, i) => (npmInstall(step) ? [i] : []));
       const app = steps.flatMap((step, i) => (step.op === "COPY" && !step.args.includes("--from=edge") ? [i] : []));
-      // agent-browser + Chrome, then the engines, then the app files (and the Cloud home's Caddyfile)
       expect(heavy, target).toHaveLength(2);
       expect(steps.filter(step => step.op === "COPY" && step.args.includes("--from=build")), target).toHaveLength(2);
       expect(Math.max(...heavy), target).toBeLessThan(Math.min(...app));
@@ -88,16 +79,13 @@ describe("container images", () => {
 
   it("ships Caddy once, without its file capability, and the app files once, root's without a rewrite", () => {
     for (const { args } of shipped()) expect(args).not.toMatch(/\bch(own|mod) -R\b/);
-    // modes are fixed where the files are built, in a stage that is not shipped
     const build = all.find(s => s.name === "build")!.steps.find(step => step.op === "RUN" && step.args.startsWith("pnpm build:server"))!;
     expect(build.args).toMatch(/ && chmod -R go-w dist dist-server$/);
-    // a plain copy to a fresh inode drops the privileged-port capability and the 1001 owner
     expect(all.find(s => s.name === "edge")!.steps).toContainEqual({ op: "RUN", args: "cp /usr/bin/caddy /caddy" });
     const home = chain("cloud-home");
     expect(home.filter(step => step.args.includes("/usr/local/bin/caddy") && step.op === "COPY")).toEqual([
       { op: "COPY", args: "--from=edge /caddy /usr/local/bin/caddy" },
     ]);
-    // pinned, so beneath the engines: an engine release does not re-pull it
     expect(home.findIndex(step => step.args.startsWith("--from=edge "))).toBeLessThan(home.findLastIndex(npmInstall));
     expect(home.filter(step => step.op === "RUN" && /\b(cp|mv)\b[^&]*caddy/.test(step.args))).toEqual([]);
     expect(home.filter(step => step.args.includes("--from=build")).map(step => step.args)).toEqual([
@@ -111,12 +99,10 @@ describe("container images", () => {
     const grok = grokRun(home);
     expect(grok).toBeGreaterThan(-1);
     expect(home.slice(0, grok)).toContainEqual({ op: "ARG", args: "GROK_VERSION=1.0.41" });
-    // pinned, so an engine release or a code change does not re-pull it
     expect(grok).toBeLessThan(home.findLastIndex(npmInstall));
     expect(grok).toBeGreaterThan(home.indexOf(browserRun()));
     expect(grok).toBeLessThan(home.findIndex(step => step.args.includes("--from=build")));
     const { args } = home[grok];
-    // the installer and the version check write only to a throwaway home, gone by the end of the step
     expect(args.match(/\bHOME=\S+/g)).toEqual(["HOME=/tmp/grok-install", "HOME=/tmp/grok-install"]);
     expect(args).toMatch(/ && install -m 0755 "\$\(readlink -f \/tmp\/grok-install\/\.grok\/bin\/grok\)" \/usr\/local\/bin\/grok /);
     expect(args).toContain('grep -qF "grok $GROK_VERSION "');
@@ -180,7 +166,6 @@ describe("container images", () => {
       return { status: result.status, left: readdirSync(bin).sort(), names };
     };
     expect(run("agent-browser-linux-x64")).toMatchObject({ status: 0, left: ["agent-browser-linux-x64", "agent-browser.js"] });
-    // npm linking the JS wrapper instead must stop the build, not delete every native binary
     const wrapper = run("agent-browser.js");
     expect(wrapper.status).not.toBe(0);
     expect(wrapper.left).toEqual(wrapper.names);
@@ -200,7 +185,6 @@ describe("container images", () => {
     expect(home.with!["build-args"]).not.toContain("BASE_IMAGE");
     expect(home.with!["cache-from"].split("\n")).toEqual(expect.arrayContaining(["type=gha", "type=gha,scope=cloud-home"]));
     expect(home.with!["cache-to"]).toBe("type=gha,scope=cloud-home,mode=max");
-    // Both builds key the browser layer on the same Chrome, so they share it.
     for (const build of [server, home]) expect(build.with!["build-args"]).toContain("CHROME_CACHE_TAG=${{ steps.keys.outputs.chrome }}");
     expect(home.with!["build-args"]).toContain("CLOUD_HOME_ENGINES=${{ steps.keys.outputs.engines }}");
     expect(home.with!["build-args"]).toContain("ENGINES_CACHE_TAG=${{ steps.keys.outputs.engines_tag }}");
@@ -209,7 +193,6 @@ describe("container images", () => {
   it("keys the browser and engine layers on the versions they install, so a release rebuilds them", () => {
     const runtime = all.find(s => s.name === "runtime")!.steps;
     const declared = runtime.findIndex(step => step.op === "ARG" && step.args.startsWith("CHROME_CACHE_TAG="));
-    // declared after the apt step, so a Chrome release rebuilds only the browser layer
     expect(declared).toBeGreaterThan(runtime.findIndex(step => step.op === "RUN" && step.args.startsWith("apt-get update")));
     expect(declared).toBeLessThan(runtime.indexOf(browserRun()));
     expect(browserRun().args).toContain("${CHROME_CACHE_TAG");

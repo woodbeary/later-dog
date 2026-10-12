@@ -10,16 +10,10 @@ const originsSchema = z.string();
 export type TunnelReclaimMode = "on" | "observe";
 
 export interface CapacityConfig {
-  /** Scheduled cleanup rows processed per cron run. */
   cleanupSweepLimit: number;
-  /** Zone DNS record quota used for the usage alert. */
   dnsRecordLimit: number;
-  /** A tunnel offline for at least this long (and an installation that has
-   * been quiet as long) may be reclaimed. Never below seven days. */
   offlineReclaimMs: number;
-  /** `observe` evaluates and logs reclaim candidates without marking any. */
   reclaimMode: TunnelReclaimMode;
-  /** Account tunnel quota used for the usage alert. */
   tunnelLimit: number;
 }
 
@@ -41,12 +35,6 @@ export const DEFAULT_TUNNEL_LIMIT = 1_000;
 export const DEFAULT_DNS_RECORD_LIMIT = 1_000;
 export const DEFAULT_OFFLINE_RECLAIM_DAYS = 21;
 export const MIN_OFFLINE_RECLAIM_DAYS = 7;
-// Each cleanup makes at most ten Cloudflare API calls. Twenty rows plus the
-// two capacity reads stay near 200 calls per five-minute run: well under the
-// 1,200-requests-per-five-minutes API token limit and the Workers Paid
-// 10,000-subrequest invocation limit. A run also makes up to two Cache API
-// deletes (the /healthz copy), which count as subrequests too. Lower this to 4
-// on Workers Free, whose invocation limit is 50 subrequests (4 x 10 + 2 + 2 = 44).
 export const DEFAULT_CLEANUP_SWEEP_LIMIT = 20;
 export const MAX_CLEANUP_SWEEP_LIMIT = 50;
 
@@ -61,7 +49,6 @@ function boundedIntegerVar(
   const text = typeof value === "number" ? String(value) : value;
   const parsed = typeof text === "string" && /^[0-9]{1,9}$/.test(text.trim()) ? Number(text.trim()) : Number.NaN;
   if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
-    // A tuning value must never take sign-in and pairing down: use the default.
     console.error(JSON.stringify({ message: "invalid capacity setting; using the default", setting: label, minimum, maximum, fallback }));
     return fallback;
   }
@@ -69,7 +56,6 @@ function boundedIntegerVar(
 }
 
 function reclaimMode(value: unknown): TunnelReclaimMode {
-  // Unset or invalid: observe only. Reclaiming is switched on deliberately.
   if (value === "on" || value === "observe") return value;
   if (value !== undefined && value !== null && value !== "") {
     console.error(JSON.stringify({ message: "invalid LATERDOG_TUNNEL_RECLAIM; observing only", allowed: ["on", "observe"] }));
@@ -77,8 +63,6 @@ function reclaimMode(value: unknown): TunnelReclaimMode {
   return "observe";
 }
 
-/** Optional tuning variables. Each has a safe default so an older deployment
- * configuration without them keeps working. */
 export function readCapacityConfig(env: Partial<Record<string, unknown>>): CapacityConfig {
   return {
     cleanupSweepLimit: boundedIntegerVar(
@@ -134,8 +118,6 @@ function exactHTTPSOrigin(value: string, label: string): string {
 }
 
 function hostnameSuffix(value: string): string {
-  // 34-byte opaque label plus the separating dot must remain within the
-  // 253-byte DNS hostname limit.
   if (value !== value.toLowerCase() || value.length > 218 || value.endsWith(".")) {
     throw new Error("COMPANION_HOST_SUFFIX must be a lowercase DNS suffix");
   }

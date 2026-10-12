@@ -1,9 +1,3 @@
-// Install an engine's command-line app from Settings, on the machine that
-// runs this server, as this process's own user, into a directory the app
-// owns. No sudo, no shell, no terminal: the package name comes from the
-// driver's own install descriptor and never from a request, npm runs with
-// a fixed argument list, and the binary is found on the engines' PATH
-// afterwards because that directory is registered ahead of everything else.
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
@@ -16,22 +10,18 @@ const MAX_OUTPUT = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const PROBE_TIMEOUT_MS = 30_000;
 
-/** npm's global prefix for engines the app installs itself. */
 export function enginesPrefix(baseDir = DATA_DIR): string {
   return join(baseDir, "tools", "npm");
 }
 
-/** Where that prefix puts executables: `bin/` on POSIX, the prefix itself on Windows. */
 export function enginesBinDir(baseDir = DATA_DIR, platform: NodeJS.Platform = process.platform): string {
   return platform === "win32" ? enginesPrefix(baseDir) : join(enginesPrefix(baseDir), "bin");
 }
 
-/** Called once at boot: engines installed here win over any other copy on PATH. */
 export function registerEnginesBinDir(baseDir = DATA_DIR): void {
   registerPathDir(enginesBinDir(baseDir));
 }
 
-/** The npm package a driver's own install one-liner names, when it is one. */
 export function npmPackageOf(install: EngineInstall | undefined): string | null {
   const line = install?.command?.linux ?? install?.command?.darwin ?? install?.command?.win32;
   const match = line ? /^npm install -g ((?:@[\w.-]+\/)?[\w.-]+)$/.exec(line.trim()) : null;
@@ -42,9 +32,6 @@ export function npmAvailable(): boolean {
   return findCliCandidates("npm").length > 0;
 }
 
-/** What Settings may install for this engine on this machine, or null. A
- * managed engine keeps its own verified download; anything else needs a
- * plain npm package and npm on PATH. */
 export function serverInstallFor(install: EngineInstall | undefined, npmPresent: boolean = npmAvailable()): { package: string } | null {
   if (!install || install.managed) return null;
   const pkg = npmPackageOf(install);
@@ -53,17 +40,14 @@ export function serverInstallFor(install: EngineInstall | undefined, npmPresent:
 
 interface InstallOptions {
   baseDir?: string;
-  /** The executable the package must provide; checked after installing. */
   cli?: string;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
-  /** PATH for finding npm; the engines' augmented PATH by default. */
   path?: string;
 }
 
 const running = new Map<string, Promise<void>>();
 
-/** Install or update one npm engine. Concurrent clicks share one npm run. */
 export function installNpmEngine(pkg: string, options: InstallOptions = {}): Promise<void> {
   const key = `${options.baseDir ?? DATA_DIR} ${pkg}`;
   const existing = running.get(key);
@@ -84,17 +68,10 @@ async function installOnce(pkg: string, options: InstallOptions): Promise<void> 
     npm_config_fund: "false",
     npm_config_audit: "false",
   };
-  // Workspace credentials (xai/box/voice keys) are not npm's to see.
   stripWorkspaceCredentialEnv(env as Record<string, string | undefined>);
-  // npm 11 skips a dependency's install script unless the package is named
-  // here; the engines that need one (Claude Code) are exactly these.
-  // Engines like Codex ship their native binary as a platform optional
-  // dependency, so a user-level `omit=optional` must not leave it out.
   const args = ["install", "-g", "--prefix", prefix, "--loglevel=error", "--include=optional", `--allow-scripts=${pkg}`, `${pkg}@latest`];
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   await runInstall(pkg, args, env, prefix, timeoutMs);
-  // Whatever the boot registration did, the directory we just filled must
-  // be on the engines' PATH from here on.
   const binDir = enginesBinDir(options.baseDir);
   registerPathDir(binDir);
   resetPathCache();
@@ -103,10 +80,6 @@ async function installOnce(pkg: string, options: InstallOptions): Promise<void> 
   if (!installed) {
     throw new Error(`${pkg} installed, but it did not provide a \`${options.cli}\` command. Check the package name in this engine's install descriptor.`);
   }
-  // npm exits 0 even when it drops an optional dependency it failed to
-  // download, which leaves a launcher without its platform binary (#2064).
-  // A copy here shadows every other one on PATH, so prove it starts; a
-  // second run fetches what the first one dropped.
   let failure = await probeCli(installed, env);
   if (failure === null) return;
   await runInstall(pkg, args, env, prefix, timeoutMs);
@@ -122,9 +95,6 @@ async function runInstall(pkg: string, args: string[], env: NodeJS.ProcessEnv, p
   }
 }
 
-/** Null when `<cli> --version` succeeds, else why it did not. A Node
- * launcher that throws prints its source line first, so its `Error:` line
- * is the one worth showing. */
 function probeCli(cli: string, env: NodeJS.ProcessEnv): Promise<string | null> {
   return new Promise((resolveProbe) => {
     execCli(cli, ["--version"], { env: { ...env, PATH: augmentedPath() }, timeout: PROBE_TIMEOUT_MS, killSignal: "SIGKILL", maxBuffer: MAX_OUTPUT }, (error, stdout, stderr) => {
@@ -170,7 +140,7 @@ function runNpm(args: string[], env: NodeJS.ProcessEnv, cwd: string, timeoutMs: 
     }, timeoutMs);
     timer.unref();
     child.once("error", (error: NodeJS.ErrnoException) => {
-      if (timedOut) return; // A failed kill is not a failed npm launch.
+      if (timedOut) return;
       clearTimeout(timer);
       rejectRun(new Error(error.code === "ENOENT"
         ? "npm is not installed on this server. Install Node.js with npm for the user running later.dog, then try again."
@@ -178,7 +148,7 @@ function runNpm(args: string[], env: NodeJS.ProcessEnv, cwd: string, timeoutMs: 
     });
     child.once("close", (code) => {
       clearTimeout(timer);
-      if (timedOut) return; // The whole group must stop, not just npm's root.
+      if (timedOut) return;
       resolveRun({ code, output });
     });
   });

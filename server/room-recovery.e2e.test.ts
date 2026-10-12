@@ -16,8 +16,6 @@ it("boots and reports an interrupted routine back to its source room", async () 
     const { channel } = await handleToolCall("create_channel", { name: "Recovery room", member_ids: [bot.id] },
       (path, options) => request(path, options, url)) as any;
     await waitForExit(fixture.child, { signal: "SIGTERM" });
-    // Reproduce the persisted state of an interrupted process, not a second
-    // live writer. Recovery must emit its group/card changes during startup.
     writeFileSync(join(dataDir, "routines.json"), JSON.stringify({ version: 1, routines: [], runs: [{
       id: "interrupted-room-run", routineId: "interrupted-routine", routineName: "Room report",
       botId: bot.id, target: "bot", runOn: "dog", sourceThreadId: channel.activeTaskId,
@@ -52,8 +50,6 @@ it("boots and reports an interrupted routine back to its source room", async () 
       .toMatchObject([{ routineRun: { status: "failed" } }]);
     const { groups } = await request("/api/bots", {}, url) as any;
     expect(groups.find((g: any) => g.id === channel.id).working).toBe(false);
-    // Store deliberately catches subscriber exceptions, so a healthy server
-    // alone does not prove that recovery broadcasts were safe.
     expect(readFileSync(logPath, "utf8")).not.toMatch(/ReferenceError|store: change listener threw/);
   } finally {
     await waitForExit(restarted, { signal: "SIGTERM" });

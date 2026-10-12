@@ -1,7 +1,3 @@
-// Edit an existing room's roster: the same picker "New Room" uses, opened
-// from the member dogs in the room header and pre-ticked with who is
-// already in. Membership is the only thing this touches — the transcript
-// keeps every message a departing bot already sent.
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { track } from "@/lib/analytics";
 import { useStore, type Group } from "@/state/store";
@@ -23,8 +19,6 @@ export function ManageMembersPanel({
   const openedMemberIds = useRef([...group.memberIds]);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Archived bots stay listed while they are still members — otherwise a
-  // room could keep a member you have no way to remove.
   const bots = useMemo(
     () => state.bots.filter((b) => !b.hidden || group.memberIds.includes(b.id)),
     [state.bots, group.memberIds],

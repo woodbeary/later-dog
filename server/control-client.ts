@@ -1,36 +1,13 @@
-// The proxy-side half of computer control. The harness keeps the record of
-// who is driving (server/computer-control.ts); the per-turn computer
-// processes consult it through this client before acting, because the
-// action paths themselves never traverse the harness — a boat click goes
-// straight to the boat's REST API, and a Local VM / VPS click rides a
-// transparent stdio bridge into Cua Driver.
-//
-// Failure posture: CLOSED once configured. A missing/expired turn capability
-// must never be interpreted as "the person released control": that would let
-// a stale computer proxy resume acting underneath them. An unconfigured
-// client remains disengaged because there is no control surface to consult.
-//
-// The state is cached briefly so a computer_batch of two dozen actions
-// doesn't turn into two dozen loopback round trips.
 
 export interface ControlState {
-  /** The person is driving; actions must be refused, not queued. */
   held: boolean;
-  /** A help request the person has neither answered nor dismissed. */
   helpOpen: boolean;
-  /** A different thread owns the same physical computer, not a human hold. */
   blockedReason?: string;
 }
 
 export interface ControlClient {
-  /** Current state, cached for `cacheMs`. `fresh` bypasses the cache —
-   * the wait loop in request-help polls with it so a hand-back is seen
-   * within one poll interval, not one poll interval plus the cache. */
   state(fresh?: boolean): Promise<ControlState>;
-  /** Surface the bot's plea in the app. Returns its expiry id, or null when
-   * the harness could not be told. */
   requestHelp(reason: string): Promise<string | null>;
-  /** Close only the unanswered plea opened by this client. */
   expireHelp(requestId: string): Promise<void>;
   readonly configured: boolean;
 }
@@ -105,18 +82,11 @@ export function createControlClient(options?: {
           body: JSON.stringify({ requestId }),
           signal: AbortSignal.timeout(2_000),
         });
-      } catch {
-        // Best effort: the harness also clears the in-memory request on
-        // release/restart, and an unavailable harness cannot show the card.
-      }
+      } catch {}
     },
   };
 }
 
-/** The one sentence every refused computer action gets, on every computer.
- * Deliberately does not vary per tool: the model needs the same three facts
- * every time — nothing happened, don't retry blindly, and wait for the
- * person. */
 export const CONTROL_REFUSAL_PLAIN =
   "A person has taken control of this computer, so this call was NOT performed. " +
   "Do not retry it — the screen is changing under their hands. " +

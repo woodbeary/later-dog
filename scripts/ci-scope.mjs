@@ -16,10 +16,6 @@ export function selectCiScope(files) {
   return { runtime };
 }
 
-// macOS runners are the scarce ones (five at a time for the whole account),
-// and only a couple of test blocks are macOS-only, so a PR runs the suite on
-// Linux and Windows. Main pushes, merge groups and manual runs add macOS, and
-// every PR still runs the macOS smokes.
 const ALL_OS = ["macos-latest", "ubuntu-latest", "windows-latest"];
 const PR_OS = ["ubuntu-latest", "windows-latest"];
 
@@ -34,7 +30,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       if (![base, head].every((sha) => typeof sha === "string" && /^[a-f\d]{40}(?:[a-f\d]{24})?$/i.test(sha))) {
         throw new Error("Missing or invalid pull request commit SHAs");
       }
-      // Disabling rename detection retains both old and new paths, including deletions.
       const diff = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", `${base}...${head}`, "--"], {
         encoding: "utf8",
         timeout: 30_000,

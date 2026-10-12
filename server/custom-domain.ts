@@ -20,10 +20,8 @@ export class CustomDomainError extends Error {
   }
 }
 
-/** A public domain on standard HTTPS, never an invitation or arbitrary URL. */
 export function normalizeCustomDomain(raw: string): string {
   const value = raw.trim();
-  // Reject characters URL parsing otherwise removes or interprets as secrets.
   // eslint-disable-next-line no-control-regex
   if (!value || value.length > 512 || /[\s\u0000-\u001f\u007f\\?#@%]/.test(value)) {
     throw new CustomDomainError("Enter a domain such as bots.yourcompany.com, without a path, password, or pairing code.");
@@ -54,15 +52,12 @@ for (const [address, prefix] of [
 const globalIpv6 = new BlockList();
 globalIpv6.addSubnet("2000::", 3, "ipv6");
 
-/** Exclude private, mapped/NAT64, multicast, documentation, and reserved ranges. */
 export function isPublicDomainAddress(address: string): boolean {
   const family = isIP(address);
   if (family === 4) return !excludedAddresses.check(address, "ipv4");
   return family === 6 && globalIpv6.check(address, "ipv6") && !excludedAddresses.check(address, "ipv6");
 }
 
-/** Local interfaces only: a tunnel/CDN address or an external IP-echo service
- * does not identify the server where the customer's HTTPS proxy runs. */
 export function customDomainIpv4(
   interfaces = networkInterfaces(),
   configured = process.env.LATERDOG_PUBLIC_IPV4,
@@ -74,7 +69,6 @@ export function customDomainIpv4(
   const addresses = new Set(Object.values(interfaces).flatMap((entries) => entries ?? [])
     .filter((entry) => !entry.internal && entry.family === "IPv4" && isPublicDomainAddress(entry.address))
     .map((entry) => entry.address));
-  // Containers/NAT and multi-address hosts need an explicit operator choice.
   return addresses.size === 1 ? [...addresses][0]! : null;
 }
 
@@ -96,8 +90,6 @@ function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 
 function requestJson(url: URL, address: LookupAddress, signal: AbortSignal): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    // Pin the validated DNS result for both requests. TLS/SNI and Host still use
-    // the original domain, so a DNS rebind cannot reach a private IP afterwards.
     const lookup: LookupFunction = (_hostname, options, callback) => {
       if (options.all) callback(null, [address]);
       else callback(null, address.address, address.family);
@@ -106,7 +98,6 @@ function requestJson(url: URL, address: LookupAddress, signal: AbortSignal): Pro
       method: "GET", agent: false, lookup, signal, rejectUnauthorized: true,
       headers: { Accept: "application/json", "User-Agent": "later.dog-domain-check" },
     }, (response) => {
-      // Node's HTTPS client does not follow Location redirects.
       if (response.statusCode !== 200) {
         response.destroy();
         reject(new CustomDomainError("The domain did not return the later.dog verification page. Check your reverse proxy; redirects are not supported."));
@@ -134,8 +125,6 @@ function requestJson(url: URL, address: LookupAddress, signal: AbortSignal): Pro
   });
 }
 
-/** Verification only: callers persist the returned origin after success. The
- * public challenge endpoint reveals no account credentials and grants no access. */
 export function createCustomDomainVerifier(dependencies: CustomDomainDependencies) {
   const lookup = dependencies.lookup ?? ((hostname: string) => dnsLookup(hostname, { all: true, verbatim: true }));
   const request = dependencies.request ?? requestJson;
@@ -166,7 +155,6 @@ export function createCustomDomainVerifier(dependencies: CustomDomainDependencie
           || isIP(entry.address) !== entry.family)) {
           throw new CustomDomainError("The domain must resolve only to public internet addresses. Local, private, and reserved addresses cannot be connected here.");
         }
-        // Prefer IPv4 where both exist; use the exact same address for proof.
         const address = addresses.find((entry) => entry.family === 4) ?? addresses[0]!;
         const descriptor = await withAbort(request(new URL(DESCRIPTOR_PATH, origin), address, controller.signal), controller.signal);
         if (!descriptor || typeof descriptor !== "object"

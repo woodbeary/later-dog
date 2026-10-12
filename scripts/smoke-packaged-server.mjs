@@ -1,15 +1,3 @@
-// Prove the built server actually STARTS with no node_modules in reach.
-//
-// 0.1.24 shipped a server that died on every launch with
-//   ERR_MODULE_NOT_FOUND: Cannot find package 'zod'
-// because `tsc` leaves bare imports verbatim and the packaged app carries no
-// node_modules. Every existing gate passed it: the unit suite runs in the repo
-// (where zod resolves), and the packaging check only asserts index.js EXISTS.
-//
-// So this copies dist-server OUT of the repo before running it. Inside the
-// repo a bare import still resolves by walking up to ./node_modules and the
-// test passes on a build that would be dead in the field — which is precisely
-// how the bug escaped. The copy is the whole point; do not "simplify" it away.
 import { execFile, spawn } from "node:child_process";
 import assert from "node:assert/strict";
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -40,8 +28,6 @@ const staging = mkdtempSync(join(tmpdir(), "laterdog-smoke-"));
 const home = mkdtempSync(join(tmpdir(), "laterdog-smoke-home-"));
 const port = 21000 + Math.floor(Math.random() * 9000);
 
-// LATERDOG_SMOKE_DIST lets the release workflow aim this at a packaged app's
-// Resources/server tree instead of the repo build.
 try {
   cpSync(process.env.LATERDOG_SMOKE_DIST ?? join(root, "dist-server"), join(staging, "server"), { recursive: true });
   if (browserBundle) cpSync(resolve(browserBundle), join(staging, "browser-engine"), { recursive: true });
@@ -63,13 +49,9 @@ const fixtureEnv = {
   LATERDOG_HOME: join(home, ".laterdog"),
   LATERDOG_SERVER_PORT: String(port),
   LATERDOG_TRIAL_API: "off",
-  // Not a genuine key: enough to make the server look for its enterprise
-  // layer and say whether it found one (checked below), never enough to
-  // unlock anything.
   LATERDOG_LICENSE_KEY: "ld1.not.real",
   ...(browserBundle ? {
     LATERDOG_RESOURCES_PATH: staging,
-    // A global engine on the developer's PATH must not make this test pass.
     PATH: process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32") : "/usr/bin:/bin",
   } : {}),
 };
@@ -84,19 +66,12 @@ let output = "";
 child.stdout.on("data", (chunk) => (output += chunk));
 child.stderr.on("data", (chunk) => (output += chunk));
 
-// Best-effort by design. Windows holds file handles open a little longer than
-// the process that owned them, so removing the scratch dir immediately after
-// the kill raises EPERM; Linux runners can raise EACCES the same way. Scratch
-// cleanup must never decide whether the build is good — it failed a green run
-// on Windows once already, and see f66d30f for the same lesson on Linux.
 const cleanup = () => {
   child.kill("SIGKILL");
   for (const dir of [staging, home]) {
     try {
       rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-    } catch {
-      /* the OS will reap it; the assertion below is what matters */
-    }
+    } catch {}
   }
 };
 
@@ -110,9 +85,7 @@ while (Date.now() < deadline) {
       listening = true;
       break;
     }
-  } catch {
-    /* not up yet */
-  }
+  } catch {}
   await new Promise((resolve) => setTimeout(resolve, 300));
 }
 
@@ -134,13 +107,6 @@ if (browserBundle && listening) {
   } catch (error) { browserReport = { error: String(error) }; }
 }
 
-// Serving /api/health is necessary but nowhere near sufficient. Bundling
-// relocates import.meta.url, so a module that used to sit in drivers/ resolves
-// its sibling paths from the bundle's directory instead — one level too high.
-// The 0.1.24 candidate booted and answered /api/health perfectly while every
-// spawned proxy pointed outside Resources/server, silently killing permission
-// prompts, computer use and dweb. So check the paths the server ACTUALLY
-// resolved, from inside the staged copy, before calling the build good.
 const probe = join(staging, "server", "probe-proxy-paths.mjs");
 writeFileSync(
   probe,
@@ -152,9 +118,6 @@ writeFileSync(
   ].join("\n"),
 );
 
-// The packaged tree carries the bundled enterprise layer inside the server
-// root (server/enterprise/server/index.js). server/enterprise.ts must find it
-// there, or a licensed install silently runs the open-source edition.
 const layerShipped = existsSync(join(staging, "server", "enterprise", "server", "index.js"));
 let editionReport = null;
 if (listening) {
@@ -171,9 +134,6 @@ try {
   proxyReport = { error: String((error && error.message) || error) };
 }
 
-// The public MCP process is a second packaged entry point. Send a request and
-// close stdin immediately: this proves both that the bundle has no external
-// dependencies and that shutdown lets the final JSON-RPC frame drain.
 let mcpReport = null;
 if (listening) {
   const mcp = spawn(process.execPath, [join(staging, "server", "mcp-server.js")], {
@@ -203,8 +163,6 @@ if (listening) {
     if (mcp.exitCode !== null) break;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  // The ping is deliberately followed by EOF without waiting. If the stdio
-  // close path exits before buffered frames drain, id 3 will be missing.
   mcp.stdin.end(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "ping" })}\n`);
   const closed = new Promise((resolve) => mcp.once("close", (code, signal) => resolve({ code, signal })));
   let timeout;
@@ -227,8 +185,6 @@ if (listening) {
   }
 }
 
-// An HTTP export must actually start the bundled worker outside the checkout.
-// Existence checks alone cannot catch an unbundled transitive dependency.
 let backupReport = null;
 if (listening) {
   try {
@@ -249,10 +205,6 @@ if (listening) {
   } catch (error) { backupReport = { error: String(error) }; }
 }
 
-// The container image runs the server through server-launcher.js (Dockerfile,
-// deploy/podman/Containerfile). It must start the bundled index.js beside it
-// as its own child, and a stop (SIGTERM, `docker stop`) must end both with the
-// server's clean exit. Containers are Linux; Windows has no SIGTERM to pass on.
 let launcherReport = null;
 if (listening && process.platform !== "win32") {
   const launcherHome = mkdtempSync(join(tmpdir(), "laterdog-smoke-launcher-"));
@@ -273,7 +225,7 @@ if (listening && process.platform !== "win32") {
       try {
         const health = await (await fetch(`http://127.0.0.1:${launcherPort}/api/health`, { signal: AbortSignal.timeout(2_000) })).json();
         if (Number.isSafeInteger(health.pid)) serverPid = health.pid;
-      } catch { /* not up yet */ }
+      } catch {}
       if (serverPid === null) await new Promise((resolve) => setTimeout(resolve, 300));
     }
     launcher.kill("SIGTERM");
@@ -281,21 +233,16 @@ if (listening && process.platform !== "win32") {
     const exit = await Promise.race([exited, new Promise((resolve) => { timer = setTimeout(() => resolve({ timeout: true }), 20_000); })]);
     clearTimeout(timer);
     let stillServing = false;
-    try { await fetch(`http://127.0.0.1:${launcherPort}/api/health`, { signal: AbortSignal.timeout(2_000) }); stillServing = true; } catch { /* stopped */ }
+    try { await fetch(`http://127.0.0.1:${launcherPort}/api/health`, { signal: AbortSignal.timeout(2_000) }); stillServing = true; } catch {}
     launcherReport = { serverPid, launcherPid: launcher.pid, exit, stillServing, output: launcherOutput.slice(-2_000) };
   } catch (error) {
     launcherReport = { error: String(error), output: launcherOutput.slice(-2_000) };
   } finally {
     if (launcher.exitCode === null) launcher.kill("SIGKILL");
-    try { rmSync(launcherHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* the OS will reap it */ }
+    try { rmSync(launcherHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
   }
 }
 
-// The packaged desktop forks desktop-entry.mjs, not index.js
-// (electron/server-child-launch.mjs): it turns on Node's compile cache, then
-// imports index.js beside it. Start it twice on one cache directory. The first
-// start must write the cache while it runs (Windows has no SIGTERM, so a kill
-// there skips Node's exit-time write); the second must start on top of it.
 let desktopEntryReport = null;
 if (listening) {
   const entryHome = mkdtempSync(join(tmpdir(), "laterdog-smoke-entry-"));
@@ -323,10 +270,9 @@ if (listening) {
       let served = false;
       const until = Date.now() + 45_000;
       while (Date.now() < until && entry.exitCode === null && !served) {
-        try { served = (await fetch(`http://127.0.0.1:${entryPort}/api/health`, { signal: AbortSignal.timeout(2_000) })).ok; } catch { /* not up yet */ }
+        try { served = (await fetch(`http://127.0.0.1:${entryPort}/api/health`, { signal: AbortSignal.timeout(2_000) })).ok; } catch {}
         if (!served) await new Promise((resolve) => setTimeout(resolve, 300));
       }
-      // The bootstrap writes the cache about 10 s after the server starts.
       const written = Date.now() + 30_000;
       while (served && round === 0 && Date.now() < written && entry.exitCode === null && cacheEntries().length === 0) {
         await new Promise((resolve) => setTimeout(resolve, 300));
@@ -342,7 +288,7 @@ if (listening) {
   } catch (error) {
     desktopEntryReport.error = String(error);
   } finally {
-    try { rmSync(entryHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* the OS will reap it */ }
+    try { rmSync(entryHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
   }
 }
 

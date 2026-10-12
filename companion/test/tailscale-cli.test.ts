@@ -9,8 +9,6 @@ const fixture = vi.hoisted(() => ({
   calls: [] as Array<{ cli: string; args: string[]; options: ExecFileOptions }>,
 }));
 
-// Only synthetic network interfaces and an offline child may be reached.
-// Keep real subprocess execution so losing the environment reproduces the bug.
 vi.mock("node:child_process", async (original) => {
   const native = await original<typeof import("node:child_process")>();
   const { fileURLToPath } = await import("node:url");
@@ -52,7 +50,6 @@ beforeEach(() => {
   fixture.fallback = false;
   vi.stubEnv("PATH", "/usr/bin:/bin");
   for (const name of ["SHLVL", "TERM", "TERM_PROGRAM", "PS1"]) vi.stubEnv(name, undefined);
-  // An inherited GUI preference must not override our explicit CLI request.
   vi.stubEnv("TAILSCALE_BE_CLI", "0");
 });
 

@@ -5,8 +5,6 @@ import { dirname, isAbsolute, join } from "node:path";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 
 export const REQUIRED_LINUX_TOOLS = ["click", "get_window_state", "list_apps", "type_text"];
-// Keep this exact field set synchronized with DRIVER_FILE_IDENTITY_KEYS in
-// electron/cua-linux.cjs; Electron publishes it and the server revalidates it.
 export const DRIVER_FILE_IDENTITY_KEYS = [
   "dev",
   "ino",
@@ -27,8 +25,6 @@ export type LocalComputerConnection = {
   scope: "local-computer";
 };
 
-/** Keep the platform descriptor intact, but acquire computer authority only
- * when the first actual tool call reaches the shared stdio gate. */
 export function gatedLocalComputer(
   connection: LocalComputerConnection,
   control: { url: string; token: string },
@@ -39,9 +35,6 @@ export function gatedLocalComputer(
     args: ["--experimental-strip-types", SPAWNED_PROXIES.localComputer],
     env: {
       ...connection.env,
-      // In a packaged desktop process execPath is Electron, not node. Without
-      // this the MCP client relaunches later.dog, whose single-instance handler
-      // focuses the user's window, instead of starting the headless gate.
       ELECTRON_RUN_AS_NODE: "1",
       LATERDOG_CUA_COMMAND: connection.command,
       LATERDOG_CUA_ARGS: JSON.stringify(connection.args),
@@ -335,12 +328,6 @@ export function validateLinuxDescriptorRuntime(
   }
 }
 
-/** Legacy darwin/win32 descriptors still name any command, so at runtime at
- * least the file itself must be one only this user could have written: a
- * regular file, not a symlink, owned by this user, and closed against
- * group/other writes. libuv reports every writable Windows file as uid 0
- * mode 0o666, so the ownership and permission bits cannot carry meaning
- * there — only the symlink refusal applies on win32. */
 function validateLegacyDescriptorRuntime(
   descriptorFile: string,
   platform: NodeJS.Platform,
@@ -356,8 +343,6 @@ function validateLegacyDescriptorRuntime(
   }
 }
 
-/** An older fallback cannot override a present but unavailable, malformed, or
- * unreadable descriptor at a more specific location. */
 function firstPresentCuaDescriptor(candidates: string[]): string | null {
   for (const file of new Set(candidates)) {
     try {
@@ -385,8 +370,6 @@ export function readCuaConnection({
 } = {}): LocalComputerConnection | null {
   const candidates = userData ? [join(userData, "cua-connection.json")] : [];
   if (platform === "darwin" && !userData) {
-    // Dev fallback only when Electron did not provide its exact path: the
-    // desktop keeps its data under later.dog (electron/main.mjs).
     candidates.push(join(home, "Library", "Application Support", "later.dog", "cua-connection.json"));
   }
 
@@ -401,14 +384,10 @@ export function readCuaConnection({
       const decoded = decodeLegacyDescriptor(raw, platform);
       if (decoded && validateLegacyRuntime(file, platform)) return decoded;
     }
-  } catch {
-    // Missing, invalid, tampered, or stale descriptors are unavailable.
-  }
+  } catch {}
   return null;
 }
 
-/** An unavailable descriptor is diagnostic only. It never becomes a connection
- * and only a private, well-formed macOS/Windows descriptor may supply text. */
 export function readCuaUnavailableReason({
   platform = process.platform,
   userData = process.env.LATERDOG_USER_DATA,
@@ -435,8 +414,6 @@ export function readCuaUnavailableReason({
         if (typeof reason === "string" && reason.trim() && reason.length <= 2_000) return reason.trim();
       }
     }
-  } catch {
-    // No usable diagnostic; the caller still refuses computer control.
-  }
+  } catch {}
   return null;
 }

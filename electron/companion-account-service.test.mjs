@@ -112,11 +112,9 @@ describe("Companion account service", () => {
     expect(resolveCompanionControlPlaneURL({
       environment: { LATERDOG_CONTROL_PLANE_URL: "https://accounts.example.test/" },
     })).toBe("https://accounts.example.test");
-    // a loopback development service is allowed over plain http
     expect(resolveCompanionControlPlaneURL({
       environment: { LATERDOG_CONTROL_PLANE_URL: "http://127.0.0.1:8787/" },
     })).toBe("http://127.0.0.1:8787");
-    // an invalid value disables the service rather than falling back anywhere
     expect(resolveCompanionControlPlaneURL({
       environment: { LATERDOG_CONTROL_PLANE_URL: "http://accounts.example.test" },
     })).toBe("");
@@ -250,8 +248,6 @@ describe("Companion account service", () => {
       [MANAGED_COMPANION_TOKEN_FIELD]: CONNECTOR_TOKEN,
       [MANAGED_COMPANION_ORIGIN_VERSION_FIELD]: MANAGED_COMPANION_ORIGIN_VERSION,
     });
-    // First save the account identity, then the installation needed to retry.
-    // Endpoint and connector material still become durable together.
     expect(store.writes).toHaveLength(3);
     expect(store.writes[1]).toMatchObject({
       [COMPANION_ACCOUNT_TOKEN_FIELD]: ACCOUNT_TOKEN,
@@ -840,7 +836,6 @@ describe("Companion account service", () => {
 
 const RECLAIMED_TOKEN = `eyJ${"e".repeat(100)}`;
 
-/** Captures scheduled callbacks so a test decides when time passes. */
 function manualTimers() {
   const pending = new Map();
   let next = 1;
@@ -887,7 +882,6 @@ describe("Companion account background recovery", () => {
       status: "error",
       message: "Secure HTTPS links are temporarily full. Pair on this Wi-Fi or with Tailscale for now; we'll retry automatically.",
     });
-    // The server's ten-minute hint outranks the first one-second backoff.
     expect(timers.delays()).toEqual([600_000]);
 
     timers.fire();
@@ -926,7 +920,6 @@ describe("Companion account background recovery", () => {
       message: `The secure connection service is busy right now. Local Wi-Fi and Tailscale pairing still work; try again in 2 minutes. Reference: ${requestId}.`,
     });
     expect(failed.message).not.toContain("could not finish setup");
-    // One timer at the server's delay, not an immediate retry.
     expect(timers.delays()).toEqual([120_000]);
 
     timers.fire();
@@ -966,8 +959,6 @@ describe("Companion account background recovery", () => {
 
     await service.verifyCode("ada@example.com", "12345678");
 
-    // The reference shown once in the panel is replaced by the next retry;
-    // the log is where support can still find it.
     const lines = log.mock.calls.map(([line]) => line);
     expect(lines).toEqual([
       `companion account: setup failed code=endpoint_unavailable status=502 ref=${requestId}`,
@@ -1138,14 +1129,12 @@ describe("Companion account background recovery", () => {
     expect(client.getEndpoint).not.toHaveBeenCalled();
     expect(timers.delays()).toEqual([1_000]);
 
-    // Remote access is switched on and the saved token's tunnel is gone.
     on = true;
     connection = { status: "retrying", ready: false };
     timers.fire();
     await vi.waitFor(() => expect(client.ensureEndpoint).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(store.read()[MANAGED_COMPANION_TOKEN_FIELD]).toBe(RECLAIMED_TOKEN));
 
-    // A missing binary, or a check inside the interval, costs nothing.
     connection = { status: "unavailable", ready: false };
     clock += 5_000;
     timers.fire();
@@ -1165,9 +1154,6 @@ describe("Companion account background recovery", () => {
   });
 
   it("replaces a reclaimed tunnel while the connector still reports ready after a long sleep", async () => {
-    // The app kept running through the sleep. The connector verified its
-    // route once and still says "ready", but the server removed the tunnel
-    // (or, after a cancelled reclaim, its DNS record) meanwhile.
     for (const serverView of [null, { url: ENDPOINT, status: "deleted" }, { url: ENDPOINT, status: "error" }]) {
       const timers = manualTimers();
       let clock = 1_000_000;
@@ -1192,11 +1178,9 @@ describe("Companion account background recovery", () => {
         clearTimer: timers.clearTimer,
       });
 
-      // Launch: the endpoint is live, so nothing changes.
       await expect(service.restore()).resolves.toMatchObject({ status: "ready", endpoint: ENDPOINT });
       expect(client.getEndpoint).toHaveBeenCalledOnce();
 
-      // Weeks later the laptop wakes and the next watchdog tick runs.
       clock += 30 * 24 * 60 * 60_000;
       client.getEndpoint.mockResolvedValue(serverView);
       timers.fire();
@@ -1230,13 +1214,10 @@ describe("Companion account background recovery", () => {
 
     await service.restore();
     expect(client.getEndpoint).toHaveBeenCalledOnce();
-    // The first tick comes right after the launch check and is skipped.
     clock += 100;
     timers.fire();
     await Promise.resolve();
     expect(client.getEndpoint).toHaveBeenCalledOnce();
-    // Ticks then come exactly one interval apart, and each check is recorded
-    // a few milliseconds after its own tick, as on a busy event loop.
     let tickAt = 1_000_000;
     for (let tick = 2; tick <= 4; tick += 1) {
       tickAt += 1_000;
@@ -1302,7 +1283,6 @@ describe("Companion account background recovery", () => {
       clearTimer: timers.clearTimer,
     });
 
-    // Not "starting" forever: the person is told to sign in again.
     await expect(service.restore()).resolves.toMatchObject({
       status: "signed-out",
       email: "ada@example.com",
@@ -1311,7 +1291,6 @@ describe("Companion account background recovery", () => {
     expect(client.ensureEndpoint).not.toHaveBeenCalled();
     expect(store.read()).toEqual(initial);
 
-    // Only the person can fix this, so the watchdog stops asking.
     for (let tick = 0; tick < 3; tick += 1) {
       clock += 1_000;
       timers.fire();

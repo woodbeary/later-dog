@@ -10,7 +10,6 @@ export interface TableCell { text: string; content?: ReactNode }
 export interface TableColumn extends TableCell { align?: "left" | "center" | "right" }
 export interface RichTableProps { columns: TableColumn[]; rows: TableCell[][]; name?: string; expanded?: boolean; direction?: "rtl" | "ltr" }
 
-/** Native modal supplies focus containment, Escape, inert background and focus restoration. */
 export function TableDialog({ title, onClose, children, returnFocus }: { title: string; onClose: () => void; children: ReactNode; returnFocus: HTMLElement | null }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();

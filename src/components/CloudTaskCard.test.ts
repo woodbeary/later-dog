@@ -24,7 +24,6 @@ function remember(id: string, patch: Partial<CloudTaskSummary>) {
   }]);
 }
 
-/** A card in a given state, under its own job id so the shared cache never mixes two tests. */
 let next = 0;
 function card(patch: Partial<CloudTaskSummary> | null): string {
   next += 1;
@@ -33,7 +32,6 @@ function card(patch: Partial<CloudTaskSummary> | null): string {
   return render(message(id));
 }
 
-/** The visible words, without tags or attributes. */
 const words = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
 const STATES: Record<string, Partial<CloudTaskSummary> | null> = {
@@ -61,7 +59,6 @@ describe("CloudTaskCard", () => {
     expect(text).toContain("Working on: Fix the login button");
     expect(text).toContain("Working · Making changes");
     expect(markup).toContain("thinking-shimmer");
-    // the exact file waits behind Steps
     expect(text).not.toContain("src/login.tsx");
     expect(markup).toContain('aria-label="Open Fix the login button"');
   });
@@ -76,7 +73,6 @@ describe("CloudTaskCard", () => {
     expect(words(working)).toContain("Open");
     expect(words(working)).not.toContain("Review changes");
     for (const markup of [working, review, unpublished]) {
-      // the primary pill is the card's only filled button
       expect(markup.match(/bg-accent/g)).toHaveLength(1);
     }
   });
@@ -86,7 +82,6 @@ describe("CloudTaskCard", () => {
     expect(words(card(STATES.stopped!))).toContain("Stopped");
     const attention = card(STATES.attention!);
     expect(words(attention)).toContain("Needs you");
-    // why it stopped is one click away, not on the card's face
     expect(words(attention)).not.toContain("exited 1");
   });
 
@@ -95,7 +90,6 @@ describe("CloudTaskCard", () => {
       const text = words(card(patch));
       expect(text, state).not.toMatch(/\bPR\b|#12|laterdog\/x|owner\/repo|\+40|−2|\bmerged?\b|\bbranch/i);
     }
-    // the project's own name is the one quiet secondary line
     expect(words(card(STATES.review!))).toContain("repo");
   });
 

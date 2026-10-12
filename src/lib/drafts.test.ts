@@ -2,8 +2,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { createElement, type EffectCallback } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-// Server rendering never runs effects; keep them so a test can mount and
-// unmount a draft hook the way a thread switch does.
 const effects = vi.hoisted(() => [] as EffectCallback[]);
 vi.mock("react", async (original) => ({
   ...await original<typeof import("react")>(),
@@ -46,7 +44,6 @@ function memoryStorage(): Storage {
   };
 }
 
-// Drafts are also saved when this page loses focus or closes.
 const page = vi.hoisted(() => {
   const page = new EventTarget();
   vi.stubGlobal("window", page);
@@ -73,7 +70,6 @@ function renderedChannelMode(id: string): string {
     const [mode] = useComposerChannelMode(id);
     return createElement("span", null, mode);
   }
-  // A fresh render initializes the actual composer hook from its keyed draft.
   return renderToStaticMarkup(createElement(Mode));
 }
 
@@ -89,7 +85,6 @@ describe("channel draft delivery mode", () => {
     expect(renderedChannelMode("group:goal:task-b")).toBe("<span>chat</span>");
     expect(renderedChannelMode(draftId)).toBe("<span>goal</span>");
 
-    // A restart closes the page first.
     leavePage();
     const restarted = copyStorage(store);
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: restarted });
@@ -123,7 +118,6 @@ describe("channel draft delivery mode", () => {
       attachments: [],
       channelMode: "goal" as const,
     };
-    // Send consumes the one-shot mode before its network result arrives.
     setDraft(store, draftId, "");
     setDraftChannelMode(store, draftId, "chat");
     expect(renderedChannelMode(draftId)).toBe("<span>chat</span>");
@@ -327,8 +321,6 @@ describe("durable attachment completion", () => {
     expect(isDraftAttachmentPending("bot:pending:a")).toBe(true);
     expect(isDraftAttachmentPending("bot:pending:b")).toBe(true);
 
-    // A completion decrements only one operation; extra completions clamp at
-    // zero rather than poisoning a later upload with a negative count.
     changeDraftAttachmentPending("bot:pending:a", false);
     changeDraftAttachmentPending("bot:pending:a", false);
     changeDraftAttachmentPending("bot:pending:a", false);
@@ -336,7 +328,6 @@ describe("durable attachment completion", () => {
     expect(isDraftAttachmentPending("bot:pending:a")).toBe(false);
     expect(isDraftAttachmentPending("bot:pending:b")).toBe(false);
 
-    // Starting again after the balanced cleanup remains a fresh pending item.
     changeDraftAttachmentPending("bot:pending:a", true);
     expect(isDraftAttachmentPending("bot:pending:a")).toBe(true);
     changeDraftAttachmentPending("bot:pending:a", false);
@@ -356,7 +347,6 @@ describe("appendComposerDraft", () => {
     expect(getDraft(store, draftId)).toBe(prompt);
     leavePage();
     expect(JSON.parse(store.getItem("laterdog-drafts") ?? "{}")[draftId]).toBe(prompt);
-    // an edited draft outranks a late failed send, exactly like typing does
     expect(draftRevision(draftId)).toBe(revision + 1);
   });
 
@@ -468,13 +458,11 @@ describe("saving typed drafts", () => {
       vi.advanceTimersByTime(100);
     }
     expect(writes).toHaveLength(0);
-    // memory answers reads while storage waits
     expect(getDraft(store, draftId)).toBe(text);
 
     vi.advanceTimersByTime(400);
     expect(writes).toHaveLength(1);
     expect(JSON.parse(writes[0])[draftId]).toBe(text);
-    // a reload reads the last saved draft back from storage
     expect(getDraft(copyStorage(store), draftId)).toBe(text);
     composer.unmount();
   });
@@ -489,7 +477,6 @@ describe("saving typed drafts", () => {
       expect(JSON.parse(writes[0])[draftId]).toBe("half a thought");
       vi.advanceTimersByTime(1_000);
       page.dispatchEvent(new Event(event));
-      // nothing typed since, so nothing written again
       expect(writes).toHaveLength(1);
     }
   });

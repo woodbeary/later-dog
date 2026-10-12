@@ -6,7 +6,6 @@ import { RoomHandoffs, ROOM_HANDOFF_LIMITS, type RoomHandoffHooks } from "./room
 import { removeTempDir } from "./testing/cleanup.ts";
 
 const addr = (id: string) => ({ groupId: id, threadId: `${id}-thread`, botId: `${id}-bot` });
-/** Builds an engine over a temp file, with hooks and clock the test can override. */
 async function fixture(test: (engine: RoomHandoffs, hooks: RoomHandoffHooks, file: string) => Promise<void> | void, now: () => number = Date.now,
   limits: Partial<typeof ROOM_HANDOFF_LIMITS> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "room-handoff-unit-"));
@@ -95,7 +94,6 @@ describe("addressed room request tree", () => {
     engine.cancelRoom("Old");
     updates.length = 0;
     engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
-    // Settle retained history reports before observing the new tree alone.
     engine.tick(); updates.length = 0;
     engine.sourceSettled("turn", true);
     for (let i = 0; i < 5; i++) { engine.tick(); await flush(); }
@@ -165,8 +163,6 @@ describe("addressed room request tree", () => {
     expect(engine.enqueue(addr("A"), "turn", undefined, addr("B"), "build", "build").duplicate).toBe(true);
     expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("B"), "ack", "approved")).toThrow("already completed");
     expect(engine.enqueue(addr("A"), "turn", undefined, addr("B"), "fix", "Fix the missing boundary case", false, true).node.status).toBe("queued");
-    // rework=true runs a finished brief again; while that run is live, even
-    // another rework repeat lands on it rather than beside it.
     const rerun = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "build", "build", false, true);
     expect(rerun.duplicate).toBe(false);
     expect(engine.enqueue(addr("A"), "turn", undefined, addr("B"), "build", "build", false, true)).toEqual({ node: rerun.node, duplicate: true });
@@ -227,8 +223,6 @@ describe("addressed room request tree", () => {
     engine.cancelRoom("A"); await flush(); expect(aborted).toBe(true); expect(node.status).toBe("cancelled");
   }));
   it("names the conversation waiting on a teammate's direct thread until that work settles", () => fixture(async (engine, hooks) => {
-    // MOCA-274: a card in the teammate's thread is pointed out to whoever
-    // assigned the work, so the thread must lead back to that conversation.
     const source = { botId: "clive", threadId: "clive-chat" };
     let finish!: (result: { ok: boolean; text: string }) => void;
     hooks.run = () => new Promise(resolve => { finish = resolve; });
@@ -249,7 +243,6 @@ describe("addressed room request tree", () => {
     const runs: Array<{ id: string; resumed: boolean }> = [];
     let finish!: (result: { ok: boolean; text: string }) => void;
     let aborted = false;
-    // The second recipient is busy, so its assignment never leaves the queue.
     hooks.busy = node => node.botId === "reviewer";
     hooks.run = (node, resumed, signal) => {
       runs.push({ id: node.id, resumed });
@@ -268,11 +261,9 @@ describe("addressed room request tree", () => {
 
     const left = engine.stopAwaitingDirect("clive-chat");
     expect(left.map(node => node.id)).toEqual([running.id]);
-    // The teammate's own process is never reached into; only unstarted work goes.
     expect(aborted).toBe(false);
     expect(running.status).toBe("running");
     expect(queued.status).toBe("cancelled");
-    // ...and this conversation stops being awaited.
     expect(engine.nodes.get("turn")?.status).toBe("cancelled");
     expect(engine.activeDirect("clive-chat")).toBe(false);
     expect(engine.outstandingDirect("clive-chat").map(node => node.botId)).toEqual(["lead"]);
@@ -280,8 +271,6 @@ describe("addressed room request tree", () => {
     finish({ ok: true, text: "CSV export delivered" });
     await flush();
     for (let i = 0; i < 3; i++) { engine.tick(); await flush(); }
-    // It finishes and its result is still recorded and reported to the
-    // stopped conversation, which is never resumed.
     expect(running.status).toBe("completed");
     expect(running.result).toBe("CSV export delivered");
     expect((hooks.report as ReturnType<typeof vi.fn>).mock.calls.map(call => call[0].id)).toContain(running.id);
@@ -344,16 +333,10 @@ describe("room handoff lifetime budget", () => {
       engine.sourceSettled("turn", true);
       nowMs = 24 * 60_000; engine.tick(); await flush();
       expect(node.status).toBe("running");
-      // Past the tree ceiling and the node's own runway: the fixed clock
-      // failed running work here, but the clock paused at 24m, so only 24m
-      // of the 30m budget has aged and the node keeps executing.
       nowMs = 24 * 60_000 + ROOM_HANDOFF_LIMITS.minRunwayMs + 1_000;
       engine.tick(); await flush();
       expect(node.status).toBe("running");
       expect(aborted).toBe(false);
-      // The hard cap is a stall window measured from the last durable
-      // progress: the 24m dispatch renewed it, and a tree that never stops
-      // executing still dies at the renewed edge.
       nowMs = 24 * 60_000 + 45 * 60_000 + 1_000;
       engine.tick(); await flush();
       expect(node.status).toBe("failed");
@@ -370,9 +353,6 @@ describe("room handoff lifetime budget", () => {
       engine.sourceSettled("turn", true);
       engine.tick(); await flush();
       expect(node.status).toBe("running");
-      // 40m of wall clock with the tree paused leaves the full 30m lifetime
-      // budget unspent, but only 5m before the 45m hard cap: less runway than
-      // enqueue promises, so admission must refuse the follow-up.
       nowMs = 40 * 60_000;
       expect(() => engine.enqueue(node, "follow", node.id, addr("C"), "work", "more"))
         .toThrow("Room handoff budget exhausted");
@@ -392,8 +372,6 @@ describe("room handoff lifetime budget", () => {
       engine.sourceSettled("turn", true);
       nowMs = 21 * 60_000; engine.tick(); await flush();
       expect(engine.children("turn")[0].status).toBe("running");
-      // The child finishes inside its own runway but past the tree ceiling;
-      // its execution paused the clock, so the parent still owes its resume.
       nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000;
       finish.build({ ok: true, text: "done" }); await flush();
       engine.tick(); await flush();
@@ -403,11 +381,6 @@ describe("room handoff lifetime budget", () => {
       expect(parent.status).toBe("running");
       expect(resumedAt).toEqual([ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000]);
       expect(parent.startedAt).toBe(ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000);
-      // The fixed clock failed the resumed parent at its runway edge; the
-      // paused clock kept it alive until the wall-clock hard cap claimed it.
-      // The synthesis carve-out spares the running parent from the cap
-      // itself, and the 31m dispatch renewed the clamp to 76m, so the
-      // lifetime branch fails it just past the renewed edge.
       nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000 + ROOM_HANDOFF_LIMITS.minRunwayMs;
       engine.tick(); await flush();
       expect(parent.status).toBe("running");
@@ -427,16 +400,11 @@ describe("room handoff lifetime budget", () => {
       engine.sourceSettled("turn", true);
       nowMs = 10 * 60_000; engine.tick(); await flush();
       expect(engine.children("turn")[0].status).toBe("running");
-      // 19m of wall clock has passed but the clock paused at 10m: the root
-      // has aged 10m, so a follow-up still has a full runway. The fixed
-      // clock refused here with only 1m of lifetime remaining.
       nowMs = 29 * 60_000;
       expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("C"), "followup", "more work")).not.toThrow();
       finish.build({ ok: true, text: "done" }); await flush();
       hooks.busy = () => true;
       engine.tick(); await flush();
-      // Execution stopped and the clock resumed: by 46m the root has aged
-      // 27m, and the 3m left cannot serve a minimum runway.
       nowMs = 46 * 60_000;
       expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("D"), "late", "more work"))
         .toThrow(/budget exhausted: only 3m of the 30m tree lifetime remains/);
@@ -455,9 +423,6 @@ describe("room handoff lifetime budget", () => {
       expect(running.status).toBe("running");
       engine.stopAwaitingDirect("clive-chat");
       expect(running.status).toBe("running");
-      // 19m of wall clock with the teammate executing since 10m: the
-      // cancelled root must keep the tree's pause credit, or the running
-      // descendant's follow-up is refused with only 1m of lifetime left.
       nowMs = 29 * 60_000;
       engine.tick(); await flush();
       expect(() => engine.enqueue(running, "unused", running.id, addr("C"), "followup", "more work")).not.toThrow();
@@ -477,10 +442,6 @@ describe("room handoff lifetime budget", () => {
       engine.enqueue(addr("A"), "turn", undefined, addr("B"), "build", "build");
       engine.sourceSettled("turn", true);
       nowMs = 10 * 60_000; engine.tick(); await flush();
-      // Execution ran 10m→15m and settled at 15m: the pause must close with
-      // the settlement, not at the next periodic tick. By 32m the root has
-      // aged 27m of its 30m; the still-open span used to lend the follow-up
-      // a full runway here.
       nowMs = 15 * 60_000; finishBuild({ ok: true, text: "done" }); await flush();
       nowMs = 32 * 60_000;
       expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("C"), "followup", "more work"))
@@ -496,11 +457,6 @@ describe("room handoff lifetime budget", () => {
       engine.enqueue(addr("A"), "turn", undefined, addr("B"), "build", "build");
       engine.sourceSettled("turn", true);
       nowMs = 10 * 60_000; engine.tick(); await flush();
-      // Execution ran 10m→15m; cancelRoom stops the whole tree through
-      // cancelTree while build still executes, with no tick in between. The
-      // pause must close there: by 28m the settled tree has aged its full
-      // wall clock, while the still-open span the old code left would lend
-      // the follow-up 18m of pause it no longer has.
       nowMs = 15 * 60_000; engine.cancelRoom("A");
       nowMs = 28 * 60_000;
       expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("C"), "followup", "more work"))
@@ -553,13 +509,9 @@ describe("room handoff hard cap synthesis carve-out", () => {
       hooks.busy = n => n.id === "turn";
       engine.tick(); await flush();
       const parent = engine.nodes.get("turn")!;
-      // One tick reports the settled child; the next flips the parent to
-      // resume, where the busy teammate parks it.
       expect(parent.status).toBe("waiting");
       engine.tick(); await flush();
       expect(parent.status).toBe("resume");
-      // 27m is past the hard cap however it is measured; the owed synthesis
-      // is dispatchable, so the same tick spares it and starts it.
       nowMs = 27 * 60_000; hooks.busy = () => false;
       engine.tick(); await flush();
       expect(parent.status).toBe("running");
@@ -581,8 +533,6 @@ describe("room handoff hard cap synthesis carve-out", () => {
       hooks.busy = () => true;
       engine.tick(); await flush();
       const parent = engine.nodes.get("turn")!;
-      // One tick reports the settled child; the next flips the parent to
-      // resume, where the busy teammate parks it.
       expect(parent.status).toBe("waiting");
       engine.tick(); await flush();
       expect(parent.status).toBe("resume");
@@ -608,21 +558,15 @@ describe("room handoff hard cap synthesis carve-out", () => {
       hooks.busy = n => n.id === "turn";
       engine.tick(); await flush();
       const parent = engine.nodes.get("turn")!;
-      // One tick reports the settled child; the next flips the parent to
-      // resume, where the busy teammate parks it.
       expect(parent.status).toBe("waiting");
       engine.tick(); await flush();
       expect(parent.status).toBe("resume");
       nowMs = 14 * 60_000; hooks.busy = () => false;
       engine.tick(); await flush();
       expect(parent.status).toBe("running");
-      // 16m is past the tree's 15m wall-clock age: the in-flight synthesis
-      // keeps executing instead of being killed mid-run.
       nowMs = 16 * 60_000; engine.tick(); await flush();
       expect(parent.status).toBe("running");
       expect(aborted).toBe(false);
-      // The spare is bounded: past the runway its dispatch promised, the
-      // normal lifetime branch fails it and the controller aborts.
       nowMs = 14 * 60_000 + 5 * 60_000 + 1_000;
       engine.tick(); await flush();
       expect(parent.status).toBe("failed");
@@ -639,8 +583,6 @@ describe("room handoff hard cap synthesis carve-out", () => {
       engine.sourceSettled("turn", true);
       nowMs = 60_000; engine.tick(); await flush();
       expect(node.status).toBe("running");
-      // 12m of wall clock with the tree paused since 1m leaves 9m of the
-      // lifetime budget, but less than the 5m runway before the hard cap.
       nowMs = 12 * 60_000;
       expect(() => engine.enqueue(node, "follow", node.id, addr("C"), "work", "more"))
         .toThrow("Room handoff budget exhausted");
@@ -664,8 +606,6 @@ describe("room handoff hard cap renewal", () => {
       expect(parent.status).toBe("waiting");
       engine.tick(); await flush();
       expect(parent.status).toBe("resume");
-      // The settlement at 40m renewed the stall window to 85m, so the busy
-      // park at 84m sits inside it instead of 39m past the old edge.
       nowMs = 84 * 60_000; engine.tick(); await flush();
       expect(parent.status).toBe("resume");
       nowMs = 86 * 60_000; engine.tick(); await flush();
@@ -691,8 +631,6 @@ describe("room handoff hard cap renewal", () => {
       nowMs = 30 * 60_000; hooks.busy = () => false;
       engine.tick(); await flush();
       expect(parent.status).toBe("running");
-      // The synthesis dispatch at 30m renewed the window to 75m; without
-      // the renewal the clamped deadline would already sit at 45m.
       nowMs = 74 * 60_000; engine.tick(); await flush();
       expect(parent.status).toBe("running");
       nowMs = 76 * 60_000; engine.tick(); await flush();
@@ -708,9 +646,6 @@ describe("room handoff hard cap renewal", () => {
       engine.sourceSettled("turn", true);
       engine.tick(); await flush();
       nowMs = 40 * 60_000; finish.work({ ok: true, text: "child done" }); await flush();
-      // 42m leaves only 3m before a creation-anchored 45m cap — less than
-      // the runway enqueue must honor. The 40m settlement renewed the
-      // window, so the follow-up is admitted against the renewed edge.
       nowMs = 42 * 60_000;
       expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("C"), "follow", "more")).not.toThrow();
     }, () => nowMs, { hardCapMs: 45 * 60_000, lifetimeMs: 45 * 60_000 });
@@ -759,8 +694,6 @@ describe("hard cap expiry digest", () => {
       expect(parent.status).toBe("waiting");
       engine.tick(); await flush();
       expect(parent.status).toBe("resume");
-      // Both settlements at 5m renewed the window to 50m; the busy park
-      // expires at 51m and the error still names what the children produced.
       nowMs = 51 * 60_000; engine.tick(); await flush();
       expect(parent.status).toBe("failed");
       expect(parent.result).toContain("Room handoff hard cap exhausted");
@@ -803,8 +736,6 @@ describe("hard cap expiry digest", () => {
       engine.sourceSettled("turn", true);
       nowMs = 24 * 60_000; engine.tick(); await flush();
       expect(node.status).toBe("running");
-      // The 24m dispatch renewed the window to 69m; the hanging child dies
-      // at the edge with the plain expiry line and nothing appended.
       nowMs = 24 * 60_000 + 45 * 60_000 + 1_000; engine.tick(); await flush();
       expect(node.status).toBe("failed");
       expect(node.result).toContain("Room handoff hard cap exhausted");
@@ -825,7 +756,7 @@ describe("shared room request display", () => {
     expect(one.startedAt).toBeDefined();
     await flush();
     expect(one.status).toBe("completed");
-    expect(one.executions).toBe(0); // The root, not this child, owns the execution counter.
+    expect(one.executions).toBe(0);
     expect(engine.enqueue(source, "turn", undefined, addr("B"), "work:b", "Review", false, false, "", "work").duplicate).toBe(true);
     const restarted = new RoomHandoffs(file, hooks);
     expect(restarted.sharedRequest(restarted.nodes.get(two.id)!)).toEqual(engine.sharedRequest(two));

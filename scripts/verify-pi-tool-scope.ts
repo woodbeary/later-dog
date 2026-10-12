@@ -1,5 +1,3 @@
-// Official Pi CLI, disposable HOME, synthetic loopback provider and MCP tools.
-// This verifies the CLI contract; it is not a real-local-model benchmark.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";

@@ -37,7 +37,6 @@ describe("cloud computer provisioning cleanup", () => {
             scenario === "existing-desktop-failure"
               ? [{ id: "bx_456789ab", name: nameFor("existing-bot"), state: "ready" }]
               : [];
-          // The provider list endpoint still answers with its historical "boxes" key.
           res.writeHead(200).end(JSON.stringify({ ok: true, boxes: boats }));
         } else if (url.pathname === "/api/box/v1/boxes" && req.method === "POST") {
           mutateConfigAfterCreate?.();

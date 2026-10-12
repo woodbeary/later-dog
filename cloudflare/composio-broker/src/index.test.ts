@@ -372,9 +372,6 @@ describe("connected-apps broker boundaries", () => {
     expect(() => normalizeAccountAlias("bad\nalias")).toThrow(/printable/i);
   });
 
-  // Composio prefixes slugs that would otherwise lead with a digit, so
-  // 1Password arrives as `_1password`. The catalog lists those toolkits, so
-  // routing them to the 404 branch stranded every one of them at Connect.
   it("routes underscore-prefixed toolkit slugs instead of 404ing them", async () => {
     const token = "a".repeat(64);
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
@@ -423,13 +420,9 @@ describe("connected-apps broker boundaries", () => {
   });
 });
 
-// The verified-Session cache is module state that outlives a test, so every
-// test here owns its Session ids.
 describe("MCP relay Session reuse", () => {
   afterEach(() => vi.useRealTimers());
 
-  /** One installation behind worker.fetch: a D1 row that keeps what the Worker
-   *  writes, and a Composio stub that logs each upstream call in order. */
   function relayHarness(sessionId: string, lastSeenAt = 0) {
     const token = "b".repeat(64);
     const row = { id: `install-${sessionId}`, composio_user_id: "laterdog_relay", session_id: sessionId, disabled_at: null, last_seen_at: lastSeenAt };
@@ -552,14 +545,9 @@ describe("MCP relay Session reuse", () => {
     ]);
     expect(relay.mcpBodies.slice(-2)).toEqual([initialize, initialize]);
     expect(relay.row.session_id).toBe("trs_dropped_new");
-    // The replacement is verified and already stored in D1, so it is reused.
     expect((await relay.mcp("mcp-1")).calls).toEqual(["MCP trs_dropped_new"]);
   });
 
-  // The desktop server drops mcp-session-id when it no longer knows which
-  // backend a transport session belongs to (after a restart, for example). An
-  // uncached request would look the Session up and deliver the message, so
-  // reuse must not turn that into a failure.
   it("still delivers a message without an mcp-session-id when Composio dropped the Session", async () => {
     const relay = relayHarness("trs_server_restart");
     await relay.mcp();

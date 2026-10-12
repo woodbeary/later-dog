@@ -21,8 +21,6 @@ function useMinuteClock(running: boolean): number {
   return now;
 }
 
-/** A cloud task's wake-up in the chat: a quiet centred line between messages, like a timestamp,
- * that says what happened and opens the task. The dog's own reply follows it. */
 export const CloudTaskUpdateRow = memo(function CloudTaskUpdateRow({ message }: { message: Message }) {
   const { dispatch } = useStore();
   const wakeup = cloudWakeupOf(message);
@@ -45,7 +43,6 @@ export const CloudTaskUpdateRow = memo(function CloudTaskUpdateRow({ message }: 
   );
 });
 
-/** The mark beside a settled status. Monochrome: the word carries the meaning. */
 function StatusGlyph({ view }: { view: CloudTaskStatusView }) {
   switch (view.phase) {
     case "review": case "done": return <Check size={12} aria-hidden="true" className="shrink-0" />;
@@ -55,8 +52,6 @@ function StatusGlyph({ view }: { view: CloudTaskStatusView }) {
   }
 }
 
-/** How far along the run is, drawn as the card's divider: it fills by phase while the task works and
- * stays a quiet full line once it is over. Decorative; the status word says the same thing. */
 function ProgressLine({ view }: { view: CloudTaskStatusView }) {
   return (
     <div aria-hidden="true" data-cloud-task-progress className="h-0.5 w-full bg-ink/[0.07]">
@@ -68,16 +63,13 @@ function ProgressLine({ view }: { view: CloudTaskStatusView }) {
   );
 }
 
-/** Steps a box shows at once. The box keeps this height whatever arrives, so live steps never push the chat. */
 const STEP_ROWS = 6;
 
-/** What the task did, in plain words, behind the card's Steps toggle. Read only while it is open. */
 function CloudTaskSteps({ jobId, title, summary, view, panelLink }: {
   jobId: string;
   title: string;
   summary: CloudTaskSummary | undefined;
   view: CloudTaskStatusView;
-  /** "Open" for the task beside the chat, when the card's own button goes elsewhere. */
   panelLink?: () => void;
 }) {
   const activity = useCloudTaskActivity(jobId, cloudTaskWorking(summary));
@@ -157,8 +149,6 @@ function CloudTaskSteps({ jobId, title, summary, view, panelLink }: {
   );
 }
 
-/** A cloud task in the chat that started it: what the dog is working on, one plain status, one button.
- * The card keeps the same height from its first paint to its last state; its steps wait behind a toggle. */
 export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message: Message }) {
   const { dispatch } = useStore();
   const ref = message.cloudTask;
@@ -173,7 +163,6 @@ export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message:
   const elapsed = view.phase === "working" ? elapsedLabel(summary, now) : null;
   const line = [view.note, elapsed].filter(Boolean).join(" · ");
   const openTask = () => dispatch({ type: "openCloudTask", jobId: ref.jobId });
-  // Something to look at: the draft on GitHub once there is one, else the changes beside the chat.
   const prUrl = view.phase === "review" ? summary?.prUrl : undefined;
   const primary = view.phase === "review"
     ? { label: t("cloudTask.reviewChanges"), name: t("cloudTask.reviewAria", { title }), run: prUrl ? () => void openExternalLink(prUrl) : openTask }
@@ -185,8 +174,6 @@ export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message:
         aria-label={t("cloudTask.cardAria", { title, status: view.label })}
         data-testid="cloud-task-card"
         data-phase={view.phase}
-        // a narrow chat (a panel open beside it) gets the card a little wider
-        // than a bubble, and the card itself stacks rather than clips
         className="@container/cloudtask w-full max-w-[min(42rem,max(78%,18rem))] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10"
       >
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3 pl-3.5 pr-3">

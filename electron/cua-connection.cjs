@@ -7,8 +7,6 @@ function createCuaConnectionStore({
   fileSystem = fs,
   temporaryId = randomUUID,
   processId = process.pid,
-  // The same atomic, private-mode write serves every Electron-owned
-  // descriptor the harness reads (cua-connection.json, browser-connection.json).
   fileName = "cua-connection.json",
 }) {
   let connection = null;
@@ -28,9 +26,7 @@ function createCuaConnectionStore({
       try {
         try {
           fileSystem.chmodSync(userData, 0o700);
-        } catch {
-          // Windows does not expose meaningful POSIX directory modes.
-        }
+        } catch {}
         handle = fileSystem.openSync(temporaryPath, "wx", 0o600);
         fileSystem.writeFileSync(handle, `${JSON.stringify(next, null, 2)}\n`, "utf8");
         fileSystem.fsyncSync(handle);
@@ -39,9 +35,7 @@ function createCuaConnectionStore({
         fileSystem.renameSync(temporaryPath, descriptorPath);
         try {
           fileSystem.chmodSync(descriptorPath, 0o600);
-        } catch {
-          // Windows does not expose meaningful POSIX file modes.
-        }
+        } catch {}
       } catch (error) {
         if (handle !== undefined) {
           try {
@@ -50,9 +44,7 @@ function createCuaConnectionStore({
         }
         try {
           fileSystem.unlinkSync(temporaryPath);
-        } catch {
-          // The temporary file may not have been created or may already be renamed.
-        }
+        } catch {}
         throw error;
       }
 

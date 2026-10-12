@@ -1,5 +1,3 @@
-/** A named, workspace-owned Boat. Assignment grants one team's Auto bots
- * access to the same desktop, files and desktop browser sessions. */
 export interface TeamComputer {
   id: string;
   name: string;

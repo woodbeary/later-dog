@@ -17,7 +17,6 @@ export interface TeamMapSnapshot {
 }
 
 export interface TeamMapSection<T extends TeamMapBot = TeamMapBot> {
-  /** Exact persisted section identity; empty string is the unsectioned team. */
   key: string;
   name: string;
   chiefs: T[];
@@ -63,8 +62,6 @@ export function buildTeamMapSections<T extends TeamMapBot>(bots: T[], names: str
   }));
 }
 
-/** One visible edge per pair. A running handoff outranks a queued one,
- * which outranks the durable connection left by an earlier conversation. */
 export function buildTeamMapEdges(bots: TeamMapBot[], snapshot: TeamMapSnapshot): TeamMapEdge[] {
   const visible = new Set(bots.filter((bot) => !bot.hidden).map((bot) => bot.id));
   const edges = new Map<string, TeamMapEdge>();
@@ -111,7 +108,6 @@ export function teamMapStatus(bot: TeamMapBot): TeamMapStatus {
   return { label: "Ready", tone: "idle" };
 }
 
-/** The header's bot count: "1 bot", else "{count} bots". */
 export function teamMapBotCount(count: number): string {
   return count === 1 ? t("canvas.botCountOne") : t("canvas.botCount", { count });
 }

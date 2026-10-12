@@ -5,8 +5,6 @@ import { expect, it, vi } from "vitest";
 
 import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
 
-// Obstruct only the attachments directory in the launcher's disposable home.
-// The real child still boots normally and handles real HTTP requests.
 vi.mock("node:child_process", async (importOriginal) => {
   const childProcess = await importOriginal<typeof import("node:child_process")>();
   return {

@@ -341,8 +341,6 @@ h1 {
   }
 }
 
-/* ------------------------------------------------------------------ tuner */
-
 .tuner {
   display: grid;
   grid-template-columns: minmax(360px, 460px) 1fr;

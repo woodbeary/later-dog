@@ -1,11 +1,3 @@
-// ACP driver contract tests, run against the scripted fake ACP CLI in
-// server/testing/fake-acp-cli.ts. Covers the shared acp/core.ts runtime via
-// its two harness shims (grok = fail-closed auth, gemini = lenient auth):
-// normalize the ACP handshake into canonical events, keep argv/env hygiene,
-// broker permission asks, and settle interrupts/crashes cleanly.
-//
-// The fake CLI is a shebang script Windows cannot exec directly —
-// resolveCliSpawn turns it into `node <script>`, so these run everywhere.
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,9 +23,6 @@ import * as quietStatus from "./quiet-status.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
 
-/** A harness that exists only in tests: it exercises the opt-in session-config
- *  model hook so PR 1 can prove the core capability without shipping a visible
- *  engine. Real harnesses live in their own file. */
 const SELECT_MODEL_SUPPORT: AcpSupport = {
   driverKind: "selectModelTest",
   displayName: "Select Model Test",
@@ -49,17 +38,12 @@ const SELECT_MODEL_SUPPORT: AcpSupport = {
 };
 const SelectModelDriver = createAcpDriver(SELECT_MODEL_SUPPORT);
 
-/** Image input is an explicit per-harness opt-in. Keep these transport tests
- * independent from production harnesses whose native image support has not
- * been verified. */
 const NativeImageDriver = createAcpDriver({
   ...SELECT_MODEL_SUPPORT,
   driverKind: "nativeImageTest",
   images: true,
 });
 
-/** Proves transformEnv can vary with the instance config, which is how the
- *  opencode driver picks its permission policy from `fullAuto`. */
 const EnvPolicyDriver = createAcpDriver({
   ...SELECT_MODEL_SUPPORT,
   driverKind: "envPolicyTest",
@@ -69,8 +53,6 @@ const EnvPolicyDriver = createAcpDriver({
   },
 });
 
-/** Proves snapshot() awaits an async isAuthenticated, which is how the
- *  opencode driver answers from a discovered catalog. */
 const AsyncAuthDriver = createAcpDriver({
   ...SELECT_MODEL_SUPPORT,
   driverKind: "asyncAuthTest",
@@ -304,9 +286,6 @@ describe("ACP turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
     const started = recorder.events.find((e) => e.type === "item.started" && e.itemType === "tool");
     const completed = recorder.events.find((e) => e.type === "item.completed" && e.itemType === "tool");
-    // The agent sent no toolCallId: without a synthetic id the completion
-    // would be dropped by the itemId guard and the tool chip would never
-    // show its result.
     expect(typeof started?.itemId).toBe("string");
     expect(started?.itemId).toBeTruthy();
     expect(completed?.itemId).toBe(started?.itemId);
@@ -322,9 +301,9 @@ describe("ACP turns (fake CLI)", () => {
       "turn.started",
       "session.started",
       "content.delta",
-      "item.completed", // assistant_text before the tool, not summed on settle
-      "item.started", // tool tc-1
-      "item.completed", // tool tc-1 done
+      "item.completed",
+      "item.started",
+      "item.completed",
       "thread.token-usage.updated",
       "turn.completed",
     ]);
@@ -376,8 +355,6 @@ describe("ACP turns (fake CLI)", () => {
     process.env.FAKE_ACP_DUMP = dump;
     process.env.FAKE_ACP_DUMP_PROMPT = "1";
     await create();
-    // The receipt store is keyed by thread and session id, so a unique thread
-    // keeps the run hermetic against earlier executions of this suite.
     const threadId = "t-acp-prompt-split-" + randomUUID();
     const promptOf = () =>
       (JSON.parse(readFileSync(dump + ".prompt.json", "utf8")) as Array<{ type: string; text: string }>)[0]?.text;
@@ -393,15 +370,11 @@ describe("ACP turns (fake CLI)", () => {
       return promptOf();
     };
 
-    // The establishing turn carries the full prompt, exactly as before.
     expect(await send("first", "Memory: likes quiet hours."))
       .toBe("Standing rules.\n\nMemory: likes quiet hours.\n\nfirst");
-    // The pooled session already carries it: later turns go through bare.
     expect(await send("second", "Memory: likes quiet hours.")).toBe("second");
-    // A changed volatile half rides the next prompt as a labelled note.
     expect(await send("third", "Memory: moved to Toronto."))
       .toBe("Context from later.dog updated since this conversation started; it replaces any earlier copy:\n\nMemory: moved to Toronto.\n\nthird");
-    // A cleared volatile half is announced once, not silently dropped.
     expect(await send("fourth", "")).toContain("have been cleared");
     expect(await send("fifth", "")).toBe("fifth");
   });
@@ -426,16 +399,12 @@ describe("ACP turns (fake CLI)", () => {
       await recorder.until((event) => event.type === "turn.completed" && event.turnId === turnId);
       messages.push(promptOf()!);
     }
-    // Agents can compact their own history away between turns; the re-anchor
-    // backstop returns the standing instructions within a bounded window.
     const full = "Standing rules.\n\nMemory: likes quiet hours.";
     expect(messages[0]).toBe(full + "\n\nturn 0");
     for (let i = 1; i <= 8; i++) expect(messages[i]).toBe("turn " + i);
     expect(messages[9]).toBe(full + "\n\nturn 9");
   });
 
-  // One split-prompt thread: usage() sets the context sizes the fake reports
-  // on the next turn, and send() returns the prompt text the agent received.
   const FULL = "Standing rules.\n\nMemory: likes quiet hours.";
   const usageThread = async (name: string) => {
     const dump = join(scratch, `acp-${name}.json`);
@@ -466,7 +435,6 @@ describe("ACP turns (fake CLI)", () => {
     expect(await send("turn 1")).toBe(FULL + "\n\nturn 1");
     usage(100000);
     expect(await send("turn 2")).toBe("turn 2");
-    // the context collapses mid-turn (120000 -> 45000), so the next turn is full
     usage(120000, 45000);
     expect(await send("turn 3")).toBe("turn 3");
     usage();
@@ -478,7 +446,6 @@ describe("ACP turns (fake CLI)", () => {
     const { usage, send } = await usageThread("ordinary-dip");
     usage(108641);
     expect(await send("turn 1")).toBe(FULL + "\n\nturn 1");
-    // a 17% dip is an ordinary step, not a compaction
     usage(90258);
     expect(await send("turn 2")).toBe("turn 2");
     expect(await send("turn 3")).toBe("turn 3");
@@ -489,7 +456,6 @@ describe("ACP turns (fake CLI)", () => {
     expect(await send("turn 1")).toBe(FULL + "\n\nturn 1");
     usage(150000);
     expect(await send("turn 2")).toBe("turn 2");
-    // compaction before the first report: a collapse against last turn's peak
     usage(50000);
     expect(await send("turn 3")).toBe("turn 3");
     usage();
@@ -500,7 +466,6 @@ describe("ACP turns (fake CLI)", () => {
     const { usage, send } = await usageThread("cumulative-collapse");
     usage(100000, 75000);
     expect(await send("turn 1")).toBe(FULL + "\n\nturn 1");
-    // Neither adjacent dip exceeds 40%, but the total fall from the peak does.
     usage(50000);
     expect(await send("turn 2")).toBe("turn 2");
     usage();
@@ -528,7 +493,6 @@ describe("ACP turns (fake CLI)", () => {
     const { usage, send } = await usageThread("zero-usage");
     usage(150000);
     expect(await send("turn 1")).toBe(FULL + "\n\nturn 1");
-    // zero is not a measurement: no trigger, and the peak stays
     usage(0);
     expect(await send("turn 2")).toBe("turn 2");
     expect(await send("turn 3")).toBe("turn 3");
@@ -536,7 +500,6 @@ describe("ACP turns (fake CLI)", () => {
 
   it("never triggers from a receipt written before lastUsed existed", async () => {
     const { threadId, usage, send } = await usageThread("legacy-receipt");
-    // a legacy receipt has no lastUsed, so a low first reading is no collapse
     writePromptSplitReceipt(
       "grokAgent",
       JSON.stringify([threadId, "fake-acp-session"]),
@@ -575,7 +538,6 @@ describe("ACP turns (fake CLI)", () => {
     const { turnId } = await instance.adapter.sendTurn({
       threadId: "t-acp-image-fallback",
       text,
-      // A missing path proves the driver did not attempt native ingestion.
       images: [{ path: join(scratch, "missing.png"), mime: "image/png", bytes: 12 }],
     });
     await recorder.until((event) => event.type === "turn.completed" && event.turnId === turnId);
@@ -618,16 +580,16 @@ describe("ACP turns (fake CLI)", () => {
       "turn.started",
       "session.started",
       "content.delta",
-      "item.completed", // before one
-      "item.started", // tc-1
-      "item.completed", // tc-1
+      "item.completed",
+      "item.started",
+      "item.completed",
       "content.delta",
-      "item.completed", // before two
-      "item.started", // tc-2
-      "item.completed", // tc-2
+      "item.completed",
+      "item.started",
+      "item.completed",
       "content.delta",
       "thread.token-usage.updated",
-      "item.completed", // after — no following tool, so settle flushes
+      "item.completed",
       "turn.completed",
     ]);
     const texts = recorder.events
@@ -667,10 +629,6 @@ describe("ACP turns (fake CLI)", () => {
     expect(usage).toMatchObject({ input: 10, output: 5 });
   });
 
-  /** The fake CLI hardcodes its usage fixture, so the cache-usage tests tap
-   *  the spawned child's stdout in flight and splice the wanted usage into
-   *  the one reply that carries stopReason — the session/prompt result — at
-   *  the root or under _meta, the two shapes real agents send. */
   const stubPromptResultUsage = (usage: Record<string, unknown>, at: "root" | "meta") => {
     const spawn = procs.spawnCli;
     vi.spyOn(procs, "spawnCli").mockImplementation((...args) => {
@@ -690,7 +648,7 @@ describe("ACP turns (fake CLI)", () => {
           try {
             return JSON.stringify(spliceUsage(JSON.parse(line)));
           } catch {
-            return line; // not a complete wire message: pass it through untouched
+            return line;
           }
         }).join("\n");
       const realOn = stdout.on.bind(stdout);
@@ -758,8 +716,6 @@ describe("ACP turns (fake CLI)", () => {
     process.env.OPENCODE_API_KEY = "opencode-should-not-leak";
     process.env.CURSOR_API_KEY = "cursor-should-not-leak";
     process.env.CURSOR_AUTH_TOKEN = "cursor-token-should-not-leak";
-    // workspace credentials with no CLI consumer at all — held by the
-    // harness (env-injected at boot by the desktop shell), used in-process
     process.env.BOX_TOKEN = "box-should-not-leak";
     process.env.LATERDOG_TTS_KEY = "tts-should-not-leak";
     Object.assign(process.env, CONTROL_PLANE_FIXTURE);
@@ -780,8 +736,6 @@ describe("ACP turns (fake CLI)", () => {
     for (const name of Object.keys(CONTROL_PLANE_FIXTURE)) expect(seen.env[name]).toBeUndefined();
   });
 
-  // ACP session/new accepts stdio MCP entries, so connected apps use the
-  // same harness-owned bridge as Claude and Codex.
   it("mounts connected apps as a stdio MCP server", async () => {
     await create();
     const dump = join(scratch, "composio.json");
@@ -808,8 +762,6 @@ describe("ACP turns (fake CLI)", () => {
   });
 
   it("droid takes model and autonomy over the wire, never through argv", async () => {
-    // `droid exec -m <id> -o acp` ignores the flag (verified against 0.196.0),
-    // so a model that only reached argv would silently run the CLI's own pick.
     instance = await DroidAgentDriver.create({
       instanceId: "droid-test",
       displayName: "Droid Test",
@@ -850,9 +802,6 @@ describe("ACP turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-droid-safe", text: "go" });
     await recorder.until((e) => e.type === "turn.completed");
 
-    // Both settings are explicit even with nothing on the turn: whatever
-    // ~/.factory/settings.json pinned (including a `custom:` provider with its
-    // own endpoint) must never be what the session silently runs on.
     expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toEqual([
       { method: "session/set_mode", params: { sessionId: "fake-acp-session", modeId: "normal" } },
       { method: "session/set_model", params: { sessionId: "fake-acp-session", modelId: "claude-opus-5" } },
@@ -860,9 +809,6 @@ describe("ACP turns (fake CLI)", () => {
   });
 
   it("droid names the rejected setting when the agent predates session config", async () => {
-    // The realistic failure is version skew: an older droid answers -32601 to
-    // session/set_mode, and core surfaces the RPC message verbatim. A bare
-    // "method not found" tells the user nothing, so the driver wraps it.
     process.env.FAKE_ACP_MODE = "no-session-config";
     instance = await DroidAgentDriver.create({
       instanceId: "droid-old-cli",
@@ -881,8 +827,6 @@ describe("ACP turns (fake CLI)", () => {
     expect(err.message).toContain("session/set_mode");
     expect(err.message).toContain('autonomy mode "normal"');
     expect(err.message).toMatch(/`droid` is current/);
-    // The session id still reached the client, so the thread can resume rather
-    // than orphaning the session droid just created.
     expect(recorder.events.some((e) => e.type === "session.started")).toBe(true);
   });
 
@@ -970,7 +914,6 @@ describe("ACP turns (fake CLI)", () => {
         url: "https://docs.example/mcp",
         headers: [{ name: "Authorization", value: "Bearer tok-docs" }],
       });
-      // the agent said http only, so the SSE entry stays out
       expect(seen.mcpServers.map((server: { name: string }) => server.name)).toEqual(["docs", "notes"]);
     } finally {
       delete process.env.FAKE_ACP_MCP_TRANSPORTS;
@@ -1041,7 +984,6 @@ describe("ACP turns (fake CLI)", () => {
     await instance.adapter.respondToRequest("t-acp-explicit-cwd", opened.requestId!, { behavior: "deny" });
     await recorder.until((event) => event.type === "turn.completed");
 
-    // A separate process observes a new fake provider payload.
     await instance.dispose();
     recorder.stop();
     process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify({ kind: "execute", rawInput: { command, cwd: scratch, workdir: directory } });
@@ -1071,8 +1013,6 @@ describe("ACP turns (fake CLI)", () => {
     await create(GrokAgentDriver, "question");
     await instance.adapter.sendTurn({ threadId: "t-question-answer", text: "go" });
     const opened = await recorder.until((e) => e.type === "request.opened");
-    // Exactly what the tabbed QuestionCard submits: one Q:/A: block for the
-    // single question, not a bare option label.
     const outcome = await instance.adapter.respondToRequest("t-question-answer", (opened as { requestId: string }).requestId, {
       behavior: "answer",
       message: "The user answered your questions.\n\nQ: Which color?\nA: Green",
@@ -1187,7 +1127,6 @@ describe("ACP turns (fake CLI)", () => {
     await create(GrokAgentDriver, "permission");
     await instance.adapter.sendTurn({ threadId: "t-always-native", text: "go", approvalMode: "ask" });
     const opened = await recorder.until((e) => e.type === "request.opened");
-    // the card may offer it: the driver can honor a session-wide allow
     expect(opened).toHaveProperty("allowSession", true);
     await instance.adapter.respondToRequest("t-always-native", (opened as { requestId: string }).requestId, { behavior: "allow", always: true });
     await recorder.until((e) => e.type === "turn.completed");
@@ -1195,9 +1134,6 @@ describe("ACP turns (fake CLI)", () => {
   });
 
   it("remembers the exact operation for the session when the agent offers no allow_always", async () => {
-    // Grok 4.6 often omits allow_always. The driver then answers allow_once
-    // and repeats the person's answer for that exact operation on the
-    // resumed session — and only that operation, and only that session.
     const answer = join(scratch, "permission-answer-once.txt");
     process.env.FAKE_ACP_PERMISSION_ANSWER = answer;
     await create(GrokAgentDriver, "permission");
@@ -1207,14 +1143,11 @@ describe("ACP turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed");
     expect(readFileSync(answer, "utf8")).toBe("allow-once");
 
-    // same operation on the resumed session: answered without a card
     const second = await instance.adapter.sendTurn({ threadId: "t-always-memory", text: "again", approvalMode: "ask", resumeCursor: "fake-acp-session" });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
     expect(recorder.events.filter((e) => e.type === "request.opened")).toHaveLength(1);
     expect(readFileSync(answer, "utf8")).toBe("allow-once");
 
-    // a fresh native session forgets it
-    // the pool keeps the native session alive between turns; stopAll closes it so the third turn really is a fresh native session
     await instance.adapter.stopAll();
     const third = await instance.adapter.sendTurn({ threadId: "t-always-memory", text: "fresh", approvalMode: "ask" });
     const reopened = await recorder.until((e) => e.type === "request.opened" && e.turnId === third.turnId);
@@ -1399,8 +1332,6 @@ describe("ACP turns (fake CLI)", () => {
     expect(recorder.events.some(e => e.type === "runtime.error")).toBe(false);
   });
 
-  // MOCA-260: a quiet `sleep` or build sends nothing while it runs, and the
-  // guard used to stop the turn as if the agent had hung.
   it.each([GrokAgentDriver, QwenAgentDriver])("does not expire $driverKind while a tool it started is still running", async (driver) => {
     process.env.LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS = "150";
     process.env.FAKE_ACP_TOOL_MS = "600";
@@ -1420,10 +1351,7 @@ describe("ACP turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-stall-tool")).toBe(false);
   });
 
-  // A quiet agent is not a black box: the person is told what it is doing.
   it("tells the person what a quiet agent is doing, then finishes the turn", async () => {
-    // Test the driver's notices, not how fast this OS starts ps/PowerShell.
-    // The process probe has its own checks in quiet-status.test.ts.
     vi.spyOn(quietStatus, "sampleProcessTree").mockResolvedValue({ cpuMs: 0, connections: 1 });
     process.env.LATERDOG_ACP_QUIET_NOTICE_MS = "150";
     process.env.LATERDOG_ACP_QUIET_TICK_MS = "50";
@@ -1450,16 +1378,12 @@ describe("ACP turns (fake CLI)", () => {
     ]);
     await create(QwenAgentDriver, "quiet-then-answer");
     await instance.adapter.sendTurn({ threadId: "t-qwen-retry", text: "go" });
-    // silent on the wire three times longer than the idle limit, yet alive
     expect(await recorder.until(e => e.type === "turn.completed")).toMatchObject({ ok: true });
     const notices = (recorder.events.filter(e => e.type === "runtime.notice") as Array<{ message: string }>).map(n => n.message);
     expect(notices.some(m => /Qwen hit a rate limit \(HTTP 429\) and is retrying \(attempt 2\)\. Next try in 20 s\./.test(m))).toBe(true);
     expect(recorder.events.some(e => e.type === "runtime.error")).toBe(false);
   });
 
-  // Qwen Code goes quiet for minutes while it compresses history, backs off
-  // a rate limit (up to 5 min a wait) or waits on one model request (its SDK
-  // allows 600 s). At 180 s the guard cut those turns off mid-work.
   it("defaults the prompt idle guard above an agent's longest normal silence", () => {
     expect(DEFAULT_ACP_PROMPT_IDLE_MS).toBeGreaterThan(600_000);
   });
@@ -1474,7 +1398,6 @@ describe("ACP turns (fake CLI)", () => {
     const err = recorder.events.find((e) => e.type === "runtime.error");
     expect(err?.message).toMatch(/no tool running/i);
     expect(err?.message).toContain("LATERDOG_ACP_PROMPT_IDLE_TIMEOUT_MS");
-    // the streamed chunk reached the UI before the child went silent
     expect(recorder.events.some((e) => e.type === "content.delta")).toBe(true);
     expect(instance.adapter.hasSession("t-stall")).toBe(false);
   });
@@ -1489,9 +1412,6 @@ describe("ACP turns (fake CLI)", () => {
   });
 
   it("reasoning with no answer is a lost turn, not a success", async () => {
-    // the shape of a provider that never leaves its thinking stream: thought
-    // chunks stream, the engine still answers end_turn, and the turn must be
-    // reported as failed rather than completed-with-nothing
     await create(GrokAgentDriver, "reasoning-only");
     await instance.adapter.sendTurn({ threadId: "t-reasoning", text: "go" });
     const done = await recorder.until((e) => e.type === "turn.completed");
@@ -1531,14 +1451,9 @@ describe("ACP turns (fake CLI)", () => {
     expect(done).toMatchObject({ ok: false });
     const err = recorder.events.find((e) => e.type === "runtime.error")!;
     expect(err.message).toMatch(/model not found/);
-    // nothing was generated: the prompt is never sent
     expect(recorder.events.some((e) => e.type === "content.delta")).toBe(false);
   });
 
-  // The unadvertised-model test above rides the fake's -32602, so it settles in
-  // `request()` and never reaches the guard. This one is the silent case the
-  // guard was written for: the agent acknowledges the switch and keeps its old
-  // model, which no error surfaces.
   it("a model switch acknowledged but not applied fails the turn", async () => {
     process.env.FAKE_ACP_MODELS = "m-one,m-two";
     process.env.FAKE_ACP_MODEL_STICKS = "1";
@@ -1549,7 +1464,6 @@ describe("ACP turns (fake CLI)", () => {
     expect(done).toMatchObject({ ok: false });
     const err = recorder.events.find((e) => e.type === "runtime.error")!;
     expect(err.message).toMatch(/did not switch to m-two \(still m-one\)/);
-    // the whole point: no paid turn is spent on the wrong model
     expect(recorder.events.some((e) => e.type === "content.delta")).toBe(false);
   });
 
@@ -1560,14 +1474,9 @@ describe("ACP turns (fake CLI)", () => {
       threadId: "t-resume-model",
       text: "go",
       model: "m-two",
-      // deliberately NOT "fake-acp-session", the id session/new returns: with
-      // that cursor a session/load that threw and fell back to session/new
-      // would emit the same sessionId and this test could not fail
       resumeCursor: "resumed-thread-1",
     });
 
-    // session/load feeds the same sessionResult as session/new, so the model
-    // hook must fire on a resumed thread as well
     const started = await recorder.until((e) => e.type === "session.started");
     expect(started).toMatchObject({ sessionId: "resumed-thread-1", model: "m-two" });
     const done = await recorder.until((e) => e.type === "turn.completed");
@@ -1834,7 +1743,6 @@ describe("ACP turns (fake CLI)", () => {
       const startedStopping = new Promise<void>((resolve) => { stopping = resolve; });
       const kill = procs.killCliTree;
       vi.spyOn(procs, "killCliTree").mockImplementation(async (child, timeout) => {
-        // Delayed cleanup from another test must not release this turn's gate.
         if (child === startupChild) { stopping(); await gate; }
         return kill(child, timeout);
       });
@@ -1990,7 +1898,6 @@ describe("ACP turns (fake CLI)", () => {
       const secondDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
       expect(secondDone).toMatchObject({ ok: true });
 
-      // one live child per thread: the second prompt rides the same process
       expect(launches()).toBe(1);
       expect(rpc().filter((m) => m === "initialize")).toHaveLength(1);
       expect(rpc().filter((m) => m === "session/new")).toHaveLength(1);
@@ -2003,8 +1910,6 @@ describe("ACP turns (fake CLI)", () => {
     });
 
     it("closes the idle process and resumes on the next turn", async () => {
-      // Ten seconds is the lowest window the floor allows now; exercise the
-      // close at the floor itself and give the poll room past it.
       process.env.LATERDOG_ACP_SESSION_IDLE_MIN_MS = "10000";
       process.env.LATERDOG_ACP_SESSION_IDLE_MS = "10000";
       countFile = join(scratch, "launches");
@@ -2014,8 +1919,6 @@ describe("ACP turns (fake CLI)", () => {
       await create();
       const first = await instance.adapter.sendTurn({ threadId: "t-pool-idle", text: "one" });
       await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
-      // the close reason is only logged, never emitted — poll the native log
-      // for it rather than sleeping a fixed window past the idle deadline
       await new Promise<void>((resolve, reject) => {
         const deadline = Date.now() + 20_000;
         const log = join(NATIVE_DIR, "t-pool-idle.ndjson");
@@ -2024,7 +1927,6 @@ describe("ACP turns (fake CLI)", () => {
           try {
             if (readFileSync(log, "utf8").includes('"close":"idle"')) return resolve();
           } catch (error) {
-            // appendNative() suppresses append errors, so the file may not exist yet
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") return reject(error);
           }
           setTimeout(check, 25);
@@ -2041,7 +1943,6 @@ describe("ACP turns (fake CLI)", () => {
       const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
       expect(done).toMatchObject({ ok: true });
       expect(launches()).toBe(2);
-      // the dump is per-process and overwritten on spawn, so this is the resumed child
       expect(rpc()).toContain("session/load");
       expect(rpc()).toContain("initialize");
     }, 30_000);
@@ -2081,8 +1982,6 @@ describe("ACP turns (fake CLI)", () => {
         config: { cli: FAKE_CLI, fullAuto: false },
       });
       recorder = recordEvents(instance.adapter);
-      // Qwen caches MCP clients on live load; other agents apply the new
-      // credentials without a process restart. Both preserve the cursor.
       const integration = (token: string) => ({
         command: process.execPath,
         args: [FAKE_CLI],
@@ -2180,7 +2079,6 @@ describe("ACP turns (fake CLI)", () => {
       const kill = procs.killCliTree;
       let rejectCleanup = reason === "failed cleanup";
       vi.spyOn(procs, "killCliTree").mockImplementation(async (child, timeout) => {
-        // Hold only the original writer: Stop must still close its uninitialized replacement.
         if (child === children[0]) {
           stopping();
           await gate;
@@ -2221,7 +2119,6 @@ describe("ACP turns (fake CLI)", () => {
         const retry = await instance.adapter.sendTurn({
           threadId: "qwen-retry", text: "retry", resumeCursor: "fake-acp-session", integrations: integration("three"),
         });
-        // Observe writes directly: the retry must not even initialize while cleanup is unconfirmed.
         expect(calls().filter((call) => call.method === "initialize")).toHaveLength(1);
         expect(calls().filter((call) => call.method === "session/load")).toHaveLength(0);
         release();
@@ -2243,8 +2140,6 @@ describe("ACP turns (fake CLI)", () => {
       const appendFile = join(scratch, "rpc-all.jsonl");
       const rejectFile = join(scratch, "reject-live-load");
       process.env.FAKE_ACP_LAUNCH_COUNT_FILE = countFile;
-      // the per-process dump would hold only the replacement child's calls;
-      // the append log keeps both children's, pid-tagged
       process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
       process.env.FAKE_ACP_REJECT_LIVE_LOAD_FILE = rejectFile;
       await create();
@@ -2263,8 +2158,6 @@ describe("ACP turns (fake CLI)", () => {
       const firstDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
       expect(firstDone).toMatchObject({ ok: true });
 
-      // from here the fake refuses session/load for a session already live
-      // in its own process, the way a real agent can
       writeFileSync(rejectFile, "1");
       const second = await instance.adapter.sendTurn({
         threadId: "t-pool-reject",
@@ -2275,15 +2168,12 @@ describe("ACP turns (fake CLI)", () => {
       const secondDone = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
       expect(secondDone).toMatchObject({ ok: true });
 
-      // the pooled child is closed and the recorded session resumes on one
-      // fresh process — the conversation is never traded for session/new
       expect(launches()).toBe(2);
       const calls = rpcAll();
       expect(calls.filter((c) => c.method === "initialize")).toHaveLength(2);
       expect(calls.filter((c) => c.method === "session/new")).toHaveLength(1);
       expect(calls.filter((c) => c.method === "session/load")).toHaveLength(2);
       expect(calls.filter((c) => c.method === "session/prompt")).toHaveLength(2);
-      // the refused load and the successful one really hit two processes
       expect(new Set(calls.map((c) => c.pid)).size).toBe(2);
     });
 
@@ -2316,8 +2206,6 @@ describe("ACP turns (fake CLI)", () => {
       await instance.adapter.interruptTurn("t-pool-interrupt");
       const done = await recorder.until((e) => e.type === "turn.completed");
       expect(done).toMatchObject({ stopReason: "cancelled" });
-      // hang never resolves prompts, so a second turn would hang too — the
-      // process staying pooled is the launch count, not another prompt
       expect(launches()).toBe(1);
     });
   });
@@ -2364,18 +2252,11 @@ describe("ACP snapshot", () => {
 
   it("droid resolves the signed-in CLI before falling back to FACTORY_API_KEY", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-droid-auth-"));
-    // FACTORY_HOME_OVERRIDE replaces the CLI's HOME, not its data root: droid
-    // writes <home>/.factory/auth.v2.file either way (verified against 0.196.0).
     const overrideHome = join(scratch, "custom-home");
     const childHome = join(scratch, "child-home");
     mkdirSync(join(childHome, ".factory"), { recursive: true });
     writeFileSync(join(childHome, ".factory", "auth.v2.file"), "{}");
 
-    // The child env inherits process.env (core.ts childEnv), so a developer
-    // machine with a real FACTORY_API_KEY exported would otherwise satisfy
-    // every case here and prove nothing about the on-disk lookup.
-    // Windows resolves the driver home from USERPROFILE first, so every
-    // case pins both to its scratch home like the qwen turn test does.
     const make = (environment: Record<string, string>) =>
       DroidAgentDriver.create({
         instanceId: "droid-auth",
@@ -2387,7 +2268,6 @@ describe("ACP snapshot", () => {
 
     const instances: ProviderInstance[] = [];
     try {
-      // FACTORY_HOME_OVERRIDE wins: the child HOME's credential must not count.
       const overridden = await make({ FACTORY_HOME_OVERRIDE: overrideHome, HOME: childHome });
       instances.push(overridden);
       expect((await overridden.snapshot()).authenticated).toBe(false);
@@ -2395,8 +2275,6 @@ describe("ACP snapshot", () => {
       writeFileSync(join(overrideHome, ".factory", "auth.v2.file"), "{}");
       expect((await overridden.snapshot()).authenticated).toBe(true);
 
-      // A logged-out override is not rescued by a key on the way past it, but
-      // the key alone still authenticates when nothing is signed in on disk.
       const loggedOutWithKey = await make({
         FACTORY_HOME_OVERRIDE: join(scratch, "empty-home"),
         HOME: childHome,
@@ -2409,8 +2287,6 @@ describe("ACP snapshot", () => {
       instances.push(fromHome);
       expect((await fromHome.snapshot()).authenticated).toBe(true);
 
-      // secure_auth_storage writes the keychain/keyring variant instead of
-      // auth.v2.file, so a fresh macOS login has only this one.
       const keychainHome = join(scratch, "keychain-home");
       mkdirSync(join(keychainHome, ".factory"), { recursive: true });
       writeFileSync(join(keychainHome, ".factory", "auth.v2.loginkeychain"), "{}");
@@ -2450,7 +2326,6 @@ describe("ACP snapshot", () => {
       config: { cli: FAKE_CLI, fullAuto: false },
     });
     try {
-      // favourites first in the user's own order, then the built-in slice
       expect(instance.models.options.slice(0, 2)).toEqual([
         { id: "custom:Azure-Opus-0", label: "Azure Opus", custom: true },
         { id: "custom:LMStudio-Qwen-0", label: "Qwen (local)", custom: true },
@@ -2514,7 +2389,6 @@ describe("ACP snapshot", () => {
       config: { cli: FAKE_CLI, fullAuto: false },
     });
     try {
-      // without the await this is a Promise: truthy, but not `true`
       expect((await instance.snapshot()).authenticated).toBe(true);
     } finally {
       await instance.dispose();

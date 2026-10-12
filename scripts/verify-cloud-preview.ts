@@ -1,6 +1,3 @@
-// Real ComputerPanel + isolated fake-engine server, with only its cloud
-// transport simulated. No Boat account or user's app data is contacted.
-// Run: node --experimental-strip-types scripts/verify-cloud-preview.ts
 import { launchVerificationServer, runControlLaterDog } from "./control-laterdog.ts";
 import { mountPreview, parkUntilSignal, type MountedPreview } from "./testing/preview-fixture.ts";
 

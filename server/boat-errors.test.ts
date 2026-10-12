@@ -1,7 +1,3 @@
-// What the user is told when the boat provider refuses. These strings are
-// the whole difference between "boat create failed (402)" and knowing you
-// need to start a plan — so they are pinned, including the rule that the
-// provider's own wording wins over ours.
 import { describe, expect, it } from "vitest";
 
 import { boatErrorMessage, boatRefusal } from "./boat.ts";
@@ -32,7 +28,6 @@ describe("boatErrorMessage", () => {
   it("tells you to re-paste the token on an auth failure", () => {
     const msg = boatErrorMessage(401, "boat create", { message: "unauthorized" });
     expect(msg).toMatch(/token/i);
-    // Provider tokens still carry the historical "box_" prefix.
     expect(msg).toMatch(/box_/);
   });
 
@@ -42,7 +37,6 @@ describe("boatErrorMessage", () => {
       expect(msg).toBe("The cloud computers included with your Cloud plan aren't available right now. Try again later.");
       expect(msg).not.toMatch(/box_|paste/);
     }
-    // Cloud Pro's own refusals (its limits, its subscription) keep their words.
     expect(boatErrorMessage(402, "boat create", { message: "Cloud computers are included with an active Cloud Pro subscription." }, true))
       .toBe("Cloud computers are included with an active Cloud Pro subscription.");
   });
@@ -68,8 +62,6 @@ describe("boatRefusal", () => {
   });
 
   it("never sets the status a route would answer with", () => {
-    // A create the provider answered 200 without a computer is still this
-    // app's failure (500), not a success.
     expect(boatRefusal(200, "boat create", { ok: false, message: "no box" })).not.toHaveProperty("status");
     expect(boatRefusal(500, "boat create", { code: "Not A Code!" })).not.toHaveProperty("boatCode");
   });

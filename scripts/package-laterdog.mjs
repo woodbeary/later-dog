@@ -4,16 +4,11 @@ import { join } from 'node:path';
 import { packageFeedArguments } from './laterdog-release-files.mjs';
 if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Use Node 24+ to package later.dog.');
 if (process.platform !== 'darwin') throw new Error('This package command currently qualifies macOS only.');
-// LATERDOG_MAC_IDENTITY names later.dog's own signing identity (CI loads it from repository secrets); without it the app is
-// signed ad hoc, which macOS treats as a new app on every build.
 const identity=process.env.LATERDOG_MAC_IDENTITY?.trim();
 const feedArguments=packageFeedArguments({identity,feed:process.env.LATERDOG_UPDATE_FEED});
 const environment={...process.env,LATERDOG_LOCAL_PACKAGE:'1',...(identity?{CSC_NAME:identity,CSC_IDENTITY_AUTO_DISCOVERY:'true'}:{CSC_IDENTITY_AUTO_DISCOVERY:'false'})};
 const run=(args)=>{ const result=spawnSync('pnpm',args,{stdio:'inherit',env:environment}); if(result.error) throw result.error; return result.status??1; };
 for (const args of [['package:prepare'],['laterdog:icons']]) { const status=run(args); if(status!==0) process.exit(status); }
-// The dictation helper is Swift. A Mac whose Command Line Tools cannot compile it (a stale SDK, no Xcode) still gets a
-// working app: the bundle ships with its Info.plist only and the app reports dictation as unavailable. Release builds go
-// through CI's toolchain and use package:mac, which keeps the helper mandatory.
 if (run(['build:speech'])!==0) {
   const bundle=join('electron','resources','later.dog Speech.app','Contents');
   mkdirSync(join(bundle,'MacOS'),{recursive:true});

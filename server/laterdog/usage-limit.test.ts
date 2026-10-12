@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { claudeUsageLimit, codexUsageLimit, limitKindFromWords, parseResetWords, rejectedRateLimit, resetInstant } from "./usage-limit.ts";
 
-// Wednesday 7 October 2026, 11:30 AM in Los Angeles (PDT, UTC-7).
 const NOW = Date.parse("2026-10-07T18:30:00Z");
 const IN_TWO_HOURS = Math.floor(NOW / 1000) + 2 * 3600;
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
 
-/** The api-error frame Claude Code 2.1.x prints for a reached limit. */
 const limitFrame = (text: string, info: Record<string, unknown> = { status: "rejected", rateLimitType: "five_hour", resetsAt: IN_TWO_HOURS }) => ({
   type: "assistant",
   message: { model: "<synthetic>", content: [{ type: "text", text }] },
@@ -29,9 +27,7 @@ describe("parseResetWords", () => {
 
   it("reads a dated reset, across a daylight-saving change too", () => {
     expect(parseResetWords("You've hit your weekly limit · resets Oct 9, 5pm (America/Los_Angeles)", NOW)).toBe("2026-10-10T00:00:00.000Z");
-    // US daylight saving ends on 1 November 2026: 9 AM on the 2nd is EST.
     expect(parseResetWords("resets Nov 2, 9am (America/New_York)", Date.parse("2026-10-31T20:00:00Z"))).toBe("2026-11-02T14:00:00.000Z");
-    // a January date read in late December is next year's
     expect(parseResetWords("resets Jan 2, 5pm (UTC)", Date.parse("2026-12-30T12:00:00Z"))).toBe("2027-01-02T17:00:00.000Z");
   });
 
@@ -113,7 +109,6 @@ describe("claudeUsageLimit", () => {
 });
 
 describe("codexUsageLimit", () => {
-  // codex-cli 0.154 app-server: TurnError { message, codexErrorInfo }, and account/rateLimits/updated windows.
   const sentence = "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:05 PM.";
   const IN_A_WEEK = Math.floor(NOW / 1000) + 6 * 86_400;
 
@@ -128,7 +123,6 @@ describe("codexUsageLimit", () => {
   });
 
   it("reads Codex's own words when no window is full or reported", () => {
-    // 3:05 PM today in this machine's zone; the fixture's zone is whatever the test host runs in.
     const at = codexUsageLimit({ message: sentence, codexErrorInfo: "usageLimitExceeded" }, undefined, NOW);
     expect(at?.resetsAt).toBe(parseResetWords("resets 3:05 pm", NOW));
     expect(codexUsageLimit({ message: "You've hit your usage limit. Try again on Oct 9th, 2026 5:00 PM (America/Los_Angeles)." }, undefined, NOW))

@@ -1,11 +1,5 @@
 import type { Scenario, ScriptedToolCall } from "../../types.ts";
 
-/** The deterministic mock provider. This builds the room-plan file the
- * fake engine replays: every bot turn is a scripted response (tool calls,
- * text, refusals via expectError/fail) keyed by bot id, with "@key" bot
- * references resolved to the live ids the harness just created. No API
- * calls are made anywhere in an eval run; the "model" is this file. */
-
 type BotResolver = (ref: string) => string;
 type GateResolver = (gate: string) => string;
 

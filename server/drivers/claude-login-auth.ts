@@ -1,17 +1,3 @@
-// Sign the server's Claude Code CLI in from Settings, with the user's own
-// Claude subscription, without a terminal on the server.
-//
-// The unmodified `claude auth login` is spawned with pipes. It prints the
-// sign-in link (Anthropic's own page, with this login's one-time PKCE
-// challenge in the query) and then waits on stdin for the code that page
-// shows once the user has signed in. We surface only that link, accept the
-// pasted code once, write it to the CLI's stdin, and confirm the result with
-// `claude auth status --json`. Nothing about the sign-in is stored here: the
-// credential lands where Claude Code keeps it for the account that will run
-// the bots. Anthropic permits exactly this — an end user signing in to the
-// unmodified binary with their own subscription, including where a platform
-// hosts it — and forbids any flow that intermediates claude.ai credentials
-// itself, which is why there is no OAuth client code in this repository.
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -23,12 +9,9 @@ import { killCliTree, spawnCli } from "../procs.ts";
 import { canonicalPath } from "./device-auth.ts";
 
 const MAX_OUTPUT = 32_768;
-/** Where Anthropic's sign-in lives. Anything else in the CLI's output is not a link we show. */
 const SIGN_IN_HOSTS = ["claude.com", "claude.ai", "console.anthropic.com", "platform.claude.com"];
-// One login per credential home at a time; turns are never blocked by this.
 const authenticatingHomes = new Set<string>();
 
-/** The sign-in link, or null for anything that is not Anthropic's own page over https. */
 export function claudeSignInLink(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
@@ -41,7 +24,6 @@ export function claudeSignInLink(value: string | null | undefined): string | nul
   }
 }
 
-/** The link from the CLI's output, once its line is complete. */
 export function claudeLoginPrompt(output: string): { authorizationUrl: string } | null {
   const lines = stripVTControlCharacters(output).split(/\r?\n/).slice(0, -1);
   for (const line of lines) {
@@ -52,9 +34,6 @@ export function claudeLoginPrompt(output: string): { authorizationUrl: string } 
   return null;
 }
 
-/** The page the CLI itself would open: Anthropic's sign-in, sending the
- * result straight back to the CLI's own listener on this machine, so nothing
- * is pasted. Null for anything else. */
 export function claudeCallbackLink(value: string | null | undefined): string | null {
   const link = claudeSignInLink(value);
   if (!link) return null;
@@ -66,9 +45,6 @@ export function claudeCallbackLink(value: string | null | undefined): string | n
   }
 }
 
-/** A stand-in browser for the CLI: it writes the page the CLI asks to open
- * into a file instead of opening it, so the app opens it in the person's own
- * browser. Not on Windows, where BROWSER is not a script. */
 function browserCatcher(): { dir: string; file: string; command: string } | null {
   if (process.platform === "win32") return null;
   try {
@@ -83,8 +59,6 @@ function browserCatcher(): { dir: string; file: string; command: string } | null
   }
 }
 
-/** The page the stand-in browser caught, waiting briefly: the CLI opens it
- * just before it prints the fallback link. */
 async function caughtPage(file: string, waitMs = 1_500): Promise<string | null> {
   const until = Date.now() + waitMs;
   for (;;) {
@@ -93,13 +67,12 @@ async function caughtPage(file: string, waitMs = 1_500): Promise<string | null> 
         const page = claudeCallbackLink(readFileSync(file, "utf8").trim());
         if (page) return page;
       }
-    } catch { /* not written yet */ }
+    } catch {}
     if (Date.now() >= until) return null;
     await new Promise((done) => setTimeout(done, 50));
   }
 }
 
-/** What Anthropic's page shows after sign-in: a code, sometimes with `#state`. */
 export function claudeLoginCode(value: string): string | null {
   const code = value.trim();
   return /^[A-Za-z0-9_\-#.:]{8,1024}$/.test(code) ? code : null;
@@ -118,7 +91,6 @@ type Flow = {
   homeKey: string;
   env: NodeJS.ProcessEnv;
   completion?: { resolve: () => void; reject: (error: Error) => void };
-  /** Where the stand-in browser writes the page the CLI opens. */
   catcher?: { dir: string; file: string; command: string } | null;
   stopping?: Promise<void>;
   terminationFailed?: boolean;
@@ -189,7 +161,6 @@ export class ClaudeLoginController {
       flow.startupTimer.unref();
       flow.expiryTimer.unref();
       this.flow = flow;
-      // Never replace a working login because the button was clicked twice.
       void this.signedIn(env).then((already) => {
         if (flow.status.phase !== "waiting") return;
         if (already) {
@@ -201,7 +172,6 @@ export class ClaudeLoginController {
     });
   }
 
-  /** The pasted code goes to the CLI once; the CLI's exit decides the outcome. */
   async complete(flowId: string, pasted: string): Promise<void> {
     const flow = this.flow;
     if (!flowId || flow?.status.flowId !== flowId) throw new Error(NOT_AVAILABLE);
@@ -246,10 +216,6 @@ export class ClaudeLoginController {
     this.flow = null;
   }
 
-  /** Remove the sign-in Claude Code stores for this server account (its
-   * configuration directory) so a different subscription can sign in. A
-   * sign-in in progress is never pulled away underneath the browser
-   * completing it, and the CLI's own status is the verdict, as for sign-in. */
   async signOut(): Promise<void> {
     if (this.disposed) throw new Error("This provider was removed. Refresh Settings before signing out.");
     if (this.flow?.status.phase === "waiting") throw new Error("Finish or cancel the Claude sign-in in progress before signing out.");
@@ -272,8 +238,6 @@ export class ClaudeLoginController {
       if (status === "in") throw new Error("Claude Code still reports a sign-in on this server. Update Claude Code and check its auth status before trying again.");
       if (status === "unknown") throw new Error("Claude Code could not confirm the sign-out on this server. Update Claude Code and check its auth status before trying again.");
     } finally {
-      // A command the OS could not stop may still change credentials. Keep
-      // this home reserved until that exact child actually exits.
       const child = this.logoutChild;
       if (child && child.exitCode === null && child.signalCode === null) {
         child.once("close", () => authenticatingHomes.delete(homeKey));
@@ -281,8 +245,6 @@ export class ClaudeLoginController {
     }
   }
 
-  /** `claude auth logout`, bounded and non-interactive. Its output stays
-   * here; the status command afterwards decides whether it worked. */
   private logout(env: NodeJS.ProcessEnv): Promise<void> {
     return new Promise((resolveDone, rejectDone) => {
       if (this.disposed) {
@@ -300,7 +262,6 @@ export class ClaudeLoginController {
       child.stdin.end();
       child.stdout.on("data", () => {});
       child.stderr.on("data", () => {});
-      // A hung CLI must not hold the credential-home lock forever.
       const timer = setTimeout(() => {
         void this.stopChild(child).catch(() => false).then((stopped) => {
           if (!stopped) rejectDone(new Error("Claude Code could not be stopped on this server. Ask the server administrator to stop the account command before trying again."));
@@ -325,7 +286,6 @@ export class ClaudeLoginController {
     return this.authStatus(env).then((status) => status === "in");
   }
 
-  /** `claude auth status --json`: signed in, signed out, or not answered. */
   private authStatus(env: NodeJS.ProcessEnv): Promise<"in" | "out" | "unknown"> {
     return new Promise((resolveStatus) => {
       let child: ReturnType<typeof spawnCli>;
@@ -366,9 +326,6 @@ export class ClaudeLoginController {
     if (flow.status.phase !== "waiting") return;
     let child: ReturnType<typeof spawnCli>;
     try {
-      // The CLI never opens a browser itself: on a server there is none. A
-      // stand-in catches the page it would open (sign-in that comes back to
-      // the CLI by itself), and the printed fallback link takes a pasted code.
       flow.catcher = browserCatcher();
       const browserless = process.platform === "win32" ? {} : { BROWSER: flow.catcher?.command ?? "true" };
       child = spawnCli(this.options.cli, ["auth", "login"], {
@@ -413,7 +370,6 @@ export class ClaudeLoginController {
       if (flow.status.phase !== "waiting") return;
       const output = stripVTControlCharacters(flow.output);
       flow.output = "";
-      // The CLI's exit is the verdict; the login status command is the proof.
       void this.signedIn(flow.env).then((signedIn) => {
         if (flow.status.phase !== "waiting") return;
         if (signedIn) {

@@ -16,7 +16,6 @@ export type CalendarCallAttachmentKind = "file" | "image";
 export interface CalendarCallAttachment {
   id: string;
   name: string;
-  /** Stored as opaque event-reference metadata; this manager never opens the path. */
   path: string;
   size: number;
   kind: CalendarCallAttachmentKind;
@@ -281,8 +280,6 @@ export class CalendarCallManager {
     return true;
   }
 
-  /** Keep calendar plans usable when a participant is archived permanently.
-   * A call with other guests survives; an empty call no longer has meaning. */
   removeBot(botId: string): number {
     const affected = this.calls.filter((call) => call.botIds.includes(botId)).length;
     if (!affected) return 0;
@@ -340,8 +337,6 @@ export class CalendarCallManager {
     return schedule.type === "once" ? schedule.at : nextOccurrence(schedule, now);
   }
 
-  /** Old calendar calls were reminders only. Start recurring reminders from
-   * the next future slot and never replay an already-past one-time reminder. */
   private loadedOccurrence(schedule: CalendarCallSchedule): number | null {
     const now = this.now();
     if (schedule.type === "once") return schedule.at > now ? schedule.at : null;

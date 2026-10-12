@@ -1,5 +1,3 @@
-// Real Settings and API against an offline Codex CLI in a disposable home.
-// No real provider credentials, executable, or network login is used.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,8 +15,6 @@ try {
   const failLogoutMarker = join(fixtureHome, ".laterdog-fake-codex-logout-fail");
   writeFileSync(failLogoutMarker, "Disposable forced-error fixture. Remove to test retry.\n", { mode: 0o600 });
   mkdirSync(codexDir, { recursive: true });
-  // Account identity comes from the fake app-server's account/read response;
-  // the disposable CODEX_HOME stays empty and holds no credential-shaped file.
   writeFileSync(join(fixtureHome, ".laterdog-fake-codex-authenticated"), "Offline fixture; not a credential.\n", { mode: 0o600 });
   writeFileSync(wrapper, [
     "#!/usr/bin/env node",
@@ -34,8 +30,6 @@ try {
     "}",
   ].join("\n"), { mode: 0o700 });
 
-  // The standard launcher owns this file and home. The harmless default-model
-  // write makes the isolated server reread it and reload the provider registry.
   const configPath = join(fixtureHome, "config.json");
   const config = JSON.parse(readFileSync(configPath, "utf8"));
   config.instances.codex = {

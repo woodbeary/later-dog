@@ -1,10 +1,5 @@
-// Signed desktop viewer links: /desktop/<id>/<expiresAt>.<mac>/ where
-//   mac = base64url(HMAC-SHA256(DESKTOP_SIGNING_KEY, "laterdog-desktop\n<id>\n<generation>\n<expiresAt>"))
-// The generation is the computer's boot count, kept by its Durable Object and never put in the URL: every wake starts a
-// new generation, so a link dies when its computer sleeps even if the link has not expired yet.
 
 export const DESKTOP_LINK_TTL_SECONDS = 2 * 60 * 60;
-/** How far into the future an expiry may lie and still be one this Worker could have issued (clock skew allowance). */
 const ISSUE_SLACK_SECONDS = 60;
 const TOKEN = /^(\d{1,12})\.([A-Za-z0-9_-]{43})$/;
 
@@ -36,7 +31,6 @@ export async function signDesktopToken(secret: string, id: string, generation: n
   return `${expiresAt}.${base64url(mac)}`;
 }
 
-/** "expired" is only reported for a link this Worker really issued; anything forged, altered or stale is "invalid". */
 export async function verifyDesktopToken(secret: string, id: string, generation: number, token: string, nowSeconds: number): Promise<TokenVerdict> {
   const match = TOKEN.exec(token);
   if (!match) return "invalid";
@@ -44,7 +38,6 @@ export async function verifyDesktopToken(secret: string, id: string, generation:
   if (expiresAt > nowSeconds + DESKTOP_LINK_TTL_SECONDS + ISSUE_SLACK_SECONDS) return "invalid";
   const mac = fromBase64url(match[2]!);
   if (!mac || mac.length !== 32) return "invalid";
-  // crypto.subtle.verify compares the MAC in constant time.
   const authentic = await crypto.subtle.verify("HMAC", await hmacKey(secret, "verify"), mac, signedText(id, generation, expiresAt));
   if (!authentic) return "invalid";
   return nowSeconds < expiresAt ? "valid" : "expired";

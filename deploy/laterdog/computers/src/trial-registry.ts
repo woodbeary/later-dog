@@ -63,7 +63,6 @@ export class TrialRegistry extends DurableObject<Env> {
       used_ms INTEGER NOT NULL
     )`);
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY, until INTEGER NOT NULL)");
-    // one row per trial a network started (networks above held one per network)
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS network_trials (network TEXT NOT NULL, until INTEGER NOT NULL)");
     ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS network_trials_network ON network_trials (network)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, started INTEGER NOT NULL)");

@@ -1,9 +1,5 @@
-// Renderer bridge. contextIsolation stays on; the renderer only ever sees
-// this narrow surface (window.laterdog), never Node or ipcRenderer itself.
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
-// Sandboxed preloads receive Electron's restricted `require`, which cannot
-// load sibling CommonJS files. Keep this tiny predicate inline here; main's
 const desktopRemoteClient = process.argv.includes("--laterdog-remote-client");
 
 let pendingPackageInstallUrl = null;
@@ -25,25 +21,10 @@ ipcRenderer.on("app:open-settings", (_event, section) => {
   for (const listener of appSettingsListeners) listener(fixedSection);
 });
 
-// The bridge is built once, then exposed in full only to the local server's
-// UI. A remote server's page (Server menu) gets the safe subset: nothing that
-// captures this screen, touches this computer's files or logins, or runs
-// helpers here. Main enforces the same rule on the sensitive channels.
 const localOrigin = process.argv.find((arg) => arg.startsWith("--laterdog-local-origin="))?.slice("--laterdog-local-origin=".length) ?? null;
 const isLocalPage = !localOrigin || location.origin === localOrigin;
-// cloudMove: main answers a remote page about that page's own server only,
-// while it is this window's active server (Copy this computer here's card and
-// its Settings → Backups); its Copy opens this computer's Settings on that
-// server's copy, except on the person's own verified Cloud. cloudLending and
-// cloudPlan: only that verified Cloud (its setup checklist, its plan line).
-/** A saved server's id, forwarded only from this computer's own page. */
 const savedServer = id => isLocalPage && typeof id === "string" && /^[\w-]{1,64}$/.test(id) ? [id] : [];
 const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "cloudMove", "cloudLending", "cloudPlan"]);
-// updater: this app's updates, so the person sees "Restart to update" on My
-// Cloud too; a remote page restarts only on a click. Main says, once as the
-// page loads, whether it answers this page: pages built before it answered My
-// Cloud read the bridge alone as "You're up to date", so no other server's
-// page gets it. Main always answers, false on any doubt.
 function updaterOffered() {
   try { return ipcRenderer.sendSync("update:offered") === true; } catch { return false; }
 }
@@ -62,9 +43,6 @@ const remoteKeys = isLocalPage ? REMOTE_SAFE
   : isProfilePage ? PROFILE_KEYS
     : new Set([...REMOTE_SAFE, ...(updaterOffered() ? ["updater"] : [])]);
 
-// Sandboxed preload cannot import TS or sibling modules. Keep this list in
-// parity with shared/workspace-backup-client.ts (covered by the preload test).
-// Only main can request a fresh snapshot; there is no renderer-callable method.
 const COMPANY_BACKUP_CLIENT_KEYS = [
   "laterdog-drafts", "laterdog-draft-attachments", "laterdog-draft-send-ids", "laterdog-draft-channel-modes",
   "laterdog-skin", "laterdog-show-threads", "laterdog-show-run-card", "laterdog.sidebarDensity",
@@ -75,7 +53,6 @@ if (isLocalPage && !desktopRemoteClient && process.argv.includes("--laterdog-com
   ipcRenderer.on("company-backups:collect-client-state", (_event, request) => {
     if (!request || typeof request.requestId !== "string" || !/^[a-f0-9-]{36}$/.test(request.requestId)) return;
     try {
-      // Check the origin again; a later navigation must not export remote data.
       if (!localOrigin || location.origin !== localOrigin) throw new Error("Not the local workspace");
       const clientState = {};
       for (const key of COMPANY_BACKUP_CLIENT_KEYS) {
@@ -91,10 +68,7 @@ if (isLocalPage && !desktopRemoteClient && process.argv.includes("--laterdog-com
 }
 
 const bridge = {
-  /** Host platform ("darwin" | "win32" | "linux") — for platform-aware UI. */
   platform: process.platform,
-  // Safe even on a cloud page: the user chooses in a native menu owned by
-  // Electron. No direct switching, saved-list reads, host files or secrets.
   workspaces: {
     state: () => ipcRenderer.invoke("workspaces:state"),
     menu: () => ipcRenderer.invoke("workspaces:menu"),
@@ -105,18 +79,12 @@ const bridge = {
     ipcRenderer.on("desktop:capabilities-changed", handler);
     return () => ipcRenderer.removeListener("desktop:capabilities-changed", handler);
   },
-  /** Pair this desktop app to another later.dog host. The bearer remains in
-   * the main process and is never returned over this bridge. */
   remoteClient: {
     active: desktopRemoteClient,
     state: () => ipcRenderer.invoke("desktop-remote:state"),
     pair: (endpoint, code) => ipcRenderer.invoke("desktop-remote:pair", endpoint, code),
     disconnect: () => ipcRenderer.invoke("desktop-remote:disconnect"),
   },
-  /** The companion sidecar: the one part of this app that listens off the
-   * machine, so it runs as its own process and is off until switched on.
-   * Every call answers with the whole state, so the panel never has to
-   * stitch two round-trips together. */
   companion: {
     state: () => ipcRenderer.invoke("companion:state"),
     start: () => ipcRenderer.invoke("companion:start"),
@@ -128,14 +96,10 @@ const bridge = {
     browserControl: (deviceId, allowed) => ipcRenderer.invoke("companion:browser-control", deviceId, allowed),
     revoke: (deviceId) => ipcRenderer.invoke("companion:revoke", deviceId),
   },
-  /** Keep this computer awake for scheduled routines. The hold itself lives
-   * in the main process; the page reads its state and flips the toggle. */
   routines: {
     wakeState: () => ipcRenderer.invoke("routines:wake-state"),
     keepAwake: (enabled) => ipcRenderer.invoke("routines:keep-awake", enabled),
   },
-  /** Optional account-backed HTTPS access for Companion. Secrets stay in the
-   * main process; the renderer sees only status and narrow user actions. */
   companionAccount: {
     state: () => ipcRenderer.invoke("companion-account:state"),
     requestCode: (email) => ipcRenderer.invoke("companion-account:request-code", email),
@@ -143,9 +107,6 @@ const bridge = {
     retry: () => ipcRenderer.invoke("companion-account:retry"),
     signOut: () => ipcRenderer.invoke("companion-account:sign-out"),
   },
-  /** Full/Custom and transitions out of Custom are deliberately unavailable
-   * through the loopback API. The local renderer applies those changes over
-   * the embedded server's private utilityProcess port. */
   approvals: {
     setMode: (botId, mode, options) => ipcRenderer.invoke("approvals:set-trusted-mode", botId, mode, options),
   },
@@ -155,11 +116,8 @@ const bridge = {
     disable: () => ipcRenderer.invoke("cua:linux-disable"),
     retry: () => ipcRenderer.invoke("cua:linux-retry"),
   },
-  /** Arms exactly one display-media request from the current renderer frame. */
   beginScreenPreviewIntent: () => ipcRenderer.sendSync("screen:preview-intent"),
-  /** One frame of this computer's screen as a data: URL when supported. */
   screenFrame: () => ipcRenderer.invoke("screen:frame"),
-  /** Physical USB Android devices. Network ADB is deliberately excluded. */
   androidDevice: {
     status: () => ipcRenderer.invoke("android-device:status"),
     frame: (serial) => ipcRenderer.invoke("android-device:frame", serial),
@@ -179,8 +137,6 @@ const bridge = {
     ipcRenderer.on("speech:end", handler);
     return () => ipcRenderer.removeListener("speech:end", handler);
   },
-  /** The app menu's Preferences… item; local shell only (the remote-safe
-   * subset never sees it). */
   onOpenAppSettings: (cb) => {
     appSettingsListeners.add(cb);
     queueMicrotask(() => {
@@ -191,8 +147,6 @@ const bridge = {
     });
     return () => appSettingsListeners.delete(cb);
   },
-  /** Absolute path of a dropped File — Electron 32 removed File.path, and
-   * only the preload can ask. "" when the drag carried no file on disk. */
   getPathForFile: (file) => {
     try {
       return webUtils.getPathForFile(file);
@@ -200,41 +154,20 @@ const bridge = {
       return "";
     }
   },
-  /** {mic} TCC status strings: granted|denied|not-determined|unknown.
-   * No screen field — macOS 15+ caches that status per-process, so any
-   * value here would lie for the whole session after a grant. */
   permStatus: () => ipcRenderer.invoke("perm:status"),
-  /** Triggers the macOS microphone prompt; resolves true when granted. */
   permRequestMic: () => ipcRenderer.invoke("perm:request-mic"),
-  /** Opens System Settings on the given privacy pane: mic|screen|speech. */
   permOpenSettings: (pane) => ipcRenderer.invoke("perm:open-settings", pane),
-  /** The permissions checklist: the macOS grants a bot on this Mac needs
-   * (microphone, accessibility, screen), each granted | denied |
-   * notDetermined | unavailable as macOS reports it to this process now.
-   * `request` shows that grant's real system prompt and answers with the
-   * whole checklist again; `openSettings` opens its privacy pane. */
   permissions: {
     status: () => ipcRenderer.invoke("perm:checklist"),
     request: (permission) => ipcRenderer.invoke("perm:request", permission),
     openSettings: (permission) => ipcRenderer.invoke("perm:open-settings", permission),
   },
-  /** Relaunch the local desktop app through its normal shutdown cleanup. */
   relaunch: () => ipcRenderer.invoke("desktop:relaunch"),
 
-  /** Copies an engine install command and opens a blank terminal. Resolves
-   * false if no terminal could be launched; the clipboard still has it. */
   openInstallTerminal: (command) => ipcRenderer.invoke("engine:open-terminal", command),
-  /** Writes plain text to the system clipboard; the copy button's fallback
-   * when the web Clipboard API is rejected. Resolves false on failure. */
   copyText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
-  /** Open a web link in the default browser. Unlike renderer window.open,
-   * this remains reliable after an asynchronous API request. */
   openExternal: (url) => ipcRenderer.invoke("desktop:open-external", url),
-  /** Tell the window which skin the page wears, so the native chrome the
-   * renderer cannot paint (the Windows caption-button overlay) matches. */
   applySkin: (skin) => ipcRenderer.invoke("desktop:skin", skin),
-  /** The renderer-drawn Windows caption buttons: minimize / restore /
-   * maximize / close, plus live maximize state so the glyph can flip. */
   windowControls: {
     minimize: () => ipcRenderer.invoke("window:minimize"),
     toggleMaximize: () => ipcRenderer.invoke("window:toggle-maximize"),
@@ -246,15 +179,12 @@ const bridge = {
       return () => ipcRenderer.removeListener("window:maximized-changed", handler);
     },
   },
-  /** A reviewed BotMRR package opened through laterdog://install. */
   onPackageInstall: (cb) => {
     packageInstallListeners.add(cb);
     if (pendingPackageInstallUrl) cb(pendingPackageInstallUrl);
     return () => packageInstallListeners.delete(cb);
   },
-  /** Mirrors durable unread state into the native Dock/taskbar badge. */
   setUnreadCount: (count) => ipcRenderer.send("desktop:unread-count", count),
-  /** Live VNC/noVNC in a sandboxed window owned by the app window. */
   desktopViewer: {
     open: (url, title, contextId) => ipcRenderer.invoke("desktop-viewer:open", url, title, contextId),
     close: (contextId) => ipcRenderer.invoke("desktop-viewer:close", contextId),
@@ -265,7 +195,6 @@ const bridge = {
       return () => ipcRenderer.removeListener("desktop-viewer:state", handler);
     },
   },
-  /** Two sandboxed Local VM viewers embedded in the owning app window. */
   desktopWorkspace: {
     open: (input) => ipcRenderer.invoke("desktop-workspace:open", input),
     layout: (items) => ipcRenderer.invoke("desktop-workspace:layout", items),
@@ -277,32 +206,16 @@ const bridge = {
       return () => ipcRenderer.removeListener("desktop-workspace:state", handler);
     },
   },
-  /** Native folder picker for a bot's working folder; null when cancelled. */
   pickFolder: (current) => ipcRenderer.invoke("desktop:pick-folder", current),
-  /** Writes the redacted diagnostics report to a user-chosen file; resolves
-   * the path, or null when the save dialog was cancelled. */
   exportDiagnostics: () => ipcRenderer.invoke("desktop:export-diagnostics"),
-  /** Ask where to save a bot-created file (inside ~/.laterdog), copy it
-   * there and reveal it. Returns the chosen path, or null if the user
-   * cancelled the dialog. The chat bubble shows the
-   * rejection text verbatim, so strip the "Error invoking remote method"
-   * wrapper ipcRenderer adds around a main-process throw. */
   saveFile: (filePath) =>
     ipcRenderer.invoke("desktop:save-file", filePath).catch((error) => {
       const message = String(error?.message ?? error);
       throw new Error(message.replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, ""));
     }),
-  /** Point the file manager at a file a bot linked outside its workspace,
-   * without opening it. Resolves "shown", "missing" or "invalid". */
   revealInFolder: (filePath) => ipcRenderer.invoke("desktop:reveal-file", filePath),
-  /** Store a provider credential with OS-backed encryption. */
   setCredential: (name, value) => ipcRenderer.invoke("credential:set", name, value),
 
-  /** In-app auto-update. Updates download by themselves; install is the
-   *  person's "Restart to update". State object:
-   *  { status: "idle"|"checking"|"downloading"|"preparing"|"downloaded"|"installing"|"handed-off"|"error",
-   *    version?, percent?, message? }. onState fires immediately with the
-   *    current state, then on every transition. Dormant in dev (no bridge). */
   updater: {
     check: () => ipcRenderer.invoke("update:check"),
     install: () => isLocalPage || navigator.userActivation?.isActive === true
@@ -317,31 +230,21 @@ const bridge = {
       return () => ipcRenderer.removeListener("update:state", handler);
     },
   },
-  /** Settings → General → Check for new versions: whether a build that
-   *  cannot update itself asks GitHub about newer releases. Its state arrives
-   *  with the updater's (releaseCheck); only this computer's page flips it. */
   releaseCheck: {
     setEnabled: (enabled) => ipcRenderer.invoke("release-check:set", enabled === true),
   },
 
-  /** Saved servers and the active one (Server menu). Switching, adding and
-   * forgetting are local-only: a remote page may read the list but not change
-   * where this window goes. */
   environments: {
     state: () => ipcRenderer.invoke("environments:state"),
     switch: (id) => ipcRenderer.invoke("environments:switch", id),
     addFromLink: (link, name) => ipcRenderer.invoke("environments:add-from-link", link, name),
     forget: (id) => ipcRenderer.invoke("environments:forget", id),
-    /** Settings → Servers, on a saved server's Computer access panel, or
-     * ("copy") its Copy this computer here panel. */
     onOpenSettings: (cb) => {
       const handler = (_event, computerId, panel) => cb(computerId, panel === "copy" ? "copy" : undefined);
       ipcRenderer.on("workspaces:open-settings", handler);
       return () => ipcRenderer.removeListener("workspaces:open-settings", handler);
     },
   },
-  // The personal Cloud bridges exist only when this build names a Cloud
-  // (main adds --laterdog-cloud-account=1); otherwise Settings shows no Cloud.
   cloudAccount: process.argv.includes("--laterdog-company-desktop=1") && process.argv.includes("--laterdog-cloud-account=1") ? {
     state: () => ipcRenderer.invoke("cloud-account:state"),
     begin: () => ipcRenderer.invoke("cloud-account:begin"),
@@ -358,7 +261,6 @@ const bridge = {
       ipcRenderer.on("cloud-account:state-changed", handler);
       return () => ipcRenderer.removeListener("cloud-account:state-changed", handler);
     },
-    // "Let my Cloud use this Mac": main decides the Cloud; no argument names it.
     lending: {
       state: () => ipcRenderer.invoke("lending:state"),
       chooseFolder: () => ipcRenderer.invoke("lending:folder"),
@@ -366,12 +268,6 @@ const bridge = {
       stop: () => ipcRenderer.invoke("lending:stop"),
     },
   } : undefined,
-  /** Copy this computer here: this computer's workspace to a server the
-   * person added (their Cloud included). Only this computer's own page names
-   * where (a saved server's id, or "cloud"); a server's page names nothing,
-   * main answers it about itself, and its Copy (only from the person's own
-   * click) opens this computer's Settings on that copy, or, on the verified
-   * Cloud, starts it. */
   cloudMove: process.argv.includes("--laterdog-company-desktop=1") ? {
     state: id => ipcRenderer.invoke("cloud-move:state", ...savedServer(id)),
     start: id => isLocalPage ? ipcRenderer.invoke("cloud-move:start", ...savedServer(id))
@@ -385,15 +281,9 @@ const bridge = {
       return () => ipcRenderer.removeListener("cloud-move:state-changed", handler);
     },
   } : undefined,
-  /** The Cloud's setup checklist: "Let your Cloud use this Mac" opens the
-   * lending switch in this app's own Settings → later.dog Cloud. No arguments; it
-   * shows the switch and changes nothing. */
   cloudLending: process.argv.includes("--laterdog-company-desktop=1") && process.argv.includes("--laterdog-cloud-account=1") ? {
     open: () => ipcRenderer.invoke("cloud-lending:open"),
   } : undefined,
-  /** The plan, read only, in Settings on the person's own Cloud: its name and
-   * whether it is active, Manage (the Plan page in the browser) and
-   * back to this computer. No arguments; a remote page acts only on a click. */
   cloudPlan: process.argv.includes("--laterdog-company-desktop=1") && process.argv.includes("--laterdog-cloud-account=1") ? {
     state: () => ipcRenderer.invoke("cloud-plan:state"),
     manage: () => isLocalPage || navigator.userActivation?.isActive === true
@@ -402,8 +292,6 @@ const bridge = {
       ? ipcRenderer.invoke("cloud-plan:local") : Promise.reject(new Error("Choose Use this computer to switch.")),
   } : undefined,
   organization: process.argv.includes("--laterdog-company-desktop=1") ? {
-    // The Admin portal this build signs in to by default; "" when it names
-    // none, in which case Settings asks for the organisation's own address.
     defaultPortalOrigin: process.argv.find((arg) => arg.startsWith("--laterdog-admin-origin="))?.slice("--laterdog-admin-origin=".length) ?? "",
     settingsOpened: () => ipcRenderer.invoke("organization:settings-opened"),
     state: () => ipcRenderer.invoke("organization:state"),

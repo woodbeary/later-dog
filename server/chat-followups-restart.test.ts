@@ -23,10 +23,6 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
     expect(response.status, JSON.stringify(result)).toBe(status);
     return result;
   };
-  // A second person on a paired device. What they queue must still be theirs
-  // after the wait, the crash and the restart: the name rides the durable row.
-  // `id` is the opaque person key the server derives from the session; a row
-  // written straight to the database below keeps the older name-only shape.
   const PAIRED = { name: "Safari on Mac", id: expect.stringMatching(/^p_[\w-]{22}$/) };
   const PAIRED_ROW = { name: "Safari on Mac" };
   let pairedToken = "";
@@ -88,8 +84,6 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
       'process.env.FAKE_CLAUDE_MODE = existsSync(join(home, "restarted")) ? "happy" : "slow";',
       'process.env.FAKE_CLAUDE_SLOW_FINISH_GATE = join(home, thread + ".gate");',
       'process.env.FAKE_CLAUDE_PROMPTS = join(home, thread + ".prompts");',
-      // Crash the server, not unrelated processes: a fixture provider exits
-      // when its parent's pipe closes, even if its fake finish gate is shut.
       'process.stdin.on("end", () => process.exit(0));',
       `await import(${JSON.stringify(pathToFileURL(fileURLToPath(new URL("./testing/fake-claude-cli.ts", import.meta.url))).href)});`,
     ].join("\n"), { mode: 0o700 });
@@ -135,8 +129,6 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
     writeFileSync(join(dataDir, `${uncertain.threadId}.gate`), "finish first task only");
     await expect.poll(() => prompts(later.threadId).length, { timeout: 15_000 }).toBe(1);
 
-    // Stop revokes provider credentials before the provider reports completion;
-    // it must still retire the already-dispatched queue receipt exactly once.
     const stopped = (await api("POST", "/api/bots", { name: "Stopped follow-up" }, 201)).bot;
     const stoppedTask = (await api("POST", `/api/bots/${stopped.id}/tasks`, { title: "Stop this follow-up" }, 201)).task;
     await api("POST", `/api/bots/${stopped.id}/messages`, { threadId: stopped.threadId, text: "Hold capacity before Stop" }, 202);
@@ -158,8 +150,6 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
     const channelCancelledBody = { ...channelBody, text: "Never run cancelled channel task", sendId: "cancelled_channel_send_123456" };
     const channelCancelled = await api("POST", `/api/groups/${channel.id}/messages`, channelCancelledBody, 202);
     await api("DELETE", `/api/groups/${channel.id}/queue/${channelCancelled.queueId}`);
-    // A queued room reply whose target is gone by the time it can run: the
-    // drain cannot start the turn, and keeps the person's words in their name.
     const lostWorker = (await api("POST", "/api/bots", { name: "Lost reply worker" }, 201)).bot;
     const lost = (await api("POST", "/api/groups", {
       name: "Lost reply channel", memberIds: [lostWorker.id],
@@ -180,10 +170,6 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
     writeFileSync(join(dataDir, "restarted"), "allow restored fake turns to finish");
     const crashed = new DatabaseSync(join(dataDir, "messages.db"));
     try {
-      // The narrowest crash window: the dispatch claim reached disk, the
-      // transcript line did not. One row names its sender; one was written by
-      // a build that did not keep one and must still recover; one was spoken
-      // in a Live call and must still say so.
       const claim = crashed.prepare(
         "INSERT INTO chat_followups(id, kind, owner_id, thread_id, send_id, status, payload) VALUES (?, 'bot', ?, ?, NULL, 'dispatching', ?)",
       );
@@ -230,7 +216,6 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
     ]);
     expect((await api("POST", `/api/bots/${uncertain.id}/messages`, uncertainBody, 202)).message.queueId).toBe(claimed.queueId);
     expect(prompts(later.threadId)).toHaveLength(1);
-    // A second boot must not duplicate recovery notices or replay a claim.
     await waitForExit(restarted, { signal: "SIGTERM" });
     await restart();
     expect((await messages(later.threadId)).filter((message) => message.queueId === claimed.queueId)).toEqual(interrupted.filter((message) => message.queueId === claimed.queueId));

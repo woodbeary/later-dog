@@ -1,10 +1,8 @@
-// bot-attachment.ts: what a bot may hand to the chat, from where, and as what.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-// attachments.ts reads DATA_DIR at import time.
 const DATA_ROOT = mkdtempSync(join(tmpdir(), "laterdog-bot-attachment-"));
 process.env.LATERDOG_HOME = join(DATA_ROOT, "data");
 const { attachForTurn, guestWorkspaceToHost, saveBotAttachment } = await import("./bot-attachment.ts");
@@ -66,7 +64,6 @@ describe("saveBotAttachment", () => {
     expect(saved.attachment.kind).toBe(kind);
     expect(saved.attachment.mime).toBe(mime);
     expect(saved.bytes).toBe(bytes.byteLength);
-    // A private copy in the attachment store, not the bot's own file.
     expect(saved.attachment.path.startsWith(ATTACHMENTS_DIR)).toBe(true);
     expect(readFileSync(saved.attachment.path)).toEqual(bytes);
     if (saved.attachment.kind === "file") expect(saved.attachment.name.toLowerCase()).toBe(name.toLowerCase());
@@ -89,7 +86,6 @@ describe("saveBotAttachment", () => {
     const guest = { root: "/home/cua/workspace", host: VM_HOME };
     await expect(saveBotAttachment({ path: "/home/cua/workspace/../../secret.pdf", roots: [WORK], guest })).rejects.toMatchObject({ status: 404 });
     await expect(saveBotAttachment({ path: join(DATA_ROOT, "secret.pdf"), roots: [WORK] })).rejects.toMatchObject({ status: 403 });
-    // A path in the display name is reduced to its last segment.
     writeFileSync(join(WORK, "plain.txt"), "hello");
     const saved = await saveBotAttachment({ path: "plain.txt", name: "../../evil/notes.txt", roots: [WORK] });
     expect(saved.attachment).toMatchObject({ kind: "file", name: "notes.txt" });
@@ -113,7 +109,6 @@ describe("saveBotAttachment", () => {
 });
 
 describe("attachForTurn", () => {
-  /** A copy the test finishes by hand, so timing is never a guess. */
   const deferred = <T>() => {
     let resolve!: (value: T) => void;
     let reject!: (reason: unknown) => void;
@@ -145,7 +140,6 @@ describe("attachForTurn", () => {
       ...seen.hooks,
       save: () => { started += 1; return copy.promise.then(() => `file-${index}`); },
     }));
-    // Nothing has finished, yet only three may even start copying; the rest are refused at once.
     expect(started).toBe(3);
     expect(await Promise.all(calls.slice(3))).toEqual([{ status: "limit" }, { status: "limit" }, { status: "limit" }]);
     copies.slice(0, 3).forEach((copy) => copy.resolve("done"));
@@ -173,7 +167,7 @@ describe("attachForTurn", () => {
     let live = true;
     const seen = hooks({ save: () => copy.promise, stillLive: () => live });
     const call = attachForTurn(turn, 10, seen.hooks);
-    live = false; // stopped, replaced, deleted or moved mid-copy
+    live = false;
     copy.resolve("half-second-later.pdf");
     expect(await call).toEqual({ status: "ended" });
     expect(seen.published).toEqual([]);

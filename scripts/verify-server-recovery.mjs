@@ -1,5 +1,3 @@
-// Real Electron utilityProcess + built server, never the operator's desktop.
-// Run after pnpm build:server. Evidence remains; fixture homes are removed.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -74,7 +72,6 @@ if (process.versions.electron && process.argv.includes(flag)) {
       assert.equal(await supervisor?.shutdown(), true);
       if (fakePid) { try { process.kill(fakePid, "SIGKILL"); } catch {} fakePid = null; }
       const count = children.length;
-      // Let the first retry deadline pass after real Electron before-quit.
       await sleep(1200);
       assert.equal(children.length, count, "quit must not spawn another child");
       assert.equal(active, null);
@@ -174,7 +171,6 @@ if (process.versions.electron && process.argv.includes(flag)) {
       fakePid = JSON.parse(readFileSync(join(home, "fake.json"), "utf8")).pid;
       const prompts = readFileSync(join(home, "prompts.jsonl"), "utf8");
       assert.equal(prompts.trim().split("\n").length, 1);
-      // A frozen owned child cannot race an ACK ahead of our simulated crash.
       process.kill(initialPid, "SIGSTOP");
       const pendingApproval = approval.request(initial.proc, bot.id, "ask").then(
         () => "unexpected success", (error) => error.message,
@@ -183,8 +179,6 @@ if (process.versions.electron && process.argv.includes(flag)) {
       await exits.get(initial.proc);
       assert.equal(active, null, "readiness cleared in the same exit dispatch");
       assert.match(await pendingApproval, /server stopped/);
-      // This inert fake intentionally hangs even after stdin closes. Reap only
-      // the exact fixture-recorded engine, never a process-name match.
       process.kill(fakePid, "SIGKILL");
       fakePid = null;
       await until(() => active && active.pid !== initialPid, "replacement PID verified");
@@ -220,7 +214,6 @@ if (process.versions.electron && process.argv.includes(flag)) {
   }).catch((error) => { console.error(error); app.quit(); });
 } else {
   assert.notEqual(process.platform, "win32", "This crash fixture uses POSIX SIGSTOP/SIGKILL");
-  // macOS's default temp path leaves no room for the server's Unix sockets.
   const output = mkdtempSync(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "laterdog-server-recovery-"));
   const electron = createRequire(import.meta.url)("electron");
   cpSync(join(root, "dist-server"), join(output, "server"), { recursive: true });

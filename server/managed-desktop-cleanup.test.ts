@@ -3,16 +3,8 @@ import vm from "node:vm";
 import ts from "typescript";
 import { expect, it } from "vitest";
 
-// Execute the actual cleanup functions without importing index.ts, which would
-// start a server. State and adapters are synthetic; this is an ownership-race
-// regression, not proof of a real provider or conversation workflow.
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 function section(start: string, end: string) {
-  // Anchor both markers to the start of a line. `function bindTurnComputer(`
-  // also matches INSIDE `async function bindTurnComputer(`, which silently cut
-  // the slice after the `async ` and left it dangling — the extracted code then
-  // died with `ReferenceError: async is not defined` instead of failing here
-  // with a readable "section moved". Anchoring makes drift loud again.
   const lineStart = (marker: string, from: number) => {
     if (from === 0 && source.startsWith(marker)) return 0;
     const at = source.indexOf(`\n${marker}`, from);
@@ -23,12 +15,12 @@ function section(start: string, end: string) {
   return source.slice(from, to);
 }
 const code = ts.transpileModule([
-  section("async function interruptDirectThread(", "/** Stop left teammates"),
+  section("async function interruptDirectThread(", "function noteTeammatesLeftRunning("),
   section("function releaseTurnResources(", "async function bindTurnComputer("),
   section("async function stopCompanyInstances(", "async function persistProviderInstance("),
 ].join("\n"), { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
 const reloadProvidersCode = ts.transpileModule(
-  section("async function reloadProviders()", "// Config writes rebuild the whole provider registry."),
+  section("async function reloadProviders()", "let providerConfigBusy = false;"),
   { compilerOptions: { target: ts.ScriptTarget.ESNext } },
 ).outputText;
 
@@ -49,9 +41,6 @@ function fixture(kind: "direct" | "group", threadIds = ["first"]) {
   const autoVmClaims = new Map<string, { owner: { threadId: string; generation: string } }>();
   const started = new Map<string, ReturnType<typeof deferred>>(), interrupted = new Map<string, ReturnType<typeof deferred>>();
   const interruptCalls: string[] = [], cancelled: string[] = [], revoked: string[] = [], messages: string[] = [], settled: string[] = [], detached: string[] = [];
-  // The parked-resume seam (#1651): releaseTurnResources queues the drain
-  // when a parked turn waits behind the release. Recorded stubs, so the
-  // extracted code runs against the same names the real module sees.
   const pendingComputerResumes = new Map<string, { threadId: string }>();
   const resumeDrains: number[] = [];
   const microtasks: Array<() => void> = [];
@@ -143,8 +132,6 @@ it("preserves a personal direct turn started while a slower Company sibling is s
   const stopping = f.stop();
   await Promise.all([f.started("first"), f.started("slow")]);
   f.finish("first");
-  // Let interruptDirectThread finish for the first thread while the batch's
-  // second adapter remains pending, then simulate a new personal dispatch.
   for (let count = 0; count < 5; count++) await Promise.resolve();
   f.replace("first");
   f.finish("slow"); await stopping;
@@ -228,13 +215,8 @@ it("queues the parked-computer resume drain only when a parked turn waits behind
   expect(f.resumeDrains).toEqual([1]);
 });
 
-// The parked-resume drain's own semantics (#1651), same extraction technique
-// as the cleanup fixture above: which entries survive which drain. The lazy
-// park registers its resume before its interrupt lands, so a drain inside
-// that settle window sees the thread busy under the parked turn's own
-// generation and must keep the entry.
 const resumeDrainCode = ts.transpileModule([
-  section("/** A turn parked at the computer wait ceiling", "function markComputerResumeFailed("),
+  section("type ComputerResumeEntry = {", "function markComputerResumeFailed("),
   section("function drainComputerResumes(", "type SecretResumeEntry"),
 ].join("\n"), { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
 
@@ -270,14 +252,10 @@ it("dispatches a parked resume immediately when the seat is already free at regi
 
 it("keeps a parked resume through its own busy settle window and dispatches on the next drain", () => {
   const f = resumeDrainFixture();
-  // The lazy-claim park registers while its turn is still settling: busy
-  // under the SAME generation. A drain here must not drop the entry.
   f.state.busy = true;
   f.register();
   f.drain();
   expect(f.dispatched).toEqual([]);
-  // The settle lands (turn completes, thread idle); the next drain — its
-  // completion, or any later release — continues the parked work.
   f.state.busy = false;
   f.drain();
   expect(f.dispatched).toEqual(["t"]);

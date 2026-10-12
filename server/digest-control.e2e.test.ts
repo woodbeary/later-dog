@@ -7,9 +7,6 @@ import type { WireMessage } from "../shared/wire.ts";
 
 it("records independent turns and room speakers through the shared control fixture", async () => {
   const fixture = await launchVerificationServer({
-    // The launcher keeps only OS launch variables and FAKE_CLAUDE_* knobs.
-    // Windows shell hooks need COMSPEC/SYSTEMROOT; replacing the parent
-    // environment with just fake knobs made every hook fall back to preview.
     ...process.env,
     FAKE_CLAUDE_HOOKS: "1",
     FAKE_CLAUDE_TOOL_CALLS: JSON.stringify([{ name: "Bash", id: "reused-tool-id", input: { command: "echo receipt" }, output: "receipt", ok: true }]),
@@ -48,8 +45,6 @@ it("records independent turns and room speakers through the shared control fixtu
       expect(tool?.tool?.fullResult).toBe(true);
       expect(tool?.tool).not.toHaveProperty("outputPath");
     }
-    // The fake reuses tool ids across turns: each must have its own receipt
-    // and spill file rather than inheriting evidence from its predecessor.
     expect(readdirSync(join(fixture.info.dataDir, "tool-results", first.activeTaskId))).toHaveLength(2);
     expect(JSON.stringify(direct)).not.toContain(fixture.info.dataDir);
     const channel = (await control(["new-channel", "--name", "Receipt room", "--members", `${first.id},${second.id}`])).channel;

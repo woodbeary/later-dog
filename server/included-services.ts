@@ -1,34 +1,13 @@
-// Boat cloud computers, ElevenLabs voice and the Jev decision model included
-// with Cloud Pro (docs/cloud-pro.md, "Included Boat computers, voice and
-// decisions").
-// The Admin relays each on its own accounts, so its provider keys never reach
-// this machine; each Cloud home gets its own relay tokens:
-//
-//   LATERDOG_CLOUD_BOAT_URL    + LATERDOG_CLOUD_BOAT_TOKEN     the Boat relay, ending in /api/box/v1
-//   LATERDOG_CLOUD_VOICE_URL   + LATERDOG_CLOUD_VOICE_TOKEN    the ElevenLabs relay, ending in /v1
-//   LATERDOG_CLOUD_DECIDER_URL + LATERDOG_CLOUD_DECIDER_TOKEN  the Jev relay, a Jev base URL
-//
-// An included token is only a fallback. The person's own key (Settings, or
-// BOX_TOKEN / LATERDOG_TTS_KEY / LATERDOG_JEV_API_KEY) always wins, and removing it
-// falls back again, so the credential is resolved on every request, never
-// cached. The relay knows only our account, so each credential goes to one
-// place: an own key to the provider (LATERDOG_BOX_API / LATERDOG_ELEVENLABS_API /
-// decider.baseUrl when set, for dev and tests), an included token to its
-// relay. An included token is never written to config.json, never reported
-// to a client, and never the saved key Settings verifies, rotates or clears.
 import { JEV_DEFAULT_BASE_URL } from "./decider/jev.ts";
 import { trialDecider, trialVoice } from "./laterdog/included-trial.ts";
 
 export const BOAT_API_DEFAULT = "https://ascii.dev/api/box/v1";
 export const ELEVENLABS_API_DEFAULT = "https://api.elevenlabs.io/v1";
-/** Also on WORKSPACE_CREDENTIAL_ENV (config.ts). */
 export const INCLUDED_TOKEN_ENV = ["LATERDOG_CLOUD_BOAT_TOKEN", "LATERDOG_CLOUD_VOICE_TOKEN", "LATERDOG_CLOUD_DECIDER_TOKEN"] as const;
 
 export interface ServiceCredential {
   token: string;
-  /** The only base URL this token is ever sent to. */
   api: string;
-  /** Cloud Pro's included token, not the person's own key. */
   included: boolean;
 }
 
@@ -47,16 +26,11 @@ function includedService(url: string | undefined, token: string | undefined): Se
 const includedFrom = (env: NodeJS.ProcessEnv): Included => ({
   boat: includedService(env.LATERDOG_CLOUD_BOAT_URL, env.LATERDOG_CLOUD_BOAT_TOKEN),
   voice: includedService(env.LATERDOG_CLOUD_VOICE_URL, env.LATERDOG_CLOUD_VOICE_TOKEN),
-  // A Jev base URL as it is: the decider adds /v1/systemone, the relay's one route.
   decider: includedService(env.LATERDOG_CLOUD_DECIDER_URL, env.LATERDOG_CLOUD_DECIDER_TOKEN),
 });
 
 let held: Included | null = null;
 
-/** At server startup: keep the included tokens in memory and drop them from
- * the environment, as with the Cloud bootstrap secret, so nothing the server
- * starts can inherit them. Before this (tests, scripts) they are read from
- * the environment on each call. */
 export function holdIncludedServices(env: NodeJS.ProcessEnv = process.env): void {
   held = includedFrom(env);
   for (const name of INCLUDED_TOKEN_ENV) delete env[name];
@@ -64,8 +38,6 @@ export function holdIncludedServices(env: NodeJS.ProcessEnv = process.env): void
 
 function resolve(own: string | undefined, providerApi: string, included: ServiceCredential | null): ServiceCredential | null {
   if (own) {
-    // A leased computer descriptor hands the token in use back as a plain
-    // token; the included one still goes only to its relay.
     if (included && own === included.token) return included;
     return { token: own, api: providerApi, included: false };
   }
@@ -76,19 +48,14 @@ export const boatProviderApi = (env: NodeJS.ProcessEnv = process.env): string =>
 export const elevenLabsProviderApi = (env: NodeJS.ProcessEnv = process.env): string =>
   env.LATERDOG_ELEVENLABS_API || ELEVENLABS_API_DEFAULT;
 
-/** The Boat credential in use: the person's own token, else the included one. */
 export function boatCredential(own: string | undefined, env: NodeJS.ProcessEnv = process.env): ServiceCredential | null {
   return resolve(own, boatProviderApi(env), (held ?? includedFrom(env)).boat);
 }
 
-/** The ElevenLabs credential in use: the person's own key, else the included one. */
 export function voiceCredential(own: string | undefined, env: NodeJS.ProcessEnv = process.env): ServiceCredential | null {
   return resolve(own, elevenLabsProviderApi(env), (held ?? includedFrom(env)).voice ?? trialVoice());
 }
 
-/** The decision model's credential in use: the person's own Jev key (saved,
- * or LATERDOG_JEV_API_KEY) with their `decider.baseUrl` or Jev's own, else the
- * included token with the relay. `api` is a Jev base URL. */
 export function deciderCredential(
   own: string | undefined,
   ownBaseUrl: string | undefined,

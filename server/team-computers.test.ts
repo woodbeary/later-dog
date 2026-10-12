@@ -44,7 +44,6 @@ describe("named team computer ownership", () => {
     expect(restarted.list()).toHaveLength(1);
     restarted.setProblem(requestId);
     expect(new TeamComputers(file, environmentId).get(requestId)?.problem).toBeUndefined();
-    // Windows exposes synthetic POSIX mode bits; its ACLs are not represented here.
     if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 

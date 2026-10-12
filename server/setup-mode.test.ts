@@ -1,5 +1,3 @@
-// Setup mode: only a /setup message turns on a coaching block
-// that makes the bot clarify the job and use result-aware configuration tools.
 import { describe, expect, it } from "vitest";
 
 import {

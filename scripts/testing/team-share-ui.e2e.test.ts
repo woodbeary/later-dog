@@ -45,12 +45,8 @@ describe("Share team in the real renderer", () => {
     await api(`/api/section-context?section=${encodeURIComponent("Sales desk")}`, "PUT", { text: "Quote list prices only." });
     await api(`/api/bots/${scout.id}/skill-template`, "POST", { name: "research-brief", description: "Write a prospect brief.", source: "fixture",
       text: "---\nname: research-brief\ndescription: Write a prospect brief.\n---\n\n# Brief\n", enabled: true });
-    // 31 skills on one bot, more than a file carries per bot, and the first
-    // 17 fillers so long that even the 30 that fit pass the 4 MB file limit:
-    // the dialog's very first look is refused.
     for (let index = 1; index <= 30; index++) {
       const name = `fill-${String(index).padStart(2, "0")}`;
-      // 252 KB each: 17 pass the 4 MB limit, 16 fit under it.
       const body = index <= 17 ? `${"step ".repeat(50_400)}\n` : `# ${name}\n`;
       await api(`/api/bots/${scout.id}/skill-template`, "POST", { name, description: "Filler step.", source: "fixture",
         text: `---\nname: ${name}\ndescription: Filler step.\n---\n\n${body}`, enabled: false });
@@ -58,7 +54,6 @@ describe("Share team in the real renderer", () => {
     await api(`/api/bots/${info!.botId}/memory/file`, "PUT", { path: "MEMORY.md", text: "- Prefers short summaries.\n" });
     await api("/api/routines", "POST", { name: "Daily digest", prompt: "Summarize new leads.", botId: scout.id, enabled: true,
       schedule: { type: "daily", time: "09:00", weekdays: [1, 2, 3, 4, 5] }, durationMinutes: 30 });
-    // Capture the saved file instead of letting the headless browser download it.
     await evaluate(`(() => {
       URL.createObjectURL = (blob) => { window.__shareBlob = blob; return "blob:share-fixture"; };
       HTMLAnchorElement.prototype.click = function () { window.__shareDownload = this.download; };
@@ -70,8 +65,6 @@ describe("Share team in the real renderer", () => {
     await click("Share");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Share the Sales desk pack");
     await click("Share the Sales desk pack");
-    // A refused first look is not a dead end: the sentence, no counts and no
-    // Save, but every skill box is drawn from the refusal.
     const saveDisabled = () => evaluate(`[...document.querySelectorAll('[role=dialog] button')].find((button) => button.textContent === "Save file").disabled`);
     await expect.poll(snapshot, { timeout: 20_000 }).toContain("This pack is too large to share (4 MB).");
     let dialog = await snapshot();
@@ -79,18 +72,15 @@ describe("Share team in the real renderer", () => {
     expect(dialog).not.toContain("What's in the file");
     expect(await saveDisabled()).toBe(true);
     await ui("screenshot", "--out", join(ROOT, ".laterdog-scratch", "verify-evidence", "share-team-refused.png"));
-    // Leaving out one long skill is a choice that fits.
     await click("fill-01");
     await expect.poll(snapshot, { timeout: 20_000 }).toContain("What's in the file");
     dialog = await snapshot();
     for (const line of ["Chief of Staff", "Never included: chat history", "Save file"]) expect(dialog).toContain(line);
     expect(dialog).not.toContain("too large to share");
-    // Starter notes are in by default; unticking takes them out, ticking puts them back.
     await click("Include starter notes (each dog's MEMORY.md and topic notes)");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Starter notes are not included");
     await click("Include starter notes (each dog's MEMORY.md and topic notes)");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Starter notes are included");
-    // 31 ticked on one bot cannot fit: a sentence, the boxes stay, no Save.
     await click("fill-01");
     await expect.poll(snapshot, { timeout: 20_000 }).toContain("Scout has more than 30 tricks. Choose fewer tricks and try again.");
     dialog = await snapshot();
@@ -119,7 +109,6 @@ describe("Share team in the real renderer", () => {
     await ui("screenshot", "--out", join(ROOT, ".laterdog-scratch", "verify-evidence", "share-team-saved.png"));
     await click("Done");
 
-    // Add the saved file back through Import: the preview names every part.
     await click("Import");
     await evaluate(`(() => { const input = document.querySelector('[role=dialog] input[type=file]'); const transfer = new DataTransfer(); transfer.items.add(new File([window.__shareText], 'sales-desk-1.0.0.laterdog.json', { type: 'application/json' })); input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("2 dogs · shared pack");

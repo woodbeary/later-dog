@@ -127,7 +127,6 @@ describe("plans", () => {
     expect(steps.find((step) => step.kind === "append-once")).toEqual({ kind: "append-once", path: "/etc/caddy/Caddyfile", line: "import /etc/caddy/laterdog.d/*.caddy" });
     expect(argvOf(steps)).toEqual(["systemctl daemon-reload", "systemctl enable --now laterdog-fence.service", "systemctl reload caddy"]);
     expect(() => initPlan({ domain: "not a domain", node: "n", script: "s", layout })).toThrow("domain name");
-    // with an operator, the agent unit is written and started, and the registry remembers who
     const withAgent = initPlan({ domain: "agentada.cc", node: "/usr/bin/node", script: "/usr/lib/node_modules/laterdog/cli.js", operator: "dog", layout });
     expect(withAgent.registry.operator).toBe("dog");
     const agent = withAgent.steps.find((step) => step.kind === "write" && step.path === "/etc/systemd/system/laterdog-fleet.service");
@@ -163,11 +162,9 @@ describe("plans", () => {
     expect(config).toMatchObject({ mode: 0o600, owner: "laterdog-acme" });
     const env = plan.steps.find((step) => step.kind === "write" && step.path === "/etc/laterdog/instances/acme.env");
     expect(env).toMatchObject({ mode: 0o600 });
-    // root keeps the environment file: it carries the licence key
     expect(env).not.toHaveProperty("owner");
     expect(plan.steps.find((step) => step.kind === "write" && step.path.endsWith("limits.conf"))).toMatchObject({ content: "[Service]\nMemoryMax=1G\n" });
     expect(plan.steps.find((step) => step.kind === "health")).toMatchObject({ url: "http://127.0.0.1:8810/api/health" });
-    // the health wait sits between starting the unit and exposing it through Caddy
     const sequence = plan.steps.flatMap((step) => (step.kind === "run" ? [step.argv[0] === "systemctl" ? step.argv.slice(0, 2).join(" ") : step.argv[0]] : step.kind === "health" ? ["health"] : []));
     expect(sequence).toEqual(["useradd", "nft", "systemctl daemon-reload", "systemctl enable", "health", "systemctl reload"]);
     expect(plan.steps.at(-1)).toMatchObject({ kind: "note", text: expect.stringContaining("https://acme.agentada.cc is ready") });

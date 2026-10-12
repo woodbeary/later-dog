@@ -1,6 +1,3 @@
-/** Count live authenticated event streams per device. A phone may briefly
- * overlap old and replacement streams while changing routes, so presence is a
- * reference count rather than a boolean. */
 export function createConnectedDeviceTracker() {
   interface ConnectedStream {
     closed: boolean;
@@ -28,17 +25,13 @@ export function createConnectedDeviceTracker() {
   const disconnect = (deviceId: string): boolean => {
     const active = streams.get(deviceId);
     if (!active) return false;
-    // Remove presence before terminating sockets. Their close handlers call
-    // the per-stream cleanup again, which must be an idempotent no-op.
     streams.delete(deviceId);
     for (const stream of active) {
       if (stream.closed) continue;
       stream.closed = true;
       try {
         stream.terminate();
-      } catch {
-        // One broken socket must not keep the other revoked streams alive.
-      }
+      } catch {}
     }
     return true;
   };

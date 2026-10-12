@@ -1,26 +1,3 @@
-// What the agents proxy puts on the wire for `tools/list`, pinned byte for
-// byte and measured.
-//
-// Two jobs:
-//
-// 1. GOLDEN. Every engine turns this JSON into its provider's function-call
-//    format, and a schema that changes shape in passing has broken production
-//    before (#544: a `oneOf` mangled by a provider's conversion). So the exact
-//    serialized result is checked in for every mount profile the harness can
-//    ask for, and a refactor of the proxy has to reproduce it to the byte.
-//    The proxy is spawned the way a driver's mcpServers entry spawns it, from
-//    source and from the esbuild bundle every packaged build ships, so "the
-//    same bytes" is a statement about the real process, not about a helper.
-//
-// 2. WIRE SIZE. The catalog is sent to the model on every turn. The often
-//    quoted "~37 KB" was a count of indented source, not of this JSON. The
-//    numbers printed here are the real ones, and the budget below fails CI
-//    when a profile grows by more than 2%.
-//
-// Changing a tool on purpose: run this file once with
-// UPDATE_AGENTS_CATALOG_GOLDENS=1, review the golden diff like any other wire
-// change, and move BUDGET_BASELINE by hand. The baseline is deliberately not
-// rewritten by the update run: growth should be a decision somebody typed.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -38,18 +15,12 @@ const GOLDENS = join(HERE, "agents-catalog-goldens");
 const UPDATE = process.env.UPDATE_AGENTS_CATALOG_GOLDENS === "1";
 
 interface Profile {
-  /** Which full golden every tool of this profile must be found in. */
   family: "direct" | "room" | "external";
   env: Record<string, string>;
 }
 
 const flag = (on: boolean) => (on ? "1" : "0");
 
-/** Every combination server/index.ts agentsIntegration() can produce, plus the
- * standing external runtime (docs/self-hosting.md), which sets only its own
- * switch. The bot id is fixed because a room turn writes it into the
- * start_thread schema. A name without "+non-chief" is a Chief of Staff's
- * turn, which mounts the most. */
 function profiles(): Record<string, Profile> {
   const all: Record<string, Profile> = {};
   for (const chief of [true, false]) {
@@ -77,14 +48,10 @@ function profiles(): Record<string, Profile> {
       }
     }
   }
-  // A Cloud home is one more switch on top of any of these; its fullest
-  // profiles are pinned, and differ from their family only where the test
-  // below says they may.
   for (const name of ["direct+skills+shared+voice", "room+own-thread+skills+shared+voice", "direct+skills+shared+voice+non-chief", "room+own-thread+skills+shared+voice+non-chief"]) {
     all[`${name}+cloud-home`] = { family: all[name]!.family, env: { ...all[name]!.env, LATERDOG_CLOUD_HOME: "1" } };
   }
   all.external = { family: "external", env: { LATERDOG_EXTERNAL_RUNTIME: "1" } };
-  // The external switch wins over every other one; pin that it still does.
   all["external+everything"] = {
     family: "external",
     env: {
@@ -102,21 +69,11 @@ function profiles(): Record<string, Profile> {
 }
 
 const PROFILES = profiles();
-/** Refused by the server to every bot that is not a Chief of Staff. Not
- * create_bot: in later.dog any bot creates a bot on request
- * (server/laterdog/dog-creation.ts). */
 const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "create_room", "manage_room", "retry_thread"];
-/** Their for_bot_id, changing another bot, is a Chief's alone. */
 const CHIEF_TARGET_TOOLS = ["propose_profile", "propose_model"];
 const CHIEF_PROFILE_TARGET = " A Chief of Staff may pass for_bot_id (from list_bots) for a requested change to another bot in its section.";
-/** The profile of each family that mounts the most: checked in whole, as
- * readable JSON. Every other profile is a by-name subset of one of these and
- * is pinned by tool names, byte count and sha256 in profiles.json. */
 const FULL = { direct: "direct+skills+shared+voice", room: "room+own-thread+skills+shared+voice", external: "external" } as const;
 
-/** Bytes measured when the budget was last set. A profile may not exceed this
- * by more than 2%, and may not undercut it by more than 2% either: a smaller
- * catalog is the goal, so lock the win in by lowering the number. */
 const BUDGET_BASELINE: Record<string, number> = {
   "direct": 48073,
   "direct+voice": 48814,
@@ -176,11 +133,7 @@ const BUDGET_BASELINE: Record<string, number> = {
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';
 
-/** The exact `result` text of one tools/list answer from a freshly spawned
- * proxy. Sliced out of the raw stdout line, never re-serialized. */
 async function toolsListWire(entry: string, env: Record<string, string>): Promise<string> {
-  // A developer shell (or a later.dog turn running this suite) can carry
-  // LATERDOG_* switches of its own; the profile must be the only source.
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("LATERDOG_")));
   const child = spawn(process.execPath, [entry], {
     env: { ...inherited, LATERDOG_HARNESS_URL: "http://127.0.0.1:9", LATERDOG_BOT_ID: "bot-golden", LATERDOG_THREAD_ID: "thread-golden", LATERDOG_COMMS_TOKEN: "unused", LATERDOG_TURN_DEPTH: "0", ...env },
@@ -197,8 +150,6 @@ async function toolsListWire(entry: string, env: Record<string, string>): Promis
       });
       child.on("error", reject);
       child.on("exit", (code) => reject(new Error(`agents proxy exited (${code}) before answering tools/list`)));
-      // stdin stays open until the answer is read: closing it makes the proxy
-      // exit, and on Windows a pipe write still in flight is lost with it.
       child.stdin.write('{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n');
     });
     expect(line.startsWith(RPC_PREFIX) && line.endsWith("}")).toBe(true);
@@ -221,8 +172,6 @@ const toolsOf = (wire: string) => (JSON.parse(wire) as { tools: Tool[] }).tools;
 
 const goldenPath = (family: keyof typeof FULL) => join(GOLDENS, `${family}-full.tools-list.json`);
 const manifestPath = join(GOLDENS, "profiles.json");
-// Goldens are stored pretty-printed so a wire change reads as a diff, and are
-// compared after JSON.parse, so a CRLF checkout on Windows cannot fail them.
 const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf8"));
 const writeJson = (path: string, value: unknown) => {
   mkdirSync(dirname(path), { recursive: true });
@@ -253,9 +202,7 @@ describe("agents proxy tools/list golden", () => {
   it.each(Object.keys(FULL) as (keyof typeof FULL)[])("%s: the fullest profile is byte-identical to its golden", (family) => {
     const golden = readJson(goldenPath(family));
     const wire = wires[FULL[family]]!;
-    // Structural first: a readable diff naming the tool and field that moved.
     expect(JSON.parse(wire)).toEqual(golden);
-    // Then the bytes: key order and number formatting included.
     expect(wire).toBe(JSON.stringify(golden));
   });
 
@@ -267,8 +214,6 @@ describe("agents proxy tools/list golden", () => {
     for (const [name, profile] of Object.entries(PROFILES)) {
       const full = new Map(toolsOf(wires[FULL[profile.family]]!).map((tool) => [tool.name, JSON.stringify(tool)]));
       for (const tool of toolsOf(wires[name]!)) {
-        // A Cloud home's own select_computer is pinned by the next test, and
-        // a non-Chief's propose_profile and propose_model by the one after.
         if (profile.env.LATERDOG_CLOUD_HOME === "1" && tool.name === "select_computer") continue;
         if (profile.env.LATERDOG_CHIEF_OF_STAFF === "0" && CHIEF_TARGET_TOOLS.includes(tool.name)) continue;
         expect(JSON.stringify(tool), `${name}: ${tool.name}`).toBe(full.get(tool.name));
@@ -293,8 +238,6 @@ describe("agents proxy tools/list golden", () => {
   });
 
   it("shows only a Chief of Staff the Chief-only tools, and for_bot_id on another bot's profile or model", () => {
-    // Every route behind these refuses a bot that is not a Chief, so the rest
-    // are not shown them; otherwise the two catalogs are the same to the byte.
     type SchemaTool = Tool & { description: string; inputSchema: { properties: Record<string, unknown> } };
     const nonChief = Object.keys(PROFILES).filter((name) => PROFILES[name]!.env.LATERDOG_CHIEF_OF_STAFF === "0");
     expect(nonChief).toHaveLength(26);
@@ -303,7 +246,6 @@ describe("agents proxy tools/list golden", () => {
       const tools = new Map((toolsOf(wires[name]!) as SchemaTool[]).map((tool) => [tool.name, tool]));
       expect(chiefTools.map((tool) => tool.name)).toEqual(expect.arrayContaining(CHIEF_ONLY_TOOLS));
       expect([...tools.keys()], name).toEqual(chiefTools.map((tool) => tool.name).filter((tool) => !CHIEF_ONLY_TOOLS.includes(tool)));
-      // ...and create_bot is every bot's, worded the same for each.
       expect(tools.has("create_bot"), name).toBe(true);
       for (const chiefTool of chiefTools.filter((tool) => tools.has(tool.name))) {
         let expected: SchemaTool = chiefTool;
@@ -316,12 +258,10 @@ describe("agents proxy tools/list golden", () => {
       }
       expect(chiefTools.find((tool) => tool.name === "propose_profile")!.description).toContain(CHIEF_PROFILE_TARGET);
       expect(JSON.stringify(CHIEF_TARGET_TOOLS.map((tool) => tools.get(tool)))).not.toContain("for_bot_id");
-      // Any bot may ask to change a reachable section peer's routine.
       for (const routine of ["propose_routine", "propose_routine_action"]) {
         expect(tools.get(routine)!.inputSchema.properties, `${name}: ${routine}`).toHaveProperty("for_bot_id");
       }
     }
-    // A standing external runtime is shown none of them, Chief or not.
     expect(wires["external+everything"]).toBe(wires.external);
   });
 
@@ -333,8 +273,6 @@ describe("agents proxy tools/list golden", () => {
   });
 
   it("writes the routine fields out identically in both routine tools", () => {
-    // One source constant, serialized in full twice: see the wire-size table
-    // for what that costs, and the next test for why it is not a $ref.
     type RoutineTool = Tool & { inputSchema: { properties: Record<string, unknown> & { changes: { properties: Record<string, unknown> } } } };
     const tools = new Map(toolsOf(wires[FULL.direct]!).map((tool) => [tool.name, tool as RoutineTool]));
     const created = tools.get("propose_routine")!.inputSchema.properties;
@@ -345,8 +283,6 @@ describe("agents proxy tools/list golden", () => {
   });
 
   it("uses no JSON-Schema keyword a provider conversion is known to drop or mangle", () => {
-    // #544. Reuse in the source is one constant referenced twice; on the wire
-    // the schema stays written out in full, with no indirection or branches.
     for (const [name, wire] of Object.entries(wires)) {
       expect(wire.match(/"(\$ref|\$defs|definitions|oneOf|anyOf|allOf)":/g), name).toBeNull();
     }
@@ -360,10 +296,6 @@ describe("agents proxy tools/list from the packaged bundle", () => {
   });
 
   it("serves the same bytes with no source tree beside it", async () => {
-    // Same esbuild options as scripts/bundle-server.mjs, which produces the
-    // dist-server/ that the desktop app, the npm package and the container
-    // image all copy whole. The proxy runs as its own process there, so every
-    // module it imports has to be inlined into this one file.
     directory = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-agents-proxy-bundle-")));
     await build({
       entryPoints: [PROXY_SOURCE],

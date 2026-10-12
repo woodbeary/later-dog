@@ -1,13 +1,4 @@
-// Where a bot's hands land — and therefore where the person goes when it
-// needs them. A turn can mount two places at once (a computer plus the
-// built-in browser), which is exactly what confused people: "do this on the
-// web" landed in the cloud boat's Chrome one turn and in the Browser tab the
-// next, and the "needs your hands" plea never said which. Everything that
-// decides or describes a surface lives here, so the picker, the dispatch,
-// the system prompt and the notification cannot drift apart.
 
-/** A place a bot can act. `cloud` covers both the Boat and VPS backends —
- * from the person's seat they are the same "cloud computer" panel. */
 import type { Surface } from "../shared/wire.ts";
 import { canWorkOnCloud, type CloudEngine } from "../shared/cloud-computer.ts";
 import { canUseMcpServer } from "../shared/tool-scope.ts";
@@ -15,14 +6,10 @@ import { placeRowText, type PlaceRow, type PlaceSource } from "../shared/place-v
 import { offersPlace } from "../shared/places.ts";
 export type { Surface, PlaceSource };
 
-/** The bot's "Works on" setting; undefined = Auto. */
 export type Destination = Surface | "off" | undefined;
 
-/** What the computer block of a dispatch aims for. Mirrors the old `wants`
- * local exactly, so its strict/auto branches keep their meaning. */
 export type ComputerWant = "cloud" | "vm" | "local" | "off" | undefined;
 
-/** What a turn actually mounted, in surface terms. */
 export interface MountedSurfaces {
   computer: Surface | null;
   browser: boolean;
@@ -31,22 +18,16 @@ export interface MountedSurfaces {
 export interface SurfacePlan {
   computer: ComputerWant;
   browser: boolean;
-  /** The surface this Auto turn was held to by the task's pin, or null. */
   pinned: Surface | null;
-  /** One prompt sentence when the chosen destination cannot be honoured. */
   note: string;
 }
 
 const SURFACES: ReadonlySet<string> = new Set(["cloud", "vm", "local", "browser"]);
 
-/** Parse a surface arriving over the wire; anything else is "not said". */
 export function parseSurface(value: unknown): Surface | undefined {
-  // SAFETY: the set membership check is the narrowing — only the four
-  // literal strings pass, and the assertion just names that fact to the type.
   return typeof value === "string" && SURFACES.has(value) ? (value as Surface) : undefined;
 }
 
-/** The per-turn computer kinds the dispatch tracks, folded to a surface. */
 export function surfaceOfComputerKind(kind: "box" | "vps" | "vm" | "local" | null): Surface | null {
   if (kind === "box" || kind === "vps") return "cloud";
   return kind;
@@ -70,31 +51,16 @@ export function resolveSurface(input: {
   return { computer: undefined, browser: browserOn, pinned: null, note: "" };
 }
 
-/** Why this engine can't work on the cloud computer, as a failed place, or
- * null when it can (shared/cloud-computer.ts holds the rule). Checked before
- * anything is provisioned, so a turn that cannot run never creates or wakes
- * a machine. */
 export function cloudPlaceRefusal(engine: CloudEngine & { name: string }, source: PlaceSource, bot: string): PlaceUnavailableError | null {
   if (canWorkOnCloud(engine)) return null;
   return placeUnavailable("cloud", { state: "cc-cannot", params: { bot, model: engine.name }, source });
 }
 
-/** Why this bot's Tool selection keeps it off a computer, as a failed place,
- * or null: one line and the one setting that changes it, the same whatever
- * chose the place (a turn's refusal and select_computer's reason alike).
- * Engines reach every desktop through the "computer" MCP server, so a
- * selection without it has nothing to work with there. Checked with the
- * engine rule, before anything is created or woken. */
 export function computerToolsRefusal(toolScope: unknown, source: PlaceSource, bot: string): PlaceUnavailableError | null {
   if (canUseMcpServer(toolScope, "computer")) return null;
   return placeUnavailable("cloud", { state: "cc-tools-off", params: { bot }, source });
 }
 
-/** A place the turn was told to use could not be used. Its message is the
- * row's English words: one line and the one next action as a sentence
- * (shared/place-view.ts), uncut. `row` lets the app word it again in the
- * reader's language, and `place` lets the dispatch clear a failed
- * Auto-recorded pin to it, so a failed place never sticks. */
 export class PlaceUnavailableError extends Error {
   readonly place: Surface;
   readonly row: PlaceRow;
@@ -110,9 +76,6 @@ export function placeUnavailable(place: Surface, row: PlaceRow, cloudHome = fals
   return new PlaceUnavailableError(place, row, cloudHome);
 }
 
-/** How the prompt and the app name a surface. Deliberately the same words
- * the panel uses, so "tell them it is on the cloud computer" points at a
- * label the person can find. */
 export function surfaceLabel(surface: Surface): string {
   switch (surface) {
     case "cloud":
@@ -126,32 +89,20 @@ export function surfaceLabel(surface: Surface): string {
   }
 }
 
-/** Said once per task, so the person hears the place before the first click
- * lands there. Same words as the panel and the composer chip. */
 const RESTATE_SENTENCE =
   " Before your first action on a screen or page in a task, say in one short sentence where you are working, using that same name.";
 
-/** Where a person moves a conversation: the Computer panel is the one place
- * control both interface modes show (Simple has no composer chip). */
 const PLACE_CONTROL = "the Computer panel";
-/** Without select_computer the person has to switch; with it, surfacePrompt
- * swaps exactly this phrase for the model's own switch. */
 const ASK_TO_SWITCH = `explain the mismatch and ask the user to change where this conversation works in ${PLACE_CONTROL}`;
 
 const SURFACE_AUTHORITY =
   ` For screen tasks, use later.dog's mounted computer tools first: inspect the target, perform the action, and verify its result before claiming success. Discover deferred tools by their server/name when needed. Do not substitute the provider's own desktop, a shell-launched browser, or another automation path for the selected later.dog computer. Ordinary code and file tasks may still use their normal tools. Announcing an action is not performing it. A request naming another place does not move these tools: this computer is the user's own computer and the cloud computer is the dog's own computer in the cloud. If the requested place differs from the mounted one, ${ASK_TO_SWITCH}; never act on a different computer.`;
 
-/** A Cloud home offers neither this computer nor a Local VM
- * (server/cloud-home.ts), so its bots are told only about the places it has.
- * Each pair rewrites one phrase of the desktop wording above. */
 const CLOUD_HOME_WORDING: ReadonlyArray<readonly [string, string]> = [
   ["this computer is the user's own computer and the cloud computer is the dog's own computer in the cloud",
     "the cloud computer is the dog's own computer and the user's own computer cannot be reached from here"],
 ];
 
-/** The one paragraph that says where this turn's work happens. Assembled
- * from what was actually mounted, never from the setting, so the model is
- * only ever told about tools it can call. */
 export function surfacePrompt(
   mounted: MountedSurfaces,
   opts: { pinned?: Surface | null; note?: string; canSelect?: boolean; cloudHome?: boolean } = {},

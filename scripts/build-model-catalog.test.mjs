@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import { LICENSE_PATH, MAX_GZIP_BYTES, SNAPSHOT_PATH, buildCatalogDocument, serializeCatalog, snapshotProblems, toLf } from "./build-model-catalog.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-// As checked out: CRLF in a Windows working tree written before .gitattributes pinned it.
 const committed = readFileSync(SNAPSHOT_PATH, "utf8");
 const licenseText = toLf(readFileSync(LICENSE_PATH, "utf8"));
 const raw = {
@@ -30,8 +29,6 @@ describe("model catalog snapshot", () => {
   });
 
   it("is checked out with LF on every platform", () => {
-    // Windows CI checks text out as CRLF unless .gitattributes says otherwise,
-    // and the snapshot and its licence text are compared byte for byte.
     const paths = ["server/model-catalog/models-dev.snapshot.json", "third_party/models-dev/LICENSE", "third_party/opencode/LICENSE"];
     const attrs = execFileSync("git", ["check-attr", "eol", "--", ...paths], { cwd: root, encoding: "utf8" });
     expect(attrs.trim().split(/\r?\n/)).toEqual(paths.map((path) => `${path}: eol: lf`));

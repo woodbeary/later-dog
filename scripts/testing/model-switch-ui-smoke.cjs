@@ -1,5 +1,3 @@
-// Real model picker + private desktop confirmation, against the disposable
-// approval fixture. Provider replies are synthetic; no account is contacted.
 const { BrowserWindow, ipcMain } = require("electron");
 const assert = require("node:assert/strict");
 const { mkdirSync, writeFileSync } = require("node:fs");
@@ -14,8 +12,6 @@ module.exports = async function verifyModelSwitch({ root, url, api, until, grant
   const selected = (await api(`/api/bots/${bot.id}/tasks`, "POST", { title: "Research brief" })).body.task;
   const read = async () => (await api("/api/bots?messages=0")).body.bots.find(candidate => candidate.id === bot.id);
   const selection = { instanceId: "claude", model: "claude-sonnet-5" };
-  // Neither changing the mode separately nor combining fields can bypass
-  // the Custom boundary from a bot-accessible HTTP connection.
   assert.equal((await api(`/api/bots/${bot.id}/tasks/${selected.threadId}`, "PATCH", { approvalMode: "ask", modelSelection: selection })).status, 403);
   assert.equal((await api(`/api/bots/${bot.id}/tasks/${selected.threadId}`, "PATCH", { resetApprovalToAsk: true, modelSelection: selection })).status, 403);
   const preview = await mountPreview({ info: { url } }, { entry: "/src/testing/thread-approvals.tsx", route: "/__thread-approvals.html", title: "Isolated model switching", logLevel: "silent" });

@@ -1,8 +1,3 @@
-// Bot avatar. A dog breed is drawn by BreedAvatar (DogAvatar.tsx); every other body
-// uses the face engine in CursorAvatar.tsx, which owns morphing, blinking, drift,
-// body motion and effects. Per-bot color becomes a body gradient, the app's
-// one-shot motion beats borrow the face/state for a moment, and the eyes follow
-// the pointer.
 import {
   forwardRef,
   memo,
@@ -21,16 +16,8 @@ import { MASCOT_BODIES, botMascotBody, type MascotBodyId } from "../../shared/ma
 export const EYE_SCALE = 1.12;
 export const MOUTH_WEIGHT = 11;
 
-/**
- * How far the pointer may pull the eyes. Facing forward the full range is
- * safe; with the expressions' authored gaze they already start off-centre.
- */
 const POINTER_GAZE = { forward: 1, authored: 0.25 };
 
-/**
- * What a one-shot motion does while it plays: CursorAvatar animates the body
- * per state, so borrowing the state for a beat moves body and face together.
- */
 interface MotionFaces
   extends Partial<
     Record<Exclude<DogMotion, "none">, { state?: DogState; blink?: boolean; spin?: number }>
@@ -51,10 +38,8 @@ const MOTION_FACE: MotionFaces = {
   failure: { state: "sad" },
 };
 
-/** How long a one-shot motion holds its state before the bot's own returns. */
 const MOTION_FACE_MS = 1400;
 
-/** Channel-wise mix of a hex color toward another, t in 0..1. */
 function mix(hex: string, toward: string, t: number): string {
   const a = Number.parseInt(hex.slice(1), 16);
   const b = Number.parseInt(toward.slice(1), 16);
@@ -68,11 +53,6 @@ function mix(hex: string, toward: string, t: number): string {
     .join("")}`;
 }
 
-/**
- * Bot color -> the mascot's three-stop body gradient (highlight, base,
- * shadow), with the same light/dark spread as the pack's default green
- * ["#9FE6B5", "#3FAE6E", "#1C7A4C"].
- */
 const gradientFor = (color: DogColor): [string, string, string] => {
   const fill = DOG_COLORS[color] ?? DOG_COLORS[DEFAULT_DOG_COLOR];
   return [mix(fill, "#ffffff", 0.55), fill, mix(fill, "#000000", 0.42)];
@@ -82,31 +62,21 @@ export type DogAvatarHandle = CursorAvatarHandle;
 
 export type DogAvatarProps = {
   color: DogColor;
-  /** Named behaviour — drives the expression pool, its cadence and blinking. */
   state?: DogState;
-  /** Pin one of the 25 faces and stop the state's own drift. */
   expression?: number;
   size?: number;
   label?: string;
   motion?: DogMotion;
   motionKey?: number;
-  /** Head turn in degrees. */
   turn?: number;
   gaze?: { x?: number; y?: number };
   spring?: number;
   eyeScale?: number;
   showMouth?: boolean;
   mouthStroke?: number;
-  /**
-   * Face the viewer at turn 0, cancelling each expression's authored gaze
-   * direction. Off restores the engine's own drawn-in directions.
-   */
   forward?: boolean;
-  /** How much each expression glances around. Overrides `forward`'s 0-or-1. */
   lookAround?: number;
-  /** Let the eyes follow the pointer across this avatar. */
   trackPointer?: boolean;
-  /** Run the animation. Off renders the state's resting face. */
   animated?: boolean;
   bodyId?: MascotBodyId;
 };
@@ -137,7 +107,6 @@ function DogAvatarComponent(
   const body = botMascotBody(bodyId);
   const silhouette = MASCOT_BODIES[body];
   const inner = useRef<CursorAvatarHandle>(null);
-  // A dog breed is drawn by BreedAvatar from its look in dog-breeds.ts; every other body keeps the face engine.
   const dog = useRef<BreedAvatarHandle>(null);
   const target = () => dog.current ?? inner.current;
   useImperativeHandle(ref, () => ({
@@ -146,7 +115,6 @@ function DogAvatarComponent(
     setExpression: (index: number) => target()?.setExpression(index),
   }));
 
-  // A one-shot motion borrows the state for a moment, then hands it back.
   const [motionState, setMotionState] = useState<DogState | null>(null);
   useEffect(() => {
     if (motion === "none" || !animated) return;
@@ -160,7 +128,6 @@ function DogAvatarComponent(
     return () => clearTimeout(timer);
   }, [motion, motionKey, animated]);
 
-  // Pointer-follow gaze, composed with any gaze the caller pins.
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const range = forward ? POINTER_GAZE.forward : POINTER_GAZE.authored;
   const onPointerMove = (event: ReactPointerEvent<HTMLSpanElement>) => {
@@ -230,18 +197,6 @@ export type BotAvatarProps = Omit<DogAvatarProps, "color"> & {
 
 export type BotAvatarOutcome = "flatImage" | "gradientMascot";
 
-/**
- * Pick which of the two ways to render a bot's avatar, given the parsed
- * profile plus whether the image has already failed to load. Kept as a pure
- * function — independent of React state and effects — so both arms can be
- * unit-tested directly: `imageFailed` is set by the `<img>`'s own `onError`,
- * which `renderToStaticMarkup` never fires, so the failure fallback is
- * unreachable from a synchronous render test.
- *
- * The iOS half of this decision is `resolveBotAvatarOutcome` in
- * `ios/Sources/CompanionCore/BotAvatarRendering.swift`, which mirrors this
- * union name for name so the two renderers can be read side by side.
- */
 export function resolveBotAvatarOutcome(params: {
   avatarCrop: BotAvatarCrop;
   hasUrl: boolean;
@@ -254,11 +209,6 @@ export function resolveBotAvatarOutcome(params: {
   return "flatImage";
 }
 
-/**
- * The one renderer for a bot's chosen profile image. Malformed persisted
- * values and images that fail to load both fall back to the animated mascot,
- * so an old/corrupt profile can never leave a broken-image icon in the app.
- */
 export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarProps) {
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);

@@ -5,8 +5,6 @@ import type { CommandAllowRule, CommandAllowlistResponse } from "../../shared/co
 import { api, useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 
-/** Mounted for one captured bot/thread, so switching conversations cannot
- * redirect an in-flight save or reuse another bot's working folder. */
 export function CommandAllowlistDialog({ botId, botName, threadId, onClose }: {
   botId: string;
   botName: string;
@@ -62,8 +60,6 @@ export function CommandAllowlistDialog({ botId, botName, threadId, onClose }: {
     if (saving || !data || (!rule && (!command.trim() || !cwd.trim() || !data.supported))) return;
     setSaving(rule?.id ?? "add");
     setError(null);
-    // Keep focus inside the dialog when the clicked control becomes disabled
-    // or its row disappears after a successful deletion.
     dialogRef.current?.focus();
     try {
       const result = await api<CommandAllowlistResponse>(

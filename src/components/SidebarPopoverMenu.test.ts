@@ -2,7 +2,6 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
-// Drawn open: the menu's own motion and dismissal are not what is tested here.
 vi.mock("./MenuMotion", () => ({ useMenuMotion: () => ({ shown: true, exitProps: {}, className: "" }) }));
 vi.mock("@/hooks/use-popover-dismiss", () => ({ usePopoverDismiss: () => {} }));
 import { SidebarPopoverMenu } from "./SidebarPopoverMenu";
@@ -32,6 +31,5 @@ it("draws an item's attention dot on the item itself, in its tone", () => {
   expect(item("Restart to update")).toContain("rounded-full bg-accent");
   expect(item("Update failed")).toContain("rounded-full bg-danger");
   expect(item("Settings")).not.toMatch(/rounded-full bg-(accent|danger)/);
-  // the trigger draws only what renderTrigger returns
   expect(html.split('role="menu"')[0]).not.toMatch(/rounded-full bg-(accent|danger)/);
 });

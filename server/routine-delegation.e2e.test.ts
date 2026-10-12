@@ -64,8 +64,6 @@ describe("routine delegation through the isolated harness", () => {
       'import { join } from "node:path";',
       'const at = process.argv.indexOf("--mcp-config");',
       'const thread = at < 0 ? "probe" : JSON.parse(readFileSync(process.argv[at + 1], "utf8")).mcpServers?.agents?.env?.LATERDOG_THREAD_ID ?? "probe";',
-      // One-hop delegates intentionally have no agents server. Let that
-      // actual peer turn complete; gate only the source/occupied turns.
       `process.env.FAKE_CLAUDE_MODE = thread === "probe" && !existsSync(${JSON.stringify(join(fixture.info.dataDir, "gate-peer"))}) ? "happy" : "slow";`,
       `process.env.FAKE_CLAUDE_SLOW_FINISH_GATE = join(${JSON.stringify(fixture.info.dataDir)}, thread + ".gate");`,
       `process.env.FAKE_CLAUDE_DUMP = join(${JSON.stringify(fixture.info.dataDir)}, thread + ".json");`,
@@ -129,8 +127,6 @@ describe("routine delegation through the isolated harness", () => {
     await dump("probe");
     await expect.poll(async () => (await runState(run.id))?.status).toBe("waiting");
 
-    // The source thread is idle, but every shared bot slot is occupied.
-    // Keep that condition deterministic across repeated wake drains.
     const occupiedThreads: string[] = [];
     for (let index = 0; index < capacity; index++) {
       const { task } = await api("POST", `/api/bots/${source.id}/tasks`, { title: `Occupied ${index}` });
@@ -145,8 +141,6 @@ describe("routine delegation through the isolated harness", () => {
 
     const observer = (await control(["new-bot", "--name", "Unrelated observer"]) as any).bot;
     const observerThread = (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === observer.id).threadId;
-    // More retries than the wake burst budget must not exhaust it:
-    // these completions retry one held wake, not new logical follow-ups.
     for (let index = 0; index <= DELEGATION_WAKE_MAX_PER_WINDOW; index++) {
       await api("POST", `/api/bots/${observer.id}/messages`, { threadId: observerThread, text: `Unrelated work ${index}` });
       await dump(observerThread);
@@ -211,8 +205,6 @@ describe("routine delegation through the isolated harness", () => {
     await expect.poll(async () => (await messages(run.threadId)).some((message) => message.card?.tool === "delegate_bot"), { timeout: 15_000 }).toBe(true);
     const card = (await messages(run.threadId)).find((message) => message.card?.tool === "delegate_bot");
     await api("POST", `/api/routine-runs/${run.id}/cancel`);
-    // A stale approval may be rejected or acknowledged as already settled;
-    // either response must leave the cancelled work and target untouched.
     await fetch(`${fixture.info.url}/api/bots/${source.id}/respond`, {
       method: "POST", headers: { "content-type": "application/json", origin: fixture.info.url },
       body: JSON.stringify({ threadId: run.threadId, requestId: card.card.requestId, behavior: "allow" }),
@@ -229,8 +221,6 @@ describe("routine delegation through the isolated harness", () => {
     await delegate(run.threadId);
     const pendingFile = join(fixture.info.dataDir, "delegations.json");
     expect(JSON.parse(readFileSync(pendingFile, "utf8"))[run.threadId]).toHaveLength(1);
-    // Clearing the fixture's empty connected-app key rebuilds only its fake
-    // provider fleet; it makes no credential probe or external request.
     await api("PUT", "/api/config", { composio: { apiKey: "" } });
     await expect.poll(async () => (await runState(run.id))?.status).toBe("failed");
     const health = (await api("GET", "/api/routines")).routines.find((routine: any) => routine.id === run.routineId);

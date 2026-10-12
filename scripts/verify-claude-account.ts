@@ -1,4 +1,3 @@
-// Real Settings against an offline Claude CLI, confined to a disposable home.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";

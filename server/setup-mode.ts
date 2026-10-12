@@ -1,26 +1,12 @@
-// Setup mode: optional coaching when the user asks for it with /setup.
-// An empty profile is not a request to interview the user. The bot says
-// what it intends, and then configures itself through the harness tools
-// (propose_profile, propose_routine, skill_manage, request_credential), which
-// enforce the granted approval level. Mirrors skill-learn.ts:
-// /setup is a turn-text rewrite plus a prompt block, never a hidden mode.
-//
-// This coaching block grants no additional authority: the services still
-// check the actual caller, target and effective conversation permissions.
-// Like /learn, only the current turn's text is rewritten —
-// the transcript keeps the raw "/setup …" user message verbatim, so replay
-// and history read the same thing the user sent.
 
 const SETUP_COMMAND = /^\/setup(?:\s+|$)([\s\S]*)$/i;
 
-/** `/setup` at the start of a message, optionally followed by a job description. */
 export function parseSetupCommand(text: string): { request: string } | null {
   const match = text.trim().match(SETUP_COMMAND);
   if (!match) return null;
   return { request: match[1]!.trim() };
 }
 
-/** What the model reads in place of a literal `/setup` message. */
 export function expandSetupTurnText(userText: string): string {
   const setup = parseSetupCommand(userText);
   if (!setup) return userText;
@@ -29,15 +15,10 @@ export function expandSetupTurnText(userText: string): string {
     : "Set yourself up. Ask me what you need to know, then propose your configuration.";
 }
 
-/** Only an explicit setup request enters coaching. Existing/blank bots must
- * still do ordinary work, including delegated and scheduled requests. */
 export function setupModeActive(input: { soul?: string; description?: string; text: string }): boolean {
   return parseSetupCommand(input.text) !== null;
 }
 
-// skill_manage is only ever mounted alongside the other agent tools when
-// skill authoring is turned on for this turn (LATERDOG_SKILL_AUTHORING_ENABLED);
-// the block must never name a tool the model cannot actually call.
 const SKILL_MANAGE_ASIDE = "(keep SOUL.md short; put step-by-step procedure into a skill with skill_manage)";
 const NO_SKILL_MANAGE_ASIDE = "(keep SOUL.md short; describe procedures plainly in your standing instructions for now)";
 

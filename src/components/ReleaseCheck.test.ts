@@ -4,14 +4,12 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { UpdaterState } from "@/lib/updater";
 
 const fixture = vi.hoisted(() => ({ state: null as UpdaterState | null }));
-// As the real hook: no state without the desktop app's updater bridge.
 vi.mock("@/lib/updater", () => ({ useUpdaterState: () => (window.laterdog?.updater ? fixture.state : null) }));
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
 import { AboutReleaseLine, ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 
 const PAGE = "https://github.com/woodbeary/later-dog/releases/tag/v0.2.0";
 const OFFERED: UpdaterState = { status: "idle", releaseCheck: "on", available: { version: "0.2.0", url: PAGE } };
-/** This computer's page: the updater bridge, and the switch's own. */
 const LOCAL_PAGE = { updater: {}, releaseCheck: { setEnabled: vi.fn(async (on: boolean) => on) } };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -29,7 +27,6 @@ it("offers a release only while the updater is otherwise idle", () => {
   expect(releaseOffer(null)).toBeNull();
   expect(releaseChecksOff({ status: "idle", releaseCheck: "off" })).toBe(true);
   expect(releaseChecksOff({ status: "idle", releaseCheck: "on" })).toBe(false);
-  // A build with an update feed has no release check at all.
   expect(releaseChecksOff({ status: "idle" })).toBe(false);
 });
 
@@ -39,7 +36,6 @@ it("About names the newer release beside its Download, and nothing otherwise", (
   expect(about).toContain(">Download</button>");
   expect(render(AboutReleaseLine, { status: "idle", releaseCheck: "on" })).toBe("");
   expect(render(AboutReleaseLine, { status: "downloaded", version: "0.2.0" })).toBe("");
-  // a server's page the desktop app does not answer
   expect(render(AboutReleaseLine, OFFERED, {})).toBe("");
 });
 
@@ -49,9 +45,7 @@ it("Settings → Updates has the switch on this computer's page of a build that 
   expect(on).toContain("The request carries nothing about you.");
   expect(on).toMatch(/role="switch" aria-checked="true"/);
   expect(render(ReleaseCheckRow, { status: "idle", releaseCheck: "off" })).toMatch(/role="switch" aria-checked="false"/);
-  // My Cloud's page reads updates but may not flip this computer's switch.
   expect(render(ReleaseCheckRow, OFFERED, { updater: {} })).toBe("");
-  // An update feed's updater, or dev: nothing checks GitHub, so no switch.
   expect(render(ReleaseCheckRow, { status: "idle" })).toBe("");
   expect(render(ReleaseCheckRow, null)).toBe("");
 });

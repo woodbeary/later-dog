@@ -1,6 +1,3 @@
-// The "+" beside the message field: attach files, how much the dog may do on
-// its own, and the apps it can use. One button in place of a paperclip and a
-// separate permissions control, the way Claude Code's composer does it.
 import { Check, Paperclip, Plug, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode";
@@ -43,8 +40,6 @@ export function ComposerPlusMenu({ onAttach, permissions, onConnectors }: {
 
   const savedMode = permissions ? approvalModeFor({ approvalMode: permissions.approvalMode, autoApprove: permissions.autoApprove }) : undefined;
   const mode = permissions?.driverKind === "antigravityAgent" && savedMode === "auto" ? "ask" : savedMode;
-  // The same two choices as the dog's settings, Heel and Off-leash, plus the
-  // level in use if it is another one (set in full Settings or by a team).
   const options = permissions ? approvalModeOptionsFor(permissions.driverKind, permissions.trustedModesAvailable)
     .filter((option) => option.mode === "ask" || option.mode === "auto" || option.mode === mode) : [];
   const shown = options.length > 0 ? options : permissions ? approvalModeOptions().filter((option) => option.mode === mode) : [];

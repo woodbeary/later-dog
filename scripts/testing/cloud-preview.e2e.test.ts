@@ -1,5 +1,3 @@
-// The real panels, image decoder and fetch cancellation in a disposable
-// browser/server. Only the cloud provider transport is simulated.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -58,8 +56,6 @@ describe("cloud preview recovery in the real renderer", () => {
     await evaluate(`location.href = ${JSON.stringify(preview.previewUrl)}; true`);
     await expect.poll(frameVisible, { timeout: 20_000 }).toBe(true);
 
-    // A selected thread's surface and model win over its profile defaults.
-    // Auto uses the server's existing VM, never an inferred host desktop.
     for (const scenario of ["vm-pin", "auto-vm"]) {
       await select("Conversation surface", scenario);
       await expect.poll(currentFrame, { timeout: 6000 }).toBe(await stat("vmScreenshot"));
@@ -110,8 +106,6 @@ describe("cloud preview recovery in the real renderer", () => {
     expect(await evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))')).toBe(false);
     await expect.poll(frameVisible, { timeout: 6000 }).toBe(true);
 
-    // Busy changes must not cancel an expensive capture. A real abort does
-    // not terminate its simulated host work; the next generation sees409.
     await select("Screenshot response", "held");
     await click("Busy: false");
     await expect.poll(() => stat("capturing"), { timeout: 6000 }).toBe(true);
@@ -129,8 +123,6 @@ describe("cloud preview recovery in the real renderer", () => {
     await expect.poll(frameVisible, { timeout: 5000 }).toBe(true);
     expect(await currentFrame()).toBe(await stat("screenshot"));
 
-    // Retrying an error preserves the decoded image.409 is quiet for a
-    // short recovery window, then becomes actionable without stopping retries.
     await select("Screenshot response", "failed");
     await click("Busy: false");
     await expect.poll(snapshot, { timeout: 6000 }).toContain("Retry preview");
@@ -151,8 +143,6 @@ describe("cloud preview recovery in the real renderer", () => {
     await click("Retry preview");
     await expect.poll(snapshot, { timeout: 3000 }).not.toContain("Retry preview");
 
-    // An undecodable frame is not worth preserving: retry starts a clean
-    // loader rather than redisplaying the old corrupt image's error.
     await select("Screenshot response", "corrupt");
     await expect.poll(snapshot, { timeout: 6000 }).toContain("Retry preview");
     await select("Screenshot response", "slow");
@@ -162,8 +152,6 @@ describe("cloud preview recovery in the real renderer", () => {
     await select("Screenshot response", "connected");
     await expect.poll(frameVisible, { timeout: 15_000 }).toBe(true);
 
-    // Desktop join/control owns the UI while it is pending. Neither panel
-    // should continue issuing screenshot polls into that operation.
     for (const panel of ["computer", "remote"]) {
       if (panel === "remote") {
         await select("Panel", "remote");

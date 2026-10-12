@@ -1,10 +1,3 @@
-// The full server with Cloud Pro's included Boat computers, over its real
-// HTTP boundary, against one stub that plays Boat (/boat) and the Admin's
-// relay (/relay). Settings' Boat key rules hold across the two accounts:
-// an own key cannot be added while this installation still has computers on
-// the included account (the new account cannot reach them), and once they
-// are gone the own key wins and clearing it falls back to the included one.
-// Neither key is ever sent to the other side. Disposable home; no network.
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
@@ -22,7 +15,6 @@ const OWN = "box_own_person_key";
 const INCLUDED_BOX = "bx_23456789";
 let stub: Server;
 let stubBase = "";
-/** Computers each account holds, by stub prefix. */
 const accounts: Record<string, Array<{ id: string; name: string; state: string }>> = { boat: [], relay: [] };
 const requests: Array<{ side: string; method: string; path: string; auth: string }> = [];
 let home: string;
@@ -70,9 +62,7 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-boat-included-"));
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
-  // One deliberately unknown engine: nothing probes an installed CLI.
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({ instances: { fixture: { driver: "not-a-real-driver" } } }));
-  // A computer this installation made on the included account.
   accounts.relay = [{ id: INCLUDED_BOX, name: "laterdog-included-fixture", state: "archived" }];
   journal = join(dataDir, "box-create-requests.json");
   writeFileSync(journal, JSON.stringify({ version: 1, requests: [{
@@ -100,7 +90,7 @@ beforeAll(async () => {
   const deadline = Date.now() + 20_000;
   for (;;) {
     if (child.exitCode !== null) throw new Error(`the server exited:\n${log}`);
-    try { if ((await api("GET", "/api/health")).body?.pid === child.pid) break; } catch { /* starting */ }
+    try { if ((await api("GET", "/api/health")).body?.pid === child.pid) break; } catch {}
     if (Date.now() > deadline) throw new Error(`the server did not start:\n${log}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -126,7 +116,6 @@ it("refuses an own Boat key while this installation has computers on the include
 });
 
 it("once they are gone, the own key wins; clearing it falls back to the included account", async () => {
-  // The included computer was deleted (its record retired).
   accounts.relay = [];
   writeFileSync(journal, JSON.stringify({ version: 1, requests: [] }));
   const added = await api("PUT", "/api/config", { box: { token: OWN } });

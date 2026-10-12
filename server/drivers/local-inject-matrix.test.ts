@@ -1,7 +1,3 @@
-// Broad inject matrix — every local host × every agent writer, plus the
-// model-id dialects those CLIs actually speak. Catches day-one failures
-// like Hermes auto-routing to OpenRouter (HTTP 401 Missing Authentication
-// header) before a user hits them.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -45,7 +41,6 @@ function scratchHome(prefix: string): string {
 
 const UNIQUE_HOSTS = LOCAL_HOSTS.filter((host, index, all) => all.findIndex((row) => row.baseUrl === host.baseUrl) === index);
 
-/** Model ids we have actually seen on oMLX / Unsloth / Ollama / LM Studio. */
 const LIVE_MODEL_IDS = [
   "gemma-4-31b-it-bf16",
   "gemma-4-26B-A4B-it-GGUF",
@@ -443,9 +438,6 @@ describe("Qwen / Hermes ACP turns", () => {
       await instance.adapter.sendTurn({ threadId: "t-qwen", text: "hi", model: "omlx::gemma-4-31b-it-bf16" });
       await recorder.until((e) => e.type === "turn.completed");
       const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[] };
-      // No approvalMode on the turn, so the instance's legacy fullAuto stands
-      // and Qwen spells it natively. Model routing is what this asserts; the
-      // flag is here to pin that local injection never rewrites the argv.
       expect(seen.argv).toEqual(["--acp", "--yolo"]);
       expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toContainEqual({
         method: "session/set_config_option", params: {
@@ -520,9 +512,6 @@ describe("room turns must pass the picker model", () => {
       await instance.adapter.sendTurn({ threadId: "t-qwen-bare", text: "hi" });
       await recorder.until((e) => e.type === "turn.completed");
       const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[] };
-      // No approvalMode on the turn, so the instance's legacy fullAuto stands
-      // and Qwen spells it natively. Model routing is what this asserts; the
-      // flag is here to pin that local injection never rewrites the argv.
       expect(seen.argv).toEqual(["--acp", "--yolo"]);
     } finally {
       await instance.dispose();
@@ -547,9 +536,7 @@ describe("room turns must pass the picker model", () => {
       let configCalls: Array<{ method: string }> = [];
       try {
         configCalls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8")) as Array<{ method: string }>;
-      } catch {
-        // no session/set_model → the dump file is never written
-      }
+      } catch {}
       expect(configCalls.some((call) => call.method === "session/set_model")).toBe(false);
     } finally {
       await instance.dispose();

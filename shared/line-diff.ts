@@ -1,6 +1,3 @@
-/** Detailed line diff for small approval cards; a complete replacement for
- * larger documents. A byte limit alone does not bound a quadratic matrix:
- * 24KB of newlines would otherwise allocate hundreds of millions of cells. */
 export function lineDiff(before: string, after: string): string[] {
   if (before === after) return [];
   const a = before === "" ? [] : before.split("\n");
@@ -35,16 +32,8 @@ export function lineDiff(before: string, after: string): string[] {
   return out;
 }
 
-/** Cap on diff lines rendered inside an approval card. Past this the card
- * shows the complete proposed document instead of a truncated diff, because
- * truncation can hide the very instructions being approved. */
 export const MAX_DIFF_LINES = 400;
 
-/** The SOUL.md review block shared by the profile and team-setup cards:
- * byte counts, a line diff for reviewable changes, and the complete
- * replacement when the diff would outrun the card. The full replacement is
- * already byte-bounded by profile validation and is readable in the same
- * generic card on desktop and phones. */
 export function soulDiffLines(before: string, after: string): string[] {
   const encoder = new TextEncoder();
   const bytesBefore = encoder.encode(before).length;

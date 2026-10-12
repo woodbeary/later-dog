@@ -7,11 +7,6 @@ import { waitUntil } from "../runners/api.ts";
 import { spawnLiveServer, type LiveServerSession } from "./live-server.ts";
 import type { LiveInstance } from "./types.ts";
 
-/** The live world: the real server plus one real engine instance. Bots
- * are real, turns are real model turns, and evidence rows are derived
- * from the threads' own messages so the same snapshot/assertion machinery
- * as the offline tiers scores live behavior. */
-
 export class LiveWorld extends BaseWorld {
   private session: LiveServerSession | undefined;
   private dataDir = "";
@@ -43,8 +38,6 @@ export class LiveWorld extends BaseWorld {
     }
   }
 
-  /** Creates one more bot mid-run (the judge gets its own bot so its turns
-   * never pollute the scenario bot's evidence). */
   async createBot(key: string, name: string): Promise<void> {
     const created = (await runControlLaterDog(["new-bot", "--name", name], {
       env: { LATERDOG_URL: this.session!.url },
@@ -80,10 +73,6 @@ export class LiveWorld extends BaseWorld {
     return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Array<Record<string, any>>) : [];
   }
 
-  /** Derives scripted-engine-shaped evidence rows from each bot's real
-   * thread: one row per real turn, tool calls from that turn's activity
-   * messages. This is what lets the tier-1 snapshot and scorers score a
-   * live run unchanged. */
   protected override async evidence(): Promise<Array<Record<string, any>>> {
     const rows: Array<Record<string, any>> = [];
     for (const [key, bot] of this.bots) {

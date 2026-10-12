@@ -1,7 +1,3 @@
-// The message field's model button opens this, the way Claude Code's does:
-// a few models by name, the current one checked and the others numbered
-// (press 1-4), then "More models" for the rest. Accounts are chosen in the
-// chat header; effort has its own button beside this one.
 import { Check, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
@@ -22,9 +18,6 @@ export interface ModelMenuEntry {
 
 const PRIMARY = 4;
 
-/** The first rows: each account's default model in the header's order, the
- * current model always among them, then more of the same accounts' models
- * up to four. Everything else is under More models. */
 export function splitModels(groups: readonly ModelMenuGroup[], currentInstanceId: string, currentModel: string): { primary: ModelMenuEntry[]; more: ModelMenuEntry[] } {
   const all = groups.flatMap((group) => group.models.map((model) => ({ instance: group.instance, id: model.id, label: model.label })));
   const key = (entry: ModelMenuEntry) => `${entry.instance.instanceId}\u0000${entry.id}`;
@@ -57,7 +50,6 @@ export function ModelMenu({ groups, currentInstanceId, currentModel, onPick }: {
   const [moreOpen, setMoreOpen] = useState(false);
   const isCurrent = (entry: ModelMenuEntry) => entry.instance.instanceId === currentInstanceId && entry.id === currentModel;
 
-  // 1-4 pick the numbered rows while the menu is open, as in Claude Code
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;

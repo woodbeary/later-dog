@@ -42,8 +42,6 @@ it("reports every run into the bot's main thread while fresh executions, approva
       evidence.push(await control(["wait", "--bot", bot.id, "--task", finished.threadId]));
       evidence.push(await control(["messages", "--bot", bot.id, "--task", finished.threadId, "--limit", "10"]));
     }
-    // An editor/API routine reports into the bot's main thread: no new
-    // "· Results" thread, while each run keeps its own execution record.
     const destination = completed[0].resultsThreadId;
     expect(destination).toBe(originalThread);
     expect(completed[1].resultsThreadId).toBe(destination);
@@ -52,7 +50,6 @@ it("reports every run into the bot's main thread while fresh executions, approva
     expect(cards).toHaveLength(2);
     for (const run of completed) expect(cards.find((message) => message.routineRun.runId === run.id)?.routineRun)
       .toMatchObject({ status: "completed", scheduledFor: run.scheduledFor, executionThreadId: run.threadId, summary: "hello from fake claude" });
-    // A phone without the card reads only the text, so it carries the result.
     for (const card of cards) expect(card.text).toBe("Routine “Persistent report” completed\n\nhello from fake claude");
     const currentBot = async () => (await api("GET", "/api/bots")).bots.find((candidate: any) => candidate.id === bot.id);
     const savedBot = await currentBot();
@@ -64,22 +61,17 @@ it("reports every run into the bot's main thread while fresh executions, approva
       .toMatchObject({ routineRunId: run.id, unread: false, autoApprove: false, approvalMode: "ask" });
 
     await api("PATCH", `/api/routines/${routine.id}`, { resultsThreadId: completed[0].threadId }, 400);
-    // Open run remains a usable normal conversation. Marking its historical
-    // receipt seen must not reclassify later human conversation as internal.
     await api("POST", `/api/bots/${bot.id}/messages`, { threadId: completed[0].threadId, text: "Explain that completed report." }, 202);
     evidence.push(await control(["wait", "--bot", bot.id, "--task", completed[0].threadId]));
     await api("POST", `/api/routine-runs/${completed[0].id}/seen`);
     const promoted = (await currentBot()).tasks.find((task: any) => task.threadId === completed[0].threadId);
     expect(promoted.routineRunId).toBeUndefined();
     expect(promoted.unread).toBe(true);
-    // A thread the person chooses keeps winning; null goes back to the main thread.
     const { task: chosenTask } = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Chosen reports" }, 201);
     const dedicated = chosenTask.threadId as string;
     await api("PATCH", `/api/routines/${routine.id}`, { resultsThreadId: dedicated });
     expect((await api("PATCH", `/api/routines/${routine.id}`, { name: "Retained destination" })).routine.resultsThreadId).toBe(dedicated);
     expect((await api("PATCH", `/api/routines/${routine.id}`, { resultsThreadId: null })).routine.resultsThreadId).toBe(originalThread);
-    // A legacy automatic "<name> · Results" thread is not a choice: the next
-    // run moves to the main thread and the old thread and its reports stay.
     const { task: legacy } = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Retained destination · Results" }, 201);
     await api("PATCH", `/api/routines/${routine.id}`, { resultsThreadId: legacy.threadId });
     const { run: moved } = await api("POST", `/api/routines/${routine.id}/run`, undefined, 201);
@@ -127,7 +119,6 @@ it("reports every run into the bot's main thread while fresh executions, approva
     await api("POST", `/api/bots/${bot.id}/respond`, { threadId: active.threadId, requestId: approval.card.requestId, behavior: "deny" });
     writeFileSync(gate, "complete the isolated turn");
     await expect.poll(async () => (await runState(pending.id))?.status, { timeout: 15_000 }).toBe("completed");
-    // A deleted destination falls back to the main thread for future runs.
     const { run: replacement } = await api("POST", `/api/routines/${routine.id}/run`, undefined, 201);
     expect(replacement.resultsThreadId).toBe(originalThread);
     await expect.poll(async () => (await runState(replacement.id))?.status, { timeout: 15_000 }).toBe("completed");
@@ -175,7 +166,6 @@ it("reports a routine made in another chat into the bot's main thread, not that 
     ] } }));
     await cli("send", "--bot", bot.id, "--task", chat, "--text", "Report the fixture state monthly.");
     await cli("wait", "--bot", bot.id, "--task", chat, "--timeout", "20");
-    // The bot's own routine applies at once, as a receipt in that chat.
     const card = (await messages(chat)).findLast((message) => message.card?.routineRequest)?.card;
     expect(card).toMatchObject({ answered: "allow", autoApplied: true });
     const routineId = card.routineRequest.resultId as string;

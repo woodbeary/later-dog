@@ -1,8 +1,3 @@
-// Per-agent voice profile. The key is shared; the voice and autoplay choice
-// belong to the selected bot.
-//
-// The voice list comes from the harness, which holds cloud provider keys —
-// the renderer never talks to ElevenLabs or Fish Audio itself.
 import { useEffect, useState } from "react";
 import { Check, Loader2, Volume2 } from "lucide-react";
 
@@ -59,8 +54,6 @@ export function VoiceSettings({
   const [deviceProvider, setDeviceProvider] = useState<RemoteVoiceProvider>(() => remoteVoiceProvider());
   const [deviceVoice, setDeviceVoice] = useState(() => remoteSystemVoice(bot.id));
   const usesLocalSystem = localMacClient && deviceProvider === "system";
-  // Host configuration still controls host-rendered cloud audio. A
-  // paired Mac owns its installed-voice choice locally.
   const provider = tts?.provider ?? "elevenlabs";
   const cloudProvider = provider === "fish"
     ? {
@@ -92,8 +85,6 @@ export function VoiceSettings({
   const systemVoicesAvailable = capabilities.host.platform === "darwin";
   const hostConfigured = Boolean(tts?.configured);
   const hostKeysHere = !workspaceConfigurationLocked && window.laterdog?.remoteClient?.active !== true;
-  // Cloud Pro's voice: it works with no saved key, and a key pasted here
-  // replaces it.
   const included = Boolean(tts?.included);
   const configured = usesLocalSystem || hostConfigured;
 
@@ -106,10 +97,6 @@ export function VoiceSettings({
     setModel(tts?.model ?? "");
   }, [tts?.baseUrl, tts?.model]);
 
-  // Provider selection can also change from a paired phone or another open
-  // client. Discard an unsaved draft on every transition, and keep the draft
-  // tagged below so a render that lands before this effect still cannot send
-  // one provider's credential to another service.
   useEffect(() => {
     setKeyDraft({ provider: null, value: "" });
   }, [provider]);
@@ -160,8 +147,6 @@ export function VoiceSettings({
     setSwitching(true);
     setKeyDraft({ provider: null, value: "" });
     setError(null);
-    // the provider is a setting, not a secret — it rides the ordinary
-    // config write, and the key row reappears or disappears with it
     api("/api/config", { method: "PUT", body: JSON.stringify({ tts: { provider: next } }) })
       .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
       .catch((e: Error) => setError(e.message))
@@ -197,8 +182,6 @@ export function VoiceSettings({
     }
     setSavingServer(true);
     setError(null);
-    // both fields commit together: an address without its model id (or the
-    // reverse) is half a setting
     return api("/api/config", { method: "PUT", body: JSON.stringify({ tts: { baseUrl: next, model: model.trim() } }) })
       .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
       .catch((e: Error) => setError(e.message))
@@ -209,7 +192,6 @@ export function VoiceSettings({
     if (next === tts?.fishModel || savingFishModel) return;
     setSavingFishModel(true);
     setError(null);
-    // a setting, not a secret: it rides the ordinary config write
     api("/api/config", { method: "PUT", body: JSON.stringify({ tts: { fishModel: next } }) })
       .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
       .catch((e: Error) => setError(e.message))

@@ -1,4 +1,3 @@
-/** The greeting store.createBot seeds into a new dog's chat. */
 export const SEED_GREETING = /^Hi, I'm .+\. What would you like me to do\?$/;
 
 export function personalGreeting(personName: string | undefined, dogName: string): string {
@@ -30,12 +29,10 @@ export interface FirstHelloDeps {
   messages(threadId: string): HelloMessage[];
   patchMessage(threadId: string, messageId: string, patch: { text: string }): void;
   personName(): string | undefined;
-  /** Whether the dog's engine is available and signed in, so the turn can answer instead of showing a sign-in error. */
   canRun(instanceId: string): Promise<boolean>;
   start(botId: string, threadId: string, prompt: string): Promise<unknown>;
 }
 
-/** Greets once, in a chat nobody has written in yet. Returns what it did. */
 export async function sayFirstHello(deps: FirstHelloDeps, botId: string): Promise<{ greeted: boolean; asked: boolean }> {
   const bot = deps.bot(botId);
   if (!bot || bot.hidden) return { greeted: false, asked: false };
@@ -44,7 +41,6 @@ export async function sayFirstHello(deps: FirstHelloDeps, botId: string): Promis
   const person = deps.personName();
   const seed = messages.find((message) => message.role === "bot" && message.kind === "text" && SEED_GREETING.test(message.text ?? ""));
   if (seed) deps.patchMessage(bot.threadId, seed.id, { text: personalGreeting(person, bot.name) });
-  // asked once: a second call (a replayed welcome) finds the question already there
   if (messages.length > 1 || !(await deps.canRun(bot.modelSelection.instanceId))) return { greeted: Boolean(seed), asked: false };
   await deps.start(bot.id, bot.threadId, firstHelloPrompt(person, bot.name, bot.title));
   return { greeted: Boolean(seed), asked: true };

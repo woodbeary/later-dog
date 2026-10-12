@@ -180,12 +180,9 @@ describe("computerToolsRefusal", () => {
     expect(refused).toMatchObject({ name: "PlaceUnavailableError", place: "cloud", row: { state: "cc-tools-off", params: { bot: "Scout" }, source: "works-on" } });
     const line = "What Scout can use doesn't include a computer. Let Scout use the computer from the Computer panel.";
     expect(refused.message).toBe(line);
-    // The same one action whatever chose the place: never a second one, and
-    // never "Set Works on to Auto".
     for (const source of ["pin", "routine", "room"] as const) {
       expect(computerToolsRefusal({ allow: ["native:*"] }, source, "Scout")?.message).toBe(line);
     }
-    // An Auto-recorded pin is cleared by the dispatch, and the line says so.
     expect(computerToolsRefusal({ allow: ["native:*"] }, "auto-pin", "Scout")?.message)
       .toBe("What Scout can use doesn't include a computer. This conversation is back on Auto. Let Scout use the computer from the Computer panel.");
   });

@@ -14,8 +14,6 @@ const originalFetch = globalThis.fetch;
 
 afterEach(async () => {
   globalThis.fetch = originalFetch;
-  // Windows can keep the fake CLI's working directory open briefly while
-  // taskkill finishes. Yield and retry cleanup without hiding a persistent leak.
   for (const dir of scratchDirs.splice(0)) await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 

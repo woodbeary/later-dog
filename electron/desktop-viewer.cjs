@@ -1,6 +1,3 @@
-// URL boundary for the in-app desktop viewer. Cloud viewers must use HTTPS;
-// the one HTTP exception is the passworded noVNC server bound to loopback by
-// later.dog's Local VM.
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 

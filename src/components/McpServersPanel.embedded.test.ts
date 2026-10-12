@@ -2,8 +2,6 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The server list is McpServersPanel's first piece of state; seed it as a
-// finished load would leave it (effects do not run under server rendering).
 const fixture = vi.hoisted(() => ({ servers: null as unknown, index: 0, counting: false, seeded: {} as Record<number, unknown> }));
 vi.mock("react", async (original) => {
   const react = await original<typeof import("react")>();
@@ -33,7 +31,6 @@ function render(embedded: boolean, whopCard = false) {
   return renderToStaticMarkup(createElement(Capture));
 }
 
-/** useState order in McpServersPanel: the server whose sign-in is open, then its flow. */
 const SIGNING_IN = 7;
 const SIGN_IN_FLOW = 8;
 
@@ -53,12 +50,11 @@ describe("Your MCP servers inside the Apps pop-up", () => {
     expect(html).toContain("Your MCP servers");
     expect(html).toContain("Paste config");
     expect(html).toContain("Add MCP server");
-    expect(html.match(/role="switch"/g)?.length).toBeGreaterThanOrEqual(3); // two servers + the Claude Code switch
+    expect(html.match(/role="switch"/g)?.length).toBeGreaterThanOrEqual(3);
     expect(html).toMatch(/aria-label="Turn notes off" type="button" role="switch" aria-checked="true"/);
     expect(html).toMatch(/aria-label="Turn docs on" type="button" role="switch" aria-checked="false"/);
     expect(html).toContain('aria-label="Edit notes"');
     expect(html.match(/> Test</g)).toHaveLength(2);
-    // a section of the pop-up's own scroll, not a second scroller
     expect(html).not.toContain("overflow-y-auto");
   });
 
@@ -104,9 +100,7 @@ describe("Your MCP servers inside the Apps pop-up", () => {
       { name: "notion", type: "http", url: "https://mcp.notion.com/mcp?workspace=a", headerKeys: [], enabled: false },
     ];
     const html = render(true);
-    // the row's name does not say which brand it is, so the mark is named
     expect(html).toContain('data-brand-icon="sentry" role="img" aria-label="Sentry"');
-    // another address, even one only a query away, is not that connector
     expect(html.match(/data-brand-icon=/g)).toHaveLength(1);
   });
 

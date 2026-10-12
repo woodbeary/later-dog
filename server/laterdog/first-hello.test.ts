@@ -14,7 +14,6 @@ function fixture(messages: { id: string; role: string; kind?: string; text?: str
   };
   return { deps, patched, started };
 }
-// What store.createBot seeds, with the name the dog had before the person renamed it.
 const seed = { id: "m1", role: "bot", kind: "text", text: "Hi, I'm Pepper. What would you like me to do?" };
 
 describe("the first dog speaks first", () => {

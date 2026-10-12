@@ -14,9 +14,6 @@ async function cleanupRuntime(directory) {
       rmSync(directory, { recursive: true, force: true });
       return;
     } catch {
-      // dbus-run-session can exit just before a portal-owned runtime socket
-      // disappears. Give that bounded teardown a moment before treating a
-      // persistent runtime as a lifecycle failure.
       await delay(100);
     }
   }
@@ -62,9 +59,6 @@ for (const executable of executables) {
   await cleanupRuntime(runtimeDirectory);
 }
 
-// A desktop watchdog or package manager sends SIGTERM to Electron itself,
-// not a synthetic window close. Exercise that path against the real bundled
-// AppImage and require the same descriptor/runtime cleanup.
 if (process.exitCode === undefined) {
   const runtimeDirectory = mkdtempSync(path.join(tmpdir(), prefixName));
   chmodSync(runtimeDirectory, 0o700);
@@ -92,8 +86,6 @@ if (process.exitCode === undefined) {
   }
 }
 
-// SIGKILL bypasses Electron's quit hooks. Exercise a real packaged restart so
-// stale parent/utility-process data leases cannot strand the next launch.
 if (process.exitCode === undefined) {
   const runtimeDirectory = mkdtempSync(path.join(tmpdir(), prefixName));
   chmodSync(runtimeDirectory, 0o700);

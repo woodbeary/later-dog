@@ -85,7 +85,6 @@ describe("Boat deletion journal", () => {
     const stored = readFileSync(path, "utf8");
     expect(JSON.parse(stored)).toEqual({ version: 1, records: [prepared] });
     expect(stored).not.toMatch(/token|authorization|secret/i);
-    // Windows reports 0666 for a 0600 file: the mode is a POSIX guarantee.
     if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
@@ -98,7 +97,6 @@ describe("Boat deletion journal", () => {
     const processing = journal.markBoatDeletionAccepted("bx_23456789", operation("bx_23456789", "processing"));
     expect(processing.status).toBe("processing");
 
-    // An eventually-consistent provider response must not move the fence back.
     expect(journal.markBoatDeletionAccepted("bx_23456789", operation()).status).toBe("processing");
     const completed = journal.markBoatDeletionAccepted("bx_23456789", operation("bx_23456789", "completed"));
     expect(completed.status).toBe("completed");

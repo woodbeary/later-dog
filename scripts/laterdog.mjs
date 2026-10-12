@@ -13,7 +13,6 @@ const command = process.argv[2] ?? "dev";
 const children = new Set(); let stopping = false;
 const env = { ...process.env, PATH: `${dirname(binary)}${delimiter}${process.env.PATH ?? ""}` };
 const dataRoot = env.LATERDOG_HOME ?? join(homedir(),".laterdog");
-// Mirrors supervisorConnection() in server/laterdog/config.ts: the environment wins, then the saved <data>/supervisor.json, else the local supervisor.
 function connection() {
   if (env.LATERDOG_SUPERVISOR_URL) return { url: env.LATERDOG_SUPERVISOR_URL, tokenFile: env.LATERDOG_TOKEN_FILE, source: "environment" };
   const file = join(dataRoot,"supervisor.json");
@@ -34,7 +33,6 @@ if (command === "dev") {
   const port = env.LATERDOG_SERVER_PORT ?? "9011"; const uiPort = env.LATERDOG_UI_PORT ?? "5299";
   const shared = { LATERDOG_SERVER_PORT: port, LATERDOG_UI_PORT: uiPort, LATERDOG_WORKSPACE_URL: `http://127.0.0.1:${port}` };
   const supervisor = connection();
-  // A hosted supervisor replaces the local one: starting both would hold port 9010 for nothing and fail when another desktop already has it.
   if (supervisor.source === "local") start(["server/laterdog/main.ts"],shared);
   start(["server/index.ts"],shared); start(["node_modules/vite/bin/vite.js"],shared);
   console.log(`later.dog: http://127.0.0.1:${uiPort}. Supervisor: ${supervisor.url}${supervisor.source === "local" ? " (local, started here)" : ` (hosted, from ${supervisor.source})`}. Agents keep their data in ${dataRoot}.`);
@@ -53,14 +51,11 @@ if (command === "dev") {
       const response = await call("/v1/workspace",{ timeoutMs: 60_000 });
       if (!response.ok) throw new Error(`Supervisor returned ${response.status}`); const snapshot = await response.json();
       const describe = (path, timeoutMs) => call(path,{ timeoutMs }).then((r) => r.ok ? r.json() : { error: `${path} returned ${r.status}` }).catch((error) => ({ error: error.message }));
-      // Profile access runs the provider CLI inside the supervisor; the GitHub check runs gh there. Neither prints a credential.
       const [access, github] = await Promise.all([describe(`/v1/profiles/${profile}/access`,90_000), describe("/v1/github/access",40_000)]);
       console.log(JSON.stringify({ connected: true, origin, source: supervisor.source, repositories: snapshot.repositories.length, jobs: snapshot.jobs.length, active: snapshot.active, concurrency: snapshot.concurrency,
         publishingHost: snapshot.publishingHost, wakeupsConfigured: snapshot.wakeupsConfigured, backends: snapshot.backends, profile: { id: profile, ...access }, github },null,2));
     } catch (error) { console.error(error.message); process.exitCode = 1; }
   } else {
-    // Starts the provider's device login inside the supervisor's own process space (a remote container has no shell) and prints
-    // the verification URL and code. Finish it in a browser, then run `pnpm laterdog:doctor` to confirm `authenticated: true`.
     try {
       const response = await call(`/v1/profiles/${profile}/login`,{ method: "POST", timeoutMs: 30_000 });
       const body = await response.json();
@@ -69,9 +64,6 @@ if (command === "dev") {
     } catch (error) { console.error(error.message); process.exitCode = 1; }
   }
 } else if (command === "github") {
-  // Connects the supervisor to GitHub with GitHub's own device sign-in, run on the supervisor's host: this prints a code, you
-  // enter it at github.com/login/device and authorize, and the login lives (backed up encrypted) where the supervisor runs.
-  // No token is copied or pasted anywhere. A fine-grained PAT as the GH_TOKEN secret remains the stricter alternative.
   const supervisor = connection();
   const tokenFile = supervisor.tokenFile ?? join(env.LATERDOG_DATA_DIR ?? join(dataRoot,"supervisor"),"access-token");
   const bearer = (env.LATERDOG_TOKEN ?? (existsSync(tokenFile) ? readFileSync(tokenFile,"utf8") : "")).trim();

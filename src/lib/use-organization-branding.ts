@@ -2,10 +2,7 @@ import { useEffect, useState } from "react";
 import type { ManagedDesktopState } from "../../electron/managed-desktop.mjs";
 import { parseOrganizationBranding } from "../../electron/organization-branding.mjs";
 
-/** Native enrollment only: never apply this computer's branding to a remote workspace. */
 export function useOrganizationBranding() {
-  // Rendered without a window in the server-rendered component tests, so the
-  // bridge lookup has to tolerate its absence rather than throw at render.
   const laterdog = typeof window === "undefined" ? undefined : window.laterdog;
   const bridge = laterdog?.remoteClient?.active ? undefined : laterdog?.organization;
   const [state, setState] = useState<ManagedDesktopState | null>(null);

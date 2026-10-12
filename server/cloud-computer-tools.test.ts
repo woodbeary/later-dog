@@ -1,6 +1,3 @@
-// The cloud computer's tools as the harness serves them to every engine with
-// computer tools (POST /api/internal/computer/mcp). A loopback Boat stands in
-// for the provider; the server's own account is the only credential used.
 import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "./config.ts";
@@ -104,7 +101,6 @@ describe("cloud computer tools", () => {
     expect(result.content[0].text).toMatch(/input schema|Unknown cloud computer tool/);
     expect(call.gated()).toBe(0);
     expect(calls).toHaveLength(0);
-    // The direct entry point refuses the same calls on its own.
     await expect(tools.runCloudComputerTool(cfg, "bx_23456789", name, args as never, new AbortController().signal))
       .resolves.toMatchObject({ isError: true });
     expect(calls).toHaveLength(0);
@@ -122,8 +118,6 @@ describe("cloud computer tools", () => {
   });
 
   it("acts on the Boat the gate started, read only once the gate let the call through", async () => {
-    // A cloud computer mounted before it existed: the gate's claim creates
-    // it, and only then is there a Boat to act on.
     let started: string | undefined;
     const result = await tools.cloudComputerRpc({ method: "tools/call", params: { name: "get_screen_size", arguments: {} } }, {
       cfg, boxId: () => started, signal: new AbortController().signal,

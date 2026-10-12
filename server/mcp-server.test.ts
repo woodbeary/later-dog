@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// scripts/mcp-server.ts snapshots process.env at import time — scrub ambient
-// LATERDOG_* values before it is evaluated (#1676).
 import "./testing/scrub-ambient-laterdog-env.ts";
 
 import {
@@ -335,9 +333,6 @@ describe("MCP tool execution", () => {
   });
 
   it("rewinds a thread by editing an earlier message, and refuses while busy", async () => {
-    // The composer rewind. It forks the conversation and answers again,
-    // which is the only mapped way to make the harness REBUILD context
-    // rather than resume the provider's own session.
     const busyFetcher = vi.fn(async () => ({ bots: [{ id: "bot-1", busy: true }] }));
     await expect(handleToolCall("edit_bot_message", {
       bot_id: "bot-1", message_id: "m-9", text: "say that again",
@@ -371,7 +366,6 @@ describe("MCP tool execution", () => {
       }
       throw new Error(`unexpected path ${path}`);
     });
-    // the bot is busy on task-1, but task-2 is idle: the edit lands there
     await expect(handleToolCall("edit_bot_message", {
       bot_id: "bot-1", message_id: "m-9", text: "again", task_id: "task-2",
     }, fetcher)).resolves.toMatchObject({ success: true });

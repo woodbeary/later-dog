@@ -27,9 +27,6 @@ export function managedComposioChildEnvironment(brokerUrl, credentials, environm
   delete next.LATERDOG_COMPOSIO_BROKER_TOKEN;
   delete next.LATERDOG_COMPOSIO_BROKER_URL;
   delete next.LATERDOG_COMPOSIO_BROKER_TOKEN;
-  // The URL alone tells the server a broker is configured (so an unanswered
-  // registration reads as an outage, not as "never set up"); the token only
-  // ever travels once this installation holds one.
   const url = normalizeManagedComposioBrokerUrl(brokerUrl);
   if (url) next.LATERDOG_COMPOSIO_BROKER_URL = url;
   const access = managedComposioAccess(brokerUrl, credentials);
@@ -60,9 +57,6 @@ export async function ensureManagedComposioCredentials({
         signal: timeoutSignal(existingCredentialTimeoutMs),
       });
       if (check.ok) return credentials;
-      // Only a definitive auth failure rotates the credential. A transient
-      // outage keeps the existing identity so reconnecting cannot strand the
-      // user's already-authorized accounts under a new installation.
       if (check.status !== 401) return credentials;
       delete credentials.composioBrokerToken;
       delete credentials.composioInstallationId;
@@ -88,8 +82,6 @@ export async function ensureManagedComposioCredentials({
     await saveCredentials(credentials);
     log("connected-apps installation registered");
   } catch (error) {
-    // This operation always settles locally. The caller runs it after first
-    // paint, so an optional hosted integration cannot delay desktop readiness.
     log(`connected-apps registration failed: ${error?.message ?? error}`);
   }
   return credentials;

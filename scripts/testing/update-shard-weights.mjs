@@ -3,23 +3,10 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Rebuilds scripts/testing/vitest-shard-weights.json, the per-file seconds
-// scripts/testing/duration-sequencer.ts balances the CI shards with:
-//
-//   node scripts/testing/update-shard-weights.mjs --run <ci.yml run id> [--run <id> ...]
-//   node scripts/testing/update-shard-weights.mjs <vitest log or --reporter=json file> ...
-//
-// --run reads a finished run's Windows vitest logs through `gh`: Windows is
-// the slowest platform, so its seconds decide the split. A file's weight is
-// its median across the inputs in whole seconds, at least one. Every file over
-// five seconds is kept, and every e2e file, so that only a genuinely new e2e
-// file falls back to the sequencer's e2e default. Deleted files are dropped.
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUTPUT = "scripts/testing/vitest-shard-weights.json";
 const HEAVY_SECONDS = 5;
 const E2E = /\.e2e\.test\.[cm]?[jt]s$/;
-// The default reporter's line per file: "✓ server/a.test.ts (12 tests) 345ms".
-// A fully skipped file prints no time. `gh` prints escapes as a literal "^[".
 const FILE_LINE = /\s[✓×❯↓] ((?:[\w.@-]+\/)+[\w.@-]+\.test\.[cm]?[jt]s)(?: \([^)]*\))?(?: (\d+)ms)?\s*$/;
 // oxlint-disable-next-line no-control-regex -- strips colour codes from a CI log
 const COLOUR = /(?:\u001b|\^\[)\[[\d;]*m/g;
@@ -56,7 +43,6 @@ export function buildWeights(samples, exists) {
   return weights;
 }
 
-// One sample per run: its shards together cover every file once.
 function windowsRun(id) {
   const gh = (...args) => execFileSync("gh", args, { cwd: ROOT, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
   const shards = JSON.parse(gh("run", "view", id, "--json", "jobs")).jobs

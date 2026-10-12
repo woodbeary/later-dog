@@ -305,8 +305,6 @@ describe("managed connector lifecycle", () => {
       runtimeExecutable: RUNTIME,
       runtimeRoot: path.join(temporaryDirectory(), "runtime"),
       spawnProcess,
-      // Deliberately ignore AbortSignal: cancellation must wake the lifecycle
-      // even if a fetch implementation or network stack never settles.
       fetchImpl: vi.fn(() => new Promise(() => {})),
       onChange: (state) => states.push(state),
     });
@@ -315,9 +313,6 @@ describe("managed connector lifecycle", () => {
     await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledOnce());
 
     const stopping = manager.stop();
-    // This assertion is intentionally before either lifecycle promise is
-    // awaited: stop intent must signal the owned process synchronously rather
-    // than sitting behind the 15-second verification transition.
     expect(child.stdin.end).toHaveBeenCalledOnce();
     expect(child.kill).not.toHaveBeenCalled();
     await expect(stopping).resolves.toMatchObject({ status: "stopped", ready: false });

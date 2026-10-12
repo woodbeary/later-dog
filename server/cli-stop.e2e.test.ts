@@ -57,7 +57,6 @@ describe.skipIf(process.platform === "win32")("Stop through the isolated server"
 
       const started = Date.now();
       await control(["interrupt", ...target]);
-      // The root can already have closed, but the helper still owns work.
       expect((await control(["wait", ...target, "--timeout", "1"])).status).toBe("timed-out");
       expect(alive(pids[1]!)).toBe(true);
       expect((await control(["wait", ...target, "--timeout", "10"])).status).toBe("settled");
@@ -66,7 +65,6 @@ describe.skipIf(process.platform === "win32")("Stop through the isolated server"
       evidence.push({ stoppedPids: [...pids], alive: pids.map(alive), elapsedMs: Date.now() - started });
       await control(["messages", ...target, "--limit", "10"]);
 
-      // A new turn works after the verified stop and starts a new CLI.
       writeFileSync(gate, "finish");
       await control(["send", ...target, "--text", "Reply after Stop"]);
       expect((await control(["wait", ...target, "--timeout", "10"])).status).toBe("settled");
@@ -74,7 +72,6 @@ describe.skipIf(process.platform === "win32")("Stop through the isolated server"
       const messages = await control(["messages", ...target, "--limit", "10"]);
       expect(messages.messages.some((message: any) => message.role === "bot" && message.text?.includes("Reply after Stop"))).toBe(true);
     } finally {
-      // These are only the exact PIDs recorded by this fixture's wrapper.
       for (const pid of pids) if (alive(pid)) process.kill(pid, "SIGKILL");
       const evidencePath = `${fixture.info.logPath}.json`;
       writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));

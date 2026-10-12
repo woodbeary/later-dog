@@ -1,4 +1,3 @@
-// containerExec: one shell command in a Local VM, as text, with a real time limit.
 import { describe, expect, it } from "vitest";
 import { clipExecOutput, containerExec, perBotLocalVmTarget } from "./container-computer.ts";
 
@@ -24,7 +23,6 @@ describe("containerExec", () => {
       "exec", "-u", "cua", "-w", "/home/cua/workspace", "-e", "HOME=/home/cua", "-e", "DISPLAY=:1",
       target.containerName, "timeout", "-k", "5", "30", "sh", "-lc", "echo hello",
     ]);
-    // The client waits a little longer than the in-container limit.
     expect(calls[0]!.timeout).toBe(50_000);
   });
 

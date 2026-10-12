@@ -54,10 +54,8 @@ const trigger = (label: string) => render().find((node) => node.type === "button
 
 let window: EventTarget;
 function runEffects() {
-  // the sidebar's other effects reach for desktop bridges this test does not
-  // stub; only the listeners they manage to bind matter here
   for (const effect of fixture.effects) {
-    try { effect(); } catch { /* unrelated effect */ }
+    try { effect(); } catch {}
   }
 }
 function key(name: string, prevented = false) {
@@ -115,7 +113,6 @@ describe.each(menus)("sidebar header menu: $name", ({ label, item }) => {
 
   it("closes on a press outside it, and not on one inside it", () => {
     const tree = open();
-    // "mount" the innermost element that wraps both the trigger and the menu
     const INSIDE = { closest: () => null };
     const root = tree.filter((node) => {
       const ref = node.props.ref as { current: unknown } | undefined;

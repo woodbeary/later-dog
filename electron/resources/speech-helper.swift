@@ -1,20 +1,3 @@
-// Native macOS speech-to-text helper. Streams NDJSON lines to stdout:
-//   {"partial":true,"text":"…"}   while recognizing
-//   {"partial":false,"text":"…"}  final result, then exit 0
-//   {"error":"…"}                 then exit 1
-// Runs until the final result or a per-session stop marker. Launched by
-// electron/speech.mjs as this background app bundle so macOS can resolve the
-// microphone and speech purpose strings in its Info.plist.
-//
-// `--record PATH` also saves what the microphone hears to PATH (16-bit CAF),
-// so a voice note survives a recognition error and can be transcribed again.
-// `--file PATH` transcribes such a recording instead of the microphone.
-//
-// `--endpoint-ms N` ends the audio stream after N milliseconds without a
-// transcript change. SFSpeechRecognizer does not finalize a buffer-backed
-// request on silence by itself; it only produces `isFinal` after endAudio().
-// Composer dictation omits this flag and keeps its existing press-to-stop
-// behavior, while call mode opts into silence endpointing.
 import AVFoundation
 import Foundation
 import Speech
@@ -28,8 +11,6 @@ func emit(_ obj: [String: Any]) {
   }
 }
 
-// The voice note on disk: written from the tap, closed before every exit so
-// its header is complete. One lock for both.
 var recordFile: AVAudioFile?
 let recordLock = NSLock()
 func closeRecording() {
@@ -74,9 +55,6 @@ let finishFile: String? = {
   return args[index + 1]
 }()
 
-// LaunchServices gives the helper the bundle identity TCC needs, but it also
-// means the parent cannot terminate it by killing the `open -W` process. A
-// per-session stop marker keeps intentional mute/hang-up deterministic.
 var stopTimer: DispatchSourceTimer?
 if let stopFile {
   let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
@@ -91,9 +69,6 @@ if let stopFile {
   timer.resume()
 }
 
-// Push-to-talk release must finalize recognition rather than cancel it. The
-// handler is installed once the audio engine exists; the timer keeps polling
-// if an unusually fast key release beats authorization/setup.
 var finishHandler: (() -> Void)?
 var finishTimer: DispatchSourceTimer?
 if let finishFile {
@@ -108,8 +83,6 @@ if let finishFile {
   timer.resume()
 }
 
-/// SFSpeechRecognizer can keep revising/re-emitting a partial transcript
-/// after the user stops talking. Only a changed transcript resets the timer.
 final class SilenceEndpointer {
   private let queue = DispatchQueue(label: "com.laterdog.speech.endpoint")
   private let gap: TimeInterval
@@ -141,8 +114,6 @@ final class SilenceEndpointer {
   }
 
   private func tick() {
-    // Never terminate an empty turn: a call may be quiet for as long as the
-    // user needs before they begin speaking.
     guard !finished, !lastText.isEmpty else { return }
     let silentFor = Double(DispatchTime.now().uptimeNanoseconds - lastChange.uptimeNanoseconds) / 1_000_000_000
     guard silentFor >= gap else { return }
@@ -155,9 +126,6 @@ final class SilenceEndpointer {
 
 SFSpeechRecognizer.requestAuthorization { status in
   guard status == .authorized else { fail("speech-not-authorized") }
-  // Recognize in the user's language: a hardcoded en-US recognizer
-  // transcribes everyone else into nonsense. First preference that has an
-  // available recognizer wins, with en-US as the last resort.
   let candidates =
     Locale.preferredLanguages.map { Locale(identifier: $0) }
     + [Locale.current, Locale(identifier: "en-US")]
@@ -166,7 +134,6 @@ SFSpeechRecognizer.requestAuthorization { status in
       .first(where: { $0.isAvailable })
   else { fail("recognizer-unavailable") }
 
-  // A saved voice note: transcribe the file, no microphone.
   if let filePath {
     let fileRequest = SFSpeechURLRecognitionRequest(url: URL(fileURLWithPath: filePath))
     fileRequest.shouldReportPartialResults = true
@@ -203,9 +170,6 @@ SFSpeechRecognizer.requestAuthorization { status in
   var endpointer: SilenceEndpointer?
   if endpointMs > 0 {
     endpointer = SilenceEndpointer(gapMs: endpointMs) {
-      // Stop capture before ending the request: appending another audio
-      // buffer after endAudio() can make the recognition task fail instead
-      // of delivering its final transcript.
       finishAudio()
     }
     endpointer?.start()
@@ -246,8 +210,6 @@ SFSpeechRecognizer.requestAuthorization { status in
     }
     if let error {
       let nsError = error as NSError
-      // macOS can authorize this helper while system Dictation is disabled.
-      // Preserve that distinction so the UI points to the right setting.
       if nsError.domain == "kLSRErrorDomain" && nsError.code == 201 {
         fail("dictation-disabled")
       }

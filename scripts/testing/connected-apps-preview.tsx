@@ -7,8 +7,6 @@ import { setAnalyticsEnabled } from "../../src/lib/analytics";
 import { applySkin, readSkin } from "../../src/lib/skins";
 import "../../src/styles.css";
 
-// Only the disposable OAuth recipe serves this entry; production components
-// stay mounted, while these controls simulate a server card update/deletion.
 function Preview() {
   const { state, dispatch } = useStore();
   const [target, setTarget] = useState(1);

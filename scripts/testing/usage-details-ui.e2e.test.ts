@@ -42,8 +42,6 @@ if (!enabled) console.log("skipping usage details UI: set LATERDOG_UI_E2E=1 to i
     expect(chip.text).toContain("$0.01");
     expect(chip.title).not.toContain("17 read");
     expect(chip.title).not.toContain("15 new");
-    // Header actions stay usable in the consolidated menu, including a
-    // denied clipboard. Only this disposable browser's clipboard is stubbed.
     const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
     await evaluate(`Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async () => { throw new Error('fixture denial'); } }); true`);
     await ui("click", "--name", "Copy as Markdown");

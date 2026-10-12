@@ -1,13 +1,3 @@
-// Who is asking, and are they allowed to?
-//
-// Two ways in. A **loopback** request (Host and Origin both loopback) may read
-// local state; packaged mutations additionally carry a per-launch capability
-// injected by Electron below renderer JavaScript. A **session** request carries
-// a credential minted by pairing
-// (server/sessions.ts): a bearer token, the session cookie the served web UI
-// uses, or, for the event stream only, a short-lived ticket. With a session
-// the loopback rule is replaced by a same-origin rule, so a browser on
-// another site still cannot ride the cookie (CSRF), and by a scope check.
 import type { IncomingMessage } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
@@ -15,24 +5,14 @@ import { isIP } from "node:net";
 import type { Scope, SessionRecord, SessionRegistry } from "./sessions.ts";
 import { denyReason as companionDenial, isCompanionNotice } from "../companion/src/routes.ts";
 
-/** How much a loopback request without a session is trusted.
- *
- * `owner`: the machine's owner (a desktop, a one-person headless server).
- * `service`: a shared server where every bot's shell is also a loopback
- * caller, so "local" no longer means "the owner". Loopback may then use
- * only SERVICE_ALLOW below: health, the Slack worker's guarded routes, the
- * bot capability routes and the reads those callers need. Every other route,
- * and every admin change, needs a real session. */
 export type LoopbackTrust = "owner" | "service";
 
 export type RequestAuth =
-  // `trust` is present only when reduced; an owner request looks as it always did.
   | { kind: "loopback"; scopes: readonly Scope[]; trust?: "service" }
   | { kind: "session"; session: SessionRecord; via: "bearer" | "cookie" | "ticket"; scopes: readonly Scope[] };
 
 export interface RequestAuthResult {
   auth: RequestAuth | null;
-  /** HTTP status and the reason to send when auth is null. */
   status: 401 | 403;
   error: string;
 }
@@ -40,30 +20,6 @@ export interface RequestAuthResult {
 const LOOPBACK_SCOPES: readonly Scope[] = ["admin", "client"];
 const SERVICE_SCOPES: readonly Scope[] = ["client"];
 
-/** What a `service`-trust loopback caller may reach, and nothing else:
- *
- * - liveness and identity: health, who-am-I, edition and brand;
- * - the cloud Slack worker (laterdog-cloud server/slack-worker.ts), which
- *   shares the workspace's network namespace and reads the bot list, a
- *   thread's messages and a bot's PNG picture, creates a thread, sends
- *   through the guarded route, watches and stops its exact request,
- *   withdraws a queued line, and declines a card (the handler refuses any
- *   other answer from this caller);
- * - the turn-scoped bot capability routes, whose own bearer token is the
- *   authorization (checked in the handler), and the test-only capability
- *   mint that exists only when its private key is set.
- *
- * Residual risk, not closed here: a bot's shell is a loopback caller too, so
- * it can do everything the worker does. It can post into any bot's thread
- * through the guarded route, including an existing Full-access thread
- * (`expectedApprovalMode: "full"`), and while the operator's shared Full
- * access is on it can open new Full-access threads; either way work runs with
- * Full access and no card, whoever asked the bot. It can also stop a request
- * and decline a card. It can no longer change settings, keys, instances, MCP
- * servers, webhooks, sessions, people, budgets or fleet, loosen a bot's
- * permissions, or approve anything. The planned fix is a relay token that only
- * the Slack worker holds, so these routes stop answering session-less
- * loopback at all. */
 export const SERVICE_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: RegExp }> = [
   { methods: ["GET"], path: /^\/api\/health$/ },
   { methods: ["GET"], path: /^\/api\/auth\/session$/ },
@@ -77,9 +33,9 @@ export const SERVICE_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Re
   { methods: ["GET"], path: /^\/api\/bots\/[\w-]+\/requests\/[\w-]+$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/requests\/[\w-]+\/interrupt$/ },
   { methods: ["DELETE"], path: /^\/api\/bots\/[\w-]+\/queue\/[\w-]+$/ },
-  { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/respond$/ }, // decline only: see the handler
-  { methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], path: /^\/api\/internal\// }, // capability bearer checked in the handler
-  { methods: ["POST"], path: /^\/api\/testing\/internal-capability$/ }, // exists only with its private key
+  { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/respond$/ },
+  { methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], path: /^\/api\/internal\// },
+  { methods: ["POST"], path: /^\/api\/testing\/internal-capability$/ },
 ];
 
 export function serviceAllowed(method: string, path: string): boolean {
@@ -87,22 +43,10 @@ export function serviceAllowed(method: string, path: string): boolean {
   return SERVICE_ALLOW.some((rule) => rule.methods.includes(upper) && rule.path.test(path));
 }
 
-/** Pick the loopback trust for this process, and say why for the startup log.
- *
- * A packaged desktop keeps `owner`: its mutations already need Electron's
- * per-launch capability, and only its owner uses the machine. Elsewhere the
- * operator may set LATERDOG_LOOPBACK_TRUST=owner|service. Without it a hosted
- * workspace (any LATERDOG_ADMIN_* setting, even an incomplete one) defaults to
- * `service` — shared-workspace Full access is only honoured there, so it needs
- * no rule of its own — and a headless self-hosted server keeps `owner`. A
- * value that is neither fails closed. */
 export function resolveLoopbackTrust(input: {
   env?: NodeJS.ProcessEnv;
   desktopManaged: boolean;
   hostedWorkspace: boolean;
-  /** A later.dog Cloud home: every request from the network arrives through its
-   * edge proxy, so a bare loopback request is only ever a process on the
-   * machine (a bot's shell). Always `service`, whatever the setting. */
   cloudHome?: boolean;
 }): { trust: LoopbackTrust; reason: string; warning?: string } {
   const raw = (input.env ?? process.env).LATERDOG_LOOPBACK_TRUST;
@@ -154,7 +98,7 @@ export function isLoopbackHost(host: string | undefined): boolean {
 }
 
 export function isAllowedOrigin(origin: string | undefined | null): boolean {
-  if (!origin) return true; // non-browser clients (CLIs, curl, tests) send none
+  if (!origin) return true;
   try {
     const o = new URL(origin);
     return isLoopbackHost(o.hostname) && (o.protocol === "http:" || o.protocol === "https:");
@@ -167,8 +111,6 @@ function headerValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-/** The origin a browser would send for this request: the proxy's scheme
- * when one says so (x-forwarded-proto), else plain http, plus the Host. */
 export function requestOrigin(req: IncomingMessage): string | null {
   const host = headerValue(req.headers.host)?.trim();
   if (!host) return null;
@@ -177,26 +119,16 @@ export function requestOrigin(req: IncomingMessage): string | null {
   return `${proto}://${host.toLowerCase()}`;
 }
 
-/** A proxy on the way in sets forwarded headers; a client on this machine
- * does not. Loopback trust is for the latter only: a proxy that hands the
- * server a loopback Host (or forwards `Host: localhost` from a stranger)
- * must not turn a remote client into the owner. */
 export function isProxied(req: IncomingMessage): boolean {
   const h = req.headers;
   return ipcPeer(req) || Boolean(h["x-forwarded-for"] || h["x-forwarded-proto"] || h["x-forwarded-host"] || h["forwarded"]);
 }
 
-/** A request over an IPC listener (a unix socket or a named pipe) has no peer
- * address. Only a gateway on this machine can reach such a listener, and it
- * is there to forward traffic from elsewhere (`laterdog serve --tunnel`),
- * so the request is remote by construction: whatever headers it carries or
- * lacks, it never gets loopback trust. */
 export function ipcPeer(req: IncomingMessage): boolean {
   const socket = req.socket;
   return Boolean(socket) && socket.remoteAddress === undefined && socket.remoteFamily === undefined;
 }
 
-/** Origin absent (non-browser) or equal to this request's own origin. */
 export function isSameOrigin(req: IncomingMessage): boolean {
   const origin = headerValue(req.headers.origin);
   if (!origin) return true;
@@ -204,38 +136,24 @@ export function isSameOrigin(req: IncomingMessage): boolean {
   return own !== null && origin.trim().toLowerCase() === own;
 }
 
-/** A browser says this request came from this origin's own page: an
- * `Origin` equal to this request's origin, or `Sec-Fetch-Site: same-origin`.
- * Unlike isSameOrigin, a request that carries neither does not pass. */
 export function provesSameOrigin(req: IncomingMessage): boolean {
   if (headerValue(req.headers.origin)) return isSameOrigin(req);
   return headerValue(req.headers["sec-fetch-site"])?.trim().toLowerCase() === "same-origin";
 }
 
-/** Who to count a pairing attempt against. The server binds loopback, so a
- * remote client always arrives through a proxy or tunnel on this machine;
- * that proxy's X-Forwarded-For (Caddy overwrites any the client sent) names
- * the real source. A connection whose peer is not loopback (a future bind to
- * an interface) is the source itself, and its forwarded header is ignored. */
 export function requestSource(req: IncomingMessage): string {
   const peer = req.socket?.remoteAddress || "unknown";
-  // An IPC listener's only peer is the tunnel gateway on this machine.
   const viaLocalProxy = ipcPeer(req) || peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1";
-  // The LAST hop is the one the adjacent (trusted, same-machine) proxy wrote;
-  // earlier hops are whatever the client or an outer proxy put there.
   const hops = viaLocalProxy ? (headerValue(req.headers["x-forwarded-for"]) ?? "").split(",").map((h) => h.trim()).filter(Boolean) : [];
   const forwarded = hops.length ? hops[hops.length - 1] : undefined;
   return sanitizeSource(forwarded || peer);
 }
 
-/** Only what an address can contain, bounded, so a hostile header cannot
- * carry control characters into logs or grow the lockout map without limit. */
 export function sanitizeSource(value: string): string {
   const clean = value.replace(/[^\w.:%[\]-]/g, "");
   return (clean || "unknown").slice(0, 64);
 }
 
-/** "Safari on iPhone" beats "Unnamed device" in the sessions list. */
 export function labelFromUserAgent(userAgent: string | undefined): string {
   const ua = userAgent ?? "";
   if (!ua) return "Unnamed device";
@@ -264,9 +182,6 @@ export function bearerToken(header: string | string[] | undefined): string | und
   return m?.[1];
 }
 
-/** Cookies are scoped by host, not port: two servers on one machine would
- * otherwise clobber each other's session. The environment id keeps a
- * reinstalled server from reading a cookie signed by its predecessor. */
 export function sessionCookieName(port: number, environmentId: string): string {
   return `laterdog_session_${port}_${environmentId.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`;
 }
@@ -285,40 +200,24 @@ export function clearSessionCookie(name: string): string {
   return `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
-/** What a `client` session may do: chat, rooms, approvals, attachments,
- * routines, its own session, and reads that carry no secrets. Everything
- * else needs `admin`: default deny, so a new route is admin-only until it is
- * deliberately listed here. Two client-allowed PATCH routes carry a body
- * filter in the handler (bot and room edits: display fields only). Loopback
- * holds both scopes. */
 export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: RegExp; feature?: "sharedComputers" }> = [
-  // own session
   { methods: ["GET"], path: /^\/api\/auth\/session$/ },
   { methods: ["POST"], path: /^\/api\/auth\/stream-ticket$/ },
   { methods: ["POST"], path: /^\/api\/auth\/logout$/ },
-  // Own outbound desktop connector, additionally bound to a private secret.
-  // Only honoured while features.sharedComputers is on (see requiredScope):
-  // with the feature off these paths are as unlisted as any other, so a
-  // client session is refused exactly the way an unknown route refuses it.
   { methods: ["POST"], path: /^\/api\/shared-computers\/(?:connect|[\w-]+\/(?:poll|lease|result|disconnect))$/, feature: "sharedComputers" },
-  // What this person has lent (owner-scoped status, no secrets). Same gate.
   { methods: ["GET"], path: /^\/api\/shared-computers$/, feature: "sharedComputers" },
-  // liveness, identity, the stream
   { methods: ["GET"], path: /^\/api\/health$/ },
   { methods: ["GET"], path: /^\/api\/edition$/ },
   { methods: ["GET"], path: /^\/api\/brand$/ },
   { methods: ["GET"], path: /^\/api\/events$/ },
-  // reads: fleet, transcripts, search (no secrets in any of these)
   { methods: ["GET"], path: /^\/api\/bots$/ },
   { methods: ["GET"], path: /^\/api\/team-map$/ },
-  // a link into the organisation's Admin: identifiers only, and Admin authorizes its own visitor
   { methods: ["GET"], path: /^\/api\/bots\/[\w-]+\/slack-management$/ },
   { methods: ["GET"], path: /^\/api\/search$/ },
   { methods: ["GET"], path: /^\/api\/threads\/[\w-]+\/messages$/ },
   { methods: ["GET"], path: /^\/api\/threads\/[\w-]+\/messages\/[\w-]+\/image$/ },
   { methods: ["GET"], path: /^\/api\/threads\/[\w-]+\/export$/ },
   { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/messages\/[\w-]+\/file$/ },
-  // chat, one to one
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/messages$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/messages\/[\w-]+\/edit$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/active-branch$/ },
@@ -328,19 +227,17 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["DELETE"], path: /^\/api\/bots\/[\w-]+\/queue\/[\w-]+$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/tasks$/ },
   { methods: ["POST", "PATCH", "DELETE"], path: /^\/api\/bots\/[\w-]+\/tasks\/[\w-]+$/ },
-  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/tasks\/[\w-]+\/title$/ }, // Regenerate title: a rename by the bot's own engine
+  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/tasks\/[\w-]+\/title$/ },
   { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+\/profile$/ },
-  { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+$/ }, // display fields only: see clientBotPatchViolation
-  // approvals and cards
+  { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/respond$/ },
   { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/respond$/ },
-  { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/undo$/ }, // whoever may answer the card: see the handler
+  { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/undo$/ },
   { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+\/cards\/[\w-]+$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/secret-cards\/[\w-]+\/(?:resume|dismiss)$/ },
   { methods: ["GET"], path: /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/status$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/(?:resume|dismiss)$/ },
-  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/always-allow$/ }, // must match a pending card
-  // rooms
+  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/always-allow$/ },
   { methods: ["POST"], path: /^\/api\/groups$/ },
   { methods: ["POST"], path: /^\/api\/groups\/[\w-]+\/messages$/ },
   { methods: ["POST"], path: /^\/api\/groups\/[\w-]+\/interrupt$/ },
@@ -348,26 +245,21 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["DELETE"], path: /^\/api\/groups\/[\w-]+\/queue\/[\w-]+$/ },
   { methods: ["POST"], path: /^\/api\/groups\/[\w-]+\/tasks$/ },
   { methods: ["POST", "PATCH", "DELETE"], path: /^\/api\/groups\/[\w-]+\/tasks\/[\w-]+$/ },
-  { methods: ["PATCH"], path: /^\/api\/groups\/[\w-]+$/ }, // display fields only: see clientGroupPatchViolation
+  { methods: ["PATCH"], path: /^\/api\/groups\/[\w-]+$/ },
   { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/messages\/[\w-]+\/reactions$/ },
-  // attachments
   { methods: ["POST"], path: /^\/api\/attachments$/ },
   { methods: ["GET"], path: /^\/api\/attachments\/[\w.-]+$/ },
   { methods: ["POST"], path: /^\/api\/files$/ },
-  // voice: labels and audio, never the key
   { methods: ["GET"], path: /^\/api\/tts\/voices$/ },
   { methods: ["POST"], path: /^\/api\/tts\/prepare$/ },
   { methods: ["POST"], path: /^\/api\/tts\/speak$/ },
-  // routines: a scheduled message; the input carries no cwd or permission field
   { methods: ["GET"], path: /^\/api\/routines$/ },
   { methods: ["POST"], path: /^\/api\/routines$/ },
   { methods: ["PATCH", "DELETE"], path: /^\/api\/routines\/[\w-]+$/ },
   { methods: ["POST"], path: /^\/api\/routines\/[\w-]+\/run$/ },
   { methods: ["POST"], path: /^\/api\/routine-runs\/[\w-]+\/(?:cancel|seen)$/ },
   { methods: ["POST"], path: /^\/api\/routine-runs\/seen-all$/ },
-  // webhook list is secret-free; creating or rotating one is not
   { methods: ["GET"], path: /^\/api\/webhooks$/ },
-  // configured-or-not booleans; the handler strips the few identifying fields for clients
   { methods: ["GET"], path: /^\/api\/config$/ },
 ];
 
@@ -380,8 +272,6 @@ export function requiredScope(method: string, path: string, features: { sharedCo
   return "admin";
 }
 
-/** Fields a client session may change on a bot: how it looks in the list,
- * never what it may do. Returns the first offending field, or null. */
 const CLIENT_BOT_PATCH_FIELDS = new Set(["unread", "pinned", "pinnedMessageId", "color", "mascotExpression", "mascotBody"]);
 export function clientBotPatchViolation(body: unknown): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return "body";
@@ -389,7 +279,6 @@ export function clientBotPatchViolation(body: unknown): string | null {
   return null;
 }
 
-/** Same for a room: name and reading state, never its folder or who answers. */
 const CLIENT_GROUP_PATCH_FIELDS = new Set(["name", "bulletin", "unread", "pinnedMessageId", "section", "turnTimeoutMinutes"]);
 export function clientGroupPatchViolation(body: unknown): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return "body";
@@ -400,54 +289,31 @@ export function clientGroupPatchViolation(body: unknown): string | null {
 export interface ResolveOptions {
   sessions: SessionRegistry;
   cookieName: string;
-  /** Path that may authenticate with a stream ticket in its query string. */
   streamPath: string;
   url: URL;
-  /** Packaged desktop capability, delivered over Electron's private child
-   * port. When present, originless loopback callers may still read but every
-   * public mutation must prove it came through the desktop's web session. */
   loopbackMutationToken?: string;
-  /** Separate private capability held by the authenticated phone relay. */
   companionMutationToken?: string;
-  /** Feature gates that decide whether a client-scoped route exists at all.
-   * Absent means off, so an ungated build refuses like one without it. */
   features?: { sharedComputers?: boolean };
-  /** See LoopbackTrust. Absent is `owner`, the historical behaviour. Ignored
-   * while a desktop capability is in force (loopbackMutationToken). */
   loopbackTrust?: LoopbackTrust;
-  /** Under `service`: a per-launch secret the `laterdog serve` process
-   * that started this server handed it over the child's stdin (never the
-   * environment, which the server's other children could read). It lets that
-   * CLI, and nothing else, mint and list pairing codes. */
   cliOwnerToken?: string;
 }
 
 const CLI_OWNER_HEADER = "x-laterdog-cli-owner";
-/** The only routes the serving CLI's secret opens: its pairing code. */
 const CLI_OWNER_ROUTE = /^\/api\/auth\/pairing$/;
 
 const DESKTOP_OWNER_HEADER = "x-laterdog-desktop-owner";
 
 function mutatingPublicRoute(method: string, path: string): boolean {
   const upper = method.toUpperCase();
-  // This legacy polling endpoint is spelled GET but synchronizes upstream
-  // state into the transcript and can resume a paused turn. Classify by
-  // effect, not verb, until clients migrate to a POST refresh route.
   if (
     upper === "GET" &&
     /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/status$/.test(path)
   ) return true;
-  // Remote viewer config and its WebSocket upgrade hand out a desktop's VNC
-  // password and control. Native owners open the direct viewer instead.
   if (path.startsWith("/api/desktop-viewer/")) return true;
   if (["GET", "HEAD", "OPTIONS"].includes(upper)) return false;
-  // Agent integrations have their own high-entropy, per-boot authorization
-  // and narrower route semantics. Pairing-code exchange is intentionally
-  // public; possession of the one-time code is its authorization.
   return !path.startsWith("/api/internal/") &&
     path !== "/api/testing/internal-capability" &&
     path !== "/api/auth/pair" &&
-    // The same exchange under the shape the companion apps send.
     path !== "/api/pair";
 }
 
@@ -458,14 +324,11 @@ function secureTokenMatch(actual: string | undefined, expected: string): boolean
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-/** Decide how this request is authenticated. Never throws. */
 export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions): RequestAuthResult {
   const method = req.method ?? "GET";
   const path = options.url.pathname;
   const deny = (status: 401 | 403, error: string): RequestAuthResult => ({ auth: null, status, error });
 
-  // A presented session credential wins over the loopback rule so the served
-  // web UI behaves the same on 127.0.0.1 and on a public domain.
   const bearer = bearerToken(req.headers.authorization);
   const cookie = parseCookies(headerValue(req.headers.cookie)).get(options.cookieName);
   const ticket = path === options.streamPath ? options.url.searchParams.get("ticket") : null;
@@ -484,8 +347,6 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
 
   if (session && via) {
     if (via === "cookie" && !isSameOrigin(req)) return deny(403, "forbidden: cross-origin request");
-    // A browser sign-in's session is its browser's cookie, never a bearer token, and
-    // its changes come from this origin's own page, which a browser says so.
     if (via === "bearer" && session.cookieOnly) return deny(401, "unauthorized: this session belongs to a browser; sign in with a pairing code");
     if (via === "cookie" && session.cookieOnly && !["GET", "HEAD", "OPTIONS"].includes(method) && !provesSameOrigin(req)) {
       return deny(403, "forbidden: this browser's session makes changes only from its own page");
@@ -494,16 +355,10 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
     if (!session.scopes.includes(needed)) {
       return deny(403, `forbidden: this session lacks the ${needed} scope`);
     }
-    // Only a request that passed both checks counts as use of the session,
-    // and only a request the client made itself: redeeming a stream ticket
-    // is the tail of an API call that already counted, and a stream left
-    // open unattended must not keep a session alive on its own.
     if (via !== "ticket") options.sessions.renew(session.id);
     return { auth: { kind: "session", session, via, scopes: session.scopes }, status: 401, error: "" };
   }
 
-  // A removed email member must not become the loopback owner merely because
-  // their now-invalid cookie or bearer was presented to a local address.
   if (via) {
     return deny(401, "unauthorized: this session has expired or was revoked; pair this device again");
   }
@@ -517,7 +372,6 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
         !secureTokenMatch(companionToken, options.companionMutationToken ?? "") ||
         req.headers["x-laterdog-companion"] !== "1" ||
         !/^[\w-]{1,128}$/.test(headerValue(req.headers["x-laterdog-companion-device"]) ?? "") ||
-        // a phone's allowlisted route, or the companion's own notice (an unpaired phone)
         (companionDenial({ path, method, authenticated: true }) && !isCompanionNotice(method, path))
       ) return deny(403, "forbidden: invalid companion request");
       return { auth: { kind: "loopback", scopes: LOOPBACK_SCOPES }, status: 401, error: "" };
@@ -530,15 +384,12 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
       return deny(403, "forbidden: this change must come from the desktop app or a paired device");
     }
     if (options.loopbackMutationToken === undefined && options.loopbackTrust === "service") {
-      // The CLI that started this server may still print a pairing code.
       if (
         options.cliOwnerToken && CLI_OWNER_ROUTE.test(path) && ["GET", "POST"].includes(method.toUpperCase()) &&
         secureTokenMatch(headerValue(req.headers[CLI_OWNER_HEADER]), options.cliOwnerToken)
       ) {
         return { auth: { kind: "loopback", scopes: LOOPBACK_SCOPES }, status: 401, error: "" };
       }
-      // On a shared server "local" includes every bot's shell. Default deny:
-      // only the service routes, never an admin change, without a session.
       if (!serviceAllowed(method, path)) {
         return deny(403, "forbidden: on this shared server a local request without a session may only use the service routes; sign in to change settings, people or access");
       }

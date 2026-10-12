@@ -38,8 +38,6 @@ describe("browser profile manager", () => {
     expect(html).toContain('value="guest"');
     expect(html).toContain("Dogs on a shared profile use the same logins.");
     expect(html).not.toMatch(/<details[^>]*\bopen/);
-    // Initial auth is unresolved: never offer active mutations until owner
-    // scope has been checked, including on a self-hosted browser origin.
     expect(html.match(/<select[^>]*>/)?.[0]).toContain('disabled=""');
   });
 

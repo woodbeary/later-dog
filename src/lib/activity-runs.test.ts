@@ -6,8 +6,6 @@ import type { Message } from "@/state/store";
 let seq = 0;
 const tool = (name: string, ok = true): Message =>
   ({ id: `t${++seq}`, at: seq, role: "bot", kind: "activity", tool: { name, ok } });
-/** a step with no verdict yet — `ok` absent, not `ok: undefined`, which a
- * default parameter would quietly turn back into a finished step */
 const running = (name: string): Message =>
   ({ id: `t${++seq}`, at: seq, role: "bot", kind: "activity", tool: { name } });
 const text = (body: string): Message => ({ id: `m${++seq}`, at: seq, role: "bot", kind: "text", text: body });

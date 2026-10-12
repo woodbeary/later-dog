@@ -9,8 +9,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
-// Regenerate title (#1858) end to end: a real server and the fake claude
-// CLI, whose one-shot text mode answers from a file each test rewrites.
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
@@ -79,9 +77,7 @@ beforeAll(async () => {
     if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}: ${output}`);
     try {
       if ((await fetch(`${base}/api/health`)).status === 200) break;
-    } catch {
-      // still starting
-    }
+    } catch {}
     if (Date.now() >= deadline) throw new Error(`server never became healthy: ${output}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -105,9 +101,7 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
       modelSelection: { instanceId: "titled", model: "claude-sonnet-5" }, requireAvailableModel: true,
     })).body.bot;
     botId = bot.id;
-    // background memory capture is a one-shot too; keep it off this dump
     expect((await api("PATCH", `/api/bots/${botId}`, { memoryUpkeep: false })).status).toBe(200);
-    // the first-message title one-shot fails (no reply file): the snippet stays
     rmSync(titleFile, { force: true });
     const sent = await api("POST", `/api/bots/${botId}/messages`, { text: "every login hangs after the session expires" });
     expect(sent.status).toBe(202);
@@ -120,7 +114,6 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
     await expect.poll(() => existsSync(titleDump), { timeout: 10_000 }).toBe(true);
     rmSync(titleDump, { force: true });
 
-    // a person's name for it is no obstacle: they asked for a new one
     expect((await api("PATCH", `/api/bots/${botId}/tasks/${threadId}`, { title: "My name for it" })).status).toBe(200);
     writeFileSync(titleFile, "\"Session expiry login hang.\"\n");
     const regenerated = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);
@@ -131,7 +124,6 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
     const seen = JSON.parse(readFileSync(titleDump, "utf8"));
     expect(seen.prompt).toContain("Conversation:\n");
     expect(seen.prompt).toContain("User: every login hangs after the session expires\nBot: hello from fake claude");
-    // the fake's turn ran `echo hi`; tool input and output stay out
     expect(seen.prompt).not.toContain("echo hi");
   });
 

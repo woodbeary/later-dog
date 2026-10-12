@@ -1,10 +1,7 @@
-// Types for control-plane-client.mjs as the headless server uses it
-// (server/tunnel.ts). Keep in step with the implementation.
 export declare class ControlPlaneError extends Error {
   readonly code: string;
   readonly status: number;
   readonly requestId: string;
-  /** Server-requested delay from a Retry-After header, or 0. */
   readonly retryAfterMs: number;
   constructor(code: string, status?: number, requestId?: string, retryAfterMs?: number);
 }

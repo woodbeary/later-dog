@@ -1,10 +1,3 @@
-// One-shot fault injection for the voice-note e2e suite. The verification
-// launcher imports this prelude only when it forwards
-// LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE=1, so no other environment is affected.
-// It makes the FIRST store.appendMessage call whose message carries an
-// audio attachment throw; every later call runs untouched. That single
-// failure lets a test prove a persistence error leaves this turn's parked
-// voice note in place — the post can be retried and the clip still attaches.
 import { Store } from "../store.ts";
 
 if (process.env.LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE === "1") {

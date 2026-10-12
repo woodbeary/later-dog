@@ -17,7 +17,6 @@ const store = vi.hoisted(() => ({ instances: [] as unknown[], dispatch: vi.fn(),
 vi.mock("@/state/store", () => ({
   useStore: () => ({ state: { instances: store.instances }, dispatch: store.dispatch, refreshInstances: store.refreshInstances }),
 }));
-// The sign-in cards themselves have their own tests (ClaudeSignIn, DeviceSignIn, EngineSetup).
 vi.mock("@/components/EngineSetup", async (original) => ({
   ...(await original<typeof import("@/components/EngineSetup")>()),
   EngineSetup: ({ instance }: { instance: InstanceInfo }) => createElement("div", { "data-engine-setup": instance.instanceId }),
@@ -65,10 +64,8 @@ it("offers the sign-ins and says plainly whose plan limits apply", () => {
   expect(html).toContain("data-cloud-sign-in");
   for (const label of ["Sign in to Claude", "Sign in to ChatGPT (Codex)"]) expect(html).toContain(label);
   expect(html).toContain("plan&#x27;s limits apply to dogs that work around the clock");
-  // later.dog Cloud sells a plan called Max too: the recommendation names Anthropic's.
   expect(html).toContain("Anthropic&#x27;s Claude Max plan or an API key works best");
   expect(html).not.toMatch(/included/i);
-  // nothing is opened on the person's behalf
   expect(html).not.toContain("data-engine-setup");
 });
 

@@ -1,6 +1,3 @@
-// "Switch them too" through the route table, over a real store: it clears
-// exactly the threads that run on a model of their own different from the
-// bot's, leaves a running thread alone, and refuses another bot's threads.
 import { rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -75,7 +72,6 @@ describe("Switch them too", () => {
 
   it("clears exactly the threads on a model of their own, and leaves a running one until it settles", async () => {
     const { store, bot, follower, onCodex, onOpus, running } = fixture();
-    // Its own pick that later became the bot's model: not "different".
     store.patchBot(bot.id, { modelSelection: opus });
     const base = await serve(store, { busy: new Set([running]) });
     const response = await post(base, bot.id);

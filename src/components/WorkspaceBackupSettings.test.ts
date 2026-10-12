@@ -68,7 +68,7 @@ describe("Settings full backups", () => {
     fixture.api.mockResolvedValueOnce({ id: "download-id", filename: "fixture.dogbackup" });
     const form = view.nodes.find((node) => node.type === "form")!;
     submit(form); submit(form); await flush();
-    expect(fixture.api).toHaveBeenCalledTimes(2); // one status, one export
+    expect(fixture.api).toHaveBeenCalledTimes(2);
     const [path, init] = fixture.api.mock.calls[1];
     expect(path).toBe("/api/workspace-backup/export");
     expect(JSON.parse(init.body)).toEqual({ password: "correct horse battery", clientState: { "laterdog-drafts": "private draft" } });
@@ -229,7 +229,7 @@ describe("Settings full backups", () => {
     before.delete("laterdog-pending-workspace-restore");
     expect(storage).toEqual(before);
     expect(window.location.reload).toHaveBeenCalledOnce();
-    expect(render(true).html).not.toContain("Normal app"); // bootstrap, not a direct authentication bypass
+    expect(render(true).html).not.toContain("Normal app");
     expect(fixture.api).toHaveBeenCalledTimes(status === 401 ? 1 : 2);
   });
 
@@ -259,7 +259,6 @@ describe("Settings full backups", () => {
     expect(html).toContain("no file or password");
     expect(html).toContain("bots.example.test is empty. Copy 4 dogs and 37 chats here");
     expect(html.indexOf("Import from this computer")).toBeLessThan(html.indexOf("Import backup"));
-    // In a browser there is no desktop app to copy from.
     vi.stubGlobal("window", { location: { reload: vi.fn() } });
     fixture.values = [];
     await ready();

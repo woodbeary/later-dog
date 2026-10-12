@@ -1,15 +1,3 @@
-// dweb MCP proxy — spawned as an MCP server inside a bot's agent process.
-// Exposes dweb's HTTP API (the local later.dog network daemon) as tools an
-// agent can call to inspect the network and run model requests:
-//
-//   dweb_status          → ping dweb, summarize server + peer state
-//   dweb_repo_status     → the later.dog repo the daemon is tracking
-//   dweb_opencode_models → models available on the opencode integration
-//   dweb_opencode_run    → run a model command, wait up to 5 min for output
-//
-// Speaks raw JSON-RPC 2.0 over stdio (no MCP SDK — house style, matches
-// agents-proxy / computer-proxy / permission-proxy). Config comes from env:
-//   DWEB_URL  base URL of the local dweb daemon (http://127.0.0.1:49737)
 import readline from "node:readline";
 
 const DWEB = (process.env.DWEB_URL ?? "http://127.0.0.1:49737").replace(/\/+$/, "");

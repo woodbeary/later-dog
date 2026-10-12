@@ -1,16 +1,10 @@
-// Serving over a tailnet: find the Tailscale CLI, read this machine's
-// MagicDNS name, and ask Tailscale to terminate HTTPS for the server.
-// Nothing here logs Tailscale's raw stderr: it can contain auth keys and
-// node names, so failures are classified into a closed set of reasons.
 import { execFile } from "node:child_process";
 
 import { tailscaleCandidates, tailscaleEnvironment } from "../companion/src/listener.ts";
 
 export interface TailscaleStatus {
   cli: string;
-  /** MagicDNS name without the trailing dot, e.g. mini.tail1234.ts.net */
   dnsName: string | null;
-  /** Tailnet IPs (100.64/10 and the IPv6 one) */
   addresses: string[];
   backendState: string;
 }
@@ -24,7 +18,6 @@ export type TailscaleFailure =
   | "https-not-enabled"
   | "unknown";
 
-/** Turn Tailscale's stderr into a reason without repeating it. */
 export function classifyTailscaleStderr(text: string): TailscaleFailure {
   const t = text.toLowerCase();
   if (/not logged in|logged out|needs login|please log in/.test(t)) return "not-logged-in";
@@ -35,7 +28,6 @@ export function classifyTailscaleStderr(text: string): TailscaleFailure {
   return "unknown";
 }
 
-/** What to do about it, for a person. */
 export function explainTailscaleFailure(reason: TailscaleFailure): string {
   switch (reason) {
     case "not-installed":
@@ -69,7 +61,6 @@ function run(cli: string, args: string[], timeoutMs: number): Promise<{ ok: bool
   });
 }
 
-/** Parse `tailscale status --json`. Exported for tests. */
 export function parseTailscaleStatus(cli: string, stdout: string): TailscaleStatus | null {
   let parsed: unknown;
   try {
@@ -89,12 +80,11 @@ export function parseTailscaleStatus(cli: string, stdout: string): TailscaleStat
   };
 }
 
-/** Find a working Tailscale CLI and read its status. */
 export async function tailscaleStatus(): Promise<{ status: TailscaleStatus } | { failure: TailscaleFailure }> {
   let sawCli = false;
   for (const cli of tailscaleCandidates()) {
     const result = await run(cli, ["status", "--json"], 5_000);
-    if (!result.ok && !result.stdout && result.code === null) continue; // not found or timed out
+    if (!result.ok && !result.stdout && result.code === null) continue;
     sawCli = true;
     const status = parseTailscaleStatus(cli, result.stdout);
     if (status) {
@@ -107,9 +97,6 @@ export async function tailscaleStatus(): Promise<{ status: TailscaleStatus } | {
   return { failure: sawCli ? "unknown" : "not-installed" };
 }
 
-/** `tailscale serve --bg --https=<httpsPort> http://127.0.0.1:<localPort>`:
- * Tailscale terminates TLS with its own certificate and forwards with the
- * forwarded headers the server expects. Returns the public origin. */
 export async function tailscaleServe(
   status: TailscaleStatus,
   localPort: number,

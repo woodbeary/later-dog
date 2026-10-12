@@ -1,11 +1,3 @@
-// The popover shared by the sidebar's profile row and the chat header's More
-// button: a trigger that opens a list of items. Only the trigger's shape, the
-// side the menu opens on and the open gesture differ, so the keyboard
-// handling, the outside-click close and the item chrome live here once.
-//
-// More opens on hover. The profile menu opens on click only, because a menu
-// that appears under the cursor when you are aiming at nothing in particular
-// is startling on a row you pass over constantly.
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
@@ -14,36 +6,21 @@ import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
 export interface SidebarMenuItem {
   key: string;
   label: string;
-  /** a second, quieter line under the label (where "Connect your phone" connects to) */
   subtitle?: string;
-  /** a third, quieter line still: a short note (why something is not offered yet) */
   note?: string;
   icon?: React.ReactNode;
   active?: boolean;
-  /** the item wants attention (an update ready to install, or one that
-   * failed); drawn as a dot on the item */
   attention?: boolean;
-  /** what the attention means — something went wrong (default) or something
-   * good is waiting */
   attentionTone?: "danger" | "accent";
   disabled?: boolean;
-  /** draw a hairline above this item — the Grok-style trailing group */
   separatorBefore?: boolean;
-  /** a small caps label above this item, naming the group it starts (the
-   * chat menu's "Share" over the two export actions) */
   heading?: string;
-  /** rendered at the trailing edge (a spinner, a status dot) */
   trailing?: React.ReactNode;
-  /** the menu normally closes on select; an item that reports progress in
-   * place (the update check) keeps it open */
   keepOpen?: boolean;
   onSelect: () => void;
-  /** `data-tour` id, so the guided tour can point at this item */
   tourId?: string;
 }
 
-/** Opening is quick enough to feel like a hover, closing is slow enough to
- * forgive a diagonal path from the trigger to the menu. */
 const OPEN_DELAY_MS = 80;
 const CLOSE_DELAY_MS = 250;
 
@@ -66,9 +43,6 @@ export function SidebarPopoverMenu({
   renderTrigger,
   onOpenChange,
 }: {
-  /** "above" stretches over the trigger's width and opens upward (the
-   * sidebar's profile menu); "below" hangs a fixed-width sheet under the
-   * trigger's right edge (a header icon). */
   placement?: "above" | "below" | "auto";
   align?: "start" | "end";
   items: SidebarMenuItem[];
@@ -142,7 +116,6 @@ export function SidebarPopoverMenu({
       className="relative"
       onPointerEnter={hoverOpen}
       onPointerLeave={hoverClose}
-      // a keyboard user tabbing in gets the same menu a pointer gets
       onFocus={() => openOnHover && setOpen(true)}
       onBlur={(event) => {
         if (pinned) return;

@@ -1,11 +1,3 @@
-// The full server with Cloud Pro's included decision model, over its real
-// HTTP boundary, against one stub that plays Jev (/jev, the person's own
-// decider.baseUrl) and the Admin's relay (/relay). With no key to paste,
-// rooms start on Auto and ask the relay; an own key wins and goes only to
-// Jev; clearing it falls back; an explicit off wins. The included token goes
-// only to <LATERDOG_CLOUD_DECIDER_URL>/v1/systemone, only with the two requests
-// the relay accepts, and is never saved, shown, logged or handed to a child.
-// Disposable home; no network.
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
@@ -21,8 +13,6 @@ import { freePortBlock } from "./testing/ports.ts";
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
 const RELAY_PATH = "/relay/api/cloud/services/decider";
-// What the Admin's relay accepts, pinned here as literals: changing the app's
-// copy must fail this test, because the relay would refuse it.
 const ROOM_INSTRUCTIONS = "Which bot in this room should answer `new_message`? Choose __everyone__ only when the message needs several members to answer.";
 const ROOM_STATE_KEYS = ["room", "humans_in_room", "bots_in_room", "recent_messages", "new_message"];
 const KEY_CHECK = {
@@ -30,7 +20,6 @@ const KEY_CHECK = {
   questions: { answer: { type: "noul", instructions: "Is this a connection check?" } },
 };
 
-/** The relay's own check of a request body. */
 function relayTakes(raw: string, body: any): boolean {
   if (Buffer.byteLength(raw) > 64 * 1024 || Buffer.byteLength(JSON.stringify(body.state)) > 24_000) return false;
   if (JSON.stringify({ state: body.state, questions: body.questions }) === JSON.stringify(KEY_CHECK)) return true;
@@ -45,7 +34,6 @@ const OWN = "tsk_own_person_key_5e1c";
 let stub: Server;
 let relayUrl = "";
 const requests: Array<{ side: string; path: string; auth: string; type?: string; refused?: boolean }> = [];
-/** The bot the stub picks, at 0.95. */
 let pick = "";
 let home: string;
 let data: string;
@@ -80,7 +68,6 @@ beforeAll(async () => {
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(payload));
       };
-      // Each side knows only its own account, and serves only its one route.
       const route = side === "relay" ? `${RELAY_PATH}/v1/systemone` : "/jev/v1/systemone";
       if (!side || req.method !== "POST" || url.pathname !== route) return send(404, { error: { type: "not_found" } });
       if (auth !== (side === "relay" ? `Bearer ${INCLUDED}` : `Bearer ${OWN}`)) return send(401, { error: { type: "invalid_api_key" } });
@@ -105,7 +92,6 @@ beforeAll(async () => {
         environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: engineDump },
       },
     },
-    // Where an own key goes: never where the included token goes.
     decider: { baseUrl: `${stubBase}/jev` },
   }));
   const port = await freePortBlock([0, 1]);
@@ -127,7 +113,7 @@ beforeAll(async () => {
   const deadline = Date.now() + 20_000;
   for (;;) {
     if (child.exitCode !== null) throw new Error(`the server exited:\n${log}`);
-    try { if ((await api("GET", "/api/health")).body?.pid === child.pid) break; } catch { /* starting */ }
+    try { if ((await api("GET", "/api/health")).body?.pid === child.pid) break; } catch {}
     if (Date.now() > deadline) throw new Error(`the server did not start:\n${log}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -146,7 +132,6 @@ async function roomMessages(roomId: string): Promise<{ working: boolean; message
   return { working: Boolean(room?.working), messages: room?.messages ?? [] };
 }
 
-/** Send one message and wait for the round to settle; who spoke first. */
 async function round(roomId: string, text: string): Promise<RoomMessage> {
   const before = new Set((await roomMessages(roomId)).messages.map((message) => message.id));
   expect((await api("POST", `/api/groups/${roomId}/messages`, { text })).status).toBe(202);
@@ -160,7 +145,6 @@ async function round(roomId: string, text: string): Promise<RoomMessage> {
 }
 
 const routed = () => requests.filter((request) => request.type === "choice");
-/** A credential on the side that does not know it. */
 const crossed = () => requests.filter((request) =>
   (request.side === "jev" && request.auth.includes(INCLUDED)) || (request.side === "relay" && !request.auth.includes(INCLUDED)));
 
@@ -230,7 +214,6 @@ describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
     expect(routed().length).toBe(asked);
     const another = await api("POST", "/api/groups", { name: "Quiet", memberIds: [bots.Maya!.id, bots.Theo!.id] });
     expect(another.body.group.defaultResponder).not.toEqual({ kind: "auto" });
-    // switching back on needs no key of the person's own
     const on = await api("PUT", "/api/config", { decider: { enabled: true } });
     expect(on.status, on.text).toBe(200);
     expect(on.body.decider).toMatchObject({ included: true, enabled: true });
@@ -238,7 +221,6 @@ describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
 
   it("never sends a credential to the other side, nor the relay a request it refuses, and never saves, logs or hands on the included token", async () => {
     expect(crossed()).toEqual([]);
-    // two room decisions and one key check, and nothing else
     expect(requests.filter((request) => request.side === "relay").map((request) => request.type)).toEqual(["choice", "noul", "choice"]);
     expect(requests.filter((request) => request.refused)).toEqual([]);
     expect(readFileSync(join(data, "config.json"), "utf8")).not.toContain(INCLUDED);
@@ -247,13 +229,10 @@ describe("Cloud Pro's included decision model", { timeout: 90_000 }, () => {
     expect(rows).toContain('"seam":"roomRouting"');
     expect(rows).not.toContain(INCLUDED);
     expect(log).not.toContain(INCLUDED);
-    // An engine's environment.
     expect(existsSync(engineDump)).toBe(true);
     const engine = JSON.parse(readFileSync(engineDump, "utf8")).env;
     expect(engine).not.toHaveProperty("LATERDOG_CLOUD_DECIDER_TOKEN");
     expect(JSON.stringify(engine)).not.toContain(INCLUDED);
-    // A tool started with a copy of the server's own environment, as it is:
-    // the token is gone from it, not merely filtered on the way out.
     const dump = join(home, "cli-env.json");
     const cli = join(home, "dump-env.mjs");
     writeFileSync(cli, `#!/usr/bin/env node
@@ -264,8 +243,6 @@ console.log("dump-env 1.0.0");
     const probe = await api("POST", "/api/cli-test", { cli });
     expect(probe.body, probe.text).toMatchObject({ ok: true, version: "dump-env 1.0.0" });
     const raw = JSON.parse(readFileSync(dump, "utf8"));
-    // Proves the dump is the server's environment, not an empty one. Every
-    // LATERDOG_CLOUD_* value, the relay URL included, is stripped from a probed CLI.
     expect(raw.HOME).toBe(home);
     expect(raw).not.toHaveProperty("LATERDOG_CLOUD_DECIDER_URL");
     expect(raw).not.toHaveProperty("LATERDOG_CLOUD_DECIDER_TOKEN");

@@ -46,7 +46,6 @@ interface CountedStatement {
   statement: D1PreparedStatement;
 }
 
-/** "SELECT installation_endpoints", "UPDATE installations", ... */
 function statementLabel(sql: string): string {
   const words = sql.trim().split(/\s+/);
   const verb = words[0]?.toUpperCase() ?? "";
@@ -54,8 +53,6 @@ function statementLabel(sql: string): string {
   return `${verb} ${table ?? "?"}`;
 }
 
-/** An env whose D1 binding records every round trip it makes. A batch is one
- * round trip, as in production, where D1 runs it as a single request. */
 function countingD1() {
   const trips: string[][] = [];
   const wrap = (statement: D1PreparedStatement, label: string): D1PreparedStatement => new Proxy(statement, {
@@ -190,10 +187,8 @@ class FakeCloudflare {
   readonly dns = new Map<string, FakeDNSRecord>();
   readonly failures = new Set<string>();
   readonly failuresAfterApply = new Set<string>();
-  /** Provider error codes returned (HTTP 400) for an operation. */
   readonly providerErrors = new Map<string, number>();
   readonly rateLimited = new Set<string>();
-  /** Retry-After header sent with a rate-limited response, if any. */
   rateLimitRetryAfter: string | null = null;
   readonly afterHooks = new Map<string, () => void>();
   readonly tunnels = new Map<string, FakeTunnel>();
@@ -424,8 +419,6 @@ function isCapacityRead(entry: { method: string; url: string }): boolean {
   );
 }
 
-/** Provider calls made by provisioning or cleanup, excluding the cron's
- * two read-only capacity requests. */
 function cleanupCalls(cloudflare: FakeCloudflare) {
   return cloudflare.calls.filter((entry) => !isCapacityRead(entry));
 }
@@ -532,7 +525,6 @@ describe("installation check-in round trips", () => {
       });
       return { body: await response.text(), status: response.status, trips: [...counted.trips] };
     };
-    // The read stays after the writes, so it runs in the same order as before.
     const trips = [
       ["SELECT installation_credentials"],
       ["UPDATE installation_credentials", "UPDATE installations", "SELECT installation_endpoints"],
@@ -591,7 +583,6 @@ describe("installation check-in round trips", () => {
     };
     const before = await checkIns(id);
 
-    // Same lookup ID with a different secret: the row is found, the hash is not.
     const credential = installation.credential;
     const wrongSecret = `${credential.slice(0, -1)}${credential.endsWith("A") ? "B" : "A"}`;
     expect(await lookup(wrongSecret)).toEqual({ status: 401, trips: [["SELECT installation_credentials"]] });
@@ -625,7 +616,6 @@ describe("installation check-in round trips", () => {
       token: installation.credential,
     })).status).toBe(200);
     expect(counted.trips.slice(0, 2)).toEqual(CHECK_IN);
-    // Re-provisioning a ready endpoint keeps its existing round trips.
     expect(counted.trips).toHaveLength(15);
   });
 });
@@ -1209,8 +1199,6 @@ describe("managed companion endpoints", () => {
       "SELECT status, COUNT(*) AS count FROM installation_endpoints GROUP BY status ORDER BY status",
     ).all<{ count: number; status: string }>()).results;
 
-    // Workers Free deployments set LATERDOG_CLEANUP_SWEEP_LIMIT=4: forty cleanup
-    // calls plus the two capacity reads stay under 50 subrequests.
     await runScheduledCleanup(worker, { LATERDOG_CLEANUP_SWEEP_LIMIT: "4" });
     expect(await counts()).toEqual([
       { count: 4, status: "deleted" },
@@ -1219,9 +1207,6 @@ describe("managed companion endpoints", () => {
     expect(cleanupCalls(cloudflare)).toHaveLength(40);
     expect(cloudflare.calls.filter(isCapacityRead)).toHaveLength(2);
 
-    // On Workers Paid (LATERDOG_CLEANUP_SWEEP_LIMIT=20, the code default) a run
-    // processes twenty rows at ten calls each: about 200 of the token's 1,200
-    // requests per five minutes. wrangler.jsonc ships 4 until Paid is confirmed.
     cloudflare.calls.length = 0;
     await runScheduledCleanup(worker, { LATERDOG_CLEANUP_SWEEP_LIMIT: "20" });
     expect(await counts()).toEqual([
@@ -1364,7 +1349,6 @@ async function provisioned(
   return { credential: installation.credential, id, state, tunnel, url: payload.endpoint.url };
 }
 
-/** Make an installation and its endpoint look untouched for `ageMs`. */
 async function quiet(installationId: string, ageMs: number): Promise<void> {
   const at = Date.now() - ageMs;
   await env.DB.batch([
@@ -1446,10 +1430,8 @@ describe("idle tunnel reclaim", () => {
     neverRan(recentlySeen.tunnel, 30);
     neverRan(recentlyReconciled.tunnel, 30);
     neverRan(mismatched.tunnel, 30);
-    // The stored ID no longer names the listed tunnel: ownership is unproven.
     await env.DB.prepare("UPDATE installation_endpoints SET tunnel_id = ? WHERE installation_id = ?")
       .bind("70000000-0000-4000-8000-000000000001", mismatched.id).run();
-    // The app checked in an hour ago, or reconciled its endpoint yesterday.
     await env.DB.prepare("UPDATE installations SET last_seen_at = ? WHERE id = ?")
       .bind(Date.now() - 60 * 60 * 1_000, recentlySeen.id).run();
     await env.DB.prepare("UPDATE installation_endpoints SET updated_at = ? WHERE installation_id = ?")
@@ -1480,7 +1462,6 @@ describe("idle tunnel reclaim", () => {
     const [scan] = loggedJSON(logged, "managed endpoint tunnel scan");
     expect(scan).toMatchObject({
       eligible: 2,
-      // Provider-idle, but recently seen, recently reconciled, or mismatched.
       idle: { never_connected: 4, offline: 1 },
       managed: 8,
       marked: 2,
@@ -1490,8 +1471,6 @@ describe("idle tunnel reclaim", () => {
     expect(loggedJSON(logged, "managed endpoint cleanup sweep")[0]).toMatchObject({ deleted: 2 });
     logged.mockRestore();
 
-    // The installation was never signed out. Its next reconcile gets a fresh
-    // tunnel behind the same hostname, so a paired phone keeps its address.
     await expect((await call(worker, "/v1/installations/self/endpoint", {
       token: neverConnected.credential,
     })).json()).resolves.toEqual({ endpoint: null });
@@ -1554,7 +1533,6 @@ describe("idle tunnel reclaim", () => {
       name: "another-service",
       status: "down",
     });
-    // Over one scan page of unrelated tunnels: the cursor walks and wraps.
     for (let index = 0; index < 130; index += 1) {
       const name = `team-tunnel-${index}`;
       cloudflare.tunnels.set(name, {
@@ -1595,8 +1573,6 @@ describe("idle tunnel reclaim", () => {
           SET status = 'deleting', reclaim_requested_at = ?, delete_requested_at = ?
         WHERE installation_id = ?`,
     ).bind(markedAt, markedAt, taken.id).run();
-    // The sweep has chosen the row. Before it claims it, the owner's app
-    // provisions again and takes the row back.
     const back = await call(worker, "/v1/installations/self/endpoint", { method: "POST", token: taken.credential });
     expect(back.status).toBe(200);
     expect(await endpointState(taken.id)).toMatchObject({ status: "ready" });
@@ -1617,8 +1593,6 @@ describe("idle tunnel reclaim", () => {
     const checkedIn = await provisioned(worker, cloudflare, owner.token, "reclaim-checked-in");
     const revoked = await provisioned(worker, cloudflare, owner.token, "reclaim-revoked");
     for (const each of [reconnected, checkedIn, revoked]) await quiet(each.id, 30 * DAY_MS);
-    // Marked by an earlier run (or by hand: migration 0006 backfills the
-    // marker onto operator-marked rows of active installations).
     const markedAt = Date.now() - 60_000;
     for (const each of [reconnected, checkedIn, revoked]) {
       await env.DB.prepare(
@@ -1631,7 +1605,6 @@ describe("idle tunnel reclaim", () => {
     neverRan(checkedIn.tunnel, 30);
     await env.DB.prepare("UPDATE installations SET last_seen_at = ? WHERE id = ?")
       .bind(Date.now(), checkedIn.id).run();
-    // Revocation always wins, even over a live connector.
     connected(revoked.tunnel);
     await env.DB.prepare("UPDATE installations SET revoked_at = ? WHERE id = ?")
       .bind(Date.now(), revoked.id).run();
@@ -1665,7 +1638,6 @@ describe("idle tunnel reclaim", () => {
     const midway = await provisioned(worker, cloudflare, owner.token, "reclaim-midway");
     await quiet(midway.id, 30 * DAY_MS);
     neverRan(midway.tunnel, 30);
-    // The connector comes back between the DNS delete and the tunnel delete.
     cloudflare.afterHooks.set("delete_dns", () => connected(midway.tunnel));
     vi.spyOn(console, "log").mockImplementation(() => undefined);
 
@@ -1681,7 +1653,6 @@ describe("idle tunnel reclaim", () => {
       tunnel_id: midway.tunnel.id,
     });
 
-    // The next reconcile adopts the surviving tunnel and restores its DNS.
     cloudflare.afterHooks.clear();
     const tunnelCreates = () => cloudflare.calls.filter((entry) => (
       entry.method === "POST" && new URL(entry.url).pathname.endsWith("/cfd_tunnel")
@@ -1827,7 +1798,6 @@ describe("managed endpoint provider capacity", () => {
       errorCode: "cf_api_1045",
     });
 
-    // A second new allocation is answered without touching the shared API.
     const callsBefore = cloudflare.calls.length;
     const deferred = await call(worker, "/v1/installations/self/endpoint", {
       method: "POST",
@@ -1837,7 +1807,6 @@ describe("managed endpoint provider capacity", () => {
     await expect(deferred.json()).resolves.toEqual({ error: "endpoint_capacity" });
     expect(cloudflare.calls.length).toBe(callsBefore);
 
-    // An installation that already holds a tunnel still reconciles normally.
     expect((await call(worker, "/v1/installations/self/endpoint", {
       method: "POST",
       token: established.credential,
@@ -1848,7 +1817,6 @@ describe("managed endpoint provider capacity", () => {
     expect(healthBody.capacity.status).toBe("full");
     expect(healthBody.capacity.providerRejectedAt).toEqual(expect.any(Number));
 
-    // Cleanup that frees a resource reopens allocation before the gate expires.
     cloudflare.providerErrors.clear();
     const now = Date.now();
     cloudflare.tunnels.set(`laterdog-c-${"e".repeat(32)}`, {
@@ -1891,7 +1859,6 @@ describe("managed endpoint provider capacity", () => {
     })).status).toBe(503);
     expect(await health()).toMatchObject({ providerRejectedAt: expect.any(Number), status: "full" });
 
-    // The sweep alone (no scan) frees a resource and clears the rejection.
     cloudflare.providerErrors.clear();
     const now = Date.now();
     const tunnelName = `laterdog-c-${"f".repeat(32)}`;
@@ -1922,7 +1889,6 @@ describe("managed endpoint provider capacity", () => {
     });
     expect(rejected.status).toBe(503);
     await expect(rejected.json()).resolves.toEqual({ error: "endpoint_capacity" });
-    // The tunnel this attempt created was rolled back rather than left idle.
     expect(cloudflare.tunnels.size).toBe(0);
 
     cloudflare.providerErrors.clear();
@@ -1950,7 +1916,6 @@ describe("managed endpoint provider capacity", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     cloudflare.rateLimited.add("create_tunnel");
 
-    // [Cloudflare's Retry-After, what the desktop is told]
     const cases: Array<[string | null, string]> = [
       [null, "60"],
       ["120", "120"],
@@ -1977,13 +1942,11 @@ describe("managed endpoint provider capacity", () => {
       capacity: false,
       errorCode: "cf_rate_limited",
     });
-    // A rate limit is not a quota: it must not close the capacity gate.
     const gate = await env.DB.prepare(
       "SELECT capacity_rejected_at FROM managed_endpoint_capacity WHERE id = 1",
     ).first<{ capacity_rejected_at: number | null }>();
     expect(gate?.capacity_rejected_at).toBeNull();
 
-    // Once Cloudflare stops pushing back, the next attempt provisions.
     cloudflare.rateLimited.clear();
     const recovered = await createInstallation(worker, owner.token, "rate-limited-recovered");
     expect((await call(worker, "/v1/installations/self/endpoint", {
@@ -2032,7 +1995,6 @@ describe("managed endpoint provider capacity", () => {
       expect(text).not.toContain(secret);
     }
 
-    // A raised limit silences the alert; reaching it reports full.
     errors.mockClear();
     await runScheduledCleanup(worker, { LATERDOG_TUNNEL_LIMIT: "2000" });
     expect(loggedJSON(errors, "managed endpoint capacity high")).toEqual([]);

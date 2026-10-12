@@ -4,7 +4,6 @@ import { applyFit, boundsOf, fitTransform, flatten } from "./geometry.ts";
 
 const FACE_BOX = 228.541;
 
-/** A 100x100 box at the origin, as four degenerate cubics. */
 const BOX =
   "M0 0 C33.33 0 66.67 0 100 0 C100 33.33 100 66.67 100 100 " +
   "C66.67 100 33.33 100 0 100 C0 66.67 0 33.33 0 0 Z";
@@ -46,7 +45,6 @@ describe("fitTransform", () => {
   it("centres the narrow axis of a tall shape", () => {
     const fit = fitTransform({ minX: 0, minY: 0, maxX: 50, maxY: 100 });
     expect(fit.scale).toBeCloseTo(FACE_BOX / 100, 5);
-    // 50 wide at that scale leaves half the box spare, split evenly.
     expect(fit.tx).toBeCloseTo(FACE_BOX / 4, 3);
     expect(fit.ty).toBeCloseTo(0, 3);
   });

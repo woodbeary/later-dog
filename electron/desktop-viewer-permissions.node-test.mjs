@@ -21,7 +21,6 @@ test("accepts a bare origin or a full URL on either side", () => {
 test("refuses input permissions to any other origin", () => {
   assert.equal(desktopViewerPermissionAllowed("keyboardLock", "https://other.example/vnc.html", VIEWER), false);
   assert.equal(desktopViewerPermissionAllowed("clipboard-read", "https://desktop.example.evil/vnc.html", VIEWER), false);
-  // Scheme and port are part of the origin.
   assert.equal(desktopViewerPermissionAllowed("pointerLock", "http://desktop.example/vnc.html", VIEWER), false);
   assert.equal(desktopViewerPermissionAllowed("fullscreen", "https://desktop.example:8443/vnc.html", VIEWER), false);
 });
@@ -45,7 +44,6 @@ test("fails closed on unparsable or opaque origins", () => {
   assert.equal(desktopViewerPermissionAllowed("keyboardLock", null, VIEWER), false);
   assert.equal(desktopViewerPermissionAllowed("keyboardLock", VIEWER_PAGE, "not a url"), false);
   assert.equal(desktopViewerPermissionAllowed("keyboardLock", VIEWER_PAGE, undefined), false);
-  // Opaque origins all serialise as "null"; two of them must never match.
   assert.equal(desktopViewerPermissionAllowed("keyboardLock", "data:text/html,x", "about:blank"), false);
   assert.equal(desktopViewerPermissionAllowed("keyboardLock", "javascript:alert(1)", VIEWER), false);
 });

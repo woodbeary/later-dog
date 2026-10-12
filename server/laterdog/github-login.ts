@@ -2,17 +2,14 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { runCommand, type CommandRunner } from "./command.ts";
 import type { LoginSpawner } from "./codex-cloud.ts";
 
-/** Where a GitHub sign-in started from this host stands. The token gh receives never leaves gh's own config. */
 export interface GitHubSignIn {
   phase: "idle" | "waiting" | "done" | "failed";
-  /** The one-time code and the page to enter it on, while waiting. */
   code?: string;
   url?: string;
   startedAt?: string;
   detail?: string;
 }
 
-/** gh's non-interactive device flow prints "! First copy your one-time code: ABCD-1234" and the page to open. */
 export function parseGitHubDevicePrompt(output: string): { code: string; url: string } | null {
   const code = /one-time code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})\b/.exec(output)?.[1];
   const url = /(https:\/\/github\.com\/login\/device)\b/.exec(output)?.[1];
@@ -22,17 +19,10 @@ export function parseGitHubDevicePrompt(output: string): { code: string; url: st
 export interface GitHubDeviceLoginOptions {
   spawner?: LoginSpawner;
   run?: CommandRunner;
-  /** How long to wait for gh to print its code. */
   promptMs?: number;
   env?: NodeJS.ProcessEnv;
 }
 
-/**
- * Signs gh in on the host the supervisor runs on (a Cloudflare container has no shell to do it from) with GitHub's own
- * device flow: the operator opens github.com/login/device, enters the code and authorizes. The resulting credential lives
- * in gh's config on that host; the entrypoint backs it up encrypted, and `gh auth setup-git` lets plain git push with it.
- * Nobody copies or pastes a token. The `workflow` scope is requested because published branches may change workflows.
- */
 export class GitHubDeviceLogin {
   private flow?: { child: ChildProcess; output: string; status: GitHubSignIn };
   private readonly spawner: LoginSpawner;
@@ -43,7 +33,6 @@ export class GitHubDeviceLogin {
     this.spawner = options.spawner ?? ((binary, args, spawnOptions) => spawn(binary, args, { ...spawnOptions, stdio: ["ignore", "pipe", "pipe"], shell: false }));
     this.run = options.run ?? runCommand;
     this.promptMs = options.promptMs ?? 20_000;
-    // gh refuses to store a login while GH_TOKEN is set, and a stale token must not shadow the new one.
     const { GH_TOKEN: _gh, GITHUB_TOKEN: _github, ...env } = options.env ?? process.env;
     this.env = { ...env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" };
   }
@@ -75,7 +64,6 @@ export class GitHubDeviceLogin {
       flow.status = { phase: "failed", startedAt: flow.status.startedAt, detail: `GitHub sign-in did not finish (gh exited ${code}): ${flow.output.trim().slice(-300)}` };
       return;
     }
-    // Plain git (fetch, push from the isolated checkout) authenticates through gh once this is set up.
     const setup = await this.run("gh", ["auth", "setup-git"], { env: this.env, timeoutMs: 30_000 }).catch((error: unknown) => ({ exitCode: 1, stdout: "", stderr: String(error), timedOut: false }));
     flow.status = setup.exitCode === 0
       ? { phase: "done", startedAt: flow.status.startedAt }

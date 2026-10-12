@@ -23,10 +23,8 @@ export function CloudSetup({ viewer }: { viewer: WelcomeViewer | null }) {
   const [hidden, setHidden] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveSkipped, setMoveSkipped] = useState(false);
-  // One step open at a time: the first one not done, or the one chosen.
   const [chosen, setChosen] = useState<CloudSetupStep | null>(null);
   const record = state.config?.onboarding;
-  // Not now on the move shows as skipped at once, before the Cloud answers.
   const onboarding = moveSkipped && record ? { ...record, hintsSeen: [...record.hintsSeen, CLOUD_SETUP_MOVE_SKIPPED] } : record;
   const facts = {
     viewer, connected: state.connected, enginesKnown: state.instances.length > 0,
@@ -36,9 +34,6 @@ export function CloudSetup({ viewer }: { viewer: WelcomeViewer | null }) {
   const shown = stage === "shown";
   const moveBridge = shown ? window.laterdog?.cloudMove : undefined;
   const move = useCloudMove(moveBridge);
-  // Anywhere but the checklist (any other server, or the checklist hidden or
-  // finished): the one-time Copy this computer here card, which shows only
-  // when main suggests it. Not while this page is still finding out what it is.
   if (!shown) return stage === "waiting" || !viewer ? null : <CloudMoveSuggestion />;
 
   const items = cloudSetupItems({
@@ -55,7 +50,6 @@ export function CloudSetup({ viewer }: { viewer: WelcomeViewer | null }) {
   };
   const hide = () => {
     setHidden(true);
-    // Bringing bots over is one of these steps, so hiding setup is its Not now too.
     if (moveBridge && moveItem?.status === "todo") void moveBridge.dismiss().catch(() => {});
     remember(CLOUD_SETUP_HIDDEN);
   };
@@ -72,12 +66,10 @@ export function CloudSetup({ viewer }: { viewer: WelcomeViewer | null }) {
   const details = (id: CloudSetupStep) => {
     if (id === "engine") return <>
       {hint("cloudSetup.engine.hint")}
-      {/* In the chat view the sign-in is already what the window shows. */}
       {state.activeView !== "chat" && action("cloudSetup.engine.action", () => dispatch({ type: "showChat" }))}
     </>;
     if (id === "move") {
       if (!moveBridge) return null;
-      // Open once asked for, and while a move is under way or has stopped.
       if (moveOpen || (moveItem?.status === "todo" && move.state.phase !== "idle")) {
         return cloudMoveOffer(move, { notNow: () => { setMoveSkipped(true); remember(CLOUD_SETUP_MOVE_SKIPPED); } });
       }
@@ -106,7 +98,6 @@ export function CloudSetup({ viewer }: { viewer: WelcomeViewer | null }) {
           ? <button type="button" aria-expanded={false} onClick={() => setChosen(item.id)} className="block w-full text-left text-[13px] text-ink hover:text-accent">{title}</button>
           : <p className={cn("text-[13px]", pending ? "font-medium text-ink" : "text-ink-secondary")}>{title}</p>}
         {open && details(item.id)}
-        {/* Moved: what does not run yet on the Cloud, and the phone. */}
         {item.id === "move" && item.status === "done" && moveNextSteps(move.state).map(line => <p key={line} className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{line}</p>)}
       </div>
     </li>;

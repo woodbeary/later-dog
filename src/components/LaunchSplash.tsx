@@ -6,10 +6,6 @@ import { useStore } from "@/state/store";
 export const SPLASH_MIN_MS = 700;
 export const SPLASH_FADE_MS = 360;
 
-/** The launch moment: the golden dog on the app's own background until the
- * first snapshot is in and it has been on screen long enough to read as
- * intended, then one fade into the app. A fast start and a slow network
- * look the same. */
 export function LaunchSplash() {
   const { state } = useStore();
   const ready = state.connected && state.hydrated === true;

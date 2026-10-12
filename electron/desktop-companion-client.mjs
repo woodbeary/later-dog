@@ -1,9 +1,3 @@
-// Desktop companion client.
-//
-// The remote device credential stays in Electron's OS-encrypted credential
-// document. The renderer talks to this loopback-only relay with ordinary
-// same-origin fetch/EventSource calls; the relay injects the bearer and strips
-// browser-only headers before crossing the existing companion boundary.
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { createServer } from "node:http";
@@ -18,9 +12,6 @@ const DEVICE_ID = /^[0-9a-f-]{36}$/i;
 const PAIRING_CODE = /^\d{6}$/;
 const MAX_ERROR_BYTES = 64 * 1024;
 
-/** Keep Electron's trusted-renderer boundary and companion client marker
- * together. The former was added upstream after client mode shipped; losing
- * either argument makes the renderer unsafe or makes a live relay look local. */
 export function desktopCompanionRendererArguments(localOrigin, remoteAccess) {
   return [
     `--laterdog-local-origin=${localOrigin}`,
@@ -48,19 +39,12 @@ const cleanLabel = (value, fallback) => {
   return label || fallback;
 };
 
-/** The domain under which this build's account service issues managed HTTPS
- * companion addresses (c-<id>.<domain>). None is built in: without one, only
- * Tailscale names are accepted. */
 export function managedCompanionDomain(environment = process.env) {
   const raw = environment.LATERDOG_MANAGED_COMPANION_DOMAIN;
   const value = String(raw ?? "").trim().toLowerCase().replace(/^\.+/, "");
   return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(value) ? value : "";
 }
 
-/** Pairing tokens may travel through a verified managed HTTPS endpoint (under
- * the build's configured domain) or an explicit Tailscale MagicDNS name.
- * WireGuard protects cleartext HTTP on the latter; accepting LAN IPs there
- * would silently turn the long-lived bearer into plaintext Wi-Fi traffic. */
 export function normalizeDesktopCompanionEndpoint(value, managedDomain = managedCompanionDomain()) {
   let raw = String(value ?? "").trim();
   if (!raw) return "";
@@ -93,7 +77,6 @@ export function normalizeDesktopCompanionEndpoint(value, managedDomain = managed
   return parsed.origin;
 }
 
-/** Compatibility name for code that labels the Tailscale form explicitly. */
 export const normalizeTailscaleCompanionEndpoint = normalizeDesktopCompanionEndpoint;
 export function desktopCompanionAccess(credentials) {
   const stored = credentials?.[DESKTOP_COMPANION_FIELD];

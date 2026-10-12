@@ -2,9 +2,6 @@ import { Info, RefreshCw } from "lucide-react";
 import { statusActivity } from "@/lib/activity-runs";
 import type { Message } from "@/state/store";
 
-/** An engine's own word about this conversation: automatic recovery moved it
- * to another engine, or the engine runs another model than the one saved.
- * Always shown, whatever Settings → Tool calls says. */
 export function StatusActivityRow({ message }: { message: Message }) {
   const status = statusActivity(message);
   if (!status) return null;

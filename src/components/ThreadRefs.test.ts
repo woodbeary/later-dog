@@ -64,7 +64,6 @@ describe("ThreadRefText", () => {
     expect(inProvider(createElement(ThreadRefText, { text: "#QA PR 245" }))).toContain('data-thread-link="ada-qa"');
     fixture.selectedId = "standup";
     const guessed = inProvider(createElement(ThreadRefText, { text: "#QA PR 245" }));
-    // newest by activity wins outright here, so no tooltip guess is needed
     expect(guessed).toContain('data-thread-link="ada-qa"');
     expect(guessed).toContain('title="Open #QA PR 245"');
   });
@@ -133,8 +132,6 @@ describe("ThreadRefsProvider", () => {
 });
 
 
-// Merged with #900: a line can carry an @mention and a #thread at once, and
-// each decoration comes from its own resolver without disturbing the other.
 describe("ThreadRefText with mention peers", () => {
   it("highlights the @mention and links the #thread in one line", () => {
     const markup = inProvider(createElement(ThreadRefText, {

@@ -1,7 +1,3 @@
-// Memory as a person reads it: one switch and the things this dog
-// remembers, each a line it can forget. The files behind it (MEMORY.md, topic
-// notes, daily logs, the change journal) stay one quiet click away in
-// MemorySection, for whoever wants them.
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
@@ -16,8 +12,6 @@ const rowCls = "px-4 py-3";
 const dividedRowCls = "border-t border-hairline/40 px-4 py-3";
 const SHOWN = 8;
 
-/** The bullet lines of MEMORY.md, as plain sentences. Headings, the file's
- * own instructions and blank lines are not things the dog remembers. */
 export function rememberedItems(text: string): Array<{ line: string; words: string }> {
   return text.split(/\r?\n/).flatMap((line) => {
     const match = /^\s*[-*+]\s+(?:\[[ xX]\]\s+)?(.+?)\s*$/.exec(line);
@@ -32,7 +26,6 @@ export function rememberedItems(text: string): Array<{ line: string; words: stri
   });
 }
 
-/** The file without one remembered line (its first occurrence). */
 export function withoutLine(text: string, line: string): string {
   const lines = text.split("\n");
   const index = lines.findIndex((candidate) => candidate.replace(/\r$/, "") === line.replace(/\r$/, ""));

@@ -1,6 +1,3 @@
-// Assert the first-run workflow against a handle from `control-laterdog ui launch`.
-// The handle gate refuses live-app URLs and stopped fixtures. All profile,
-// bot and onboarding writes below stay inside that launch's disposable home.
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -13,8 +10,6 @@ if (!handle) throw new Error("Usage: node --experimental-strip-types scripts/ver
 const ui = (verb: string, ...args: string[]) => runControlLaterDog(["ui", verb, "--ui", handle, ...args]) as Promise<Record<string, any>>;
 const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
 const click = async (name: string) => {
-  // Let the 320ms spotlight transition land before sending a real pointer
-  // click; the browser CLI does not wait for moving controls to stabilize.
   await delay(400);
   return ui("click", "--name", name);
 };
@@ -54,14 +49,10 @@ const holdConfigWrite = () => evaluate(`(() => {
   return true;
 })()`);
 
-// The fixture's server starts with a fresh onboarding record, and the preview harness marks first run done on load unless
-// the URL carries `?onboarding` (scripts/testing/threads-preview.tsx). Clearing only this fixture browser's localStorage
-// and loading with that entry gives a fresh install's first run, as a new Mac sees it.
 await evaluate("localStorage.clear(); setTimeout(() => { location.search = '?onboarding=1'; }, 0); true");
 await textVisible("Your name");
 await evaluate("document.documentElement.dataset.reducedMotion = 'true'; true");
 await screenshot("welcome");
-// later.dog asks only for a name.
 await type("Your name", "Onboarding fixture");
 await evaluate(`(() => {
   const original = window.fetch.bind(window);
@@ -82,7 +73,6 @@ await textVisible("Your model providers");
 assert.equal((await config()).profile.name, "Onboarding fixture");
 console.log("PASS profile failure preserves input; retry persists before advancing");
 
-// later.dog's first run has no feature reel: the name leads straight to the model providers.
 await textVisible("Check again");
 await screenshot("engines");
 const inventoryBefore = await evaluate("[...document.querySelectorAll('.welcome-card [aria-expanded]')].map(e => e.textContent)");
@@ -103,12 +93,9 @@ assert.deepEqual(await evaluate("[...document.querySelectorAll('.welcome-card [a
 await click("Check again");
 await poll(async () => (await snapshot()).includes("Couldn't check your AI connections"), false, "inventory retry");
 await click("Continue");
-// The engines lead straight to the first dog: no permissions step (a dog asks when a task needs them) and no phone step.
 await textVisible("Start chatting");
 assert.equal((await snapshot()).includes("Your phone"), false);
 await screenshot("meet-bot");
-// The first dog: one of eight breeds drawn in the chosen color, a color and a name; no standing instruction, and the
-// guide dog steps aside so only the person's own dog shows.
 assert.equal(await evaluate("document.querySelector('.welcome-card [role=radiogroup]').querySelectorAll('[role=radio]').length"), 8);
 assert.equal(await evaluate("Boolean(document.querySelector('#welcome-bot-soul'))"), false);
 assert.equal(await evaluate("document.querySelectorAll('.welcome-card .welcome-dog').length"), 0);
@@ -116,8 +103,6 @@ await click("Corgi");
 await screenshot("meet-bot-corgi");
 await click("Start chatting");
 await poll(async () => (await evaluate("fetch('/api/bots').then(r => r.json()).then(d => d.bots.some(b => b.mascotBody === 'corgi'))")), true, "breed saved");
-// The dog speaks first: its chat opens on a hello with the person's name and the dog's own, then the dog's first turn
-// (here the fake engine's reply) — and nothing that looks typed by the person.
 await poll(async () => (await evaluate(`fetch('/api/bots?messages=10').then(r => r.json()).then(d => {
   const dog = d.bots.find(b => b.mascotBody === 'corgi');
   const texts = (dog.messages || []).filter(m => m.kind === 'text');
@@ -127,8 +112,6 @@ console.log("PASS the first dog greets by name and takes the first turn, with no
 await textVisible("This is where you talk to your dogs");
 console.log("PASS providers, engine failure/retry, no permissions or phone step, and welcome completion");
 
-// Complete every live-interface step and verify its server record. A missing
-// optional browser tab may skip itself, but every required anchor must work.
 for (const step of TOUR_STEPS) {
   if ((await config()).onboarding.hintsSeen.includes(step.id)) continue;
   await poll(() => evaluate("Boolean(document.querySelector('[data-tour-card] button'))"), true, step.id);
@@ -164,8 +147,6 @@ await evaluate("window.releaseWrite(); true");
 console.log("PASS welcome replay can close while persistence is pending");
 await poll(async () => Boolean((await config()).onboarding.completedAt), true, "welcome save completed");
 
-// An upgraded install can have only the legacy browser gate. Replay still
-// works without a new welcome completion, and failures keep Settings open.
 await evaluate("fetch('/api/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({onboarding:{completedAt:'', version:0}})}).then(r=>r.ok)");
 await evaluate("setTimeout(() => location.reload(), 0); true");
 await textVisible("Message Pepper");

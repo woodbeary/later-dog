@@ -7,9 +7,6 @@ import { removeTempDir } from "./testing/cleanup.ts";
 
 const TOKEN = "external-runtime-timeout-fixture-0123456789abcdef";
 
-// An external caller's ask can outlive the synchronous wait and become a
-// delegation it polls. The peer's later answer reaches the receipt and the
-// pinned thread; it never starts a turn on the caller's own engine.
 it("converts an external caller's long ask into a polled delegation without waking its engine", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "laterdog-external-timeout-"));
   const gate = join(scratch, "finish-peer");

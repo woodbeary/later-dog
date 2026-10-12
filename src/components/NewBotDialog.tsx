@@ -48,8 +48,6 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
     return () => { cancelled = true; };
   }, [companion]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  // Disabling the focused Create button drops focus to the page in Chromium.
-  // Keep keyboard dismissal and focus trapping inside the pending dialog.
   useEffect(() => { if (saving) dialog.current?.focus(); }, [saving]);
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;

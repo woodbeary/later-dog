@@ -148,8 +148,6 @@ describe("Chat MCP session", () => {
   });
 
   it("starts servers with the widened PATH rather than the bare one the desktop shell inherits", async () => {
-    // Launched from Finder, the harness sees only the system directories;
-    // the widened PATH is what the Claude and Codex drivers already hand out.
     const widened = augmentedPath();
     vi.stubEnv("PATH", "/usr/bin:/bin");
     const f = fixture();
@@ -324,13 +322,11 @@ describe("Chat MCP tool directory", () => {
       expect(session.definitions.map((tool) => tool.function.name)).toEqual(["whop_search_tools", "whop_describe_tool", "whop_call_tool"]);
       const search = await session.execute("whop_search_tools", { query: "list payments" }, controller.signal);
       expect(JSON.parse(search.text).matches[0].name).toBe("payments_list");
-      // searching runs no tool of the server, so no card; call_tool shows its target
       expect(session.view("whop_search_tools", { query: "list payments" })).toEqual({ title: "whop_search_tools", input: { query: "list payments" }, ask: false });
       const args = { name: "payments_list", arguments: { company_id: "biz_1" } };
       expect(session.view("whop_call_tool", args)).toEqual({ title: "whop_payments_list", input: { company_id: "biz_1" }, ask: true });
       await expect(session.execute("whop_call_tool", args, controller.signal)).resolves.toMatchObject({ ok: true, text: "remote execution recorded" });
       expect(remote.calls).toEqual([{ name: "payments_list", arguments: { company_id: "biz_1" } }]);
-      // a mistake the directory answers with guidance runs nothing and fails nothing
       const nameless = await session.execute("whop_call_tool", { arguments: {} }, controller.signal);
       expect(nameless).toMatchObject({ ok: true, text: expect.stringContaining("search_tools") });
       expect(session.view("whop_call_tool", { arguments: {} }).ask).toBe(false);
@@ -344,7 +340,6 @@ describe("Chat MCP tool directory", () => {
   });
 
   it("neither finds nor runs a tool outside the bot's selection", async () => {
-    // more than forty selected tools stay a searched catalog
     const selected = [...catalog.filter((tool) => tool.name.endsWith("_list")).map((tool) => tool.name), "payments_get", "stats_get"];
     const { remote, controller, session } = await mountWhop({ allow: selected.map((name) => `mcp:whop:${name}`) });
     try {
@@ -372,17 +367,11 @@ describe("Chat MCP tool directory", () => {
 });
 
 describe("Chat MCP startup budgets", () => {
-  /** Runs fake time forward in small steps until `condition` holds, so
-   * real I/O and the faked clock both make progress. */
-  /** Lets real I/O run, the faked clock standing still, until `condition`. */
   async function untilReal(condition: () => boolean): Promise<void> {
     const started = Date.now();
     while (!condition() && Date.now() - started < 15_000) await new Promise((resolve) => setImmediate(resolve));
     expect(condition()).toBe(true);
   }
-  /** Once a deadline has passed: steps the faked clock too, for cleanup
-   * that polls on a timer, but by at most `budgetMs` in all, pausing in
-   * real time between ticks so a stopping process can exit. */
   async function settleWithin(budgetMs: number, condition: () => boolean): Promise<void> {
     for (let spent = 0; !condition() && spent < budgetMs; spent += 25) {
       const until = Date.now() + 20;
@@ -404,7 +393,6 @@ describe("Chat MCP startup budgets", () => {
     try {
       const mounting = watch(mountChatTools({ custom: { whop: { type: "http", url: remote.url, headers: {} } } }, controller.signal));
       await untilReal(() => remote.delayedToolsLists === 1);
-      // well past the 8 seconds a command server gets
       await vi.advanceTimersByTimeAsync(20_000);
       await untilReal(() => mounting.done);
       expect(mounting.error).toBeUndefined();
@@ -426,7 +414,6 @@ describe("Chat MCP startup budgets", () => {
       await vi.advanceTimersByTimeAsync(7_900);
       expect(mounting.done).toBe(false);
       await vi.advanceTimersByTimeAsync(200);
-      // stopped at 8 seconds: well short of the 30 a URL server gets
       await settleWithin(1_000, () => mounting.done);
       expect(String(mounting.error)).toMatch(/timed out/);
     } finally { vi.useRealTimers(); }
@@ -525,8 +512,6 @@ describe("Chat MCP schema validation", () => {
   });
 
   it("honors the configured per-call timeout instead of the fixed default", async () => {
-    // The fixture answers tools/call only after a delay; a short callTimeoutMs
-    // must trip the timeout, a generous one lets the same call complete.
     const delayed = `if (message.method === "tools/call") { setTimeout(() => reply(message, {content:[{type:"text",text:"recorded:"+message.params.arguments.value}]}), 400); return; }`;
     const f = fixture(delayed);
     const short = await mountChatTools({ custom: { audit: f.server } }, f.controller.signal, false, undefined, 100);

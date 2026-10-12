@@ -1,4 +1,3 @@
-// Real HTTP runtime, owned temporary home, fake native engines, no provider calls.
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -65,12 +64,8 @@ async function restart(grants: Grants) {
     env: {
       ...verificationServerEnvironment({}, owned.info.dataDir, Number(new URL(owned.info.url).port)),
       FAKE_CLAUDE_TEXT_DUMP: join(owned.info.dataDir, "fake-claude-helper-dump.json"),
-      // The model policy needs only this portal-managed configuration. No
-      // hosted-access bridge is loaded, so remote access stays closed and
-      // readiness is never attested; the policy is driven over loopback.
       LATERDOG_ADMIN_URL: "https://admin.example.test", LATERDOG_ADMIN_WORKSPACE: "fixture",
       LATERDOG_PUBLIC_URL: "https://fixture.example.test", LATERDOG_ADMIN_MEMBERSHIP: "portal",
-      // The hosted loopback default (service trust) is covered in request-auth.test.ts.
       LATERDOG_LOOPBACK_TRUST: "owner",
       LATERDOG_HOSTED_MODELS: JSON.stringify(grants), LATERDOG_HOSTED_MODEL_TOKEN: TOKEN,
       LATERDOG_HOSTED_CLAUDE_CLI: join(ROOT, "server/testing/fake-claude-cli.ts"),
@@ -135,12 +130,9 @@ beforeAll(async () => {
   }
   await create("Personal provider", { instanceId: "personal", model: "personal-model" });
 
-  // Seed a prior release's saved selections only after the owned server exits.
   await waitForExit(child, { signal: "SIGTERM" });
   const botsPath = join(fixture.info.dataDir, "bots.json");
   const saved = JSON.parse(readFileSync(botsPath, "utf8")) as SavedBot[];
-  // A prior release copied the bot's model onto every thread and had not run
-  // the one-time cleanup of those copies yet.
   rmSync(join(fixture.info.dataDir, "thread-model-copies-cleared"), { force: true });
   for (const bot of saved) for (const task of bot.tasks) {
     task.modelSelection ??= structuredClone(bot.modelSelection);
@@ -313,7 +305,6 @@ describe("hosted model policy in the full runtime", () => {
       expect(result.status, JSON.stringify(result.body)).toBe(200);
       const after = JSON.parse(readFileSync(botPath, "utf8")) as SavedBot[];
       const task = after.find(row => row.id === bot.id)!.tasks[0];
-      // The thread follows the bot onto its new model: it keeps none of its own.
       expect(task.modelSelection).toBeUndefined();
       expect(after.find(row => row.id === bot.id)!.modelSelection).toEqual(modelSelection);
       expect(task.resumeCursors).toEqual({});
@@ -333,7 +324,6 @@ describe("hosted model policy in the full runtime", () => {
     }
     expect((await api("GET", `/api/threads/${primary.threadId}/messages?limit=50`)).body).toEqual(history);
     const first = await bots();
-    // A later managed session must survive an unchanged policy restart.
     await waitForExit(child, { signal: "SIGTERM" });
     const botsPath = join(fixture!.info.dataDir, "bots.json");
     const persisted = JSON.parse(readFileSync(botsPath, "utf8")) as SavedBot[];

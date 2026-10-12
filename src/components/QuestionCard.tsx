@@ -1,14 +1,3 @@
-// The question box: what the bot actually asked, and its own answers.
-//
-// This is the card for a structured ask — Claude's AskUserQuestion. The
-// provider routes it through the permission channel, so without this it
-// arrived as "Deny / Always allow / Allow once" over a question like "which
-// model should this bot run on?", which is not an answer to anything.
-//
-// One tab per question (the model names them), the model's options as rows
-// with their descriptions, an "Other" row for a reply it did not think of,
-// and a single submit that sends every answer back at once — the shape a
-// person can read at a glance and answer without scrolling back up.
 import { useMemo, useState } from "react";
 import { Check, MessageCircleQuestion, X } from "lucide-react";
 import { useStore, type Bot, type Message } from "@/state/store";
@@ -23,13 +12,9 @@ import {
 import { ExpandableText } from "./ExpandableText";
 import { settledAnswer } from "@/lib/settled-answer";
 
-/** What each question has been answered with so far. Option labels and the
- * free-text reply are kept apart so toggling "Other" off cannot silently
- * drop a choice the person already made. */
 interface Draft {
   picked: string[];
   custom: string;
-  /** "Other" is open. An empty open field is not an answer. */
   other: boolean;
 }
 
@@ -40,7 +25,6 @@ function answersOf(draft: Draft): string[] {
   return custom ? [...draft.picked, custom] : draft.picked;
 }
 
-/** The tab label: the model's own header, or a number when it gave none. */
 function tabLabel(question: AskQuestion, index: number): string {
   return question.header ?? t("question.tab.numbered", { index: index + 1 });
 }
@@ -50,10 +34,7 @@ export function QuestionCard({
   bot,
   message,
 }: {
-  /** answered by THREAD, so a question raised inside a room settles the
-   * same way as one in a 1:1 chat */
   threadId: string;
-  /** who is asking, for the "Name has a question" line */
   bot?: Pick<Bot, "name">;
   message: Message;
 }) {
@@ -62,8 +43,6 @@ export function QuestionCard({
   const questions = card?.questionRequest?.questions ?? [];
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [active, setActive] = useState(0);
-  // The server settles the card, but only after a round trip. Holding the
-  // sent answer here closes the window where the buttons are still live.
   const [sent, setSent] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
 
@@ -95,16 +74,11 @@ export function QuestionCard({
       update(currentIndex, { picked });
       return;
     }
-    // Single-select is a radio group: picking replaces, and picking an
-    // option means the free-text answer was not the one they wanted.
     update(currentIndex, { picked: [label], other: false });
     if (questions.length === 1) {
       send([[label]]);
       return;
     }
-    // Move to the next question they still owe an answer to, the way the
-    // tabs would have been clicked anyway. The last one stays put so the
-    // submit button is under the cursor that just chose.
     const next = questions.findIndex((_, index) => index !== currentIndex && !answered[index]);
     if (next >= 0) setActive(next);
   };
@@ -134,8 +108,6 @@ export function QuestionCard({
       requestId: card.requestId,
       behavior: "answer",
       message: answer,
-      // The answer never reached the bot, so the card must go back to
-      // being answerable rather than sitting there looking settled.
       onError: () => setSent(null),
     });
   };
@@ -239,9 +211,6 @@ export function QuestionCard({
                 className={cn(
                   "flex w-full items-center gap-3 px-3 py-2 text-left",
                   index > 0 && "border-t border-hairline/40",
-                  // `raised` is the same value as the card in the light
-                  // skins; `raised-hover` is the one tone every skin
-                  // guarantees stands off a surface.
                   picked ? "bg-raised-hover" : "hover:bg-raised-hover/60",
                 )}
               >
@@ -305,8 +274,6 @@ export function QuestionCard({
   );
 }
 
-/** The radio dot / checkbox tick. Drawn rather than an <input> so the whole
- * row stays one button and the hit target is the row, not the 16px circle. */
 function Marker({ checked, multi }: { checked: boolean; multi: boolean }) {
   return (
     <span

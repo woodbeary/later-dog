@@ -116,9 +116,6 @@ describe("German approval cards", () => {
   });
 });
 
-/** Skill approvals are the one place pt-BR needs a different shape than the
- * other packs: "Should I {action} it?" becomes an enclitic pronoun, so the
- * action strings carry it ("atualizá-la") instead of a bare infinitive. */
 function skillUpdateApproval(): Pending {
   const message: Message = {
     id: "skill-update-card",
@@ -207,8 +204,6 @@ describe("Brazilian Portuguese approval cards", () => {
   it("speaks a trick approval in one language: the sentence and its verb are translated together", () => {
     setLocale("pt-BR");
 
-    // The sentence and its verb fragment are translated as a pair, so English
-    // never carries a Portuguese verb ("Should I atualizá-la it?") or the reverse.
     expect(spokenApprovalPrompt(skillUpdateApproval(), "Mochi")).toBe(
       "Mochi pergunta: Atualizar a habilidade \"lancar-despesa\"? "
         + "Confira o truque na tela. Devo atualizá-lo?",

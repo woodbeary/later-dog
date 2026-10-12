@@ -46,14 +46,12 @@ describe("desktop tokens", () => {
     const token = await issue();
     const [, mac] = token.split(".");
     expect(await verifyDesktopToken(SECRET, ID, 3, `${NOW + DESKTOP_LINK_TTL_SECONDS + 30}.${mac}`, NOW)).toBe("invalid");
-    // An expiry further out than any link this Worker issues is refused before the MAC is checked.
     const farFuture = await issue({ expiresAt: NOW + 30 * 24 * 3600 });
     expect(await verifyDesktopToken(SECRET, ID, 3, farFuture, NOW)).toBe("invalid");
   });
 
   it("reject tampered and malformed tokens", async () => {
     const token = await issue();
-    // Change the first MAC character (the last one partly carries padding bits).
     const at = token.indexOf(".") + 1;
     const flipped = token.slice(0, at) + (token[at] === "A" ? "B" : "A") + token.slice(at + 1);
     for (const bad of [flipped, "", "abc", `${NOW}`, `${NOW}.`, `x${token}`, `${token}x`, token.replace(".", "-"), `-1.${token.split(".")[1]}`]) {

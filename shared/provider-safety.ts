@@ -1,4 +1,3 @@
-/** Match provider error wording, not ordinary assistant discussions of safety. */
 export function isProviderSafetyBlock(message: string): boolean {
   return /\bblocked by (?:our|the provider['’]s) safety systems\b|\bsafety monitoring\b.{0,100}\b(?:paused|ended|blocked)\b|\b(?:safety_check_failed|safety_policy_violation)\b/i.test(message);
 }

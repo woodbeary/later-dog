@@ -40,7 +40,6 @@ describe("refuseApiRequest", () => {
   it("accepts the right key", async () => {
     const digest = await sha256Hex(KEY);
     expect(await refuseApiRequest(headers({ authorization: `Bearer ${KEY}` }), digest)).toBeUndefined();
-    // The stored digest may carry stray whitespace or upper case from how it was piped in.
     expect(await refuseApiRequest(headers({ authorization: `Bearer ${KEY}` }), ` ${digest.toUpperCase()}\n`)).toBeUndefined();
   });
 
@@ -48,7 +47,6 @@ describe("refuseApiRequest", () => {
     const digest = await sha256Hex(KEY);
     expect(await refuseApiRequest(headers({ authorization: "Bearer ldc_wrong" }), digest)).toMatchObject({ status: 401, code: "unauthorized" });
     expect(await refuseApiRequest(headers({}), digest)).toMatchObject({ status: 401, code: "unauthorized" });
-    // Presenting the digest itself is not the key.
     expect(await refuseApiRequest(headers({ authorization: `Bearer ${digest}` }), digest)).toMatchObject({ status: 401 });
   });
 

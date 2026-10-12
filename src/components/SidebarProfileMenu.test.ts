@@ -67,8 +67,6 @@ describe("updatePhase", () => {
     expect(updatePhase(null, false)).toBe("idle");
   });
 
-  // the acknowledgement is only for a genuinely quiet result — a found
-  // update must not be papered over by a stale "up to date"
   it("lets a real status outrank the acknowledgement", () => {
     expect(updatePhase(state({ status: "downloading" }), true)).toBe("downloading");
   });
@@ -125,8 +123,6 @@ describe("updateBusy", () => {
     expect(updateBusy("idle")).toBe(false);
   });
 
-  // the click starts a round-trip through main; until it lands, the status
-  // still reads "downloaded" and the row would otherwise invite a second click
   it("blocks the gap between the click and the bridge catching up", () => {
     expect(updateBusy("downloaded", true)).toBe(true);
     expect(updateBusy("error", true)).toBe(true);
@@ -144,8 +140,6 @@ describe("platformLabel", () => {
 });
 
 describe("outward links", () => {
-  // both were pointed somewhere else once; pin them so a future tidy-up of
-  // app-links does not quietly send Help back to the README
   it("sends Help Center to this project's own docs", () => {
     expect(APP_REPOSITORY).toBe("https://github.com/woodbeary/later-dog");
     expect(HELP_CENTER_URL).toBe(DOCS_URL);

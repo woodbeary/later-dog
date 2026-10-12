@@ -1,7 +1,3 @@
-// The hook helper Claude Code runs at PostToolUse etc. (Phase 0, item 0.2).
-// Contract, learned the hard way by others: it ALWAYS exits 0, never takes
-// longer than its budget, speaks only to the loopback harness, and prints a
-// hookSpecificOutput block only when the harness returned one.
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -32,7 +28,6 @@ function run(stdin: string, env: Record<string, string>): Promise<{ code: number
     let stderr = "";
     child.stdout.on("data", (c) => (stdout += c));
     child.stderr.on("data", (c) => (stderr += c));
-    // Oversized input is intentionally rejected before stdin is drained.
     child.stdin.on("error", () => {});
     child.on("close", (code) => resolve({ code, stdout, stderr, ms: Date.now() - started }));
     child.stdin.end(stdin);
@@ -108,7 +103,7 @@ describe("laterdog-hook helper", () => {
   }, 15_000);
 
   it("gives up within its budget when the harness never answers, still exiting 0", async () => {
-    const url = await listen(() => { /* never respond */ });
+    const url = await listen(() => {});
     const result = await run(JSON.stringify({ hook_event_name: "Stop" }), { LATERDOG_HOOK_URL: url, LATERDOG_HOOK_TOKEN_FILE: tokenFile, LATERDOG_HOOK_TIMEOUT_MS: "800" });
     expect(result.code).toBe(0);
     expect(result.stdout).toBe("");

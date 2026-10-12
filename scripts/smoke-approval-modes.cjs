@@ -1,6 +1,3 @@
-// Run with `pnpm exec electron scripts/smoke-approval-modes.cjs`.
-// Exercises the real private Electron utility-process grant protocol using
-// only a disposable home and fake Claude/Antigravity/Codex/Grok CLIs. Never uses the live app.
 const { app, utilityProcess } = require("electron");
 const assert = require("node:assert/strict");
 const { randomUUID, createHash } = require("node:crypto");
@@ -53,7 +50,6 @@ app.whenReady().then(async () => {
   }
   const agyDump = join(home, "agy.json");
   const agyRpc = join(home, "agy-rpc.json");
-  // what the latest Antigravity prompt ran under (mode and model), from any process
   const lastPrompt = () => JSON.parse(readFileSync(`${agyDump}.prompts.jsonl`, "utf8").trim().split("\n").at(-1));
   const codexDump = join(home, "codex.json");
   const grokDump = join(home, "grok.json");
@@ -133,8 +129,6 @@ app.whenReady().then(async () => {
     });
     return;
   }
-  // One explicit grant covers old, archived and future threads, even if their
-  // provider differs. Use the real private bridge, not fixture state edits.
   const whole = (await api("/api/bots", "POST", { name: "All threads fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).body.bot;
   const untouched = (await api("/api/bots", "POST", { name: "Unrelated bot" })).body.bot;
   await coordinator.request(child, whole.id, "ask");
@@ -174,8 +168,6 @@ app.whenReady().then(async () => {
     console.log(JSON.stringify({ mode, native, privateGrant: true, turnSettled: true }));
   }
   await assert.rejects(coordinator.request(child, id, "custom"), /only for Codex/);
-  // Existing conversations retain their snapshot when the bot default
-  // changes. Only an explicit private desktop grant may upgrade one thread.
   for (const [instanceId, model] of [["claude", "claude-sonnet-5"], ["codex", "gpt-6-astra"], ["grok-reads", "grok-4.6"], ["agy", "gemini-3.8-flash-high"]]) {
     const scoped = (await api("/api/bots", "POST", { name: "Existing thread", modelSelection: { instanceId, model } })).body.bot;
     await coordinator.request(child, scoped.id, "ask");
@@ -209,8 +201,6 @@ app.whenReady().then(async () => {
     console.log(JSON.stringify({ provider: instanceId, existingThread: "full", otherThread: "ask", privateGrant: true, turnSettled: true }));
   }
   const pendingCard = (bot) => bot.messages.find((message) => message.card?.requestId && !message.card.answered && !message.card.dismissed)?.card;
-  // Composer grants are independent: an Ask default is not a prerequisite
-  // trip through settings, and a thread may use a different provider.
   const direct = (await api("/api/bots", "POST", { name: "Composer scoped access", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).body.bot;
   await coordinator.request(child, direct.id, "ask");
   const selected = (await api(`/api/bots/${direct.id}/tasks`, "POST", { title: "Select Full here" })).body.task;
@@ -248,9 +238,6 @@ app.whenReady().then(async () => {
   await api(`/api/bots/${parallel.id}/respond`, "POST", { requestId: held.requestId, behavior: "deny" });
   await until(async () => !(await api("/api/bots?messages=0")).body.bots.find(bot => bot.id === parallel.id).busy);
   console.log(JSON.stringify({ composerGrantWhileSiblingBusy: true, siblingNotInterrupted: true }));
-  // The fake reviewer only approves the two known reads under native Auto.
-  // Their actual MCP calls reach this real isolated server. This verifies the
-  // routing contract, not the availability/quality of Grok's hosted reviewer.
   for (const model of ["grok-4.6", "grok-4.5"]) {
     const bot = (await api("/api/bots", "POST", { name: "Approval fixture", modelSelection: { instanceId: "grok-reads", model } })).body.bot;
     for (const [turn, mode] of ["auto", "auto", "ask"].entries()) {
@@ -264,11 +251,6 @@ app.whenReady().then(async () => {
           return !state.busy && state;
         });
         const text = settled.messages.slice(before).map((message) => message.text ?? "").join("\n");
-        // The fixture emits one `<tool>: <result>` chunk per read, each at the
-        // start of a line. Anchor on that: session_search now recalls the
-        // previous turn's memory log, so its own result text quotes an earlier
-        // "list_bots: Reachable teammates: …" mid-line and an unanchored count
-        // sees three reads where the agent only performed two.
         assert.match(text, /^list_bots:/m);
         assert.match(text, /^session_search:/m);
         assert.equal((text.match(/^list_bots:/gm) ?? []).length, 2, "Repeated reads complete without another prompt");
@@ -280,8 +262,6 @@ app.whenReady().then(async () => {
       const argv = JSON.parse(readFileSync(grokDump, "utf8")).argv;
       assert.equal(argv[argv.indexOf("--permission-mode") + 1], mode === "auto" ? "auto" : "default");
       assert.equal(argv[argv.indexOf("-m") + 1], model);
-      // The same level keeps the live session; a new level gives the
-      // integrations new credentials, so the conversation is loaded again.
       const methods = JSON.parse(readFileSync(grokRpc, "utf8"));
       assert.ok(methods.includes(turn < 2 ? "session/new" : "session/load"));
       if (turn < 2) assert.ok(!methods.includes("session/load"));
@@ -322,16 +302,11 @@ app.whenReady().then(async () => {
         await until(async () => !(await api("/api/bots?messages=0")).body.bots.find((bot) => bot.id === agyBot.id)?.busy);
       }
       const native = mode === "full" ? "yolo" : "default";
-      // One process serves every approval level of a conversation, so its
-      // config log also holds earlier turns' switches. What counts is what
-      // this turn's prompt ran under, which the fake records at the prompt.
       const prompted = lastPrompt();
       assert.equal(prompted.mode, native);
       assert.equal(prompted.model, model);
       const calls = JSON.parse(readFileSync(`${agyDump}.config.json`, "utf8"));
       assert.equal(calls.findLast((call) => call.params.configId === "mode")?.params.value, native);
-      // The same level keeps the live session; a new level gives the
-      // integrations new credentials, so the conversation is resumed.
       const rpc = JSON.parse(readFileSync(agyRpc, "utf8"));
       assert.ok(rpc.includes(turn < 2 ? "session/new" : "session/resume"));
       if (turn < 2) assert.ok(!rpc.includes("session/resume"));
@@ -346,8 +321,6 @@ app.whenReady().then(async () => {
   assert.equal((await api(`/api/bots/${questionBot.id}/respond`, "POST", { requestId: question.requestId, behavior: "answer", message: "Green" })).status, 200);
   await until(async () => !(await api("/api/bots?messages=0")).body.bots.find((bot) => bot.id === questionBot.id)?.busy);
   console.log(JSON.stringify({ provider: "antigravity", mode: "full", questionRemainedInteractive: true }));
-  // The test-only capability drives the real peer dispatch route without
-  // introducing another fake-agent workflow or weakening production auth.
   const peerTarget = (await api("/api/bots", "POST", { modelSelection: { instanceId: "agy", model: "gemini-3.8-flash-high" } })).body.bot;
   await coordinator.request(child, peerTarget.id, "ask");
   const peerThread = (await api(`/api/bots/${peerTarget.id}/tasks`, "POST", { title: "Existing delegated conversation" })).body.task;
@@ -369,8 +342,6 @@ app.whenReady().then(async () => {
   assert.equal(lastPrompt().mode, "yolo");
   console.log(JSON.stringify({ provider: "antigravity", mode: "full", peerInitiated: true, native: "yolo", autoApproved: true, humanApproved: false }));
 
-  // Revoking the receiving thread's grant must restore prompts on the resumed
-  // delegated session, even when the sender itself has Full access.
   await coordinator.request(child, id, "full");
   await coordinator.request(child, peerTarget.id, "ask");
   assert.equal((await api(`/api/bots/${peerTarget.id}/tasks/${peerThread.threadId}`, "PATCH", { approvalMode: "ask" })).status, 200);
@@ -382,8 +353,6 @@ app.whenReady().then(async () => {
   assert.equal((await askPeerRequest).status, 200);
   console.log(JSON.stringify({ provider: "antigravity", mode: "ask", senderMode: "full", peerInitiated: true, native: "default", humanApproved: true }));
 
-  // Custom is downgraded for delegated turns. Both the provider dispatch and
-  // the residual approval fold must use that same effective Auto mode.
   const customTarget = (await api("/api/bots", "POST", { modelSelection: { instanceId: "codex", model: "gpt-fake-default" } })).body.bot;
   await coordinator.request(child, customTarget.id, "custom");
   const customRequest = api("/api/internal/ask-bot", "POST", { toBotId: customTarget.id, message: "Delegated Custom uses the native Auto reviewer" }, { authorization: `Bearer ${capability.body.token}` });

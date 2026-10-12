@@ -1,4 +1,3 @@
-// Synthetic local persistence only. Never import config before isolating data.
 import { appendFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir, platform, arch } from "node:os";
@@ -32,8 +31,6 @@ try {
     db.importThread(`thread-${thread}`, messages, "seed-999");
   }
   if (checkpointSeed) {
-    // Finish fixture construction I/O before timing. This is not a change to
-    // production checkpoint policy; retain uncheckpointed runs for comparison.
     const checkpoint = new DatabaseSync(join(directory, "messages.db"));
     try { checkpoint.exec("PRAGMA wal_checkpoint(TRUNCATE)"); }
     finally { checkpoint.close(); }
@@ -46,8 +43,6 @@ try {
     const writes: number[] = [], searches: number[] = [], logs: number[] = [];
     appendMaxMs = 0;
     const lag = monitorEventLoopDelay({ resolution: 2 });
-    // Arm before synchronous work and let its final delayed sample fire.
-    // Report maxima only: idle setup/drain samples would dilute percentiles.
     lag.enable();
     await delay(20);
     const start = performance.now();

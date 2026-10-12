@@ -36,8 +36,6 @@ function validWorkAreas(workAreas) {
   );
 }
 
-/** Keep restored windows reachable after monitor, resolution, or DPI changes.
- * workAreas must put the primary display first. */
 function resolveWindowState(state, workAreas, defaults = DEFAULT_BOUNDS) {
   const areas = validWorkAreas(workAreas);
   const primary = areas[0];

@@ -14,13 +14,11 @@ let dir: string;
 let oauth: FakeOAuth;
 let mcp: FakeHttpMcp;
 let manager: McpOAuthManager;
-/** the sign-in app config.json would hold for "docs" */
 let registered: McpOAuthClientConfig | undefined;
 
 async function setup(options: FakeOAuthOptions = {}, lifetimeMs?: number) {
   oauth = await startFakeOAuth(options);
   mcp = await startFakeHttpMcp({ acceptBearer: oauth.isValid, wwwAuthenticate: oauth.challenge });
-  // a pre-registered app returns to the port derived from the URL: make it a free one
   if (options.preRegistered) mcp = { ...mcp, url: await withFreeSignInPort(mcp.url) };
   manager = new McpOAuthManager({
     file: join(dir, "mcp-oauth.json"),
@@ -29,8 +27,6 @@ async function setup(options: FakeOAuthOptions = {}, lifetimeMs?: number) {
   });
 }
 
-/** What the person's browser does: open the link, follow the approval
- * redirect back to the loopback callback. */
 async function approve(status: McpSignInStatus) {
   return fetch(status.authorizationUrl!, { redirect: "follow" });
 }
@@ -303,7 +299,6 @@ describe("a sign-in app registered in advance", () => {
     registered = { clientId: "mine" };
     expect((await signIn()).phase).toBe("succeeded");
     expect(oauth.counts.register).toBe(0);
-    // no scopes of its own: the server's advertised ones
     expect(oauth.lastAuthorize?.get("scope")).toBe("mcp");
   });
 
@@ -349,7 +344,6 @@ describe("a sign-in app registered in advance", () => {
     registered = { clientId: "corp", clientSecret: "pw" };
     await signIn();
     registered = { clientId: "another-app", clientSecret: "pw" };
-    // still valid for a minute: kept, but nothing is sent on another app's behalf
     expect(oauth.isValid(`Bearer ${await manager.accessToken("docs", mcp.url)}`)).toBe(true);
     expect(oauth.counts.refresh).toBe(0);
   });
@@ -546,7 +540,6 @@ describe("MCP sign-in from another computer", () => {
 describe("McpOAuthManager sign-in from a browser on another computer", () => {
   const elsewhere = { remote: true, origin: "https://cloud.example" };
 
-  /** Where the approval sends the browser, without following it. */
   async function returnAddress(status: McpSignInStatus): Promise<URL> {
     return new URL((await fetch(status.authorizationUrl!, { redirect: "manual" })).headers.get("location")!);
   }
@@ -573,7 +566,6 @@ describe("McpOAuthManager sign-in from a browser on another computer", () => {
     expect(manager.status("docs", started.flowId, "alice")?.phase).toBe("succeeded");
     expect(oauth.isValid(`Bearer ${await manager.accessToken("docs", mcp.url)}`)).toBe(true);
 
-    // the same address again: the code is spent, and never echoed
     const replay = await manager.publicCallback("cloud.example", callback.search);
     expect(replay.status).toBe(409);
     expect(replay.text).not.toContain(callback.searchParams.get("code"));

@@ -86,7 +86,6 @@ describe("the managed Caddy", () => {
     chmodSync(fake, 0o755);
     const running = await startCaddy({ binary: fake, dataDir: dir, domain: "dog.example.com", appPort: 18799, webhookPort: 18800, settleMs: 300 });
     try {
-      // the stand-in writes its arguments from a shell that may start slowly under load
       await expect.poll(() => existsSync(join(dir, "args.txt")), { timeout: 5_000 }).toBe(true);
       expect(readFileSync(join(dir, "args.txt"), "utf8").trim()).toBe(`run --config ${running.configFile} --adapter caddyfile`);
       expect(readFileSync(running.configFile, "utf8")).toContain("reverse_proxy 127.0.0.1:18799");

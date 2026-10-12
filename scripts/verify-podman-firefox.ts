@@ -1,4 +1,3 @@
-// Opt-in acceptance against disposable containers only. No app or provider data.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -10,7 +9,6 @@ const machine = process.env.LATERDOG_DESKTOP_VERIFY_MACHINE;
 if (!podman || !machine) throw new Error("Set LATERDOG_DESKTOP_VERIFY_PODMAN and LATERDOG_DESKTOP_VERIFY_MACHINE to an explicit test engine");
 const output = resolve(process.env.LATERDOG_DESKTOP_VERIFY_OUTPUT || ".laterdog-scratch/firefox");
 mkdirSync(output, { recursive: true });
-// Keep Podman's connection/config lookup intact while isolating app imports.
 const engineEnv = { ...process.env };
 const fixtureHome = mkdtempSync(resolve(output, "home-"));
 process.env.HOME = fixtureHome;
@@ -68,7 +66,6 @@ for (const mode of ["before", "after"] as const) {
     console.log(JSON.stringify(receipt.at(-1)));
   } finally {
     if (created) run(["rm", "-f", target.containerName]);
-    // Only the literal mktemp result validated above, never an app workspace.
     execFileSync(podman, ["machine", "ssh", machine, "rm", "-rf", "--", workspace], { env: engineEnv, timeout: 30_000 });
   }
 }

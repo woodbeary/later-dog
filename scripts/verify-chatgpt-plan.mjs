@@ -1,4 +1,3 @@
-// Native protocol check, with synthetic Responses only. Never reads a login.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -42,7 +41,6 @@ let stderr = "";
 async function start() {
   pending = new Map();
   child = spawn(process.env.PROBE_CODEX ?? "codex", ["app-server", ...chatgptPlanCodexArgs(),
-    // Fixture override only; the production endpoint is fixed HTTPS.
     "-c", `model_providers.openai_chatgpt_plan.base_url=${JSON.stringify(endpoint)}`,
   ], { env: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, LATERDOG_CHATGPT_TOKEN: token }, stdio: ["pipe", "pipe", "pipe"] });
   child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-8000); });

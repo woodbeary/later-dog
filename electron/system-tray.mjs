@@ -1,4 +1,3 @@
-// Retain the Windows notification-area identity across app restarts.
 export function createSystemTray({ Tray, Menu, nativeImage, iconPath, getWindow, onQuit }) {
   const tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 20, height: 20 }),
     "889af657-21b5-4ec9-b5d0-cb798cbdfd30");

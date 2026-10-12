@@ -1,6 +1,3 @@
-// later.dog token battery for Codex, end to end: a real disposable server, two ChatGPT accounts on the repository's fake
-// Codex app-server, the first one out of usage the way codex-cli 0.154 reports it. Nothing here reaches a real account
-// (docs/laterdog/token-battery.md; the Claude half is account-battery.e2e.test.ts).
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -42,7 +39,6 @@ it("continues a Codex conversation on ChatGPT account 2 with the conversation ca
     await waitForExit(fixture.child, { signal: "SIGTERM" });
     const configPath = join(dataDir, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
-    // Two logins: one shared login would share one limit and rest together.
     config.instances["codex-one"] = {
       driver: "codex", displayName: "Codex account 1", config: { cli: FAKE_CODEX },
       environment: { FAKE_CODEX_MODE: "usage-limit", FAKE_CODEX_USAGE_LIMIT_GATE: gate, FAKE_CODEX_USAGE_RESETS_IN: "15",
@@ -64,7 +60,6 @@ it("continues a Codex conversation on ChatGPT account 2 with the conversation ca
     await expect.poll(async () => {
       try { return (await fetch(url + "/api/health", { signal: AbortSignal.timeout(1_000) })).ok; } catch { return false; }
     }, { timeout: 20_000 }).toBe(true);
-    // Both accounts signed in, so the battery may use either.
     await expect.poll(async () => (await api("GET", "/api/instances")).instances
       .filter((instance: any) => instance.instanceId.startsWith("codex-") && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false)
       .map((instance: any) => instance.instanceId).sort(), { timeout: 30_000, interval: 500 }).toEqual(["codex-one", "codex-two"]);
@@ -84,13 +79,11 @@ it("continues a Codex conversation on ChatGPT account 2 with the conversation ca
     const lastReply = (rows: any[]) => rows.findLast((row) => row.role === "bot" && row.kind === "text");
     const switches = (rows: any[]) => rows.filter((row) => row.tool?.name?.startsWith("recovery: Switched to"));
 
-    // Account 1 has usage: the favourite runs the first turn.
     await send("REMEMBER_CODEX_HISTORY_4K");
     await settled((rows) => lastReply(rows)?.text === "done from fake codex");
     expect(jsonLines(firstFile)).toHaveLength(1);
     expect(jsonLines(secondFile)).toHaveLength(0);
 
-    // Account 1 runs out mid-conversation: the same request runs once on account 2, with the conversation replayed.
     writeFileSync(gate, "out of usage");
     const text = "SWITCH_CODEX_ONCE_5M";
     await send(text);
@@ -108,21 +101,17 @@ it("continues a Codex conversation on ChatGPT account 2 with the conversation ca
     expect(switches(rows).map((row) => row.tool.name)).toEqual([
       expect.stringMatching(/^recovery: Switched to Codex account 2 — Codex account 1 hit its 5-hour limit, resets (?:[A-Z][a-z]{2} \d{1,2} )?at \d{1,2}:\d\d [AP]M\.$/),
     ]);
-    // Rested until the full window's reset, read from the account's rate limits; never saved on the conversation.
     const battery = (await api("GET", "/api/config")).accountBattery;
-    // the saved order first; other ChatGPT accounts this server has (the fixture's signed-out default) follow it
     expect(battery.order.codex.slice(0, 2)).toEqual(["codex-one", "codex-two"]);
     const until = Date.parse(battery.resting["codex-one"].until);
     expect(until).toBeGreaterThan(Date.now());
     expect(until).toBeLessThan(Date.now() + 20_000);
     expect(battery.resting["codex-two"]).toBeUndefined();
 
-    // While account 1 rests, the next turn goes straight to account 2.
     await send("STILL_RESTING_CODEX_6P");
     await settled((rows) => rows.at(-1)?.role === "bot" && jsonLines(secondFile).length === 2);
     expect(jsonLines(firstFile)).toHaveLength(2);
 
-    // Its window resets: back on account 1, said once.
     rmSync(gate);
     await expect.poll(async () => Object.keys((await api("GET", "/api/config")).accountBattery.resting), { timeout: 30_000, interval: 500 }).toEqual([]);
     await send("BACK_ON_CODEX_ONE_7Q");
@@ -131,7 +120,6 @@ it("continues a Codex conversation on ChatGPT account 2 with the conversation ca
     evidence.push({ final });
     expect(final.filter((row) => row.tool?.name === "notice: Back on Codex account 1.")).toHaveLength(1);
     expect(switches(final)).toHaveLength(1);
-    // each turn is booked to the account that ran it
     await expect.poll(() => readUsage(dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) })
       .filter((row) => row.threadId === threadId).map((row) => row.instanceId), { timeout: 10_000 })
       .toEqual(["codex-one", "codex-one", "codex-two", "codex-two", "codex-one"]);

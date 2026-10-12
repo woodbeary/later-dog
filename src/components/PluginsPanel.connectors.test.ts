@@ -4,8 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MCP_CONNECTORS, type McpConnector } from "@/lib/mcp-connectors";
 
-// PluginsPanel's state seeded by call order, as PluginsPanel.navigation.test.ts
-// does; the connector cards are stubbed so only the panel's wiring is tested.
 const fixture = vi.hoisted(() => ({
   surface: "apps" as "apps" | "mcp",
   dispatch: vi.fn(),
@@ -51,7 +49,6 @@ vi.mock("./McpConnectorCards", () => ({
 vi.mock("./Avatar", () => ({ BotAvatar: () => null }));
 import { PluginsPanel } from "./PluginsPanel";
 
-// state slots, in the order PluginsPanel declares them
 const CARDS = 0;
 const CONFIGURED = 3;
 const SETUP = 5;
@@ -113,7 +110,6 @@ describe("setting up connected apps", () => {
     expect(notice).toBeGreaterThan(html.indexOf("data-apps-grid"));
     expect(notice).toBeGreaterThan(html.indexOf("data-connectors="));
     expect(notice).toBeLessThan(html.indexOf("data-whop-card"));
-    // no greyed-out tiles for apps that need the key
     expect(html).not.toContain('data-app-tile="gmail"');
   });
 
@@ -156,7 +152,6 @@ describe("connectors in the Apps pop-up", () => {
     const whop = inSection.findIndex((node) => node.props.whopCard === true);
     expect(cards).toBeGreaterThanOrEqual(0);
     expect(whop).toBeGreaterThan(cards);
-    // not cells of the apps' card grid: their rows sit on the pop-up itself
     const grid = inSection.find((node) => String(node.props.className ?? "").includes("@3xl:grid-cols-3"))!;
     expect(nodes(grid).some((node) => Array.isArray(node.props.connectors))).toBe(false);
     expect(html.indexOf("data-connectors")).toBeLessThan(html.indexOf("data-whop-card"));
@@ -171,7 +166,6 @@ describe("connectors in the Apps pop-up", () => {
     fixture.overrides.set(SEARCH, "gmail");
     let { html } = render();
     expect(shown()).toEqual([]);
-    // without a key, no dead Gmail tile
     expect(html).not.toContain('data-app-tile="gmail"');
     fixture.overrides.set(CONFIGURED, true);
     ({ html } = render());

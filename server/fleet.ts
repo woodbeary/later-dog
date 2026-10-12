@@ -1,14 +1,7 @@
-// Many client workspaces on one Linux server: each is its own OS user, its
-// own `laterdog@<slug>` service on its own loopback ports, its own data
-// folder, brand, sign-in list and keys, reached at <slug>.<domain> through
-// the system Caddy. This module only PLANS: it renders files and fixed
-// argument lists as steps, so what the CLI does as root is inspectable and
-// testable, and nothing here ever builds a shell command string.
 import { posix } from "node:path";
 
 const { join } = posix;
 
-/** A workspace name: DNS label and Unix user suffix at once. */
 export const FLEET_SLUG = /^[a-z][a-z0-9-]{1,30}$/;
 export const FLEET_USER_PREFIX = "laterdog-";
 export const FLEET_FIRST_PORT = 8810;
@@ -24,7 +17,6 @@ export interface FleetLayout {
   caddyDir: string;
   caddyfile: string;
   homesDir: string;
-  /** The root-run agent the operator workspace talks to (fleet-agent.ts). */
   agentUnitFile: string;
   socketPath: string;
   auditFile: string;
@@ -48,7 +40,6 @@ export function fleetLayout(root = "/"): FleetLayout {
   };
 }
 
-/** The agent: root, one socket, reachable by the operator's user only. */
 export function agentUnit(spec: { node: string; script: string; operator: string; layout?: FleetLayout }): string {
   const layout = spec.layout ?? fleetLayout();
   const strip = spec.script.endsWith(".ts") ? " --experimental-strip-types" : "";
@@ -80,7 +71,6 @@ export interface FleetWorkspace {
   webhookPort: number;
   status: "running" | "suspended" | "provisioning" | "error" | "retained";
   createdAt: string;
-  /** Incomplete provisioning keeps its fence once the Unix account exists. */
   accountCreated?: boolean;
 }
 
@@ -88,7 +78,6 @@ export interface FleetRegistry {
   version: 1;
   domain: string;
   nextPort: number;
-  /** The Unix user whose workspace may drive the fleet agent. */
   operator?: string;
   workspaces: Record<string, FleetWorkspace>;
 }
@@ -136,7 +125,6 @@ export function assertEmailOrDomain(entry: string): void {
   if (!entry || /\s/.test(entry) || (!entry.startsWith("@") && !entry.includes("@"))) throw new Error(`"${entry}" is not an email address or @domain`);
 }
 
-/** One thing the CLI does as root, or prints for the operator to do. */
 export type FleetStep =
   | { kind: "mkdir"; path: string; mode: number; owner?: string }
   | { kind: "write"; path: string; content: string; mode: number; owner?: string }
@@ -146,7 +134,6 @@ export type FleetStep =
   | { kind: "health"; url: string; why: string }
   | { kind: "note"; text: string };
 
-/** The one unit every workspace runs from; `%i` is the slug. */
 export function templateUnit(spec: { node: string; script: string; layout?: FleetLayout }): string {
   const layout = spec.layout ?? fleetLayout();
   const strip = spec.script.endsWith(".ts") ? " --experimental-strip-types" : "";
@@ -201,9 +188,6 @@ export function fenceUnit(layout = fleetLayout()): string {
   ].join("\n");
 }
 
-/** nftables rules: only a workspace's own user, Caddy and root may open its
- * loopback ports, so a shell-capable bot cannot reach a sibling's API.
- * Written whole each time, so `nft -f` is idempotent. */
 export function fenceRules(workspaces: FleetWorkspace[]): string {
   const lines = ["#!/usr/sbin/nft -f", "# Written by `laterdog fleet`; regenerated on every create, suspend, resume and delete.", "add table inet laterdog", "flush table inet laterdog", "table inet laterdog {", "\tchain output {", "\t\ttype filter hook output priority 0; policy accept;"];
   for (const workspace of [...workspaces].sort((a, b) => a.slug.localeCompare(b.slug))) {
@@ -260,7 +244,6 @@ export interface WorkspaceSeed {
   openrouterUrl?: string;
   openrouterModels?: string[];
   openrouterDefault?: boolean;
-  /** Root-owned hosted portal address; never configurable by a tenant. */
   portalUrl?: string;
   monthlyCapUsd?: number;
   brandJson?: string;
@@ -268,7 +251,6 @@ export interface WorkspaceSeed {
 
 export const MANAGED_OPENROUTER = "laterdog-managed-openrouter";
 
-/** The gateway validates assignments too; keep filesystem seeds bounded and literal. */
 export function openRouterModelIds(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 100 || value.some((id) => typeof id !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._:/+-]{0,159}$/.test(id))) {
     throw new Error("OpenRouter models must be an array of at most 100 valid model IDs");
@@ -280,8 +262,6 @@ export function managedOpenRouterModels(models: unknown): Record<string, { name:
   return Object.fromEntries(openRouterModelIds(models).map((id) => [id, { name: id }]));
 }
 
-/** The workspace's first config.json: who may sign in, the key it runs on,
- * and its cap. Everything else stays the server's defaults. */
 export function initialConfig(seed: WorkspaceSeed): string {
   const config: Record<string, unknown> = { signIn: { admins: seed.admins, members: seed.members } };
   if (seed.anthropicKey) config.anthropic = { key: seed.anthropicKey, ...(seed.anthropicUrl ? { url: seed.anthropicUrl } : {}) };
@@ -375,8 +355,6 @@ export function createPlan(input: {
   const home = workspaceHome(layout, workspace.slug);
   const dataDir = workspaceDataDir(layout, workspace.slug);
   const steps: FleetStep[] = [
-    // Reserve the identity and ports before any external resource is created.
-    // A crash leaves an inspectable reservation, never a silently reusable home.
     { kind: "write", path: layout.registryFile, content: `${JSON.stringify(reserved(false), null, 2)}\n`, mode: 0o600 },
     { kind: "run", argv: ["useradd", "--system", "--create-home", "--home-dir", home, "--shell", "/usr/sbin/nologin", "--user-group", user], why: `the workspace's own account` },
     { kind: "write", path: layout.registryFile, content: `${JSON.stringify(reserved(true), null, 2)}\n`, mode: 0o600 },
@@ -412,7 +390,6 @@ export function createPlan(input: {
   return { steps, registry, workspace };
 }
 
-/** Incomplete provisioning and retained homes need explicit operator recovery. */
 export function assertManagedWorkspace(workspace: FleetWorkspace): void {
   if (workspace.status !== "running" && workspace.status !== "suspended") throw new Error(`workspace "${workspace.slug}" is ${workspace.status} and requires operator recovery`);
 }
@@ -474,8 +451,6 @@ export function deletePlan(input: { registry: FleetRegistry; slug: string; keepD
       { kind: "remove", path: join(unitsDir, `laterdog@${workspace.slug}.service.d`, "limits.conf") },
       { kind: "write", path: layout.fenceFile, content: fenceRules(Object.values(registry.workspaces)), mode: 0o600 },
       { kind: "run", argv: ["nft", "-f", layout.fenceFile], why: input.keepData ? "keep the retained account's fence" : "drop its fence rule" },
-      // Retain the nologin account too: recycling its UID would give a new
-      // workspace ownership of the preserved home, even under a different slug.
       ...(input.keepData
         ? [{ kind: "note" as const, text: "keeping the disabled workspace's account, home and name reserved; operator recovery is required before reuse" }]
         : [{ kind: "run" as const, argv: ["userdel", "--remove", fleetUser(workspace.slug)], why: "remove the account and everything it owned" }]),
@@ -493,8 +468,6 @@ export function upgradePlan(input: { registry: FleetRegistry }): FleetStep[] {
   ];
 }
 
-/** A workspace's sign-in list edited from outside, the same shape
- * `laterdog access` writes; the server reads it live. */
 export function applySignIn(configText: string, action: "add" | "remove", email: string, chatOnly: boolean): { config: string; summary: string } {
   const entry = email.trim().toLowerCase();
   assertEmailOrDomain(entry);
@@ -520,7 +493,6 @@ function shellQuote(value: string): string {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** Inspectable plan. Tenant I/O must use the executor's privilege drop. */
 export function describeSteps(steps: FleetStep[]): string[] {
   const lines: string[] = [];
   for (const step of steps) {

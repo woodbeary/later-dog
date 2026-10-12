@@ -585,7 +585,6 @@ describe("ApprovalCard for a change that applied on its own", () => {
     expect(markup).toMatch(/Scout scheduled a routine: Check before dentist, today 2:30/);
     expect(markup).toContain(">Undo<");
     expect(markup).toContain(">Details<");
-    // The cron expression and the approval box stay out of the line.
     expect(markup).not.toContain("30 14 * * 3");
     expect(markup).not.toContain("Waiting for your confirmation");
     expect(markup).not.toContain("schedule_routine");
@@ -652,7 +651,6 @@ describe("the action an approval asks about", () => {
   it("says a dog wants to use a computer when it picks one", () => {
     expect(toolLabel("mcp__agents__select_computer")).toBe("use a computer");
     expect(toolLabel("agents_select_computer")).toBe("use a computer");
-    // the dog's own computer, or the person's Mac when that's where it acts
     expect(toolLabel("mcp__computer__computer_exec")).toBe("use its computer");
     expect(toolLabel("computer_get_desktop_state")).toBe("use its computer");
     expect(toolLabel("computer_get_desktop_state", "local-computer")).toBe("use this Mac");

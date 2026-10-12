@@ -69,11 +69,9 @@ describe("OpenAICompatDriver", () => {
         instanceId: "openai", displayName: "OpenAI", enabled: true, config,
         environment: { OPENAI_COMPAT_API_KEY: "workspace-key" },
       });
-      // No OpenAI key: unavailable, never the workspace key against OpenAI.
       expect((await inst.snapshot()).state).toBe("unavailable");
       expect(inst.models.default).toBe("gpt-5");
       await inst.dispose();
-      // A custom key variable still falls back, as it always has.
       expect(OpenAICompatDriver.decodeConfig({ apiKeyEnv: "GROQ_KEY" }).model).toBe("meta-llama/llama-3.3-70b-instruct");
     } finally {
       if (before === undefined) delete process.env.OPENAI_COMPAT_MODEL;
@@ -97,7 +95,6 @@ describe("OpenAICompatDriver", () => {
       environment: { LATERDOG_OPENAI_API_KEY: "sk-fixture" },
     });
     await vi.waitFor(() => expect(inst.models.options.map((option) => option.id)).toEqual(["gpt-5", "o3", "gpt-4.1"]));
-    // A provider's own list is its official catalog, not custom models.
     expect(inst.models.options.every((option) => !option.custom)).toBe(true);
     await inst.dispose();
   });
@@ -129,12 +126,6 @@ describe("OpenAICompatDriver", () => {
     await inst.dispose();
   });
 
-  // Security: before, a hand-edited instance with its own URL and no key of
-  // its own received the workspace key and sent it to that host
-  // (verified: GET https://third-party.example.test/v1/models with
-  // "Bearer sk-or-WORKSPACE").
-  // An instance naming its own key variable reads only that variable, not
-  // the server's OPENAI_COMPAT_API_KEY either.
   it.each([
     ["its own URL", { url: "https://third-party.example.test/v1" }, ["WORKSPACE"]],
     ["its own key variable", { url: "https://third-party.example.test/v1", apiKeyEnv: "THIRD_PARTY_KEY" }, ["WORKSPACE", "OPERATOR"]],
@@ -228,9 +219,6 @@ describe("OpenAICompatDriver", () => {
 
     await inst.refreshModels?.();
 
-    // Every option carries `custom: true`: this engine advertises
-    // `access: "custom"`, and the picker renders only custom-flagged options
-    // for such engines — an unflagged one is invisible in its own picker.
     expect(inst.models).toEqual({
       default: "vendor/model-a",
       options: [
@@ -465,10 +453,6 @@ describe("OpenAICompatDriver", () => {
         );
       }),
     );
-    // Local OpenAI-compatible servers (oMLX in particular) only emit a usage
-    // object in the stream when the client explicitly requests it via
-    // stream_options.include_usage -- without it every streamed turn against
-    // such a server gets no token-usage accounting at all.
     const inst = await OpenAICompatDriver.create({
       instanceId: "test-include-usage",
       displayName: "Include usage",
@@ -506,11 +490,6 @@ describe("OpenAICompatDriver", () => {
       { role: "user" as const, text: "u25-sentinel-first-message" },
       { role: "assistant" as const, text: "u25-sentinel-first-reply" },
     ];
-    // Mirrors server/index.ts's real call: buildTurnContext only inlines the
-    // transcript into turnText when the driver is NOT in
-    // NATIVELY_REPLAYING_DRIVER_KINDS. openai-compat's runtime already
-    // replays via SendTurnInput.transcript (messagesFor() in
-    // openai-chat.ts), so both must not fire for the same turn.
     const { turnText } = buildTurnContext({
       text: "second message",
       transcript,
@@ -528,9 +507,6 @@ describe("OpenAICompatDriver", () => {
     });
     const recorder = recordEvents(inst.adapter);
 
-    // index.ts ALSO passes the raw transcript on SendTurnInput, which
-    // messagesFor() in openai-chat.ts turns into its own chat messages. Both
-    // would land in the same outgoing request if replaysNatively were wrong.
     await inst.adapter.sendTurn({ threadId: "thread-u25", text: turnText, transcript });
     await recorder.until((e) => e.type === "turn.completed");
 
@@ -577,11 +553,6 @@ describe("OpenAICompatDriver", () => {
     });
     await recorder.until((e) => e.type === "turn.completed");
 
-    // The resent prefix (system + transcript) must stay byte-identical when
-    // the volatile half changes, so only the stable half may sit in the
-    // system message. The volatile half rides the newest user message on
-    // every turn: the stored transcript never contains the delivered
-    // notes, so a model handed nothing would lose its memory.
     const messages: any[] = sentBody?.messages ?? [];
     expect(messages[0]).toEqual({ role: "system", content: "Standing rules." });
     expect(messages.slice(1, 3)).toEqual([
@@ -593,7 +564,6 @@ describe("OpenAICompatDriver", () => {
       content: "Context from later.dog updated since this conversation started; it replaces any earlier copy:\n\nMemory: likes quiet hours.\n\nhello",
     });
 
-    // A turn without the split keeps the legacy single-block shape.
     await inst.adapter.sendTurn({
       threadId: "thread-prompt-split-legacy",
       text: "bare",
@@ -637,8 +607,6 @@ describe("OpenAICompatDriver", () => {
     await inst.adapter.sendTurn({ threadId: "thread-g", text: "prompt", model: "vendor/model" });
     await recorder.until((e) => e.type === "turn.completed");
 
-    // Strict OpenAI-compatible endpoints (Groq et al.) reject unknown
-    // top-level fields — `provider` is OpenRouter-only routing.
     expect(sentBody).not.toBeNull();
     expect("provider" in sentBody).toBe(false);
     recorder.stop();
@@ -664,8 +632,6 @@ describe("OpenAICompatDriver", () => {
       displayName: "Lookalike host",
       enabled: true,
       config: {
-        // hostname is NOT openrouter.ai — substring matching on the whole
-        // URL would be fooled by a lookalike domain or a path segment
         url: "https://notopenrouter.ai/api/v1",
         apiKeyEnv: "TEST_KEY",
         provider: "fireworks",
@@ -758,14 +724,11 @@ describe("OpenAICompatDriver", () => {
 
       await inst.adapter.sendTurn({ threadId: "thread-idle-fail", text: "prompt", model: "vendor/model" });
 
-      // First chunk arrives immediately
       controller!.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"part 1"}}]}\n\n'));
 
-      // Advance clock past idle timeout without any new chunks
       await vi.advanceTimersByTimeAsync(185_000);
 
       const completed = await recorder.until((e) => e.type === "turn.completed");
-      // A provider that stops delivering chunks failed; the person did not press Stop.
       expect(completed).toMatchObject({ ok: false, stopReason: "error" });
 
       recorder.stop();
@@ -811,19 +774,15 @@ describe("OpenAICompatDriver", () => {
 
       await inst.adapter.sendTurn({ threadId: "thread-idle-renew", text: "prompt", model: "vendor/model" });
 
-      // Chunk 1 at t=0s
       controller!.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"start "}}]}\n\n'));
       await vi.advanceTimersByTimeAsync(100_000);
 
-      // Chunk 2 at t=100s (resets idle timer)
       controller!.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"middle "}}]}\n\n'));
       await vi.advanceTimersByTimeAsync(100_000);
 
-      // Chunk 3 at t=200s (resets idle timer)
       controller!.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"end"}}]}\n\n'));
       await vi.advanceTimersByTimeAsync(100_000);
 
-      // Total 300s exceeds both the old 120s limit and the new 180s idle limit.
       controller!.enqueue(encoder.encode('data: [DONE]\n\n'));
       controller!.close();
 

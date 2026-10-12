@@ -59,7 +59,6 @@ function nextRunLabel(at: number | null) {
 
 export function RemoteDesktopPanel({ bot }: { bot: Bot }) {
   const { state, dispatch } = useStore();
-  // Docked flush under the Windows caption corner: drop the header 16px.
   const { padClass } = useCaptionChrome();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);

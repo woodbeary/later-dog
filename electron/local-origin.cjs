@@ -1,8 +1,3 @@
-// Which page is asking. The main window shows either the local server's UI or
-// a paired remote server's UI; anything that touches THIS computer (screen,
-// files, logins, helpers, updater, local control) answers only the former.
-// main.mjs sets the local origin once it knows the port; every IPC module
-// wraps its handlers with localOnly(). Pure, so it is unit-tested.
 let localOrigin = null;
 let profileOrigin = () => null;
 
@@ -38,14 +33,8 @@ function getLocalOrigin() {
   return localOrigin;
 }
 
-/** The origin of the frame that sent an IPC message, or null when unknown. */
 function senderOrigin(event) {
   const frameUrl = event?.senderFrame?.url;
-  // Electron can briefly report an empty URL for the main frame while the
-  // local renderer is committing a navigation (including after restoring a
-  // company workspace). Fall back to WebContents only for that exact main
-  // frame. A child frame with an empty URL still fails closed: it must never
-  // inherit the trusted origin of its parent page.
   const emptyKnownChild =
     event?.senderFrame &&
     event?.sender?.mainFrame &&
@@ -77,12 +66,9 @@ function allowedSender(channel, event) {
 }
 
 function isLocalSender(event) {
-  // Until the local origin is known nothing is local: fail closed.
   return localOrigin !== null && senderOrigin(event) === localOrigin;
 }
 
-/** Wrap an ipcMain.handle handler so a page that is not the local server's
- * UI gets a clear error instead of an answer. */
 function localOnly(channel, handler) {
   return (event, ...args) => {
     if (!allowedSender(channel, event)) throw new Error(`${channel} is only available while using the local server`);
@@ -90,7 +76,6 @@ function localOnly(channel, handler) {
   };
 }
 
-/** Same for ipcMain.on / sendSync: answer `denied` and stop. */
 function localOnlySync(channel, handler, denied = false) {
   return (event, ...args) => {
     if (!allowedSender(channel, event)) {

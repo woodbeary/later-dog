@@ -1,4 +1,3 @@
-// Actual Sidebar against a disposable fake-engine server; never the live app.
 import { launchVerificationServer, runControlLaterDog } from "./control-laterdog.ts";
 import { mountPreview, parkUntilSignal, type MountedPreview } from "./testing/preview-fixture.ts";
 

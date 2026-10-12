@@ -1,4 +1,3 @@
-// Native Codex + production adapter, disposable homes, loopback model only.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Offline UI fixture only. Explicit opt-in and a disposable HOME are required.
-// Approve by creating HOME/.laterdog-fake-codex-login-approved; this never opens a
-// network connection or creates real provider credentials.
 import { existsSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 

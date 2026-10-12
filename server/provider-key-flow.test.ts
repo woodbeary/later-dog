@@ -11,7 +11,6 @@ it("saving and replacing a workspace key reaches an existing bot's next request 
   let reply = 0;
   const provider = createServer((req, res) => {
     if (req.url === "/v1/models") {
-      // Deliberately public: this must never be presented as authenticated.
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ data: [{ id: "fixture-model" }] }));
       return;
@@ -51,7 +50,7 @@ it("saving and replacing a workspace key reaches an existing bot's next request 
       const response = await fetch(`${fixture.info.url}/api/keys/test`, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "openaiCompat", key }),
       });
-      expect(response.status).toBe(400); // An explicit empty draft must not test the saved key.
+      expect(response.status).toBe(400);
     }
     const { bot } = await api("POST", "/api/bots", {
       name: "Sprout fixture", modelSelection: { instanceId: "openaiCompat", model: "fixture-model" },
@@ -60,17 +59,12 @@ it("saving and replacing a workspace key reaches an existing bot's next request 
       await api("POST", `/api/bots/${bot.id}/messages`, { text: "Reply briefly for the credential test." });
       const replyFrame = await sse.until((frame) => frame.kind === "message" && frame.threadId === bot.threadId
         && frame.message?.role === "bot" && frame.message?.text === expectedReply);
-      // Wait for idle after this reply before exercising the next config save.
       const { bots } = await api("GET", "/api/bots?messages=10");
       const current = bots.find((candidate: { id: string }) => candidate.id === bot.id);
-      // Bot SSE updates contain status, not messages. Tool cleanup may keep
-      // the turn busy after its reply; await a newer idle status before save.
       if (current.busy) await sse.until((frame) => frame.kind === "bot" && frame.bot?.id === bot.id && !frame.bot.busy
         && frame.seq > replyFrame.seq);
     };
     await send("fixture reply 1");
-    // The first save installed an env value and created the runtime. A second
-    // save must replace both that env value and the runtime's captured key.
     await api("PUT", "/api/config", { openaiCompat: { key: "fixture-replacement-key" } });
     await send("fixture reply 2");
     expect(received).toEqual(["Bearer fixture-first-key", "Bearer fixture-replacement-key"]);
@@ -136,7 +130,6 @@ it("switching the workspace endpoint moves discovery and existing chats without 
       openaiCompat: { url: urls[0], key: "fixture-first-key" },
       instances: {
         ...initialConfig.instances,
-        // Older config writes could persist the inherited workspace URL here.
         openaiCompat: { driver: "openai-compat", config: { url: urls[0] } },
         privateApi: privateConnection,
       },
@@ -157,7 +150,6 @@ it("switching the workspace endpoint moves discovery and existing chats without 
     };
     await send(bot, "first provider reply");
 
-    // Settings changes the workspace fields, without rewriting instance config.
     await api("PUT", "/api/config", { openaiCompat: { url: urls[1], key: "fixture-second-key" } });
     const { instances } = await api("POST", "/api/instances/openaiCompat/refresh-models");
     expect(received.filter((request) => request.provider === "first").map((request) => request.key))

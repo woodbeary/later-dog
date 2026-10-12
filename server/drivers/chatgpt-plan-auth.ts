@@ -27,10 +27,8 @@ type Flow = {
 };
 
 interface Options {
-  /** A private per-instance directory. Its parent is shared by this host's ChatGPT accounts. */
   directory: string;
   onAuthenticated?: () => Promise<void>;
-  /** Synthetic loopback endpoints only; never read from provider configuration. */
   testServerUrl?: string;
 }
 
@@ -58,10 +56,6 @@ function readJson(path: string): unknown | null {
   }
 }
 
-// A file lock protects rotating refresh tokens across processes as well as instances.
-// Fail closed on an abandoned lock: never risk reusing a refresh token while its
-// previous owner might still be exchanging it. The safe recovery is reauthorization
-// after an administrator confirms the old process has stopped and removes the lock.
 async function locked<T>(directory: string, operation: () => Promise<T>): Promise<T> {
   const path = join(directory, ".credentials.lock");
   const deadline = Date.now() + 30_000;
@@ -79,7 +73,6 @@ async function locked<T>(directory: string, operation: () => Promise<T>): Promis
   } finally { closeSync(fd); unlinkSync(path); }
 }
 
-/** Server-owned OAuth credentials. Only safe status and the one-time authorization URL reach the renderer. */
 export class ChatGptPlanAuthController {
   private readonly options: Options;
   private readonly issuer: string;
@@ -278,8 +271,6 @@ export class ChatGptPlanAuthController {
       const { response, body } = await this.exchange(new URLSearchParams({ grant_type: "authorization_code", client_id: clientId, code,
         code_verifier: flow.verifier, redirect_uri: flow.redirectUri, resource: this.resource }), flow.abort.signal);
       if (!response.ok) {
-        // A used/expired code must not create another client on retry. Keep
-        // this issued ID only in the pending attempt until identity is verified.
         if (!flow.previous && body.error === "invalid_grant") this.retryClientId = clientId;
         throw new Error("ChatGPT could not finish this sign-in. Start again with a fresh authorization.");
       }
@@ -327,8 +318,6 @@ export class ChatGptPlanAuthController {
         if (record.tokens.expiresAt > Date.now()) return record.tokens.access;
         throw new Error("ChatGPT credentials cannot refresh yet. Please try again shortly.");
       }
-      // Fetch validation keys before consuming a rotating refresh token. There
-      // must be no fallible network dependency between receiving and saving its successor.
       const keys = await this.identityKeys();
       const { response, body } = await this.exchange(new URLSearchParams({ grant_type: "refresh_token", client_id: record.clientId,
         refresh_token: record.tokens.refresh, resource: this.resource }));
@@ -346,8 +335,6 @@ export class ChatGptPlanAuthController {
           if (identity.subject !== record.subject) throw new Error("ChatGPT returned a different account during renewal.");
         }
       } catch {
-        // The old refresh token was consumed. Never retry it after an invalid
-        // successor, even though the selected account/client mapping is retained.
         delete record.tokens;
         this.save(record);
         throw new Error("ChatGPT renewal could not be verified. Continue with ChatGPT again in Settings.");
@@ -393,11 +380,11 @@ export class ChatGptPlanAuthController {
               const result = await this.request(endpoint, { method: "POST", body: new URLSearchParams({ token: record.tokens.refresh, token_type_hint: "refresh_token", client_id: record.clientId }) });
               revoked = result.response.status === 200;
               if (result.response.status < 500) break;
-            } catch { /* A network failure still clears local credentials below. */ }
+            } catch {}
             if (!revoked && attempt === 0) await delay(250);
           }
         }
-      } catch { /* Sign-out is local even if OpenAI is temporarily unavailable. */ }
+      } catch {}
       delete record.tokens;
       this.save(record);
       if (!revoked) throw Object.assign(new Error("Signed out locally, but remote revocation was not confirmed. Disconnect later.dog in ChatGPT Settings → Usage to end access there."), { code: "chatgpt_revocation_unconfirmed" });

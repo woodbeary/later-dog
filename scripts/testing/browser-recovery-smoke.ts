@@ -1,4 +1,3 @@
-// Opt-in native acceptance. Called only by the disposable browser launcher.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -32,7 +31,6 @@ export async function verifyBrowserRecovery(input: {
     await call("fill", { selector: "#name", text: "Preserved after idle" });
     await call("eval", { script: "window.fixtureIdentity = crypto.randomUUID(); window.fixtureIdentity" });
     const identity = await call("eval", { script: "window.fixtureIdentity" });
-    // This wait is deliberately longer than the production 60-second timeout.
     const idle = delay(65_000);
     console.log("Native form filled; waiting across the production idle boundary while testing the real preview.");
 
@@ -53,7 +51,6 @@ export async function verifyBrowserRecovery(input: {
     });
     await page.goto(input.previewUrl);
     await page.getByRole("img", { name: "The dog’s live browser" }).waitFor({ timeout: 30_000 });
-    // No Take control button: submitting the address takes control, then navigates.
     await page.getByRole("textbox", { name: "Browser address" }).fill(input.testPage);
     const navigation = page.waitForResponse((response: any) => response.url().endsWith("/browser/action") && response.request().postDataJSON()?.type === "navigate");
     await page.getByRole("textbox", { name: "Browser address" }).press("Enter");
@@ -61,17 +58,12 @@ export async function verifyBrowserRecovery(input: {
     assert.deepEqual(actions.filter((action) => action.type !== "ack").map((action) => action.type), ["take", "navigate"]);
     await page.getByText("You’re using the browser").waitFor({ state: "attached" });
     await page.waitForFunction(() => document.querySelector<HTMLImageElement>('img[alt="The dog’s live browser"]')?.naturalWidth);
-    // Inject only a transport failure into a real EventSource. The component
-    // must close the old server viewer and establish a new watch-only viewer.
     const offset = actions.length;
     await page.evaluate(() => (window as any).fixtureSources.at(-1).dispatchEvent(new Event("error")));
     await page.getByText("Connection interrupted. Reconnecting the browser view…").waitFor();
     await page.waitForFunction(() => (window as any).fixtureSources.length === 2);
     await page.getByRole("img", { name: "The dog’s live browser" }).waitFor({ timeout: 30_000 });
-    // The replacement viewer only watches until the person interacts again.
     assert.equal(await page.getByText("You’re using the browser").count(), 0);
-    // The old viewer may hand back on its idle timer before the injected
-    // failure lands; nothing else may be sent or replayed.
     assert.deepEqual(actions.slice(offset).filter((action) => action.type !== "ack" && action.type !== "release"), []);
     await page.waitForFunction((url: string) => document.querySelector<HTMLInputElement>('input[aria-label="Browser address"]')?.value === url, input.testPage);
     console.log("PASS: real native preview reconnects automatically, retaining the page without replaying navigation or taking control.");

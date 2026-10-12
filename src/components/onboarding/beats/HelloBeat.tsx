@@ -1,10 +1,3 @@
-// Beat 1: who you are. The name goes to the workspace profile (the sidebar
-// footer reads it back, and bots address you by it). It is optional:
-// Continue works with nothing typed, and "Maybe later" skips the tour.
-// There is no email field — later.dog has no mailing list to put one on.
-//
-// A hosted team workspace asks for nothing: its profile is shared by
-// everyone who signs in there. It only says what the workspace is.
 import { useRef, useState } from "react";
 import { t } from "@/lib/i18n";
 import { api, useStore } from "@/state/store";
@@ -27,8 +20,6 @@ export function HelloBeat({ onNext, onSkip, hosted = false }: BeatProps & { host
     pending.current = true;
     setSaving(true);
     setFailed(false);
-    // persisted server-side (the data directory's config.json); the response
-    // is the fresh config status, folded straight into the store
     try {
       const config = await api("/api/config", {
         method: "PUT",

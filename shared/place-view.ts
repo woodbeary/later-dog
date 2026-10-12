@@ -1,20 +1,6 @@
-// Where a bot works, said once: one plain line and at most one next action
-// for every state a place can be in, from the facts the server and the app
-// already hold. The server words a failed turn's row from it (English, the
-// language phones read), and every control that shows or picks a place
-// (the Computer panel's cards and Simple grid, the composer chip, the failed
-// turn row, the bot's Access settings) renders the same state from it in the
-// person's language. Nothing else decides what a place is called or what to
-// do when it can't be used.
-//
-// The English below mirrors src/locales/en.json `place.view.*`,
-// `place.action.*` and `place.askAdmin`/`place.backOnAuto` exactly (a test
-// holds them together), the way shared/live-approval.ts mirrors its keys:
-// the server has no i18n.
 
 export type Place = "cloud" | "vm" | "local" | "browser";
 
-/** Every state a place can be in. cc-* is the cloud computer. */
 export const PLACE_STATES = [
   "auto", "auto-team",
   "cc-cannot", "cc-tools-off", "cc-sign-in", "cc-new", "cc-starting", "cc-waking", "cc-on", "cc-asleep",
@@ -26,13 +12,8 @@ export const PLACE_STATES = [
 ] as const;
 export type PlaceState = (typeof PLACE_STATES)[number];
 
-/** Where a failed place came from: the one control a person changes when it
- * can't be used. A routine and a room member are their own sources; Auto and
- * a team's shared computer name no place, so they never fail as one. */
 export type PlaceSource = "works-on" | "pin" | "auto-pin" | "routine" | "room";
 
-/** The next actions a place offers. Each is one button in the app and, on a
- * stored row, one sentence a phone can read. */
 export const PLACE_ACTIONS = [
   "choose-model", "allow-computer", "sign-in", "start", "wake", "watch", "see-plan", "get-cloud", "manage-computers",
   "try-again", "open-my-cloud", "turn-on-browser", "open-team-map", "open-vm-settings",
@@ -40,8 +21,6 @@ export const PLACE_ACTIONS = [
 ] as const;
 export type PlaceActionId = (typeof PLACE_ACTIONS)[number];
 
-/** What a failed-turn row stores about its place, beside its English words,
- * so the app can word it again in the reader's language. */
 export interface PlaceRow {
   state: PlaceState;
   params: PlaceParams;
@@ -71,14 +50,11 @@ export interface PlaceAction {
 export interface PlaceView {
   state: PlaceState;
   params: PlaceParams;
-  /** A few words for a card, a grid tile or a chip row. */
   short: string;
-  /** The one plain message. */
   line: string;
   action: PlaceAction | null;
 }
 
-/** Where this server runs, as the Auto line describes it. */
 export type ServerKind = "my-cloud" | "mac" | "pc" | "linux";
 
 type AutoReach = "both" | "cloud" | "local" | "none";
@@ -90,44 +66,29 @@ const AUTO_LINE: Record<AutoReach, PlaceKey> = {
   none: "place.view.auto.lineNone",
 };
 
-/** The facts a place's state is read from. */
 export interface PlaceFacts {
-  /** The place to describe: Auto, Off, or one of the four places. */
   place: Place | "auto" | "off";
   server: ServerKind;
   bot: string;
-  /** Desktop only: signed in to a paid later.dog Cloud plan (the desktop bridge). */
   plan?: boolean;
-  /** Where cloud computers come from here: the plan's, the person's own Boat key, or nowhere. */
   boat: "included" | "own-key" | "none";
-  /** The cloud computer's provider: Boat, or the person's own server. */
   backend?: "box" | "vps";
   engine: {
     name: string;
     model?: string;
-    /** It can use computer tools (capabilities.computerMcp). */
     computer: boolean;
-    /** It can use the built-in browser (capabilities.browserMcp). */
     browser: boolean;
-    /** Not waiting on a sign-in (src/lib/failed-turn.ts engineSignedOut). */
     signedIn: boolean;
   };
-  /** The bot's tool selection includes the computer. */
   toolsAllowComputer: boolean;
-  /** The built-in browser is switched on for this installation and bot. */
   browserOn: boolean;
   role: "admin" | "user";
-  /** The cloud computer as last seen; unknown reads as not made yet. */
   computer?: "none" | "starting" | "waking" | "on" | "asleep";
-  /** Auto uses a team's shared cloud computer by this name. */
   teamComputer?: string;
-  /** This computer can be picked; `reason` says why not. */
   local?: { ready: boolean; reason?: string };
-  /** A refusal already read from a failed start (cloudRefusal). */
   refusal?: { state: PlaceState; params: PlaceParams };
 }
 
-/** The English catalog, mirrored by en.json. */
 export const PLACE_EN = {
   "place.view.auto.short": "Chooses for you",
   "place.view.auto.lineBoth": "Picks its cloud computer or this computer when a task needs one.",
@@ -220,9 +181,6 @@ export const PLACE_EN = {
 } as const;
 export type PlaceKey = keyof typeof PLACE_EN;
 
-/** A stored row's next action as one English sentence: what a phone, which
- * shows only the row's words, reads instead of a button. English only, like
- * the row it ends. */
 export const PLACE_WORDS: Record<PlaceActionId, string> = {
   "choose-model": "Choose another model in {bot}'s settings.",
   "allow-computer": "Let {bot} use the computer from the Computer panel.",
@@ -243,8 +201,6 @@ export const PLACE_WORDS: Record<PlaceActionId, string> = {
   "open-computer-panel": "Check it in the Computer panel.",
 };
 
-/** The words a person reads, in some language: the app passes its t(), the
- * server the English mirror. */
 export type PlaceTranslate = (key: PlaceKey, params?: Record<string, string | number>) => string;
 
 function fill(template: string, params: Record<string, string | number> = {}): string {
@@ -253,7 +209,6 @@ function fill(template: string, params: Record<string, string | number> = {}): s
 
 export const english: PlaceTranslate = (key, params) => fill(PLACE_EN[key], params);
 
-/** Each state's key segment, short and line keys, and own action. */
 const STATE: Record<PlaceState, { key: string; action: PlaceActionId | null }> = {
   auto: { key: "auto", action: null },
   "auto-team": { key: "autoTeam", action: "open-team-map" },
@@ -287,18 +242,12 @@ const STATE: Record<PlaceState, { key: string; action: PlaceActionId | null }> =
   off: { key: "off", action: null },
 };
 
-/** A passing cause: nothing to fix, so where the place came from decides the
- * way on (sourceAction). Every other state's action removes its cause. */
 const PASSING: ReadonlySet<PlaceState> = new Set(["cc-unavailable", "cc-no-start", "cc-clearing", "cc-provider", "place-failed"]);
 
-/** Actions that change a setting, a sign-in or the plan: a User can't take
- * them, so the line ends "Ask an Admin to change it." instead. */
 const ADMIN_ONLY: ReadonlySet<PlaceActionId> = new Set([
   "choose-model", "allow-computer", "sign-in", "see-plan", "get-cloud", "manage-computers", "open-my-cloud",
   "turn-on-browser", "open-team-map", "open-vm-settings", "change-routine",
 ]);
-/** Starting or waking a computer early: a User's own message does it, so
- * there is nothing to ask anyone for. */
 const ADMIN_SHORTCUT: ReadonlySet<PlaceActionId> = new Set(["start", "wake"]);
 
 const ACTION_KEY: Record<PlaceActionId, PlaceKey> = {
@@ -321,8 +270,6 @@ const ACTION_KEY: Record<PlaceActionId, PlaceKey> = {
   "open-computer-panel": "place.action.openComputerPanel",
 };
 
-/** The state and its params, from the facts. Pure: the panel, the chip, the
- * Access line and the server all ask this. */
 export function placeState(facts: PlaceFacts): { state: PlaceState; params: PlaceParams } {
   const bot = facts.bot;
   const model = facts.engine.model || facts.engine.name;
@@ -344,8 +291,6 @@ export function placeState(facts: PlaceFacts): { state: PlaceState; params: Plac
   if (facts.place === "vm") {
     return facts.engine.computer ? { state: "vm", params: { bot } } : { state: "vm-cannot", params: { bot, model } };
   }
-  // The cloud computer: on the person's own server (VPS) or on Boat, one
-  // rule for both (shared/cloud-computer.ts).
   const vps = facts.backend === "vps";
   if (!facts.engine.computer) return { state: "cc-cannot", params: { bot, model } };
   if (!facts.toolsAllowComputer) return { state: "cc-tools-off", params: { bot } };
@@ -353,7 +298,6 @@ export function placeState(facts: PlaceFacts): { state: PlaceState; params: Plac
   if (vps) return { state: "vps", params: { bot } };
   if (facts.refusal) return { state: facts.refusal.state, params: { bot, ...facts.refusal.params } };
   if (facts.boat === "none") {
-    // My Cloud always has the plan's computers while the plan is active.
     if (facts.server === "my-cloud") return { state: "cc-unavailable", params: { bot } };
     return { state: facts.plan ? "cc-on-my-cloud" : "cc-needs-key", params: { bot } };
   }
@@ -366,9 +310,6 @@ export function placeState(facts: PlaceFacts): { state: PlaceState; params: Plac
   }
 }
 
-/** Where the person goes when a passing cause stops a place: try again in
- * place, clear the pin that holds this conversation, change where the
- * routine runs. A room member's turn has no retry of its own. */
 function sourceAction(source: PlaceSource, state: PlaceState): PlaceActionId | null {
   switch (source) {
     case "works-on": return state === "place-failed" ? "open-computer-panel" : "try-again";
@@ -383,7 +324,6 @@ function lineKey(state: PlaceState, params: PlaceParams, { server, reach }: Plac
   const segment = STATE[state].key;
   if (state === "auto") return AUTO_LINE[reach ?? (server === "my-cloud" || server === "linux" ? "cloud" : "both")];
   if (state === "cc-sign-in" && server === "my-cloud") return "place.view.ccSignIn.lineMyCloud";
-  // A refusal read from a code alone has no numbers or names to give.
   if (state === "cc-no-hours" && (params.hours === undefined || !params.month)) return "place.view.ccNoHours.lineUnknown";
   if (state === "cc-trial-one") return params.holders?.length ? "place.view.ccTrialOne.line" : "place.view.ccTrialOne.lineUnknown";
   if (state === "cc-at-once") {
@@ -393,7 +333,6 @@ function lineKey(state: PlaceState, params: PlaceParams, { server, reach }: Plac
   return `place.view.${segment}.line` as PlaceKey;
 }
 
-/** Join names the way a sentence lists them, in the reader's language. */
 export function listNames(names: readonly string[], locale = "en"): string {
   try {
     return new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(names);
@@ -421,14 +360,12 @@ export interface PlaceContext {
   locale?: string;
 }
 
-/** One state, worded: its short label, its one line and its one action. */
 export function placeViewOf(state: PlaceState, params: PlaceParams, context: PlaceContext): PlaceView {
   const translate = context.translate ?? english;
   const values = templateParams(params, context.locale ?? "en");
   const segment = STATE[state].key;
   let line = translate(lineKey(state, params, context), values);
   let action: PlaceActionId | null = context.source && PASSING.has(state) ? sourceAction(context.source, state) : STATE[state].action;
-  // A failed row never offers what only the panel can do on the spot.
   if (context.source && (action === "start" || action === "wake" || action === "watch")) action = null;
   if (context.source === "auto-pin") line = `${line} ${translate("place.backOnAuto")}`;
   if (action === "open-vm-settings") action = null;
@@ -450,7 +387,6 @@ export function placeViewOf(state: PlaceState, params: PlaceParams, context: Pla
   };
 }
 
-/** The view of a place from its facts. */
 export function placeView(facts: PlaceFacts, options: { translate?: PlaceTranslate; locale?: string } = {}): PlaceView {
   const { state, params } = placeState(facts);
   return placeViewOf(state, params, { server: facts.server, reach: autoReach(facts), role: facts.role, ...options });
@@ -462,13 +398,10 @@ function autoReach(facts: PlaceFacts): AutoReach {
   return cloud ? (local ? "both" : "cloud") : local ? "local" : "none";
 }
 
-/** A stored failed-turn row, worded for this reader. */
 export function placeRowView(row: PlaceRow, context: Omit<PlaceContext, "source">): PlaceView {
   return placeViewOf(row.state, row.params, { ...context, source: row.source });
 }
 
-/** What the server stores as the row's words: the line and its action as a
- * sentence, in English, so a phone that reads only the words knows both. */
 export function placeRowText(row: PlaceRow, server?: ServerKind): string {
   const view = placeViewOf(row.state, row.params, { server, role: "admin", source: row.source });
   if (!view.action) return view.line;
@@ -477,8 +410,6 @@ export function placeRowText(row: PlaceRow, server?: ServerKind): string {
     : fill(PLACE_WORDS[view.action.id], templateParams(row.params, "en"));
   return `${view.line} ${words}`;
 }
-
-// ── Reading a failed start ──────────────────────────────────────────────
 
 const MONTH = "(January|February|March|April|May|June|July|August|September|October|November|December)";
 const HOURS_USED = new RegExp(`Your (.+?) plan's (\\d+) cloud computer hours for \\w+ are used up\\. They reset on 1 ${MONTH}`);
@@ -495,11 +426,6 @@ const NO_START_WORDS = [
 ];
 const CLEARING_WORDS = [/is being deleted/i, /previous cloud computer deletion/i, /deletion was not confirmed/i, /deletion is still being reconciled/i];
 
-/** Read a failed cloud computer start as a state. The Admin's own codes come
- * first; until every refusal has one, its English is read (the words below
- * are exactly the Admin's, server/cloud-services.ts). `included`: the plan's
- * computers, not the person's own Boat key, whose provider's words are shown
- * as they are. */
 export function cloudRefusal(failure: { message: string; code?: string; status?: number }, included: boolean): { state: PlaceState; params: PlaceParams } {
   const message = failure.message.trim();
   const code = failure.code;
@@ -507,7 +433,6 @@ export function cloudRefusal(failure: { message: string; code?: string; status?:
   if (code === "hours_used" || hours) {
     return { state: "cc-no-hours", params: hours ? { plan: hours[1], hours: Number(hours[2]), month: hours[3] } : {} };
   }
-  // the free trial's one computer is taken: the way on is the plan
   if (code === "trial_one_computer" || /free trial (?:has|includes) one (?:cloud )?computer/i.test(message)) return { state: "cc-trial-one", params: {} };
   const atOnce = AT_ONCE.exec(message);
   if (code === "at_once" || atOnce) {
@@ -518,8 +443,6 @@ export function cloudRefusal(failure: { message: string; code?: string; status?:
     || code === "upstream_unavailable" || code === "invalid_response" || code === "upstream_error") {
     return { state: "cc-unavailable", params: {} };
   }
-  // A start that failed and left its new computer still being removed
-  // didn't start; the next attempt meets the removal.
   if (NO_START_WORDS.some((words) => words.test(message))) return { state: "cc-no-start", params: {} };
   if (CLEARING_WORDS.some((words) => words.test(message))) return { state: "cc-clearing", params: {} };
   if ((failure.status ?? 0) >= 500 || PASSING_WORDS.some((words) => words.test(message))) return { state: "cc-unavailable", params: {} };

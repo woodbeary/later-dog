@@ -18,23 +18,17 @@ export interface LendingActivityEntry {
   ok: boolean;
   error?: string;
 }
-/** What this Mac lends to the person's own Cloud (Settings → later.dog Cloud). */
 export interface CloudLendingState {
   enabled: boolean;
   folders: SharedFolder[];
-  /** Apps and screen. */
   screen: boolean;
-  /** An action from the Cloud is running on this Mac right now. */
   busy: boolean;
   connected?: boolean;
-  /** Why lending is not connected, for localized copy. */
   problem?: "connect-first" | "not-cloud" | "waiting" | "paused" | "signed-out" | "account-changed" | "machine-changed";
   error?: string;
 }
 export interface CloudLendingSnapshot {
-  /** Signed in to later.dog Cloud with a known machine saved under Servers. */
   available: boolean;
-  /** This app's local computer control (and OS permissions) is ready. */
   screenAvailable: boolean;
   state?: CloudLendingState;
   activity?: LendingActivityEntry[];
@@ -57,10 +51,8 @@ export function createComputerSharing(options: {
   protectedPaths?: string[];
   cuaConnection: () => Promise<{ mcpCommand: string; mcpArgs: string[]; mcpEnv?: Record<string, string> } | null>;
   hostControl?: (id: string, signal: AbortSignal) => Promise<{ renew(): Promise<unknown>; release(): Promise<unknown> }>;
-  /** Home directory whose credential and autostart locations are protected. */
   home?: string;
   activityFile?: string;
-  /** The verified Cloud sign-in: { status, accountId, origin }. */
   cloud?: () => { status: string; accountId: string | null; origin: string | null } | null;
   onChange?: (summary: { lending: string[]; busy: { env: string; action: string } | null }) => void;
 }): {

@@ -1,10 +1,3 @@
-// The bot wire projection is the security boundary between server-private
-// BotRecord fields and every client payload. BotWirePrivateKeys enforces the
-// boundary at compile time, but a `...rest` spread does not fail typecheck
-// when it carries a private key out — assignedSkills reached /api/bots
-// exactly that way. This suite pins the projection at runtime, against the
-// real server, with the private field live on the stored record both while
-// the skills library flag is off and after it is switched on.
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +8,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { freePortBlock } from "./testing/ports.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
-// Library store import is root-explicit, so the spawned server’s DATA_DIR never has to match this process.
 import { installLibrarySkill } from "./skill-library.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
@@ -100,8 +92,6 @@ describe("bot wire privacy against the real server", () => {
     const botId = created.body.bot.id as string;
     await stop();
 
-    // Seed the server-private field the way a flag-off-on-flag-on cycle or
-    // an applied pending-assignments sweep leaves it behind on disk.
     const bots = JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[];
     bots.find((bot) => bot.id === botId)!.assignedSkills = ["some-library-skill"];
     writeFileSync(join(data, "bots.json"), JSON.stringify(bots, null, 2));
@@ -115,16 +105,11 @@ describe("bot wire privacy against the real server", () => {
       await stop();
     }
 
-    // The field was live on the record in the server that produced those
-    // payloads — the assertion above was not checking an empty bot.
     const stored = (JSON.parse(readFileSync(join(data, "bots.json"), "utf8")) as any[]).find((bot) => bot.id === botId)!;
     expect(stored.assignedSkills).toEqual(["some-library-skill"]);
   });
 
   it("serves an assigned library-only skill on the single-skill GET route only while the library is on", async () => {
-    // Install into the spawned server's library root from this process:
-    // the store is plain files under DATA_DIR/skills-library, so the
-    // server sees the entry on its next boot.
     const instructions = "---\nname: route-library-skill\ndescription: Serves through the assigned-skill route.\n---\n\n# route-library-skill\n\nReads through the library.\n";
     const installed = installLibrarySkill({
       name: "route-library-skill",
@@ -144,14 +129,10 @@ describe("bot wire privacy against the real server", () => {
     bots.find((bot) => bot.id === botId)!.assignedSkills = ["route-library-skill"];
     writeFileSync(join(data, "bots.json"), JSON.stringify(bots, null, 2));
 
-    // Flag off: the route keeps the per-bot behavior — a library-only
-    // skill has no bot-local copy, so the read stays a 404.
     await start(false);
     expect(await api("GET", `/api/bots/${botId}/skills/route-library-skill`)).toMatchObject({ status: 404 });
     await stop();
 
-    // Flag on: the assignment the listing already resolves now reads
-    // through the library instead of 404-ing for want of a local copy.
     await start(true);
     expect(await api("GET", `/api/bots/${botId}/skills/route-library-skill`))
       .toMatchObject({ status: 200, body: { text: instructions } });

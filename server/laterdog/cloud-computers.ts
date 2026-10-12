@@ -1,8 +1,3 @@
-// later.dog's own cloud computers: the client for the computers service on the person's Cloudflare account
-// (deploy/laterdog/computers/). server/computers.ts decides when the server uses it instead of Boat.
-// Only what the server acts on crosses this boundary: a computer's id, name and state. Desktop links, addresses and
-// anything else the service adds are dropped at parse. The key is read when a client is made and lives only in the
-// Authorization header: no message, log line or serialized client carries it.
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -10,18 +5,14 @@ import { z } from "zod";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 export const COMPUTER_ID = /^cmp_[A-Za-z0-9_-]{1,64}$/;
-/** A compromised service can answer with an arbitrarily large frame; this is what one screenshot may buffer (boat.ts caps Boat's the same). */
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
-const MAX_JSON_BYTES = 16 * 1024 * 1024; // exec output is the largest JSON answer
+const MAX_JSON_BYTES = 16 * 1024 * 1024;
 const MAX_ERROR_BYTES = 64 * 1024;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const JSON_TYPE = { "content-type": "application/json" };
 
-/** A choice of computers this installation cannot use as written. A route answers it with 409: the person fixes it. */
 export class ComputersConfigError extends Error { readonly status = 409; }
 
-/** The service refused, answered with something unexpected, or did not answer (httpStatus 0). Named apart from
- * `status`, which a route would answer with: server/computers.ts decides what a refusal means to its caller. */
 export class ComputersApiError extends Error {
   readonly httpStatus: number;
   readonly code: string | undefined;
@@ -31,7 +22,6 @@ export class ComputersApiError extends Error {
 }
 
 const dataDir = () => process.env.LATERDOG_HOME ?? join(homedir(), ".laterdog");
-/** `<data>/computers.json`, beside supervisor.json: `{ "api": "https://…/v1", "keyFile"?: "/abs/path" }`. */
 export const computersConnectionFile = (): string => join(dataDir(), "computers.json");
 const defaultKeyFile = () => join(dataDir(), "computers-key");
 const savedSchema = z.object({ api: z.string().min(1).max(2048),
@@ -65,16 +55,10 @@ export function ownComputersChosen(): boolean {
   return Boolean(process.env.LATERDOG_COMPUTERS_API?.trim()) || existsSync(computersConnectionFile());
 }
 
-/** Whether this installation chose later.dog's own computers: the environment names a service, or computers.json
- * exists. A choice that turns out broken still counts, so it fails where the person can see it instead of quietly
- * sending every dog back to Boat. */
 export function computersSelected(): boolean {
   return ownComputersChosen() || trialInUse();
 }
 
-/** Which computers service this installation uses, or null for none. As with supervisor.json (config.ts):
- * LATERDOG_COMPUTERS_API wins, with LATERDOG_COMPUTERS_KEY_FILE; then the saved file. Either way the key file
- * defaults to `<data>/computers-key`. */
 export function computersConnection(): ComputersConnection | null {
   const api = process.env.LATERDOG_COMPUTERS_API?.trim();
   if (api) {
@@ -89,17 +73,14 @@ export function computersConnection(): ComputersConnection | null {
   }
   let raw: unknown;
   try { raw = JSON.parse(readFileSync(file, "utf8")); } catch { throw new ComputersConfigError(`${file} is not valid JSON`); }
-  // Issue messages name keys and expected types, never values: a key pasted into the wrong field stays out of them.
   const saved = savedSchema.safeParse(raw);
   if (!saved.success) throw new ComputersConfigError(`${file} is invalid: ${saved.error.issues.map((issue) => issue.message).join("; ")}`);
   return { api: serviceApi(saved.data.api), keyFile: saved.data.keyFile ?? defaultKeyFile(), source: "file" };
 }
 
-/** HTTPS, or HTTP to this machine for a local stub; never credentials, a query or a fragment, which logs would keep.
- * The raw value is never echoed, since it may hold exactly such a credential. */
 export function serviceApi(raw: string): string {
   let url: URL | null = null;
-  try { url = new URL(raw); } catch { /* refused below */ }
+  try { url = new URL(raw); } catch {}
   if (!url || url.username || url.password || url.search || url.hash || !httpsOrLoopback(url)) {
     throw new ComputersConfigError("Use a credential-free HTTPS later.dog computers API, or loopback HTTP");
   }
@@ -107,8 +88,6 @@ export function serviceApi(raw: string): string {
 }
 const httpsOrLoopback = (url: URL) => url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.has(url.hostname));
 
-/** The bearer for a connection. A pasted Boat key or a stray character would only produce 401s minutes later in
- * another panel, so the file is judged now, by its path and never by its contents. */
 export function computersKey(connection: ComputersConnection): string {
   let key: string;
   try { key = readFileSync(connection.keyFile, "utf8").trim(); }
@@ -139,8 +118,6 @@ const checkoutBody = z.union([z.object({ url: z.string().url().max(4096) }), z.o
 
 const unexpected = (what = "an unexpected answer") => new ComputersApiError(`later.dog's computers service returned ${what}`, 502, "invalid_response");
 
-/** The provider's own words are better than anything invented here (boat.ts boatErrorMessage), except for a rejected
- * key, where the fix is a file on this machine. */
 function refusalMessage(status: number, theirs: string, keyFile: string, trial: boolean): string {
   if ((status === 401 || status === 403) && !trial) return `later.dog's computers service rejected the key in ${keyFile}`;
   if (theirs) return theirs;
@@ -149,7 +126,6 @@ function refusalMessage(status: number, theirs: string, keyFile: string, trial: 
   return `later.dog's computers service could not complete that request (${status})`;
 }
 
-/** Ids reach URL paths, so anything but the service's own id shape is refused before a request. */
 function computerPath(id: string): string {
   if (!COMPUTER_ID.test(id)) throw Object.assign(new Error("invalid cloud computer id"), { status: 400 });
   return id;
@@ -159,7 +135,6 @@ function filesPath(id: string, path: string): string {
   return `/computers/${computerPath(id)}/files?path=${encodeURIComponent(path)}`;
 }
 
-/** Buffer at most `maxBytes` of a body, whatever its Content-Length claims, so one answer cannot exhaust memory. */
 export async function readCapped(response: Response, maxBytes: number, tooLarge: () => Error): Promise<Buffer> {
   const declared = response.headers.get("content-length");
   if (declared !== null && Number(declared) > maxBytes) { await response.body?.cancel().catch(() => {}); throw tooLarge(); }
@@ -176,8 +151,6 @@ export async function readCapped(response: Response, maxBytes: number, tooLarge:
 
 type Send = { method?: string; body?: RequestInit["body"]; headers?: Record<string, string>; accept?: string; timeoutMs?: number; signal?: AbortSignal };
 
-/** One connection and key for the life of the client: server/computers.ts makes one per operation, so a key replaced
- * mid-provision applies to the next operation, never halfway through this one (boat.ts snapshotBoatConfig). */
 export class ComputersClient {
   readonly api: string;
   readonly keyFile: string;
@@ -188,7 +161,6 @@ export class ComputersClient {
     this.api = connection.api; this.keyFile = connection.keyFile; this.#key = computersKey(connection); this.#trial = connection.source === "trial"; this.#fetch = options.fetch ?? fetch;
   }
 
-  /** Every request has a deadline: a service that accepts a connection and stalls must not hold a turn for minutes. */
   async #send(path: string, { method = "GET", body, headers = {}, accept = "application/json", timeoutMs = 20_000, signal }: Send = {}): Promise<Response> {
     const timeout = AbortSignal.timeout(timeoutMs);
     let response: Response;
@@ -196,12 +168,12 @@ export class ComputersClient {
       response = await this.#fetch(`${this.api}${path}`, { method, body, signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         headers: { accept, ...headers, authorization: `Bearer ${this.#key}` } });
     } catch (error) {
-      if (signal?.aborted) throw error; // the caller's own cancel or deadline, as the caller set it
+      if (signal?.aborted) throw error;
       throw new ComputersApiError(timeout.aborted ? "later.dog's computers service did not answer in time" : "later.dog's computers service could not be reached", 0, undefined, { cause: error });
     }
     if (response.ok) return response;
     let failure: unknown = null;
-    try { failure = JSON.parse((await readCapped(response, MAX_ERROR_BYTES, () => unexpected())).toString("utf8")); } catch { /* the status alone speaks */ }
+    try { failure = JSON.parse((await readCapped(response, MAX_ERROR_BYTES, () => unexpected())).toString("utf8")); } catch {}
     const parsed = errorBody.safeParse(failure);
     const code = parsed.success && /^[a-z0-9_]{1,64}$/.test(parsed.data.error.code ?? "") ? parsed.data.error.code : undefined;
     const theirs = parsed.success ? (parsed.data.error.message ?? "").trim().slice(0, 300) : "";
@@ -217,10 +189,8 @@ export class ComputersClient {
     return parsed.data;
   }
 
-  /** Every computer on the account. One malformed row fails the whole list, so a service fault never reads as absence. */
   async list(): Promise<Computer[]> { return (await this.#read(await this.#send("/computers"), listBody)).computers; }
 
-  /** The computer, or null once the service says it does not exist. */
   async get(id: string, options: { signal?: AbortSignal } = {}): Promise<Computer | null> {
     let response: Response;
     try { response = await this.#send(`/computers/${computerPath(id)}`, { signal: options.signal }); }
@@ -230,7 +200,6 @@ export class ComputersClient {
     return computer;
   }
 
-  /** A dropped answer or a server error may follow a create that happened; one retry with the same key is safe. */
   async create(input: { name: string; size?: string }, idempotencyKey: string): Promise<Computer> {
     const send = () => this.#send("/computers", { method: "POST", body: JSON.stringify(input), timeoutMs: 45_000,
       headers: { ...JSON_TYPE, "idempotency-key": idempotencyKey } });
@@ -247,7 +216,6 @@ export class ComputersClient {
     return (await this.#read(await this.#send(`/computers/${computerPath(id)}`, { method: "PATCH", body: JSON.stringify({ name }), headers: JSON_TYPE }), computerBody)).computer;
   }
 
-  /** Synchronous: "deleted" once the service answers, "absent" when it had no such computer. Done either way. */
   async remove(id: string): Promise<"deleted" | "absent"> {
     let response: Response;
     try { response = await this.#send(`/computers/${computerPath(id)}`, { method: "DELETE" }); }
@@ -259,12 +227,9 @@ export class ComputersClient {
   wake(id: string, options: { signal?: AbortSignal } = {}): Promise<Computer> { return this.#lifecycle(id, "wake", options.signal); }
   sleep(id: string): Promise<Computer> { return this.#lifecycle(id, "sleep"); }
   async #lifecycle(id: string, action: "wake" | "sleep", signal?: AbortSignal): Promise<Computer> {
-    // A JSON body even when empty: a Worker that reads every POST as JSON must not fail on this one.
     return (await this.#read(await this.#send(`/computers/${computerPath(id)}/${action}`, { method: "POST", body: "{}", headers: JSON_TYPE, timeoutMs: 30_000, signal }), computerBody)).computer;
   }
 
-  /** `command` runs through the computer's shell as its dog user. The service stops it after `timeoutMs`; this request
-   * waits a little longer for that answer. 409 `asleep` when the computer is not running. */
   async exec(id: string, input: { command: string; timeoutMs?: number; cwd?: string }, options: { signal?: AbortSignal } = {}): Promise<ExecResult> {
     return this.#read(await this.#send(`/computers/${computerPath(id)}/exec`, { method: "POST", body: JSON.stringify(input), headers: JSON_TYPE,
       timeoutMs: (input.timeoutMs ?? 120_000) + 10_000, signal: options.signal }), execBody);
@@ -281,7 +246,6 @@ export class ComputersClient {
     await response.body?.cancel().catch(() => {});
   }
 
-  /** The whole screen as JPEG with the pointer drawn, at the desktop's native size. 409 `asleep` when not running. */
   async screenshot(id: string, options: { signal?: AbortSignal } = {}): Promise<Buffer> {
     const response = await this.#send(`/computers/${computerPath(id)}/screenshot`, { accept: "image/jpeg", timeoutMs: 30_000, signal: options.signal });
     if (!/^image\/jpeg\b/i.test(response.headers.get("content-type") ?? "")) { await response.body?.cancel().catch(() => {}); throw unexpected("a frame that is not a JPEG image"); }
@@ -290,12 +254,10 @@ export class ComputersClient {
     return frame;
   }
 
-  /** A fresh signed noVNC link for Take control. Never stored: it expires. 409 `asleep` when not running. */
   async desktop(id: string): Promise<{ url: string; expiresAt?: string | number }> {
     const body = await this.#read(await this.#send(`/computers/${computerPath(id)}/desktop`, { method: "POST", body: "{}", headers: JSON_TYPE, timeoutMs: 30_000 }), desktopBody);
-    // The desktop viewer opens only HTTPS, or loopback HTTP from a local stub (electron/desktop-viewer.cjs).
     let url: URL | null = null;
-    try { url = new URL(body.url); } catch { /* refused below */ }
+    try { url = new URL(body.url); } catch {}
     if (!url || url.username || url.password || !httpsOrLoopback(url)) throw unexpected("an unusable desktop link");
     return body;
   }

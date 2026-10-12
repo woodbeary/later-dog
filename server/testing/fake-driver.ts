@@ -1,6 +1,3 @@
-// In-memory ProviderDriver for registry/bus tests. Queue-free and
-// deliberately tiny: tests reach into the returned handle to emit
-// canonical events as if the provider produced them.
 import type {
   DriverCreateInput,
   EffortLevel,
@@ -13,17 +10,13 @@ import type {
 
 export interface FakeDriverOptions {
   kind?: string;
-  /** create() rejects with this message (shadow-downgrade path). */
   failCreate?: string;
-  /** snapshot() rejects with this message (describe-downgrade path). */
   failSnapshot?: string;
-  /** effort levels this fake driver declares, forwarded onto capabilities. */
   effortLevels?: readonly EffortLevel[];
 }
 
 export interface FakeDriverHandle {
   driver: ProviderDriver<Record<string, unknown>>;
-  /** Live instances by instanceId, with their event-emit hook. */
   created: Map<string, { instance: ProviderInstance; emit: (e: RuntimeEvent) => void }>;
   decodedConfigs: unknown[];
   disposed: string[];
@@ -68,7 +61,7 @@ export function makeFakeDriver(opts: FakeDriverOptions = {}): FakeDriverHandle {
             capabilities: { sessionModelSwitch: "unsupported", effortLevels: opts.effortLevels },
             sendTurn: async () => ({ turnId: "fake-turn" }),
             interruptTurn: async () => {},
-            respondToRequest: async () => "unavailable" as const, // this engine has no asks to answer
+            respondToRequest: async () => "unavailable" as const,
             hasSession: () => false,
             stopAll: async () => {},
             onEvent: (listener) => {

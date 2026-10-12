@@ -73,7 +73,6 @@ function expectLeaseReleased() {
 }
 
 beforeEach(() => {
-  // testing/setup.ts assigns a throwaway HOME before this module loads.
   rmSync(DATA_DIR, { recursive: true, force: true });
   mkdirSync(DATA_DIR, { recursive: true });
   for (const name of [...WORKSPACE_CREDENTIAL_ENV, ...PROVIDER_CREDENTIAL_ENV, "OPENAI_COMPAT_MODEL", "OPENAI_COMPAT_PROVIDER"])
@@ -431,8 +430,6 @@ describe("API onboarding", () => {
     const before = loadConfig();
     const priorId = before.defaultModelSelection!.instanceId;
     const prior = before.instances![priorId]!;
-    // The explicit saved fleet has Codex, Claude, OpenAI-compatible, then
-    // this newly added API connection in the existing-connections list.
     const existingIds = Object.entries(before.instances!).filter(([, entry]) =>
       ["codex", "claudeAgent", "openai-compat"].includes(entry.driver) && entry.enabled !== false).map(([id]) => id);
     const chosen = existingIds.indexOf(priorId) + 3;

@@ -1,9 +1,3 @@
-// One voice note in the transcript: a play button, a scrub bar, and the
-// clip's length. Playback rides the Speaker's one-voice rule — pressing
-// play claims the window's voice, so call-mode speech (or another note)
-// takes over by pausing this element rather than talking over it. While
-// this window is on a Live call a note cannot be played at all: the call's
-// microphone would pick it up (starting the call already paused it).
 import { useEffect, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 
@@ -13,8 +7,6 @@ import { isLiveCallRunning, useLiveMedia } from "@/lib/live-call-media";
 import { speaker } from "@/lib/tts";
 import { cn } from "@/lib/cn";
 
-/** The wire's audio attachment shape (shared/wire.ts): a parked clip plus
- * the server's duration estimate, used until the element loads metadata. */
 export interface VoiceNoteAttachment {
   kind: "audio";
   path: string;
@@ -39,7 +31,6 @@ export function VoiceNoteBubble({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const releaseRef = useRef<(() => void) | null>(null);
   const [playing, setPlaying] = useState(false);
-  // metadata estimate first, real duration once the element loads it
   const [duration, setDuration] = useState<number | null>(
     typeof attachment.durationMs === "number" && attachment.durationMs > 0
       ? attachment.durationMs / 1000
@@ -48,8 +39,6 @@ export function VoiceNoteBubble({
   const [time, setTime] = useState(0);
   const onLiveCall = isLiveCallRunning(useLiveMedia().phase);
 
-  // Release the claim on unmount: a gone bubble cannot be paused again, and
-  // the singleton must not keep a callback into a dead element.
   useEffect(() => () => releaseRef.current?.(), []);
 
   if (!url) return null;
@@ -63,21 +52,14 @@ export function VoiceNoteBubble({
   const toggle = () => {
     const audio = audioRef.current;
     if (!audio) return;
-    // the element's own paused state, not the playing flag: media play
-    // events are queued, so a second click before onPlay fires must still
-    // read as "playing" and pause instead of claiming and playing again
     if (!audio.paused) {
       audio.pause();
       return;
     }
     if (onLiveCall) return;
-    // claim before play: the Speaker's stop() path silences call mode and
-    // any other note first, then this element takes the voice
     releaseRef.current?.();
     const release = speaker.claimExternalVoice(() => audio.pause());
     releaseRef.current = release;
-    // a refused play() never fires pause, so the claim comes back here —
-    // but only if this attempt's claim is still the active one
     void audio.play().catch(() => giveBackVoice(release));
   };
 
@@ -103,8 +85,6 @@ export function VoiceNoteBubble({
         onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
         onPlay={() => setPlaying(true)}
         onPause={(event) => {
-          // a queued pause can land after playback already resumed; only
-          // a pause that stuck gives the voice back
           if (!event.currentTarget.paused) return;
           setPlaying(false);
           giveBackVoice();

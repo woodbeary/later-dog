@@ -3,10 +3,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-// E4 fixture QA: the trigger sets are data only (no router runs them),
-// so their contract is pinned structurally — unique ids, honest splits,
-// and texts that actually contain (or avoid) the declared trigger terms
-// the way their set claims. R3's router validation inherits these guards.
 interface TriggerEntry {
   id: string;
   text: string;

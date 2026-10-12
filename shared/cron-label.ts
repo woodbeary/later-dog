@@ -3,8 +3,6 @@ import type { RoutineCronSchedule } from "./routine-schedule.ts";
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-/** Describe familiar presets; retain the exact expression for everything else.
- * This is presentation only, never a second parser or source of scheduling truth. */
 export function cronScheduleLabel(schedule: RoutineCronSchedule): string {
   const [minute, hour, day, month, weekday] = schedule.expression.trim().split(/\s+/);
   let label = `Cron ${schedule.expression}`;

@@ -1,13 +1,8 @@
 #!/bin/bash
-# Starts the dog's desktop: display :0 (Xvfb), a session D-Bus and XFCE as the dog user, a VNC server on localhost and
-# noVNC on :6080. A computer restored from a snapshot runs this again over the snapshot's files, so leftovers of the
-# previous boot (X and bus sockets, Chromium's profile lock) are cleared first.
-# Each piece restarts on its own if it exits; the container stops only when the platform stops it.
 set -u
 export DISPLAY=:0
 GEOMETRY="${DESKTOP_GEOMETRY:-1280x800}"
 DOG_RUNTIME=/run/user/1000
-# The Worker passes the same address to every command it runs, so commands and the desktop share one session bus.
 BUS="unix:path=${DOG_RUNTIME}/bus"
 
 rm -f /tmp/.X0-lock /tmp/.X11-unix/X0 "${DOG_RUNTIME}/bus"

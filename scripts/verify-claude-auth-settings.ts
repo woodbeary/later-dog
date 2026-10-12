@@ -1,4 +1,3 @@
-// Real Claude CLI through the later.dog driver, synthetic account and loopback API.
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";

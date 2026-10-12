@@ -1,4 +1,3 @@
-// Real settings and store against a disposable fake-engine server.
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,7 +19,6 @@ try {
     });
   }
   const atlas = bots.find((bot) => bot.name === "Settings Atlas")!;
-  // The installer writes only to this launcher's disposable data directory.
   execFileSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", `
     import { installSkill, setSkillEnabled } from './server/skills.ts';
     const result = installSkill(${JSON.stringify(atlas.id)}, 'fixture:settings', [{path:'SKILL.md',content:'---\\nname: fixture-check\\ndescription: Check fixture settings reliably\\n---\\nRead the fixture state and summarize it.\\n'}]);
@@ -31,7 +29,6 @@ try {
   ui = await mountPreview(fixture, {
     entry: "/src/testing/bot-settings.tsx", route: "/__bot-settings.html", title: "Isolated Bot Settings",
     extraRoutes: [{
-      // An outside edit of a bot's standing instructions, inside the fixture home only.
       path: /^\/__fixture\/drift\/([\w-]+)$/, method: "POST",
       handler(_req, res, match) {
         const botId = match![1]!;

@@ -10,18 +10,11 @@ export interface WorldContext {
   observations: Record<string, unknown>;
 }
 
-/** Shared machinery for both worlds: one real harness server, an HTTP
- * client, the scripted plan's evidence log, gate files, and the common
- * steps. Worlds add only what is genuinely theirs. */
 export abstract class BaseWorld {
   protected api!: ApiClient;
   protected bots = new Map<string, { id: string; threadId: string }>();
   private evidencePath = "";
   private gatesDir = "";
-  /** Activity prefixes proven live by waitForActivity steps. The server
-   * patches a wait chip in place when it settles ("Waiting for its turn..."
-   * becomes "Computer free"), so a freeze-time read alone would lose the
-   * waiting half of that history. */
   private activityFacts = new Map<string, Set<string>>();
 
   protected initBase(url: string, evidencePath: string, gatesDir: string): Promise<void> {
@@ -37,8 +30,6 @@ export abstract class BaseWorld {
     return this.gatesDir === "" ? gate : this.gatesDir + "/" + gate;
   }
 
-  /** Steps may name a bot as "worker" or "@worker"; the plain key is
-   * what this.bots and evidence bot ids are recorded under. */
   protected botKey(ref: string): string {
     return ref.startsWith("@") ? ref.slice(1) : ref;
   }
@@ -54,7 +45,6 @@ export abstract class BaseWorld {
     return botId;
   }
 
-  /** Deep-resolves "@key" bot references to live ids. */
   protected resolveRefs(value: unknown): unknown {
     if (typeof value === "string" && value.startsWith("@")) return this.botId(value);
     if (Array.isArray(value)) return value.map((entry) => this.resolveRefs(entry));
@@ -64,9 +54,6 @@ export abstract class BaseWorld {
     return value;
   }
 
-  /** The scripted engine's evidence log for offline worlds; the live world
-   * overrides this to derive the same row shape from real thread messages,
-   * so it may return a promise. */
   protected evidence(): Array<Record<string, any>> | Promise<Array<Record<string, any>>> {
     if (!existsSync(this.evidencePath)) return [];
     return readFileSync(this.evidencePath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
@@ -140,9 +127,6 @@ export abstract class BaseWorld {
         return "gate " + step.gate + " open";
       }
       case "installSkill": {
-        // Every world passes gatesDir = <dataRoot>/eval-gates, so its parent
-        // is the server's LATERDOG_HOME; skills/ under it is exactly where
-        // the server hot-loads user skills on every turn.
         const root = join(dirname(this.gatesDir), "skills", step.skill.id);
         mkdirSync(root, { recursive: true });
         const { skillMd, ...manifest } = step.skill;
@@ -202,7 +186,6 @@ export abstract class BaseWorld {
     };
   }
 
-  /** Freezes activities into the snapshot so scorers never hit the server. */
   protected async captureActivities(): Promise<Record<string, string[]>> {
     const captured: Record<string, string[]> = {};
     for (const key of this.bots.keys()) captured[key] = await this.activities(key);

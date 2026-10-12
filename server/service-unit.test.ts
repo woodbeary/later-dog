@@ -30,7 +30,6 @@ describe("service units", () => {
     expect(unit).toContain("WantedBy=multi-user.target");
     const local = systemdUnit({ ...spec, bindsLowPorts: false, serveArgs: ["--port", "8799", "--data-dir", "/home/dog/.laterdog"] });
     expect(local).not.toContain("CAP_NET_BIND_SERVICE");
-    // a path with a space is quoted for systemd
     expect(systemdUnit({ ...spec, dataDir: "/home/dog/My Data", serveArgs: ["--data-dir", "/home/dog/My Data"] })).toContain('ExecStart=/usr/bin/node /usr/lib/node_modules/laterdog/cli.js serve --data-dir "/home/dog/My Data"');
   });
 

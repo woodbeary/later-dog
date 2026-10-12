@@ -67,7 +67,6 @@ describe("OpenCode catalog", () => {
       JSON.stringify({ name: "Retired", status: "deprecated" }, null, 2),
     ].join("\n"));
 
-    // Zen's own price marks Big Pickle free; nothing is invented.
     expect(models?.default).toBe("opencode/big-pickle");
     expect(models?.options).toEqual([
       expect.objectContaining({ id: "openrouter/vendor/model-v2", label: "OpenRouter · Vendor Model" }),
@@ -172,10 +171,6 @@ describe("OpenCode catalog", () => {
   });
 
   it("finds the CLI's login at ~/.local/share on every platform, macOS included", async () => {
-    // `opencode auth list` prints ~/.local/share/opencode/auth.json on macOS —
-    // the CLI is xdg-flavoured everywhere. Looking only in Library/Application
-    // Support is the bug that told signed-in users to sign in. No XDG override
-    // here on purpose: this is the exact real-world shape.
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-opencode-home-"));
     const authDir = join(scratch, ".local", "share", "opencode");
     mkdirSync(authDir, { recursive: true });
@@ -286,17 +281,11 @@ describe("OpenCode catalog", () => {
     expect(classifyOpenCodeError({ code: -32000 })).toBe("invalid_credentials");
   });
 
-  // The shapes the real CLI sends. Invalid key: recorded from opencode 1.18.27
-  // (ACP, temp home, OPENCODE_API_KEY set to a bogus value, free big-pickle)
-  // and 2.0.20 (paid default, same key). The funds text is the diagnosis run's
-  // "Insufficient account funds" on a paid Zen model; the subscription text
-  // is Zen Go's HTTP refusal. OpenCode wraps provider text the same way.
   const apiError = (message: string) => Object.assign(new Error(`${message} (session/prompt, service: session, APIError)`), {
     code: -32603, data: { service: "session", errorName: "APIError" },
   });
   it.each([
     ["Internal error: Invalid API key.", "invalid_credentials"],
-    // OpenRouter's refusal of an unknown key, through opencode 1.18.27
     ["Internal error: User not found.", "invalid_credentials"],
     ["Internal error: Insufficient account funds.", "insufficient_funds"],
     ["Internal error: An active OpenCode Go subscription is required", "inactive_subscription"],
@@ -305,9 +294,6 @@ describe("OpenCode catalog", () => {
     expect(classifyOpenCodeError(apiError(message))).toBe(expected);
   });
 
-  // A plain rate limit is a transient 429: OpenCode retries it itself, and
-  // automatic recovery may still route around it. Only a spent quota is the
-  // account's to fix.
   it.each([
     "Internal error: Rate limit exceeded",
     "Internal error: Rate limit reached for model openai/gpt-4o-mini in organization org-x",
@@ -325,9 +311,6 @@ describe("OpenCode catalog", () => {
     expect(classifyOpenCodeError(apiError("Internal error: socket hang up"))).toBeUndefined();
   });
 
-  // index.ts keeps only the first 160 characters of a chat error, so a fix
-  // longer than that was cut mid-command. With provider keys and `opencode
-  // auth login` the refusing account may not be Zen's.
   it.each(["invalid_credentials", "insufficient_funds", "inactive_subscription", "quota_or_region_restriction"] as const)(
     "words %s briefly and names the provider that refused",
     (code) => {
@@ -377,7 +360,6 @@ describe("OpenCode catalog", () => {
           OPENAI_API_KEY: "openai-shell-key",
           ANTHROPIC_API_KEY: "anthropic-shell-key",
           GEMINI_API_KEY: "gemini-shell-key",
-          // later.dog's own saved keys for other engines never ride along.
           XAI_API_KEY: "saved-for-grok",
           MISTRAL_API_KEY: "saved-for-mistral",
           LATERDOG_ANTHROPIC_API_KEY: "workspace-anthropic",
@@ -409,10 +391,6 @@ describe("OpenCode catalog", () => {
     }
   });
 
-  // The first catalog probe runs inside registry.load at startup. Wired after
-  // it, the policy did not apply to that probe; and a server whose sign-in
-  // list lets others in would bill every member's OpenCode bot to the
-  // operator's keys.
   it("is wired in index.ts before the first catalog probe, with the sign-in list", () => {
     const source = readFileSync(new URL("../../index.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const wired = source.indexOf("setOpenCodeProviderKeyPolicy(openCodeKeysAllowed);");
@@ -428,10 +406,6 @@ describe("OpenCode catalog", () => {
     expect(source).toContain("openCodeOrganisationManaged = () => managedPolicy.current() !== null || managedDesktop.enrolled();");
   });
 
-  // The policy is about where a key comes from. One riding along in the
-  // server's own environment (the operator's) stays out; one in OpenCode's
-  // instance environment was put there on purpose (config.ts
-  // injectedEnvironment), as claude.ts treats the workspace Anthropic key.
   it("keeps the server's own provider keys out on a Cloud home or a managed desktop", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-opencode-managed-"));
     setOpenCodeProviderKeyPolicy(() => false);
@@ -458,10 +432,6 @@ describe("OpenCode catalog", () => {
     }
   });
 
-  // On a Cloud the owner has no shell to export a key in: Settings saves it
-  // for OpenCode (config.ts openCodeProviderKeys), and the server hands it
-  // over in the instance environment. Those names go through; every other
-  // provider key the server's own environment holds still does not.
   it("lets the owner's saved provider keys through on a Cloud home, and only those", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-opencode-own-keys-"));
     setOpenCodeProviderKeyPolicy(() => false);
@@ -475,7 +445,6 @@ describe("OpenCode catalog", () => {
         environment: {
           ANTHROPIC_API_KEY: "owner-anthropic",
           VENICE_API_KEY: "owner-venice",
-          // Saved with the very value the server also holds: still saved.
           GEMINI_API_KEY: "operator-GEMINI_API_KEY",
           FAKE_ACP_DUMP: dump,
         },
@@ -505,8 +474,6 @@ describe("OpenCode catalog discovery from the ACP session", () => {
     vi.unstubAllEnvs();
   });
 
-  // Recorded from `opencode acp` session/new in empty temporary homes
-  // (no key). V1 1.18.27 names models "OpenCode Zen/…", V2 2.0.20 "opencode/…".
   const V1_SESSION = { sessionId: "ses_v1", configOptions: [
     { id: "model", name: "Model", category: "model", type: "select", currentValue: "opencode/big-pickle", options: [
       { value: "opencode/big-pickle", name: "OpenCode Zen/Big Pickle" },
@@ -541,10 +508,8 @@ describe("OpenCode catalog discovery from the ACP session", () => {
     const offered = ["opencode/claude-sonnet-5-5", "opencode/big-pickle", "opencode/longcat-2.5-preview-free"];
     expect(preferredOpenCodeModel(offered, "opencode/longcat-2.5-preview-free")).toBe("opencode/longcat-2.5-preview-free");
     expect(preferredOpenCodeModel(offered, "opencode/claude-sonnet-5-5")).toBe("opencode/longcat-2.5-preview-free");
-    // Zen's price (models --verbose) outranks the name.
     parseOpenCodeModelsOutput(["opencode/big-pickle", JSON.stringify({ cost: { input: 0, output: 0 } })].join("\n"));
     expect(preferredOpenCodeModel(offered, "opencode/big-pickle")).toBe("opencode/big-pickle");
-    // Only the person's own paid providers: their pick stands.
     expect(preferredOpenCodeModel(["anthropic/claude-sonnet-5", "openai/gpt-6"], "openai/gpt-6")).toBe("openai/gpt-6");
     expect(preferredOpenCodeModel([], null)).toBe("");
   });
@@ -556,7 +521,6 @@ describe("OpenCode catalog discovery from the ACP session", () => {
         ...process.env, HOME: scratch, FAKE_ACP_MODELS: "opencode/big-pickle,opencode-go/minimax-m3",
       }, FAKE_CLI);
       expect(found.options.map((option) => option.id)).toEqual(["opencode/big-pickle", "opencode-go/minimax-m3"]);
-      // context windows come from `models --verbose`
       expect(found.options[0]).toMatchObject({ contextWindow: 200_000 });
     } finally {
       await removeTempDir(scratch);
@@ -577,8 +541,6 @@ describe("OpenCode catalog discovery from the ACP session", () => {
     }
   });
 
-  // OpenCode 2 rejects `models --verbose`; before, that left the picker on
-  // the invented, dead x-preview-f-free.
   it("still lists every model on OpenCode 2, where models --verbose fails", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-opencode-discover-v2-"));
     try {
@@ -633,9 +595,6 @@ describe("OpenCode turns without a sign-in gate", () => {
     return { scratch, run, launches };
   };
 
-  // OpenCode 2's plain `models` answers an empty list right after its
-  // background service starts. The old pre-spawn check read that as "no
-  // usable models" and refused every anonymous turn for 30 s.
   it("runs an anonymous free-model turn even when `opencode models` answers nothing", async () => {
     const f = await open("opencode-anonymous", () => ({
       FAKE_ACP_MODELS_LIST: "v2", FAKE_ACP_MODELS: "opencode/longcat-2.5-preview-free",
@@ -649,7 +608,6 @@ describe("OpenCode turns without a sign-in gate", () => {
     const f = await open("opencode-bad-key", (scratch) => ({
       OPENCODE_API_KEY: "sk-bogus", FAKE_ACP_MODELS: "opencode/big-pickle", FAKE_ACP_RPC_FAILURE_FILE: join(scratch, "failure.json"),
     }));
-    // recorded from opencode 1.18.27 with a bogus OPENCODE_API_KEY
     writeFileSync(join(f.scratch, "failure.json"), JSON.stringify({
       code: -32603, message: "Internal error: Invalid API key.", data: { service: "session", errorName: "APIError" },
     }));
@@ -660,15 +618,10 @@ describe("OpenCode turns without a sign-in gate", () => {
       expect(error).toMatchObject({ setup: true, message: expect.stringContaining("opencode auth login") });
       expect(error).not.toMatchObject({ message: expect.stringContaining("Internal error") });
     }
-    // the retry reused the warm process instead of cold-starting OpenCode
     expect(f.launches()).toBe(1);
   });
 });
 
-// Measured on opencode 1.18.27: after `opencode auth login` and a model
-// refresh, a conversation's pooled `opencode acp` still listed its old 7
-// models, and the fallback ran big-pickle while saying the new OpenRouter
-// model was "no longer offered".
 describe("OpenCode after a login added since its process started", () => {
   const added = "openrouter/openai/gpt-4o-mini";
   const fixtures: Array<{ scratch: string; instance: ProviderInstance; recorder: EventRecorder }> = [];
@@ -684,7 +637,6 @@ describe("OpenCode after a login added since its process started", () => {
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-opencode-login-"));
     const modelsFile = join(scratch, "models");
     writeFileSync(modelsFile, "opencode/big-pickle");
-    // the instance catalog already lists the new model (refreshed after login)
     const driver = createOpenCodeDriver(async () => catalog("opencode/big-pickle", added));
     const instance = await driver.create({
       instanceId: "opencode-login", displayName: "OpenCode", enabled: true,
@@ -727,14 +679,11 @@ describe("OpenCode after a login added since its process started", () => {
   it("never swaps a model the catalog lists for another one, and retries on a fresh process", async () => {
     const f = await open();
     expect((await f.run("opencode/big-pickle")).done).toMatchObject({ ok: true });
-    // the provider arrived some other way (no auth.json change): the pooled
-    // process cannot know it
     writeFileSync(f.modelsFile, `opencode/big-pickle,${added}`);
     const stale = await f.run(added);
     expect(stale.done).toMatchObject({ ok: false });
     expect(stale.events.some((event) => event.type === "runtime.notice")).toBe(false);
     expect(stale.events.find((event) => event.type === "runtime.error")).toMatchObject({ message: expect.stringContaining(added) });
-    // nothing ran: the only prompt so far is the first turn's
     expect(f.prompts()).toBe(1);
     const retry = await f.run(added);
     expect(retry.done).toMatchObject({ ok: true });
@@ -745,9 +694,6 @@ describe("OpenCode after a login added since its process started", () => {
 describe("OpenCode catalog probes", () => {
   afterEach(() => resetOpenCodeModelCache());
 
-  // A probe in a folder outside git lands in OpenCode's global project, so
-  // `opencode run --continue` in any other such folder resumed it (checked on
-  // 1.18.27: an own-repo folder keeps its sessions out of that list).
   it("runs in a folder that is its own git project", async () => {
     try {
       execFileSync("git", ["--version"], { stdio: "ignore" });
@@ -762,12 +708,8 @@ describe("OpenCode catalog probes", () => {
         .find((entry) => entry.method === "session/new"))!.cwd;
       const root = execFileSync("git", ["rev-list", "--max-parents=0", "HEAD"], { cwd: folder, encoding: "utf8" }).trim();
       expect(root).toMatch(/^[0-9a-f]{40,64}$/u);
-      // .native on both sides: git prints Windows' long path, while the temp
-      // folder can arrive as its 8.3 short name (C:\Users\RUNNER~1\…), which
-      // only the native resolver expands
       expect(realpathSync.native(execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: folder, encoding: "utf8" }).trim()))
         .toBe(realpathSync.native(folder));
-      // once: a second probe keeps the same project
       resetOpenCodeModelCache();
       await discoverOpenCodeModels({ ...process.env, HOME: scratch, FAKE_ACP_MODELS: "opencode/big-pickle" }, FAKE_CLI);
       expect(execFileSync("git", ["rev-list", "--max-parents=0", "HEAD"], { cwd: folder, encoding: "utf8" }).trim()).toBe(root);
@@ -785,10 +727,6 @@ describe("OpenCode access to folders later.dog owns", () => {
     expect(openCodeOwnedDirectories()).toEqual([ATTACHMENTS_DIR]);
   });
 
-  // OpenCode loads opencode.json, .opencode/ and AGENTS.md from every folder
-  // above its working folder. Measured on 1.18.27: an Ask-mode turn allowed
-  // into task-workspaces/<bot> wrote an opencode.json there allowing every
-  // folder, and the bot's next conversation then read $HOME with no card.
   it.each([
     ["a conversation's own folder", join(TASK_WORKSPACES_DIR, "bot-7", "thread-1")],
     ["the bot's shared folder (a room's)", workspaceDir("bot-7")],
@@ -803,8 +741,6 @@ describe("OpenCode access to folders later.dog owns", () => {
     };
     const allowed = openCodeOwnedDirectories("bot-7", cwd);
     for (const directory of allowed) expect(inside(cwd, directory), directory).toBe(false);
-    // earlier conversations are never on the list: their parent sits above
-    // every conversation's working folder
     expect(allowed).not.toContain(join(TASK_WORKSPACES_DIR, "bot-7"));
   });
 
@@ -816,9 +752,6 @@ describe("OpenCode access to folders later.dog owns", () => {
     expect(laterDogOwnsWorkingFolder(`${TASK_WORKSPACES_DIR}-elsewhere`)).toBe(false);
   });
 
-  // OpenCode merges OPENCODE_PERMISSION over the person's config and an
-  // object replaces a string (checked with `opencode debug config` on
-  // 1.18.27), so later.dog's folder map turned their "deny" into "ask".
   it("keeps the person's single folder rule ahead of later.dog's folders", () => {
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-opencode-folder-rule-"));
     try {
@@ -834,10 +767,8 @@ describe("OpenCode access to folders later.dog owns", () => {
       const project = join(scratch, "project", "src");
       mkdirSync(project, { recursive: true });
       expect(configuredOpenCodeFolderAction(env, project, true)).toBe("deny");
-      // a project map replaces the string, exactly as in OpenCode
       writeFileSync(join(scratch, "project", "opencode.json"), JSON.stringify({ permission: { external_directory: { "/srv/*": "allow" } } }));
       expect(configuredOpenCodeFolderAction(env, project, true)).toBeUndefined();
-      // unless project config is off
       expect(configuredOpenCodeFolderAction(env, project, false)).toBe("deny");
       expect(configuredOpenCodeFolderAction({ ...env, OPENCODE_CONFIG_CONTENT: '{"permission":{"external_directory":"ask"}}' }, project, false)).toBe("ask");
     } finally {
@@ -898,9 +829,6 @@ describe("OpenCode access to folders later.dog owns", () => {
         expect(policy).toMatchObject({ "*": "allow", external_directory: "allow" });
         return;
       }
-      // the person's own rules stay, first; later.dog's folders are allowed
-      // after them; nothing else is widened. A project folder of the
-      // person's keeps its own OpenCode config.
       expect(JSON.parse(readFileSync(dump, "utf8")).env.OPENCODE_DISABLE_PROJECT_CONFIG).toBeUndefined();
       expect(policy.bash).toBe("ask");
       expect(Object.entries(policy.external_directory)).toEqual([
@@ -953,8 +881,6 @@ describe("OpenCode session variants", () => {
     const calls = (): Array<{ params: { sessionId: string; configId: string; value: string } }> => (
       existsSync(`${dump}.config.json`) ? JSON.parse(readFileSync(`${dump}.config.json`, "utf8")) : []
     );
-    // the fake's methods file accumulates for the whole (pooled) process, so
-    // "was the LAST run prompted" is a count delta, not an includes()
     const promptCount = () =>
       (existsSync(`${dump}.methods.json`) ? JSON.parse(readFileSync(`${dump}.methods.json`, "utf8")) as string[] : [])
         .filter((method) => method === "session/prompt").length;
@@ -1087,9 +1013,6 @@ describe("OpenCode session variants", () => {
     expect(f.prompted()).toBe(false);
   });
 
-  // Zen retired x-preview-f-free (and the Ox Alpha preview before it);
-  // OpenCode answers -32602 "model not found", so a bot that saved it failed
-  // every turn in about half a second.
   it.each(["opencode/x-preview-f-free", "opencode-go/ox-alpha-free"])(
     "runs a retired saved model %s on the catalog default and says so once",
     async (retired) => {
@@ -1102,8 +1025,6 @@ describe("OpenCode session variants", () => {
       expect(notices[0]).toMatchObject({ message: expect.stringContaining(model) });
       expect(first.events.find((event) => event.type === "session.started")).toMatchObject({ model });
       expect(first.events.filter((event) => event.type === "session.model-variants").at(-1)).toMatchObject({ model });
-      // Already on the default and the saved variant belonged to the retired
-      // model: neither the model nor the effort is touched.
       expect(f.calls()).toEqual([]);
 
       const second = await f.run({ model: retired });
@@ -1112,8 +1033,6 @@ describe("OpenCode session variants", () => {
     },
   );
 
-  // The app hid an unprefixed notice with the tool steps (Tool calls is off
-  // by default); `notice:` makes it a status row (src/lib/activity-runs.ts).
   it("is stored as a status row the person always sees", () => {
     const source = readFileSync(new URL("../../index.ts", import.meta.url), "utf8");
     const handler = source.slice(source.indexOf('case "runtime.notice":'), source.indexOf('case "runtime.error":'));
@@ -1138,8 +1057,6 @@ describe("OpenCode model choice without a saved model", () => {
     resetOpenCodeModelCache();
   });
 
-  // OpenCode 2 with a key starts every session on a paid model (measured:
-  // opencode/claude-sonnet-5-5 on 2.0.20). An empty pick must not bill.
   it("runs a free model, not OpenCode's own paid default", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-opencode-paid-default-"));
     const dump = join(scratch, "rpc");

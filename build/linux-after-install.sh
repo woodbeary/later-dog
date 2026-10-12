@@ -1,13 +1,6 @@
 #!/bin/sh
 set -eu
 
-# dpkg preserves an existing directory's mode during an in-place upgrade.
-# later.dog 0.1.7 installed the application ancestors as 0775, which makes
-# the bundled Cua Driver correctly reject its own executable path. A configured
-# DEB also needs Electron's Chromium sandbox to be root-owned and setuid. The
-# bot's separate Chrome uses its normal user-namespace sandbox, with an exact
-# root-owned AppArmor allowlist on Ubuntu 24.04. Never disable the sandbox or
-# change the machine-wide user-namespace restriction.
 if [ -n "${LATERDOG_POSTINSTALL_TEST_ROOT:-}" ]; then
   TEST_ROOT="$(realpath -e -- "$LATERDOG_POSTINSTALL_TEST_ROOT")"
   case "$TEST_ROOT" in
@@ -83,8 +76,6 @@ repair_chromium_sandbox() {
 }
 
 secure_browser_tree() {
-  # No symlinks or special files may redirect the package's privileged repair
-  # outside this exact resource. Preserve executable bits on Chrome sidecars.
   unsafe=$(find "$BROWSER_ROOT" ! -type d ! -type f -print -quit)
   if [ -n "$unsafe" ]; then
     echo "later.dog browser resource is missing or unsafe: $unsafe" >&2
@@ -115,9 +106,6 @@ install_browser_apparmor_profile() {
   chmod 0644 -- "$profile"
   restricted=0
   if [ -f "$USERNS_RESTRICTION" ]; then
-    # dash's read builtin reads one byte at a time. Numeric procfs sysctls
-    # return EOF on the next read, before the newline, so set -e aborts the
-    # install even after reading a valid digit. Read the value in one buffer.
     if ! restricted=$(cat -- "$USERNS_RESTRICTION"); then
       echo "later.dog could not read the browser user-namespace restriction." >&2
       exit 1
@@ -138,7 +126,6 @@ install_browser_apparmor_profile() {
     fi
     return
   fi
-  # The policy directory belongs to the OS: validate it, never chmod it.
   if [ -L "$APPARMOR_DIR" ] || [ "$(stat -c '%U:%G:%a' -- "$APPARMOR_DIR")" != "$EXPECTED_OWNER:755" ]; then
     echo "later.dog AppArmor policy directory is unsafe: $APPARMOR_DIR" >&2
     exit 1
@@ -153,11 +140,7 @@ install_browser_apparmor_profile() {
   else
     install -m 0644 -- "$profile" "$target"
   fi
-  # Image builders stage policy for the target's next boot, not the host kernel.
   if [ "$TEST_MODE" -eq 0 ] && [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; then return; fi
-  # Installed AppArmor tools do not mean the kernel module is enabled. Keep
-  # policy for a future boot, but do not fail installation on an unrestricted
-  # host booted with AppArmor disabled. A restricted host still fails closed.
   if [ ! -x "$APPARMOR_STATUS" ] || ! "$APPARMOR_STATUS" --enabled >/dev/null 2>&1; then
     if [ "$restricted" = 1 ]; then
       echo "later.dog cannot load its browser sandbox policy while AppArmor restrictions are active but AppArmor is unavailable." >&2
@@ -165,8 +148,6 @@ install_browser_apparmor_profile() {
     fi
     return
   fi
-  # Replace only our profile. Reloading all profiles or weakening the global
-  # restriction would change unrelated applications' security settings.
   "$APPARMOR_PARSER" -r "$target"
 }
 

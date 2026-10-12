@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Model Context Protocol (MCP) Server for later.dog
-// Standard JSON-RPC 2.0 stdio transport for external agent orchestration (Hermes, Claude Desktop, Cursor, etc.).
 import readline from "node:readline";
 
 export function validateBaseUrl(url: string): string {
@@ -583,7 +581,6 @@ function projectTask(task: Record<string, any>, activeThreadId: unknown) {
 function botTaskState(bot: Record<string, any>, taskId: string) {
   const task = records(bot.tasks).find((candidate) => candidate.threadId === taskId);
   if (task && (typeof task.busy === "boolean" || typeof task.activity === "string")) return task;
-  // Older servers cannot run non-selected tasks and expose only bot activity.
   return bot.threadId === taskId ? bot : { busy: false, activity: "idle" };
 }
 
@@ -700,8 +697,6 @@ function messageNeedsInput(message: Record<string, any>): boolean {
 function dispatchFailedAfterLatestUser(messages: Array<Record<string, any>>): boolean {
   const lastUser = messages.findLastIndex((message) => message.role === "user");
   const turnMessages = messages.slice(lastUser + 1);
-  // Only an explicit terminal receipt overrides prose. Existing providers
-  // also emit diagnostics on intentional cancellation, which remain settled.
   if (turnMessages.some((message) => message.tool?.terminal === true && message.tool.ok === false)) return true;
   if (turnMessages.some((message) => message.role === "bot" && message.kind === "text" && message.text?.trim())) {
     return false;
@@ -1118,10 +1113,6 @@ export async function handleToolCall(
             }
           } else {
             const latest = tail.raw.at(-1);
-            // New servers expose `working` synchronously before returning a
-            // channel send. The short grace remains only for older servers
-            // that have no operation-level field and report a user message
-            // just before their first speaker becomes busy.
             if (sawBusy || target.working === false || latest?.role !== "user") {
               return terminal("settled", tail);
             }
@@ -1177,8 +1168,6 @@ export async function handleToolCall(
         if (!taskBelongsTo(bot, threadId)) throw new Error(`Task '${threadId}' does not belong to bot '${botId}'`);
         if (botTaskState(bot, threadId).busy) throw new Error("Interrupt the task or let it finish before editing a message");
       } else if (bot.busy) {
-        // the server refuses a rewind under a live turn — branching beneath
-        // a dying turn is how a thread ends up with two tails
         throw new Error("Interrupt the bot or let it finish before editing a message");
       }
       const res = await fetcher(
@@ -1409,7 +1398,6 @@ export async function processMcpMessage(
   }
 }
 
-// Start stdio interface when executed directly
 if (process.argv[1] && (process.argv[1].endsWith("mcp-server.ts") || process.argv[1].endsWith("mcp-server.js"))) {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -1443,9 +1431,6 @@ if (process.argv[1] && (process.argv[1].endsWith("mcp-server.ts") || process.arg
     if (activeRequests.size > 0) {
       await Promise.allSettled(Array.from(activeRequests));
     }
-    // Do not force an exit here: stdout may still be flushing the final
-    // JSON-RPC frame. With stdin and readline closed, Node exits naturally
-    // once that buffered write has drained.
     process.exitCode = 0;
   });
 

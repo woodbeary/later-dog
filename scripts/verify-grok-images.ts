@@ -1,5 +1,3 @@
-// Real Grok CLI, disposable HOME, synthetic pixels and a loopback model only.
-// No subscription login, real provider request, or live later.dog data is involved.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -10,7 +8,6 @@ import { createInterface } from "node:readline";
 
 const cli = resolve(process.argv[2] ?? "/opt/homebrew/bin/grok");
 const home = mkdtempSync(join(tmpdir(), "laterdog-grok-images-"));
-// Valid 32×32 PNG: Grok requires >=8 pixels per axis and >=512 pixels total.
 const pixels = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR4nGP4YKNBU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAA+GUEwTofF+AAAAAElFTkSuQmCC";
 let sawImage = false;
 const server = createServer(async (req, res) => {
@@ -40,7 +37,7 @@ lines.on("line", line => {
     if (!request) return;
     pending.delete(message.id);
     if (message.error) request.reject(new Error(JSON.stringify(message.error))); else request.resolve(message.result);
-  } catch { /* startup notices are not protocol replies */ }
+  } catch {}
 });
 const request = (method:string, params:unknown) => new Promise<any>((resolve, reject) => {
   const requestId = ++id;

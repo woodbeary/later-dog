@@ -1,8 +1,3 @@
-// Connectors at the top of the Apps pop-up: official MCP servers that sign in
-// with OAuth (lib/mcp-connectors.ts), one row each with the brand's own mark
-// (lib/brand-icons.ts, bundled; nothing is fetched). Each row reads its state
-// from the configured MCP servers, so a server someone already added by hand
-// shows as connected, and Connect reuses it instead of adding another.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ExternalLink, Loader2 } from "lucide-react";
 
@@ -27,7 +22,6 @@ import { BrandIcon } from "./BrandIcon";
 
 interface Active {
   id: string;
-  /** the MCP server being signed in to, once known */
   server?: string;
   phase: "working" | "signing-in";
 }
@@ -41,17 +35,13 @@ function failureMessage(result: Extract<ConnectResult, { outcome: "failed" }>, c
 const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
 export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onServersChange }: {
-  /** The connectors to show, already narrowed by the pop-up's search and chips. */
   connectors: readonly McpConnector[];
   refreshKey?: number;
-  /** Ids of every catalog connector that is connected, when that changes. */
   onConnected?: (ids: string[]) => void;
-  /** A card added, switched or signed out of a server. */
   onServersChange?: () => void;
 }) {
   const { state: store } = useStore();
   const policy = store.config?.managedPolicy;
-  // Enrolled with custom servers off and nothing approved: nothing can be added.
   const locked = Boolean(policy && !policy.mcp.allowCustom && !policy.mcp.allowlist.length);
   const [servers, setServers] = useState<McpServerRow[] | null>(null);
   const [loadFailed, setLoadFailed] = useState<string | null>(null);
@@ -66,8 +56,6 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
   const generation = useRef(0);
   const mounted = useRef(true);
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // The list "Your MCP servers" and dog Access settings share. Any change
-  // published there (a removal, a sign-out) is re-read here.
   const shared = useMcpServers();
   const seenShared = useRef(shared.servers);
 
@@ -85,7 +73,6 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
       });
   }, []);
 
-  /** An answer from a mutation is newer than any read still in flight. */
   const applyServers = (list: McpServerRow[]) => {
     generation.current += 1;
     if (mounted.current) setServers(list);
@@ -149,7 +136,6 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
           setFlow(status);
           setActive({ id: connector.id, server, phase: "signing-in" });
         },
-        // signed in: back to a spinner while its tools are checked
         onSignedIn: (server) => {
           if (abort.current !== controller) return;
           signInComplete.current = null;
@@ -195,7 +181,6 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
     }
   };
 
-  /** Paste-back from another computer: the redirect URL goes in a JSON body. */
   const completeSignIn = async () => {
     const server = active?.server;
     const flowId = flow?.flowId;
@@ -213,20 +198,15 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
     }
   };
 
-  // Connected ones lead, as connected apps do in the rest of the pop-up.
   const isConnected = (connector: McpConnector) => servers !== null && connectorState(connectorServer(connector, servers)) === "connected";
   const ordered = connectors
     .map((connector, index) => ({ connector, index }))
     .sort((a, b) => Number(isConnected(b.connector)) - Number(isConnected(a.connector)) || a.index - b.index)
     .map(({ connector }) => connector);
 
-  // Still mounted with nothing to show: the effects above keep the pop-up's
-  // count of connected apps current while a search hides every row.
   if (ordered.length === 0) return null;
 
   return (
-    // Rows on the pop-up's own surface, no card around each; two columns once
-    // the Apps section (the nearest @container) has room for both.
     <div data-connector-list className="mb-4 grid grid-cols-1 gap-x-8 @3xl:grid-cols-2">
       {ordered.map((connector) => {
         const server = servers ? connectorServer(connector, servers) : undefined;
@@ -256,7 +236,6 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
               : t("mcpConnectors.connectAria", { name: connector.name });
         return (
           <div key={connector.id} data-connector-tile={connector.id} className="flex min-w-0 items-start gap-3 py-2.5">
-            {/* the name sits beside it, so the mark is not read out twice */}
             <BrandIcon brand={connector.id} name={connector.name} decorative />
             <div className="min-w-0 flex-1">
               <div className="flex min-h-10 items-center gap-2">
@@ -311,7 +290,6 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
                   </button>
                 )}
               </div>
-              {/* limitations stay on the row, not behind a link */}
               {connector.note && <p className="mt-1 text-[11px] leading-snug text-ink-secondary">{t(connector.note)}</p>}
               {connector.transport === "sse" && <p className="mt-1 text-[11px] leading-snug text-ink-secondary">{t("mcpConnectors.sseDogs")}</p>}
               {error && <p role="alert" className="mt-1.5 text-[12px] leading-relaxed text-danger">{error}</p>}

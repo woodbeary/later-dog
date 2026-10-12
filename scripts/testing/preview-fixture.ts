@@ -1,8 +1,3 @@
-// The one Vite preview every verify-* fixture mounts: an isolated page for a
-// single entry module whose /api calls reach only the disposable fake-engine
-// server. vite.config.ts is inherited on purpose (react, tailwind, the @ alias)
-// so the page renders exactly what the app renders; only the host, the port
-// and the /api target are pinned here.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
@@ -10,25 +5,17 @@ import { createServer } from "vite";
 export const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 export interface PreviewRoute {
-  /** Pathname to answer (the query string is ignored); a RegExp hands its match to the handler. */
   path: string | RegExp;
-  /** Restrict to one HTTP method; any method when omitted. */
   method?: string;
   handler: (req: IncomingMessage, res: ServerResponse, match: RegExpExecArray | null) => void | Promise<void>;
 }
 
 export interface PreviewOptions {
-  /** Root-relative URL of the module the page loads, e.g. "/scripts/testing/x.tsx". */
   entry: string;
-  /** Pathname the isolated page is served at, e.g. "/__x.html". */
   route: string;
   title: string;
-  /** Fixture-only endpoints beside the page: test pages, drift triggers, captured requests. */
   extraRoutes?: PreviewRoute[];
-  /** Content of the viewport meta tag. */
   viewport?: string;
-  /** Vite's log level. Its default prints port and dependency notes on stdout,
-   * ahead of anything the fixture prints there. */
   logLevel?: "info" | "warn" | "error" | "silent";
 }
 
@@ -47,7 +34,6 @@ const matchRoute = (route: PreviewRoute, pathname: string, method: string | unde
   return match ? { match } : undefined;
 };
 
-/** Serve `entry` in an isolated page whose /api requests are proxied to `fixture`. */
 export async function mountPreview(
   fixture: { info: { url: string } },
   options: PreviewOptions,
@@ -95,7 +81,6 @@ export async function mountPreview(
   };
 }
 
-/** Resolve on the first SIGINT or SIGTERM: the "print the URL and wait" ending. */
 export function parkUntilSignal(): Promise<void> {
   return new Promise<void>((resolve) => {
     const settle = () => {
@@ -109,13 +94,10 @@ export function parkUntilSignal(): Promise<void> {
 }
 
 export interface FixtureApiOptions {
-  /** Sent with every call; `origin: fixture.info.url` marks a request as the app's own. */
   headers?: Record<string, string>;
-  /** Sees every call that succeeded, e.g. to record mutation evidence. */
   observe?: (call: { method: string; path: string; status: number }) => void;
 }
 
-/** JSON fetch against the fixture server; a non-2xx status throws with the body. */
 export function fixtureApi(baseUrl: string, options: FixtureApiOptions = {}) {
   return async (method: string, path: string, body?: unknown): Promise<any> => {
     const response = await fetch(`${baseUrl}${path}`, {

@@ -89,8 +89,6 @@ describe("bot-to-bot channel context", () => {
 });
 
 describe("bot⇄bot mirrors and the badge", () => {
-  /** A pair plus their auto-created channel, watching every store change
-   * from the moment the channel exists — the mirrors' own writes only. */
   const pair = (dm = true) => {
     const store = new Store(selection);
     const from = store.createBot({ name: "Forge", section: "Agents" });
@@ -109,8 +107,6 @@ describe("bot⇄bot mirrors and the badge", () => {
     const { store, from, target, channel, bus, changes } = pair();
     mirrorExchange(bus, from, target, "can you take the deploy?", channel);
 
-    // the record, unabridged: the channel has the message and both 1:1
-    // threads have their clickable chip
     expect(store.messagesFor(channel.threadId).some((m) => m.text === "can you take the deploy?")).toBe(true);
     expect(
       store.messagesFor(from.threadId).some((m) => m.tool?.name === "Messaged @Quarry" && m.comm?.groupId === channel.id),
@@ -118,8 +114,6 @@ describe("bot⇄bot mirrors and the badge", () => {
     expect(
       store.messagesFor(target.threadId).some((m) => m.tool?.name === "Message from @Forge" && m.comm?.groupId === channel.id),
     ).toBe(true);
-    // ...and no badge, but still a group frame, so the channel keeps its
-    // place in the sidebar and the user can open it and read everything
     expect(store.group(channel.id)?.unread).toBe(false);
     expect(groupFrames(changes, channel.id)).toBe(1);
   });

@@ -68,7 +68,6 @@ export class ControlPlaneError extends Error {
   }
 }
 
-/** Only the delay-seconds form is accepted; an HTTP date is ignored. */
 function retryAfterMilliseconds(value) {
   const input = stringValue(value)?.trim() ?? "";
   if (!/^[0-9]{1,6}$/.test(input)) return 0;
@@ -98,9 +97,6 @@ function statusErrorCode(status) {
   return "request_failed";
 }
 
-/** Production accepts HTTPS only. A loopback HTTP origin remains available
- * for an explicitly configured development Worker. Paths, credentials, and
- * query strings are rejected so every request stays under the audited API. */
 export function normalizeControlPlaneURL(value) {
   const input = stringValue(value)?.trim() ?? "";
   if (!input) return "";
@@ -202,11 +198,6 @@ export function createControlPlaneClient({
   ) => {
     const headers = new Headers({ accept: "application/json" });
     if (token) headers.set("authorization", `Bearer ${token}`);
-    // Node's fetch sends `Sec-Fetch-Mode: cors` even though Electron is a
-    // native client. Better Auth 1.7 treats that Fetch Metadata as a
-    // browser-shaped request and requires a trusted Origin. Our exact,
-    // validated control-plane origin is already trusted by the Worker; send
-    // it only to Better Auth routes instead of weakening server CSRF checks.
     if (path.startsWith("/api/auth/")) headers.set("origin", origin);
     if (body !== undefined) {
       headers.set("content-type", "application/json");
@@ -283,8 +274,6 @@ export function createControlPlaneClient({
         method: "POST",
         body: { email, type: "sign-in" },
       });
-      // The server deliberately gives the same result for known and unknown
-      // addresses. Preserve that enumeration-safe contract in the UI.
       return { email };
     },
 
@@ -300,9 +289,6 @@ export function createControlPlaneClient({
         method: "POST",
         body: { email, otp, name: email.split("@", 1)[0] },
       });
-      // Better Auth's response JSON includes its raw database token. The
-      // signed bearer plugin intentionally publishes a different credential
-      // in this header; only that signed value may cross our API boundary.
       const accountToken = boundedSecret(response.headers.get("set-auth-token"));
       const user = validatedUser(payload.user);
       if (!accountToken || !user || user.email !== email) {
@@ -346,8 +332,6 @@ export function createControlPlaneClient({
             };
           }
         } catch (error) {
-          // A transient outage must not rotate a perfectly usable identity.
-          // Only a definitive 401 falls through to account recovery.
           if (!(error instanceof ControlPlaneError) || error.status !== 401) throw error;
         }
       }
@@ -397,9 +381,6 @@ export function createControlPlaneClient({
       return { endpoint, connectorToken };
     },
 
-    /** The server's view of this installation's endpoint, or null when it
-     * has none (never allocated, or removed by owner cleanup or idle
-     * reclaim). Never returns or requests a connector token. */
     async getEndpoint(installationCredential) {
       if (
         typeof installationCredential !== "string" ||

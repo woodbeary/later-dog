@@ -1,4 +1,3 @@
-// Real chat views and composer against a disposable fake-engine server.
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,10 +5,6 @@ import { removeTempDir } from "../server/testing/cleanup.ts";
 import { launchVerificationServer, runControlLaterDog } from "./control-laterdog.ts";
 import { mountPreview, parkUntilSignal, type MountedPreview } from "./testing/preview-fixture.ts";
 
-// Opt in to an actual fake-engine reply containing peer mentions. A shared
-// counter makes subsequent replies plain, so channel handoffs stay bounded; it
-// lives in this launcher's own scratch directory because the fixture home does
-// not exist until the server is up. The launcher forwards FAKE_CLAUDE_*.
 const reply = "@Juniper please review. @調査担当 確認してください。 @Atlas final check.\n\nReverse: @調査担当 then @Juniper.\n\nPlain prefixes: @調査担当者 @everyone調査. Neutral: @everyone.";
 const scratch = process.argv.includes("--bot-mentions") ? mkdtempSync(join(tmpdir(), "laterdog-verify-mentions-")) : undefined;
 const fixture = await launchVerificationServer({

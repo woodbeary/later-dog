@@ -152,7 +152,7 @@ describe("export-transcript", () => {
   });
 
   it("slugifies filenames accurately", () => {
-    const date = new Date(2026, 8, 8); // Sep 8, 2026
+    const date = new Date(2026, 8, 8);
     expect(slugifyTranscriptFilename("Coder Bot", date)).toBe(
       "coder-bot-transcript-2026-09-08.md",
     );

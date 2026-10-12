@@ -37,7 +37,6 @@ const modelCard = z.object({
   max_context_length: z.number().int().positive().optional(),
 });
 
-/** Mistral can return plain text or a list of typed content chunks. */
 function contentText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -91,9 +90,7 @@ export const MistralDriver: ProviderDriver<MistralConfig> = {
           }
         }
         if (options.length) catalog = withConfiguredModel(options);
-      } catch {
-        // A failed refresh keeps the last usable catalog, including custom models.
-      }
+      } catch {}
     };
     if (apiKey) void refreshModels();
     return createOpenAIChatRuntime({

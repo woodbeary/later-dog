@@ -1,5 +1,3 @@
-// The one live region a conversation has. Visually hidden; it speaks when a
-// reply finishes or an approval is waiting (see lib/transcript-announcer).
 import { useEffect, useRef, useState } from "react";
 import {
   announcerBaseline,
@@ -26,7 +24,6 @@ export function TranscriptAnnouncer({ threadKey, snapshot }: { threadKey: string
       approval: approvalId === undefined ? undefined : { id: approvalId, name: approvalName ?? "" },
       question: questionId === undefined ? undefined : { id: questionId, name: questionName ?? "" },
     };
-    // A thread switch starts over: what is already on screen is not news.
     if (memory.current?.key !== threadKey) {
       memory.current = { key: threadKey, memory: announcerBaseline(current) };
       setSaid((previous) => previous.text ? { text: "", count: previous.count } : previous);
@@ -38,7 +35,6 @@ export function TranscriptAnnouncer({ threadKey, snapshot }: { threadKey: string
   }, [threadKey, busy, replyId, replyName, replyText, approvalId, approvalName, questionId, questionName]);
   return (
     <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="transcript-announcer">
-      {/* keyed so the same words twice in a row are still a change to announce */}
       {said.text && <span key={said.count}>{said.text}</span>}
     </p>
   );

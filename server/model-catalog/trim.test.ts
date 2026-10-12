@@ -97,7 +97,6 @@ describe("trimModelsDevCatalog brace filter", () => {
   });
 
   it("drops a model whose key alone holds a brace", () => {
-    // No `id` and a clean name: only the key carries the substitution.
     const text = '{"p":{"id":"p","name":"P","env":[],"models":{' +
       '"x{env:LATERDOG_MP_KEY_OTHER}":{"name":"clean","tool_call":true,"modalities":{"input":["text"]}},' +
       '"ok":{"name":"ok","tool_call":true,"modalities":{"input":["text"]}}}}}';
@@ -197,8 +196,6 @@ describe("trimModelsDevCatalog shape", () => {
     const models = providers.p!.models;
     expect(Object.keys(models)).toEqual(["ok"]);
     expect(drops).toEqual([{ provider: "p", model: "__proto__", reason: "invalid" }]);
-    // The `__proto__` entry did not become the map's prototype, and names
-    // inherited from Object.prototype are not catalog hits either.
     for (const id of ["name", "reasoning", "constructor", "toString", "hasOwnProperty"]) {
       expect(models[id], id).toBeUndefined();
       expect(providers[id], id).toBeUndefined();

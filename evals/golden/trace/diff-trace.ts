@@ -1,9 +1,5 @@
 import type { BehaviorTrace, TraceTurn } from "./behavior-trace.ts";
 
-/** Structural comparison of two behavior traces. Every difference becomes
- * one human-readable delta line; an empty delta means the behavior is
- * byte-for-byte stable between the two runs. */
-
 export function diffTrace(baseline: BehaviorTrace, current: BehaviorTrace): string[] {
   const deltas: string[] = [];
   if (baseline.id !== current.id) deltas.push("id: " + baseline.id + " -> " + current.id);

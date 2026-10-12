@@ -15,19 +15,12 @@ export interface ClaudeCloudAdapterOptions {
   run?: CommandRunner;
   env?: NodeJS.ProcessEnv;
   now?: () => number;
-  /** How long a session may run without pushing its branch before it is reported failed. */
   timeoutMs?: number;
   cwd?: string;
 }
 
-/** The scratch branch a session pushes to; later.dog still publishes from its own isolated checkout, so this is never the PR branch. */
 export function sessionBranch(jobId: string): string { return `laterdog/claude/${jobId}`; }
 
-/**
- * Claude Code cloud sessions can only be started headlessly by firing a routine's API trigger, and nothing reports their status.
- * This adapter therefore asks the session (through the routine's saved prompt) to check out the pinned input ref and push its work
- * to a job-specific branch, watches that branch on GitHub to detect completion, and collects the result as the compare diff.
- */
 export class ClaudeCloudAdapter implements ExecutionAdapter {
   readonly capabilities = CLAUDE_CLOUD_CAPABILITIES;
   private readonly profile: Profile;
@@ -49,7 +42,7 @@ export class ClaudeCloudAdapter implements ExecutionAdapter {
   }
   private async gh(args: string[]) { return this.run("gh", args, { cwd: this.cwd, timeoutMs: 60_000 }); }
   async doctor(): Promise<{ version: string; authenticated: boolean; cloudCommands: string }> {
-    let authenticated = false; try { this.token(); authenticated = true; } catch { /* reported as unauthenticated */ }
+    let authenticated = false; try { this.token(); authenticated = true; } catch {}
     return { version: "routines-fire-2026-04-01", authenticated, cloudCommands: "POST /v1/claude_code/routines/{routineId}/fire; completion observed through the pushed branch" };
   }
   describeTask(taskId: string): { taskUrl: string } {
@@ -62,14 +55,13 @@ export class ClaudeCloudAdapter implements ExecutionAdapter {
     const jobId = context?.jobId ?? sourceRef.split("/").at(-1) ?? "";
     const text = `${prompt}\n\n[laterdog routine payload]\nref: ${sourceRef}\npush-to: ${sessionBranch(jobId)}\njob: ${jobId}\nFollow the routine's instructions for this payload exactly: check out the ref, do only this work, push only to push-to, open no pull request.`;
     if (text.length > 65_000) throw new Error("The brief exceeds the routine payload limit (65,536 characters)");
-    const token = this.token(); // a configuration error must surface as such, not as an uncertain submission
+    const token = this.token();
     let response: Response;
     try {
       response = await this.fetchImpl(`https://api.anthropic.com/v1/claude_code/routines/${routineId}/fire`, {
         method: "POST", headers: { ...FIRE_HEADERS, authorization: `Bearer ${token}` }, body: JSON.stringify({ text }), signal: AbortSignal.timeout(30_000),
       });
     } catch {
-      // The request may have reached Anthropic; there is no idempotency key, so a retry could start a second session.
       throw new SubmissionUnknown();
     }
     if (response.status >= 500) throw new SubmissionUnknown();

@@ -1,20 +1,3 @@
-// The real Apps pop-up, MCP registry and OAuth sign-in in a disposable
-// fake-engine workspace, with a synthetic OAuth provider and one synthetic
-// MCP server standing in behind every connector card. No real provider is
-// contacted and nothing signs in to a real account: only this fixture's
-// middleware maps the official URLs to the loopback fakes, and it refuses
-// any other address; production code has no alternate endpoint or switch.
-//
-// Run: node --experimental-strip-types scripts/verify-connectors.ts
-// then open the printed previewUrl; stop it with Ctrl-C, which removes the
-// disposable data (Vite's own SIGTERM handler would exit before cleanup).
-// Besides the cards not yet added:
-//   Notion — added earlier, its sign-in lapsed: Needs sign-in
-//   Sentry — added by hand as "errors" with its own token header: Connected
-// While a card waits on its sign-in, open `consent` (printed) with
-// ?server=NAME to stand in for the person approving in the provider's page;
-// `redirect` gives the URL to paste back instead, and `deny?on=1` makes the
-// provider refuse. Fixture success does not qualify a live provider.
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -23,8 +6,6 @@ import { fixtureApi, mountPreview, parkUntilSignal, type MountedPreview } from "
 import { startFakeHttpMcp, type FakeHttpMcp } from "../server/testing/fake-http-mcp-server.ts";
 import { startFakeOAuth } from "../server/testing/fake-oauth-server.ts";
 
-// The catalog's endpoints, read from its source: the module itself imports
-// through the renderer's @/ alias, which plain Node does not resolve.
 const catalog = readFileSync(new URL("../src/lib/mcp-connectors.ts", import.meta.url), "utf8");
 const endpoints = [...catalog.matchAll(/url: "(https:\/\/[^"]+)",\s*transport: "(http|sse)"/g)]
   .map(([, url, transport]) => ({ url: url!, transport: transport as "http" | "sse" }));
@@ -38,7 +19,6 @@ const fakes: FakeHttpMcp[] = [];
 let ui: MountedPreview | undefined;
 try {
   const tools = [{ name: "list_items", inputSchema: { type: "object", properties: {} } }];
-  // official endpoint → the loopback fake standing in for it
   const official = new Map<string, FakeHttpMcp>();
   for (const { url, transport } of endpoints) {
     official.set(url, url === "https://mcp.sentry.dev/mcp"
@@ -58,7 +38,6 @@ try {
   });
   await api("PATCH", "/api/mcp/servers/errors", { enabled: true });
 
-  /** the provider sign-in page each waiting card would have opened */
   const authorizations = new Map<string, string>();
   const relay = async (req: IncomingMessage, res: ServerResponse) => {
     const path = req.url!;
@@ -71,7 +50,6 @@ try {
     if (raw) {
       const body = JSON.parse(raw);
       if (typeof body.url === "string") {
-        // a real provider must never be reached from here
         if (!toFake.has(body.url)) {
           res.writeHead(403, { "content-type": "application/json" }).end(JSON.stringify({ error: `This fixture has no stand-in for ${body.url}.` }));
           return;
@@ -88,14 +66,12 @@ try {
     const signIn = /^\/api\/mcp\/servers\/([a-z][a-z0-9_-]{0,31})\/sign-in$/.exec(path.split("?")[0]!);
     if (req.method === "POST" && signIn && response.ok && typeof body.auth?.authorizationUrl === "string") {
       authorizations.set(signIn[1]!, body.auth.authorizationUrl);
-      // The in-process provider speaks HTTP; the renderer only opens HTTPS.
       body.auth.authorizationUrl = "https://oauth.example.test/authorize";
     }
     res.writeHead(response.status, { "content-type": "application/json" }).end(JSON.stringify(body));
   };
   const text = (res: ServerResponse, status: number, message: string) =>
     res.writeHead(status, { "content-type": "text/plain; charset=utf-8" }).end(message);
-  /** The fake provider approves at once and redirects to later.dog's loopback callback. */
   const approve = async (req: IncomingMessage) => {
     const name = new URL(req.url!, "http://fixture").searchParams.get("server") ?? "";
     const authorize = authorizations.get(name);
@@ -120,7 +96,6 @@ try {
       { path: "/__fixture/consent", handler: async (req, res) => {
         const callback = await approve(req);
         if (!callback) return text(res, 404, "No sign-in is waiting for that server.");
-        // the person's browser returning from the provider
         const done = await fetch(callback);
         text(res, done.status, await done.text());
       } },

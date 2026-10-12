@@ -4,11 +4,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 
 import type { Bot, InstanceInfo } from "@/state/store";
 
-// Opens the real picker and clicks through it without a DOM: useState is
-// held here by call order (the picker's own hooks run first, children after),
-// effects never run, and handlers are read off the returned element tree.
-// The headless renderer check in docs/verification/bot-continuity.md covers
-// the same flows in a browser.
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
@@ -33,8 +28,6 @@ vi.mock("react", async (original) => ({
   },
   useEffect: () => {},
 }));
-// Menu animation has its own lifecycle checks; this hook fixture does not
-// emulate React's render-time state retries.
 vi.mock("./MenuMotion", () => ({ useMenuMotion: (open: boolean) => ({ shown: open, closing: false, className: "" }) }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/state/store")>()),
@@ -87,7 +80,6 @@ function bot(instanceId: string, model: string): Bot {
   };
 }
 
-/** Render the picker once; the picker's own state survives, children start fresh. */
 function render(forBot: Bot) {
   fixture.values.length = Math.min(fixture.values.length, fixture.own);
   let tree: ReactNode = null;
@@ -115,7 +107,6 @@ function rail(rendered: ReturnType<typeof render>) {
   return rendered.nodes.find((node) => node.type === ModelEngineRail) as ReactElement<{ instances: InstanceInfo[]; onSelect: (instance: InstanceInfo) => void }> | undefined;
 }
 
-/** The open menu only; the trigger always names the saved model. */
 const menu = (html: string) => html.slice(html.indexOf("data-model-picker-content"));
 
 const flush = async () => { for (let index = 0; index < 20; index++) await Promise.resolve(); };
@@ -157,8 +148,6 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
     expect(browsing).toContain("Sign in to Claude");
     expect(browsing).toContain("data-claude-sign-in");
     expect(browsing).toContain("2 models will appear after setup.");
-    // No official model is offered as a row, so nothing can start a turn on
-    // the signed-out account from here.
     expect(browsing).not.toContain(">Opus 5.5<");
     expect(browsing).not.toContain(">Sonnet 5<");
     expect(browsing).not.toContain("No model providers are available.");
@@ -180,7 +169,6 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
     expect(html).toContain("Install Claude");
     expect(html).toContain("`claude` CLI not found");
     expect(html).toContain("npm install -g @anthropic-ai/claude-code");
-    // Local models need the CLI too, so there is no way in to them yet.
     expect(html).not.toContain("data-model-local-entry");
   });
 
@@ -224,7 +212,6 @@ describe("the way into local models", () => {
     expect(looking).toContain('role="status"');
     expect(looking).not.toContain("No local models found");
 
-    // The probe found a model the startup scan missed.
     fixture.instances = [make()];
     fixture.instances[0].models.options = [...official, qwen];
     answer();

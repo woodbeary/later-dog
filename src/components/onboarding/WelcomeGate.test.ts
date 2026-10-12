@@ -21,7 +21,6 @@ vi.mock("react", async (original) => ({
 const store = vi.hoisted(() => ({ state: {} as Record<string, unknown>, dispatch: vi.fn(), api: vi.fn() }));
 vi.mock("@/state/store", () => ({ api: store.api, useStore: () => ({ state: store.state, dispatch: store.dispatch }) }));
 vi.mock("@/lib/analytics", () => ({ emailGateDone: () => false }));
-// The gate's job is choosing; the flow itself has its own recipe.
 vi.mock("./WelcomeFlow", () => ({ WelcomeFlow: () => null }));
 vi.mock("@/components/Avatar", () => ({ DogAvatar: () => null }));
 import { SharedWorkspaceHint } from "./SharedWorkspaceHint";
@@ -55,10 +54,7 @@ function storage() {
 }
 
 const fresh = { onboarding: EMPTY_ONBOARDING };
-// The desktop app's own page: the full bridge, remoteClient included.
 const LOCAL_PAGE = { laterdog: { platform: "darwin", remoteClient: { active: false }, workspaces: {} } };
-// A hosted workspace the desktop app opened (Server → Connect hosted
-// workspace…): preload exposes only its remote-safe subset, still truthy.
 const REMOTE_PAGE = { laterdog: { platform: "darwin", workspaces: {}, getCapabilities: () => ({}) } };
 beforeEach(() => {
   fixture.values = [];
@@ -114,12 +110,10 @@ describe("who gets the welcome flow", () => {
     expect(store.api).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
     expect(localStorage.getItem("laterdog.onboarding.sharedWorkspaceHint")).toBe("1");
-    // once dismissed, a fresh visit in this browser does not show it again
     fixture.values = [];
     expect(render(() => SharedWorkspaceHint({ replay: false, onClose: vi.fn() })).html).toBe("");
     fixture.values = [];
     expect(render(() => SharedWorkspaceHint({ replay: true, onClose: vi.fn() })).html).toContain("shared later.dog");
-    // storage that throws (private window) still shows it and never breaks
     vi.stubGlobal("localStorage", { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } });
     fixture.values = [];
     expect(render(() => SharedWorkspaceHint({ replay: false, onClose: vi.fn() })).html).toContain("shared later.dog");
@@ -137,7 +131,6 @@ describe("who gets the welcome flow", () => {
   });
 
   it("adds nothing for a member of a server that is not hosted, such as the owner's own paired browser", () => {
-    // no note: the team copy would be false there, and it would be new UI
     const { tree, html } = gate({ hosted: false, canSave: false });
     expect(tree).toBeNull();
     expect(html).toBe("");

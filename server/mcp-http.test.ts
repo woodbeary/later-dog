@@ -1,4 +1,3 @@
-// The remote MCP client against a real HTTP server on loopback.
 import { afterEach, describe, expect, it } from "vitest";
 
 import { RemoteMcpClient } from "./mcp-http.ts";
@@ -16,7 +15,6 @@ describe("a server's own requests to the client", () => {
     fake = await startFakeHttpMcp({ transport, tools: [{ name: "ask_first", inputSchema: { type: "object" } }], askOnCall: "elicitation/create" });
     client = new RemoteMcpClient({ type: transport, url: fake.url, headers: {} });
     await client.initialize("fixture", AbortSignal.timeout(5_000));
-    // without an answer the server holds the result until this deadline
     const result = await client.request("tools/call", { name: "ask_first", arguments: {} }, AbortSignal.timeout(5_000));
     expect(result).toEqual({ content: [{ type: "text", text: "remote execution recorded" }] });
     expect(fake.replies).toEqual([{ jsonrpc: "2.0", id: "server-ask-1", error: { code: -32601, message: "Method not supported by this client" } }]);

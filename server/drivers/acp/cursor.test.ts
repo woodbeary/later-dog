@@ -271,9 +271,6 @@ describe("CursorAgentDriver", () => {
   });
 
   it("answers cursor/ask_question method-not-found instead of guessing its shape", async () => {
-    // cursor/ask_question's wire shape is unverified, so the driver keeps the
-    // fail-closed default: reject the method, never answer it with a guessed
-    // shape. The fake prompt completes only after the rejection arrives.
     ensureDirs();
     chmodSync(FAKE_CLI, 0o755);
     process.env.FAKE_ACP_MODE = "ask-question-unsupported";
@@ -292,8 +289,6 @@ describe("CursorAgentDriver", () => {
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as { dir?: string; msg?: { id?: number; error?: { code?: number } } });
-      // The native log is append-only across runs of the whole file: the
-      // latest reply for this id is this run's, not a stale earlier one.
       const reply = outbound.filter((entry) => entry.dir === "out" && entry.msg?.id === 9300).at(-1);
       expect(reply?.msg?.error).toMatchObject({ code: -32601 });
     } finally {
@@ -328,7 +323,6 @@ describe("CursorAgentDriver", () => {
 });
 
 describe("resolveCursorAcpModelId", () => {
-  // Real payload shape from `session/new` against cursor-agent 2026.08.11.
   const ADVERTISED = [
     { modelId: "default[]", name: "Auto" },
     { modelId: "grok-4.6[effort=high,fast=true]", name: "grok-4.6" },
@@ -336,8 +330,6 @@ describe("resolveCursorAcpModelId", () => {
   ];
 
   it("maps the argv slug `auto` onto Cursor's `default[]` entry", () => {
-    // The bug: `auto` is what --model and `cursor-agent models` call it, and
-    // it earns -32602 over ACP because the session only knows `default[]`.
     expect(resolveCursorAcpModelId(ADVERTISED, "auto")).toBe("default[]");
   });
 
@@ -407,7 +399,6 @@ describe("cursor ACP model namespace (NS: set_model wiring)", () => {
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-cursor-acpid-"));
     const dump = join(scratch, "dump.json");
     process.env.FAKE_ACP_DUMP = dump;
-    // What cursor-agent 2026.08.11 really advertises: `auto` is `default[]`.
     process.env.FAKE_ACP_SESSION_MODELS = "default[]|Auto,gpt-5.3-codex[reasoning=medium,fast=false]|gpt-5.3-codex";
 
     const instance = await CursorAgentDriver.create({
@@ -422,18 +413,14 @@ describe("cursor ACP model namespace (NS: set_model wiring)", () => {
       await instance.adapter.sendTurn({ threadId: "t-cursor-acpid", text: "hi", model: "auto" });
       await recorder.until((e) => e.type === "turn.completed");
       const applied = JSON.parse(readFileSync(`${dump}.config.json`, "utf8"));
-      // Before the fix this sent modelId "auto" and Cursor answered -32602.
       expect(applied).toEqual([
         { method: "session/set_model", params: { sessionId: "fake-acp-session", modelId: "default[]" } },
       ]);
-      // argv keeps the CLI slug — the two namespaces stay separate.
       expect(JSON.parse(readFileSync(dump, "utf8")).argv).toEqual(["--model", "auto", "acp"]);
     } finally {
       recorder.stop();
       await instance.dispose();
       delete process.env.FAKE_ACP_SESSION_MODELS;
-      // the dir goes with it: a stale FAKE_ACP_DUMP makes the *next* test's
-      // fake CLI die on ENOENT, which reads as an unrelated driver failure.
       delete process.env.FAKE_ACP_DUMP;
       await removeTempDir(scratch);
     }
@@ -454,7 +441,6 @@ describe("cursor ACP model namespace (NS: set_model wiring)", () => {
     try {
       await instance.adapter.sendTurn({ threadId: "t-cursor-invalid", text: "hi", model: "gpt-5.3-codex" });
       const done = await recorder.until((e) => e.type === "turn.completed");
-      // Previously this threw and failed a turn that would have run correctly.
       expect(done).toMatchObject({ type: "turn.completed", ok: true });
     } finally {
       recorder.stop();

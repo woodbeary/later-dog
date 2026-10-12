@@ -18,12 +18,10 @@ const nodeSchema = z.object({
 export type RoomHandoff = z.infer<typeof nodeSchema>;
 export type RoomAddress = Pick<RoomHandoff, "groupId" | "threadId" | "botId">;
 export const ROOM_HANDOFF_LIMITS = { depth: 4, requests: 24, executions: 48, lifetimeMs: 30 * 60_000, minRunwayMs: 10 * 60_000, queueMs: 60 * 60_000, hardCapMs: 4 * 60 * 60_000 };
-/** Renders elapsed milliseconds as whole minutes, or seconds under one minute. */
 const duration = (ms: number) => ms >= 60_000 ? `${Math.floor(ms / 60_000)}m` : `${Math.floor(ms / 1000)}s`;
 const terminal = (n: RoomHandoff) => ["completed", "failed", "cancelled"].includes(n.status);
 
 export interface RoomHandoffHooks {
-  /** Recheck addresses and route permission immediately before every dispatch. */
   validate(node: RoomHandoff, parent?: RoomHandoff): string | undefined;
   busy(node: RoomHandoff): boolean;
   run(node: RoomHandoff, resumed: boolean, signal: AbortSignal): Promise<{ ok: boolean; text: string }>;
@@ -31,10 +29,6 @@ export interface RoomHandoffHooks {
   changed(groupIds: ReadonlySet<string>, directThreadIds: ReadonlySet<string>): void;
 }
 
-/** A bounded tree of addressed room turns. Waiting for children never holds a
- * room/provider queue; reporting is data, and only the named parent is resumed.
- * Interrupted processes are never replayed after restart (tools may have effects).
- */
 export class RoomHandoffs {
   readonly nodes = new Map<string, RoomHandoff>();
   private readonly controllers = new Map<string, AbortController>();
@@ -43,7 +37,6 @@ export class RoomHandoffs {
   private readonly hooks: RoomHandoffHooks;
   private readonly now: () => number;
   private readonly limits: typeof ROOM_HANDOFF_LIMITS;
-  /** Per-root pause accounting for the tree lifetime clock. */
   private readonly pauses = new Map<string, { accumulatedMs: number; since?: number }>();
 
   constructor(file: string, hooks: RoomHandoffHooks, now: () => number = Date.now,
@@ -82,16 +75,9 @@ export class RoomHandoffs {
     return path;
   }
 
-  /** The tree lifetime clock pauses while any node in the tree is actively
-   * executing: the budget bounds coordination sprawl, not the runtime of
-   * dispatched work. Accounting is in-memory; a restart fails every
-   * interrupted node anyway, so no pause span survives one. */
   private trackExecutionPauses(): void {
     const now = this.now();
     const executing = new Set<string>();
-    // Roots that still own unsettled nodes. A conversation stopped while a
-    // dispatched teammate executes leaves a terminal root above live work;
-    // pause accounting must survive that root until the whole tree settles.
     const unsettled = new Set<string>();
     for (const n of this.nodes.values()) {
       if (terminal(n)) continue;
@@ -117,26 +103,15 @@ export class RoomHandoffs {
     if (!pause) return 0;
     return pause.accumulatedMs + (pause.since != null ? this.now() - pause.since : 0);
   }
-  /** The lifetime budget consumed so far: wall clock minus paused time. */
   private effectiveAgeMs(root: RoomHandoff): number {
     return Math.max(0, this.now() - root.createdAt - this.pausedMs(root));
   }
-  /** The wall-clock cap is a stall window, not a total-age limit: it is
-   * measured from the tree's creation or its last durable progress,
-   * whichever is later. */
   private capOrigin(root: RoomHandoff): number {
     return root.lastProgressAt ?? root.createdAt;
   }
-  /** Records durable progress on the root — a dispatch, a settlement, or a
-   * cancellation — restarting the hard-cap stall window from now. */
   private stampProgress(root: RoomHandoff): void {
     root.lastProgressAt = Math.max(root.lastProgressAt ?? root.createdAt, this.now());
   }
-  /** The earliest moment this node may be failed for lifetime: the tree
-   * ceiling, a running node's own start plus a minimum runway, or, for work
-   * parked in a busy teammate's queue, its own queue window (#1238). The
-   * wall-clock hard cap clamps every extension: a tree that never stops
-   * executing still dies, so runway extensions cannot compound forever. */
   private deadline(n: RoomHandoff): number {
     const anchor = n.status === "running" ? n.startedAt ?? n.createdAt : n.createdAt;
     const root = this.root(n);
@@ -144,23 +119,14 @@ export class RoomHandoffs {
       ? anchor + this.limits.queueMs
       : root.createdAt + this.limits.lifetimeMs + this.pausedMs(root);
     const normal = Math.min(Math.max(ceiling, anchor + this.limits.minRunwayMs), this.capOrigin(root) + this.limits.hardCapMs);
-    // An in-flight synthesis turn keeps at least the runway its dispatch
-    // promised even when the hard cap lands mid-run; the cap still clamps
-    // the deadline, so a hung synthesis dies at that edge instead of
-    // becoming immortal.
     if (n.status === "running" && this.owesOnlySynthesis(n)) {
       return Math.max(normal, anchor + this.limits.minRunwayMs);
     }
     return normal;
   }
-  /** An ancestor past its ceiling is not failed while a descendant is still
-   * running inside its own runway; cancelling would cascade into that work. */
   private protectsRunner(n: RoomHandoff): boolean {
     return this.children(n.id).some(c => !terminal(c) && ((c.status === "running" && this.now() <= this.deadline(c)) || this.protectsRunner(c)));
   }
-  /** A parent still owes the follow-up execution that decides on its
-   * children's results; the ceiling defers to that execution's own runway.
-   * A child parked in a queue has produced nothing to decide on yet. */
   private owesFollowUp(n: RoomHandoff): boolean {
     if (n.status === "resume") return true;
     if (n.status !== "waiting") return false;
@@ -168,18 +134,11 @@ export class RoomHandoffs {
     return (children.length > 0 && children.every(c => terminal(c))) ||
       children.some(c => this.owesFollowUp(c) || (c.status === "queued" && c.executions === 0));
   }
-  /** A node whose children have all settled owes only its own synthesis
-   * turn: the step that returns their results to the requester. The hard
-   * cap must not kill that turn mid-flight or starve it of its dispatch.
-   * A synthesis owed to a teammate who is permanently busy is a stall, not
-   * progress, and stays subject to the cap. */
   private owesOnlySynthesis(n: RoomHandoff): boolean {
     const children = this.children(n.id);
     return children.length > 0 && children.every(c => terminal(c)) &&
       (n.status === "running" || (n.status === "resume" && !this.hooks.busy(n)));
   }
-  /** Names the budget, the node's status, and the elapsed time. Work that
-   * never started reports the queue window it waited out, not the tree's. */
   private lifetimeError(n: RoomHandoff): string {
     if (n.status === "queued" && n.executions === 0) {
       return `Room handoff queue budget exhausted: never started while waiting for a busy teammate after ${duration(this.now() - n.createdAt)} of the ${duration(this.limits.queueMs)} queue window`;
@@ -187,15 +146,9 @@ export class RoomHandoffs {
     const root = this.root(n);
     return `Room handoff lifetime budget exhausted: node was ${n.status} after ${duration(this.effectiveAgeMs(root))} of the ${duration(this.limits.lifetimeMs)} tree lifetime`;
   }
-  /** The wall-clock ceiling ignores pauses: it is what stops a tree whose
-   * execution never pauses long enough to age its lifetime budget. */
   private hardCapError(n: RoomHandoff): string {
     const root = this.root(n);
     const first = `Room handoff hard cap exhausted: node was ${n.status} after ${duration(this.now() - root.createdAt)} of the ${duration(this.limits.hardCapMs)} wall-clock cap`;
-    // Graceful expiry: settled children are real work the tree produced,
-    // so the expiry still carries a bounded digest of their results. A
-    // wide tree cannot turn the error into a dump: each result is tailed
-    // to 512 chars and the digest to 4 KiB, with the elided count named.
     const settled = [...this.nodes.values()]
       .filter(x => x.rootId === root.id && x.parentId && terminal(x))
       .map(x => `${x.key} [${x.status}] ${x.result.slice(-512)}`);
@@ -226,9 +179,6 @@ export class RoomHandoffs {
     if (path.some(n => n.botId === target.botId && (!n.groupId || !target.groupId || n.groupId === target.groupId))) {
       throw new Error("Cannot assign work back to an ancestor; results return automatically");
     }
-    // The same text to the same teammate and place under one parent is one
-    // request, so a repeat lands on it. Only rework=true runs a finished or
-    // failed one again.
     const existing = this.children(parent.id).findLast(n => n.botId === target.botId && n.groupId === target.groupId && n.text === text);
     if (existing && !(rework && terminal(existing))) return { node: existing, duplicate: true };
     if (!rework && this.children(parent.id).some(n => n.kind === kind &&
@@ -236,23 +186,16 @@ export class RoomHandoffs {
       throw new Error("This agent already completed your assignment. Do not send acknowledgements or approvals as new work. Finish with your decision; results return automatically. Only use rework=true for concrete additional work.");
     }
     if (kind === "work" && target.groupId && path.some(n => n.groupId === target.groupId)) throw new Error("A room request cannot return to an ancestor room; results are returned automatically");
-    // The path includes the source root, so its work-node count is the
-    // proposed edge depth: four edges are allowed; the fifth is refused.
     if (kind === "work" && path.filter(n => n.kind === "work").length > this.limits.depth) throw new Error("Room handoff depth limit reached");
     const root = fresh ? parent : this.root(parent);
     const count = [...this.nodes.values()].filter(n => n.rootId === parent!.rootId && n.parentId).length;
     if (count >= this.limits.requests) throw new Error("Room handoff budget exhausted");
-    // Refuse work the tree's lifetime budget cannot honestly serve: a node
-    // accepted in the root's last minutes would be doomed at enqueue time.
-    // The wall-clock hard cap ignores pauses, so the runway actually
-    // available is the shorter of the two remainders.
     const lifetimeRemaining = this.limits.lifetimeMs - this.effectiveAgeMs(root);
     const hardCapRemaining = this.capOrigin(root) + this.limits.hardCapMs - this.now();
     const remaining = Math.min(lifetimeRemaining, hardCapRemaining);
     if (remaining < this.limits.minRunwayMs) {
       throw new Error(`Room handoff budget exhausted: only ${duration(Math.max(remaining, 0))} of the ${duration(this.limits.lifetimeMs)} tree lifetime remains`);
     }
-    // Retain a bounded audit history without evicting active requests.
     if (this.nodes.size >= 1000) {
       const oldRoots = [...this.nodes.values()].filter(n => !n.parentId && terminal(n)).sort((a, b) => a.createdAt - b.createdAt);
       for (const old of oldRoots) {
@@ -272,7 +215,6 @@ export class RoomHandoffs {
     return { node, duplicate: false };
   }
 
-  /** A room brief is displayed once; each recipient keeps its own execution and result. */
   sharedRequest(node: RoomHandoff): { id: string; botIds: string[] } {
     const batch = node.groupId && node.requestBatchKey && node.parentId
       ? this.children(node.parentId).filter(n => n.requestBatchKey === node.requestBatchKey &&
@@ -284,9 +226,6 @@ export class RoomHandoffs {
   sourceSettled(generation: string, ok: boolean) {
     const node = this.nodes.get(generation);
     if (!node || node.status !== "source") return;
-    // An accepted assignment belongs to the queue, not the provider that
-    // submitted it. A failed/expired source turn must not erase that work.
-    // Explicit Stop, deletion and revoked routes still cancel separately.
     if (!ok) node.result = "The originating turn ended before its teammates returned.";
     node.status = "waiting";
     this.publish(node);
@@ -299,7 +238,6 @@ export class RoomHandoffs {
       this.controllers.get(node.id)?.abort();
       this.stampProgress(this.root(node));
     }
-    // Settlement closes the paused span now, not at the next periodic tick.
     this.trackExecutionPauses();
     this.publish(node);
   }
@@ -316,8 +254,6 @@ export class RoomHandoffs {
   activeDirect(threadId: string) {
     return [...this.nodes.values()].some(n => !n.groupId && n.threadId === threadId && !terminal(n));
   }
-  /** The conversation that assigned the unsettled direct work running in
-   * this thread, or undefined when nothing it does is awaited. */
   assignerOf(threadId: string): RoomHandoff | undefined {
     for (const node of this.nodes.values()) {
       if (terminal(node) || !node.parentId || node.groupId || node.threadId !== threadId) continue;
@@ -326,8 +262,6 @@ export class RoomHandoffs {
     }
     return undefined;
   }
-  /** Work this conversation handed out that has not settled yet. The
-   * conversation's own node is not outstanding — only what it waits on. */
   outstandingDirect(threadId: string): RoomHandoff[] {
     return [...this.nodes.values()].filter(node => {
       if (terminal(node) || !node.parentId) return false;
@@ -335,11 +269,6 @@ export class RoomHandoffs {
       return Boolean(parent && !parent.groupId && parent.threadId === threadId);
     });
   }
-  /** Stop this conversation without reaching into a teammate that is already
-   * working. Its provider process is left alone: it finishes and its result
-   * is still reported here. Work that never started is cancelled, because
-   * nothing is lost. This conversation stops being awaited either way, so no
-   * teammate result resumes a stopped chat. Returns what was left running. */
   stopAwaitingDirect(threadId: string, reason = "Stopped by user"): RoomHandoff[] {
     const left: RoomHandoff[] = [];
     for (const node of this.nodes.values()) {
@@ -360,12 +289,6 @@ export class RoomHandoffs {
   tick() {
     if (this.loadError) return;
     this.trackExecutionPauses();
-    // Validate and expire deepest nodes first so each one is failed with its
-    // own status; an ancestor's cancellation then only sweeps what is left.
-    // The hard cap overrides the runner and follow-up protections: it is the
-    // bound that stops a tree whose execution never pauses. A tree whose only
-    // remaining obligation is its own synthesis turn is spared, so settled
-    // results are returned instead of dying inside a failed tree.
     for (const n of [...this.nodes.values()].reverse()) {
       if (terminal(n)) continue;
       const error = this.hooks.validate(n, n.parentId ? this.nodes.get(n.parentId) : undefined);
@@ -384,12 +307,8 @@ export class RoomHandoffs {
         if (children.length && children.every(c => terminal(c) && c.reported)) { n.status = "resume"; this.publish(n); }
       }
       if (n.status !== "queued" && n.status !== "resume") continue;
-      // Independent conversations can start as soon as work is accepted.
-      // Same-room speakers still serialize; never overlap their shared chat.
       if (parent && (parent.status === "source" || parent.status === "running") &&
         (parent.threadId === n.threadId || (n.groupId && n.groupId === parent.groupId))) continue;
-      // A stopped source stops waiting; only work that never started is
-      // dropped with it. A teammate mid-turn keeps its process and reports.
       if (parent && terminal(parent) && n.status === "queued") { this.cancelTree(n, "Originating request has ended"); continue; }
       if (this.hooks.busy(n)) continue;
       const root = this.root(n);
@@ -399,8 +318,6 @@ export class RoomHandoffs {
       const childCount = this.children(n.id).length;
       root.executions += executionCost; n.status = "running"; n.startedAt = this.now();
       this.stampProgress(root);
-      // Open the pause at the moment execution starts, not at the next tick:
-      // the lifetime clock must not charge the gap before observation.
       const pause = this.pauses.get(root.id) ?? { accumulatedMs: 0 };
       pause.since ??= this.now();
       this.pauses.set(root.id, pause);
@@ -413,9 +330,6 @@ export class RoomHandoffs {
         if (this.children(n.id).length > childCount) n.status = "waiting";
         else if (!result.ok) this.cancelTree(n, n.result || "Room agent failed", "failed");
         else { n.status = "completed"; this.stampProgress(root); }
-        // Close the paused span with the settlement itself: work enqueued
-        // before the next periodic tick must be admitted against the aged
-        // budget, not the still-open pause's overstated runway.
         this.trackExecutionPauses();
         this.publish(n);
       }).catch(e => {

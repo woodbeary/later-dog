@@ -1,39 +1,22 @@
-// A tiny OAuth 2.1 authorization server for tests: protected-resource and
-// authorization-server metadata, dynamic client registration, an /authorize
-// that approves at once (302 back to the redirect URI, like a person who
-// clicked Allow), a token endpoint that checks PKCE, and revocation.
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 export interface FakeOAuthOptions {
-  /** seconds until an access token expires (default 3600) */
   expiresIn?: number;
-  /** Deterministic barriers for cancellation/revocation races. */
   beforeRegister?: () => Promise<void>;
   beforeToken?: () => Promise<void>;
-  /** omit registration_endpoint from the metadata */
   noRegistration?: boolean;
-  /** refuse to register a client for a redirect URI this matches */
   refuseRedirect?: (redirectUri: string) => boolean;
-  /** answer every refresh with invalid_grant */
   rejectRefresh?: boolean;
-  /** /authorize answers ?error=access_denied instead of a code */
   deny?: boolean;
-  /** hold every token response this long */
   tokenDelayMs?: number;
-  /** answer refreshes with this status and a non-grant error */
   refreshStatus?: number;
-  /** metadata claims this issuer instead of its own address */
   claimIssuer?: string;
-  /** apps registered in advance: client id → its secret, or null for a
-   * public app. A confidential app must prove its secret at /token. */
   preRegistered?: Record<string, string | null>;
-  /** advertised token_endpoint_auth_methods_supported */
   tokenAuthMethods?: string[];
 }
 
-/** How the last /token or /revoke request identified its client. */
 export interface FakeClientAuth {
   method: "basic" | "post" | "none";
   clientId: string;
@@ -42,14 +25,11 @@ export interface FakeClientAuth {
 export interface FakeOAuth {
   issuer: string;
   prmUrl: string;
-  /** `WWW-Authenticate` value an MCP server behind this issuer would send */
   challenge: string;
   isValid(authorization: string | undefined): boolean;
-  /** a valid access token, as if issued out of band (a personal token) */
   mint(): string;
   counts: { register: number; token: number; refresh: number; revoke: number };
   lastAuthorize: URLSearchParams | null;
-  /** every /token and /revoke client identification, in order */
   clientAuths: FakeClientAuth[];
   options: FakeOAuthOptions;
   close(): Promise<void>;
@@ -75,8 +55,6 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
   const fake: Partial<FakeOAuth> = { lastAuthorize: null, clientAuths, options };
   const preRegistered = options.preRegistered ?? {};
 
-  /** The client a token request authenticates as, or null when its secret
-   * is missing or wrong (RFC 6749 §2.3: one method per request). */
   const authenticate = (req: IncomingMessage, form: URLSearchParams): string | null => {
     const header = req.headers.authorization;
     let auth: FakeClientAuth;

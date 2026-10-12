@@ -1,7 +1,3 @@
-// The hosted connector never talks to the reusable LAN listener on :8810.
-// A guardian process owns this loopback gateway instead and forwards to one
-// per-launch Unix socket / Windows named pipe belonging to the exact sidecar
-// Electron started. If either owner disappears, the route fails closed.
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -35,7 +31,6 @@ export function validCompanionOriginTarget(target, platform = process.platform) 
   );
 }
 
-/** Allocate a private, unguessable address for one sidecar launch. */
 export function createCompanionOriginEndpoint({
   platform = process.platform,
   fileSystem = fs,
@@ -52,8 +47,6 @@ export function createCompanionOriginEndpoint({
     });
   }
 
-  // Darwin's sockaddr_un path is short. /tmp resolves to /private/tmp there
-  // and keeps this comfortably below the limit even when userData is long.
   const root = temporaryRoot ?? fileSystem.realpathSync("/tmp");
   const directory = fileSystem.mkdtempSync(path.join(root, RUNTIME_PREFIX));
   try {
@@ -79,7 +72,6 @@ export function createCompanionOriginEndpoint({
   }
 }
 
-/** Clean only the exact socket/directory allocated above. */
 export function cleanupCompanionOriginEndpoint(
   endpoint,
   { platform = process.platform, fileSystem = fs, currentUid = currentUserId() } = {},
@@ -115,15 +107,9 @@ export function cleanupCompanionOriginEndpoint(
       if (error?.code !== "ENOENT") return;
     }
     fileSystem.rmdirSync(directory);
-  } catch {
-    // A live, foreign, or concurrently changed endpoint is left untouched.
-  }
+  } catch {}
 }
 
-/** Verify that the exact private sidecar origin is answering with the
- * companion identity. Every terminal request/response event settles the
- * promise: this probe runs inside the serialized Companion lifecycle, so a
- * request left pending would wedge both start and stop for the app session. */
 export function companionOriginHealth(
   target,
   { request = http.request, timeoutMs = 1_000 } = {},
@@ -244,8 +230,6 @@ function destroySockets(sockets) {
   sockets.clear();
 }
 
-/** Loopback gateway owned by the connector guardian. The target is immutable
- * for one guardian lifetime, and is checked again for every request. */
 export function createCompanionOriginGateway({
   target,
   originHost = MANAGED_COMPANION_ORIGIN_HOST,
@@ -280,10 +264,6 @@ export function createCompanionOriginGateway({
           return unavailable(outgoing);
         }
         outgoing.writeHead(response.statusCode ?? 502, endToEndHeaders(response.headers));
-        // `pipe` does not carry source failures to the destination. A
-        // sidecar restart in the middle of a response must tear down the
-        // client response instead of leaving it waiting forever for bytes
-        // (and possibly a content-length) that will never arrive.
         response.once("error", () => outgoing.destroy());
         response.once("aborted", () => outgoing.destroy());
         response.once("close", () => {

@@ -1,4 +1,3 @@
-// Real message-scoped file access; synthetic content and a disposable home only.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";

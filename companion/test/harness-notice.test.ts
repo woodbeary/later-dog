@@ -1,6 +1,3 @@
-// The companion's notice to the harness that it unpaired a phone. It travels
-// the relay's own authenticated path: loopback, the companion's marker, the
-// device id, and the private relay token when the desktop app holds one.
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,7 +16,6 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((done) => server.close(done))));
 });
 
-/** A stand-in harness that answers `status` and records what reached it. */
 async function harness(status = 200): Promise<{ port: number; seen: Seen[] }> {
   const seen: Seen[] = [];
   const server = createServer((req, res) => {
@@ -50,7 +46,6 @@ describe("notifyDeviceRevoked", () => {
       "x-laterdog-companion-device": "phone-1",
       "x-laterdog-companion-auth": TOKEN,
     });
-    // the phone's bearer means nothing to the harness and never travels
     expect(seen[0].headers.authorization).toBeUndefined();
     expect(seen[0].headers.origin).toBeUndefined();
   });

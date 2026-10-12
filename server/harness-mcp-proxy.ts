@@ -1,7 +1,3 @@
-// Per-turn MCP entry point for the tools the harness serves itself: the
-// built-in browser and the cloud computer. argv[2] names which one. Only a
-// turn-scoped capability crosses into the agent process; engine commands,
-// session names, and provider credentials (the Boat token) stay in later.dog.
 import { pathToFileURL } from "node:url";
 
 const MAX_INPUT_BYTES = 1_048_576;
@@ -11,8 +7,6 @@ type RpcId = string | number | null;
 export type HarnessMcpKind = "browser" | "computer";
 
 const NAMES: Record<HarnessMcpKind, string> = { browser: "Browser", computer: "Cloud computer" };
-/** What a model needs after a failed call, per tool family: the failure is
- * about this one connection, and an uncertain action must be checked first. */
 const RECOVERY: Record<HarnessMcpKind, string> = {
   browser: " This failure does not establish that all browsers are unavailable. Inspect available connections with select_computer if that tool is present. Keep the requested computer and account; do not bypass a permission refusal or human takeover, and do not repeat an uncertain action without checking its result.",
   computer: " Keep working on the assigned cloud computer only; do not bypass a person's control of it, and take a fresh screenshot before repeating an action whose result is uncertain.",

@@ -5,7 +5,6 @@ import { launchVerificationServer, runControlLaterDog } from "../scripts/control
 import { handleToolCall, request } from "../scripts/mcp-server.ts";
 import { PEER_ACCESS_HELP } from "./peer-roster.ts";
 
-/** Exercise the real coordination proxy in disposable rooms with a scripted provider. */
 async function withRooms(test: (f: any) => Promise<void>) {
   const session = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, { scripted: true });
   const env = { LATERDOG_URL: session.info.url };
@@ -35,7 +34,6 @@ async function withRooms(test: (f: any) => Promise<void>) {
   } finally { await session.close(); }
 }
 
-/** Grant a Chief supervision of team A and seat it beside both fixture peers. */
 async function addSupervisingChief(f: any, section = "") {
   const chief = (await f.cli("new-bot", "--name", "Supervisor")).bot;
   await f.api(`/api/bots/${chief.id}`, { section, chiefOfStaff: true, managedSections: ["A"], acknowledgePeerScope: true }, "PATCH");
@@ -47,9 +45,6 @@ async function addSupervisingChief(f: any, section = "") {
 it.each(["", "Leadership"])("lists and coordinates with a supervising Chief and same-section peer in the same room (Chief section %j)", section => withRooms(async f => {
   const chief = await addSupervisingChief(f, section);
   f.plan[f.sender.id].steps = [{ arguments: { bot_ids: [chief.id, f.target.id], message: "Review the work here" } }];
-  // The fresh coordination brief carries the recipient's own live roster:
-  // dispatch-time data must ride the user turn, fenced with its own markers
-  // so it can never blend into the assignment text around it.
   f.plan[f.target.id] = { reply: "Built CSV", expectContextIncludes: ["[LIVE TEAMMATES]", `[id: ${f.sender.id}]`] };
   await f.start(); expect((await f.wait()).status).toBe("settled");
   const discovery = JSON.parse(f.provider().find((turn: any) => turn.botId === f.sender.id).evidence[1].result.content[0].text);
@@ -116,7 +111,6 @@ it("runs room-destined work in the room's own conversation, opening no thread on
   const tasksOf = async (botId: string) => (await f.api("/api/bots")).bots.find((bot: any) => bot.id === botId).tasks ?? [];
   const before = await tasksOf(f.target.id);
   await f.start(); expect((await f.wait()).status).toBe("settled");
-  // A room is already a destination; direct work threads must not appear beside it.
   const node = f.nodes().find((n: any) => n.botId === f.target.id);
   expect(node.groupId).toBe(f.destination.id);
   expect(node.threadId).toBe(f.destination.activeTaskId);
@@ -137,10 +131,6 @@ it("lets an explicitly authorized Chief coordinate another team, which can consu
     steps: [{ arguments: { group_id: reviewRoom.id, bot_ids: [reviewer.id], message: "Check the CSV output" } }],
     reply: "Sent for verification", resumeReply: "CSV implemented and checked",
   };
-  // Multi-line on purpose: results reach the transcript inside a JSON
-  // envelope, so a newline is escaped there. A raw substring compare would
-  // miss it and re-append the brief on top of a transcript that already has
-  // it — the duplication the dedup exists to prevent.
   f.plan[reviewer.id] = { reply: "CSV checks passed\nrow count matches\nno nulls" };
   await f.start(); expect((await f.wait()).status).toBe("settled");
   expect(f.provider().map((turn: any) => turn.botId)).toEqual([f.sender.id, f.target.id, reviewer.id, f.target.id, f.sender.id]);
@@ -184,8 +174,6 @@ it.each(["rename", "delete"])("withholds an in-flight result after team %s and r
   f.plan[f.target.id] = { delayMs: 5000, reply: "PRIVATE_RESULT_AFTER_TEAM_RECREATION" };
   await f.start();
   await expect.poll(() => f.nodes().find((n: any) => n.parentId)?.status, { timeout: 15_000 }).toBe("running");
-  // The owner empties the team while this particular task is in flight,
-  // removes its old identity, then puts the same bot under the reused name.
   const move = (section: string) => request(`/api/bots/${f.target.id}`, { method: "PATCH", headers: { Origin: f.session.info.url },
     body: JSON.stringify({ section }) }, f.session.info.url);
   await move("Parking");
@@ -232,7 +220,6 @@ it("rechecks section membership before queued work dispatch and withholds its re
   await f.cli("send", "--bot", f.target.id, "--text", "Independent task");
   await f.start();
   await expect.poll(() => f.nodes().find((n: any) => n.parentId)?.status, { timeout: 10_000 }).toBe("queued");
-  // Model a user changing the fixture's settings from its served UI mid-turn.
   await request(`/api/bots/${f.target.id}`, { method: "PATCH", headers: { Origin: f.session.info.url },
     body: JSON.stringify({ section: "Other company" }) }, f.session.info.url);
   writeFileSync(gateFile, "release");
@@ -274,12 +261,6 @@ it("returns a provider failure to the sender and resumes it to handle the failur
   expect(source.some((m: any) => m.text === "Reviewed downstream outcome")).toBe(true);
 }), 45_000);
 
-// A repeat of a failed request used to be receipted "queued" with a promise
-// that its result would resume the sender — but a terminal node never reruns
-// and its report already fired, so the coordinator would wait on an
-// auto-resume that never comes. The receipt must say the earlier assignment
-// is dead, and the repeat must not run it again (a resume that resends the
-// same failing request would otherwise loop until the tree's budget ends).
 it("receipts a retried duplicate of a failed hand-off as failed, not queued behind a resume that never comes", () => withRooms(async f => {
   f.plan[f.target.id].fail = true;
   f.plan[f.sender.id].resumeSteps = [{ arguments: f.plan[f.sender.id].steps[0].arguments, expectError: true }];
@@ -290,7 +271,6 @@ it("receipts a retried duplicate of a failed hand-off as failed, not queued behi
   const first = JSON.parse(assigned.evidence.find((entry: any) => entry.step).response.result.content[0].text);
   expect(first.receipts[0]).toMatchObject({ botId: f.target.id, outcome: "queued" });
   expect(retried.resumed).toBe(true);
-  // Nothing was sent, so the call is refused with the way to retry.
   const retry = retried.evidence.find((entry: any) => entry.step).response.result;
   expect(retry.isError).toBe(true);
   expect(retry.content[0].text).toContain("not sent again: it failed; send it with rework=true to retry");
@@ -354,8 +334,6 @@ it.each(["allow", "deny"])("presents all peer approvals together and dispatches 
   }, { timeout: 10_000 }).toBe(2);
   expect(f.nodes()).toEqual([]);
   expect(await f.messages(f.destination.activeTaskId)).toEqual([]);
-  // Answer the second one first: approving one recipient cannot start
-  // partial work or wait for another card to be created.
   await f.api(`/api/threads/${f.source.activeTaskId}/respond`, { requestId: cards[1].card.requestId, behavior });
   expect(f.nodes()).toEqual([]);
   await f.api(`/api/threads/${f.source.activeTaskId}/respond`, { requestId: cards[0].card.requestId, behavior: "allow" });
@@ -438,11 +416,6 @@ it("waits for busy peers and then completes without the user relaying messages",
   expect((await f.messages(f.source.activeTaskId)).some((m: any) => m.text === "Reviewed downstream outcome")).toBe(true);
 }), 45_000);
 
-// An unresolvable bot_ids entry used to get "The addressed agent no longer
-// exists" whether it had ever been a bot id or not, carrying no id and no
-// way back, so a model reads its teammate as permanently gone. Both cases
-// now name the id the caller sent and point at list_bots, like the other
-// comms refusals in the server.
 it.each([
   ["a name nobody has in a bot_ids slot", false],
   ["a hidden teammate's id", true],
@@ -460,10 +433,6 @@ it.each([
     : `No bot with id or name "${botId}" — call list_bots and copy the exact id from the result. ${PEER_ACCESS_HELP}`);
 }), 45_000);
 
-// The Chief's roster names teammates, so a Chief reaches for the name it can
-// see. A name that means exactly one reachable teammate is the teammate; the
-// work runs as if the id had been sent. Two teammates sharing a name is the
-// person's naming, so that is refused with the way to the ids, not guessed.
 it("resolves a unique teammate name in a bot_ids slot, and refuses an ambiguous one", () => withRooms(async f => {
   f.plan[f.sender.id].steps = [{ arguments: { group_id: f.destination.id, bot_ids: [f.target.name], message: "Please build CSV" } }];
   await f.start(); expect((await f.wait()).status).toBe("settled");

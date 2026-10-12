@@ -1,8 +1,3 @@
-// The cloud computer's tools, as every engine with computer tools sees them.
-// The harness serves them at POST /api/internal/computer/mcp; the agent
-// process reaches that route through harness-mcp-proxy with a turn-scoped
-// capability, so the computer's credential never leaves this server. The same tools
-// and the same calls on a desktop, a headless server and a later.dog Cloud.
 import type { ValidateFunction } from "ajv";
 import { isolatedRemoteCommand, runCommand, screenshotBoat } from "./computers.ts";
 import type { AppConfig } from "./config.ts";
@@ -24,7 +19,6 @@ export const CLOUD_COMPUTER_TOOLS = [
   tool("open_url", "Request opening an HTTP or HTTPS URL in the cloud desktop browser; inspect the screen to confirm it loaded.", { url: { type: "string", pattern: "^https?://", maxLength: 2000 } }, ["url"]),
   tool("exec", "Run a shell command on the assigned cloud computer.", { command: { type: "string", minLength: 1, maxLength: 4000 } }, ["command"]),
 ];
-/** A call the gate let through while no Boat had landed for the turn. */
 export const CLOUD_COMPUTER_NOT_READY = "The cloud computer is not ready. This call was not performed. Take a fresh screenshot in a moment.";
 const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
 const buttons: Record<string, number> = { left: 1, middle: 2, right: 3 };
@@ -32,9 +26,6 @@ const scrollButtons: Record<string, number> = { up: 4, down: 5, left: 6, right: 
 
 let validators: Map<string, ValidateFunction> | undefined;
 
-/** Why a call cannot run, or null. Checked before anything else touches the
- * call: x and y reach the remote shell unquoted, so only the advertised
- * integer schema stands between a model's arguments and a command line. */
 export function cloudComputerCallProblem(name: unknown, args: unknown): string | null {
   validators ??= new Map(CLOUD_COMPUTER_TOOLS.map(entry => [entry.name, compileToolSchema(entry.inputSchema)]));
   const validate = typeof name === "string" ? validators.get(name) : undefined;
@@ -50,8 +41,6 @@ export type CloudComputerResult = {
   isError?: boolean;
 };
 
-/** One tool call on the given Boat with the server's own Boat account. The
- * caller has already checked the arguments and the person's control. */
 export async function runCloudComputerTool(
   cfg: AppConfig,
   boxId: string,
@@ -88,18 +77,10 @@ export async function runCloudComputerTool(
   return { isError: !result.ok, content: [{ type: "text", text: JSON.stringify(result) }] };
 }
 
-/** One JSON-RPC request from harness-mcp-proxy, answered with its MCP
- * `result`. The order is the safety argument: arguments are checked before
- * the control gate (which may claim the seat, and for a cloud computer
- * mounted before it existed, create or wake it), a person's control refuses
- * the call before anything reaches the Boat, the Boat is read only once the
- * gate has let the call through, and the turn's capability must still be
- * live before and after the Boat acts. Listing the tools touches no Boat. */
 export async function cloudComputerRpc(
   request: { method?: unknown; params?: unknown } | null | undefined,
   deps: {
     cfg: AppConfig;
-    /** The Boat this call acts on, read after the gate. */
     boxId(): string | null | undefined;
     gate(): Promise<{ held: boolean; blockedReason?: string }>;
     assertActive(): void;

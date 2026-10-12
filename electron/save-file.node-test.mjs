@@ -8,8 +8,6 @@ import { pathToFileURL } from "node:url";
 
 import { collisionFreeDownloadPath, defaultSaveName, resolveSavablePath, revealDownloadWhenDone, revealInFolder, withSavableFile } from "./save-file.mjs";
 
-// Creating a symlink on Windows needs elevation or developer mode, so the
-// symlink cases only run where the runner can actually make one.
 const canSymlink = (() => {
   const probe = fs.mkdtempSync(path.join(os.tmpdir(), "laterdog-symlink-probe-"));
   try {
@@ -40,9 +38,6 @@ after(() => {
 describe("save-file path validation", () => {
   it("accepts a file inside the bot home, as a path or a file:// URL", async () => {
     const file = path.join(botHome, "workspaces", "bot", "report.docx");
-    // must be fs.promises.realpath, the same call the module makes: on Windows
-    // the callback API leaves 8.3 short names ("RUNNER~1") that the promises
-    // API expands ("runneradmin"), so mixing the two compares different strings
     const expected = await fs.promises.realpath(file);
     assert.equal(await resolveSavablePath(file, { home }), expected);
     assert.equal(await resolveSavablePath(pathToFileURL(file).href, { home }), expected);
@@ -208,8 +203,6 @@ describe("save-file source handles", () => {
 
   it("rejects a validation-to-open identity swap on Windows", async () => {
     const source = path.join(botHome, "workspaces", "bot", "report.docx");
-    // These IDs are distinct BigInts but collapse to the same Number. The
-    // options assertions below make the precision guarantee executable.
     const expected = { dev: 1n, ino: 9007199254740992n, isFile: () => true };
     const opened = { dev: 1n, ino: 9007199254740993n, isFile: () => true };
     let closed = false;
@@ -243,8 +236,6 @@ describe("save-file source handles", () => {
 });
 
 describe("Show in folder for a file outside the workspace", () => {
-  // Stands in for Electron's shell: revealing is the only thing that may
-  // happen to the path, and only after it has been validated.
   const shell = () => {
     const shown = [];
     return { shown, reveal: (target) => shown.push(target) };

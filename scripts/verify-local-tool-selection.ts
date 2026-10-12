@@ -1,9 +1,3 @@
-// Real local-model proof, separate from the synthetic CLI contract probes.
-// Usage: node --experimental-strip-types scripts/verify-local-tool-selection.ts
-//   pi|grok /absolute/path/to/cli http://127.0.0.1:1234/v1 MODEL_ID
-// Start/load your local model separately. This script owns only disposable
-// HOME/data/MCP files. The loopback proxy bounds generation to 768 tokens;
-// it never changes tool schemas or invents model responses/tool calls.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -21,7 +15,6 @@ const upstream = new URL(providerArgument);
 assert(upstream.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(upstream.hostname)
   && !upstream.username && !upstream.password && !upstream.search && !upstream.hash, "Only an unauthenticated loopback model is supported");
 const home = mkdtempSync(join(tmpdir(), "laterdog-local-selection-"));
-// Do not inherit cloud accounts or the user's native-agent configuration.
 for (const name of Object.keys(process.env)) {
   if (!["PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ", "TMPDIR"].includes(name)) delete process.env[name];
 }
@@ -69,7 +62,7 @@ const proxy = createServer(async (req, res) => {
         if (capture && result.usage) capture.usage = result.usage;
         const calls = result.choices?.flatMap((choice: any) => (choice.delta ?? choice.message)?.tool_calls ?? []) ?? [];
         if (capture) capture.called.push(...calls.map((call: any) => call.function?.name).filter(Boolean));
-      } catch { /* Non-JSON stream termination is not model evidence. */ }
+      } catch {}
     }
     if (capture) console.log(JSON.stringify({ phase: "provider-response", engine, ...capture }));
   } catch (error) {

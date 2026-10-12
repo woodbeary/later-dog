@@ -51,8 +51,6 @@ for (const appName of ["later.dog"]) {
   chmodSync(userData, 0o700);
   writeFileSync(
     path.join(userData, "cua-local-control.json"),
-    // Keep this explicit: schema 2 prevents a safe build's opt-in from arming
-    // an older Linux package that started Cua without the seat-safety flags.
     JSON.stringify({ schemaVersion: 2, linuxLocalControlEnabled: true }),
     { mode: 0o600 },
   );
@@ -164,9 +162,6 @@ process.on("SIGTERM", shutdown);
 );
 chmodSync(sentinel, 0o755);
 
-// Accept the optional managed-Composio request but never answer it. The
-// renderer must still become ready and close normally while this request is
-// pending, proving hosted integration latency is outside first paint.
 let brokerRequests = 0;
 const brokerSockets = new Set();
 const slowBroker = createServer(() => {
@@ -205,9 +200,6 @@ else delete desktopEnv.WAYLAND_DISPLAY;
 
 let output = "";
 let smokeResult = null;
-// The smoke runs with a disposable HOME and no interactive keyring. Keep
-// Electron's credential backend inside that sandbox so a GNOME Keyring unlock
-// prompt cannot block the headless renderer before did-finish-load.
 const electronArgs = ["--password-store=basic"];
 if (wayland) electronArgs.push("--ozone-platform=x11");
 const child = spawn(executable, electronArgs, {

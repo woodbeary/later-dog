@@ -1,8 +1,3 @@
-// A stand-in for cloudflare/control-plane for tests of `laterdog login`
-// and `serve --tunnel`: the routes the desktop's control-plane client uses,
-// answering in the shapes its validators accept. Authorization is only "is
-// this a credential this stub issued". Records every call so a test can
-// assert what the client did, not only what it got.
 import { randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 
@@ -20,14 +15,9 @@ export interface ControlPlaneStub {
   otp: string;
   endpointUrl: string;
   connectorToken: string;
-  /** "METHOD /path", in order. */
   calls: string[];
   installations: Map<string, StubInstallation>;
-  /** An installation the control plane already knows, as a fleet would create
-   * one before starting a container: returns its credential. */
   seedInstallation(name?: string): string;
-  /** Idle reclaim: the endpoint reads as gone until the next provision,
-   * which hands out (and returns here) a new connector token. */
   reclaim(): string;
   close(): Promise<void>;
 }

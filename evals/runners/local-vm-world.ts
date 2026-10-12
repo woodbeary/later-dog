@@ -12,10 +12,6 @@ import { waitUntil } from "./api.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
-/** The Local VM world: the real server with the container boundary replaced
- * by the in-repo VM fixture (no Podman, no network), exactly the proven
- * group-local-vm recipe. This is the only world where the lazy computer
- * claim seam (issue #1361) can be driven end to end. */
 export class LocalVmWorld extends BaseWorld {
   private child: ChildProcess | undefined;
   private fixtureHome = "";
@@ -74,8 +70,6 @@ export class LocalVmWorld extends BaseWorld {
     await waitUntil(
       "VM fixture server to come up",
       async () => {
-        // exitCode stays null for a child killed by a signal; either way
-        // the boot is over and the captured stderr says why
         if (child.exitCode !== null || child.signalCode !== null) {
           const how = child.signalCode !== null ? " (killed by " + child.signalCode + ")" : "";
           throw new Error("server exited" + how + ": " + this.stderr.slice(-2000));
@@ -89,9 +83,6 @@ export class LocalVmWorld extends BaseWorld {
       (up) => up,
       20_000,
     );
-    // eval-gates lives under the server's LATERDOG_HOME so installSkill's
-    // <dataRoot>/skills target is the directory index.ts hot-loads user
-    // skills from; anywhere else and installed skills never reach the prompt.
     await this.initBase(base, this.planPath + ".evidence.jsonl", join(data, "eval-gates"));
     for (const bot of scenario.bots) {
       const created = await this.api.post("/api/bots", { name: bot.name });
@@ -113,9 +104,6 @@ export class LocalVmWorld extends BaseWorld {
     writeFileSync(this.stateFile, JSON.stringify(state));
   }
 
-  /** The fake engine dumps once per process; reads must tolerate a torn
-   * partial write, and every read consumes the file so the next dump is
-   * unambiguous. */
   private async readDump(timeoutMs: number): Promise<any> {
     const dump = await waitUntil(
       "engine dump",
@@ -167,9 +155,7 @@ export class LocalVmWorld extends BaseWorld {
   override async close(): Promise<void> {
     try {
       this.vmState({});
-    } catch {
-      /* the temp home may already be gone */
-    }
+    } catch {}
     if (this.child !== undefined) await waitForExit(this.child, { signal: "SIGTERM" });
     await removeTempDir(this.fixtureHome);
   }

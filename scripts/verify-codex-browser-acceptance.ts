@@ -1,5 +1,3 @@
-// Real model acceptance through the full, isolated later.dog server.
-// The prompts contain goals only, never tool names or execution advice.
 import { copyFileSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchVerificationServer, runControlLaterDog } from "./control-laterdog.ts";
@@ -53,8 +51,6 @@ async function observe(botId: string, prefix: string) {
           }
           if (viewerId) await api("POST", `/api/bots/${botId}/browser/action`, { viewerId, type: "ack", seq: item.seq });
         } else observations.push({ kind, ...item });
-        // The stream can begin with a cached frame from the previous page.
-        // ACK and collect fresh frames before saving the final screenshot.
         if (!finishTimer && screenshot && observations.some(item => item.kind === "url" || item.kind === "tabs")) finishTimer = setTimeout(() => abort.abort(), 4_000);
       }
     }
@@ -93,8 +89,6 @@ try {
           let approved = false;
           for (const message of pending) {
             const label = `${message.card.title ?? ""} ${message.card.subtitle ?? ""}`;
-            // These test goals authorize navigation, observation and selecting
-            // the already configured fixture browser; never a shell or login.
             if (!/tool "(?:select_computer|agent_browser_(?:open|snapshot|get_text|get_url|get_title|tabs|tab_list|tab_new|wait|find))"/.test(label)) continue;
             await api("POST", `/api/bots/${bot.id}/respond`, { threadId, requestId: message.card.requestId, behavior: "allow" });
             (entry.approvals ??= []).push(label); approved = true;
@@ -121,7 +115,7 @@ try {
   try {
     save();
   } finally {
-    try { unlinkSync(join(fixture.info.dataDir, ".codex", "auth.json")); } catch { /* fixture cleanup remains authoritative */ }
+    try { unlinkSync(join(fixture.info.dataDir, ".codex", "auth.json")); } catch {}
     await fixture.close();
   }
 }

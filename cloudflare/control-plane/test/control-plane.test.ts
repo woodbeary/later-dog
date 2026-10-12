@@ -47,9 +47,6 @@ async function call(path: string, options: CallOptions = {}) {
   return response;
 }
 
-// Counts D1 round trips the way production pays for them: one per statement
-// call and one per batch. Each call is recorded a macrotask late, so a query
-// queued with ctx.waitUntil as the response returns is counted after it.
 function tracedDB(queries: string[], failOn?: RegExp): D1Database {
   const statements = new WeakMap<object, { statement: D1PreparedStatement; sql: string }>();
   async function roundTrip<T>(sql: string, run: () => Promise<T>): Promise<T> {
@@ -83,7 +80,6 @@ function tracedDB(queries: string[], failOn?: RegExp): D1Database {
         () => env.DB.batch(entries.map((entry) => entry.statement)),
       );
     },
-    // Better Auth only checks that this exists to pick its D1 dialect.
     exec: (sql: string) => env.DB.exec(sql),
   } as unknown as D1Database;
 }
@@ -228,8 +224,6 @@ describe("control-plane migrations and health", () => {
     const second = await call("/healthz");
     await expect(second.json()).resolves.toEqual(await first.json());
     expect(prepare).toHaveBeenCalledTimes(1);
-    // The public response stays uncached; only the internal copy expires on
-    // its own, which bounds how far the report can trail D1.
     expect(second.headers.get("cache-control")).toBe("no-store");
     const cache = await caches.open("healthz-capacity");
     const copy = await cache.match(new URL("/__internal/healthz-capacity-row/v1", env.BETTER_AUTH_URL));
@@ -288,10 +282,6 @@ describe("control-plane migrations and health", () => {
       reclaimMode: "observe",
       tunnelLimit: 2500,
     });
-    // Reclaim can never be configured to treat a tunnel offline for less than
-    // a week as idle, and the sweep cannot outgrow its subrequest budget. A bad
-    // value falls back to the default instead of taking sign-in down, and a bad
-    // reclaim mode only observes.
     expect(readConfig(withVars({ LATERDOG_TUNNEL_OFFLINE_RECLAIM_DAYS: "6" })).capacity.offlineReclaimMs).toBe(21 * 24 * 60 * 60 * 1_000);
     expect(readConfig(withVars({ LATERDOG_CLEANUP_SWEEP_LIMIT: "51" })).capacity.cleanupSweepLimit).toBe(20);
     expect(readConfig(withVars({ LATERDOG_TUNNEL_LIMIT: "1e3" })).capacity.tunnelLimit).toBe(1000);
@@ -523,8 +513,6 @@ describe("Better Auth email OTP and bearer boundary", () => {
   });
 });
 
-// Production pays a cross-region round trip to the D1 primary for every query
-// on these paths, so the budgets below are latency budgets.
 describe("email OTP D1 round trips", () => {
   const SEND_PATH = "/api/auth/email-otp/send-verification-otp";
   const SIGN_IN_PATH = "/api/auth/sign-in/email-otp";
@@ -583,7 +571,6 @@ describe("email OTP D1 round trips", () => {
     expect(beforeResponse.some((sql) => EXPIRED_SWEEP.test(sql))).toBe(false);
     expect(beforeResponse.length).toBeLessThanOrEqual(8);
     expect(afterResponse.filter((sql) => EXPIRED_SWEEP.test(sql))).toHaveLength(1);
-    // Only the expired row goes; a live code for another address survives.
     expect(await verificationIdentifiers()).toEqual(["sign-in-otp-pending@example.com"]);
   });
 

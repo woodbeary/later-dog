@@ -47,7 +47,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const sidebarAndPanelFit = useMediaQuery(SIDEBAR_AND_PANEL_FIT, true);
   useEffect(() => {
     if (!window.laterdog?.environments) return;
-    // A saved server's Computer access panel, or ("copy") its Copy this computer here panel.
     const open = (computerId?: string | null, panel?: "copy") => {
       if (computerId) {
         const target = new URL(window.location.href);
@@ -75,50 +74,29 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     window.history.replaceState(null, "", rest);
     setPhonePairingOpen(true);
   }, []);
-  // Mobile-only drawer state. Above md, none of these properties are emitted
-  // at all — Sidebar scopes every mobile class with max-md: rather than
-  // cancelling them with md:, which would still emit a translate value and
-  // turn the aside into a containing block for its fixed descendants (see
-  // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // Apply this device's language, else the server's default, the moment
-  // either changes; "" follows the system. The epoch bump re-renders
-  // extracted strings — t() reads a module variable, so React needs this nudge.
   const language = effectiveLanguage(useLanguageChoice(), state.config?.language);
   const [, setLocaleEpoch] = useState(0);
   useEffect(() => {
     setLocale(language || globalThis.navigator?.language);
     setLocaleEpoch((epoch) => epoch + 1);
   }, [language]);
-  // the Browser tab, expanded into the main column (the small preview in
-  // the panel hands off to this and back)
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const previousViewRef = useRef(state.activeView);
   const calendarOriginRef = useRef<"chat" | "team-map" | "workspace">("chat");
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
-  // A side panel beside the full sidebar leaves the default 1100px window a
-  // ~330px chat. Fold the sidebar to its avatar rail for as long as a panel
-  // is open and the window is not wide enough for all three.
   const sidePanelOpen = (Boolean(bot) && (state.settingsOpen || state.computerOpen || state.inspectorOpen || state.activityOpen))
     || (state.computerOpen && state.cloudTaskId !== null);
   const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
   const calendarFocus = state.activeView === "routines";
 
-  // Nothing on this machine can run a bot. A missing cloud login does not
-  // count — that CLI can still host a local model. Wait for the first
-  // /api/instances response before deciding: an empty list means "not asked
-  // yet", and flashing the setup screen at every launch would be worse.
   const noEngines =
     state.connected &&
     state.instances.length > 0 &&
     !state.instances.some((i) => i.snapshot.state === "available");
-  // A later.dog Cloud home with none of the person's own engines signed in yet:
-  // its first run, and every bot until then, is the engine sign-in.
   const cloudSignIn = cloudSignInDue(viewer, state, engineReady);
 
-  // App-wide shortcuts: ⌘N new bot · ⌘1–9 jump to bot · ⌘⇧[ / ⌘⇧] prev/next · ⌘/ or ? shortcuts cheat sheet.
-  // Kept deliberately small; every panel already closes on Esc.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || state.shortcutsOpen) return;
@@ -157,24 +135,13 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     window.laterdog?.setUnreadCount?.(unreadCount);
   }, [unreadCount]);
 
-  // Warm connected-account state as soon as the local server is available.
-  // The modal then opens with the correct Connect/Add account buttons and
-  // quietly revalidates instead of rediscovering every account from scratch.
   useEffect(() => {
     if (!state.connected) return;
     void preloadConnectedApps().catch(() => {});
   }, [state.connected]);
 
-  // Settings, Routines and the other on-request screens stay out of the
-  // launch bundle; fetch them once the first paint is done and the app is idle.
   useEffect(() => preloadScreens(), []);
 
-  // Picking a conversation closes the drawer: on a phone the chat is what you
-  // asked for, and leaving the list up would hide it. Watching activeView too
-  // catches re-selecting the bot that is already current from another view —
-  // the reducer switches the view without changing selectedId. pluginsOpen
-  // and settingsOpen cover the same idea from a different trigger: close the
-  // drawer whenever an action opens something over the chat.
   useEffect(() => {
     setDrawerOpen(false);
   }, [state.selectedId, bot?.threadId, group?.threadId, state.activeView, state.pluginsOpen, state.settingsOpen]);
@@ -208,8 +175,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     });
   }, [dispatch]);
 
-  // The viewer outlives ComputerPanel and can target any bot, so release control
-  // here (always mounted) when a bot's viewer closes. release() is idempotent.
   useEffect(() => {
     return window.laterdog?.desktopViewer?.onState((viewer) => {
       if (viewer.open || !viewer.contextId || viewer.contextId.startsWith("cloud-task:")) return;
@@ -296,17 +261,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
           ) : null}
         </main>
       )}
-      {/* The panels below are siblings, so their keys must differ even
-          though each is remounted per bot. Two siblings keyed `bot.id`
-          collide in React's keyed reconciliation whenever both are open
-          (Computer panel, then the usage chip): every re-render mounts a
-          fresh settings panel and never removes the previous one, so the
-          panels pile up and Close stops working. */}
-      {/* Bot settings keep the inspector or computer panel open on purpose
-          (their own controls open settings). Two static panels beside the
-          sidebar leave the default 1100px window a sliver of chat, so until
-          the window is wide enough to seat both, settings floats over the
-          chat instead and the other panel is still there when it closes. */}
       {state.settingsOpen && bot && (
         remoteClient
           ? <RemoteAgentSettingsPanel bot={bot} overlay={state.computerOpen && !twoSidePanelsFit} />
@@ -330,8 +284,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         onClose={() => setPhonePairingOpen(false)}
         profileEmail={state.config?.profile?.email ?? ""}
       />
-      {/* On the person's Cloud: its setup checklist, and after it Move to
-          Cloud's one-time card on an empty Cloud (desktop app only). */}
       <CloudSetup viewer={viewer} />
       {state.pluginsOpen && <PluginsPanel />}
       {state.triggersOpen && <TriggersPanel />}
@@ -342,17 +294,8 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
           onClose={() => dispatch({ type: "toggleShortcuts", open: false })}
         />
       )}
-      {/* mounted after the modals: same z-50 tier, so DOM order keeps the
-          palette on top when one of them is open underneath */}
       <CommandPalette />
       </div>
-      {/* Renderer-drawn caption buttons for the overlay-less frameless
-          Windows window. Deliberately the LAST child of the shell: Blink
-          resolves -webkit-app-region in DOM-walk order, so these no-drag
-          buttons must come after every drag-region header to actually
-          subtract from it — earlier placement let the header's drag region
-          swallow the buttons (dead clicks, no hover). z-40 keeps true
-          modals (z-50, later in DOM) painting above the buttons. */}
       <WindowCaptionButtons
         visible={capabilities.windowChrome === "win-caption" && Boolean(window.laterdog?.windowControls)}
       />

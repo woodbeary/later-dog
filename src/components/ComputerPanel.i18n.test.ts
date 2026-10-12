@@ -1,7 +1,3 @@
-// The computer surfaces hold copy in three places a naive translation misses:
-// a module-scope table (the local preview's phase map), a message parked in
-// React state, and a failure sentence produced by a plain helper. Each one is
-// a place where the language a pack was picked in could get frozen in.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -31,8 +27,6 @@ afterEach(() => {
 
 describe("computer panel translation", () => {
   it("resolves the local preview's phase copy at render, not at import", () => {
-    // The module-scope map is loaded once, in English. If it held sentences
-    // instead of keys, this pack switch would change nothing.
     expect(renderToStaticMarkup(createElement(LocalScreenPreview))).toContain(
       t("computer.screen.idle"),
     );
@@ -45,7 +39,6 @@ describe("computer panel translation", () => {
   });
 
   it("hands the caller a key for a failed screen request, not a sentence", () => {
-    // The caller parks this in state; a sentence would outlive the language.
     const failure = screenPreviewFailure(new DOMException("cancelled", "AbortError"));
     expect(failure).toMatchObject({ ok: false, phase: "cancelled" });
 
@@ -66,7 +59,6 @@ describe("computer panel translation", () => {
         onOpen: () => {},
         onRetry: () => {},
       }));
-      // A pack without this line (rewritten in English) shows the English one.
       expect(html, code).toContain(escapeHtml(pack["computer.phase.starting"] ?? locales.en!["computer.phase.starting"]!));
     }
   });

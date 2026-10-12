@@ -1,9 +1,6 @@
-// Fish Audio text to speech. The API key stays on the harness: the renderer
-// receives only voice metadata and synthesized audio bytes.
 import type { FishTtsModel } from "../config.ts";
 
 const API = (process.env.LATERDOG_FISH_AUDIO_API || "https://api.fish.audio").replace(/\/+$/, "");
-/** Used when no model is saved, so existing setups keep their behavior. */
 export const DEFAULT_FISH_MODEL: FishTtsModel = "s2.1-pro";
 const MAX_ERROR_LENGTH = 240;
 const PAGE_SIZE = 100;
@@ -61,12 +58,8 @@ function errorMessage(status: number, action: string, body: unknown): string {
   return detail ? `${action} failed: ${detail}` : `${action} failed (${status})`;
 }
 
-/** Verify the exact permission the voice picker needs. */
 export async function verifyKey(key: string): Promise<VerifyResult> {
   try {
-    // The public catalog is intentionally readable without authentication,
-    // so it cannot prove a supplied key. `self=true` crosses the account
-    // boundary and returns 401 for an absent or invalid Bearer token.
     const res = await fetch(`${API}/model?page_size=1&self=true`, {
       headers: { authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(20_000),
@@ -99,9 +92,6 @@ async function modelPage(key: string, query: string): Promise<{ items: unknown[]
 }
 
 export async function listVoices(key: string): Promise<Voice[]> {
-  // Fish defaults to ten results and excludes private account voices from
-  // the public catalog. Load the popular public page and every page belonging
-  // to this account, so a user's 101st custom voice remains selectable.
   const [publicPage, owned] = await Promise.all([
     modelPage(key, `page_size=${PAGE_SIZE}&sort_by=task_count`),
     (async () => {
@@ -121,9 +111,6 @@ export async function listVoices(key: string): Promise<Voice[]> {
   const voices = items.flatMap((item): Voice[] => {
     if (!item || typeof item !== "object") return [];
     const model = item as Record<string, unknown>;
-    // `/model` includes SVC models and account models that are still
-    // training or have failed. Only trained TTS models are valid
-    // `reference_id` values for `/v1/tts`.
     if (model.type !== "tts" || model.state !== "trained") return [];
     const id = typeof model._id === "string" ? model._id.trim() : "";
     if (!id) return [];

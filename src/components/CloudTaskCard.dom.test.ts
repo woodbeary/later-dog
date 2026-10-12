@@ -15,7 +15,6 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: {}, dispatch: fixture.dispatch }), api: fixture.api }));
 vi.mock("@/lib/app-links", () => ({ openExternalLink: fixture.openExternalLink }));
-// The progress log's own paging is the panel's and is tested there; the card only shows what it returns.
 vi.mock("@/lib/cloud-tasks", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/cloud-tasks")>(), useCloudTaskActivity: fixture.steps }));
 import { rememberCloudTasks } from "@/lib/cloud-tasks";
 import { CloudTaskCard } from "./CloudTaskCard";
@@ -31,7 +30,6 @@ let host: HTMLDivElement;
 let root: Root;
 let next = 0;
 
-/** A card for a job in the given state, under a fresh id so the shared task cache never leaks between tests. */
 function mount(patch: Partial<CloudTaskSummary>): string {
   next += 1;
   const id = `11111111-2222-4333-8444-${String(next).padStart(12, "0")}`;
@@ -81,7 +79,6 @@ describe("a cloud task card's steps", () => {
     expect(fixture.steps).not.toHaveBeenCalled();
     act(() => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    // read live, because the task is still at work
     expect(fixture.steps).toHaveBeenCalledWith(id, true);
     const list = host.querySelector<HTMLOListElement>('ol[aria-label="Steps"]')!;
     expect([...list.querySelectorAll("li")].map((row) => [...row.children].map((part) => part.textContent))).toEqual([

@@ -11,9 +11,6 @@ import { emptyRegistry, fleetLayout, MANAGED_OPENROUTER } from "./fleet.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 import { appendUsage, flushUsageLedger, readUsage, summarizeUsage } from "./usage-ledger.ts";
 
-// A machine that records what the agent does to it, with a real temp root
-// for the files the agent reads back (registry, ledgers). No systemd, nft,
-// Caddy or user accounts are touched.
 function machine(root: string, options: { failing?: string[]; beforeRun?: (argv: string[]) => Promise<void> } = {}) {
   const files = new Map<string, string>();
   const calls: string[] = [];
@@ -41,7 +38,6 @@ function machine(root: string, options: { failing?: string[]; beforeRun?: (argv:
   return { deps, files, calls, root };
 }
 
-// The agent is a Linux service; Windows cannot bind a Unix socket in a temp folder.
 describe.skipIf(process.platform === "win32")("fleet agent over its socket", () => {
   let root: string;
   let socketPath: string;
@@ -78,7 +74,7 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     const count = m.calls.length;
     expect((await fleetRequest(socketPath, "POST", "/workspaces/acme/providers", { models: ["provider/second"] })).status).toBe(200);
     expect(JSON.parse(m.files.get(path)!).provider[MANAGED_OPENROUTER]).toMatchObject({ options: { apiKey: "scoped-secret" }, models: { "provider/second": { name: "provider/second" } } });
-    expect(m.calls.length).toBe(count); // no service restart or live process mutation
+    expect(m.calls.length).toBe(count);
     expect(m.files.get(configPath)).toBe(original);
     for (const models of [undefined, "provider/model", [null], ["invalid\nmodel"]]) expect((await fleetRequest(socketPath, "POST", "/workspaces/acme/providers", { models })).status).toBe(400);
     const saved = m.files.get(path);
@@ -98,7 +94,6 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     const logs = await boot(m);
     expect(logs[0]).toContain("fleet agent listening");
     expect(fleetAvailable(socketPath)).toBe(true);
-    // the socket itself is the authorisation: owner and group only
     if (process.platform !== "win32") expect(statSync(socketPath).mode & 0o777).toBe(0o660);
 
     const created = await fleetRequest(socketPath, "POST", "/workspaces", { slug: "acme", admins: ["ada@example.test"], members: ["@acme.test"], cap: 40, anthropicKey: "sk-ant-fixture", brandJson: '{"name":"Acme"}', portalUrl: "https://admin.example.test", anthropicUrl: "https://admin.example.test/api/gateway/acme/anthropic" });
@@ -109,8 +104,6 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     expect(m.files.get(join(root, "etc/laterdog/instances/acme.env"))).toContain("LATERDOG_ADMIN_URL=https://admin.example.test");
     expect(m.files.get(join(root, "etc/laterdog/instances/acme.env"))).toContain("LATERDOG_ADMIN_WORKSPACE=acme");
 
-    // The fixture's ledger is summarized by the mocked unprivileged-usage seam.
-    // The filesystem suite exercises the real privilege-dropped child.
     const dataDir = join(root, "var/lib/laterdog/acme/.laterdog");
     mkdirSync(dataDir, { recursive: true });
     appendUsage(dataDir, { at: "2026-09-03T10:00:00.000Z", botId: "b", botName: "B", threadId: "t", instanceId: "claude", driverKind: "claudeAgent", model: "m", input: 10, output: 5, costUsd: 0.25, trigger: { kind: "owner" } });
@@ -198,7 +191,6 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
       await vi.waitFor(() => expect(m.calls.some((call) => call.endsWith("laterdog-alpha"))).toBe(true));
       expect(await fleetRequest(socketPath, "GET", "/workspaces")).toMatchObject({ status: 200, body: { workspaces: [{ slug: "alpha", status: "provisioning", accountCreated: false, live: "provisioning" }] } });
       const beta = fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta", admins: ["b@example.test"] });
-      // A health request reaches the server while the second mutation is queued.
       expect((await fleetRequest(socketPath, "GET", "/health")).status).toBe(200);
       expect(m.calls.some((call) => call.endsWith("laterdog-beta"))).toBe(false);
       release();
@@ -268,15 +260,13 @@ describe("fleet agent request body", () => {
 
   it("keeps a character whole when a chunk boundary splits it", async () => {
     const bytes = Buffer.from(JSON.stringify({ email: "owner@example.test", note: "مرحبا 中文 😀" }));
-    const cut = bytes.indexOf("مرحبا") + 1; // inside the first two-byte letter
+    const cut = bytes.indexOf("مرحبا") + 1;
     expect(bytes[cut]! & 0xc0).toBe(0x80);
     const body = await readBody(request([bytes.subarray(0, cut), bytes.subarray(cut)]));
     expect(body.note).toBe("مرحبا 中文 😀");
   });
 
   it("measures the limit in bytes, not characters", async () => {
-    // 100,000 three-byte characters: well under 256 KiB characters, but
-    // about 300 KB on the wire.
     const bytes = Buffer.from(JSON.stringify({ note: "中".repeat(100_000) }));
     const chunks: Buffer[] = [];
     for (let at = 0; at < bytes.length; at += 64 * 1024) chunks.push(bytes.subarray(at, at + 64 * 1024));

@@ -1,5 +1,3 @@
-// Whether the voice button shows beside the message field: off until the
-// person turns voice mode on in Settings, remembered on this device.
 import { useSyncExternalStore } from "react";
 
 export const VOICE_MODE_KEY = "laterdog.voiceMode.v1";
@@ -24,9 +22,7 @@ export function setVoiceMode(on: boolean): void {
   current = on;
   try {
     globalThis.localStorage?.setItem(VOICE_MODE_KEY, on ? "on" : "off");
-  } catch {
-    // Private windows may refuse storage; the choice still holds this session.
-  }
+  } catch {}
   for (const fn of Array.from(watchers)) fn();
 }
 

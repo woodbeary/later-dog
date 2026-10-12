@@ -1,8 +1,3 @@
-// later.dog's rule (server/laterdog/dog-creation.ts): any dog the person can see creates a dog when asked, the way the
-// reference product's bots do. This drives an ordinary dog's real turn in a disposable server with the fake engine: the
-// agents proxy that turn mounts lists create_bot, its tools/call creates "Scout" through /api/internal/create-bot, and
-// Scout lands in the same section working the way its creator does (never with more access), already greeting the person
-// in its own chat. The per-turn cap, the duplicate check and the archived-dog refusal still hold.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,7 +24,6 @@ const dumpSchema = z.object({
 it("lets an ordinary dog create a dog that greets the person, within the per-turn cap; an archived dog cannot", async () => {
   const temp = mkdtempSync(join(tmpdir(), "laterdog-dog-creation-"));
   const gate = join(temp, "finish");
-  // A slow turn holds until the gate exists, so each dog's turn (and its capability) stays live while it is checked.
   const fixture = await launchVerificationServer({ FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: gate });
   const proxies: ChildProcess[] = [];
   const evidence: unknown[] = [{ fixture: fixture.info }];
@@ -44,7 +38,6 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     return result;
   };
   const bots = async () => (await api("GET", "/api/bots?messages=0")).bots as Array<Record<string, any>>;
-  // What one dog's turn mounts: its agents proxy, spawned the way the engine spawns it.
   const startTurn = async (bot: Bot, text: string) => {
     rmSync(fixture.fixtureDumpPath, { force: true });
     await api("POST", `/api/bots/${bot.id}/messages`, { text }, 202);
@@ -87,13 +80,11 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     expect((await bots()).filter((bot) => bot.chiefOfStaff)).toEqual([]);
     await api("PATCH", `/api/bots/${biscuit.id}`, { approvalMode: "auto" });
 
-    // An ordinary dog's turn is shown create_bot, and none of the tools only a Chief keeps.
     const turn = await startTurn(biscuit, "can u make another agent");
     const tools = await turn.toolNames();
     evidence.push({ biscuitTools: tools });
     expect(tools).toContain("create_bot");
     expect(CHIEF_ONLY_TOOLS.filter((name) => tools.includes(name))).toEqual([]);
-    // Its instructions say it may create one itself, not that only a Chief can.
     expect(turn.systemPrompt).toContain("create_bot");
     expect(turn.systemPrompt).not.toMatch(/bot-creation and team-setup tools for Chiefs|only the section's Chief of Staff creates bots|create bots unless you are a Chief/);
 
@@ -118,7 +109,6 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     expect(scout.chiefOfStaff).toBeFalsy();
     expect(scout.visibility).toBeUndefined();
     expect(said).toContain(`[id: ${scout.id}]`);
-    // Its own chat opens with its greeting to the person, naming who set it up.
     const greeting = (await api("GET", `/api/threads/${scout.threadId}/messages`)).messages as Array<Record<string, unknown>>;
     evidence.push({ greeting });
     expect(greeting).toHaveLength(1);
@@ -127,7 +117,6 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
       text: "Hi Jacob, I'm Scout. Biscuit set me up for research and writing. What should I start on?",
     });
 
-    // The other guards are unchanged: no duplicate name in the section, and four new dogs per turn.
     const create = (name: string, expected: number) => api("POST", "/api/internal/create-bot",
       { name, role: "research and writing", instructions: "Help with research." }, expected, turn.token);
     expect((await create("scout", 409)).error).toContain("@Scout already exists in this section");
@@ -136,7 +125,6 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     const research = (await bots()).filter((bot) => bot.section === "Research").map((bot) => bot.name).sort();
     expect(research).toEqual(["Biscuit", "Rex", "Scout", "Scout Four", "Scout Three", "Scout Two"]);
 
-    // An archived dog is refused in plain words, and nothing is created.
     const archived = await startTurn(rex, "make me a helper");
     expect(await archived.toolNames()).toContain("create_bot");
     await api("POST", "/api/internal/create-bot", { name: "Pup", role: "keeping notes", instructions: "Keep notes." }, 201, archived.token);

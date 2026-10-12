@@ -51,7 +51,6 @@ vi.mock("node:child_process", async (original) => {
   const { promisify } = await import("node:util");
   const execFile = (command, args, options, callback) => {
     fixture.calls.push({ command, args, options });
-    // Always run this inert Node child, never open the operator's native app.
     const child = process.execFile(globalThis.process.execPath, ["-e", fixture.script], options, (error, stdout, stderr) => {
       if (!error && command === "/usr/bin/open") fixture.socketReady = true;
       callback(error, stdout, stderr);
@@ -200,11 +199,10 @@ describe.skipIf(process.platform !== "darwin")("async standalone CUA launch (iso
     let attempts;
     try {
       attempts = [retry(event), retry(event)];
-      // Both complete IPC flows must wait for the same old host to stop.
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(fixture.hosts).toHaveLength(1);
       expect(fixture.hosts[0].stop).toHaveBeenCalledOnce();
-      if (cancel) await cua.stopCua(); // the same boundary quit calls
+      if (cancel) await cua.stopCua();
     } finally {
       releaseStop?.();
       fixture.hosts[0].stop.mockResolvedValue();
@@ -251,9 +249,6 @@ describe.skipIf(process.platform !== "darwin")("async standalone CUA launch (iso
 
 it("does not add blocking subprocess calls to Electron runtime modules", () => {
   const root = dirname(fileURLToPath(import.meta.url));
-  // These existing synchronous ownership checks need separate lifecycle work:
-  // one cached boot ID read, one Windows process-creation-time query, and
-  // Linux's driver/private-group validation.
   const allowed = { "data-dir-lease.mjs": 3, "cua-linux.cjs": 2 };
   for (const entry of readdirSync(root, { recursive: true })) {
     const name = String(entry).replaceAll("\\", "/");

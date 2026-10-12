@@ -17,7 +17,6 @@ export default defineConfig({
           BETTER_AUTH_SECRET: TEST_AUTH_SECRET,
           CLOUDFLARE_API_TOKEN: TEST_CLOUDFLARE_TOKEN,
           ALLOWED_ORIGINS: "https://app.laterdog.test",
-          // Production starts in observe (wrangler.jsonc); the suite exercises reclaiming.
           LATERDOG_TUNNEL_RECLAIM: "on",
           TEST_MIGRATIONS: await readD1Migrations(`${root}migrations`),
         },

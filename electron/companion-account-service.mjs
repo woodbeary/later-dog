@@ -9,8 +9,6 @@ import {
   withoutManagedCompanionTunnelAccess,
 } from "./managed-companion-tunnel.mjs";
 
-/** Where the account service (emailed sign-in codes, managed companion
- * addresses) lives: nowhere unless the build names one (LATERDOG_CONTROL_PLANE_URL). */
 export const CONTROL_PLANE_URL_VARIABLES = ["LATERDOG_CONTROL_PLANE_URL"];
 
 export const COMPANION_CLIENT_INSTANCE_FIELD = "companionClientInstanceId";
@@ -31,9 +29,6 @@ const DEFAULT_AUTO_RETRY_MAX_MS = 6 * 60 * 60_000;
 const DEFAULT_ENDPOINT_CHECK_INTERVAL_MS = 15 * 60_000;
 const DEFAULT_FIRST_ENDPOINT_CHECK_MS = 2 * 60_000;
 
-/** Failures that clear up on their own: provider capacity, a transient
- * service or network problem, or a server-side rate limit. Anything that
- * needs the user (expired sign-in, computer limit) is never retried. */
 const AUTO_RETRY_CODES = new Set([
   "endpoint_capacity",
   "endpoint_rate_limited",
@@ -46,16 +41,8 @@ const AUTO_RETRY_CODES = new Set([
   "credential_rotation_rate_limited",
 ]);
 
-/** Server endpoint states that mean this computer's saved connector token no
- * longer has a working route behind it (or that its last reconcile failed),
- * so the next reconcile must run instead of trusting the saved address. */
 const ENDPOINT_NEEDS_RECONCILE = new Set(["deleting", "deleted", "error"]);
 
-/** Connector states in which the watchdog asks the control plane whether the
- * saved endpoint still exists. "ready" is included on purpose: the connector
- * verifies its public route once, so after a long sleep it can still say
- * "ready" for a tunnel the server reclaimed meanwhile. "unavailable" (no
- * connector binary) and "stopped" are left alone. */
 const WATCHDOG_CHECK_STATES = new Set(["starting", "ready", "retrying", "error"]);
 
 const defaultSetTimer = (callback, milliseconds) => {
@@ -67,11 +54,6 @@ const defaultSetTimer = (callback, milliseconds) => {
 const ownString = (document, field) =>
   typeof document?.[field] === "string" ? document[field] : "";
 
-/** No hosted default, packaged or not: a build opts into an exact HTTPS
- * origin (or an HTTP loopback Worker in development) so nobody's OTP or
- * bearer is ever sent to a host the build did not name. Unset disables every
- * feature that needs the service; an invalid value disables them too rather
- * than falling back to anyone's production service. */
 export function resolveCompanionControlPlaneURL({ environment = process.env } = {}) {
   for (const name of CONTROL_PLANE_URL_VARIABLES) {
     if (Object.hasOwn(environment, name)) return normalizeControlPlaneURL(environment[name]);
@@ -115,9 +97,6 @@ function withoutCompanionAccount(credentials) {
   ]) {
     delete next[field];
   }
-  // The UUID identifies this installation, not an account. Keeping it across
-  // sign-outs lets a same-account recovery adopt the existing server record
-  // rather than manufacturing a new computer every time.
   return next;
 }
 
@@ -191,7 +170,6 @@ const FRIENDLY_MESSAGES = Object.freeze({
   request_failed: "The secure connection request could not be completed. Local pairing still works; try again.",
 });
 
-/** "45 seconds", "3 minutes", or "a few minutes" when the server gave no hint. */
 function retryWait(retryAfterMs) {
   const seconds = Math.ceil((retryAfterMs ?? 0) / 1_000);
   if (!(seconds > 0)) return "a few minutes";
@@ -232,10 +210,6 @@ function publicState({ available, status, email, endpoint, message }) {
   return Object.freeze(state);
 }
 
-/** Authenticated hosted-Companion orchestration, with all Electron, storage,
- * and network mechanisms injected. Nothing returned by this service can
- * contain an account bearer, installation credential, connector token, or a
- * Cloudflare resource identifier. */
 export function createCompanionAccountService({
   client,
   readCredentials,
@@ -248,10 +222,6 @@ export function createCompanionAccountService({
   companionIsOn = () => false,
   now = Date.now,
   healthCacheMs = DEFAULT_HEALTH_CACHE_MS,
-  // Background recovery is opt-in: the desktop app enables it, one-shot CLI
-  // commands do not. When on, retryable setup failures are retried with
-  // backoff, and a saved address whose server endpoint was removed (idle
-  // reclaim) is re-provisioned without a new sign-in.
   autoRecover = false,
   setTimer = defaultSetTimer,
   clearTimer = clearTimeout,
@@ -260,10 +230,6 @@ export function createCompanionAccountService({
   autoRetryMaxMs = DEFAULT_AUTO_RETRY_MAX_MS,
   endpointCheckIntervalMs = DEFAULT_ENDPOINT_CHECK_INTERVAL_MS,
   firstEndpointCheckMs = DEFAULT_FIRST_ENDPOINT_CHECK_MS,
-  // One line per failed setup step, for server.log and the bug-report bundle.
-  // The phase message is replaced by every retry, so without this a support
-  // reference shown once is gone. Only the code, HTTP status, request id and
-  // retry delay are written: never an email, token, credential or address.
   log = () => {},
 } = {}) {
   const configured = Boolean(client);
@@ -299,11 +265,8 @@ export function createCompanionAccountService({
     autoRetryAttempt = 0;
   };
 
-  // Assigned below; scheduled retries go through the same serialized path
-  // as the Retry button.
   let retryFromTimer = () => Promise.resolve();
 
-  /** Exponential backoff with jitter, never sooner than the server asked. */
   const scheduleAutoRetry = (error) => {
     if (!autoRecover || disposed || !configured) return;
     if (!(error instanceof ControlPlaneError) || !AUTO_RETRY_CODES.has(error.code)) return;
@@ -452,8 +415,6 @@ export function createCompanionAccountService({
     phase = null;
   };
 
-  /** Returns true only when the installation was revoked (which schedules
-   * endpoint cleanup) and it is safe to forget its local retry credentials. */
   const cleanupCurrentAccount = async ({ markPending = true } = {}) => {
     const document = credentials();
     const account = storedAccount(document);
@@ -464,33 +425,20 @@ export function createCompanionAccountService({
     if (markPending && !companionAccountCleanupPending(document)) await markCleanupPending();
     await stopManagedEndpoint();
 
-    // Deleting first gives immediate feedback. Revocation remains mandatory:
-    // it invalidates the installation credential and gives the server a
-    // durable cleanup path even if the direct delete failed halfway through.
     if (account.installationCredential) {
       try {
         await client.deleteEndpoint(account.installationCredential);
-      } catch {
-        // Revocation below is the authoritative cleanup schedule.
-      }
+      } catch {}
     }
     if (!account.accountToken) {
       throw new ControlPlaneError("signed_out", 401);
     }
 
-    // A request can create an installation (and even its endpoint) while its
-    // response is lost, leaving no local ID or connector material. The stable
-    // computer UUID is therefore the cleanup authority: list the account's
-    // active installations and revoke every matching record before forgetting
-    // the bearer. Revocation marks the owner row and durably schedules the
-    // server-side endpoint sweep.
     const clientInstanceId = ownString(document, COMPANION_CLIENT_INSTANCE_FIELD);
     if (!UUID.test(clientInstanceId)) {
       throw new ControlPlaneError("invalid_client_identity");
     }
 
-    // The known ID is a fast path. Its result is not trusted on its own: the
-    // authoritative list below also catches a response-lost duplicate.
     if (account.installationId) {
       await client.revokeInstallation(account.accountToken, account.installationId).catch(() => {});
     }
@@ -510,11 +458,7 @@ export function createCompanionAccountService({
     }
     try {
       await client.signOut(account.accountToken);
-    } catch {
-      // The installation and connector have already been revoked. A stale
-      // Better Auth session expires server-side and must not block local
-      // sign-out or retain its bearer on disk.
-    }
+    } catch {}
     await clearAfterCleanup();
     return true;
   };
@@ -532,15 +476,9 @@ export function createCompanionAccountService({
       platform: identity.platform,
       appVersion: identity.appVersion,
     });
-    // Retain the verified installation before provisioning the hosted route.
-    // Otherwise a service failure makes each Retry recover by rotating the
-    // credential, eventually rate-limiting an otherwise valid installation.
     try {
       await updateCredentials((document) => withInstallationCredentials(document, installation));
     } catch (error) {
-      // Do not leave a newly discovered installation consuming account quota
-      // when its recovery credential cannot be saved. Keep an established
-      // installation only when its saved credential is still usable.
       if (previous?.installationId !== installation.installation.id ||
           previous?.installationCredential !== installation.credential) {
         await client.revokeInstallation(accountToken, installation.installation.id).catch(() => {});
@@ -558,8 +496,6 @@ export function createCompanionAccountService({
         }),
       );
     } catch (error) {
-      // Persistence failed after remote allocation. Best effort cleanup avoids
-      // an invisible tunnel; no secret is ever written to a log or exception.
       await client.deleteEndpoint(installation.credential).catch(() => {});
       await client.revokeInstallation(accountToken, installation.installation.id).catch(() => {});
       throw error;
@@ -585,9 +521,7 @@ export function createCompanionAccountService({
   const writeLog = (line) => {
     try {
       log(line);
-    } catch {
-      // Logging never changes the outcome of a setup step.
-    }
+    } catch {}
   };
 
   const failAction = (
@@ -670,9 +604,6 @@ export function createCompanionAccountService({
       );
       authenticatedPersisted = true;
       if (refreshingPendingCleanup) {
-        // The user supplied a fresh bearer to finish an interrupted sign-out.
-        // Keep that intent and retry revocation; do not silently turn the
-        // sign-out action into a new endpoint provisioning operation.
         await cleanupCurrentAccount({ markPending: false });
         return settledState();
       }
@@ -722,10 +653,6 @@ export function createCompanionAccountService({
   const retry = () => serialize(retryWork);
   retryFromTimer = retry;
 
-  /** Re-provision only on a definitive server answer that the saved address
-   * has no working endpoint behind it. A network or service failure keeps
-   * the saved address and its connector exactly as they are. Returns the
-   * reconcile result, or null when nothing needed doing. */
   const reconcileIfEndpointGone = async () => {
     const document = credentials();
     const account = storedAccount(document);
@@ -744,10 +671,6 @@ export function createCompanionAccountService({
     try {
       endpoint = await client.getEndpoint(account.installationCredential);
     } catch (error) {
-      // A rejected installation credential (it expires after 90 days) is a
-      // definitive answer too: the saved address can no longer be repaired
-      // with it. Retry recovers through the account session, or shows the
-      // "sign-in expired" state so the person is asked to sign in.
       if (error instanceof ControlPlaneError && error.status === 401) return retryWork();
       return null;
     }
@@ -757,23 +680,14 @@ export function createCompanionAccountService({
     return retryWork();
   };
 
-  /** While the companion is on, ask the control plane (cheaply, no provider
-   * calls) every interval whether the endpoint still exists. This is how a
-   * computer whose idle tunnel was reclaimed recovers on its own: after
-   * Remote access is turned back on, and also when the app kept running
-   * through a long sleep and its connector still reports the old "ready". */
   const watchdogTick = () => {
     watchdogTimer = null;
     if (disposed) return;
     watchdogTimer = setTimer(watchdogTick, endpointCheckIntervalMs);
     if (!companionIsOn() || autoRetryTimer !== null) return;
-    // A sign-in only the person can renew; asking again changes nothing.
     if (phase?.status === "signed-out") return;
     const connection = managedConnectionState?.() ?? {};
     if (!WATCHDOG_CHECK_STATES.has(connection.status)) return;
-    // Skip only a check that ran recently (restore's launch check, say). A
-    // full-interval comparison would also skip the regular tick whenever the
-    // previous check landed a few milliseconds after its own tick.
     if (lastEndpointCheck !== null && now() - lastEndpointCheck < endpointCheckIntervalMs / 2) return;
     void serialize(reconcileIfEndpointGone).catch(() => {});
   };
@@ -792,14 +706,7 @@ export function createCompanionAccountService({
     const email = storedAccount(credentials())?.email;
     phase = { status: "connecting", email };
     try {
-      // Local access must stop even when the hosted control plane is down.
-      // cleanupCurrentAccount first persists durable cleanup intent and stops
-      // the connector, then attempts remote deletion/revocation with the
-      // retained credentials. A failed remote step is retryable; a health
-      // preflight here would leave paired-phone access live after Sign out.
       await cleanupCurrentAccount();
-      // Successful owner-scoped reconciliation is stronger evidence than a
-      // separate health probe and keeps the signed-out setup card available.
       healthy = true;
       lastHealthCheck = now();
       return settledState();
@@ -817,8 +724,6 @@ export function createCompanionAccountService({
     await ensureClientIdentity();
     const account = storedAccount(credentials());
     if (account && !managedCompanionTunnelAccess(credentials())) return retryWork();
-    // Only when Remote access is on this launch: checking in otherwise would
-    // mark an unused tunnel as recently seen and keep it from being reclaimed.
     if (autoRecover && account && companionIsOn()) {
       const reconciled = await reconcileIfEndpointGone();
       if (reconciled) return reconciled;

@@ -51,7 +51,6 @@ it("recovers queued/due work without resurrecting an interrupted routine after r
     })).routine;
     await waitForExit(fixture.child, { signal: "SIGTERM" });
 
-    // The original child is gone; only its owned temporary store is edited.
     const file = join(dataDir, "routines.json");
     const scheduler = new RoutineManager({
       file, botState: () => "busy", createTask: () => null, startTurn: async () => {},
@@ -90,7 +89,6 @@ it("recovers queued/due work without resurrecting an interrupted routine after r
       }],
     }));
 
-    // Reuse the fixture home, never the parent's CLI accounts or app state.
     const env: NodeJS.ProcessEnv = {};
     for (const key of ["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ"]) {
       if (process.env[key]) env[key] = process.env[key];
@@ -116,9 +114,7 @@ it("recovers queued/due work without resurrecting an interrupted routine after r
       try {
         runs = (await api("GET", "/api/routines")).runs;
         if ([scheduled.id, manual.id, cron.id].every((id) => runs.some((run) => run.routineId === id && run.status === "completed"))) break;
-      } catch {
-        // The exact replacement child is still starting its listener.
-      }
+      } catch {}
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     expect(runs, readFileSync(logPath, "utf8").slice(-4_000)).toEqual(expect.arrayContaining([
