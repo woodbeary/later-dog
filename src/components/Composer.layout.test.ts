@@ -97,7 +97,7 @@ afterEach(async () => {
 });
 
 describe("the message box", () => {
-  it("is one line when empty: attach on the left, the words, then permissions and send on the right", async () => {
+  it("is one line when empty: + on the left (files, connectors, permissions), the words, then the model on the right", async () => {
     await mount();
     expect(expanded()).toBe(false);
     expect(box().className).toContain("rounded-[22px]");
@@ -106,11 +106,12 @@ describe("the message box", () => {
 
     const tools = row().querySelector("[data-composer-tools]")!;
     const actions = row().querySelector("[data-composer-actions]")!;
-    expect(tools.querySelector("button[aria-label='Attach a file']")).not.toBeNull();
+    expect(tools.querySelector("button[data-composer-plus]")).not.toBeNull();
+    expect(tools.querySelector("button[aria-label='Attach a file']")).toBeNull();
     expect(before(tools, editor())).toBe(true);
     expect(before(editor(), actions)).toBe(true);
-    expect(actions.querySelector("button[aria-label$=' for Claude']")).not.toBeNull();
-    expect(tools.querySelector("button[aria-label$=' for Claude']")).toBeNull();
+    // permissions live in the + menu, not as their own button
+    expect(row().querySelector("button[aria-label$=' for Claude']")).toBeNull();
   });
 
   it("gives a second line of words the whole width, with the buttons underneath", async () => {

@@ -22,7 +22,7 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
 }));
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
 vi.mock("./ModelPicker", () => ({ ModelPicker: () => createElement("span", { "data-test-model-control": true }) }));
-vi.mock("./ApprovalModeSelector", () => ({ ApprovalModeSelector: (_props: ComponentProps<typeof ApprovalModeSelector>) => createElement("span", { "data-test-approval-control": true }) }));
+vi.mock("./ApprovalModeSelector", async (importOriginal) => ({ ...await importOriginal<typeof import("./ApprovalModeSelector")>(), ApprovalModeSelector: (_props: ComponentProps<typeof ApprovalModeSelector>) => createElement("span", { "data-test-approval-control": true }) }));
 
 const { ChatView } = await import("./ChatView");
 afterAll(() => vi.unstubAllGlobals());

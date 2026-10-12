@@ -321,7 +321,7 @@ describe("createOpenAIChatRuntime tool approvals", () => {
       const completed = events.find((event) => event.type === "turn.completed") as any;
       expect(completed.ok).toBe(false);
       expect(completed.stopReason).toBe("tool_error");
-      expect(events.some((event) => event.type === "runtime.error" && /One or more tool operations failed/.test((event as any).message ?? ""))).toBe(true);
+      expect(events.some((event) => event.type === "runtime.error" && /Some steps didn't work or weren't allowed/.test((event as any).message ?? ""))).toBe(true);
       expect(events.some((event) => event.type === "cap.exhausted")).toBe(false);
     } finally {
       await instance.dispose();

@@ -207,7 +207,7 @@ describe("the model picker in Simple mode", () => {
     const forBot = bot();
     const opened = open(forBot);
     expect(menu(opened.html)).toContain("width:380px");
-    click(inside(opened).find((node) => node.props["data-simple-set-up"] !== undefined));
+    pane(opened)!.props.onSetUp();
     expect(menu(render(forBot).html)).toContain("width:420px");
   });
 
@@ -572,15 +572,22 @@ describe("the model picker in Simple mode", () => {
     expect(pane(open(bot("xhigh")))!.props.effort!.levels).toContain("xhigh");
   });
 
-  it("sends a provider that needs sign-in to the full picker's setup", () => {
+  it("sends Claude, before sign-in, to Settings' sign-in with one button", async () => {
+    const { subscribeAddAccount } = await import("@/lib/add-account-request");
     fixture.instances = [claude(false)];
     const opened = open(bot());
     const simple = pane(opened)!;
-    expect(simple.props.needsSetup).toEqual({ name: "Claude" });
+    expect(simple.props.needsSetup).toEqual({ name: "Claude", signIn: true });
     const html = menu(opened.html);
     const list = region(html, "data-simple-models", "data-simple-effort-band");
-    expect(list).toContain("Claude needs to be set up before you can use it.");
-    expect(list).toContain(">Set up</button>");
+    expect(list).not.toContain("needs to be set up");
+    expect(list).toContain(">Sign in to Claude</button>");
+    const asked: Array<string | undefined> = [];
+    const stop = subscribeAddAccount((kind) => asked.push(kind));
+    click(inside(opened).find((node) => node.props["data-simple-set-up"] !== undefined));
+    stop();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
+    expect(asked).toEqual(["claudeAgent"]);
     expect(list).not.toContain("Opus 5.5");
     expect(region(html, "data-simple-providers", "data-simple-models")).toContain(">Claude</span>");
   });
@@ -588,7 +595,7 @@ describe("the model picker in Simple mode", () => {
   it("opens the full picker in the same popover from Set up", () => {
     fixture.instances = [claude(false)];
     const forBot = bot();
-    click(inside(open(forBot)).find((node) => node.props["data-simple-set-up"] !== undefined));
+    pane(open(forBot))!.props.onSetUp();
     const full = render(forBot);
     expect(pane(full)).toBeUndefined();
     expect(full.nodes.some((node) => node.type === ModelEngineRail)).toBe(true);
@@ -808,7 +815,7 @@ describe("the model picker in Simple mode", () => {
     switcher(accounts)!.props.onPick(signedOutCodex);
     expect(fixture.dispatch).not.toHaveBeenCalled();
     click(marked(render(forBot), "data-model-line"));
-    expect(pane(render(forBot))!.props.needsSetup).toEqual({ name: "Codex" });
+    expect(pane(render(forBot))!.props.needsSetup).toEqual({ name: "Codex", signIn: true });
   });
 
   it("rings the chip with the binding limit and adds every window to its tooltip", () => {

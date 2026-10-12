@@ -378,6 +378,7 @@ const defaultModelSelectionSchema = z.object({
   model: z.string().trim().min(1).max(500),
   effort: z.enum(EFFORT_LEVELS).optional(),
   variant: z.string().refine(isModelVariant, "invalid model variant").optional(),
+  fast: z.boolean().optional(),
 }).refine((selection) => selection.variant === undefined || selection.effort === undefined,
   "choose either a model variant or an effort level");
 const automaticRecoverySchema = z.object({
@@ -1688,7 +1689,8 @@ const API_KEY_FLEET: InstanceConfigMap = {
     driver: "openai-compat", displayName: "OpenRouter", access: "api", icon: { kind: "preset", preset: "openrouter" },
     config: { url: "https://openrouter.ai/api/v1", apiKeyEnv: "LATERDOG_OPENROUTER_API_KEY" },
   },
-  laterdogAi: { driver: "laterdogAi", displayName: "later.dog", access: "subscription" },
+  laterdogAi: { driver: "laterdogAi", displayName: "Kimi", access: "subscription", icon: { kind: "preset", preset: "moonshot" } },
+  laterdogGrok: { driver: "laterdogGrok", displayName: "Grok", access: "subscription", icon: { kind: "preset", preset: "xai" } },
 };
 
 // Default fleet: one instance per built-in driver (upstream

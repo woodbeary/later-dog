@@ -1,6 +1,5 @@
 // Provider brand marks, keyed by driver kind. Official logos only.
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { HermesMark } from "./HermesMark";
 import { CursorMark } from "./CursorMark";
@@ -151,7 +150,9 @@ export function ProviderMark({ driverKind, size, className }: IconProps & { driv
     case "piAgent":
       return <PiMark size={size} className={className} />;
     case "laterdogAi":
-      return <Sparkles size={size} aria-hidden="true" className={cn("text-ink", className)} />;
+      return <KimiMark size={size} className={className} />;
+    case "laterdogGrok":
+      return <GrokMark size={size} className={className} />;
     default:
       return (
         <span className="flex size-full items-center justify-center text-[10px] font-semibold tracking-tight text-ink-secondary">

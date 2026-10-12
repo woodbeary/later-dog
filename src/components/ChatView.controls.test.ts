@@ -1,4 +1,5 @@
 import { createElement, type ComponentProps } from "react";
+import { setVoiceMode } from "@/lib/voice-mode";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { Bot, InstanceInfo, Message, Task } from "@/state/store";
@@ -9,13 +10,15 @@ const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
   return { showThreads: true, menus: [] as { ariaLabel: string; items: { key: string; disabled?: boolean; heading?: string; active?: boolean }[] }[], dispatch: vi.fn(), canWrite: null as boolean | null, showToolCalls: false, platform: "other", localReasonCode: "cua-driver-unavailable", localMessage: "", model: null as ComponentProps<typeof ModelPicker> | null,
-    approval: null as ComponentProps<typeof ApprovalModeSelector> | null };
+    approval: null as ComponentProps<typeof ApprovalModeSelector> | null,
+    control: {} as Record<string, { held: boolean; helpReason: string | null }>, computerOpen: false };
 });
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, useStore: () => ({
     state: { ...original.initialState, config: fixture.showToolCalls ? { features: { showToolCalls: true } } : null,
-      instances: [{ instanceId: "test", driverKind: "codex", displayName: "Test" } as InstanceInfo] },
+      instances: [{ instanceId: "test", driverKind: "codex", displayName: "Test" } as InstanceInfo],
+      computerControl: fixture.control, computerOpen: fixture.computerOpen },
     dispatch: fixture.dispatch,
   }) };
 });
@@ -48,7 +51,11 @@ vi.mock("./ModelPicker", () => ({ ModelPicker: (props: ComponentProps<typeof Mod
   fixture.model = props;
   return createElement("span", { "data-test-model-control": true });
 } }));
-vi.mock("./ApprovalModeSelector", () => ({ ApprovalModeSelector: (props: ComponentProps<typeof ApprovalModeSelector>) => {
+vi.mock("./ComposerPlusMenu", () => ({ ComposerPlusMenu: (props: { permissions?: ComponentProps<typeof ApprovalModeSelector> | null }) => {
+  if (props.permissions) fixture.approval = props.permissions as ComponentProps<typeof ApprovalModeSelector>;
+  return createElement("span", { "data-test-plus-menu": true, ...(props.permissions ? { "data-test-approval-control": true } : {}) });
+} }));
+vi.mock("./ApprovalModeSelector", async (importOriginal) => ({ ...await importOriginal<typeof import("./ApprovalModeSelector")>(), ApprovalModeSelector: (props: ComponentProps<typeof ApprovalModeSelector>) => {
   fixture.approval = props;
   return createElement("span", { "data-test-approval-control": true });
 } }));
@@ -150,8 +157,23 @@ describe("thread control placement", () => {
     expect(markup).toContain('data-testid="chat-more"');
   });
 
-  it("calls from the composer beside dictation, not the header", () => {
+  it("says in the chat when the dog needs your hands on its computer, with Open", () => {
+    expect(renderToStaticMarkup(createElement(ChatView, { bot }))).not.toContain("data-needs-you");
+    fixture.control = { [bot.id]: { held: false, helpReason: "Sign in to the site, then hand it back." } };
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
+    expect(markup).toContain("data-needs-you");
+    expect(markup).toContain("Sign in to the site, then hand it back.");
+    fixture.computerOpen = true;
+    expect(renderToStaticMarkup(createElement(ChatView, { bot }))).not.toContain("data-needs-you");
+    fixture.control = {};
+    fixture.computerOpen = false;
+  });
+
+  it("calls from the composer once voice mode is on in Settings, never from the header", () => {
+    expect(renderToStaticMarkup(createElement(ChatView, { bot }))).not.toContain("data-call-button");
+    setVoiceMode(true);
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
+    setVoiceMode(false);
     const header = markup.slice(markup.indexOf("data-chathead-controls"), markup.indexOf("data-composer-row"));
     expect(header).not.toContain("data-call-button");
     expect(markup).not.toContain('data-call-button="header"');
@@ -372,7 +394,8 @@ describe("thread control placement", () => {
     expect(markup.lastIndexOf("data-test-model-control")).toBeGreaterThan(markup.indexOf("data-composer-actions"));
     expect(markup.indexOf('data-tour="composer"')).toBeGreaterThan(-1);
     expect(markup.indexOf("data-composer-actions")).toBeGreaterThan(markup.indexOf("<textarea"));
-    expect(markup.indexOf("data-test-approval-control")).toBeGreaterThan(markup.indexOf("data-composer-actions"));
+    // permissions sit in the + menu at the start of the composer
+    expect(markup.indexOf("data-test-approval-control")).toBeLessThan(markup.indexOf("<textarea"));
     expect(markup).not.toContain('aria-label="Thread settings"');
     expect(fixture.model).toMatchObject({ threadId: "selected", bot: { busy: false, modelSelection: { model: "thread-model" } } });
     expect(fixture.approval).toMatchObject({ approvalMode: "ask", disabled: false, trustedModesAvailable: false });

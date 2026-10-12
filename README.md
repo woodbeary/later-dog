@@ -20,30 +20,32 @@ there are no API keys to paste. New to later.dog? Start with the [user guide](do
 3. Open **later.dog**. It is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether
    to open an app downloaded from the internet. The keychain access and the Accessibility and Screen Recording
    permissions you grant carry over to later versions.
-4. The welcome tour asks your name and lets you **sign in to ChatGPT or Claude** with their device-code or browser
-   flows, or **try later.dog AI free** with no account. Then it makes your first dog.
+4. The welcome asks your name and lets you pick a dog. Your first dog starts chatting right away on the free
+   **Kimi K2.6** and **Grok 4.3** models, with no account. Sign in to **Claude** or **ChatGPT** whenever you like: one
+   button in Settings, General, Add account, and the sign-in finishes in your browser.
 
 That is the whole setup. Your dogs, chats and memory stay on your Mac. What a dog asks its AI goes to the provider you
-signed in with, and during a free trial, group-chat routing, voice and later.dog AI go through later.dog's cloud service.
+signed in with, and during a free trial, group-chat routing, voice and the free models go through later.dog's cloud service.
 
 later.dog updates itself from the newest GitHub release: it downloads the update in the background, a small icon
-appears at the top of the sidebar, and **Restart to update** installs it.
+appears at the bottom of the sidebar, and **Restart to update** installs it.
 
 ## The first five minutes
 
-- **Talk to a dog like a teammate.** It answers, runs commands in its working folder, and works with its files. New
-  dogs start **Off-leash**: they act, then tell you, and the provider's own automatic review still asks you about
-  anything it won't approve. Put a dog on **Heel** and it checks with you before commands and file changes (changes to
+- **Talk to a dog like a teammate.** It answers, runs commands in its working folder, works with its files and uses its
+  own computer. New dogs start **Off-leash**: they act, then tell you (connected apps still ask first). Put a dog on
+  **Heel** from the **+** beside the message field and it checks with you before commands and file changes (changes to
   its own routines, tricks and profile apply at once, with Undo).
-- **Pick a breed and a role.** New dog → a breed (retriever, beagle, shepherd, corgi, husky, pug, poodle, chihuahua), a
-  color, and a starting role: chief of staff, engineer, nightly audit engineer, reviewer, project manager, inbox manager,
-  intel scout, gatekeeper. The job descriptions are distilled from how people actually run agent teams.
-- **Teach it tricks.** A trick is a skill: a playbook the dog follows when asked.
+- **Make more dogs.** New dog → a name and what it should help with. Its look, instructions and memory live in its
+  profile.
+- **Teach it tricks.** A trick is a skill: a playbook the dog follows when asked. Library → Teach a trick takes one
+  sentence, and the dog writes the trick itself.
 - **Send it to fetch.** The Fetch chip (or `/goal`) gives a dog something to keep working on until it is done.
 - **Run a pack.** A group chat with a roster; @-mention one dog and it can consult another and relay the answer.
 - **Put it on a clock.** Ask a dog to make itself a routine; you confirm the schedule once and it runs in its own thread.
-- **Switch models any time.** Codex on your ChatGPT plan or Claude Code, per dog or per conversation, with the
-  reasoning effort you want.
+- **Switch models any time.** The free Kimi K2.6 and Grok 4.3, Codex on your ChatGPT plan, or Claude Code, per dog or
+  per conversation: the account at the top of the chat, the model and effort (and Fast mode on Opus) beside the message
+  field.
 - **Never run dry.** Sign in to several Claude accounts and several ChatGPT (Codex) accounts in Settings → General →
   Accounts and switch on Keep going when an account runs out. When one hits its usage limit, the conversation continues
   on your next account of the same engine and comes back when the limit resets; when every account is out, it waits and

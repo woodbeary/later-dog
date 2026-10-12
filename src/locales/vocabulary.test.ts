@@ -118,6 +118,16 @@ describe("one name per thing", () => {
     expect(offending).toEqual([]);
   });
 
+  // Everyday copy calls them dogs. "Agent" stays only where it names the
+  // engine software (local models, engine setup) or SSH's own agent.
+  it("English copy says dog, not agent, outside engine and SSH screens", () => {
+    const technical = new Set(["model.localHint", "model.localSoon", "engineSetup.injectDesc", "keys.vps.descBefore"]);
+    const offending = Object.entries(en as Record<string, string>)
+      .filter(([key, value]) => !technical.has(key) && /\bagents?\b/i.test(value))
+      .map(([key]) => key);
+    expect(offending).toEqual([]);
+  });
+
   it("English copy says Tricks, New dog, Heel and Off-leash", () => {
     const offending = Object.entries(en as Record<string, string>)
       .flatMap(([key, value]) => retiredDogWordsIn(value).map((what) => `${key}: ${what}`));

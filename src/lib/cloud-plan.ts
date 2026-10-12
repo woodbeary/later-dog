@@ -5,7 +5,9 @@
 // pays (or may pay: an unknown state is not "free"), and every state has one
 // message and one next step.
 import type { CloudAccountState } from "../../electron/cloud-account.mjs";
+import { openExternalLink } from "@/lib/app-links";
 import { t } from "@/lib/i18n";
+import { api } from "@/state/store";
 
 const PLAN_LABEL: Record<string, string> = { personal: "Personal", pro: "Pro", max: "Max" };
 /** A paid plan's product name. No tier is an Admin that sells only Pro; a
@@ -67,4 +69,13 @@ export function cloudPlanLine(view: CloudPlanView): string | null {
     case "free": return t("cloudAccount.free");
     default: return null;
   }
+}
+
+/** Start buying later.dog Cloud: the server answers with Square's checkout
+ * page, which opens in the browser. Throws when the plan can't be bought
+ * here, so the caller can fall back to Settings. */
+export async function startCloudPlan(): Promise<void> {
+  const next = await api<{ state: string; url?: string }>("/api/computers/plan", { method: "POST" });
+  if (next.state !== "checkout" || !next.url) throw new Error("later.dog Cloud isn't available to buy here.");
+  await openExternalLink(next.url);
 }

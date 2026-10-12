@@ -140,6 +140,8 @@ export interface SendTurnInput {
   model?: string;
   effort?: EffortLevel;
   variant?: string;
+  /** Fast mode for this turn, on an engine with capabilities.fastMode. */
+  fast?: boolean;
   resumeCursor?: unknown;
   /** Start without the previous native context, including any retained idle
    * process. Takes precedence over resumeCursor. The runtime supplies the
@@ -295,6 +297,8 @@ export interface ProviderAdapter {
     effortLevels?: readonly EffortLevel[];
     /** The driver validates and applies model-specific variant IDs per session. */
     modelVariants?: boolean;
+    /** The engine can run a model in fast mode (same model, faster output). */
+    fastMode?: boolean;
     /** True when the driver keeps a live session across turns and can take
      * a user message MID-TURN (delivered before the model's next call —
      * "steer"). The composer stays open during a turn on such an engine;
@@ -440,6 +444,10 @@ export interface ProviderAuthenticationStart {
   expiresAt: string | null;
   /** A short-lived code to enter only at the provider's authorization URL. */
   userCode?: string;
+  /** The provider's page that hands the sign-in straight back to the CLI on
+   * the machine running later.dog, so nothing is pasted. Opened only by an
+   * app on that same machine. */
+  callbackUrl?: string;
 }
 
 export interface ProviderAuthenticationStatus extends Omit<ProviderAuthenticationStart, "phase"> {

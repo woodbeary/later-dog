@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { pill, pollSignedIn } from "@/components/AccountsPanel";
-import { claudeSignInLink } from "@/components/ClaudeSignIn";
+import { claudeCallbackLink, claudeSignInLink } from "@/components/ClaudeSignIn";
 import { chatgptPlanLink, deviceFlowUnavailable, type DeviceSignInStatus } from "@/components/DeviceSignIn";
 import { engineReady } from "@/components/EngineLibrary";
 import { ClaudeMark, CodexMark } from "@/components/ProviderIcons";
@@ -103,13 +103,16 @@ export function AccountRow({ id, account, report }: { id: OnboardingAccountId; a
         await finish(instanceId);
         return;
       }
-      const link = id === "claude" ? claudeSignInLink(auth.authorizationUrl) : chatgptPlanLink(auth.authorizationUrl);
+      // Claude on this machine finishes in the browser by itself; a pasted
+      // code only where the browser can't hand it back
+      const callback = id === "claude" ? claudeCallbackLink(auth.callbackUrl) : null;
+      const link = callback ?? (id === "claude" ? claudeSignInLink(auth.authorizationUrl) : chatgptPlanLink(auth.authorizationUrl));
       if (auth.phase !== "waiting" || !auth.flowId || !link) {
         fail();
         return;
       }
       if (!mounted.current) return;
-      setFlow({ step: id === "claude" ? "code" : "browser", instanceId, flowId: auth.flowId, link });
+      setFlow({ step: id === "claude" && !callback ? "code" : "browser", instanceId, flowId: auth.flowId, link });
       void openExternalLink(link).catch(() => {});
     } catch {
       fail();

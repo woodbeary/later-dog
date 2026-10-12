@@ -67,7 +67,7 @@ describe("classifyContinuable", () => {
     ["provider body quoting the cap", "error", "upstream HTTP 500: Stopped after 3 steps without a final answer", null],
     ["provider usage limit", "error", "You have reached your usage limit reached for today", null],
     // A tool error includes a person's denial: never continued by itself.
-    ["tool_error terminal", "tool_error", "One or more tool operations failed or were denied. See the tool results; the final response is not an execution receipt.", null],
+    ["tool_error terminal", "tool_error", "Some steps didn't work or weren't allowed, so check them before relying on this answer.", null],
     ["provider config 400 (non-multimodal)", "error", "upstream HTTP 400: {\"error\":{\"message\":\"deepseek-ai/DeepSeek-V4-Flash-0731 is not a multimodal model\"}}", null],
     ["unknown model", "error", "Model \"nope\" does not exist", null],
     ["no failure text", "error", undefined, null],

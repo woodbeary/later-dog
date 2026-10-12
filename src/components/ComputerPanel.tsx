@@ -985,8 +985,7 @@ export function ComputerPanel({
       .finally(() => setPending(null));
   };
 
-  /** The person's own Start it now / Wake it now: the only way the panel
-   * starts a cloud computer. Choosing it or opening the panel never does. */
+  /** Taking the free cloud computer from the panel's offer starts it. */
   const [autoStartCloud, setAutoStartCloud] = useState(false);
   const takeFreeCloud = () => {
     setAutoStartCloud(true);
@@ -1003,7 +1002,13 @@ export function ComputerPanel({
     booted.current = true;
     takeFreeCloud();
   });
+  // Taking the free computer and opening the panel can both ask for a start
+  // in the same draw. One ask at a time: a second would only meet the first
+  // one's lock, and its refusal would sit under a screen that came up fine.
+  const provisioning = useRef(false);
   const startCloudComputer = () => {
+    if (provisioning.current) return;
+    provisioning.current = true;
     setPending("provision");
     setError(null);
     setPhase("starting");
@@ -1011,6 +1016,7 @@ export function ComputerPanel({
       .then((result) => {
         setBoatState(result.state ?? null);
         setResolvedComputerSelection({ botId: bot.id, threadId: bot.threadId, computer: bot.computer, cloudBackend });
+        setError(null);
         setPhase("ready");
       })
       .catch((e) => {
@@ -1020,10 +1026,16 @@ export function ComputerPanel({
           setPhase("busy-boat");
           return;
         }
-        setError(e.message);
+        // Settings or another window is starting or changing it right now.
+        setError(isRemoteScreenshotContention({ status: Number(e?.status ?? 409), message: String(e?.message ?? "") })
+          ? new LocalizedPanelError("computer.err.changing")
+          : e.message);
         setPhase("error");
       })
-      .finally(() => setPending(null));
+      .finally(() => {
+        provisioning.current = false;
+        setPending(null);
+      });
   };
 
   const runVmAction = async (action: "vm-start" | "vm-create" | "vm-recreate" | "vm-delete") => {
@@ -1102,6 +1114,20 @@ export function ComputerPanel({
     if (!autoStartCloud || pending !== null || profileBot.busy) return;
     if (phase !== "cloud-new" && phase !== "cloud-asleep") return;
     setAutoStartCloud(false);
+    startCloudComputer();
+  });
+
+  // Opening the dog's computer turns it on, the way the reference app does:
+  // a cloud computer that has not started yet starts, a sleeping one wakes.
+  // Once per open, only for someone who may start it, never mid-turn.
+  const openedStart = useRef(false);
+  useEffect(() => {
+    if (openedStart.current || window.laterdog?.remoteClient?.active === true) return;
+    if (phase !== "cloud-new" && phase !== "cloud-asleep") return;
+    // the same rule as the panel's own Start it now / Wake it now button
+    const action = cloudView.action?.id;
+    if ((action !== "start" && action !== "wake") || !panelOffers(action) || pending !== null) return;
+    openedStart.current = true;
     startCloudComputer();
   });
 
@@ -1396,11 +1422,11 @@ export function ComputerPanel({
               {phase === "off" && (
                 <button
                   type="button"
-                  data-testid="choose-where-works"
-                  onClick={() => dispatch({ type: "toggleSettings", open: true, section: "access", botId: profileBot.id })}
+                  data-testid="turn-on-computer"
+                  onClick={() => updateComputerSelection({ computer: "cloud" })}
                   className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover"
                 >
-                  {t("computer.chooseWhereWorks", { name: bot.name })}
+                  {t("computer.turnOn", { name: bot.name })}
                 </button>
               )}
               {(phase === "show-ready-boat" || phase === "show-sleeping-boat" || phase === "show-pending-boat") && (

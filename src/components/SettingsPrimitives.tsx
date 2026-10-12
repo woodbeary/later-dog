@@ -7,8 +7,10 @@ import { t } from "@/lib/i18n";
 export function Switch({
   checked,
   className,
+  size = "default",
   ...props
-}: Omit<ComponentProps<"button">, "children" | "role" | "aria-checked"> & { checked: boolean }) {
+}: Omit<ComponentProps<"button">, "children" | "role" | "aria-checked"> & { checked: boolean; size?: "default" | "small" }) {
+  const small = size === "small";
   return (
     <button
       {...props}
@@ -16,15 +18,20 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       className={cn(
-        "relative h-6 w-11 shrink-0 rounded-full transition-colors enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none",
+        "relative shrink-0 rounded-full transition-colors enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none",
+        small ? "h-4 w-7" : "h-6 w-11",
         checked ? "bg-accent" : "bg-control",
         className,
       )}
     >
       <span
         className={cn(
-          "absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white transition-[left] motion-reduce:transition-none",
-          checked ? "left-[21px]" : "left-[3px]",
+          // the knob takes the accent's ink when on: a white knob on a
+          // white (monochrome dark) track would disappear
+          "absolute rounded-full transition-[left] motion-reduce:transition-none",
+          checked ? "bg-[var(--color-accent-ink)]" : "bg-white",
+          small ? "top-[2px] h-3 w-3" : "top-[3px] h-[18px] w-[18px]",
+          small ? (checked ? "left-[14px]" : "left-[2px]") : (checked ? "left-[21px]" : "left-[3px]"),
         )}
       />
     </button>

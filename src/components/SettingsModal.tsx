@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
-import { Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
+import { modelShown, setModelShown, useHiddenModels } from "@/lib/model-visibility";
+import { needsCli, needsSignIn } from "./EngineSetup";
+import { setVoiceMode, useVoiceMode } from "@/lib/voice-mode";
+import { Boxes, Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
 import { useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { analyticsConfigured } from "@/lib/laterdog-analytics";
@@ -25,8 +28,9 @@ import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { setNotificationSounds, useNotificationSounds } from "@/lib/notification-preferences";
 import { effectiveLanguage, setLanguageChoice, useLanguageChoice } from "@/lib/language-preference";
 
-export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.computer" | "settings.section.usage" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }> }> = [
+export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.models" | "settings.section.computer" | "settings.section.usage" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }> }> = [
   { id: "general", labelKey: "settings.section.general", icon: SlidersHorizontal },
+  { id: "models", labelKey: "settings.section.models", icon: Boxes },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor },
   { id: "usage", labelKey: "settings.section.usage", icon: Coins },
   { id: "updates", labelKey: "settings.updates.title", icon: Download },
@@ -196,6 +200,15 @@ function LanguageRow() {
   );
 }
 
+function VoiceModeRow() {
+  const on = useVoiceMode();
+  return (
+    <SettingRow title={t("settings.voiceMode.title")} subtitle={t("settings.voiceMode.hint")}>
+      <Switch checked={on} aria-label={t("settings.voiceMode.title")} onClick={() => setVoiceMode(!on)} />
+    </SettingRow>
+  );
+}
+
 function NotificationSoundsRow() {
   const enabled = useNotificationSounds();
   return (
@@ -258,6 +271,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <ThemeRow />
           <LanguageRow />
           <NotificationSoundsRow />
+          <VoiceModeRow />
         </SettingsRows>
       </SettingsGroup>
       {(mac || analytics) && (
@@ -271,6 +285,54 @@ function GeneralPage({ mac }: { mac: boolean }) {
         </SettingsGroup>
       )}
     </>
+  );
+}
+
+/** Every model of the accounts signed in now, as Cursor lists them: a search
+ * and one quiet row per model with a small switch. Only models switched on
+ * show in a chat's model menu. Two accounts of one kind name their account. */
+function ModelsPage() {
+  const { state } = useStore();
+  const hidden = useHiddenModels();
+  const [query, setQuery] = useState("");
+  const accounts = state.instances.filter((instance) => !instance.policy && !needsCli(instance) && !needsSignIn(instance)
+    && instance.models.options.some((option) => !option.custom));
+  const kinds = accounts.map((account) => account.driverKind);
+  const needle = query.trim().toLowerCase();
+  const rows = accounts
+    .flatMap((account) => account.models.options.filter((option) => !option.custom).map((option) => ({ account, option })))
+    .filter(({ option }) => !needle || option.label.toLowerCase().includes(needle) || option.id.toLowerCase().includes(needle));
+  if (accounts.length === 0) return <p className="px-1 text-[13px] text-ink-secondary">{t("settings.models.none")}</p>;
+  return (
+    <div data-settings-group="models" className="flex flex-col">
+      <input
+        type="search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={t("settings.models.search")}
+        aria-label={t("settings.models.search")}
+        className="mb-2 h-8 w-full rounded-lg bg-inset px-3 text-[13px] text-ink placeholder:text-ink-tertiary focus:outline-none"
+      />
+      {rows.map(({ account, option }) => {
+        const shown = modelShown(account.instanceId, option.id, hidden);
+        const named = kinds.filter((kind) => kind === account.driverKind).length > 1;
+        return (
+          <label key={`${account.instanceId}:${option.id}`} data-settings-model={`${account.instanceId}:${option.id}`}
+            className="flex h-8 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-control/40">
+            <span className={cn("min-w-0 flex-1 truncate text-[13px]", shown ? "text-ink" : "text-ink-secondary")}>
+              {option.label}
+              {named && <span className="text-ink-tertiary"> · {account.displayName}</span>}
+            </span>
+            <Switch
+              size="small"
+              checked={shown}
+              aria-label={t("settings.models.show", { model: option.label })}
+              onClick={() => setModelShown(account.instanceId, option.id, !shown)}
+            />
+          </label>
+        );
+      })}
+    </div>
   );
 }
 
@@ -435,6 +497,7 @@ export function SettingsModal() {
           </div>
           <div ref={scrollRef} data-settings-content={section} className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4 sm:px-5 sm:pb-5">
             {section === "general" && <GeneralPage mac={mac} />}
+            {section === "models" && <ModelsPage />}
             {section === "computer" && <ComputerPage mac={mac} remoteActive={remoteActive} />}
             {section === "usage" && <UsageSection />}
             {section === "updates" && <UpdatesPage />}

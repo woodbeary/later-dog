@@ -155,7 +155,7 @@ async function createComputer(request: Request, env: Env, caller: Caller): Promi
   });
   if (!reservation.ok) {
     if (caller.trial && reservation.refusal.code === "limit_reached") {
-      return apiError({ ...reservation.refusal, message: "A free trial has one computer at a time; delete it first." });
+      return apiError({ status: 409, code: "trial_one_computer", message: "The free trial includes one cloud computer. later.dog Cloud gives every dog its own." });
     }
     return apiError(reservation.refusal);
   }
@@ -378,6 +378,7 @@ async function startTrialFromApp(request: Request, env: Env): Promise<Response> 
     limitMs: policy.limitMs,
     windowMs: policy.windowMs,
     perDay: policy.perDay,
+    perNetwork: policy.perNetwork,
   });
   if (!activation.ok) return apiError(activation.refusal);
   return json({ trial: trialView(activation.trial), ...includedField(env) }, activation.replayed ? 200 : 201);
@@ -444,6 +445,7 @@ async function trialPageRequest(request: Request, env: Env, url: URL): Promise<R
     limitMs: policy.limitMs,
     windowMs: policy.windowMs,
     perDay: policy.perDay,
+    perNetwork: policy.perNetwork,
   });
   if (!activation.ok) return page(activation.refusal.status, "The free trial could not start", activation.refusal.message);
   const message = activation.replayed

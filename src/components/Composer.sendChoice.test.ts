@@ -9,6 +9,7 @@ import type { Bot } from "@/state/store";
 const fixture = vi.hoisted(() => ({
   dispatch: vi.fn(),
   canSteer: true,
+  snapshot: undefined as undefined | { state: string; authenticated?: boolean },
 }));
 
 vi.mock("@/state/store", async (importOriginal) => {
@@ -18,7 +19,8 @@ vi.mock("@/state/store", async (importOriginal) => {
     useStore: () => ({
       state: {
         ...original.initialState,
-        instances: [{ instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", capabilities: { queueing: fixture.canSteer } }],
+        instances: [{ instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", capabilities: { queueing: fixture.canSteer },
+          ...(fixture.snapshot ? { snapshot: fixture.snapshot, models: { default: "claude-fake", options: [] } } : {}) }],
       },
       dispatch: fixture.dispatch,
     }),
@@ -56,6 +58,7 @@ beforeEach(() => {
   setLocale("en");
   fixture.dispatch.mockReset();
   fixture.canSteer = true;
+  fixture.snapshot = undefined;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -97,5 +100,26 @@ describe("the composer while a dog works", () => {
     await mount(biscuit(false));
     expect(host.querySelector("button[aria-label='Send message']")).not.toBeNull();
     expect(chevron()).toBeNull();
+  });
+});
+
+describe("an account that isn't signed in yet", () => {
+  it("opens its sign-in when the message is sent, and keeps the words for after", async () => {
+    fixture.snapshot = { state: "available", authenticated: false };
+    await mount(biscuit(false));
+    const textarea = host.querySelector("textarea")!;
+    await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+    expect(sends()).toHaveLength(0);
+    expect(host.textContent).toContain("Sign in to Claude");
+    expect(textarea.value).toBe("check the tests");
+  });
+
+  it("sends at once on an account that is signed in", async () => {
+    fixture.snapshot = { state: "available", authenticated: true };
+    await mount(biscuit(false));
+    const textarea = host.querySelector("textarea")!;
+    await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+    expect(sends()).toHaveLength(1);
+    expect(host.textContent).not.toContain("Sign in to Claude");
   });
 });

@@ -83,9 +83,11 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
 /** The tool's own name is noise to a human: mcp__dog__computer_batch is
  * "computer batch", Bash is "run a command", LINEAR_CREATE_LINEAR_COMMENT
  * is "create linear comment". */
-export function toolLabel(tool?: string): string {
+export function toolLabel(tool?: string, where?: "local-computer"): string {
   if (!tool) return t("approval.tool.takeAction");
-  const bare = tool.replace(/^mcp__[^_]+__/, "").replace(/_/g, " ");
+  // later.dog's own tools reach a chat engine as agents_<name>: the server
+  // name is not part of what the dog wants to do
+  const bare = tool.replace(/^mcp__[^_]+__/, "").replace(/^agents_/, "").replace(/_/g, " ");
   const nice: ToolLabels = {
     Bash: "approval.tool.runCommand",
     Read: "approval.tool.readFile",
@@ -97,6 +99,8 @@ export function toolLabel(tool?: string): string {
     manage_routine: "approval.tool.changeRoutine",
     stage_skill: "approval.tool.enableSkill",
     update_skill: "approval.tool.updateSkill",
+    skill_manage: "approval.tool.saveTrick",
+    skills_list: "approval.tool.checkTricks",
     update_profile: "approval.tool.updateProfile",
     // An ACP driver can know the protocol's toolCall kind but not the
     // tool's name, and sends the kind as the card's tool
@@ -121,7 +125,8 @@ export function toolLabel(tool?: string): string {
   if (phrase) return phrase;
   const service = toolService(tool);
   if (service) return t("approval.tool.useService", { service });
-  if (usesComputer(tool)) return t("approval.tool.useComputer");
+  // whose computer: the person's own Mac, or the dog's own (cloud) computer
+  if (usesComputer(tool)) return t(where === "local-computer" ? "approval.tool.useThisMac" : "approval.tool.useItsComputer");
   const words = bare.trim().split(/\s+/);
   return !tool.startsWith("mcp__") && words.length >= 2 && words.length <= 3 && words.every((word) => /^[a-z]+$/i.test(word))
     ? words.join(" ").toLowerCase()
@@ -329,8 +334,8 @@ export function ApprovalCard({
           {isTeamSetup ? card.title : outbound ? outbound.headline : profileHeader ?? (
             <>
               {bot
-                ? t("approval.card.namedWantsTo", { name: bot.name, action: toolLabel(displayTool) })
-                : t("approval.card.wantsTo", { action: toolLabel(displayTool) })}
+                ? t("approval.card.namedWantsTo", { name: bot.name, action: toolLabel(displayTool, card.approvalScope) })
+                : t("approval.card.wantsTo", { action: toolLabel(displayTool, card.approvalScope) })}
             </>
           )}
         </div>

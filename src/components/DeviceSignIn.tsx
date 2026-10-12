@@ -20,6 +20,8 @@ export interface DeviceSignInStatus {
   userCode?: string;
   expiresAt: string | null;
   message?: string;
+  /** Claude's page that hands the sign-in back to the CLI by itself. */
+  callbackUrl?: string;
 }
 
 /** Whose page an engine's device code is entered at. */
@@ -145,6 +147,8 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
+  // one start per sheet, even when an effect runs twice
+  const [autoStarted] = useState(() => ({ current: false }));
   const base = `/api/instances/${encodeURIComponent(instanceId)}/auth`;
   const copy = DEVICE_SIGN_IN_COPY[provider];
   const failed = t(browserPkce ? "engineSetup.chatgpt.failed" : copy.failed);
@@ -172,7 +176,8 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
   };
 
   useEffect(() => {
-    if (!autoStart || started) return;
+    if (!autoStart || started || autoStarted.current) return;
+    autoStarted.current = true;
     setStarted(true);
     void start();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the sheet opens

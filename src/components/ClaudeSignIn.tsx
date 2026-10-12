@@ -22,6 +22,20 @@ export function claudeSignInLink(value: string | null | undefined): string | nul
   }
 }
 
+/** Anthropic's page that sends the sign-in straight back to Claude Code on the
+ * machine running later.dog: nothing to paste. Only this app on that same
+ * machine opens it; a remote client has no way back to that listener. */
+export function claudeCallbackLink(value: string | null | undefined): string | null {
+  const link = claudeSignInLink(value);
+  if (!link || window.laterdog?.remoteClient?.active === true) return null;
+  try {
+    const redirect = new URL(new URL(link).searchParams.get("redirect_uri") ?? "");
+    return redirect.protocol === "http:" && (redirect.hostname === "localhost" || redirect.hostname === "127.0.0.1") ? link : null;
+  } catch {
+    return null;
+  }
+}
+
 function endedFlow(phase: "expired" | "failed"): DeviceSignInStatus {
   return { phase, flowId: null, authorizationUrl: null, expiresAt: null, ...(phase === "failed" ? { message: t("engineSetup.device.flowEnded") } : {}) };
 }
@@ -41,8 +55,13 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
   const [busy, setBusy] = useState<"start" | "finish" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
+  // one start per sheet, even when an effect runs twice
+  const [autoStarted] = useState(() => ({ current: false }));
+  // a pasted code only when the browser can't hand the sign-in back
+  const [withCode, setWithCode] = useState(false);
   const base = `/api/instances/${encodeURIComponent(instanceId)}/auth`;
-  const link = claudeSignInLink(auth?.authorizationUrl);
+  const callback = withCode ? null : claudeCallbackLink(auth?.callbackUrl);
+  const link = callback ?? claudeSignInLink(auth?.authorizationUrl);
 
   const refresh = async () => {
     await refreshInstances();
@@ -72,14 +91,28 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
     };
   }, [auth]);
 
+  // signing in in the browser finishes by itself: watch for it
+  useEffect(() => {
+    if (auth?.phase !== "waiting" || !auth.flowId || !callback) return;
+    const flowId = auth.flowId;
+    const timer = window.setInterval(() => {
+      void api<{ auth: DeviceSignInStatus }>(`${base}/status?flowId=${encodeURIComponent(flowId)}`)
+        .then(({ auth: next }) => { if (next.phase !== "waiting") void settle(next); })
+        .catch((cause: unknown) => { if (deviceFlowUnavailable(cause)) setAuth(endedFlow("failed")); });
+    }, 1_500);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one watcher per flow
+  }, [auth?.phase, auth?.flowId, callback, base]);
+
   const start = async () => {
     setBusy("start");
     setError(null);
+    setWithCode(false);
     try {
       const { auth: next }: { auth: DeviceSignInStatus } = await api(`${base}/start`, { method: "POST" });
       await settle(next);
-      if (compact && next.phase === "waiting") {
-        const page = claudeSignInLink(next.authorizationUrl);
+      if (next.phase === "waiting") {
+        const page = claudeCallbackLink(next.callbackUrl) ?? (compact ? claudeSignInLink(next.authorizationUrl) : null);
         if (page) await openExternalLink(page);
       }
     } catch (cause) {
@@ -90,7 +123,8 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
   };
 
   useEffect(() => {
-    if (!autoStart || started) return;
+    if (!autoStart || started || autoStarted.current) return;
+    autoStarted.current = true;
     setStarted(true);
     void start();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the sheet opens
@@ -195,7 +229,15 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
                 if (window.laterdog?.openExternal) { event.preventDefault(); void openExternalLink(link); }
               }}>{t("accounts.sheet.reopen")} <ExternalLink size={12} /></a>
             </p>
-            {codeField}
+            {callback ? (
+              <button type="button" onClick={() => {
+                setWithCode(true);
+                const page = claudeSignInLink(auth.authorizationUrl);
+                if (page) void openExternalLink(page);
+              }} className="text-[12px] text-ink-tertiary hover:text-ink-secondary">
+                {t("accounts.sheet.useCode")}
+              </button>
+            ) : codeField}
           </>
         ) : (
           <p role="alert" className="text-[13px] text-danger">{t("engineSetup.claude.invalidChallenge")}</p>
@@ -223,7 +265,28 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
         <p role="status" className={auth?.phase === "succeeded" ? "text-[12px] text-success" : "text-[12px] text-ink-secondary"}>{outcome}</p>
       ) : null}
       {auth?.phase === "waiting" ? (
-        link ? (
+        callback ? (
+          <div className="space-y-2">
+            <p role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-ink-secondary">
+              <Loader2 size={13} className="animate-spin" /> {t("accounts.sheet.waiting")}
+              <button type="button" onClick={() => void openExternalLink(callback)} className="inline-flex items-center gap-1 text-accent-text hover:underline">
+                {t("accounts.sheet.reopen")} <ExternalLink size={12} />
+              </button>
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => {
+                setWithCode(true);
+                const page = claudeSignInLink(auth.authorizationUrl);
+                if (page) void openExternalLink(page);
+              }} className="text-[12px] text-ink-tertiary hover:text-ink-secondary">
+                {t("accounts.sheet.useCode")}
+              </button>
+              <button type="button" disabled={busy !== null} onClick={() => void cancel()} className="text-[12px] text-ink-tertiary hover:text-ink-secondary">
+                {t("common.cancel")}
+              </button>
+            </div>
+          </div>
+        ) : link ? (
           <div className="space-y-2 rounded-lg border border-hairline/50 bg-app p-3">
             <a href={link} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110">
               {t("engineSetup.claude.open")} <ExternalLink size={13} />

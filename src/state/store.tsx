@@ -306,6 +306,7 @@ export interface ModelSelection {
   model: string;
   effort?: EffortLevel;
   variant?: string;
+  fast?: boolean;
 }
 
 /** One of a bot's separate contexts: its own thread, transcript and
@@ -869,6 +870,7 @@ export interface InstanceInfo {
     images?: boolean;
     effortLevels?: readonly EffortLevel[];
     modelVariants?: boolean;
+    fastMode?: boolean;
     /** the engine keeps a live session and takes a message mid-turn */
     queueing?: boolean;
     steerImages?: boolean;
@@ -896,7 +898,7 @@ export interface InstanceInfo {
   freeUpSpace?: boolean;
 }
 
-export type AppSettingsSection = "general" | "computer" | "usage" | "updates";
+export type AppSettingsSection = "general" | "models" | "computer" | "usage" | "updates";
 
 export type BotSettingsSection =
   | "overview"

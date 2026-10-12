@@ -23,10 +23,10 @@ import { Switch } from "./SettingsPrimitives";
 import { SoulField } from "./SoulField";
 import { ThreadModelsLine } from "./ThreadModelsLine";
 import { TreatCount } from "./TreatCount";
-import { WorksOnPicker } from "./WorksOnPicker";
 import { useBotEditor } from "./bot-settings/BotEditorContext";
 import { botLibraryItems } from "./bot-settings/library";
-import { MemorySection } from "./bot-settings/MemorySection";
+import { SimpleMemory } from "./bot-settings/SimpleMemory";
+import { TEACH_TRICK_LINE } from "../../shared/learn-request";
 import { BOT_SECTIONS, tabForSection } from "./bot-settings/sections";
 import { SkillReviewDialog, useManagedSkills } from "./bot-settings/SkillsSection";
 import { useBotSettingsDerived } from "./bot-settings/useBotSettingsDerived";
@@ -41,6 +41,11 @@ const rowLabelCls = "block text-[12px] text-ink-secondary";
 const rowInputCls = "mt-1 w-full bg-transparent text-[14px] text-ink placeholder:text-ink-tertiary focus:outline-none";
 const pillCls = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
 const itemTextCls = "min-w-0 flex-1";
+
+/** A link or GitHub owner/repo to install a trick from, rather than words describing one. */
+export function looksLikeSkillSource(text: string): boolean {
+  return /^(https?:\/\/|github\.com\/|github:)\S+$/i.test(text) || /^[\w.-]+\/[\w.-]+(?:\/\S*)?$/.test(text);
+}
 
 export function BotSettingsDialog({ bot, overlay = false }: {
   bot: Bot;
@@ -82,6 +87,15 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const importSkill = async () => {
     const trimmed = source.trim();
     if (!trimmed || importing) return;
+    // a plain description is taught in chat: the dog writes the trick itself
+    // (Learn a new trick: …); only a link or owner/repo is fetched and installed here
+    if (!looksLikeSkillSource(trimmed)) {
+      dispatch({ type: "send", botId: bot.id, threadId: bot.threadId, text: `${TEACH_TRICK_LINE} ${trimmed}` });
+      setSource("");
+      setTeaching(false);
+      dispatch({ type: "toggleSettings", open: false });
+      return;
+    }
     setImporting(true);
     skills.setError("");
     setImportMessage("");
@@ -363,10 +377,9 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                   </button>
                 </div>
                 <div className={cardCls}>
-                  <p data-simple-tricks-hint className={cn(rowCls, "text-[12px] leading-relaxed text-ink-tertiary")}>{t("skills.tricksHint")}</p>
                   {teaching && (
                     libraryOn ? (
-                      <div className={cn(dividedRowCls, "flex items-center gap-2")} data-simple-teach>
+                      <div className={cn(rowCls, "flex items-center gap-2")} data-simple-teach>
                         {skills.libraryPool.length > 0 ? (
                           <>
                             <select
@@ -396,7 +409,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                       </div>
                     ) : (
                       <form
-                        className={cn(dividedRowCls, "flex flex-col gap-2")}
+                        className={cn(rowCls, "flex flex-col gap-2")}
                         data-simple-teach
                         onSubmit={(e) => {
                           e.preventDefault();
@@ -406,7 +419,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                         <div className="flex items-center gap-2">
                           <input
                             aria-label={t("botSettings.simple.addSkill")}
-                            placeholder={t("botSettings.simple.teachPlaceholder")}
+                            placeholder={t("botSettings.simple.teachPlaceholder", { name: bot.name })}
                             value={source}
                             disabled={importing}
                             onChange={(e) => setSource(e.target.value)}
@@ -421,10 +434,10 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                     )
                   )}
                   {!skills.loading && skills.skills.length === 0 ? (
-                    <div className={cn(dividedRowCls, "text-[12.5px] text-ink-tertiary")}>{t("botSettings.simple.noSkills")}</div>
+                    <div className={cn(teaching ? dividedRowCls : rowCls, "text-[12.5px] text-ink-tertiary")}>{t("botSettings.simple.noSkills")}</div>
                   ) : (
-                    skills.skills.map((skill) => (
-                      <div key={skill.name} className={cn(dividedRowCls, "flex items-center gap-3")}>
+                    skills.skills.map((skill, index) => (
+                      <div key={skill.name} className={cn(index === 0 && !teaching ? rowCls : dividedRowCls, "flex items-center gap-3")}>
                         <div className={itemTextCls}>
                           <div className="truncate text-[13.5px] font-medium text-ink">{skill.name}</div>
                           <div className="truncate text-[12px] text-ink-secondary">{skill.description || skill.source}</div>
@@ -444,15 +457,11 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                 </div>
               </div>
 
+              {library.length > 0 && (
               <div>
                 <span className={groupLabelCls}>{t("botSettings.simple.files")}</span>
                 <div className={cardCls}>
-                  {library.length === 0 ? (
-                    <div className={cn(rowCls, "text-[13px] leading-relaxed text-ink-secondary")}>
-                      {t("botSettings.simple.libraryEmpty", { name: bot.name })}
-                    </div>
-                  ) : (
-                    library.map((item, index) => {
+                  {library.map((item, index) => {
                       const Icon = item.kind === "image" ? ImageIcon : FileText;
                       return (
                         <button
@@ -470,40 +479,17 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                           </span>
                         </button>
                       );
-                    })
-                  )}
+                    })}
                 </div>
               </div>
+              )}
             </div>
           )}
 
           <div hidden={tab !== "library"} className="mt-5">
-            <MemorySection bot={bot} active={tab === "library"} onToggle={(enabled) => patch({ memoryEnabled: enabled })} />
+            <SimpleMemory bot={bot} active={tab === "library"} onToggle={(enabled) => patch({ memoryEnabled: enabled })} />
           </div>
 
-          {tab === "computer" && (
-            <div role="tabpanel" className="mt-5">
-              <span className={groupLabelCls}>{t("botSettings.simple.computer")}</span>
-              <div className={cardCls}>
-                <div className={rowCls}>
-                  <WorksOnPicker bot={bot} />
-                </div>
-                <div className={cn(dividedRowCls, "flex items-center justify-between gap-3")} data-testid="access-screen">
-                  <span className={cn(itemTextCls, "text-[14px] text-ink")}>{t("computer.screenOf", { name: bot.name })}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      close();
-                      dispatch({ type: "toggleComputer", open: true });
-                    }}
-                    className={cn(pillCls, "shrink-0")}
-                  >
-                    {t("place.action.openComputerPanel")}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </aside>
 

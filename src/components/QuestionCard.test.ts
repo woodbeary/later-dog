@@ -91,8 +91,8 @@ describe("QuestionCard", () => {
   });
 
   it("badges an agent-composed ask, and only one", () => {
-    expect(render(message({ questionRequest: { ...questionRequest, origin: "output" } }))).toContain("Agent-composed question");
-    expect(render(message())).not.toContain("Agent-composed question");
+    expect(render(message({ questionRequest: { ...questionRequest, origin: "output" } }))).toContain("Written by the dog");
+    expect(render(message())).not.toContain("Written by the dog");
   });
 
   it("gives every question a tab and offers free text as well", () => {

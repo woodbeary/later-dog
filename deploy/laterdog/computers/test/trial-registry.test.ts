@@ -30,7 +30,7 @@ const LIMIT = 30 * MINUTE;
 const WINDOW = 7 * DAY;
 const UNKNOWN_TRIAL = "trl_aaaaaaaaaaaaaaaa";
 
-function start(keySha256: string, network: string, extra: { windowMs?: number; perDay?: number } = {}) {
+function start(keySha256: string, network: string, extra: { windowMs?: number; perDay?: number; perNetwork?: number } = {}) {
   return { keySha256, network, limitMs: LIMIT, windowMs: WINDOW, perDay: 20, ...extra };
 }
 
@@ -114,6 +114,14 @@ describe("TrialRegistry", () => {
     expect(await trials.activate(start("key-c", "net-1"))).toMatchObject({ ok: false, refusal: { code: "trial_network_used" } });
     w.clock.now = T0 + WINDOW;
     started(await trials.activate(start("key-c", "net-1")));
+  });
+
+  it("lets one network start a few trials when allowed, an office or a hotspot", async () => {
+    const { trials } = await registry();
+    const three = { perNetwork: 3 };
+    for (const key of ["key-a", "key-b", "key-c"]) started(await trials.activate(start(key, "net-1", three)));
+    expect(await trials.activate(start("key-d", "net-1", three))).toMatchObject({ ok: false, refusal: { code: "trial_network_used" } });
+    started(await trials.activate(start("key-d", "net-2", three)));
   });
 
   it("caps the trials started each UTC day without counting refusals or replays", async () => {

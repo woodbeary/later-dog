@@ -1,12 +1,12 @@
 import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ModelPicker } from "./ModelPicker";
-import { ArrowUp, BookOpen, Clock, Mic, Paperclip, Square, Target, Users, X } from "lucide-react";
+import { ArrowUp, BookOpen, Clock, Mic, Square, Target, Users, X } from "lucide-react";
 import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
+import { waitingOnPerson } from "@/components/onboarding/GuidedTour";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
-import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import {
   draftRevision,
   appendDraftAttachments,
@@ -32,7 +32,6 @@ import { ComposerAttachments, pathForFile } from "./ComposerAttachments";
 import { splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { FullAccessWarning } from "./FullAccessWarning";
-import { ApprovalModeSelector } from "./ApprovalModeSelector";
 import { CommandAllowlistDialog } from "./CommandAllowlistDialog";
 import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode";
 import { waitsForTurn, type SendDelivery } from "../../shared/send-delivery";
@@ -62,6 +61,12 @@ import { normalizeState } from "@/lib/mascot";
 import { goalCoordinatorForComposer, groupComposerHint, jevRoomRoutingOn, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { CallButton } from "./CallView";
+import { AddAccountSheet } from "./AccountsPanel";
+import { ComposerPlusMenu } from "./ComposerPlusMenu";
+import { EffortButton } from "./EffortButton";
+import { useVoiceMode } from "@/lib/voice-mode";
+import { needsCli, needsSignIn } from "./EngineSetup";
+import { signInFamily } from "@/lib/engine-rail";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { ReplyQuote } from "./ReplyQuote";
 import { useThreadRefs } from "./ThreadRefs";
@@ -125,7 +130,6 @@ export function Composer({
   const bot = profile ? currentTaskBot(profile) : undefined;
   const locked = setupLocked || Boolean(bot?.awaitingThreadSnapshot);
   const { state, dispatch } = useStore();
-  const ownerOrAdmin = useOwnerOrAdmin();
   const { threads, currentBotId } = useThreadRefs();
   const { capabilities } = useDesktopCapabilities();
   const remoteClient = window.laterdog?.remoteClient?.active === true;
@@ -133,6 +137,8 @@ export function Composer({
   // offers members plus @everyone; explicit mentions override the room's
   // configured default responder.
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
+  // a dog holding its turn open on a question is waiting on you, not working
+  const asking = !group && waitingOnPerson(bot);
   // an engine with a live session takes a message INTO the running turn;
   // for those the composer never locks — the server steers instead of 409.
   // A room steers through its busy speaker's engine, mirroring how the
@@ -225,6 +231,12 @@ export function Composer({
     [text, editText, editAttachments],
   );
   const [recording, setRecording] = useState(false);
+  // A voice note the Mac saved while recognition failed, and one being
+  // transcribed again from that recording.
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const [retryingNote, setRetryingNote] = useState<string | null>(null);
+  const retryFile = useRef<string | null>(null);
+  const listening = recording || retryingNote !== null;
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
@@ -506,6 +518,12 @@ export function Composer({
     return () => window.clearTimeout(timeout);
   }, [busy, pendingCount, steering]);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Claude or ChatGPT chosen before signing in: the first send opens their
+  // sign-in, and the message goes once it's done.
+  const [signingIn, setSigningIn] = useState<string | null>(null);
+  // the voice button shows only once voice mode is on in Settings
+  const voiceOn = useVoiceMode();
+  const sendAfterSignIn = useRef<() => void>(() => {});
   const [approvalWarning, setApprovalWarning] = useState<{
     mode: "auto" | "full";
     botId: string;
@@ -618,7 +636,7 @@ export function Composer({
       dispatch({ type: "send", botId: bot.id, ...retry });
     }
   };
-  const send = (delivery?: SendDelivery) => {
+  const send = (delivery?: SendDelivery, signedInNow = false) => {
     if (locked || attachmentPending) return;
     if (
       attachments.some((attachment) => attachment.kind === "image") &&
@@ -632,6 +650,12 @@ export function Composer({
     // stays machine-readable in the stored send and the model's context
     const body = composeMessage(serializeThreadRefs(effectiveText, threads, currentBotId), attachments);
     if (!body) return;
+    const account = !group && bot ? state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId) : undefined;
+    if (!signedInNow && account?.snapshot && signInFamily(account) && (needsSignIn(account) || needsCli(account))) {
+      sendAfterSignIn.current = () => send(delivery, true);
+      setSigningIn(account.instanceId);
+      return;
+    }
     const sentDraft: ComposerDraftSnapshot = {
       draftId,
       revision: draftRevision(draftId),
@@ -760,12 +784,14 @@ export function Composer({
   // native dictation: partials stream into the input while the Swift
   // helper runs; the final transcript stays in the box, ready to edit/send
   useEffect(() => {
-    if (!recording) return;
+    if (!listening) return;
     const bridge = window.laterdog;
     if (!bridge) {
       setRecording(false);
+      setRetryingNote(null);
       return;
     }
+    const file = retryFile.current;
     setSpeechError(null);
     const offTranscript = bridge.onSpeechTranscript((line) => {
       if (typeof line.text === "string") {
@@ -773,8 +799,11 @@ export function Composer({
         editText(base ? `${base} ${line.text}` : line.text);
       }
     });
-    const offEnd = bridge.onSpeechEnd(({ code, reason }) => {
+    const offEnd = bridge.onSpeechEnd(({ code, reason, recording: saved }) => {
       setRecording(false);
+      setRetryingNote(null);
+      retryFile.current = null;
+      setVoiceNote(code === 1 && saved ? saved : null);
       if (code === 2) {
         setSpeechError(t("composer.dictation.macOnly"));
       } else if (code === 1) {
@@ -787,13 +816,22 @@ export function Composer({
         ));
       }
     });
-    void bridge.speechStart();
+    void bridge.speechStart(file ? { file } : undefined);
     return () => {
       offTranscript();
       offEnd();
       void bridge.speechStop();
     };
-  }, [recording, editText]);
+  }, [listening, editText]);
+
+  const retryVoiceNote = () => {
+    if (!voiceNote || listening) return;
+    // the whole note is transcribed again: it replaces the failed attempt's
+    // partial words, after whatever was typed before dictation began
+    retryFile.current = voiceNote;
+    setVoiceNote(null);
+    setRetryingNote(voiceNote);
+  };
 
   const toggleMic = () => {
     if (!capabilities.dictation.available || !window.laterdog) {
@@ -808,9 +846,16 @@ export function Composer({
     <div className="pointer-events-none relative px-5 pb-3">
       {/* No fill or hairline on this wrapper — those were the black frame
           in the pill's top corners. The dock overlays the transcript. */}
-      {speechError && (
-        <div className="pointer-events-auto mb-2 w-full rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
-          {speechError}
+      {(speechError || retryingNote) && (
+        <div data-voice-note className="pointer-events-auto mb-2 flex w-full items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
+          <span className="min-w-0 flex-1">
+            {retryingNote ? t("composer.dictation.retrying") : voiceNote ? `${speechError} ${t("composer.dictation.saved")}` : speechError}
+          </span>
+          {voiceNote && !retryingNote && (
+            <button type="button" onClick={retryVoiceNote} className="shrink-0 rounded px-2 py-1 font-medium hover:bg-warning/10">
+              {t("chat.retry")}
+            </button>
+          )}
         </div>
       )}
       <div className="pointer-events-auto relative w-full">
@@ -1009,15 +1054,18 @@ export function Composer({
           />
           {!locked && (
             <div data-composer-tools className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => fileInput.current?.click()}
-                aria-label={t("composer.attach")}
-                title={t("composer.attach")}
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-control hover:text-ink"
-              >
-                <Paperclip size={17} />
-              </button>
+              <ComposerPlusMenu
+                onAttach={() => fileInput.current?.click()}
+                onConnectors={!remoteClient ? () => dispatch({ type: "togglePlugins", open: true }) : undefined}
+                permissions={modeBot && approvalEngine && !remoteClient ? {
+                  approvalMode: modeBot.approvalMode,
+                  autoApprove: modeBot.autoApprove,
+                  driverKind: approvalEngine.driverKind,
+                  trustedModesAvailable: trustedThreadAccess,
+                  disabled: Boolean(modeBot.busy),
+                  onSelect: setApprovalMode,
+                } : null}
+              />
               {group && !group.dm && (
                 <button
                   type="button"
@@ -1148,11 +1196,11 @@ export function Composer({
               ? t("composer.placeholder.attaching")
               : recording
               ? t("composer.placeholder.listening")
-              : busy && canSteer
+              : busy && canSteer && !asking
                 ? pendingCount > 0
                   ? t("composer.placeholder.steerQueued", { name: busyName })
                   : t("composer.placeholder.steer", { name: busyName })
-              : busy
+              : busy && !asking
                 ? group
                   ? t("composer.placeholder.queueGroup", { name: busyName })
                   : t("composer.placeholder.queue", { name: busyName })
@@ -1170,22 +1218,10 @@ export function Composer({
           />
           <div data-composer-actions className="ml-auto flex items-center gap-1">
           {!locked && bot && !group && !remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="model" />}
-          {!locked && modeBot && approvalEngine && !remoteClient && (
-            <ApprovalModeSelector
-              align="right"
-              approvalMode={modeBot.approvalMode}
-              autoApprove={modeBot.autoApprove}
-              providerName={approvalEngine.displayName}
-              driverKind={approvalEngine.driverKind}
-              onSelect={setApprovalMode}
-              disabled={Boolean(modeBot.busy)}
-              trustedModesAvailable={trustedThreadAccess}
-              onManageCommandAllowlist={ownerOrAdmin === true ? () => setCommandAllowlistTarget({ botId: modeBot.id, botName: modeBot.name, threadId: modeBot.threadId }) : undefined}
-            />
-          )}
+          {!locked && bot && !group && !remoteClient && <EffortButton bot={bot} threadId={bot.threadId} />}
           {/* Stop stays a stop. Stop-then-steer is named beside the queued
               message above, where its effect is visible before activation. */}
-          {(busy || bot?.waitingForTeammates) && !locked && (
+          {(busy || bot?.waitingForTeammates) && !locked && !asking && (
           <button
             onClick={interruptTurn}
             aria-label={t("chat.stopTurn")}
@@ -1213,7 +1249,7 @@ export function Composer({
         {/* Calling the bot lives here, beside dictation, rather than in the
             chat header: it is another way to talk to it. Rooms keep their
             group call button in the room header. */}
-        {bot && !group && <CallButton bot={bot} placement="composer" />}
+        {bot && !group && voiceOn && <CallButton bot={bot} placement="composer" />}
         {hasContent && !locked && (
           <button
             onClick={() => send()}
@@ -1259,6 +1295,19 @@ export function Composer({
         </div>
       </div>
       <div className="pointer-events-auto">
+      {signingIn && (
+        <AddAccountSheet
+          sheet={{ step: "signIn", instanceId: signingIn }}
+          instances={state.instances}
+          onStep={() => {}}
+          onClose={() => setSigningIn(null)}
+          onSignedIn={() => {
+            setSigningIn(null);
+            // the account answers now: send what was waiting
+            window.setTimeout(() => sendAfterSignIn.current(), 0);
+          }}
+        />
+      )}
       {commandAllowlistTarget && <CommandAllowlistDialog
         key={`${commandAllowlistTarget.botId}:${commandAllowlistTarget.threadId}`}
         {...commandAllowlistTarget}

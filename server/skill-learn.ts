@@ -6,7 +6,7 @@
 // prompt and recognises the slash command, so it works on every engine
 // that mounts the agents tools.
 
-import { SAVE_RUN_AS_SKILL_LINE } from "../shared/learn-request.ts";
+import { SAVE_RUN_AS_SKILL_LINE, TEACH_TRICK_LINE } from "../shared/learn-request.ts";
 
 export const LEARN_SOURCE_PREFIX = "learn:";
 export const LEARN_PROMPT_MARKER = "[/learn]";
@@ -26,8 +26,9 @@ export function parseLearnCommand(text: string): { request: string } | null {
  * message that merely quotes the sentence later on is ordinary chat. */
 export function parseSaveRunRequest(text: string): { request: string } | null {
   const trimmed = text.trim();
-  if (!trimmed.startsWith(SAVE_RUN_AS_SKILL_LINE)) return null;
-  return { request: trimmed.slice(SAVE_RUN_AS_SKILL_LINE.length).trim() };
+  const line = [SAVE_RUN_AS_SKILL_LINE, TEACH_TRICK_LINE].find((opening) => trimmed.startsWith(opening));
+  if (!line) return null;
+  return { request: trimmed.slice(line.length).trim() };
 }
 
 export function learnSource(request: string): string {

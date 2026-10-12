@@ -94,7 +94,7 @@ export function spokenApprovalPrompt(pending: Pending, requester: string): strin
     // pending.tool can be an ACP toolCall kind rather than a tool name —
     // speak the same verb phrase the card header shows, so voice never
     // reads "wants to other".
-    return t("approval.voice.command", { requester, tool: toolLabel(pending.tool), detail: pending.detail });
+    return t("approval.voice.command", { requester, tool: toolLabel(pending.tool, pending.message.card?.approvalScope), detail: pending.detail });
   }
   const title = pending.message.card?.title.trim() || t("approval.voice.defaultConfirmRoutine");
   return t("approval.voice.routine", {
@@ -118,7 +118,7 @@ function label(pending: Pending, botName?: string): string {
       ? t("approval.label.confirmRoutine")
       : t("approval.label.confirmRoutineChange");
   }
-  const action = toolLabel(pending.tool);
+  const action = toolLabel(pending.tool, pending.message.card?.approvalScope);
   return botName ? t("approval.ask.named", { name: botName, action }) : t("approval.ask.unnamed", { action });
 }
 

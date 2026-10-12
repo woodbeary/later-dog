@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.3.21 — 2026-10-12
+
+- **No more garbled replies from the free models.** When Kimi or Grok writes a step out as text instead of doing it, you no longer see that text: the dog is told once to do the step properly, and if it happens again it says so in one plain sentence.
+
+## 0.3.20 — 2026-10-12
+
+- **Plain words when a step didn't work.** If a step of a Kimi or Grok dog's task fails or isn't allowed, the chat says "Some steps didn't work or weren't allowed, so check them before relying on this answer" instead of a technical notice.
+
+## 0.3.19 — 2026-10-12
+
+- **A free dog's first computer task asks nothing.** On Kimi and Grok, an Off-leash dog picks its own cloud computer and gets on with the job, with no "wants to use a computer" card. Choosing your Mac still asks, and Heel still asks for everything.
+
+## 0.3.18 — 2026-10-12
+
+- **Your Mac still asks first.** On Kimi and Grok, Off-leash runs the dog's own computer and browser without a card, but a dog working on your own Mac now asks before each action there, as Heel does. In 0.3.16 and 0.3.17 it didn't once you had let a dog onto your Mac.
+- **Plainer words** for routines, connected apps and analytics, and the Mac permission panel can be translated.
+
+## 0.3.17 — 2026-10-12
+
+- **Opening a dog's computer is clean the first time.** It starts once, and no error sits under a screen that came up fine. If the computer is busy starting or changing elsewhere, the panel says so in plain words.
+- **Accounts says what an account is for:** adding Claude or ChatGPT lets your dogs use the plan you already have.
+
+## 0.3.16 — 2026-10-12
+
+- **Off-leash means it on the free models.** On Kimi and Grok, a dog that's Off-leash now works on its own computer and browser without stopping for a card at every step. Connected apps still ask first, and Heel still asks for everything.
+- **Cloud tasks in plain words.** One card at message width: what the dog is working on, one status (Working, Ready to review, Done, Stopped, Needs you), a thin progress line and one button. Steps fold away; no PR numbers, branches or git terms. When a cloud task can't run here, the dog says so in one sentence and does the work in the chat instead.
+- **Open the computer and it turns on.** Opening a dog's computer starts it if it never started and wakes it if it's asleep.
+- **A dog that needs your hands says so in the chat**, with Open, not only inside the Computer panel.
+- **Approvals say whose computer:** "use its computer" for the dog's own, "use this Mac" for yours.
+- **The + menu** offers Heel and Off-leash, like the dog's settings, and its apps entry reads Connect apps.
+- **Apps shows what works.** Apps that need a Composio key no longer sit greyed out; one line says a key brings them in. The tour names apps that connect in one click.
+- **Free trial for everyone on a network.** Up to three people sharing an office, campus or hotspot can each start the free trial, and when the day's free allowance runs out for everyone, later.dog says so instead of "try again in a minute".
+- **Keep going when an account runs out** shows once you have two accounts.
+- Everyday words say dog, not agent.
+
+## 0.3.15 — 2026-10-12
+
+- **Model and effort the way Claude Code does them.** Beside the message field, the model button lists a few models by name, the current one checked and the others numbered (press 1-4), with More models for the rest. It shows every model you can use now: the free Kimi K2.6 and Grok 4.3, and the models of any account you've signed in. Effort is its own button: a Faster to Smarter slider with the recommended level marked.
+- **Choose which models show**, as in Cursor: Settings, Models lists every model of your signed-in accounts with a switch, and a chat's model menu shows only the ones switched on.
+- **Fast mode** for the models that have it (Claude's Opus models, through Claude Code's own fast mode), in the effort popup.
+- **Accounts on top, nothing repeated.** The chat header's account button lists the accounts you're signed in to (and the free Kimi and Grok), under the names you gave them, with Add account at the end.
+- **Sign in when you need to.** Pick Claude or ChatGPT before you've signed in and the first message you send opens their sign-in; it sends once you're in.
+- **One + button.** Attach files, connect apps and choose permissions from a single + beside the message field, in place of the paperclip and the shield.
+- **Voice mode is a setting.** The voice chat button shows only after you turn on Voice mode in Settings, General. Dictation's mic stays where it was.
+- **Voice notes are never lost.** Dictating also saves the recording on your Mac; if turning it into text fails, Retry transcribes the saved note into the message box. The last ten notes are kept.
+
+## 0.3.14 — 2026-10-12
+
+- **Pick the model by name.** The free models show as **Kimi** and **Grok** in the account list, each with its own mark, instead of one "later.dog" entry. Both run free through the trial. If you sign in to Grok yourself, your own account takes over that row.
+- **Signing in is one button.** Choosing Claude or ChatGPT before you've signed in shows a single **Sign in** button that opens Settings straight on that provider's sign-in. Claude finishes in your browser and comes back by itself, with no code to paste. If Claude or Codex isn't on your Mac yet, it's fetched first.
+- **Every dog has its own computer.** The "Where it works" picker and the Computer tab are gone. A dog whose computer is off gets one button to turn it back on.
+- **A simpler Library.** Tricks and what your dog remembers, in plain words: one switch for memory, the things it remembers as a list you can forget one by one, and **Teach a trick** takes a sentence, which your dog turns into a trick in chat. The memory files are still one click away.
+- **The free trial's one computer.** When another dog already has it, later.dog offers later.dog Cloud instead of asking you to delete a computer.
+- **The tour waits its turn.** Its first tip shows once your dog has finished replying, not over the answer as it arrives.
+- **Waiting on you reads that way.** While a dog's question is open, the message field says "Message Miso" with no stop button.
+- The tour no longer says every chat runs on your machine.
+
 ## 0.3.13 — 2026-10-12
 
 - **A launch that feels intended.** later.dog opens on its golden dog and fades into the app once everything is ready, the same on a fast start or a slow network, and a dog's screen fades in on its first frame instead of popping in.
@@ -11,7 +68,7 @@
 ## 0.3.12 — 2026-10-12
 
 - **Straight into a chat.** A new later.dog asks your name and lets you pick a dog, then opens its chat already running on later.dog AI. No AI or sign-in step: the free trial starts by itself, and Claude or ChatGPT sign-ins wait in Settings for when you want them.
-- **Open a dog's computer and it boots.** Clicking the computer button starts the dog's cloud computer and shows its screen, A dog you put on this Mac keeps it.
+- **Open a dog's computer and it boots.** Clicking the computer button starts the dog's cloud computer and shows its screen. A dog you put on this Mac keeps it.
 - **Model and effort by the message field**, like other coding apps, instead of in the chat's header.
 - **A calmer sidebar.** The server switcher only appears when you're connected to another server, and the update icon sits at the bottom next to Apps.
 - **Accounts:** the drag handle to reorder them is always visible, and "Keep going when an account runs out" lives in Settings.

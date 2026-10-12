@@ -232,8 +232,8 @@ describe("Accounts", () => {
       expect(panelText()).not.toContain(noise);
     }
     expect(button("Add account")).toBeDefined();
-    expect(panelText()).toContain("Keep going when an account runs out");
-    expect(panelText()).toContain("Switch to your next account when one hits its limit.");
+    // one account has no next one to switch to
+    expect(panelText()).not.toContain("Keep going when an account runs out");
   });
 
   it("shows nothing but the way to add one when no account is signed in", async () => {
@@ -244,10 +244,10 @@ describe("Accounts", () => {
       claudeApi(),
     ] });
     expect(ids()).toEqual([]);
-    expect(empty()?.textContent).toBe("No accounts yet. Add a Claude or ChatGPT account to get started.");
+    expect(empty()?.textContent).toBe("No accounts yet. Add Claude or ChatGPT to use the plan you already have.");
     expect(document.body.querySelector("[data-accounts-panel] [aria-label^='Remove']")).toBeNull();
     expect(button("Add account")).toBeDefined();
-    expect(toggle()).not.toBeNull();
+    expect(toggle()).toBeNull();
   });
 
   it("shows one row per real account with its name, email and plan, an X on each, and the carry-on switch off", () => {

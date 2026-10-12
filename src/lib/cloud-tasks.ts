@@ -212,6 +212,7 @@ export function cloudWakeupOf(message: { role: string; kind?: string; sendId?: s
   };
 }
 
+/** What a wake-up says happened, as one plain sentence: the chat's update row and the sidebar's preview. */
 export function wakeupLine(event: string): string {
   switch (event) {
     case "collected": return t("cloudTask.update.collected");
@@ -225,47 +226,113 @@ export function wakeupLine(event: string): string {
   }
 }
 
-export type CloudTaskTone = "accent" | "success" | "warning" | "danger" | "muted";
-export interface CloudTaskStatusView { label: string; tone: CloudTaskTone; live: boolean; detail?: string }
+/** Where a task is, in the few words a person needs: is it working, is there something to look at, is it over, does it need them. */
+export type CloudTaskPhase = "checking" | "unknown" | "waiting" | "working" | "review" | "done" | "stopped" | "attention";
 
-const SETTING_UP = new Set(["starting", "install", "clone", "setup"]);
+export interface CloudTaskStatusView {
+  phase: CloudTaskPhase;
+  /** Working, Waiting, Ready to review, Done, Stopped or Needs you. */
+  label: string;
+  /** Still moving: the status shimmers and the task keeps being read. */
+  live: boolean;
+  /** What it is doing right now, or how it ended, in plain words. */
+  note?: string;
+  /** The supervisor's own reason (a blocker or a read error), kept behind Steps and in the panel. */
+  detail?: string;
+  /** How far along its run is, 0 to 1, for the card's progress line. Phases, not time. */
+  progress: number;
+}
+
+const SETTING_UP: Readonly<Record<string, number>> = { starting: 0.16, install: 0.22, clone: 0.28, setup: 0.34 };
+
+/** How far a run got by its stage: setting up fills the first third, the work the middle, wrapping up the rest. */
+function stageProgress(stage: string | undefined): number {
+  if (!stage) return 0.12;
+  if (Object.hasOwn(SETTING_UP, stage)) return SETTING_UP[stage]!;
+  return stage === "done" ? 0.85 : 0.55;
+}
+
+/** Why a task has not started, from the supervisor's own wording; anything else just waits. */
+function waitingNote(blocker: string | undefined): string | undefined {
+  if (!blocker) return undefined;
+  if (blocker.startsWith("Waiting for dependency") || blocker.startsWith("Waiting for conflicting writer")) return t("cloudTask.note.otherTask");
+  if (blocker.startsWith("All configured execution slots")) return t("cloudTask.note.allBusy");
+  return undefined;
+}
+
+/** Tool names arrive bare (Read) or namespaced by an MCP server (mcp__server__tool, whose server name may hold single underscores). */
+function bareTool(tool: string): string {
+  return tool.replace(/^mcp__.+?__/, "");
+}
+
+/** What the agent is doing, from its latest step, in a few words that never name a file or a command. */
+export function doingNote(step: CloudTaskStep | undefined): string {
+  if (!step) return t("cloudTask.doing.working");
+  switch (step.k) {
+    case "stage": return stageLabel(step.stage);
+    case "plan": return t("cloudTask.doing.planning");
+    case "done": return stageLabel("done");
+    case "tool":
+      switch (bareTool(step.tool)) {
+        case "Read": case "Grep": case "Glob": case "LS": return t("cloudTask.doing.reading");
+        case "Edit": case "MultiEdit": case "Write": case "NotebookEdit": return t("cloudTask.doing.changing");
+        case "Bash": case "BashOutput": return t("cloudTask.doing.running");
+        case "WebFetch": case "WebSearch": return t("cloudTask.doing.lookingUp");
+        case "Task": case "Agent": return t("cloudTask.doing.helper");
+        default: return t("cloudTask.doing.working");
+      }
+    default: return t("cloudTask.doing.working");
+  }
+}
 
 export function cloudTaskStatus(entry: CloudTaskEntry | undefined): CloudTaskStatusView {
   const summary = entry?.summary;
   if (!summary) {
-    if (entry?.missing) return { label: t("cloudTask.status.missing"), tone: "muted", live: false };
-    if (entry?.error) return { label: t("cloudTask.status.unreachable"), tone: "warning", live: false, detail: entry.error };
-    return { label: t("cloudTask.status.checking"), tone: "muted", live: false };
+    if (entry?.missing) return { phase: "unknown", label: t("cloudTask.status.missing"), live: false, progress: 0 };
+    if (entry?.error) return { phase: "unknown", label: t("cloudTask.status.unreachable"), live: false, detail: entry.error, progress: 0 };
+    return { phase: "checking", label: t("cloudTask.status.checking"), live: false, progress: 0 };
   }
+  const detail = summary.blocker ? { detail: summary.blocker } : {};
+  // A working task's blocker is a status read that failed and will be tried again, or one left from an earlier step:
+  // not a reason to show the person.
+  const working = (note: string, progress: number): CloudTaskStatusView =>
+    ({ phase: "working", label: t("cloudTask.status.working"), live: true, note, progress });
+  const endedAt = summary.stage ? stageProgress(summary.stage) : 0;
   switch (summary.state) {
-    case "queued": return summary.blocker ? { label: t("cloudTask.status.waiting"), tone: "muted", live: true, detail: summary.blocker } : { label: t("cloudTask.status.queued"), tone: "muted", live: true };
-    case "preparing": case "submitting": return { label: t("cloudTask.status.starting"), tone: "accent", live: true };
-    case "submission_unknown": return { label: t("cloudTask.status.attention"), tone: "warning", live: false, detail: summary.blocker };
-    case "running":
-      if (!summary.stage || SETTING_UP.has(summary.stage)) return { label: t("cloudTask.status.settingUp"), tone: "accent", live: true };
-      if (summary.stage === "done") return { label: t("cloudTask.status.wrappingUp"), tone: "accent", live: true };
-      return { label: t("cloudTask.status.working"), tone: "accent", live: true };
-    case "collecting": return { label: t("cloudTask.status.collecting"), tone: "accent", live: true };
-    case "publishing": return { label: t("cloudTask.status.publishing"), tone: "accent", live: true };
-    case "verifying": return { label: t("cloudTask.status.verifying"), tone: "accent", live: true };
-    case "ready":
-      if (summary.prUrl) return { label: summary.prNumber ? t("cloudTask.status.prNumber", { number: summary.prNumber }) : t("cloudTask.status.pr"), tone: "success", live: false, detail: summary.blocker };
-      if (summary.changes && summary.changes.files === 0) return { label: t("cloudTask.status.noChanges"), tone: "muted", live: false, detail: summary.blocker };
-      return { label: t("cloudTask.status.ready"), tone: "success", live: false };
-    case "needs_attention": return { label: t("cloudTask.status.attention"), tone: "danger", live: false, detail: summary.blocker };
-    case "cancelled": return { label: t("cloudTask.status.stopped"), tone: "muted", live: false };
-    case "merged": return { label: t("cloudTask.status.merged"), tone: "success", live: false };
-    default: return { label: summary.state, tone: "muted", live: false };
+    case "queued": {
+      const note = waitingNote(summary.blocker);
+      return { phase: "waiting", label: t("cloudTask.status.waiting"), live: true, ...(note ? { note } : {}), progress: 0.04, ...detail };
+    }
+    case "preparing": case "submitting": return working(t("cloudTask.note.starting"), 0.1);
+    case "running": {
+      const stage = summary.stage;
+      const note = !stage || Object.hasOwn(SETTING_UP, stage) ? stageLabel(stage ?? "starting") : stage === "done" ? stageLabel("done") : doingNote(summary.lastStep);
+      return working(note, stageProgress(stage));
+    }
+    case "collecting": return working(t("cloudTask.note.collecting"), 0.9);
+    case "publishing": return working(t("cloudTask.note.publishing"), 0.94);
+    case "verifying": return working(t("cloudTask.note.verifying"), 0.97);
+    case "ready": {
+      const files = summary.changes?.files;
+      if (summary.kind === "review") return { phase: "done", label: t("cloudTask.status.done"), live: false, progress: 1, ...detail };
+      if (!summary.prUrl && files === 0) return { phase: "done", label: t("cloudTask.status.done"), live: false, note: t("cloudTask.note.noChanges"), progress: 1, ...detail };
+      return { phase: "review", label: t("cloudTask.status.review"), live: false, ...(files ? { note: filesChangedLabel(files) } : {}), progress: 1, ...detail };
+    }
+    case "merged": return { phase: "done", label: t("cloudTask.status.done"), live: false, note: t("cloudTask.note.merged"), progress: 1 };
+    case "cancelled": return { phase: "stopped", label: t("cloudTask.status.stopped"), live: false, progress: endedAt, ...detail };
+    case "needs_attention": case "submission_unknown":
+      return { phase: "attention", label: t("cloudTask.status.attention"), live: false, progress: endedAt, ...detail };
+    default: return { phase: "unknown", label: summary.state, live: false, progress: 0 };
   }
 }
 
-export const TONE_CLASS: Record<CloudTaskTone, string> = {
-  accent: "text-accent",
-  success: "text-success",
-  warning: "text-warning",
-  danger: "text-danger",
-  muted: "text-ink-secondary",
-};
+/** The status word's look, the same in the card, the panel and the Computer panel: monochrome, with the
+ * app's own "Thinking" sheen while it works and full ink when it needs the person. */
+export function cloudTaskStatusClass(view: CloudTaskStatusView): string {
+  if (view.live) return "thinking-shimmer animate-shimmer";
+  if (view.phase === "attention") return "font-medium text-ink";
+  return view.phase === "checking" || view.phase === "unknown" ? "text-ink-tertiary" : "text-ink-secondary";
+}
 
 export function stageLabel(stage: string): string {
   switch (stage) {
@@ -273,42 +340,65 @@ export function stageLabel(stage: string): string {
     case "install": return t("cloudTask.stage.install");
     case "clone": return t("cloudTask.stage.clone");
     case "setup": return t("cloudTask.stage.setup");
-    case "claude": return t("cloudTask.stage.claude");
     case "done": return t("cloudTask.stage.done");
-    default: return stage;
+    // "claude" is the agent at work; an unknown stage reads the same rather than as its code name
+    default: return t("cloudTask.doing.working");
   }
 }
 
-export function toolVerb(tool: string): string {
-  switch (tool) {
-    case "Bash": return t("cloudTask.tool.ran");
-    case "Read": return t("cloudTask.tool.read");
-    case "Edit": case "MultiEdit": case "NotebookEdit": return t("cloudTask.tool.edited");
-    case "Write": return t("cloudTask.tool.wrote");
-    case "Grep": return t("cloudTask.tool.searched");
-    case "Glob": return t("cloudTask.tool.looked");
-    case "WebFetch": return t("cloudTask.tool.opened");
-    case "WebSearch": return t("cloudTask.tool.searchedWeb");
-    case "Task": case "Agent": return t("cloudTask.tool.helper");
-    default: return tool;
-  }
+/** A step as a person reads it: a short plain sentence, and the exact file, command or address
+ * beside it only as a quiet detail. */
+export interface PlainStep { text: string; detail?: string }
+
+/** The first line of what the agent said, without markdown marks. */
+function firstLine(text: string): string {
+  const line = text.split("\n").map((part) => part.trim()).find(Boolean) ?? "";
+  return line.replace(/^(?:#{1,6}\s+|[-*>]\s+)/, "").replace(/`/g, "").replace(/\*\*/g, "");
 }
 
-export function stepHeadline(step: CloudTaskStep): string {
+export function plainStep(step: CloudTaskStep): PlainStep | null {
+  const quiet = (text: string, detail?: string): PlainStep => (detail ? { text, detail } : { text });
   switch (step.k) {
-    case "stage": return stageLabel(step.stage);
-    case "say": return step.text.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
-    case "tool": return step.detail ? `${toolVerb(step.tool)} ${step.detail}` : toolVerb(step.tool);
-    case "plan": return t("cloudTask.step.plan");
-    case "error": return step.text;
-    case "done": return step.ok ? t("cloudTask.step.done") : t("cloudTask.step.stopped");
+    case "stage": return { text: stageLabel(step.stage) };
+    case "say": { const said = firstLine(step.text); return said ? { text: said } : null; }
+    case "plan": return { text: t("cloudTask.step.plan") };
+    case "error": return quiet(t("cloudTask.step.problem"), step.text);
+    case "done": return { text: step.ok ? t("cloudTask.step.done") : t("cloudTask.step.stopped") };
+    case "tool":
+      switch (bareTool(step.tool)) {
+        case "Read": case "LS": return quiet(t("cloudTask.step.read"), step.detail);
+        case "Edit": case "MultiEdit": case "NotebookEdit": return quiet(t("cloudTask.step.changed"), step.detail);
+        case "Write": return quiet(t("cloudTask.step.wrote"), step.detail);
+        case "Grep": return quiet(t("cloudTask.step.searched"), step.detail);
+        case "Glob": return quiet(t("cloudTask.step.looked"), step.detail);
+        case "Bash": case "BashOutput": return quiet(t("cloudTask.step.ran"), step.detail);
+        case "WebFetch": return quiet(t("cloudTask.step.opened"), step.detail);
+        case "WebSearch": return quiet(t("cloudTask.step.searchedWeb"), step.detail);
+        case "Task": case "Agent": return quiet(t("cloudTask.step.helper"), step.detail);
+        default: return quiet(t("cloudTask.step.used"), bareTool(step.tool).replace(/_/g, " "));
+      }
   }
 }
 
-export function changesLabel(changes: { files: number; additions: number; deletions: number }): string {
-  return changes.files === 1
-    ? t("cloudTask.changes.one", { additions: changes.additions, deletions: changes.deletions })
-    : t("cloudTask.changes", { files: changes.files, additions: changes.additions, deletions: changes.deletions });
+/** A run's steps as a person reads them: plain sentences, a repeated line said once, and the agent's
+ * closing words left to the finish line rather than said twice. The newest 200 at most. */
+export function plainSteps(steps: readonly CloudTaskStep[]): PlainStep[] {
+  const finalWords = new Set(steps.flatMap((step) => (step.k === "done" && step.text ? [step.text.trim()] : [])));
+  const plain: PlainStep[] = [];
+  for (const step of steps) {
+    if (step.k === "say" && finalWords.has(step.text.trim())) continue;
+    const next = plainStep(step);
+    if (!next) continue;
+    const previous = plain.at(-1);
+    if (previous && previous.text === next.text && previous.detail === next.detail) continue;
+    plain.push(next);
+  }
+  return plain.slice(-200);
+}
+
+/** The project a task works in, by its repository's name alone: "later-dog", not "woodbeary/later-dog". */
+export function projectName(repository: string | undefined): string {
+  return repository?.split("/").filter(Boolean).pop() ?? "";
 }
 
 export function filesChangedLabel(files: number): string {

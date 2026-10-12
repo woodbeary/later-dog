@@ -63,6 +63,9 @@ export class TrialRegistry extends DurableObject<Env> {
       used_ms INTEGER NOT NULL
     )`);
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS networks (network TEXT PRIMARY KEY, until INTEGER NOT NULL)");
+    // one row per trial a network started (networks above held one per network)
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS network_trials (network TEXT NOT NULL, until INTEGER NOT NULL)");
+    ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS network_trials_network ON network_trials (network)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, started INTEGER NOT NULL)");
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS plans (
       key_sha256 TEXT PRIMARY KEY,
@@ -171,14 +174,17 @@ export class TrialRegistry extends DurableObject<Env> {
     sql.exec("INSERT INTO usage_totals (day, kind, used) VALUES (?, ?, ?) ON CONFLICT (day, kind) DO UPDATE SET used = used + ?", day, input.kind, amount, amount);
   }
 
-  async activate(input: { keySha256: string; network: string; limitMs: number; windowMs: number; perDay: number }): Promise<Activation> {
+  async activate(input: { keySha256: string; network: string; limitMs: number; windowMs: number; perDay: number; perNetwork?: number }): Promise<Activation> {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     const prior = sql.exec<Row>("SELECT * FROM trials WHERE key_sha256 = ?", input.keySha256).toArray()[0];
     if (prior && prior.expires_at > now) return { ok: true, trial: trialOf(prior), replayed: true };
     if (prior) return { ok: false, refusal: { status: 409, code: "trial_ended", message: "This free trial has ended." } };
     sql.exec("DELETE FROM networks WHERE until <= ?", now);
-    if (sql.exec("SELECT 1 FROM networks WHERE network = ?", input.network).toArray().length > 0) {
+    sql.exec("DELETE FROM network_trials WHERE until <= ?", now);
+    const fromNetwork = sql.exec("SELECT 1 FROM networks WHERE network = ?", input.network).toArray().length
+      + sql.exec("SELECT 1 FROM network_trials WHERE network = ?", input.network).toArray().length;
+    if (fromNetwork >= Math.max(1, input.perNetwork ?? 1)) {
       return {
         ok: false,
         refusal: { status: 429, code: "trial_network_used", message: "A free trial was already started from this network recently. Try again in a few days." },
@@ -191,7 +197,7 @@ export class TrialRegistry extends DurableObject<Env> {
       return { ok: false, refusal: { status: 429, code: "trials_busy", message: "Today's free trials are all taken. Try again tomorrow." } };
     }
     const trial = this.insert(input.keySha256, now, input.limitMs, input.windowMs);
-    sql.exec("INSERT INTO networks (network, until) VALUES (?, ?)", input.network, now + input.windowMs);
+    sql.exec("INSERT INTO network_trials (network, until) VALUES (?, ?)", input.network, now + input.windowMs);
     sql.exec("INSERT INTO days (day, started) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET started = started + 1", day);
     await this.wakeBy(trial.expiresAt);
     console.log(`laterdog computers: trial ${trial.id} started`);

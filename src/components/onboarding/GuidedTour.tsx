@@ -124,7 +124,10 @@ export function GuidedTour() {
     dispatch({ type: "toggleTour", open: false });
   }, [state.pluginsOpen, run, save, dispatch]);
 
-  const waiting = waitingOnPerson(state.bots.find((bot) => bot.id === state.selectedId));
+  // the tour also waits out a dog's reply, so its first tip lands on a
+  // settled chat instead of covering the answer as it arrives
+  const openBot = state.bots.find((bot) => bot.id === state.selectedId);
+  const waiting = waitingOnPerson(openBot) || Boolean(openBot?.busy);
   const active = !dismissed && Boolean(record?.completedAt) && !state.welcomeOpen && step !== null && !waiting;
 
   // entering a step runs its effect once per step
