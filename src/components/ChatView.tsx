@@ -1311,7 +1311,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
             {chiefOfStaffBadge(bot)}
           </button>
-          {!bot.busy && bot.waitingForTeammates && <span className="truncate text-[12px] text-ink-secondary" role="status">Other dogs working</span>}
+          {!bot.busy && bot.waitingForTeammates && <span className="truncate text-[12px] text-ink-secondary" role="status">{t("chat.teammatesWorking")}</span>}
         </div>
         <div
           data-chathead-controls

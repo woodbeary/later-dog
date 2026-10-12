@@ -132,7 +132,6 @@
   "settings.updates.restart": "Neu starten und installieren",
   "settings.updates.check": "Nach Updates suchen",
   "settings.analytics.title": "Nutzungsstatistik",
-  "settings.analytics.subtitle": "Anonyme Produktereignisse — App geöffnet, welche Funktionen genutzt werden. Niemals Unterhaltungen, Prompts, Dateiinhalte oder die Ausgaben deiner Hunde. Deine E-Mail wird nur angehängt, wenn du sie bei der Einrichtung angegeben hast.",
   "settings.analytics.aria": "Nutzungsstatistik senden",
   "settings.updates.startingDownload": "Download startet…",
   "settings.updates.preparing": "Download abgeschlossen. macOS bereitet das Update vor.",

@@ -184,7 +184,6 @@
   "settings.updates.restart": "重启并安装",
   "settings.updates.check": "检查更新",
   "settings.analytics.title": "使用分析",
-  "settings.analytics.subtitle": "匿名的产品事件——应用被打开、哪些功能被使用。绝不包含对话、提示词、文件内容或你的狗狗的输出。只有你在设置时留过邮箱，才会附上邮箱。",
   "settings.analytics.aria": "发送使用分析",
   "settings.updates.startingDownload": "开始下载…",
   "settings.updates.preparing": "下载完成。macOS 正在准备此更新。",

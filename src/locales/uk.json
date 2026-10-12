@@ -143,7 +143,6 @@
   "settings.updates.restart": "Перезапустити й встановити",
   "settings.updates.check": "Перевірити оновлення",
   "settings.analytics.title": "Аналітика використання",
-  "settings.analytics.subtitle": "Анонімні продуктові події — відкриття застосунку, які функції використовуються. Ніколи не розмови, промпти, вміст файлів чи вивід ваших собак. Ваш email додається, лише якщо ви поділилися ним під час налаштування.",
   "settings.analytics.aria": "Надсилати аналітику використання",
   "settings.updates.startingDownload": "Починаємо завантаження…",
   "settings.updates.preparing": "Завантаження завершено. macOS готує оновлення.",

@@ -306,7 +306,7 @@ describe("Routines", () => {
     fixture.storeState = { ...fixture.storeState, routinesLoadState: "ready" };
     const rendered = dialog(makeBot());
     expect(rendered.html).toContain(">Routines</span>");
-    expect(rendered.html).toContain("Routines are tasks Scout runs on a schedule. Ask Scout in chat to set one up.");
+    expect(rendered.html).toContain("Ask Scout to do something every morning, or every Friday, and it shows up here.");
     fixture.storeState = { ...fixture.storeState, routinesLoadState: "error" };
     expect(find(dialog(makeBot()), "role", "alert").props.children).toBe("Couldn't refresh routines. Retrying… Saved information may be out of date.");
   });

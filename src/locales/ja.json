@@ -45,7 +45,6 @@
   "settings.updates.restart": "再起動してインストール",
   "settings.updates.check": "アップデートを確認",
   "settings.analytics.title": "利用状況の分析",
-  "settings.analytics.subtitle": "匿名の製品イベント（アプリの起動、使われた機能）です。会話、プロンプト、ファイルの中身、犬たちの出力は一切送りません。メールアドレスはセットアップで共有した場合にのみ添えられます。",
   "settings.analytics.aria": "利用状況の分析を送る",
   "settings.updates.startingDownload": "ダウンロードを開始中…",
   "settings.updates.preparing": "ダウンロードが完了しました。macOS がアップデートを準備しています。",
