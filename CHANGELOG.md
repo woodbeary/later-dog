@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.21 — 2026-10-12
+
+- **No more garbled replies from the free models.** When Kimi or Grok writes a step out as text instead of doing it, you no longer see that text: the dog is told once to do the step properly, and if it happens again it says so in one plain sentence.
+
 ## 0.3.20 — 2026-10-12
 
 - **Plain words when a step didn't work.** If a step of a Kimi or Grok dog's task fails or isn't allowed, the chat says "Some steps didn't work or weren't allowed, so check them before relying on this answer" instead of a technical notice.
