@@ -1372,7 +1372,7 @@
   "onboarding.tour.skip": "Skip tour",
   "onboarding.tour.finish": "Finish",
   "onboarding.tour.next": "Next",
-  "onboarding.tour.composer": "This is where you talk to your dogs. Type anything and press Enter. Every chat is a real agent on your machine.",
+  "onboarding.tour.composer": "This is where you talk to your dogs. Type anything and press Enter. Every chat is a real agent.",
   "onboarding.tour.model": "Every dog has its own brain. This chip shows the model; click it to switch, even mid-conversation.",
   "onboarding.tour.computer": "Open this to watch your dog use its computer.",
   "onboarding.tour.apps": "Connected apps. Gmail, Slack, GitHub, Notion, and hundreds more. Let's have a look.",

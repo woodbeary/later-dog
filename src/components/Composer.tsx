@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction 
 import { ModelPicker } from "./ModelPicker";
 import { ArrowUp, BookOpen, Clock, Mic, Paperclip, Square, Target, Users, X } from "lucide-react";
 import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
+import { waitingOnPerson } from "@/components/onboarding/GuidedTour";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
@@ -133,6 +134,8 @@ export function Composer({
   // offers members plus @everyone; explicit mentions override the room's
   // configured default responder.
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
+  // a dog holding its turn open on a question is waiting on you, not working
+  const asking = !group && waitingOnPerson(bot);
   // an engine with a live session takes a message INTO the running turn;
   // for those the composer never locks — the server steers instead of 409.
   // A room steers through its busy speaker's engine, mirroring how the
@@ -1148,11 +1151,11 @@ export function Composer({
               ? t("composer.placeholder.attaching")
               : recording
               ? t("composer.placeholder.listening")
-              : busy && canSteer
+              : busy && canSteer && !asking
                 ? pendingCount > 0
                   ? t("composer.placeholder.steerQueued", { name: busyName })
                   : t("composer.placeholder.steer", { name: busyName })
-              : busy
+              : busy && !asking
                 ? group
                   ? t("composer.placeholder.queueGroup", { name: busyName })
                   : t("composer.placeholder.queue", { name: busyName })
@@ -1185,7 +1188,7 @@ export function Composer({
           )}
           {/* Stop stays a stop. Stop-then-steer is named beside the queued
               message above, where its effect is visible before activation. */}
-          {(busy || bot?.waitingForTeammates) && !locked && (
+          {(busy || bot?.waitingForTeammates) && !locked && !asking && (
           <button
             onClick={interruptTurn}
             aria-label={t("chat.stopTurn")}

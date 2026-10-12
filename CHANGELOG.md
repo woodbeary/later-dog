@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.14 — 2026-10-12
+
+- **The tour waits its turn.** Its first tip shows once your dog has finished replying, instead of covering the answer as it arrives.
+- **Waiting on you reads that way.** While a dog's question is open, the message field says "Message Miso" with no stop button, because the dog is waiting for you, not working.
+- The tour no longer says every chat runs on your machine: on the free models a dog runs in the cloud.
+
 ## 0.3.13 — 2026-10-12
 
 - **A launch that feels intended.** later.dog opens on its golden dog and fades into the app once everything is ready, the same on a fast start or a slow network, and a dog's screen fades in on its first frame instead of popping in.
@@ -11,7 +17,7 @@
 ## 0.3.12 — 2026-10-12
 
 - **Straight into a chat.** A new later.dog asks your name and lets you pick a dog, then opens its chat already running on later.dog AI. No AI or sign-in step: the free trial starts by itself, and Claude or ChatGPT sign-ins wait in Settings for when you want them.
-- **Open a dog's computer and it boots.** Clicking the computer button starts the dog's cloud computer and shows its screen, A dog you put on this Mac keeps it.
+- **Open a dog's computer and it boots.** Clicking the computer button starts the dog's cloud computer and shows its screen. A dog you put on this Mac keeps it.
 - **Model and effort by the message field**, like other coding apps, instead of in the chat's header.
 - **A calmer sidebar.** The server switcher only appears when you're connected to another server, and the update icon sits at the bottom next to Apps.
 - **Accounts:** the drag handle to reorder them is always visible, and "Keep going when an account runs out" lives in Settings.
