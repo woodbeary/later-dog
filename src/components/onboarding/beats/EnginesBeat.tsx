@@ -285,7 +285,11 @@ export function EnginesBeat({ onNext, setMascot, bump }: BeatProps & { hosted?: 
   const instances = loaded || state.instances.length ? state.instances : null;
   const accounts = instances ? onboardingAccounts(instances, engineReady) : null;
   const loading = accounts === null;
-  const anyReady = (accounts?.some((account) => account.status === "ready") ?? false) || freeReady;
+  const ownReady = accounts?.some((account) => account.status === "ready") ?? false;
+  const anyReady = ownReady || freeReady;
+  const freeFirstAtLoad = useRef<boolean | null>(null);
+  if (freeFirstAtLoad.current === null && !loading) freeFirstAtLoad.current = !ownReady;
+  const freeFirst = freeFirstAtLoad.current === true;
 
   useEffect(() => {
     if (loading) {
@@ -311,10 +315,11 @@ export function EnginesBeat({ onNext, setMascot, bump }: BeatProps & { hosted?: 
         className="animate-rise mt-4 min-h-0 divide-y divide-hairline/40 overflow-y-auto rounded-xl bg-card [scrollbar-width:thin]"
         style={staggerIndex(1)}
       >
+        {freeFirst && <FreeAiRow primary onReady={markFreeReady} onStatus={setFreeStatus} />}
         {ONBOARDING_ACCOUNT_IDS.map((id) => (
           <AccountRow key={id} id={id} account={accounts?.find((account) => account.id === id) ?? null} report={report} />
         ))}
-        <FreeAiRow onReady={markFreeReady} onStatus={setFreeStatus} />
+        {!freeFirst && !loading && <FreeAiRow onReady={markFreeReady} onStatus={setFreeStatus} />}
       </ul>
       <p aria-live="polite" className="mt-2 min-h-5 text-[13px] leading-5 text-danger">
         {notice}

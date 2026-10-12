@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selectDefaultModelSelection, type SelectableInstance } from "../default-model-selection.ts";
 import { instanceConfigs } from "../config.ts";
-import { INCLUDED_AI_INSTANCE, IncludedAiDriver } from "./included-ai.ts";
+import { INCLUDED_AI_INSTANCE, IncludedAiDriver, includedAiError } from "./included-ai.ts";
 
 const KEY = `ldt_${"b".repeat(43)}`;
 let home: string;
@@ -62,5 +62,21 @@ describe("the engine a new dog gets", () => {
     expect(selectDefaultModelSelection([engine(INCLUDED_AI_INSTANCE, "laterdogAi"), engine("codex", "codex")]).instanceId).toBe("codex");
     expect(selectDefaultModelSelection([engine(INCLUDED_AI_INSTANCE, "laterdogAi"), engine("claude", "claudeAgent")]).instanceId).toBe("claude");
     expect(selectDefaultModelSelection([engine(INCLUDED_AI_INSTANCE, "laterdogAi")]).instanceId).toBe(INCLUDED_AI_INSTANCE);
+  });
+});
+
+describe("when later.dog AI can't answer", () => {
+  it("says what happened and what to do next, never a raw HTTP error", () => {
+    expect(includedAiError(429, JSON.stringify({ error: { code: "daily_limit", message: "x" } }))).toContain("used today's free later.dog AI");
+    expect(includedAiError(401, "{}")).toContain("keep going on later.dog Cloud");
+    expect(includedAiError(503, "{}")).toContain("busy right now");
+    expect(includedAiError(400, "{}")).toBeUndefined();
+  });
+
+  it("says the trial has ended instead of offering one that's gone", async () => {
+    writeFileSync(join(home, "computers-trial.json"), JSON.stringify({ api: "https://cloud.later.dog/v1", confirmed: true, ended: true }));
+    const instance = await create();
+    expect((await instance.snapshot()).reason).toContain("has ended");
+    await instance.dispose();
   });
 });

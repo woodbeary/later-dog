@@ -91,6 +91,7 @@ interface RuntimeOptions<Config> {
   models: () => ModelCatalog;
   requestBody(model: string, messages: OpenAIChatMessage[], stream: boolean): Record<string, unknown>;
   httpErrorLabel: string;
+  errorText?: (status: number, body: string) => string | undefined;
   missingKeyError: string;
   unavailableReason: string;
   timeoutMs: number;
@@ -296,7 +297,8 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       if (!response.ok) {
         const body = await response.text().catch(() => "");
         if (rejectsKey(response.status, body)) noteKeyRejected(options.apiUrl, apiKeyOf(options));
-        const message = `${options.httpErrorLabel} HTTP ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`;
+        const message = options.errorText?.(response.status, body)
+          ?? `${options.httpErrorLabel} HTTP ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`;
         if (rejectsToolsParameter(response.status, body)) throw new UnsupportedChatToolsError(message);
         const refusal = refusedToolCall(response.status, body);
         if (refusal) throw new RejectedToolCallError(message, refusal);

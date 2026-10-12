@@ -12,7 +12,7 @@ export const freeAiShown = (status: TrialStatus | null, started = false) =>
 
 export const freeAiReady = (status: TrialStatus | null) => (status?.state === "active" || status?.state === "used_up") && status.ai === true;
 
-export function FreeAiRow({ onReady, onStatus }: { onReady: () => void; onStatus?: (status: TrialStatus | null) => void }) {
+export function FreeAiRow({ onReady, onStatus, primary = false }: { onReady: () => void; onStatus?: (status: TrialStatus | null) => void; primary?: boolean }) {
   const { status, busy, error, start: startTrial } = useCloudTrial();
   const [started, setStarted] = useState(false);
   const start = () => {
@@ -53,7 +53,7 @@ export function FreeAiRow({ onReady, onStatus }: { onReady: () => void; onStatus
     );
   } else {
     slot = (
-      <button type="button" onClick={start} className={pill}>
+      <button type="button" onClick={start} className={cn(pill, primary && "bg-accent font-medium text-white hover:bg-accent hover:brightness-110")}>
         {t("onboarding.engines.freeAi.try")}
       </button>
     );
