@@ -1002,7 +1002,13 @@ export function ComputerPanel({
     booted.current = true;
     takeFreeCloud();
   });
+  // Taking the free computer and opening the panel can both ask for a start
+  // in the same draw. One ask at a time: a second would only meet the first
+  // one's lock, and its refusal would sit under a screen that came up fine.
+  const provisioning = useRef(false);
   const startCloudComputer = () => {
+    if (provisioning.current) return;
+    provisioning.current = true;
     setPending("provision");
     setError(null);
     setPhase("starting");
@@ -1010,6 +1016,7 @@ export function ComputerPanel({
       .then((result) => {
         setBoatState(result.state ?? null);
         setResolvedComputerSelection({ botId: bot.id, threadId: bot.threadId, computer: bot.computer, cloudBackend });
+        setError(null);
         setPhase("ready");
       })
       .catch((e) => {
@@ -1019,10 +1026,16 @@ export function ComputerPanel({
           setPhase("busy-boat");
           return;
         }
-        setError(e.message);
+        // Settings or another window is starting or changing it right now.
+        setError(isRemoteScreenshotContention({ status: Number(e?.status ?? 409), message: String(e?.message ?? "") })
+          ? new LocalizedPanelError("computer.err.changing")
+          : e.message);
         setPhase("error");
       })
-      .finally(() => setPending(null));
+      .finally(() => {
+        provisioning.current = false;
+        setPending(null);
+      });
   };
 
   const runVmAction = async (action: "vm-start" | "vm-create" | "vm-recreate" | "vm-delete") => {

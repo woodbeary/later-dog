@@ -2001,6 +2001,7 @@
   "computer.err.emptyFrame": "The computer returned an empty screen image.",
   "computer.err.frameTimeout": "The computer took too long to send a frame. Try again.",
   "computer.err.screenUnavailable": "The screen is temporarily unavailable.",
+  "computer.err.changing": "The computer is busy starting or changing. Try again in a moment.",
   "computer.err.noDesktopLink": "The computer did not return a live desktop link",
   "computer.err.openDesktop": "later.dog could not open the live desktop",
   "computer.err.openDesktopLink": "later.dog could not open the live desktop link",
