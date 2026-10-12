@@ -305,6 +305,7 @@ export class ProviderRegistry {
             images: inst.adapter.capabilities.images === true,
             effortLevels: inst.adapter.capabilities.effortLevels,
             modelVariants: inst.adapter.capabilities.modelVariants === true,
+            fastMode: inst.adapter.capabilities.fastMode === true,
             queueing: inst.adapter.capabilities.queueing === true,
             steerImages: inst.adapter.capabilities.steerImages === true,
             localComputerMcp: inst.adapter.capabilities.localComputerMcp === true,

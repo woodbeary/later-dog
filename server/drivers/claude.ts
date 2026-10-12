@@ -1670,6 +1670,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const settings: Record<string, unknown> = { ...authSettings };
       if (hooks) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH);
       if (turn.guestConfined) settings.permissions = GUEST_CLAUDE_PERMISSIONS;
+      if (turn.fast) settings.fastMode = true;
       const authSettingsPath = mcpConfigPath && Object.keys(settings).length
         ? join(dirname(mcpConfigPath), "auth-settings.json") : null;
       if (authSettingsPath) args.push("--settings", authSettingsPath);
@@ -1695,6 +1696,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         configDir: env.CLAUDE_CONFIG_DIR ?? null,
         // hooks on/off changes the settings file the process was launched with
         hooks: Boolean(hooks),
+        // so does fast mode
+        fast: Boolean(turn.fast),
         // Rotating an account's key/helper must not reuse the old process.
         auth: createHash("sha256").update(JSON.stringify({
           settings: authSettings,
@@ -2675,6 +2678,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           images: true,
           nativeImageInput: true,
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
+          // Claude Code's own fastMode setting: Opus, faster output
+          fastMode: true,
           queueing: true,
           steerImages: true,
           // Only while this CLI can be told to refresh a resumed session's

@@ -50,6 +50,9 @@ export interface ModelSelection {
   effort?: EffortLevel;
   /** Explicit model-specific variant. Omitted leaves the native session alone. */
   variant?: string;
+  /** Fast mode: the same model with faster output, where the engine has it
+   * (Claude Code's own fastMode setting; Opus models). */
+  fast?: boolean;
 }
 
 /** Which cloud computer backs computer: "cloud"; absent means Boat. */

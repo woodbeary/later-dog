@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { setVoiceMode, useVoiceMode } from "@/lib/voice-mode";
 import { Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
 import { useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
@@ -196,6 +197,15 @@ function LanguageRow() {
   );
 }
 
+function VoiceModeRow() {
+  const on = useVoiceMode();
+  return (
+    <SettingRow title={t("settings.voiceMode.title")} subtitle={t("settings.voiceMode.hint")}>
+      <Switch checked={on} aria-label={t("settings.voiceMode.title")} onClick={() => setVoiceMode(!on)} />
+    </SettingRow>
+  );
+}
+
 function NotificationSoundsRow() {
   const enabled = useNotificationSounds();
   return (
@@ -258,6 +268,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <ThemeRow />
           <LanguageRow />
           <NotificationSoundsRow />
+          <VoiceModeRow />
         </SettingsRows>
       </SettingsGroup>
       {(mac || analytics) && (

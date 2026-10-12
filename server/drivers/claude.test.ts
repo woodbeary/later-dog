@@ -1590,6 +1590,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(existsSync(settingsPath)).toBe(false);
   });
 
+  it("turns on Claude Code's fast mode for a fast turn, and only then", async () => {
+    const dump = join(scratch, "fast.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    expect(instance.adapter.capabilities.fastMode).toBe(true);
+    await instance.adapter.sendTurn({ threadId: "t-fast", text: "hi", model: "claude-opus-5-5", fast: true });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(JSON.parse(readFileSync(dump, "utf8")).settings).toMatchObject({ fastMode: true });
+    await instance.adapter.sendTurn({ threadId: "t-slow", text: "hi", model: "claude-opus-5-5" });
+    await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-slow");
+    expect(JSON.parse(readFileSync(dump, "utf8")).settings?.fastMode).toBeUndefined();
+  });
+
   it("restarts a retained session when the selected account's auth changes", async () => {
     const account = join(scratch, "account");
     mkdirSync(account);

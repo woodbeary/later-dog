@@ -47,6 +47,7 @@ export function SimpleModelPane({
   effort,
   variantsRow,
   onManage,
+  modelsOnly = false,
 }: {
   providers: RailProvider[];
   onProvider: (instance: InstanceInfo) => void;
@@ -61,6 +62,8 @@ export function SimpleModelPane({
   onSetUp: () => void;
   /** Claude or ChatGPT: sign in from Settings instead of the full picker. */
   onSignIn?: () => void;
+  /** Only the browsed account's models and effort: no providers, no Manage. */
+  modelsOnly?: boolean;
   /** The rows to show now: suggested, every model, or search results. */
   models: ModelOption[];
   /** Names more than one of the provider's models carry. */
@@ -89,8 +92,10 @@ export function SimpleModelPane({
   return (
     <div data-simple-model-pane className="flex min-h-0 w-full flex-col">
       <div className="flex min-h-0 flex-1">
-        {/* Providers: every one the picker knows, in a quiet column. */}
-        <div
+        {/* Providers: every one the picker knows, in a quiet column. Beside
+            the message field the chip is the model's alone: the account is
+            chosen in the chat header. */}
+        {!modelsOnly && <div
           data-simple-providers
           role="group"
           aria-label={t("model.simple.provider")}
@@ -133,7 +138,7 @@ export function SimpleModelPane({
               </button>
             );
           })}
-        </div>
+        </div>}
 
         {/* Models for the chosen provider, or what it needs first. */}
         <div data-simple-models className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -238,7 +243,7 @@ export function SimpleModelPane({
       </div>
 
       {/* Effort and scope along the bottom, spanning both columns. */}
-      <div data-simple-effort-band className="flex shrink-0 flex-col gap-2.5 border-t border-hairline/40 px-3 py-2.5">
+      {(!modelsOnly || variantsRow || (effort && effort.levels.length > 0)) && <div data-simple-effort-band className="flex shrink-0 flex-col gap-2.5 border-t border-hairline/40 px-3 py-2.5">
         {variantsRow ?? (effort && effort.levels.length > 0 && (
           <div
             data-simple-effort
@@ -264,7 +269,7 @@ export function SimpleModelPane({
           </div>
         ))}
 
-        <div className="flex items-center justify-end">
+        {!modelsOnly && <div className="flex items-center justify-end">
           <button
             type="button"
             data-simple-manage
@@ -274,8 +279,8 @@ export function SimpleModelPane({
             {t("model.simple.manage")}
             <ChevronRight size={13} aria-hidden="true" />
           </button>
-        </div>
-      </div>
+        </div>}
+      </div>}
     </div>
   );
 }

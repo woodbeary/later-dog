@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ExternalLink, Loader2, LogIn } from "lucide-react";
 import { api } from "@/state/store";
 import { useStore } from "@/state/store";
@@ -56,7 +56,7 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
   // one start per sheet, even when an effect runs twice
-  const autoStarted = useRef(false);
+  const [autoStarted] = useState(() => ({ current: false }));
   // a pasted code only when the browser can't hand the sign-in back
   const [withCode, setWithCode] = useState(false);
   const base = `/api/instances/${encodeURIComponent(instanceId)}/auth`;

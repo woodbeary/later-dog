@@ -24,6 +24,8 @@ import { useMenuMotion } from "./MenuMotion";
 import { repeatedModelLabels, SimpleModelPane } from "./SimpleModelPane";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { requestAddAccount } from "@/lib/add-account-request";
+import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
+import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
 import { friendlyEffort, simpleEffortLevels } from "@/lib/model-friendly";
 import { t } from "@/lib/i18n";
 import { COMPACT_SQUARE } from "@/lib/compact-chip";
@@ -264,8 +266,14 @@ export function modelSelectionForPick(selection: ModelSelection, instance: Insta
     if (instance.capabilities?.modelVariants) {
       if (model === selection.model && selection.variant !== undefined) next.variant = selection.variant;
     } else if (selection.effort) next.effort = selection.effort;
+    if (selection.fast && fastModeFits(instance, model)) next.fast = true;
   }
   return next;
+}
+
+/** Fast mode (same model, faster output) is Claude Code's, for Opus. */
+export function fastModeFits(instance: InstanceInfo | undefined, model: string): boolean {
+  return instance?.capabilities?.fastMode === true && /opus/i.test(model);
 }
 
 function ModelRow({
@@ -486,6 +494,9 @@ export function ClaudeAccountSelect({ accounts, selectedId, onSelect }: {
 const POPOVER_WIDTH = 420;
 /** The Simple view's width: a 128px provider column beside the models. */
 export const SIMPLE_POPOVER_WIDTH = 380;
+/** The header chip's accounts and the message field's models: small menus. */
+export const ACCOUNT_MENU_WIDTH = 220;
+export const MODEL_MENU_WIDTH = 240;
 /** Past this many models, the Simple view's opened list gets a search box. */
 const SIMPLE_SEARCH_AFTER = 12;
 
@@ -540,7 +551,8 @@ export function ModelPicker({
 
   const simpleView = !fullView;
   // The Simple view has its own, narrower width; the full picker keeps its.
-  const popoverWidth = simpleView ? SIMPLE_POPOVER_WIDTH : POPOVER_WIDTH;
+  const popoverWidth = part === "account" ? ACCOUNT_MENU_WIDTH : part === "model" ? MODEL_MENU_WIDTH
+    : simpleView ? SIMPLE_POPOVER_WIDTH : POPOVER_WIDTH;
   useLayoutEffect(() => {
     if (!open || contained) return;
     const place = () => {
@@ -781,7 +793,9 @@ export function ModelPicker({
   // a way to sign in after them. None of this hangs on the full picker's
   // pane, so browsing back to a provider shows the same list.
   const simpleSignIn = !customOnly && needsSignIn(railInstance);
-  const simpleOfficial = customOnly || simpleSignIn ? [] : official;
+  // Beside the message field every model of the account shows, signed in or
+  // not: signing in happens when a message is sent.
+  const simpleOfficial = customOnly || (simpleSignIn && part !== "model") ? [] : official;
   const simpleLocal = partitionCustomModels(custom);
   const simpleAll = [...simpleOfficial, ...simpleLocal.pinned, ...simpleLocal.rest];
   const simpleSetup = Boolean(railInstance && (railInstance.policy || needsCli(railInstance) || (simpleSignIn && simpleAll.length === 0)));
@@ -810,6 +824,35 @@ export function ModelPicker({
       ?? account.models.options.find((option) => !option.custom)?.id;
     if (model) pick(account, model, true);
   };
+  // The chat header's chip: accounts only. A sign-in family with more than
+  // one working account lists each; otherwise one row per provider.
+  const accountRows: AccountMenuRow[] = simpleProviders.flatMap((provider) => {
+    const family = signInFamily(provider.instance);
+    const members = family === "claude" ? claudeAccounts : family === "openai" ? openaiAccounts : [];
+    const working = members.filter((member) => !needsCli(member) && !needsSignIn(member));
+    if (working.length > 1) {
+      return working.map((member) => ({ instance: member, label: member.displayName, selected: member.instanceId === selection.instanceId }));
+    }
+    // a family's row runs on the member that can list models
+    const target = family ? working[0] ?? members.find((member) => member.models.options.length > 0) ?? provider.target : provider.target;
+    return [{ instance: target, label: family === "openai" ? "ChatGPT" : provider.label, selected: provider.selected }];
+  });
+  const chooseAccount = (account: InstanceInfo) => {
+    setOpen(false);
+    if (account.instanceId === selection.instanceId) return;
+    const model = [selection.model, account.models.default].find((id) => id && account.models.options.some((option) => option.id === id))
+      ?? account.models.options.find((option) => !option.custom)?.id ?? account.models.default;
+    if (model) pick(account, model);
+  };
+  // The message field's chip: every model usable now, by account in the
+  // header's order, and the current one even before its account signs in.
+  const modelGroups: ModelMenuGroup[] = accountRows.flatMap((row) => {
+    const usable = !row.instance.policy && !needsCli(row.instance) && !needsSignIn(row.instance);
+    if (!usable && row.instance.instanceId !== selection.instanceId) return [];
+    const own = row.instance.models.options.filter((option) => !option.custom);
+    const models = own.length > 0 ? own : row.instance.models.options;
+    return models.length > 0 ? [{ instance: row.instance, label: row.label, models }] : [];
+  });
   const showSwitcher = simpleView && shownAccounts(switcherAccounts, selection.instanceId).length > 1;
   const manage = () => {
     setOpen(false);
@@ -899,7 +942,7 @@ export function ModelPicker({
         </span>
         {/* outside the truncating span: a long model name must not be what
             hides the effort the header exists to surface */}
-        {selectedVariantLabel !== undefined ? (
+        {part === "model" ? null : selectedVariantLabel !== undefined ? (
           <span data-model-variant className="max-w-[120px] truncate text-ink-secondary">· {selectedVariantLabel}</span>
         ) : selection.effort && (
           <span data-model-effort className="shrink-0 text-ink-secondary">
@@ -907,7 +950,7 @@ export function ModelPicker({
           </span>
         )}
       </span>}
-      {part !== "account" && <ChevronDown
+      {part === undefined && <ChevronDown
         size={14}
         className={cn(
           "text-ink-secondary transition-transform",
@@ -937,7 +980,8 @@ export function ModelPicker({
           {...motion.exitProps}
           style={contained ? undefined : { ...placement, width: popoverWidth }}
           className={cn(
-            "flex flex-col overflow-hidden rounded-2xl border border-hairline/50 bg-card",
+            // the model menu's More models opens beside it, so it may not clip
+            "flex flex-col rounded-2xl border border-hairline/50 bg-card", part === "model" ? "overflow-visible" : "overflow-hidden",
             contained
               ? "relative mt-3 w-full max-h-[min(420px,50dvh)]"
               : cn("absolute z-30 max-w-[calc(100vw-2rem)] max-h-[min(600px,calc(100dvh-7rem))] shadow-2xl shadow-black/50", above ? "bottom-full mb-2" : "right-0 top-full mt-2"),
@@ -947,7 +991,16 @@ export function ModelPicker({
           {bot.busy && (
             <p data-model-next-reply className="shrink-0 border-b border-hairline/40 px-3 py-2 text-[12px] text-ink-secondary">{t("model.nextReply")}</p>
           )}
-          {showSwitcher && page === "accounts" ? (
+          {part === "account" ? (
+            <AccountMenu rows={accountRows} onPick={chooseAccount} />
+          ) : part === "model" ? (
+            <ModelMenu
+              groups={modelGroups}
+              currentInstanceId={selection.instanceId}
+              currentModel={selection.model}
+              onPick={(instance, model) => pick(instance, model)}
+            />
+          ) : showSwitcher && page === "accounts" && part !== "model" ? (
             <div data-model-accounts className="flex min-h-0 flex-col overflow-y-auto">
               <AccountSwitcher accounts={switcherAccounts} currentId={selection.instanceId} report={usage.report}
                 now={usage.now} resting={battery?.resting} onPick={switchAccount} />
@@ -977,7 +1030,7 @@ export function ModelPicker({
               {t("accounts.title")}
             </button>
           )}
-          {follows !== undefined && (
+          {follows !== undefined && part !== "model" && (
             <FollowBotModelRow name={profile.name} model={botModelName} follows={follows} onPick={pickBotModel} />
           )}
           <div className="flex min-h-0 min-w-0 flex-1">
@@ -986,8 +1039,9 @@ export function ModelPicker({
               providers={simpleProviders}
               onProvider={browseSimple}
               managedBy={railInstance?.policy?.organizationName ?? null}
-              needsSetup={railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: simpleFamily !== undefined && !railInstance.policy } : null}
-              signIn={railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
+              modelsOnly={part === "model"}
+              needsSetup={part !== "model" && railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: simpleFamily !== undefined && !railInstance.policy } : null}
+              signIn={part !== "model" && railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
               // Claude and ChatGPT sign in where accounts live: Settings
               // opens straight on that provider's sign-in.
               onSignIn={() => {
@@ -1028,7 +1082,7 @@ export function ModelPicker({
                 />
               ) : undefined}
               currentModelId={currentModel}
-              botModelId={botModelId}
+              botModelId={part === "model" ? undefined : botModelId}
               onPick={(model) => railInstance && pick(railInstance, model)}
               variantsRow={active?.capabilities?.modelVariants ? (
                 // A closed select shows only its choice, so it keeps a short name.

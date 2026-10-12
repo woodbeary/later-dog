@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.15 — 2026-10-12
+
+- **Model and effort the way Claude Code does them.** Beside the message field, the model button lists a few models by name, the current one checked and the others numbered (press 1-4), with More models for the rest. It shows every model you can use now: the free Kimi K2.6 and Grok 4.3, and the models of any account you've signed in. Effort is its own button: a Faster to Smarter slider with the recommended level marked.
+- **Fast mode** for the models that have it (Claude's Opus models, through Claude Code's own fast mode), in the effort popup.
+- **Accounts on top, nothing repeated.** The chat header's account button lists your accounts and nothing else.
+- **Sign in when you need to.** Pick Claude or ChatGPT before you've signed in and the first message you send opens their sign-in; it sends once you're in.
+- **One + button.** Attach files, open Connectors and choose Permissions from a single + beside the message field, in place of the paperclip and the shield.
+- **Voice mode is a setting.** The voice button shows only after you turn on Voice mode in Settings, General.
+
 ## 0.3.14 — 2026-10-12
 
 - **Pick the model by name.** The free models show as **Kimi** and **Grok** in the account list, each with its own mark, instead of one "later.dog" entry. Both run free through the trial. If you sign in to Grok yourself, your own account takes over that row.

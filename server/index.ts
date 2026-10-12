@@ -3472,7 +3472,7 @@ function checkedModelSelection(
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, status: 400, error: "modelSelection must be an object" };
   }
-  const value = raw as { instanceId?: unknown; model?: unknown; effort?: unknown; variant?: unknown };
+  const value = raw as { instanceId?: unknown; model?: unknown; effort?: unknown; variant?: unknown; fast?: unknown };
   if (typeof value.instanceId !== "string" || !value.instanceId.trim()) {
     return { ok: false, status: 400, error: "modelSelection.instanceId is required" };
   }
@@ -3499,11 +3499,16 @@ function checkedModelSelection(
     }
     selection.variant = value.variant;
   }
+  if (value.fast !== undefined) {
+    if (typeof value.fast !== "boolean") return { ok: false, status: 400, error: "fast must be true or false" };
+    if (value.fast) selection.fast = true;
+  }
   const changed = current && (
     selection.instanceId !== current.selection.instanceId ||
     selection.model !== current.selection.model ||
     selection.effort !== current.selection.effort ||
-    selection.variant !== current.selection.variant
+    selection.variant !== current.selection.variant ||
+    Boolean(selection.fast) !== Boolean(current.selection.fast)
   );
   if (current?.busy && changed) {
     return { ok: false, status: 409, error: "the dog is working — stop it before changing models" };
@@ -3537,6 +3542,9 @@ function checkedModelSelection(
   }
   if (target && selection.variant !== undefined && !target.adapter.capabilities.modelVariants) {
     return { ok: false, status: 400, error: "model variants are not offered by this dog's engine" };
+  }
+  if (target && selection.fast && !target.adapter.capabilities.fastMode) {
+    return { ok: false, status: 400, error: "fast mode is not offered by this dog's engine" };
   }
   return { ok: true, selection };
 }
@@ -9894,6 +9902,7 @@ async function startTurn(
   const model = bot.modelSelection.model;
   const effort = bot.modelSelection.effort;
   const variant = bot.modelSelection.variant;
+  const fast = bot.modelSelection.fast === true && instance.adapter.capabilities.fastMode === true;
   assertModelVariantSupported({ variant, effort }, instance.adapter.capabilities);
   // A selection can be persisted while its engine is offline. Re-check when
   // the engine returns so an old or unsupported value never reaches a CLI.
@@ -10973,6 +10982,7 @@ async function startTurn(
         model,
         effort,
         variant,
+        ...(fast ? { fast: true } : {}),
         // a rewound thread never resumes the abandoned branch's session
         // the active task's own session — another task's cursor would
         // resume the wrong conversation and defeat the context bubble
