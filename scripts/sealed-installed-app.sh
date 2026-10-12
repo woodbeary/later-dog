@@ -37,6 +37,8 @@ bearer_header() {
 }
 
 cleanup() {
+  # Every step runs even if one before it fails, so nothing is left behind.
+  set +e +o pipefail
   if [ -s "$SEALED/.laterdog/computers-trial-key" ]; then
     header=$(bearer_header "$SEALED/.laterdog/computers-trial-key")
     curl -s -o /dev/null -w "ended the copy's free trial: HTTP %{http_code}\n" -X DELETE -H @"$header" "$TRIAL_API/trial" || true
