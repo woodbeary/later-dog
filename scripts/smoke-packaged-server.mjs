@@ -62,6 +62,7 @@ const fixtureEnv = {
   XDG_DATA_HOME: join(home, ".local", "share"),
   LATERDOG_HOME: join(home, ".laterdog"),
   LATERDOG_SERVER_PORT: String(port),
+  LATERDOG_TRIAL_API: "off",
   // Not a genuine key: enough to make the server look for its enterprise
   // layer and say whether it found one (checked below), never enough to
   // unlock anything.

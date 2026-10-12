@@ -1,6 +1,6 @@
 // Small pieces every beat of the welcome flow shares, so the beats read as
 // one surface: the same input, the same primary button.
-import type { CSSProperties } from "react";
+import { useRef, type CSSProperties } from "react";
 import { cn } from "@/lib/cn";
 import type { DogMotion, DogState } from "@/lib/mascot";
 
@@ -24,15 +24,27 @@ export function staggerIndex(i: number): CSSProperties {
   return { "--i": i } as CSSProperties;
 }
 
+export const PRIMARY_SETTLE_MS = 600;
+export const PRIMARY_REPEAT_MS = 800;
+
 export function PrimaryButton({
   children,
   className,
+  onClick,
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  const shownAt = useRef(Date.now());
+  const lastClick = useRef(0);
   return (
     <button
       data-primary=""
       {...rest}
+      onClick={(event) => {
+        const now = Date.now();
+        if (now - shownAt.current < PRIMARY_SETTLE_MS || now - lastClick.current < PRIMARY_REPEAT_MS) return;
+        lastClick.current = now;
+        onClick?.(event);
+      }}
       className={cn(
         "w-full shrink-0 rounded-lg bg-accent py-2.5 text-[15px] font-medium text-white transition-[transform,opacity] duration-150 active:scale-[0.98] disabled:opacity-40",
         className,

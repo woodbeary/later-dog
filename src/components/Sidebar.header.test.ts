@@ -92,7 +92,7 @@ describe("sidebar top row", () => {
     buttons: row.indexOf("data-sidebar-top-buttons"),
   });
 
-  it("puts the lights, a drag space, then the compact server switcher beside the buttons on one macOS row", () => {
+  it("puts the lights, a drag space, then the buttons on one macOS row, with no server switcher on your own Mac", () => {
     fixture.windowChrome = "mac-inset";
     desktop();
     const html = render();
@@ -104,8 +104,8 @@ describe("sidebar top row", () => {
     expect(lights).toBeGreaterThan(-1);
     expect(slot).toBeGreaterThan(lights);
     expect(spacer).toBeGreaterThan(slot);
-    expect(switcher).toBeGreaterThan(spacer);
-    expect(buttons).toBeGreaterThan(switcher);
+    expect(switcher).toBe(-1);
+    expect(buttons).toBeGreaterThan(spacer);
     expect(row.slice(buttons).match(/<button/g)).toHaveLength(1);
     // 16px in on the left like the lights; 8px on the right, so the last
     // button sits near the sidebar's edge. `relative` anchors the switcher's
@@ -126,13 +126,7 @@ describe("sidebar top row", () => {
     expect(switcherClasses).toEqual(expect.arrayContaining(["min-w-0", "max-w-[140px]"]));
     expect(switcherClasses).not.toContain("flex-1");
     expect(classesOf(row, "data-sidebar-top-buttons")).toEqual(expect.arrayContaining(["shrink-0", "gap-0.5"]));
-    // Only the switcher's button opts out of the drag region; it clips
-    // rather than spilling onto the buttons in the narrowest rows, and its
-    // title and label keep the whole name.
-    expect(row).toMatch(/aria-label="Switch server: Servers"[^>]*title="Servers"[^>]*class="[^"]*\bh-7\b[^"]*\boverflow-hidden\b[^"]*\btext-\[12\.5px\][^"]*" style="-webkit-app-region:no-drag"/);
-    expect(row).toContain('<span class="min-w-0 truncate @max-[164px]/sidebar-top:hidden">Servers</span>');
-    // No second, full-width switcher row beneath the header.
-    expect(html.match(/Switch server:/g)).toHaveLength(1);
+    expect(html).not.toContain("Switch server:");
   });
 
   it.each([["win-caption", "Windows"], ["native", "Linux"]] as const)(
@@ -149,9 +143,9 @@ describe("sidebar top row", () => {
       const { slot, spacer, switcher, buttons } = order(row);
       expect(slot).toBeGreaterThan(-1);
       expect(spacer).toBeGreaterThan(slot);
-      expect(switcher).toBeGreaterThan(spacer);
-      expect(buttons).toBeGreaterThan(switcher);
-      expect(html.match(/Switch server:/g)).toHaveLength(1);
+      expect(switcher).toBe(-1);
+      expect(buttons).toBeGreaterThan(spacer);
+      expect(html).not.toContain("Switch server:");
     },
   );
 
@@ -174,7 +168,7 @@ describe("sidebar top row", () => {
     expect(classesOf(row, "data-sidebar-top-row")).toEqual(["flex", "items-center", "flex-col", "gap-1", "px-2", "pt-3.5", "pb-1"]);
     expect(classesOf(row, "data-traffic-light-space")).toEqual(["h-5", "w-full"]);
     expect(classesOf(row, "data-sidebar-top-buttons")).toEqual(["relative", "flex", "shrink-0", "items-center", "flex-col", "gap-1"]);
-    expect(html.match(/Switch server:/g)).toHaveLength(1);
+    expect(html).not.toContain("Switch server:");
   });
 });
 

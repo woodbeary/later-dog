@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ComputersApiError, ComputersClient, ComputersConfigError, TRIAL_KEY, computersConnection, computersSelected, savedTrial, trialInUse,
 } from "./cloud-computers.ts";
-import { DEFAULT_TRIAL_API, cancelPlan, endTrial, startPlan, startTrial, trialStatus, type TrialOptions } from "./cloud-trial.ts";
+import { DEFAULT_TRIAL_API, autoStartTrial, cancelPlan, endTrial, startPlan, startTrial, trialStatus, type TrialOptions } from "./cloud-trial.ts";
 
 const API = "https://trial.example.test/v1";
 const EXPIRES = "2026-10-17T12:00:00.000Z";
@@ -358,5 +358,31 @@ describe("what a free trial includes", () => {
     service.included = ["decisions"];
     expect(await trialStatus(options)).not.toHaveProperty("ai");
     expect(saved().included).toEqual(["decisions"]);
+  });
+});
+
+describe("the free trial a new installation claims by itself", () => {
+  it("saves a confirmed trial only when the service accepts the claim, and never twice", async () => {
+    const posts: Array<{ url: string; claim: string }> = [];
+    const accept = (async (input: string | URL | Request, init?: RequestInit) => {
+      posts.push({ url: String(input), claim: JSON.parse(String(init?.body)).claim });
+      return new Response(JSON.stringify({ trial: { state: "active" }, included: ["decisions", "voice", "ai", "nope"] }), { status: 201 });
+    }) as typeof fetch;
+    expect(await autoStartTrial({ otherComputers: () => false, fetch: accept })).toBe(true);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.url).toBe(`${API}/trials/start`);
+    expect(posts[0]!.claim).toBe(createHash("sha256").update(savedKey()).digest("hex"));
+    expect(saved()).toEqual({ api: API, confirmed: true, included: ["decisions", "voice", "ai"] });
+    expect(mode(keyFile())).toBe(0o600);
+    expect(await autoStartTrial({ otherComputers: () => false, fetch: accept })).toBe(false);
+    expect(posts).toHaveLength(1);
+  });
+
+  it("leaves nothing behind when the service refuses or cloud computers are set up", async () => {
+    const refuse = (async () => new Response(JSON.stringify({ error: { code: "trial_network_used" } }), { status: 429 })) as typeof fetch;
+    expect(await autoStartTrial({ otherComputers: () => false, fetch: refuse })).toBe(false);
+    expect(existsSync(stateFile())).toBe(false);
+    expect(existsSync(keyFile())).toBe(false);
+    expect(await autoStartTrial({ otherComputers: () => true, fetch: refuse })).toBe(false);
   });
 });

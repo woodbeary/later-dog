@@ -659,6 +659,7 @@ import { createDeciderRoutes } from "./routes/decider.ts";
 import { createThreadModelRoutes } from "./routes/thread-models.ts";
 import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
+import { autoStartTrial } from "./laterdog/cloud-trial.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
 import { localDesktopTarget, localVmViewerStatus, viewerTargetId } from "./desktop-viewer-targets.ts";
@@ -16191,6 +16192,20 @@ ROUTES.push(createCloudTrialRoutes({
     void reloadIncludedAi().catch((error) => console.warn(`[included-ai] reload failed: ${(error as Error).message}`));
   },
 }));
+
+// later.dog: a new installation with no AI of its own claims its free
+// trial by itself, so the first dog answers without a setup screen.
+if (!process.env.VITEST) setTimeout(() => {
+  void (async () => {
+    const own = (await describeInstances()).some((instance) => instance.instanceId !== INCLUDED_AI_INSTANCE
+      && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false);
+    if (own) return;
+    if (await autoStartTrial({ otherComputers: () => boat.otherComputersConfigured(cfg) })) {
+      broadcast({ kind: "config", ...configStatus() });
+      await reloadIncludedAi();
+    }
+  })().catch((error) => console.warn(`[free-trial] automatic start failed: ${(error as Error).message}`));
+}, 1_500).unref?.();
 
 async function reloadIncludedAi() {
   const entry = instanceConfigs(cfg)[INCLUDED_AI_INSTANCE];

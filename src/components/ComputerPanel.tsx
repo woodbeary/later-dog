@@ -51,7 +51,7 @@ import { openPlaceAction, placeBlocked, placeFacts, placeViewFor, usePlaceSeat }
 import { cloudRefusal, type PlaceActionId, type PlaceFacts, type PlaceView } from "../../shared/place-view";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
-import { CloudTrialOffer } from "./CloudTrial";
+import { CloudTrialOffer, useCloudTrial } from "./CloudTrial";
 
 /** Keep local failure copy translatable while it remains in panel state. */
 class LocalizedPanelError extends Error {
@@ -992,6 +992,17 @@ export function ComputerPanel({
     setAutoStartCloud(true);
     updateComputerSelection({ computer: "cloud" });
   };
+  const { status: trialNow } = useCloudTrial();
+  const cloudReady = trialNow?.state === "active" || state.config?.box?.configured === true;
+  const booted = useRef(false);
+  useEffect(() => {
+    if (booted.current || window.laterdog?.remoteClient?.active === true) return;
+    if (profileBot.computer !== undefined && profileBot.computer !== "off") return;
+    if (livePlace === "cloud" || livePlace === "vm" || livePlace === "local" || livePlace === "browser") return;
+    if (!cloudReady || profileBot.busy) return;
+    booted.current = true;
+    takeFreeCloud();
+  });
   const startCloudComputer = () => {
     setPending("provision");
     setError(null);

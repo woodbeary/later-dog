@@ -279,7 +279,7 @@ export function UpdatePanel({ phase, state, working, pending, onInstall, onRetry
   );
 }
 
-export function UpdateButton({ align = "right" }: { align?: "left" | "right" }) {
+export function UpdateButton({ align = "right", above = false }: { align?: "left" | "right"; above?: boolean }) {
   const state = useUpdaterState();
   const { state: store } = useStore();
   const [open, setOpen] = useState(false);
@@ -325,7 +325,8 @@ export function UpdateButton({ align = "right" }: { align?: "left" | "right" }) 
           aria-label={title}
           data-update-popover
           className={cn(
-            "absolute top-full z-40 mt-1 w-[min(18rem,calc(var(--sidebar-width,18rem)-1.5rem))] overflow-hidden rounded-xl border border-hairline/50 bg-menu shadow-2xl shadow-black/60",
+            "absolute z-40 w-[min(18rem,calc(var(--sidebar-width,18rem)-1.5rem))] overflow-hidden rounded-xl border border-hairline/50 bg-menu shadow-2xl shadow-black/60",
+            above ? "bottom-full mb-1" : "top-full mt-1",
             align === "left" ? "left-0" : "right-0",
             motion.className,
           )}

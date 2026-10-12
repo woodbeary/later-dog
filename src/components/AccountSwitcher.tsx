@@ -4,7 +4,6 @@ import type { InstanceInfo } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { InstanceProviderMark } from "./ProviderIcons";
-import { Switch } from "./SettingsPrimitives";
 import { signedIn, useCarryOn } from "./AccountsPanel";
 import { resetClock, usageLines, usageReading, usageTone, type PlanProvider, type PlanUsageReport, type UsageTone } from "./PlanUsage";
 
@@ -147,7 +146,7 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
                   data-account-grip={canMove || undefined}
                   title={canMove ? t("accounts.dragHint") : undefined}
                   className={cn(
-                    "flex w-6 shrink-0 cursor-grab items-center justify-center self-stretch text-ink-tertiary opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                    "flex w-6 shrink-0 cursor-grab items-center justify-center self-stretch text-ink-tertiary",
                     !canMove && "invisible",
                   )}
                 >
@@ -158,11 +157,6 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
           );
         })}
       </ul>
-      <div className="flex items-center justify-between gap-3 px-3 pb-1.5 pt-1">
-        <span className="min-w-0 text-[12px] text-ink-secondary">{t("accounts.carryOn")}</span>
-        <Switch checked={carryOn.on} disabled={carryOn.saving} aria-label={t("accounts.carryOn")} onClick={() => void carryOn.set(!carryOn.on)} />
-      </div>
-      {carryOn.error && <p role="alert" className="px-3 pb-1.5 text-[12px] text-danger">{carryOn.error}</p>}
     </section>
   );
 }

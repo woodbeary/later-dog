@@ -135,13 +135,13 @@ export interface BeatOptions {
 /** Beats in order for this session. The exit beat is always last so the
  * seeded bot is named even when everything else was skipped. A hosted
  * workspace gets a greeting and the bot: its organisation assigns the models,
- * and the reel, engines, permissions and phone beats all describe this
- * computer, which a hosted workspace is not. */
+ * and the reel, permissions and phone beats all describe this computer, which
+ * a hosted workspace is not. No beat asks for an AI: a new installation runs
+ * on later.dog AI from its first message, and Settings holds the sign-ins. */
 export function beatsFor(options: BeatOptions): BeatId[] {
   if (options.hosted) return ["hello", "bot"];
   const beats: BeatId[] = ["hello"];
   if (options.reel) beats.push("reel");
-  beats.push("engines");
   beats.push("bot");
   return beats;
 }

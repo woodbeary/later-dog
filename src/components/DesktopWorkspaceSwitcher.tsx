@@ -51,6 +51,7 @@ export function DesktopWorkspaceSwitcher({ compact = false, inline = false, clou
       </div>
     </div>;
   }
+  if (!cloudHome && current?.local !== false) return null;
   // Main names the saved server; until it answers, a Cloud home is still My Cloud.
   const name = current?.name ?? (cloudHome ? t("cloudSetup.myCloud") : "Servers");
   const Icon = current?.local === false || (cloudHome && !current) ? Cloud : Laptop;
