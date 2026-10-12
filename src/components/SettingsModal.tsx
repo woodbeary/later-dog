@@ -288,35 +288,51 @@ function GeneralPage({ mac }: { mac: boolean }) {
   );
 }
 
-/** Every model of the accounts signed in now, each with a switch: only
- * those switched on show in a chat's model menu (as in Cursor). */
+/** Every model of the accounts signed in now, as Cursor lists them: a search
+ * and one quiet row per model with a small switch. Only models switched on
+ * show in a chat's model menu. Two accounts of one kind name their account. */
 function ModelsPage() {
   const { state } = useStore();
   const hidden = useHiddenModels();
+  const [query, setQuery] = useState("");
   const accounts = state.instances.filter((instance) => !instance.policy && !needsCli(instance) && !needsSignIn(instance)
     && instance.models.options.some((option) => !option.custom));
+  const kinds = accounts.map((account) => account.driverKind);
+  const needle = query.trim().toLowerCase();
+  const rows = accounts
+    .flatMap((account) => account.models.options.filter((option) => !option.custom).map((option) => ({ account, option })))
+    .filter(({ option }) => !needle || option.label.toLowerCase().includes(needle) || option.id.toLowerCase().includes(needle));
+  if (accounts.length === 0) return <p className="px-1 text-[13px] text-ink-secondary">{t("settings.models.none")}</p>;
   return (
-    <>
-      {accounts.length === 0 && <p className="px-4 text-[13px] text-ink-secondary">{t("settings.models.none")}</p>}
-      {accounts.map((account) => (
-        <SettingsGroup key={account.instanceId} label={account.displayName} testId={`models-${account.instanceId}`}>
-          <SettingsRows>
-            {account.models.options.filter((option) => !option.custom).map((option) => {
-              const shown = modelShown(account.instanceId, option.id, hidden);
-              return (
-                <SettingRow key={option.id} title={option.label} subtitle="">
-                  <Switch
-                    checked={shown}
-                    aria-label={t("settings.models.show", { model: option.label })}
-                    onClick={() => setModelShown(account.instanceId, option.id, !shown)}
-                  />
-                </SettingRow>
-              );
-            })}
-          </SettingsRows>
-        </SettingsGroup>
-      ))}
-    </>
+    <div data-settings-group="models" className="flex flex-col">
+      <input
+        type="search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={t("settings.models.search")}
+        aria-label={t("settings.models.search")}
+        className="mb-2 h-8 w-full rounded-lg bg-inset px-3 text-[13px] text-ink placeholder:text-ink-tertiary focus:outline-none"
+      />
+      {rows.map(({ account, option }) => {
+        const shown = modelShown(account.instanceId, option.id, hidden);
+        const named = kinds.filter((kind) => kind === account.driverKind).length > 1;
+        return (
+          <label key={`${account.instanceId}:${option.id}`} data-settings-model={`${account.instanceId}:${option.id}`}
+            className="flex h-8 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-control/40">
+            <span className={cn("min-w-0 flex-1 truncate text-[13px]", shown ? "text-ink" : "text-ink-secondary")}>
+              {option.label}
+              {named && <span className="text-ink-tertiary"> · {account.displayName}</span>}
+            </span>
+            <Switch
+              size="small"
+              checked={shown}
+              aria-label={t("settings.models.show", { model: option.label })}
+              onClick={() => setModelShown(account.instanceId, option.id, !shown)}
+            />
+          </label>
+        );
+      })}
+    </div>
   );
 }
 

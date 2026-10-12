@@ -385,6 +385,7 @@
   "settings.section.models": "Models",
   "settings.models.none": "Sign in to an account to choose its models.",
   "settings.models.show": "Show {model} in chats",
+  "settings.models.search": "Search models",
   "settings.section.computer": "Computer",
   "settings.group.accounts": "Accounts",
   "settings.group.apiKeys": "API keys",

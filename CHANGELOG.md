@@ -3,6 +3,7 @@
 ## 0.3.15 — 2026-10-12
 
 - **Model and effort the way Claude Code does them.** Beside the message field, the model button lists a few models by name, the current one checked and the others numbered (press 1-4), with More models for the rest. It shows every model you can use now: the free Kimi K2.6 and Grok 4.3, and the models of any account you've signed in. Effort is its own button: a Faster to Smarter slider with the recommended level marked.
+- **Choose which models show**, as in Cursor: Settings, Models lists every model of your signed-in accounts with a switch, and a chat's model menu shows only the ones switched on.
 - **Fast mode** for the models that have it (Claude's Opus models, through Claude Code's own fast mode), in the effort popup.
 - **Accounts on top, nothing repeated.** The chat header's account button lists the accounts you're signed in to (and the free Kimi and Grok), under the names you gave them, with Add account at the end.
 - **Sign in when you need to.** Pick Claude or ChatGPT before you've signed in and the first message you send opens their sign-in; it sends once you're in.
