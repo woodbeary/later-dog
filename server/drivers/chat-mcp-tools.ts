@@ -21,7 +21,9 @@ export interface ChatToolResult { text: string; ok: boolean; images?: ChatImageP
 /** How one call is shown to the person: the tool named on its approval card
  * and in the transcript, the input previewed there, and whether a card is
  * needed at all. */
-export interface ChatToolCallView { title: string; input: Record<string, unknown>; ask: boolean }
+/** ownComputer: a tool of the dog's own computer or built-in browser (not a
+ * connected app or a custom server), which Off-leash runs without a card. */
+export interface ChatToolCallView { title: string; input: Record<string, unknown>; ask: boolean; ownComputer?: boolean }
 /** The transport cannot safely continue this turn. A dispatched operation may
  * already have taken effect, so callers must not retry it through a new round. */
 export class ChatToolSessionError extends Error {}
@@ -277,7 +279,7 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
   const cancel = () => { void close().catch(() => {}); };
   signal.addEventListener("abort", cancel, { once: true });
   const definitions: ChatToolDefinition[] = [];
-  const registered = new Map<string, { client: ChatMcpClient; server: string; builtInBrowser: boolean; builtInAgents: boolean; name: string; schema: ValidateFunction; searched: boolean }>();
+  const registered = new Map<string, { client: ChatMcpClient; server: string; builtInBrowser: boolean; builtInAgents: boolean; builtInComputer: boolean; name: string; schema: ValidateFunction; searched: boolean }>();
   try {
     if (signal.aborted) throw aborted();
     // Start independent servers concurrently; consume results in config order
@@ -295,11 +297,12 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
       // A searched URL server answers over the internet: its initialize and
       // whole tools/list get the URL budget; command servers keep theirs.
       const tools = await client.tools(signal, include, searchable.has(name) ? REMOTE_MCP_STARTUP_MS : STARTUP_MS);
-      return { name, client, builtInBrowser: descriptor === integrations?.browser, builtInAgents: descriptor === integrations?.agents, tools };
+      return { name, client, builtInBrowser: descriptor === integrations?.browser, builtInAgents: descriptor === integrations?.agents,
+        builtInComputer: descriptor === integrations?.localComputer, tools };
     }));
     for (const mount of mounts) {
       if (mount.status === "rejected") throw mount.reason;
-      const { name: server, client, builtInBrowser, builtInAgents, tools } = mount.value;
+      const { name: server, client, builtInBrowser, builtInAgents, builtInComputer, tools } = mount.value;
       const originalNames = new Set<string>();
       for (const tool of tools) {
         if (!object(tool) || typeof tool.name !== "string" || !tool.name.trim() || originalNames.has(tool.name)) throw new Error("MCP server advertised an invalid or duplicate tool name");
@@ -320,7 +323,7 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
         const base = chatToolName(server, tool.name);
         let name = base;
         for (let index = 2; registered.has(name); index += 1) { const suffix = `_${index}`; name = base.slice(0, 64 - suffix.length) + suffix; }
-        registered.set(name, { client, server, builtInBrowser, builtInAgents, name: tool.name, schema, searched: searchable.has(server) });
+        registered.set(name, { client, server, builtInBrowser, builtInAgents, builtInComputer, name: tool.name, schema, searched: searchable.has(server) });
         definitions.push({ type: "function", function: { name, description, parameters } });
         if (Buffer.byteLength(JSON.stringify(definitions)) > CATALOG_BYTES) throw new Error("MCP tool catalog exceeds the 1MB limit");
       }
@@ -351,7 +354,9 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
     // later.dog's own reviewed reads (its dogs, routines, tricks) change
     // nothing, so they ask nothing; the same name on any other server asks.
     if (tool?.builtInAgents && isReadOnlyAgentTool(tool.name)) return { title: name, input: args, ask: false };
-    if (!tool?.searched || tool.name !== CALL_TOOL) return { title: name, input: args, ask: true };
+    if (!tool?.searched || tool.name !== CALL_TOOL) {
+      return { title: name, input: args, ask: true, ...(tool && (tool.builtInComputer || tool.builtInBrowser) ? { ownComputer: true } : {}) };
+    }
     return { title: chatToolName(tool.server, runs), input: object(args.arguments) ? args.arguments : {}, ask: true };
   };
   return {

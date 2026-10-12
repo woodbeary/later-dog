@@ -552,3 +552,15 @@ describe("later.dog's own reviewed reads", () => {
     expect(session.view("mine_skills_list", {}).ask).toBe(true);
   });
 });
+
+describe("the dog's own computer", () => {
+  it("marks the built-in computer's tools as its own, and nothing a custom server offers", async () => {
+    const lists = `if (message.method === "tools/list") { reply(message, {tools:[{name:"computer_screenshot",inputSchema:{type:"object",properties:{}}}]}); continue; }`;
+    const computer = fixture(lists);
+    const other = fixture(lists);
+    const session = await mountChatTools({ localComputer: computer.server, custom: { mine: other.server } } as Parameters<typeof mountChatTools>[0], computer.controller.signal, true);
+    sessions.push(session);
+    expect(session.view("computer_computer_screenshot", {})).toMatchObject({ ask: true, ownComputer: true });
+    expect(session.view("mine_computer_screenshot", {}).ownComputer).toBeUndefined();
+  });
+});

@@ -739,7 +739,12 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
                 // so it is honoured here: without it every single tool call on
                 // an OpenAI-compatible engine stops for a card, and a Chief's
                 // delegated Full access cannot help either.
+                // Off-leash acts on the dog's own computer and browser without
+                // a card, as other engines' Auto does; connected apps and
+                // custom tools still ask. (Off-leash on This Mac is confirmed
+                // by the person before it applies.)
                 const allowed = turn.approvalMode === "full" || !shown.ask
+                  || (turn.approvalMode === "auto" && shown.ownComputer === true)
                   || await approval.ask(shown.title, shownPreview ?? "This tool has no arguments.");
                 abort.signal.throwIfAborted();
                 emit({ ...base(turn.threadId, turnId), type: "item.started", itemType: "tool", itemId: call.id,

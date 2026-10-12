@@ -309,6 +309,26 @@ describe("optional built-in question compatibility", () => {
 
 describe("OpenAI-compatible computer images", () => {
   const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jBv0AAAAASUVORK5CYII=";
+  it("runs the dog's own computer without a card when Off-leash, and still asks for a custom server", async () => {
+    const own = await fixture((_body, response, round) => {
+      if (round === 1) sse(response, [chunk({ tool_calls: [{ ...toolCall(), function: { ...toolCall().function, name: "computer_write" } }] }, "tool_calls")]);
+      else answer(response);
+    });
+    await own.start({ approvalMode: "auto", integrations: { localComputer: own.integrations!.custom!.audit as NonNullable<SendTurnInput["integrations"]>["localComputer"] } });
+    expect(await own.completed()).toMatchObject({ ok: true });
+    expect(own.recorder.events.some((event) => event.type === "request.opened")).toBe(false);
+    expect(own.effects()).toHaveLength(1);
+
+    const custom = await fixture((_body, response, round) => {
+      if (round === 1) sse(response, [chunk({ tool_calls: [toolCall()] }, "tool_calls")]);
+      else answer(response);
+    });
+    await custom.start({ approvalMode: "auto" });
+    await custom.decide();
+    expect(await custom.completed()).toMatchObject({ ok: true });
+    expect(custom.recorder.events.some((event) => event.type === "request.opened")).toBe(true);
+  });
+
   it.each(["localComputer", "browser"] as const)("delivers %s screenshots after tool results and preserves approval", async (source) => {
     const prefix = source === "browser" ? "browser" : "computer";
     const f = await fixture((_body, response, round) => {
