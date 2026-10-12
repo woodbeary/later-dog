@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.18 — 2026-10-12
+
+- **Your Mac still asks first.** On Kimi and Grok, Off-leash runs the dog's own computer and browser without a card, but a dog working on your own Mac now asks before each action there, as Heel does. In 0.3.16 and 0.3.17 it didn't once you had let a dog onto your Mac.
+- **Plainer words** for routines, connected apps and analytics, and the Mac permission panel can be translated.
+
 ## 0.3.17 — 2026-10-12
 
 - **Opening a dog's computer is clean the first time.** It starts once, and no error sits under a screen that came up fine. If the computer is busy starting or changing elsewhere, the panel says so in plain words.
