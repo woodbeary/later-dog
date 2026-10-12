@@ -273,16 +273,16 @@ describe("persistence patches", () => {
 
 describe("beat machine", () => {
   it("lists beats for the desktop app with the reel off", () => {
-    expect(beatsFor({ desktop: true, reel: false })).toEqual(["hello", "engines", "bot"]);
+    expect(beatsFor({ desktop: true, reel: false })).toEqual(["hello", "bot"]);
   });
 
   it("never asks for this computer's permissions in first run, desktop or not: a dog asks when a task needs them", () => {
-    expect(beatsFor({ desktop: false, reel: false })).toEqual(["hello", "engines", "bot"]);
+    expect(beatsFor({ desktop: false, reel: false })).toEqual(["hello", "bot"]);
     expect(beatsFor({ desktop: true, reel: false })).not.toContain("permissions");
   });
 
   it("slots the reel after hello when enabled", () => {
-    expect(beatsFor({ desktop: false, reel: true })).toEqual(["hello", "reel", "engines", "bot"]);
+    expect(beatsFor({ desktop: false, reel: true })).toEqual(["hello", "reel", "bot"]);
   });
 
   it("always ends on the bot beat", () => {
@@ -296,14 +296,14 @@ describe("beat machine", () => {
 
   it("gives a hosted workspace a greeting and the bot, nothing about this computer", () => {
     expect(beatsFor({ desktop: true, reel: true, hosted: true })).toEqual(["hello", "bot"]);
-    expect(beatsFor({ desktop: true, reel: true, hosted: false })).toEqual(["hello", "reel", "engines", "bot"]);
+    expect(beatsFor({ desktop: true, reel: true, hosted: false })).toEqual(["hello", "reel", "bot"]);
   });
 
   it("walks forward and back and stops at the ends", () => {
     const beats = beatsFor({ desktop: true, reel: false });
-    expect(nextBeat(beats, "hello")).toBe("engines");
+    expect(nextBeat(beats, "hello")).toBe("bot");
     expect(nextBeat(beats, "bot")).toBeNull();
-    expect(previousBeat(beats, "engines")).toBe("hello");
+    expect(previousBeat(beats, "bot")).toBe("hello");
     expect(previousBeat(beats, "hello")).toBeNull();
     expect(nextBeat(beats, "reel")).toBeNull();
   });

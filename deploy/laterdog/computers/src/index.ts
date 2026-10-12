@@ -360,6 +360,29 @@ async function planDonePage(env: Env, url: URL): Promise<Response> {
   return page(202, "Almost there", "Square hasn't confirmed the payment yet. Refresh this page in a moment.");
 }
 
+async function startTrialFromApp(request: Request, env: Env): Promise<Response> {
+  if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+  const policy = trialPolicy(env);
+  if (!policy.enabled) return apiError({ status: 503, code: "trials_off", message: "Free trials are switched off on this service right now." });
+  if (!allowedCountry(policy, countryOf(request))) return apiError({ status: 403, code: "trials_not_here", message: "Free trials are not offered in your country yet." });
+  const network = networkOf(request.headers.get("cf-connecting-ip") ?? undefined);
+  if (!network) return apiError({ status: 400, code: "no_network", message: "Your network could not be identified." });
+  if (!(await allowed(env.TRIAL_FORM_LIMIT, network))) return apiError(TOO_MANY);
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const claim = (body.value as { claim?: unknown } | undefined)?.claim;
+  if (typeof claim !== "string" || !TRIAL_CLAIM.test(claim)) return apiError({ status: 400, code: "invalid_claim", message: "Send { \"claim\": \"<64-character claim>\" }." });
+  const activation = await trials(env).activate({
+    keySha256: claim,
+    network: await networkDigest(env.TRIAL_NETWORK_KEY?.trim() ?? "", network),
+    limitMs: policy.limitMs,
+    windowMs: policy.windowMs,
+    perDay: policy.perDay,
+  });
+  if (!activation.ok) return apiError(activation.refusal);
+  return json({ trial: trialView(activation.trial), ...includedField(env) }, activation.replayed ? 200 : 201);
+}
+
 async function grantTrial(request: Request, env: Env, caller: Caller): Promise<Response> {
   if (caller.trial) return apiError({ status: 403, code: "owner_only", message: "Only the owner's key can grant a free trial." });
   const body = await readJson(request);
@@ -629,6 +652,8 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return await chatRequestHandler(request, env, (work) => (ctx ? ctx.waitUntil(work) : void work));
       case "speak":
         return await speakRequest(request, env, url, target.voiceId);
+      case "trial_start":
+        return await startTrialFromApp(request, env);
       case "trial":
       case "trial_grant":
       case "collection":

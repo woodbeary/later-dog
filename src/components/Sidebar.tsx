@@ -2313,7 +2313,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           >
             {density === "icons" ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
           </button>}
-          <UpdateButton align={density === "icons" ? "left" : "right"} />
+          {density === "icons" && <UpdateButton align="left" />}
           {/* `contents` keeps the popover anchored to the header row */}
           <div ref={plusMenuRef} className="contents">
           <button
@@ -2651,6 +2651,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
             <div className="min-w-0 flex-1">
               <SidebarProfileMenu />
             </div>
+            <UpdateButton above />
             <SidebarAppsButton />
           </div>
         )}

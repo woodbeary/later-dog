@@ -6,12 +6,9 @@ import { DesktopWorkspaceSwitcher } from "./DesktopWorkspaceSwitcher";
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
-it("names the saved-server switcher with the product word, not workspace", () => {
+it("shows no server switcher on your own Mac", () => {
   vi.stubGlobal("window", { laterdog: { workspaces: { state: () => new Promise(() => {}), menu: () => Promise.resolve() } } });
-  const html = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher));
-  expect(html).toContain('aria-label="Switch server: Servers"');
-  expect(html).toContain(">Servers<");
-  expect(html).not.toMatch(/workspace/i);
+  expect(renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher))).toBe("");
 });
 
 it("renders nothing outside the desktop app", () => {

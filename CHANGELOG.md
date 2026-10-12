@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.12 — 2026-10-12
+
+- **Straight into a chat.** A new later.dog asks your name and lets you pick a dog, then opens its chat already running on later.dog AI. No AI or sign-in step: the free trial starts by itself, and Claude or ChatGPT sign-ins wait in Settings for when you want them.
+- **Model and effort by the message field**, like other coding apps, instead of in the chat's header.
+- **A calmer sidebar.** The server switcher only appears when you're connected to another server, and the update icon sits at the bottom next to Apps.
+- **Accounts:** the drag handle to reorder them is always visible, and "Keep going when an account runs out" lives in Settings.
+- **No double steps.** A second click on Continue no longer skips the next step of the welcome before you've seen it.
+- The Activity panel is gone from the chat menu.
+
 ## 0.3.11 — 2026-10-11
 
 - **Signed and notarized.** later.dog is signed with an Apple Developer ID and notarized by Apple, so it opens without the Open Anyway step.

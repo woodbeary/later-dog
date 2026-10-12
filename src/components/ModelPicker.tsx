@@ -484,6 +484,7 @@ export function ModelPicker({
   threadId,
   className,
   contained = false,
+  above = false,
   label,
 }: {
   bot: Bot;
@@ -492,6 +493,8 @@ export function ModelPicker({
   /** Expand the menu in-flow under the trigger so it cannot overflow a
    * narrow parent (the Agent profile sidebar). */
   contained?: boolean;
+  /** Open upward from a trigger beside the message field. */
+  above?: boolean;
   label?: ReactNode;
 }) {
   const { state, dispatch, refreshInstances, refreshModels: refreshInstanceModels } = useStore();
@@ -531,13 +534,14 @@ export function ModelPicker({
       const rect = rootRef.current?.getBoundingClientRect();
       if (!rect) return;
       const width = Math.min(popoverWidth, window.innerWidth - 32);
-      setPlacement({ left: Math.max(16, Math.min(rect.right - width, window.innerWidth - width - 16)) - rect.left,
-        maxHeight: Math.max(0, Math.min(600, window.innerHeight - rect.bottom - 24)) });
+      const left = above ? Math.max(16, Math.min(rect.left, window.innerWidth - width - 16)) : Math.max(16, Math.min(rect.right - width, window.innerWidth - width - 16));
+      setPlacement({ left: left - rect.left,
+        maxHeight: Math.max(0, Math.min(600, above ? rect.top - 24 : window.innerHeight - rect.bottom - 24)) });
     };
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [open, contained, popoverWidth]);
+  }, [open, contained, popoverWidth, above]);
 
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
@@ -922,7 +926,7 @@ export function ModelPicker({
             "flex flex-col overflow-hidden rounded-2xl border border-hairline/50 bg-card",
             contained
               ? "relative mt-3 w-full max-h-[min(420px,50dvh)]"
-              : "absolute right-0 top-full z-30 mt-2 max-w-[calc(100vw-2rem)] max-h-[min(600px,calc(100dvh-7rem))] shadow-2xl shadow-black/50",
+              : cn("absolute z-30 max-w-[calc(100vw-2rem)] max-h-[min(600px,calc(100dvh-7rem))] shadow-2xl shadow-black/50", above ? "bottom-full mb-2" : "right-0 top-full mt-2"),
             motion.className,
           )}
         >

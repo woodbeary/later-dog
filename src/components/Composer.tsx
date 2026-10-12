@@ -1,5 +1,6 @@
 import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { ModelPicker } from "./ModelPicker";
 import { ArrowUp, BookOpen, Clock, Mic, Paperclip, Square, Target, Users, X } from "lucide-react";
 import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -1168,6 +1169,7 @@ export function Composer({
             className="block max-h-[9rem] min-h-5 w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-[14px] leading-5 placeholder:text-ink-secondary focus:outline-none"
           />
           <div data-composer-actions className="ml-auto flex items-center gap-1">
+          {!locked && bot && !group && !remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above />}
           {!locked && modeBot && approvalEngine && !remoteClient && (
             <ApprovalModeSelector
               align="right"

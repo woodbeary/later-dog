@@ -11,7 +11,6 @@ import {
   Crown,
   Download,
   Gauge,
-  ListChecks,
   MessageSquareReply,
   Monitor,
   MoreHorizontal,
@@ -87,7 +86,6 @@ import { AttachmentGallery, collectMessageFiles, splitMessageAttachments } from 
 import { ScreenFrame } from "./ScreenFrame";
 import { CompactionChip, DigestChip } from "./DigestChip";
 import { BotActivityPicker } from "./TaskPicker";
-import { ModelPicker } from "./ModelPicker";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
 import {
@@ -1321,7 +1319,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           // buttons clear the 26px overlay while the rest of the layout stays.
           style={controlsShiftStyle}
         >
-          {!remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} />}
           {/* below md the sidebar (and its Live call pill) is hidden */}
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openThread(dispatch, { botId, threadId }, state)} />
           <button
@@ -1580,7 +1577,6 @@ function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
   onFind: () => void;
 }) {
   const { state, dispatch } = useStore();
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
   const usage = usageSummary(bot, state.instances);
   const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
   const hasMessages = messages.length > 0;
@@ -1620,14 +1616,6 @@ function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
       trailing: <span title={usage.detail} data-testid="usage-chip" className={cn("tabular-nums text-[12px]", usage.tone === "danger" ? "text-danger" : usage.tone === "warning" ? "text-warning" : "text-ink-secondary")}>{usage.short}</span>,
       onSelect: () => dispatch({ type: "toggleAppSettings", open: true, section: "usage" }),
     } satisfies SidebarMenuItem] : []),
-    ...(remoteClient ? [] : [{
-      key: "activity",
-      label: "Activity",
-      icon: <ListChecks size={16} />,
-      active: state.activityOpen,
-      separatorBefore: !usage,
-      onSelect: () => dispatch({ type: "toggleActivity" }),
-    } satisfies SidebarMenuItem]),
   ];
   return (
     <SidebarPopoverMenu

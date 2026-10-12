@@ -123,19 +123,10 @@ describe("the account list", () => {
     expect(onPick).toHaveBeenCalledWith(work);
   });
 
-  it("offers carry-on with any accounts, and saves the flip", async () => {
-    await show({ accounts: [personal, codex] });
-    expect(carryOnSwitch()!.getAttribute("aria-label")).toBe("Keep going when an account runs out");
-    expect(carryOnSwitch()!.getAttribute("aria-checked")).toBe("false");
-    await act(async () => carryOnSwitch()!.click());
-    expect(fixture.carryOn.set).toHaveBeenCalledWith(true);
-  });
-
-  it("says when the carry-on setting could not be saved", async () => {
-    fixture.carryOn = { ...fixture.carryOn, on: true, error: "Could not save this setting. Please try again." };
+  it("leaves carry-on to Settings and always shows the drag handle", async () => {
     await show({ accounts: [personal, work] });
-    expect(carryOnSwitch()!.getAttribute("aria-checked")).toBe("true");
-    expect(document.querySelector('[role="alert"]')!.textContent).toBe("Could not save this setting. Please try again.");
+    expect(carryOnSwitch()).toBeNull();
+    expect(document.querySelector("[data-account-grip]")!.className).not.toContain("opacity-0");
   });
 });
 

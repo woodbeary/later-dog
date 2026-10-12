@@ -3,7 +3,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import {
-  ComputersClient, TRIAL_KEY, readCapped, savedTrial, serviceApi, trialKeyFile, trialStateFile, type PlanInfo, type SavedTrial, type TrialView,
+  ComputersClient, INCLUDED_SERVICES, TRIAL_KEY, readCapped, savedTrial, serviceApi, trialKeyFile, trialStateFile, type IncludedService, type PlanInfo, type SavedTrial, type TrialView,
 } from "./cloud-computers.ts";
 
 export const DEFAULT_TRIAL_API = "https://cloud.later.dog/v1";
@@ -152,6 +152,42 @@ export function startTrial(options: TrialOptions): Promise<TrialStatus> {
     writeFileAtomic(trialKeyFile(), `${key}\n`, { mode: 0o600 });
     save({ api });
     return { state: "pending", url: trialPage(api, key) };
+  });
+}
+
+const startBody = z.object({ included: z.array(z.string().max(32)).max(16).optional() });
+
+/** A new installation's free trial, claimed by the app itself so its first
+ * dog can answer at once. Nothing is saved unless the service accepts it, so
+ * a refusal (one trial per network, today's trials taken) leaves the manual
+ * Try free path exactly as it was. */
+export function autoStartTrial(options: TrialOptions): Promise<boolean> {
+  return serial(async () => {
+    if (savedTrial() || options.otherComputers()) return false;
+    const api = trialApi();
+    if (!api) return false;
+    const key = `ldt_${randomBytes(32).toString("base64url")}`;
+    const claim = createHash("sha256").update(key).digest("hex");
+    try {
+      const response = await (options.fetch ?? fetch)(`${api}/trials/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ claim }),
+        redirect: "error",
+        signal: AbortSignal.timeout(OFFER_TIMEOUT_MS),
+      });
+      if (response.status !== 200 && response.status !== 201) {
+        await response.body?.cancel().catch(() => {});
+        return false;
+      }
+      const body = startBody.safeParse(JSON.parse((await readCapped(response, MAX_OFFER_BYTES, () => new Error("too large"))).toString("utf8")));
+      const included = body.success ? body.data.included?.filter((name): name is IncludedService => (INCLUDED_SERVICES as readonly string[]).includes(name)) : undefined;
+      writeFileAtomic(trialKeyFile(), `${key}\n`, { mode: 0o600 });
+      save({ api, confirmed: true, ...(included?.length ? { included } : {}) });
+      return true;
+    } catch {
+      return false;
+    }
   });
 }
 
