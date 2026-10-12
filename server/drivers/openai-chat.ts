@@ -672,7 +672,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
               // not an execution receipt, and a person's "no" must never be
               // answered with a prompt to run the same thing again.
               stopReason = "tool_error";
-              throw new ChatProtocolError("One or more tool operations failed or were denied. See the tool results; the final response is not an execution receipt.");
+              throw new ChatProtocolError("Some steps didn't work or weren't allowed, so check them before relying on this answer.");
             }
             ok = true;
             break;
