@@ -1,3 +1,4 @@
+import { ModelPicker } from "./ModelPicker";
 import { Component, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
 import { useCopyFeedback } from "@/lib/copy-text";
 import {
@@ -1319,6 +1320,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           // buttons clear the 26px overlay while the rest of the layout stays.
           style={controlsShiftStyle}
         >
+          {!remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} part="account" />}
           {/* below md the sidebar (and its Live call pill) is hidden */}
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openThread(dispatch, { botId, threadId }, state)} />
           <button

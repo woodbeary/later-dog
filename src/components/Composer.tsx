@@ -1169,7 +1169,7 @@ export function Composer({
             className="block max-h-[9rem] min-h-5 w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-[14px] leading-5 placeholder:text-ink-secondary focus:outline-none"
           />
           <div data-composer-actions className="ml-auto flex items-center gap-1">
-          {!locked && bot && !group && !remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above />}
+          {!locked && bot && !group && !remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="model" />}
           {!locked && modeBot && approvalEngine && !remoteClient && (
             <ApprovalModeSelector
               align="right"

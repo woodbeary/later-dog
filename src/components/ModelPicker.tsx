@@ -485,6 +485,7 @@ export function ModelPicker({
   className,
   contained = false,
   above = false,
+  part,
   label,
 }: {
   bot: Bot;
@@ -495,6 +496,8 @@ export function ModelPicker({
   contained?: boolean;
   /** Open upward from a trigger beside the message field. */
   above?: boolean;
+  /** Only the account (chat header) or only the model (beside the message field). */
+  part?: "account" | "model";
   label?: ReactNode;
 }) {
   const { state, dispatch, refreshInstances, refreshModels: refreshInstanceModels } = useStore();
@@ -853,7 +856,7 @@ export function ModelPicker({
           if (next) {
             openFor(initial);
             setFullView(false);
-            setPage("accounts");
+            setPage(part === "model" ? "models" : "accounts");
             setCameBack(false);
           }
           return next;
@@ -863,17 +866,18 @@ export function ModelPicker({
       aria-haspopup="dialog"
       className={cn(
         "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
-        !contained && active && !showActiveAccount && COMPACT_SQUARE,
+        !contained && active && (!showActiveAccount || part === "account") && COMPACT_SQUARE,
+        part === "model" && "border-transparent bg-transparent pl-2",
       )}
       title={[`${summary}${followLine}`, ...activeUsage].join("\n")}
     >
-      {active && (ring ? (
+      {active && part !== "model" && (ring ? (
         <UsageRing used={ring.used} tone={ring.tone}><InstanceProviderMark instance={active} size={14} /></UsageRing>
       ) : <InstanceProviderMark instance={active} size={14} />)}
-      {!contained && active && showActiveAccount && (
+      {!contained && active && showActiveAccount && part === undefined && (
         <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{active.displayName}</span>
       )}
-      <span className={cn("flex min-w-0 items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
+      {part !== "account" && <span className={cn("flex min-w-0 items-center gap-1", !contained && active && part !== "model" && "@max-4xl/chathead:hidden")}>
         <span className="max-w-[160px] truncate">
           {active && showActiveAccount && (
             <span data-model-account className="text-ink-secondary">{active.displayName} · </span>
@@ -892,15 +896,15 @@ export function ModelPicker({
             · {friendlyEffort(selection.effort)}
           </span>
         )}
-      </span>
-      <ChevronDown
+      </span>}
+      {part !== "account" && <ChevronDown
         size={14}
         className={cn(
           "text-ink-secondary transition-transform",
           open && "rotate-180",
-          !contained && active && "@max-4xl/chathead:hidden",
+          !contained && active && part !== "model" && "@max-4xl/chathead:hidden",
         )}
-      />
+      />}
     </button>
   );
 
@@ -937,7 +941,7 @@ export function ModelPicker({
             <div data-model-accounts className="flex min-h-0 flex-col overflow-y-auto">
               <AccountSwitcher accounts={switcherAccounts} currentId={selection.instanceId} report={usage.report}
                 now={usage.now} resting={battery?.resting} onPick={switchAccount} />
-              <button type="button" data-model-line autoFocus={cameBack} onClick={() => setPage("models")}
+              {part !== "account" && <button type="button" data-model-line autoFocus={cameBack} onClick={() => setPage("models")}
                 className="flex shrink-0 items-center gap-2 border-t border-hairline/40 px-3 py-2.5 text-left hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
                 <span className="shrink-0 text-[12px] font-medium text-ink-secondary">{t("model.simple.model")}</span>
                 <span className="min-w-0 flex-1 truncate text-right text-[13px] text-ink">
@@ -945,7 +949,7 @@ export function ModelPicker({
                   {chosenDepth && <span className="text-ink-secondary"> · {chosenDepth}</span>}
                 </span>
                 <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />
-              </button>
+              </button>}
               <div className="flex shrink-0 justify-end border-t border-hairline/40 px-3 py-1.5">
                 <button type="button" data-model-manage onClick={manage}
                   className="-mr-1 flex shrink-0 items-center gap-0.5 rounded-lg px-1 py-1 text-[12px] font-medium text-accent-text hover:bg-control/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
@@ -956,7 +960,7 @@ export function ModelPicker({
             </div>
           ) : (
           <>
-          {showSwitcher && (
+          {showSwitcher && part !== "model" && (
             <button type="button" data-model-back autoFocus onClick={() => { setPage("accounts"); setCameBack(true); }}
               className="flex shrink-0 items-center gap-1 border-b border-hairline/40 px-2 py-2 text-left text-[12px] font-medium text-ink-secondary hover:bg-raised-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
               <ChevronLeft size={14} aria-hidden="true" />
