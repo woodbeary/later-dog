@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.19 — 2026-10-12
+
+- **A free dog's first computer task asks nothing.** On Kimi and Grok, an Off-leash dog picks its own cloud computer and gets on with the job, with no "wants to use a computer" card. Choosing your Mac still asks, and Heel still asks for everything.
+
 ## 0.3.18 — 2026-10-12
 
 - **Your Mac still asks first.** On Kimi and Grok, Off-leash runs the dog's own computer and browser without a card, but a dog working on your own Mac now asks before each action there, as Heel does. In 0.3.16 and 0.3.17 it didn't once you had let a dog onto your Mac.
