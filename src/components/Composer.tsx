@@ -231,6 +231,12 @@ export function Composer({
     [text, editText, editAttachments],
   );
   const [recording, setRecording] = useState(false);
+  // A voice note the Mac saved while recognition failed, and one being
+  // transcribed again from that recording.
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const [retryingNote, setRetryingNote] = useState<string | null>(null);
+  const retryFile = useRef<string | null>(null);
+  const listening = recording || retryingNote !== null;
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
@@ -778,12 +784,14 @@ export function Composer({
   // native dictation: partials stream into the input while the Swift
   // helper runs; the final transcript stays in the box, ready to edit/send
   useEffect(() => {
-    if (!recording) return;
+    if (!listening) return;
     const bridge = window.laterdog;
     if (!bridge) {
       setRecording(false);
+      setRetryingNote(null);
       return;
     }
+    const file = retryFile.current;
     setSpeechError(null);
     const offTranscript = bridge.onSpeechTranscript((line) => {
       if (typeof line.text === "string") {
@@ -791,8 +799,11 @@ export function Composer({
         editText(base ? `${base} ${line.text}` : line.text);
       }
     });
-    const offEnd = bridge.onSpeechEnd(({ code, reason }) => {
+    const offEnd = bridge.onSpeechEnd(({ code, reason, recording: saved }) => {
       setRecording(false);
+      setRetryingNote(null);
+      retryFile.current = null;
+      setVoiceNote(code === 1 && saved ? saved : null);
       if (code === 2) {
         setSpeechError(t("composer.dictation.macOnly"));
       } else if (code === 1) {
@@ -805,13 +816,22 @@ export function Composer({
         ));
       }
     });
-    void bridge.speechStart();
+    void bridge.speechStart(file ? { file } : undefined);
     return () => {
       offTranscript();
       offEnd();
       void bridge.speechStop();
     };
-  }, [recording, editText]);
+  }, [listening, editText]);
+
+  const retryVoiceNote = () => {
+    if (!voiceNote || listening) return;
+    // the whole note is transcribed again: it replaces the failed attempt's
+    // partial words, after whatever was typed before dictation began
+    retryFile.current = voiceNote;
+    setVoiceNote(null);
+    setRetryingNote(voiceNote);
+  };
 
   const toggleMic = () => {
     if (!capabilities.dictation.available || !window.laterdog) {
@@ -826,9 +846,16 @@ export function Composer({
     <div className="pointer-events-none relative px-5 pb-3">
       {/* No fill or hairline on this wrapper — those were the black frame
           in the pill's top corners. The dock overlays the transcript. */}
-      {speechError && (
-        <div className="pointer-events-auto mb-2 w-full rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
-          {speechError}
+      {(speechError || retryingNote) && (
+        <div data-voice-note className="pointer-events-auto mb-2 flex w-full items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
+          <span className="min-w-0 flex-1">
+            {retryingNote ? t("composer.dictation.retrying") : voiceNote ? `${speechError} ${t("composer.dictation.saved")}` : speechError}
+          </span>
+          {voiceNote && !retryingNote && (
+            <button type="button" onClick={retryVoiceNote} className="shrink-0 rounded px-2 py-1 font-medium hover:bg-warning/10">
+              {t("chat.retry")}
+            </button>
+          )}
         </div>
       )}
       <div className="pointer-events-auto relative w-full">

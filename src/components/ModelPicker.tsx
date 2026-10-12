@@ -25,6 +25,7 @@ import { repeatedModelLabels, SimpleModelPane } from "./SimpleModelPane";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { requestAddAccount } from "@/lib/add-account-request";
 import { fastModeFits } from "@/lib/fast-mode";
+import { modelShown, useHiddenModels } from "@/lib/model-visibility";
 import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
 import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
 import { friendlyEffort, simpleEffortLevels } from "@/lib/model-friendly";
@@ -519,6 +520,7 @@ export function ModelPicker({
   label?: ReactNode;
 }) {
   const { state, dispatch, refreshInstances, refreshModels: refreshInstanceModels } = useStore();
+  const hiddenModels = useHiddenModels();
   const [open, setOpen] = useState(false);
   const motion = useMenuMotion(open);
   const [railId, setRailId] = useState<string | null>(null);
@@ -821,18 +823,16 @@ export function ModelPicker({
       ?? account.models.options.find((option) => !option.custom)?.id;
     if (model) pick(account, model, true);
   };
-  // The chat header's chip: accounts only. A sign-in family with more than
-  // one working account lists each; otherwise one row per provider.
+  // The chat header's chip: the accounts signed in now (the free ones
+  // included), each under the name the person gave it. The current one stays
+  // listed even if it has since signed out, so the check has a row.
+  const signedInNow = (instance: InstanceInfo) => !instance.policy && !needsCli(instance) && !needsSignIn(instance);
   const accountRows: AccountMenuRow[] = simpleProviders.flatMap((provider) => {
     const family = signInFamily(provider.instance);
-    const members = family === "claude" ? claudeAccounts : family === "openai" ? openaiAccounts : [];
-    const working = members.filter((member) => !needsCli(member) && !needsSignIn(member));
-    if (working.length > 1) {
-      return working.map((member) => ({ instance: member, label: member.displayName, selected: member.instanceId === selection.instanceId }));
-    }
-    // a family's row runs on the member that can list models
-    const target = family ? working[0] ?? members.find((member) => member.models.options.length > 0) ?? provider.target : provider.target;
-    return [{ instance: target, label: family === "openai" ? "ChatGPT" : provider.label, selected: provider.selected }];
+    const members = family === "claude" ? claudeAccounts : family === "openai" ? openaiAccounts : [provider.target];
+    return members
+      .filter((member) => signedInNow(member) || member.instanceId === selection.instanceId)
+      .map((member) => ({ instance: member, label: member.displayName, selected: member.instanceId === selection.instanceId }));
   });
   const chooseAccount = (account: InstanceInfo) => {
     setOpen(false);
@@ -846,8 +846,10 @@ export function ModelPicker({
   const modelGroups: ModelMenuGroup[] = accountRows.flatMap((row) => {
     const usable = !row.instance.policy && !needsCli(row.instance) && !needsSignIn(row.instance);
     if (!usable && row.instance.instanceId !== selection.instanceId) return [];
+    // only the models switched on in Settings, Models (the current one stays)
     const own = row.instance.models.options.filter((option) => !option.custom);
-    const models = own.length > 0 ? own : row.instance.models.options;
+    const models = (own.length > 0 ? own : row.instance.models.options).filter((option) =>
+      modelShown(row.instance.instanceId, option.id, hiddenModels) || (row.instance.instanceId === selection.instanceId && option.id === selection.model));
     return models.length > 0 ? [{ instance: row.instance, label: row.label, models }] : [];
   });
   const showSwitcher = simpleView && shownAccounts(switcherAccounts, selection.instanceId).length > 1;
@@ -989,7 +991,11 @@ export function ModelPicker({
             <p data-model-next-reply className="shrink-0 border-b border-hairline/40 px-3 py-2 text-[12px] text-ink-secondary">{t("model.nextReply")}</p>
           )}
           {part === "account" ? (
-            <AccountMenu rows={accountRows} onPick={chooseAccount} />
+            <AccountMenu rows={accountRows} onPick={chooseAccount} onAdd={() => {
+              setOpen(false);
+              dispatch({ type: "toggleAppSettings", open: true, section: "general" });
+              requestAddAccount();
+            }} />
           ) : part === "model" ? (
             <ModelMenu
               groups={modelGroups}

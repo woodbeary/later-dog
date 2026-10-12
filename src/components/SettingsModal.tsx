@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { modelShown, setModelShown, useHiddenModels } from "@/lib/model-visibility";
+import { needsCli, needsSignIn } from "./EngineSetup";
 import { setVoiceMode, useVoiceMode } from "@/lib/voice-mode";
-import { Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
+import { Boxes, Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
 import { useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { analyticsConfigured } from "@/lib/laterdog-analytics";
@@ -26,8 +28,9 @@ import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { setNotificationSounds, useNotificationSounds } from "@/lib/notification-preferences";
 import { effectiveLanguage, setLanguageChoice, useLanguageChoice } from "@/lib/language-preference";
 
-export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.computer" | "settings.section.usage" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }> }> = [
+export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.models" | "settings.section.computer" | "settings.section.usage" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }> }> = [
   { id: "general", labelKey: "settings.section.general", icon: SlidersHorizontal },
+  { id: "models", labelKey: "settings.section.models", icon: Boxes },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor },
   { id: "usage", labelKey: "settings.section.usage", icon: Coins },
   { id: "updates", labelKey: "settings.updates.title", icon: Download },
@@ -285,6 +288,38 @@ function GeneralPage({ mac }: { mac: boolean }) {
   );
 }
 
+/** Every model of the accounts signed in now, each with a switch: only
+ * those switched on show in a chat's model menu (as in Cursor). */
+function ModelsPage() {
+  const { state } = useStore();
+  const hidden = useHiddenModels();
+  const accounts = state.instances.filter((instance) => !instance.policy && !needsCli(instance) && !needsSignIn(instance)
+    && instance.models.options.some((option) => !option.custom));
+  return (
+    <>
+      {accounts.length === 0 && <p className="px-4 text-[13px] text-ink-secondary">{t("settings.models.none")}</p>}
+      {accounts.map((account) => (
+        <SettingsGroup key={account.instanceId} label={account.displayName} testId={`models-${account.instanceId}`}>
+          <SettingsRows>
+            {account.models.options.filter((option) => !option.custom).map((option) => {
+              const shown = modelShown(account.instanceId, option.id, hidden);
+              return (
+                <SettingRow key={option.id} title={option.label} subtitle="">
+                  <Switch
+                    checked={shown}
+                    aria-label={t("settings.models.show", { model: option.label })}
+                    onClick={() => setModelShown(account.instanceId, option.id, !shown)}
+                  />
+                </SettingRow>
+              );
+            })}
+          </SettingsRows>
+        </SettingsGroup>
+      ))}
+    </>
+  );
+}
+
 function ComputerPage({ mac, remoteActive }: { mac: boolean; remoteActive: boolean }) {
   return (
     <>
@@ -446,6 +481,7 @@ export function SettingsModal() {
           </div>
           <div ref={scrollRef} data-settings-content={section} className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4 sm:px-5 sm:pb-5">
             {section === "general" && <GeneralPage mac={mac} />}
+            {section === "models" && <ModelsPage />}
             {section === "computer" && <ComputerPage mac={mac} remoteActive={remoteActive} />}
             {section === "usage" && <UsageSection />}
             {section === "updates" && <UpdatesPage />}

@@ -898,7 +898,7 @@ export interface InstanceInfo {
   freeUpSpace?: boolean;
 }
 
-export type AppSettingsSection = "general" | "computer" | "usage" | "updates";
+export type AppSettingsSection = "general" | "models" | "computer" | "usage" | "updates";
 
 export type BotSettingsSection =
   | "overview"

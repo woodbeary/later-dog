@@ -1,7 +1,7 @@
 // The chat header's account chip opens this: the accounts a chat can run on,
 // one row each, and nothing else. Models and effort live by the message
 // field; signing in happens when a message is sent on an account that needs it.
-import { Check } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
@@ -13,7 +13,7 @@ export interface AccountMenuRow {
   selected: boolean;
 }
 
-export function AccountMenu({ rows, onPick }: { rows: readonly AccountMenuRow[]; onPick: (instance: InstanceInfo) => void }) {
+export function AccountMenu({ rows, onPick, onAdd }: { rows: readonly AccountMenuRow[]; onPick: (instance: InstanceInfo) => void; onAdd?: () => void }) {
   return (
     <div data-account-menu role="menu" aria-label={t("accounts.title")} className="flex min-h-0 flex-col overflow-y-auto p-1">
       {rows.map((row) => (
@@ -34,6 +34,18 @@ export function AccountMenu({ rows, onPick }: { rows: readonly AccountMenuRow[];
           {row.selected && <Check size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />}
         </button>
       ))}
+      {onAdd && (
+        <button
+          type="button"
+          role="menuitem"
+          data-account-add
+          onClick={onAdd}
+          className={cn("flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13.5px] text-ink-secondary hover:bg-raised-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus", rows.length > 0 && "mt-1")}
+        >
+          <Plus size={16} aria-hidden="true" className="shrink-0" />
+          {t("accounts.add")}
+        </button>
+      )}
     </div>
   );
 }

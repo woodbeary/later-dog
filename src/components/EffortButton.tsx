@@ -73,23 +73,23 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
           aria-label={t("model.simple.effort")}
           data-effort-menu
           {...motion.exitProps}
-          className={cn("absolute bottom-full right-0 z-30 mb-2 w-72 rounded-2xl border border-hairline/50 bg-card p-3.5 shadow-2xl shadow-black/50", motion.className)}
+          className={cn("absolute bottom-full right-0 z-30 mb-2 w-52 rounded-xl border border-hairline/50 bg-card p-2.5 shadow-2xl shadow-black/50", motion.className)}
         >
           {levels.length > 0 && (
             <>
               <div className="flex items-center justify-between">
-                <span className="text-[13.5px] text-ink-secondary">
+                <span className="text-[12.5px] text-ink-secondary">
                   {t("model.effort.title")} <span className="text-ink">{label}</span>
                 </span>
                 <span title={t("model.effort.help")} className="text-ink-tertiary">
-                  <CircleHelp size={15} aria-label={t("model.effort.help")} />
+                  <CircleHelp size={13} aria-label={t("model.effort.help")} />
                 </span>
               </div>
-              <div className="mt-3 flex justify-between text-[12px] text-ink-tertiary">
+              <div className="mt-2 flex justify-between text-[11px] text-ink-tertiary">
                 <span>{t("model.effort.faster")}</span>
                 <span>{t("model.effort.smarter")}</span>
               </div>
-              <div role="radiogroup" aria-label={t("model.simple.effort")} className="mt-1.5 grid rounded-xl bg-inset p-1" style={columns}>
+              <div role="radiogroup" aria-label={t("model.simple.effort")} className="mt-1 grid rounded-lg bg-inset p-0.5" style={columns}>
                 {levels.map((level) => (
                   <button
                     key={level}
@@ -100,20 +100,20 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
                     title={friendlyEffort(level)}
                     data-effort-level={level}
                     onClick={() => save({ ...selection, effort: level })}
-                    className="flex h-7 items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                    className="flex h-5 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                   >
                     {level === current
-                      ? <span className="h-6 w-7 rounded-lg bg-ink shadow-sm" />
+                      ? <span className="h-4 w-5 rounded-[5px] bg-ink shadow-sm" />
                       // the engine's own default: shown, but not as a choice made
                       : !current && level === recommended
-                        ? <span className="h-6 w-7 rounded-lg bg-ink/35" />
+                        ? <span className="h-4 w-5 rounded-[5px] bg-ink/35" />
                         : <span className="size-1 rounded-full bg-ink-tertiary" />}
                   </button>
                 ))}
               </div>
               <div className="mt-1 grid" style={columns}>
                 {levels.map((level) => (
-                  <span key={level} className="flex justify-center overflow-visible whitespace-nowrap text-[11.5px] text-ink-secondary">
+                  <span key={level} className="flex justify-center overflow-visible whitespace-nowrap text-[10.5px] text-ink-tertiary">
                     {level === recommended ? t("model.effort.recommended") : ""}
                   </span>
                 ))}
@@ -121,8 +121,8 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
             </>
           )}
           {fast && (
-            <div data-effort-fast className={cn("flex items-center justify-between gap-3", levels.length > 0 && "mt-3 border-t border-hairline/40 pt-3")}>
-              <span className="text-[13.5px] text-ink">{t("model.fast")}</span>
+            <div data-effort-fast className={cn("flex items-center justify-between gap-3", levels.length > 0 && "mt-2 border-t border-hairline/40 pt-2")}>
+              <span className="text-[12.5px] text-ink">{t("model.fast")}</span>
               <Switch
                 checked={selection.fast === true}
                 aria-label={t("model.fast")}
