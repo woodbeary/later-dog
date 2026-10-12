@@ -40,7 +40,7 @@ export function CloudScreenPreview({ src, name, error, starting, opening, disabl
             alt={t("computer.screenOf", { name })}
             onLoad={() => { setLoaded(src); setFailed(null); }}
             onError={() => setFailed(src)}
-            className={`h-full w-full object-contain transition group-hover:brightness-75 ${visible ? "" : "invisible"}`}
+            className={`h-full w-full object-contain transition-[opacity,filter] duration-500 ease-out group-hover:brightness-75 ${visible ? "opacity-100" : "opacity-0"}`}
           />
           {visible && (
             <span className={cn("pointer-events-none absolute flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-sm transition group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100", opening && "opacity-100")}>

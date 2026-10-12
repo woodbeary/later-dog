@@ -7,7 +7,7 @@ import { trialAi } from "./included-trial.ts";
 export const INCLUDED_AI_DRIVER = "laterdogAi";
 export const INCLUDED_AI_INSTANCE = "laterdogAi";
 const FALLBACK_URL = "https://cloud.later.dog/v1/ai";
-const MODELS = { default: "later-dog", options: [{ id: "later-dog", label: "later.dog AI", contextWindow: 256_000 }] };
+const MODELS = { default: "kimi-k2.6", options: [{ id: "kimi-k2.6", label: "Kimi K2.6", contextWindow: 256_000 }, { id: "grok-4.3", label: "Grok 4.3", contextWindow: 256_000 }] };
 const NOT_STARTED = "Start the free trial to use later.dog AI.";
 const ENDED = "Your free later.dog AI has ended. Sign in to Claude or ChatGPT to keep going.";
 const ENDED_WITH_PLAN = "Your free later.dog AI has ended. Sign in to Claude or ChatGPT, or keep going on later.dog Cloud in Settings, Computer.";
@@ -30,7 +30,7 @@ const notReady = () => (savedTrial()?.ended ? ended() : NOT_STARTED);
 
 export const IncludedAiDriver: ProviderDriver<Record<string, never>> = {
   driverKind: INCLUDED_AI_DRIVER,
-  metadata: { displayName: "later.dog AI", supportsMultipleInstances: false },
+  metadata: { displayName: "later.dog", supportsMultipleInstances: false },
   models: MODELS,
   decodeConfig: () => ({}),
   defaultConfig: () => ({}),

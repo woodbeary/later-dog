@@ -28,7 +28,7 @@ describe("cloud screen connection feedback", () => {
     }));
     expect(html).toContain("Connecting to the screen…");
     expect(html).toMatch(/<button[^>]*disabled=""/);
-    expect(html).toContain("invisible");
+    expect(html).toContain("opacity-0");
     expect(html).not.toContain('>Open</span>');
   });
 

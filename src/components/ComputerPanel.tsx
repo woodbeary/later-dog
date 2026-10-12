@@ -1491,24 +1491,6 @@ export function ComputerPanel({
             </div>
           </div>
         )}
-        {(cloudPreviewReady || phase === "vm" || currentTeamComputer) && control.held && (
-          <div className="mt-3 rounded-xl bg-card p-4">
-            <div className="text-[13px] leading-relaxed text-ink">
-              {t("computer.youHaveWheel", { name: bot.name })}
-            </div>
-            <button
-              onClick={() => {
-                controlAction("release");
-                void window.laterdog?.desktopViewer?.close(bot.id);
-              }}
-              disabled={controlPending}
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-accent py-2 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-50"
-            >
-              <Hand size={14} />
-              {t("computer.handBack")}
-            </button>
-          </div>
-        )}
         {phase !== "team-boat" && (bot.computer !== undefined || computerStatusCurrent) && <>
           <LocalScreenPreview />
           <LinuxLocalControl />
