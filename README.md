@@ -32,19 +32,20 @@ appears at the bottom of the sidebar, and **Restart to update** installs it.
 
 ## The first five minutes
 
-- **Talk to a dog like a teammate.** It answers, runs commands in its working folder, and works with its files. New
-  dogs start **Off-leash**: they act, then tell you, and the provider's own automatic review still asks you about
-  anything it won't approve. Put a dog on **Heel** and it checks with you before commands and file changes (changes to
+- **Talk to a dog like a teammate.** It answers, runs commands in its working folder, works with its files and uses its
+  own computer. New dogs start **Off-leash**: they act, then tell you (connected apps still ask first). Put a dog on
+  **Heel** from the **+** beside the message field and it checks with you before commands and file changes (changes to
   its own routines, tricks and profile apply at once, with Undo).
-- **Pick a breed and a role.** New dog → a breed (retriever, beagle, shepherd, corgi, husky, pug, poodle, chihuahua), a
-  color, and a starting role: chief of staff, engineer, nightly audit engineer, reviewer, project manager, inbox manager,
-  intel scout, gatekeeper. The job descriptions are distilled from how people actually run agent teams.
-- **Teach it tricks.** A trick is a skill: a playbook the dog follows when asked.
+- **Make more dogs.** New dog → a name and what it should help with. Its look, instructions and memory live in its
+  profile.
+- **Teach it tricks.** A trick is a skill: a playbook the dog follows when asked. Library → Teach a trick takes one
+  sentence, and the dog writes the trick itself.
 - **Send it to fetch.** The Fetch chip (or `/goal`) gives a dog something to keep working on until it is done.
 - **Run a pack.** A group chat with a roster; @-mention one dog and it can consult another and relay the answer.
 - **Put it on a clock.** Ask a dog to make itself a routine; you confirm the schedule once and it runs in its own thread.
-- **Switch models any time.** Codex on your ChatGPT plan or Claude Code, per dog or per conversation, with the
-  reasoning effort you want.
+- **Switch models any time.** The free Kimi K2.6 and Grok 4.3, Codex on your ChatGPT plan, or Claude Code, per dog or
+  per conversation: the account at the top of the chat, the model and effort (and Fast mode on Opus) beside the message
+  field.
 - **Never run dry.** Sign in to several Claude accounts and several ChatGPT (Codex) accounts in Settings → General →
   Accounts and switch on Keep going when an account runs out. When one hits its usage limit, the conversation continues
   on your next account of the same engine and comes back when the limit resets; when every account is out, it waits and
