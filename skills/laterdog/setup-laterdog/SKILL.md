@@ -28,8 +28,7 @@ API key. Four things need the person's hands; everything else is yours.
 3. **Build and install the app.** `pnpm laterdog:package` → `release/mac-arm64/later.dog.app`; then
    `ditto release/mac-arm64/later.dog.app /Applications/later.dog.app && open -a later.dog`. If `swiftc` fails on this
    Mac the build still completes without voice dictation; say so. (Or use a release zip from GitHub: unzip, drag to
-   Applications, open the app once, then System Settings → Privacy & Security → Open Anyway, because it is self-signed.
-   On macOS 15 and later right-click → Open no longer works.)
+   Applications and open it. Releases are signed with an Apple Developer ID and notarized, so macOS only asks once.)
 4. **Their turn, part 1 — sign in.** The welcome tour's providers step lists what was found. For each provider they
    want: ChatGPT plan uses Codex's device code (a URL and a code, confirmed in their browser), Claude opens a browser
    consent and pastes a code. Tell them which provider, where the button is, and that the code
