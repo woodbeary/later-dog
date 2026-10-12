@@ -9,7 +9,7 @@ import { friendlyEffort } from "@/lib/model-friendly";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { useStore, type Bot } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
-import { fastModeFits } from "./ModelPicker";
+import { fastModeFits } from "@/lib/fast-mode";
 import { useMenuMotion } from "./MenuMotion";
 import { Switch } from "./SettingsPrimitives";
 

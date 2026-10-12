@@ -24,6 +24,7 @@ import { useMenuMotion } from "./MenuMotion";
 import { repeatedModelLabels, SimpleModelPane } from "./SimpleModelPane";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { requestAddAccount } from "@/lib/add-account-request";
+import { fastModeFits } from "@/lib/fast-mode";
 import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
 import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
 import { friendlyEffort, simpleEffortLevels } from "@/lib/model-friendly";
@@ -271,10 +272,6 @@ export function modelSelectionForPick(selection: ModelSelection, instance: Insta
   return next;
 }
 
-/** Fast mode (same model, faster output) is Claude Code's, for Opus. */
-export function fastModeFits(instance: InstanceInfo | undefined, model: string): boolean {
-  return instance?.capabilities?.fastMode === true && /opus/i.test(model);
-}
 
 function ModelRow({
   option,
