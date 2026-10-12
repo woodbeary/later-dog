@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "../src/auth";
-import { AI_DEFAULT_MODEL, AI_WORKERS_MODEL, chatRequest, openAiStream, streamedTokens, tokensOf } from "../src/ai";
+import { AI_BUSY, AI_DEFAULT_MODEL, AI_WORKERS_MODEL, chatRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream } from "../src/ai";
 import { DAY } from "../src/trial";
 import { ORIGIN, apiRequest, body, siteverify, startTrial, trialKey, world } from "./fakes";
 
@@ -49,14 +49,21 @@ const KIMI_STREAM = [
   { response: "", usage: { prompt_tokens: 900, completion_tokens: 100, total_tokens: 1000 } },
 ];
 
-async function ai(vars: Record<string, string> = { XAI_API_KEY: "xai-test" }, grok: "ok" | "down" = "ok") {
+const GROK_FIRST = { XAI_API_KEY: "xai-test", TRIAL_AI_FIRST: "xai" };
+const XAI_ERROR = { error: { message: "The model is currently at capacity. Use a higher service tier: https://docs.example/priority", type: "server_error" } };
+
+async function ai(vars: Record<string, string> = GROK_FIRST, grok: "ok" | "down" | "busy" = "ok", workers: "ok" | "down" = "ok") {
   const gatewayRun = vi.fn(async (request: { query: { stream?: boolean } }) => grok === "down"
     ? new Response("{\"error\":\"Model not found\"}", { status: 404 })
-    : request.query.stream
+    : grok === "busy"
+      ? request.query.stream ? new Response(sse([XAI_ERROR]), { headers: { "content-type": "text/event-stream" } }) : Response.json(XAI_ERROR)
+      : request.query.stream
       ? new Response(sse([{ choices: [{ delta: { content: "Hi" } }] }, { choices: [], usage: { prompt_tokens: 900, completion_tokens: 100, total_tokens: 1000 } }]), { headers: { "content-type": "text/event-stream" } })
       : Response.json({ choices: [{ message: { role: "assistant", content: "Hi" } }], usage: { prompt_tokens: 40, completion_tokens: 2, total_tokens: 42 } }));
   const gateway = vi.fn(() => ({ run: gatewayRun }));
-  const run = vi.fn(async (_model: string, input: { stream?: boolean }) => input.stream
+  const run = vi.fn(async (_model: string, input: { stream?: boolean }) => workers === "down"
+    ? Promise.reject(new Error("3040: Capacity temporarily exceeded"))
+    : input.stream
     ? workersSse(KIMI_STREAM)
     : { id: "c2", object: "chat.completion", model: AI_WORKERS_MODEL, choices: [{ index: 0, message: { role: "assistant", content: "Hi" } }], usage: { prompt_tokens: 40, completion_tokens: 2, total_tokens: 42 } });
   const w = await world({ AI: { run, gateway }, ...vars } as unknown as Record<string, string>);
@@ -138,11 +145,51 @@ describe("the included AI", () => {
   });
 
   it("falls back to Workers AI when xAI does not answer", async () => {
-    const { w, key, gatewayRun, run } = await ai({ XAI_API_KEY: "xai-test" }, "down");
+    const { w, key, gatewayRun, run } = await ai(GROK_FIRST, "down");
     const response = await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false) }));
     expect(response.status).toBe(200);
     expect(gatewayRun).toHaveBeenCalledTimes(1);
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks Workers AI first when both are set up, and xAI only when Workers AI fails", async () => {
+    const both = await ai({ XAI_API_KEY: "xai-test" });
+    expect((await both.w.fetch(apiRequest("POST", "/v1/ai/chat/completions", both.key, { body: chat(false) }))).status).toBe(200);
+    expect(both.run).toHaveBeenCalledTimes(1);
+    expect(both.gatewayRun).not.toHaveBeenCalled();
+    const down = await ai({ XAI_API_KEY: "xai-test" }, "ok", "down");
+    const response = await down.w.fetch(apiRequest("POST", "/v1/ai/chat/completions", down.key, { body: chat(false) }));
+    expect(response.status).toBe(200);
+    expect(down.gatewayRun).toHaveBeenCalledTimes(1);
+    const none = await ai({}, "ok", "down");
+    const failed = await none.w.fetch(apiRequest("POST", "/v1/ai/chat/completions", none.key, { body: chat(true) }));
+    expect(failed.status).toBe(502);
+    expect(await none.used()).toBe(true);
+  });
+
+  it("moves on when an answer opens with an error, even inside a 200 stream", async () => {
+    for (const stream of [true, false]) {
+      const { w, key, gatewayRun, run } = await ai(GROK_FIRST, "busy");
+      const response = await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(stream) }));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('"Hi"');
+      expect(gatewayRun).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("passes a good stream through byte for byte, and swaps any provider error text for a plain one", async () => {
+    const raw = 'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: [DONE]\n\n';
+    const kept = await usableStream(new Response(raw).body!);
+    expect(await new Response(kept).text()).toBe(raw);
+    expect(await usableStream(new Response("").body!)).toBeNull();
+    const late = await new Response(plainErrors(sse([{ choices: [{ delta: { content: "Hi" } }] }, XAI_ERROR]))).text();
+    expect(late).not.toContain("service tier");
+    expect(late).toContain(AI_BUSY);
+    expect(late).toContain('"content":"Hi"');
+    const workers = await new Response(openAiStream(workersSse([KIMI_STREAM[1], { error: "upstream exploded at node 7" }]))).text();
+    expect(workers).not.toContain("node 7");
+    expect(workers).toContain(AI_BUSY);
   });
 
   it("adds up per-chunk usage when a stream never sends its total", async () => {

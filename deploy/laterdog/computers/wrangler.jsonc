@@ -52,8 +52,10 @@
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFToUIA2DvjWJrmf",
     // AI Gateway for included decisions (Workers AI Clef), voice (ElevenLabs) and later.dog AI.
     "AI_GATEWAY_ID": "default",
-    // later.dog AI runs on this Workers AI model, or on xAI when XAI_API_KEY is set (falling back here if xAI fails).
+    // later.dog AI's Workers AI model.
     "TRIAL_AI_WORKERS_MODEL": "@cf/moonshotai/kimi-k2.6",
+    // Which answers later.dog AI first: "workers-ai", or "xai" when XAI_API_KEY is set. The other takes over if the first fails.
+    "TRIAL_AI_FIRST": "workers-ai",
     // later.dog Cloud, $10/month through Square (location "later.dog", plan "later.dog Cloud").
     "SQUARE_API_VERSION": "2026-05-20",
     "SQUARE_LOCATION_ID": "L7GC619QNDQ55",
@@ -67,6 +69,6 @@
   // COMPUTERS_KEY_SHA256 - lowercase hex SHA-256 of the API key ("ldc_..."); the key itself is never stored here.
   // DESKTOP_SIGNING_KEY  - random HMAC key for signed desktop viewer links.
   // ELEVENLABS_API_KEY   - restricted ElevenLabs key for included voice (Text to Speech + Voices read).
-  // XAI_API_KEY          - optional xAI key; later.dog AI then uses Grok first.
+  // XAI_API_KEY          - optional xAI key; Grok then backs up later.dog AI (see TRIAL_AI_FIRST).
   // SQUARE_ACCESS_TOKEN  - Square production access token for the later.dog Cloud plan.
 }

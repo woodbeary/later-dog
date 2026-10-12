@@ -5,6 +5,8 @@ export const AI_TOKENS_PER_DAY = 1_500_000;
 export const AI_TOKENS_TOTAL_PER_DAY = 100_000_000;
 export const AI_DEFAULT_MODEL = "grok-4-1-fast-reasoning";
 export const AI_WORKERS_MODEL = "@cf/moonshotai/kimi-k2.6";
+export const AI_BUSY = "later.dog AI is busy right now. Try again in a minute.";
+const BUSY_ERROR = { message: AI_BUSY, type: "server_error", code: "upstream_failed" };
 export const AI_MAX_OUTPUT_TOKENS = 32_000;
 const MAX_MESSAGES = 1_000;
 const MAX_TOOLS = 256;
@@ -104,7 +106,7 @@ export function openAiStream(stream: ReadableStream<Uint8Array>): ReadableStream
     if (!isRecord(chunk)) return;
     if (!Array.isArray(chunk.choices)) {
       if (isRecord(chunk.usage)) usage = chunk.usage;
-      else send(controller, chunk);
+      else send(controller, chunk.error !== undefined ? { error: BUSY_ERROR } : chunk);
       return;
     }
     if (isRecord(chunk.usage)) {
@@ -133,6 +135,90 @@ export function openAiStream(stream: ReadableStream<Uint8Array>): ReadableStream
       finish(controller);
     },
   }));
+}
+
+export function plainErrors(stream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  let buffer = "";
+  const line = (text: string) => {
+    const data = text.trim().startsWith("data:") ? text.trim().slice(5).trim() : "";
+    if (!data.startsWith("{")) return text;
+    try {
+      const chunk: unknown = JSON.parse(data);
+      return isRecord(chunk) && chunk.error !== undefined ? `data: ${JSON.stringify({ error: BUSY_ERROR })}` : text;
+    } catch {
+      return text;
+    }
+  };
+  return stream.pipeThrough(new TextDecoderStream()).pipeThrough(new TransformStream<string, Uint8Array>({
+    transform(text, controller) {
+      buffer += text;
+      const end = buffer.lastIndexOf("\n");
+      if (end < 0) return;
+      controller.enqueue(encoder.encode(buffer.slice(0, end + 1).split("\n").map(line).join("\n")));
+      buffer = buffer.slice(end + 1);
+    },
+    flush(controller) {
+      if (buffer) controller.enqueue(encoder.encode(line(buffer)));
+    },
+  }));
+}
+
+type Frame = "pending" | "ok" | "error";
+
+function firstFrame(text: string): Frame {
+  const lines = text.split("\n");
+  lines.pop();
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).trim();
+    if (!data) continue;
+    if (data === "[DONE]") return "error";
+    try {
+      const chunk: unknown = JSON.parse(data);
+      return isRecord(chunk) && chunk.error !== undefined ? "error" : "ok";
+    } catch {
+      return "ok";
+    }
+  }
+  return "pending";
+}
+
+export async function usableStream(stream: ReadableStream<Uint8Array>): Promise<ReadableStream<Uint8Array> | null> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  const seen: Uint8Array[] = [];
+  let text = "";
+  let frame: Frame = "pending";
+  let ended = false;
+  while (frame === "pending" && text.length < 65_536) {
+    const { value, done } = await reader.read();
+    if (done) {
+      ended = true;
+      break;
+    }
+    seen.push(value);
+    text += decoder.decode(value, { stream: true });
+    frame = firstFrame(text);
+  }
+  if (frame === "error" || (frame === "pending" && ended)) {
+    await reader.cancel().catch(() => {});
+    return null;
+  }
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of seen) controller.enqueue(chunk);
+    },
+    async pull(controller) {
+      const { value, done } = await reader.read();
+      if (done) controller.close();
+      else controller.enqueue(value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
 }
 
 export function grokRequest(request: ChatRequest, key: string) {

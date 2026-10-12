@@ -67,6 +67,8 @@ const view = (trial: TrialView): TrialStatus => trial.state === "active"
 const PLAN_OPEN_TTL_MS = 10 * 60_000;
 let planOpenCache: { api: string; at: number; open: boolean } | null = null;
 
+export const planOfferedNow = (): boolean => planOpenCache?.open === true;
+
 async function planOpen(options: TrialOptions): Promise<boolean> {
   const api = savedTrial()?.api ?? trialApi();
   if (!api) return false;
