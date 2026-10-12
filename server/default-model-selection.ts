@@ -18,8 +18,12 @@ export interface DefaultSelectionContext {
   refusal?: (instance: SelectableInstance) => string | undefined;
 }
 
+const INCLUDED_LAST = "laterdogAi";
+
 const claudeFirst = (instances: readonly SelectableInstance[]) =>
-  instances.find((instance) => instance.driverKind === "claudeAgent") ?? instances[0];
+  instances.find((instance) => instance.driverKind === "claudeAgent")
+    ?? instances.find((instance) => instance.driverKind !== INCLUDED_LAST)
+    ?? instances[0];
 
 /** Installed and waiting on a sign-in. A custom endpoint brings its own
  * credential, so its sign-in state does not count. */

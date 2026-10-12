@@ -1,14 +1,17 @@
 # Changelog
 
-## 0.3.10 — 2026-10-11
+## 0.3.11 — 2026-10-11
 
+- **Chat right away, free.** Start the free trial and your dogs can chat and use their computer on later.dog AI, with no account to sign in to. It runs Kimi K2.6 on Cloudflare, later.dog keeps none of your prompts, and it comes with a daily allowance. When that runs out, sign in to Claude or ChatGPT, or keep going on later.dog Cloud.
 - **No Node needed.** On a Mac without Node, **Sign in** for Claude or ChatGPT installs them straight from Anthropic and OpenAI. Codex's download is checked against OpenAI's published checksum before it runs.
 - **Dogs that make dogs hand over the work.** A dog made by another dog starts with its creator's apps and approval level (never more, and never Full access), and the creator hands it the job right away, so you don't have to approve every step in a thread you aren't watching.
 - **Plain words while a dog works.** "Checking with Scout", "Making Scout", "Working in Gmail" and "Sniffing around the web" instead of tool names like "Running create_bot".
+- **Cards the size of a message.** Questions, choices, approvals, app sign-ins, keys and cloud tasks are compact cards at bubble width instead of panels that filled the chat, and a dog's screenshots are small thumbnails that open full size.
 - **Approvals ask one question.** "Let Scout run a command?" with **Don't allow**, **Always allow** and **Allow once**, and a small × to stop. Tool names are gone from the card in the chat, and details are one click away.
 - **Group chats start right away.** No setup card before the first message: the first dog leads and @mentions bring others in. Replies no longer show a "Picked by…" percentage, and a teammate's reply chip shows the first line of what it said.
-- **Your free trial includes smart group chats and voice.** During the trial, group chats send each message to the best-fit dog, and dogs can talk out loud with a choice of ten voices, with nothing to set up. Your own keys always come first.
-- Shorter wording across setup, apps and approvals.
+- **Smarter group chats during the free trial.** Each message goes to the best-fit dog, decided by Cloudflare's Clef model, with nothing to set up. Your own keys always come first.
+- **Keep going after the trial.** When the free minutes run out, **Keep going for $10/month** puts your dogs on later.dog Cloud: a cloud computer, 40 hours a month, paid through Square and cancellable anytime from Settings. It appears once sign-ups open.
+- Shorter wording across setup, apps and approvals, and the README says plainly what stays on your Mac.
 
 ## 0.3.9 — 2026-10-11
 

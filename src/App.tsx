@@ -280,15 +280,19 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         <ChatView bot={bot} />
       ) : (
         <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
-          <Loader2 size={20} className="animate-spin" />
-          <div className="text-[14px]">
-            {state.connected ? "No dogs yet" : "Connecting to the later.dog server…"}
-          </div>
-          {!state.connected && (
-            <div className="text-[12px]">
-              Start it with <code className="rounded bg-raised px-1.5 py-0.5">pnpm dev:server</code>
-            </div>
-          )}
+          {!state.connected ? (
+            <>
+              <Loader2 size={20} className="animate-spin" />
+              <div className="text-[14px]">{import.meta.env.DEV ? "Connecting to the later.dog server…" : "Starting later.dog…"}</div>
+              {import.meta.env.DEV && (
+                <div className="text-[12px]">
+                  Start it with <code className="rounded bg-raised px-1.5 py-0.5">pnpm dev:server</code>
+                </div>
+              )}
+            </>
+          ) : state.hydrated ? (
+            <div className="text-[14px]">No dogs yet</div>
+          ) : null}
         </main>
       )}
       {/* The panels below are siblings, so their keys must differ even

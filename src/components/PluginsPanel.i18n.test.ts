@@ -66,7 +66,7 @@ describe("plugins modal translation", () => {
       },
     }));
     expect(html).toContain(locales.ja!["connectors.card.connectSecurely"]);
-    expect(html).toContain(locales.ja!["connectors.card.requested"]);
+    expect(html).toContain(locales.ja!["connectors.card.notNow"]);
     expect(html).not.toContain("Connect securely");
   });
 });

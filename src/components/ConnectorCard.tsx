@@ -123,35 +123,30 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
 
   return (
     <div className="flex w-full justify-start">
-      <div data-tour="connector" className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-hairline/50 bg-card shadow-sm">
-        <div className="flex items-start gap-3 p-4">
+      <div data-tour="connector" className="w-full max-w-[420px] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10">
+        <div className="flex items-start gap-2.5 px-3.5 pb-2 pt-3">
           {/* a service the connector catalog has a mark for shows it; the label sits beside it */}
-          {brandMark(connector.slug) ? <BrandIcon brand={connector.slug} name={connector.label} size={44} decorative /> : (
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-control text-[16px] font-semibold text-ink">
+          {brandMark(connector.slug) ? <BrandIcon brand={connector.slug} name={connector.label} size={32} decorative /> : (
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-[13px] font-semibold text-ink">
               {connector.label.slice(0, 1).toUpperCase() || <PlugZap size={19} />}
             </div>
           )}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="truncate text-[14px] font-semibold text-ink">{connector.label}</span>
+              <span className="truncate text-[14px] font-medium text-ink">{connector.label}</span>
               {connected && (
                 <span className="flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">
                   <Check size={11} /> {t("connectors.card.connected")}
                 </span>
               )}
             </div>
-            <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-secondary">
+            <p className="text-[13px] leading-[18px] text-ink-secondary">
               {connected
                 ? connector.resumed
                   ? t("connectors.card.resumed")
                   : t("connectors.card.paused")
                 : connector.description}
             </p>
-            {!connected && (
-              <p className="mt-1 text-[11.5px] text-ink-tertiary">
-                {t("connectors.card.signInHint")}
-              </p>
-            )}
             {error && <p className="mt-2 text-[12px] text-danger">{typeof error === "string" ? error : t(error.key)}</p>}
             {!connected && authorizationUrl && (
               <a href={authorizationUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => {
@@ -170,22 +165,18 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
             </button>
           )}
         </div>
-        <div className="flex items-center justify-between border-t border-hairline/40 bg-panel/40 px-4 py-2.5">
-          <div className="flex items-center gap-1.5 text-[11.5px] text-ink-secondary">
-            {authorizing ? <Loader2 size={12} className="animate-spin" /> : <PlugZap size={12} />}
-            {authorizing
-              ? t("connectors.card.waiting")
-              : connected
-                ? t("connectors.card.readyToUse")
-                : t("connectors.card.requested")}
+        <div className="flex items-center justify-between gap-2 px-3.5 pb-3">
+          <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-secondary">
+            {authorizing && <Loader2 size={12} className="animate-spin" />}
+            {authorizing ? t("connectors.card.waiting") : connected ? t("connectors.card.readyToUse") : null}
           </div>
           {!connected ? (
             <button
               onClick={() => void connect()}
               disabled={busy}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
-              {busy || authorizing ? <Loader2 size={13} className="animate-spin" /> : <PlugZap size={13} />}
+              {(busy || authorizing) && <Loader2 size={13} className="animate-spin" />}
               {authorizing
                 ? t("connectors.card.openAgain")
                 : connector.status === "failed"
@@ -196,7 +187,7 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
             <button
               onClick={() => void resume()}
               disabled={busy}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
               {busy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {t("connectors.card.continueTask")}
             </button>

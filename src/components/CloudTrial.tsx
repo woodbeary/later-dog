@@ -6,13 +6,26 @@ import { t } from "@/lib/i18n";
 import { pillButton } from "./LocalVmRows";
 import { SettingRow } from "./SettingsPrimitives";
 
+export type PlanInfo = { status: "none" | "pending" | "active" | "canceled" | "ended"; periodEnd?: string };
+
 export type TrialStatus =
   | { state: "none" }
-  | { state: "offered"; minutes: number; days: number }
+  | { state: "offered"; minutes: number; days: number; ai?: true }
   | { state: "pending"; url: string }
-  | { state: "active"; minutes: number; minutesLeft: number; expiresAt: string }
-  | { state: "used_up"; minutes: number; expiresAt: string }
-  | { state: "ended" };
+  | { state: "active"; minutes: number; minutesLeft: number; expiresAt: string; plan?: PlanInfo; planOffered?: true; ai?: true }
+  | { state: "used_up"; minutes: number; expiresAt: string; plan?: PlanInfo; planOffered?: true; ai?: true }
+  | { state: "ended"; planOffered?: true };
+
+const PLAN_PATH = "/api/computers/plan";
+const CHECKOUT_POLL_MS = 4_000;
+const CHECKOUT_WAIT_MS = 15 * 60_000;
+
+export const onPlan = (status: TrialStatus | null) =>
+  (status?.state === "active" || status?.state === "used_up") && (status.plan?.status === "active" || status.plan?.status === "canceled");
+
+export const mayBuyPlan = (status: TrialStatus | null) =>
+  !onPlan(status) && (status?.state === "used_up" || status?.state === "ended" || status?.state === "active") && status.planOffered === true
+  && (status.state !== "active" || status.minutesLeft < 10);
 
 const TRIAL_PATH = "/api/computers/trial";
 const POLL_MS: Partial<Record<TrialStatus["state"], number>> = { pending: 3_000, active: 30_000 };
@@ -20,6 +33,12 @@ const POLL_MS: Partial<Record<TrialStatus["state"], number>> = { pending: 3_000,
 const messageOf = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
 export function trialSubtitle(status: TrialStatus): string {
+  if ((status.state === "active" || status.state === "used_up") && onPlan(status)) {
+    const until = status.plan?.periodEnd ? new Date(status.plan.periodEnd).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    if (status.plan?.status === "canceled") return t("vm.plan.until", { date: until });
+    const hours = status.state === "active" ? Math.floor(status.minutesLeft / 60) : 0;
+    return hours === 1 ? t("vm.plan.left.one") : t("vm.plan.left", { hours });
+  }
   switch (status.state) {
     case "offered": return t("vm.trial.offer", { minutes: status.minutes, days: status.days });
     case "pending": return t("vm.trial.pending");
@@ -56,6 +75,55 @@ export function useCloudTrial() {
     };
   }, [status?.state]);
 
+  const [checkoutUntil, setCheckoutUntil] = useState(0);
+
+  useEffect(() => {
+    if (!checkoutUntil) return;
+    if (onPlan(status) || Date.now() > checkoutUntil) {
+      setCheckoutUntil(0);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void api<TrialStatus>(TRIAL_PATH, { signal: controller.signal }).then(setStatus, () => {});
+    }, CHECKOUT_POLL_MS);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [checkoutUntil, status]);
+
+  const buy = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await api<TrialStatus | { state: "checkout"; url: string }>(PLAN_PATH, { method: "POST" });
+      if (next.state === "checkout") {
+        setCheckoutUntil(Date.now() + CHECKOUT_WAIT_MS);
+        await openExternalLink(next.url);
+      } else {
+        setStatus(next);
+      }
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelPlan = async () => {
+    if (!window.confirm(t("vm.plan.cancelConfirm"))) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await api<TrialStatus>(PLAN_PATH, { method: "DELETE" }));
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const act = async (method: "POST" | "DELETE") => {
     setBusy(true);
     setError(null);
@@ -74,11 +142,15 @@ export function useCloudTrial() {
     if (window.confirm(t("vm.trial.endConfirm"))) void act("DELETE");
   };
 
-  return { status, busy, error, start: () => void act("POST"), cancel: () => void act("DELETE"), end };
+  return {
+    status, busy, error, checkingOut: checkoutUntil > 0,
+    start: () => void act("POST"), cancel: () => void act("DELETE"), end,
+    buy: () => void buy(), cancelPlan: () => void cancelPlan(),
+  };
 }
 
 export function CloudTrialOffer({ onUse, className = "mt-3" }: { onUse?: () => void; className?: string }) {
-  const { status, busy, error, start } = useCloudTrial();
+  const { status, busy, error, start, buy, checkingOut } = useCloudTrial();
   const previous = useRef(status?.state);
   useEffect(() => {
     if (previous.current === "pending" && status?.state === "active") onUse?.();
@@ -95,6 +167,23 @@ export function CloudTrialOffer({ onUse, className = "mt-3" }: { onUse?: () => v
           {t("computer.trial.use")}
         </button>
         <span className="text-[11px] text-ink-tertiary">{trialSubtitle(status)}</span>
+      </div>
+    );
+  }
+  if (mayBuyPlan(status)) {
+    return (
+      <div data-cloud-trial-offer="plan" className={`${className} flex flex-col items-center gap-1.5`}>
+        <button
+          type="button"
+          onClick={buy}
+          disabled={busy || checkingOut}
+          className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-medium text-white hover:brightness-110 disabled:opacity-50"
+        >
+          {(busy || checkingOut) && <Loader2 size={12} className="animate-spin" />}
+          {t("vm.plan.buy")}
+        </button>
+        <span className="text-[11px] text-ink-tertiary">{checkingOut ? t("vm.plan.checkingOut") : t("vm.plan.hint")}</span>
+        {error && <p role="alert" className="text-[11px] text-danger">{error}</p>}
       </div>
     );
   }
@@ -128,16 +217,34 @@ export function CloudTrialOffer({ onUse, className = "mt-3" }: { onUse?: () => v
 }
 
 export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
-  const { status, busy, error, start, cancel, end } = useCloudTrial();
-  const spinner = busy && <Loader2 size={12} className="animate-spin" />;
+  const { status, busy, error, start, cancel, end, buy, cancelPlan, checkingOut } = useCloudTrial();
+  const spinner = (busy || checkingOut) && <Loader2 size={12} className="animate-spin" />;
+  const paid = onPlan(status);
+  const buyButton = (
+    <button type="button" onClick={buy} disabled={busy || checkingOut} className={`${pillButton} flex items-center gap-1.5`}>
+      {spinner}
+      {t("vm.plan.buy")}
+    </button>
+  );
 
   return (
     <>
-      {status?.state === "ended" ? (
+      {status?.state === "ended" && !mayBuyPlan(status) ? (
         <p data-cloud-trial="ended" className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary">{t("vm.trial.ended")}</p>
+      ) : status?.state === "ended" ? (
+        <SettingRow title={t("vm.plan.title")} subtitle={checkingOut ? t("vm.plan.checkingOut") : t("vm.trial.ended")}>
+          <div data-cloud-trial="ended" className="flex flex-wrap gap-2 sm:justify-end">{buyButton}</div>
+        </SettingRow>
       ) : status?.state === "none" ? fallback : status && (
-        <SettingRow title={t("vm.trial.title")} subtitle={trialSubtitle(status)}>
-          <div data-cloud-trial={status.state} className="flex flex-wrap gap-2 sm:justify-end">
+        <SettingRow title={paid ? t("vm.plan.title") : t("vm.trial.title")} subtitle={trialSubtitle(status)}>
+          <div data-cloud-trial={paid ? "plan" : status.state} className="flex flex-wrap gap-2 sm:justify-end">
+            {mayBuyPlan(status) && buyButton}
+            {paid && "plan" in status && status.plan?.status === "active" && (
+              <button type="button" onClick={cancelPlan} disabled={busy} className={`${pillButton} flex items-center gap-1.5`}>
+                {busy && <Loader2 size={12} className="animate-spin" />}
+                {t("vm.plan.cancel")}
+              </button>
+            )}
             {status.state === "offered" && (
               <button type="button" onClick={start} disabled={busy} className={`${pillButton} flex items-center gap-1.5`}>
                 {spinner}
@@ -155,7 +262,7 @@ export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
                 </button>
               </>
             )}
-            {(status.state === "active" || status.state === "used_up") && (
+            {(status.state === "active" || status.state === "used_up") && !paid && (
               <button type="button" onClick={end} disabled={busy} className={`${pillButton} flex items-center gap-1.5 text-danger`}>
                 {spinner}
                 {t("vm.trial.end")}

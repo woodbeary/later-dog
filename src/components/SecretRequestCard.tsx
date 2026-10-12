@@ -107,14 +107,14 @@ export function SecretRequestCard({
 
   return (
     <div className="flex w-full justify-start">
-      <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-hairline/50 bg-card shadow-sm">
-        <div className="flex items-start gap-3 p-4">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-control text-ink">
-            <KeyRound size={19} />
+      <div className="w-full max-w-[420px] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10">
+        <div className="flex items-start gap-2.5 px-3.5 pb-2 pt-3">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
+            <KeyRound size={16} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="truncate text-[14px] font-semibold text-ink">{secret.label}</span>
+              <span className="truncate text-[14px] font-medium text-ink">{secret.label}</span>
               {provided && (
                 <span className="flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">
                   <Check size={11} /> Saved
@@ -122,16 +122,16 @@ export function SecretRequestCard({
               )}
               {superseded && (
                 <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
-                  Superseded
+                  Replaced
                 </span>
               )}
             </div>
-            <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-secondary">
+            <p className="text-[13px] leading-[18px] text-ink-secondary">
               {description}
             </p>
             {pending && (
               <p className="mt-1 flex items-center gap-1 text-[11.5px] text-ink-tertiary">
-                <LockKeyhole size={11} /> Stored securely by later.dog and never added to chat.
+                <LockKeyhole size={11} /> Never shown in chat.
               </p>
             )}
             {error && <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p>}
@@ -148,12 +148,12 @@ export function SecretRequestCard({
           )}
         </div>
         {remoteClient && pending && (
-          <div className="border-t border-hairline/40 bg-panel/40 px-4 py-3 text-[12.5px] leading-relaxed text-ink-secondary">
+          <div className="px-3.5 pb-3 text-[12.5px] leading-relaxed text-ink-secondary">
             This key must be saved on the host computer. Open this conversation on the host to continue securely.
           </div>
         )}
         {!remoteClient && pending && (
-          <form onSubmit={(event) => void save(event)} className="border-t border-hairline/40 bg-panel/40 px-4 py-3">
+          <form onSubmit={(event) => void save(event)} className="px-3.5 pb-3">
             <div className="flex gap-2">
               <input
                 type="password"
@@ -164,14 +164,14 @@ export function SecretRequestCard({
                 placeholder={secret.placeholder}
                 disabled={saving || savedLocally}
                 aria-label={secret.label}
-                className="min-w-0 flex-1 rounded-lg border border-hairline bg-inset px-3 py-2 text-[13px] text-ink outline-none placeholder:text-ink-tertiary focus:border-accent disabled:opacity-60"
+                className="h-8 min-w-0 flex-1 rounded-full border-[0.5px] border-ink/15 bg-composer px-3 text-[13px] text-ink outline-none placeholder:text-ink-tertiary focus:border-accent disabled:opacity-60"
               />
               <button
                 type="submit"
                 disabled={saving || (!value.trim() && !savedLocally)}
-                className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+                className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
-                {saving ? <Loader2 size={13} className="animate-spin" /> : <LockKeyhole size={13} />}
+                {saving && <Loader2 size={13} className="animate-spin" />}
                 {savedLocally ? "Continue task" : "Save securely"}
               </button>
             </div>
@@ -187,7 +187,7 @@ export function SecretRequestCard({
         )}
         {(provided || declined) && (
           <div className={cn(
-            "flex items-center justify-between border-t border-hairline/40 bg-panel/40 px-4 py-2.5 text-[11.5px]",
+            "flex items-center justify-between px-3.5 pb-3 text-[12px]",
             declined ? "text-danger" : "text-success",
           )}>
             <span className="flex items-center gap-1.5">
@@ -198,7 +198,7 @@ export function SecretRequestCard({
               <button
                 onClick={() => void retryResume()}
                 disabled={saving}
-                className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
                 {saving ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Try again
               </button>
@@ -206,9 +206,9 @@ export function SecretRequestCard({
           </div>
         )}
         {superseded && (
-          <div className="flex items-center border-t border-hairline/40 bg-panel/40 px-4 py-2.5 text-[11.5px] text-ink-secondary">
+          <div className="flex items-center px-3.5 pb-3 text-[12px] text-ink-secondary">
             <span className="flex items-center gap-1.5">
-              <X size={12} /> Superseded by a newer request
+              <X size={12} /> Replaced by a newer request
             </span>
           </div>
         )}

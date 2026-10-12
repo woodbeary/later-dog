@@ -46,14 +46,14 @@ describe("SecretRequestCard superseded requests", () => {
   it("still offers entry while the newest request is pending", () => {
     const html = view({});
     expect(html).toContain("Save securely");
-    expect(html).toContain("never added to chat.");
+    expect(html).toContain("Never shown in chat.");
   });
 
   it("stops offering entry and names its replacement once superseded", () => {
     const html = view({ superseded: true });
-    expect(html).toContain("Superseded");
+    expect(html).toContain("Replaced");
     expect(html).toContain("replaced by a newer one for the same key");
-    expect(html).toContain("Superseded by a newer request");
+    expect(html).toContain("Replaced by a newer request");
     expect(html).not.toContain("Save securely");
     expect(html).not.toContain("type=\"password\"");
     expect(html).not.toContain("Not now");

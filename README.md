@@ -25,7 +25,8 @@ there are no API keys to paste. New to later.dog? Start with the [user guide](do
 4. The welcome tour asks your name, shows which AI providers it found, and lets you **sign in to ChatGPT or Claude**
    with their device-code or browser flows. Then it makes your first dog.
 
-That is the whole setup. Everything a dog does stays on your Mac.
+That is the whole setup. Your dogs, chats and memory stay on your Mac. What a dog asks its AI goes to the provider you
+signed in with, and during a free trial, group-chat routing, voice and later.dog AI go through later.dog's cloud service.
 
 later.dog updates itself from the newest GitHub release: it downloads the update in the background, a small icon
 appears at the top of the sidebar, and **Restart to update** installs it.

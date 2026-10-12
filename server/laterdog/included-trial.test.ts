@@ -28,15 +28,28 @@ const trial = (state: Record<string, unknown>, key: string | null = KEY) => {
 
 describe("decisions and voice included with the free trial", () => {
   it("use the trial key with later.dog's own relay once the trial is confirmed", () => {
-    trial({ confirmed: true });
+    trial({ confirmed: true, included: ["decisions", "voice", "ai"] });
     expect(trialDecider()).toEqual({ token: KEY, api: "https://cloud.later.dog", included: true });
     expect(trialVoice()).toEqual({ token: KEY, api: "https://cloud.later.dog/v1/voice", included: true });
     expect(deciderCredential(undefined, undefined, {})).toEqual({ token: KEY, api: "https://cloud.later.dog", included: true });
     expect(voiceCredential(undefined, {})).toEqual({ token: KEY, api: "https://cloud.later.dog/v1/voice", included: true });
   });
 
-  it("never stand in for a key the person saved", () => {
+  it("offer only what cloud.later.dog says is set up; a trial saved before the list existed gets decisions only", () => {
     trial({ confirmed: true });
+    expect(trialDecider()).not.toBeNull();
+    expect(trialVoice()).toBeNull();
+    trial({ confirmed: true, included: ["decisions"] });
+    expect(trialVoice()).toBeNull();
+    trial({ confirmed: true, included: [] });
+    expect(trialDecider()).toBeNull();
+    trial({ confirmed: true, included: ["voice"] });
+    expect(trialVoice()).not.toBeNull();
+    expect(trialDecider()).toBeNull();
+  });
+
+  it("never stand in for a key the person saved", () => {
+    trial({ confirmed: true, included: ["decisions", "voice", "ai"] });
     expect(deciderCredential("own-jev-key", undefined, {})).toMatchObject({ token: "own-jev-key", included: false });
     expect(voiceCredential("own-eleven-key", {})).toMatchObject({ token: "own-eleven-key", included: false });
   });
@@ -56,7 +69,7 @@ describe("decisions and voice included with the free trial", () => {
 describe("voice with the free trial", () => {
   it("speaks with an included voice before the person picks one, and keeps their pick after", () => {
     expect(voiceReady({} as never)).toBe(false);
-    trial({ confirmed: true });
+    trial({ confirmed: true, included: ["decisions", "voice"] });
     expect(voiceReady({} as never)).toBe(true);
     expect(describeVoice({} as never)).toMatchObject({ ready: true, included: true, voice: INCLUDED_DEFAULT_VOICE });
     expect(describeVoice({ tts: { voice: "EXAVITQu4vr4xnSDxMaL" } } as never)).toMatchObject({ voice: "EXAVITQu4vr4xnSDxMaL" });

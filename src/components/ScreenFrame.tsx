@@ -33,7 +33,7 @@ export function ScreenFrame({ threadId, message }: { threadId: string; message: 
         type="button"
         onClick={() => setOpen(true)}
         aria-label={t("attach.previewAria", { name: image.name })}
-        className="group/image relative w-fit max-w-[min(42rem,78%)] overflow-hidden rounded-2xl border border-hairline/40 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="group/image relative w-fit max-w-[min(320px,78%)] overflow-hidden rounded-[18px] ring-[0.5px] ring-ink/10 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <img
           src={image.src}

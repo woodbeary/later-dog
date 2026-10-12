@@ -274,7 +274,7 @@ function queuePackageInstall(rawLink) {
 }
 
 function focusFromTrialLink(url) {
-  if (!/^laterdog:\/\/trial(?:[/?#]|$)/i.test(String(url))) return false;
+  if (!/^laterdog:\/\/(?:trial|plan)(?:[/?#]|$)/i.test(String(url))) return false;
   if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
   return true;
 }
