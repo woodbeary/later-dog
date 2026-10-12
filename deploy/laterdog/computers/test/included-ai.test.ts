@@ -76,7 +76,7 @@ async function ai(vars: Record<string, string> = GROK_FIRST, grok: "ok" | "down"
 
 const frames = (text: string) => text.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).filter((data) => data !== "[DONE]").map((data) => JSON.parse(data) as Record<string, unknown>);
 
-const chat = (stream: boolean, extra: Record<string, unknown> = {}) => ({ model: "grok-4.7", stream, messages: [{ role: "user", content: "hello" }], ...extra });
+const chat = (stream: boolean, extra: Record<string, unknown> = {}) => ({ model: "later-dog", stream, messages: [{ role: "user", content: "hello" }], ...extra });
 
 describe("the included AI", () => {
   it("answers a trial's chat with Grok through the AI Gateway on the included model, and counts its tokens", async () => {
@@ -165,6 +165,13 @@ describe("the included AI", () => {
     const failed = await none.w.fetch(apiRequest("POST", "/v1/ai/chat/completions", none.key, { body: chat(true) }));
     expect(failed.status).toBe(502);
     expect(await none.used()).toBe(true);
+  });
+
+  it("asks xAI first when the person picked a Grok model", async () => {
+    const { w, key, gatewayRun, run } = await ai({ XAI_API_KEY: "xai-test" });
+    expect((await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false, { model: "grok-4.3" }) }))).status).toBe(200);
+    expect(gatewayRun).toHaveBeenCalledTimes(1);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("moves on when an answer opens with an error, even inside a 200 stream", async () => {

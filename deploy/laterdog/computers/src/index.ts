@@ -602,7 +602,9 @@ async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: 
   const key = env.XAI_API_KEY?.trim();
   const workers = () => workersAnswer(env, parsed.request);
   const grok = key ? () => grokAnswer(env, parsed.request, key) : null;
-  const order = !grok ? [workers] : env.TRIAL_AI_FIRST?.trim() === "xai" ? [grok, workers] : [workers, grok];
+  const asked = body.value && typeof body.value === "object" ? String((body.value as { model?: unknown }).model ?? "") : "";
+  const grokFirst = asked.startsWith("grok") || (!asked.startsWith("kimi") && env.TRIAL_AI_FIRST?.trim() === "xai");
+  const order = !grok ? [workers] : grokFirst ? [grok, workers] : [workers, grok];
   let result: ChatAnswer | null = null;
   for (const answer of order) {
     result = await answer();

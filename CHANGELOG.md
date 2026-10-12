@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.13 — 2026-10-12
+
+- **A launch that feels intended.** later.dog opens on its golden dog and fades into the app once everything is ready, the same on a fast start or a slow network, and a dog's screen fades in on its first frame instead of popping in.
+- **Pick a model, not a product.** The free models show by name (Kimi K2.6, Grok 4.3) in the model picker, powered by later.dog, and the choice decides which one answers.
+- **No "I'm done" button** on a dog's computer: closing the screen hands it back.
+
 ## 0.3.12 — 2026-10-12
 
 - **Straight into a chat.** A new later.dog asks your name and lets you pick a dog, then opens its chat already running on later.dog AI. No AI or sign-in step: the free trial starts by itself, and Claude or ChatGPT sign-ins wait in Settings for when you want them.

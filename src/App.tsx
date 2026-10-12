@@ -23,6 +23,7 @@ import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
 import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
 import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
 import { NoEngines } from "@/components/NoEngines";
+import { LaunchSplash } from "@/components/LaunchSplash";
 import { CloudEngineSignIn } from "@/components/CloudEngineSignIn";
 import { CloudSetup } from "@/components/CloudSetup";
 import { engineReady } from "@/components/EngineLibrary";
@@ -374,6 +375,7 @@ function Application() {
         <GuidedTour />
         <LiveCallHost />
         <FirstConversationTour quiet={spotlightsQuiet(viewer)} />
+        <LaunchSplash />
       </StoreProvider>
     </DesktopCapabilitiesProvider>
   );

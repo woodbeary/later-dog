@@ -30,7 +30,7 @@ const create = () => IncludedAiDriver.create({ instanceId: INCLUDED_AI_INSTANCE,
 
 describe("later.dog AI", () => {
   it("is in every fleet, and waits for the free trial without calling anyone", async () => {
-    expect(instanceConfigs({} as never)[INCLUDED_AI_INSTANCE]).toMatchObject({ driver: "laterdogAi", displayName: "later.dog AI" });
+    expect(instanceConfigs({} as never)[INCLUDED_AI_INSTANCE]).toMatchObject({ driver: "laterdogAi", displayName: "later.dog" });
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     const instance = await create();
@@ -45,7 +45,7 @@ describe("later.dog AI", () => {
     const instance = await create();
     startTrial();
     expect((await instance.snapshot()).state).toBe("available");
-    const text = await instance.generateText?.({ prompt: "Say hi", model: "later-dog" } as never);
+    const text = await instance.generateText?.({ prompt: "Say hi", model: "kimi-k2.6" } as never);
     expect(String(text)).toContain("Hi!");
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://cloud.later.dog/v1/ai/chat/completions");
