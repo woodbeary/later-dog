@@ -244,7 +244,7 @@ describe("Accounts", () => {
       claudeApi(),
     ] });
     expect(ids()).toEqual([]);
-    expect(empty()?.textContent).toBe("No accounts yet. Add a Claude or ChatGPT account to get started.");
+    expect(empty()?.textContent).toBe("No accounts yet. Add Claude or ChatGPT to use the plan you already have.");
     expect(document.body.querySelector("[data-accounts-panel] [aria-label^='Remove']")).toBeNull();
     expect(button("Add account")).toBeDefined();
     expect(toggle()).toBeNull();

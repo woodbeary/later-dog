@@ -1744,7 +1744,7 @@
   "engines.account.signingOut": "Signing out…",
   "accounts.title": "Accounts",
   "accounts.resting": "Resting until {time}",
-  "accounts.empty": "No accounts yet. Add a Claude or ChatGPT account to get started.",
+  "accounts.empty": "No accounts yet. Add Claude or ChatGPT to use the plan you already have.",
   "accounts.add": "Add account",
   "accounts.signIn": "Sign in",
   "accounts.signOut": "Sign out",
