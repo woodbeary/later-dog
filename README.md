@@ -20,14 +20,15 @@ there are no API keys to paste. New to later.dog? Start with the [user guide](do
 3. Open **later.dog**. It is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether
    to open an app downloaded from the internet. The keychain access and the Accessibility and Screen Recording
    permissions you grant carry over to later versions.
-4. The welcome tour asks your name and lets you **sign in to ChatGPT or Claude** with their device-code or browser
-   flows, or **try later.dog AI free** with no account. Then it makes your first dog.
+4. The welcome asks your name and lets you pick a dog. Your first dog starts chatting right away on the free
+   **Kimi K2.6** and **Grok 4.3** models, with no account. Sign in to **Claude** or **ChatGPT** whenever you like: one
+   button in Settings, General, Add account, and the sign-in finishes in your browser.
 
 That is the whole setup. Your dogs, chats and memory stay on your Mac. What a dog asks its AI goes to the provider you
-signed in with, and during a free trial, group-chat routing, voice and later.dog AI go through later.dog's cloud service.
+signed in with, and during a free trial, group-chat routing, voice and the free models go through later.dog's cloud service.
 
 later.dog updates itself from the newest GitHub release: it downloads the update in the background, a small icon
-appears at the top of the sidebar, and **Restart to update** installs it.
+appears at the bottom of the sidebar, and **Restart to update** installs it.
 
 ## The first five minutes
 
