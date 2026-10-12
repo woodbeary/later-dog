@@ -5,6 +5,8 @@
 - **A launch that feels intended.** later.dog opens on its golden dog and fades into the app once everything is ready, the same on a fast start or a slow network, and a dog's screen fades in on its first frame instead of popping in.
 - **Pick a model, not a product.** The free models show by name (Kimi K2.6, Grok 4.3) in the model picker, powered by later.dog, and the choice decides which one answers.
 - **No "I'm done" button** on a dog's computer: closing the screen hands it back.
+- **Account on top, model below.** The chat header shows which account the chat runs on; the model sits by the message field and opens straight to the models.
+- **Fewer controls.** The voice chat icon has no menu beside the message field (call style lives in Settings), and "More ways to run dogs" is one button to Settings instead of a long list.
 
 ## 0.3.12 — 2026-10-12
 

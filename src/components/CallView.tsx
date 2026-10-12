@@ -300,7 +300,7 @@ export function CallTargetButton({
           <span className="absolute right-1 top-1 size-1.5 rounded-full bg-warning ring-2 ring-app" aria-hidden="true" />
         )}
       </button>
-      {canLive && (
+      {canLive && !composer && (
         <button
           ref={chevronRef}
           type="button"

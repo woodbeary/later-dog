@@ -158,7 +158,7 @@ function chat(config: AppState["config"]) {
   flushSync(() => root.render(createElement(Page, {
     config,
     children: [
-      createElement(CallButton, { key: "call", bot: ada, placement: "composer" }),
+      createElement(CallButton, { key: "call", bot: ada, placement: "header" }),
       createElement(LiveCallBar, { key: "bar", bot: ada }),
     ],
   })));
