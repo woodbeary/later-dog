@@ -117,6 +117,8 @@
   "approval.tool.useTool": "use a tool",
   "approval.tool.useService": "use {service}",
   "approval.tool.useComputer": "use the computer",
+  "approval.tool.useThisMac": "use this Mac",
+  "approval.tool.useItsComputer": "use its computer",
   "approval.tool.chooseComputer": "use a computer",
   "approval.card.namedWantsTo": "{name} wants to {action}",
   "approval.card.wantsTo": "Wants to {action}",

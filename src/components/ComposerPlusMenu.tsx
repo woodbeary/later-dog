@@ -43,7 +43,10 @@ export function ComposerPlusMenu({ onAttach, permissions, onConnectors }: {
 
   const savedMode = permissions ? approvalModeFor({ approvalMode: permissions.approvalMode, autoApprove: permissions.autoApprove }) : undefined;
   const mode = permissions?.driverKind === "antigravityAgent" && savedMode === "auto" ? "ask" : savedMode;
-  const options = permissions ? approvalModeOptionsFor(permissions.driverKind, permissions.trustedModesAvailable) : [];
+  // The same two choices as the dog's settings, Heel and Off-leash, plus the
+  // level in use if it is another one (set in full Settings or by a team).
+  const options = permissions ? approvalModeOptionsFor(permissions.driverKind, permissions.trustedModesAvailable)
+    .filter((option) => option.mode === "ask" || option.mode === "auto" || option.mode === mode) : [];
   const shown = options.length > 0 ? options : permissions ? approvalModeOptions().filter((option) => option.mode === mode) : [];
   const locked = permissions ? permissions.disabled || approvalModeSelectionRequiresLocalDesktop(mode ?? "ask", permissions.trustedModesAvailable) : true;
   const row = "flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13.5px] text-ink hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus disabled:opacity-45 disabled:hover:bg-transparent";

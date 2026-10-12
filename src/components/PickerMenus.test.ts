@@ -97,4 +97,20 @@ describe("the composer's + menu", () => {
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent === "Attach a file")!.click());
     expect(onAttach).toHaveBeenCalled();
   });
+
+  it("offers the dog settings' two levels, plus the one in use if it's another", async () => {
+    const levels = async (approvalMode: "ask" | "full") => {
+      await act(async () => root.render(createElement(ComposerPlusMenu, {
+        onAttach: () => {},
+        permissions: { approvalMode, driverKind: "codex", trustedModesAvailable: true, disabled: false, onSelect: () => {} },
+      })));
+      const plus = host.querySelector<HTMLButtonElement>("[data-composer-plus]")!;
+      if (!host.querySelector("[data-composer-plus-menu]")) await act(async () => plus.click());
+      const found = [...host.querySelectorAll("[data-plus-permission]")].map((item) => item.getAttribute("data-plus-permission"));
+      await act(async () => plus.click());
+      return found;
+    };
+    expect(await levels("ask")).toEqual(["ask", "auto"]);
+    expect(await levels("full")).toEqual(["ask", "auto", "full"]);
+  });
 });

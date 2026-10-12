@@ -415,7 +415,7 @@ describe("ApprovalCard tool-call kinds", () => {
       ["think", "think"],
       ["other", "take an action"],
       ["tool", "use a tool"],
-      ["mcp__dog__computer_batch", "use the computer"],
+      ["mcp__dog__computer_batch", "use its computer"],
       ["mcp__claude_ai_Gmail__send_email", "use Gmail"],
       ["mcp__composio__GMAIL_SEND_EMAIL", "send email"],
       ["apply_patch", "apply patch"],
@@ -652,7 +652,9 @@ describe("the action an approval asks about", () => {
   it("says a dog wants to use a computer when it picks one", () => {
     expect(toolLabel("mcp__agents__select_computer")).toBe("use a computer");
     expect(toolLabel("agents_select_computer")).toBe("use a computer");
-    expect(toolLabel("mcp__computer__computer_exec")).toBe("use the computer");
-    expect(toolLabel("computer_get_desktop_state")).toBe("use the computer");
+    // the dog's own computer, or the person's Mac when that's where it acts
+    expect(toolLabel("mcp__computer__computer_exec")).toBe("use its computer");
+    expect(toolLabel("computer_get_desktop_state")).toBe("use its computer");
+    expect(toolLabel("computer_get_desktop_state", "local-computer")).toBe("use this Mac");
   });
 });
