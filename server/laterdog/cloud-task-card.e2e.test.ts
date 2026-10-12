@@ -64,7 +64,7 @@ describe.skipIf(process.platform === "win32")("cloud task cards in the chat that
       child.on("close", () => resolve());
       setTimeout(() => (child.kill("SIGKILL"), resolve()), 5_000).unref?.();
     });
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it("adds one card for the job a dog sent, after its tool call, and none for failed or read-only calls", async () => {

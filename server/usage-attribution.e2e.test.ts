@@ -137,7 +137,7 @@ posixOnly("usage attribution e2e", () => {
       child.on("close", () => resolve());
       setTimeout(() => (child.kill("SIGKILL"), resolve()), 5_000).unref?.();
     });
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it("books an engine that reports tokens but no price at an estimate, and an unlisted model as unpriced", async () => {
