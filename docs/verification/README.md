@@ -212,6 +212,26 @@ flow, credential rotation, account ownership, and native Responses routing.
 The [mention fixture](mentions.md) checks candidate selection, composer highlighting,
 sent mentions, multiline scrolling and responsive wrapping in real chat views.
 
+## Installed app
+
+A release is checked the way a new user meets it, never by opening it over this
+Mac's own later.dog:
+
+```sh
+scripts/sealed-installed-app.sh v0.3.17
+```
+
+It downloads the release, checks the zip against `SHA256SUMS.txt` and the
+updater's `latest-mac.yml`, checks the signature, notarization and Gatekeeper's
+verdict, then starts the app with a temporary home; drive it through the
+printed devtools port. Setting `HOME` alone is not enough on macOS: the app
+finds its data folders through Foundation, which ignores `HOME`, so a plain
+`HOME=… later.dog` opens the person's real dogs and sign-ins. The script sets
+`CFFIXED_USER_HOME` as well and runs the app in a sandbox that cannot reach the
+real later.dog data at all. The copy inherits this Mac's Accessibility and
+Screen Recording grants, so its dogs never get a task on "this Mac". End the
+free trial it starts (Settings, Computer) before pressing Ctrl-C.
+
 ## Evidence
 
 The [persistence responsiveness benchmark](persistence-performance.md) measures
