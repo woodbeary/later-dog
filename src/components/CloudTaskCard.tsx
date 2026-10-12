@@ -65,7 +65,7 @@ export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message:
       <section
         aria-label={t("cloudTask.cardAria", { title, status: status.label })}
         data-testid="cloud-task-card"
-        className="w-full max-w-[560px] overflow-hidden rounded-xl border border-hairline/45 bg-card"
+        className="w-full max-w-[420px] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10"
       >
         <button
           type="button"

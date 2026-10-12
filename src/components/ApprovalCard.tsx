@@ -319,7 +319,7 @@ export function ApprovalCard({
     <div
       data-tour={settled || expired ? undefined : "approval"}
       className={cn(
-        "w-full max-w-[560px] rounded-[18px] bg-card px-4 py-3",
+        "w-full max-w-[420px] rounded-[18px] bg-card px-3.5 py-3",
         settled || expired ? "opacity-70" : "ring-[0.5px] ring-ink/10",
       )}
     >

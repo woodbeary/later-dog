@@ -150,12 +150,12 @@ export function QuestionCard({
       role="group"
       aria-label={t("question.aria.card")}
       className={cn(
-        "w-full max-w-[840px] rounded-2xl border bg-card p-4",
-        settled ? "border-hairline/30 opacity-70" : "border-accent/40",
+        "w-full max-w-[420px] rounded-[18px] bg-card px-3.5 py-3",
+        settled ? "opacity-70" : "ring-[0.5px] ring-ink/10",
       )}
     >
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[15px] font-semibold text-ink">
+        <div className="text-[14px] font-medium text-ink">
           {bot ? t("question.card.named", { name: bot.name }) : t("question.card.title")}
         </div>
         {!settled && (
@@ -207,7 +207,7 @@ export function QuestionCard({
         </div>
       )}
 
-      {!listsQuestions && <ExpandableText text={current.question} className="mt-3 text-[15px] leading-relaxed text-ink" />}
+      {!listsQuestions && <ExpandableText text={current.question} className="mt-1.5 text-[14px] leading-[21px] text-ink" />}
       {current.multiSelect && !settled && (
         <div className="mt-1 text-[12.5px] text-ink-secondary">{t("question.multiHint")}</div>
       )}
@@ -216,7 +216,7 @@ export function QuestionCard({
         <div
           role={current.multiSelect ? "group" : "radiogroup"}
           aria-label={current.question}
-          className="mt-3 overflow-hidden rounded-lg border border-hairline/40"
+          className="mt-2.5 overflow-hidden rounded-xl border border-hairline/40"
         >
           {current.options.map((option, index) => {
             const picked = draft.picked.includes(option.label);
@@ -237,7 +237,7 @@ export function QuestionCard({
               >
                 <Marker checked={picked} multi={Boolean(current.multiSelect)} />
                 <span className="min-w-0">
-                  <span className="block text-[14.5px] font-medium text-ink">{option.label}</span>
+                  <span className="block text-[14px] font-medium text-ink">{option.label}</span>
                   {option.description && (
                     <span className="block text-[13px] leading-snug text-ink-secondary">{option.description}</span>
                   )}
@@ -256,7 +256,7 @@ export function QuestionCard({
             )}
           >
             <Marker checked={draft.other} multi={Boolean(current.multiSelect)} />
-            <span className="text-[14.5px] text-ink">{t("question.other")}</span>
+            <span className="text-[14px] text-ink">{t("question.other")}</span>
           </button>
           {draft.other && (
             <div className="border-t border-hairline/40 px-3 py-2.5">
@@ -290,7 +290,7 @@ export function QuestionCard({
           <button
             onClick={submit}
             disabled={!complete}
-            className="rounded-full bg-accent px-3.5 py-1.5 text-[13.5px] font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {questions.length > 1 ? t("question.submitAll") : t("question.submit")}
           </button>

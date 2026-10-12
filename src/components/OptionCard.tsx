@@ -62,12 +62,12 @@ export function OptionCard({
   };
 
   return (
-    <div className="w-full max-w-[840px] rounded-2xl border border-hairline/50 bg-card p-4">
+    <div className="w-full max-w-[420px] rounded-[18px] bg-card px-3.5 py-3 ring-[0.5px] ring-ink/10">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-[16px] font-semibold text-ink">{title}</div>
+          <div className="text-[14px] font-medium text-ink">{title}</div>
           {subtitle && (
-            <ExpandableText text={subtitle} className="mt-0.5 text-[14px] text-ink-secondary" />
+            <ExpandableText text={subtitle} className="mt-0.5 text-[13px] text-ink-secondary" />
           )}
         </div>
         {canDismissOptionCard(card) && (
@@ -84,14 +84,14 @@ export function OptionCard({
         )}
       </div>
 
-      <div className="mt-3 overflow-hidden rounded-lg border border-hairline/40">
+      <div className="mt-2.5 overflow-hidden rounded-xl border border-hairline/40">
         {options.map((opt, i) => (
           <button
             key={opt}
             disabled={!!card.answered}
             onClick={() => answer(opt)}
             className={cn(
-              "flex w-full items-center gap-3 px-3 py-3 text-left text-[15px] text-ink",
+              "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink",
               i > 0 && "border-t border-hairline/40",
               // `raised` is the wrong fill here: the light skins define it as
               // pure white, the same value as the card underneath, so a
@@ -104,7 +104,7 @@ export function OptionCard({
           >
             {/* `control` is the chip tone every skin guarantees on a card; the
                 hairline keeps it a chip even on a row that is itself filled */}
-            <span className="flex size-6 items-center justify-center rounded-md border border-hairline/50 bg-control text-[12px] font-medium text-ink-secondary">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-control text-[11px] font-medium text-ink-secondary">
               {LETTERS[i]}
             </span>
             {opt}
@@ -120,7 +120,7 @@ export function OptionCard({
           onChange={(e) => setCustom(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && answer(custom)}
           placeholder={t("onboarding.card.custom")}
-          className="mt-3 w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2.5 text-[15px] text-ink placeholder:text-ink-secondary focus:outline-none"
+          className="mt-2 h-8 w-full rounded-full border-[0.5px] border-ink/15 bg-composer px-3 text-[13px] text-ink placeholder:text-ink-tertiary focus:outline-none"
         />
       )}
     </div>
