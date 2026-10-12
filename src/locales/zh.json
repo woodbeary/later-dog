@@ -770,8 +770,6 @@
   "onboarding.tour.next": "下一步",
   "onboarding.tour.composer": "这里是你与狗狗对话的地方。输入任何内容并按 Enter。每一段对话都是一个真正的代理。",
   "onboarding.tour.model": "每只狗狗都有自己的大脑。这个标签显示它的模型；点一下即可切换，即使在对话途中也可以。",
-  "onboarding.tour.apps": "已连接的应用程序。Gmail、Slack、GitHub、Notion，还有数百个其他服务。我们来看看。",
-  "onboarding.tour.apps-panel": "应用市场。登录一次某个应用，每只狗狗都能把它当作工具使用。我们先关掉这里，继续往下。",
   "onboarding.card.custom": "输入你自己的答案",
   "onboarding.spot.gotIt": "知道了",
   "onboarding.spot.model": "这只狗狗使用这里显示的模型运行。你随时可以更换，即使在对话途中也可以。",

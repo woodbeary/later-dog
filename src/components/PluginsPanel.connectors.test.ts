@@ -103,7 +103,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("setting up connected apps", () => {
   beforeEach(() => fixture.overrides.set(SETUP, "needs-setup"));
 
-  it("asks for the Composio key in one line above the apps that need it, behind Add key", () => {
+  it("asks for the Composio key in one line, behind Add key, instead of showing apps that can't connect", () => {
     const { html } = render();
     expect(html).toContain("Gmail, Slack and many more connect through Composio. Add a Composio key to use them.");
     expect(html).toContain(">Add key</button>");
@@ -113,7 +113,8 @@ describe("setting up connected apps", () => {
     expect(notice).toBeGreaterThan(html.indexOf("data-apps-grid"));
     expect(notice).toBeGreaterThan(html.indexOf("data-connectors="));
     expect(notice).toBeLessThan(html.indexOf("data-whop-card"));
-    expect(notice).toBeLessThan(html.indexOf('data-app-tile="gmail"'));
+    // no greyed-out tiles for apps that need the key
+    expect(html).not.toContain('data-app-tile="gmail"');
   });
 
   it("only explains it on a remote screen, where no key can be typed", () => {
@@ -121,6 +122,11 @@ describe("setting up connected apps", () => {
     const { html } = render();
     expect(html).toContain("Ask whoever runs this server to paste a Composio project key into Apps on that computer.");
     expect(html).not.toContain(">Add key</button>");
+  });
+
+  it("names the key when a search finds an app that needs it", () => {
+    fixture.overrides.set(SEARCH, "gmail");
+    expect(render().html).toContain("data-connectors-key");
   });
 
   it("stays away when nothing listed needs the key", () => {
@@ -141,6 +147,7 @@ describe("setting up connected apps", () => {
 
 describe("connectors in the Apps pop-up", () => {
   it("lead the apps section as rows of their own, every one of them, with no Composio key", () => {
+    fixture.overrides.set(CONFIGURED, true);
     const { html, nodes: tree } = render();
     expect(shown()).toEqual(MCP_CONNECTORS.map((connector) => connector.id));
     const section = tree.find((node) => node.props["data-apps-grid"] !== undefined)!;
@@ -162,8 +169,12 @@ describe("connectors in the Apps pop-up", () => {
     render();
     expect(shown()).toEqual(["paypal", "stripe"]);
     fixture.overrides.set(SEARCH, "gmail");
-    const { html } = render();
+    let { html } = render();
     expect(shown()).toEqual([]);
+    // without a key, no dead Gmail tile
+    expect(html).not.toContain('data-app-tile="gmail"');
+    fixture.overrides.set(CONFIGURED, true);
+    ({ html } = render());
     expect(html).toContain('data-app-tile="gmail"');
   });
 
@@ -210,6 +221,7 @@ describe("connectors in the Apps pop-up", () => {
   });
 
   it("hide Composio's copy of an app that has its own connector, unless it's connected there", () => {
+    fixture.overrides.set(CONFIGURED, true);
     fixture.overrides.set(CARDS, [card("gmail"), card("notion")]);
     let { html } = render();
     expect(html).toContain('data-app-tile="gmail"');

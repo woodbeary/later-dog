@@ -626,10 +626,14 @@ export function PluginsPanel() {
     ? connectorMatches.filter((connector) => connectedConnectors.includes(connector.id))
     : connectorMatches;
   // Connected apps lead the grid, so the ones you use are never a scroll away.
-  const visible = (filter === "connected" ? matching.filter((card) => isConnected(card.slug)) : matching)
+  // Without a Composio key those apps can't connect: show none of them
+  // greyed out, only any already connected.
+  const visible = (filter === "connected" ? matching.filter((card) => isConnected(card.slug)) : matching.filter((card) => configured || isConnected(card.slug)))
     .map((card, index) => ({ card, index }))
     .sort((a, b) => Number(isConnected(b.card.slug)) - Number(isConnected(a.card.slug)) || a.index - b.index)
     .map(({ card }) => card);
+  // apps the search matched that only a Composio key would bring in
+  const needKey = !configured && matching.some((card) => !isConnected(card.slug));
   const capped = filter === "all" && !search && !showAllApps && visible.length > APPS_PREVIEW_COUNT;
   const shown = capped ? visible.slice(0, APPS_PREVIEW_COUNT) : visible;
   const connectedCount = Object.values(status).filter((service) => service.connected || service.accounts?.length).length + Number(whopConnected === true)
@@ -808,7 +812,7 @@ export function PluginsPanel() {
                   one click each, with no key to set up first. */}
               <McpConnectorCards connectors={shownConnectors} refreshKey={whopRefresh} onConnected={setConnectedConnectors}
                 onServersChange={() => setWhopRefresh((value) => value + 1)} />
-              {filter === "all" && setupNotice?.tone === "info" && shown.length > 0 && (
+              {filter === "all" && setupNotice?.tone === "info" && needKey && (
                 <ComposioKeyNotice remote={remoteClient} onSaved={readCatalogAgain} />
               )}
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
