@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.24 — 2026-10-12
+
+- **When you say no, the dog says so.** If you don't allow a step, a Kimi or Grok dog is told you said no: it stops looking for another way in and tells you the step wasn't allowed, instead of blaming missing permissions.
+
 ## 0.3.23 — 2026-10-12
 
 - **A card about your Mac says so.** When a Kimi or Grok dog asks to act on your own Mac, the card reads "wants to use this Mac" instead of "use its computer", so it can't be taken for the dog's own cloud computer.

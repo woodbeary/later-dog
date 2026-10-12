@@ -503,7 +503,7 @@ describe("OpenAI-compatible computer images", () => {
     await f.decide("deny");
     expect(await f.completed()).toMatchObject({ ok: false });
     expect(f.effects()).toEqual([]);
-    expect(f.requests[1].messages.at(-1)).toMatchObject({ role: "tool", content: expect.stringContaining("Permission denied") });
+    expect(f.requests[1].messages.at(-1)).toMatchObject({ role: "tool", content: expect.stringContaining("The person did not allow this step") });
   });
 });
 
