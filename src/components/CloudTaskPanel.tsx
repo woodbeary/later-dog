@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, Circle, Cloud, ExternalLink, GitPullRequest, Loader2, MonitorPlay, Square, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, Circle, Cloud, ExternalLink, Loader2, MonitorPlay, Square, X } from "lucide-react";
 
 import { ChatMarkdown } from "./ChatMarkdown";
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import {
-  cloudTaskActive, cloudTaskPatch, cloudTaskWorking, cloudTaskScreen, cloudTaskStatus, elapsedLabel, filesChangedLabel, publishCloudTask, stageLabel, stopCloudTask, TONE_CLASS, toolVerb,
-  useCloudTask, useCloudTaskActivity,
+  cloudTaskActive, cloudTaskPatch, cloudTaskWorking, cloudTaskScreen, cloudTaskStatus, cloudTaskStatusClass, elapsedLabel, filesChangedLabel, plainStep, projectName,
+  publishCloudTask, stageLabel, stopCloudTask, useCloudTask, useCloudTaskActivity,
 } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
@@ -25,13 +25,14 @@ function panelWidth(): number {
   return 440;
 }
 
-function TodoList({ todos }: { todos: CloudTaskTodo[] }) {
+/** The agent's own plan. Its current item spins only while the task still works; a finished plan holds still. */
+function TodoList({ todos, working }: { todos: CloudTaskTodo[]; working: boolean }) {
   return (
     <ul className="space-y-1" aria-label={t("cloudTask.plan")}>
       {todos.map((todo, index) => (
         <li key={index} className="flex items-start gap-2 text-[12.5px] leading-5">
-          {todo.status === "completed" ? <Check size={14} className="mt-0.5 shrink-0 text-success" aria-hidden="true" />
-            : todo.status === "in_progress" ? <Loader2 size={14} className="mt-0.5 shrink-0 animate-spin text-accent" aria-hidden="true" />
+          {todo.status === "completed" ? <Check size={14} className="mt-0.5 shrink-0 text-ink-secondary" aria-hidden="true" />
+            : todo.status === "in_progress" && working ? <Loader2 size={14} className="mt-0.5 shrink-0 animate-spin text-accent" aria-hidden="true" />
               : <Circle size={12} className="mt-1 shrink-0 text-ink-tertiary" aria-hidden="true" />}
           <span className={cn(todo.status === "completed" ? "text-ink-secondary line-through decoration-ink-tertiary/60" : "text-ink")}>{todo.text}</span>
         </li>
@@ -46,30 +47,28 @@ function StepRow({ step }: { step: CloudTaskStep }) {
       return <div className="pt-2 text-[11.5px] font-semibold uppercase tracking-wide text-ink-tertiary">{stageLabel(step.stage)}</div>;
     case "say":
       return <div className="text-[13px] leading-relaxed text-ink"><ChatMarkdown text={step.text} /></div>;
-    case "tool":
-      return (
-        <div className="flex min-w-0 items-baseline gap-1.5 text-[12.5px] text-ink-secondary">
-          <ChevronRight size={12} className="shrink-0 translate-y-0.5 text-ink-tertiary" aria-hidden="true" />
-          <span className="shrink-0">{toolVerb(step.tool)}</span>
-          {step.detail && <code className="min-w-0 truncate rounded bg-inset px-1 py-px font-mono text-[11.5px] text-ink">{step.detail}</code>}
-        </div>
-      );
     case "plan":
       return null;
-    case "error":
-      return (
-        <div className="flex min-w-0 items-baseline gap-1.5 text-[12px] text-warning">
-          <AlertTriangle size={12} className="shrink-0 translate-y-0.5" aria-hidden="true" />
-          <span className="min-w-0 truncate">{step.text}</span>
-        </div>
-      );
     case "done":
       return (
-        <div className={cn("rounded-lg px-3 py-2", step.ok ? "bg-success/10" : "bg-danger/10")}>
-          <div className={cn("mb-1 text-[12px] font-semibold", step.ok ? "text-success" : "text-danger")}>{step.ok ? t("cloudTask.step.done") : t("cloudTask.step.stopped")}</div>
+        <div className="rounded-lg bg-inset px-3 py-2">
+          <div className="mb-1 text-[12px] font-semibold text-ink-secondary">{step.ok ? t("cloudTask.step.done") : t("cloudTask.step.stopped")}</div>
           {step.text && <div className="text-[13px] leading-relaxed text-ink"><ChatMarkdown text={step.text} /></div>}
         </div>
       );
+    case "tool": case "error": {
+      // the same plain sentence the chat card shows, with the exact file or command beside it
+      const plain = plainStep(step);
+      if (!plain) return null;
+      const Mark = step.k === "error" ? AlertTriangle : ChevronRight;
+      return (
+        <div className="flex min-w-0 items-baseline gap-1.5 text-[12.5px] text-ink-secondary">
+          <Mark size={12} className="shrink-0 translate-y-0.5 text-ink-tertiary" aria-hidden="true" />
+          <span className="shrink-0">{plain.text}</span>
+          {plain.detail && <code className="min-w-0 truncate rounded bg-inset px-1 py-px font-mono text-[11.5px] text-ink">{plain.detail}</code>}
+        </div>
+      );
+    }
   }
 }
 
@@ -86,7 +85,7 @@ function FileRow({ file }: { file: CloudTaskFileChange }) {
         {open ? <ChevronDown size={13} className="shrink-0 text-ink-tertiary" aria-hidden="true" /> : <ChevronRight size={13} className="shrink-0 text-ink-tertiary" aria-hidden="true" />}
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink">{file.path}</span>
         {file.binary ? <span className="shrink-0 text-ink-tertiary">{t("cloudTask.binary")}</span> : (
-          <span className="shrink-0 font-mono text-[11.5px]"><span className="text-success">+{file.additions}</span> <span className="text-danger">−{file.deletions}</span></span>
+          <span className="shrink-0 font-mono text-[11.5px] text-ink-tertiary">+{file.additions} −{file.deletions}</span>
         )}
       </button>
       {open && !file.binary && (
@@ -229,7 +228,7 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
           <h2 className="flex min-w-0 items-center gap-2 text-[15px] font-semibold text-ink">
             <Cloud size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
             {t("cloudTask.label")}
-            {status.live && <span className="size-1.5 animate-status-pulse rounded-full bg-success" role="img" aria-label={t("place.live")} />}
+            {status.live && <span className="size-1.5 animate-status-pulse rounded-full bg-ink-secondary" role="img" aria-label={t("place.live")} />}
           </h2>
         </div>
         <button
@@ -245,16 +244,13 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
 
       <div ref={feed} onScroll={(event) => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80; }} className="flex-1 overflow-y-auto px-5 pb-6">
         <h3 className="text-[16px] font-semibold leading-snug text-ink">{summary?.title ?? "…"}</h3>
-        {summary && <div className="mt-0.5 truncate text-[12.5px] text-ink-secondary">{summary.repository}</div>}
-        <div className="mt-2 flex items-center gap-1.5 text-[12.5px]">
-          <span aria-live="polite" className={cn("inline-flex items-center gap-1 font-semibold", TONE_CLASS[status.tone])}>
-            {status.live && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
-            {status.label}
-          </span>
-          {elapsed && <span className="text-ink-tertiary">· {elapsed}</span>}
+        {summary && <div className="mt-0.5 truncate text-[12.5px] text-ink-tertiary">{projectName(summary.repository)}</div>}
+        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-secondary">
+          <span aria-live="polite" className={cn("shrink-0 font-medium", cloudTaskStatusClass(status))}>{status.label}</span>
+          {[status.note, elapsed].filter(Boolean).map((part) => <span key={part} className="min-w-0 truncate">· {part}</span>)}
         </div>
-        {status.detail && (status.tone === "danger" || status.tone === "warning" || summary?.state === "queued") && (
-          <p className={cn("mt-2 rounded-lg px-3 py-2 text-[12.5px] leading-5", status.tone === "danger" ? "bg-danger/10 text-danger" : "bg-inset text-ink-secondary")}>{status.detail}</p>
+        {status.detail && (
+          <p className="mt-2 rounded-lg bg-inset px-3 py-2 text-[12.5px] leading-5 text-ink-secondary">{status.detail}</p>
         )}
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -265,16 +261,15 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
             </button>
           )}
           {summary?.prUrl && (
-            <button type="button" onClick={() => void openExternalLink(summary.prUrl!)} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-medium text-accent-ink hover:brightness-110">
-              <GitPullRequest size={13} aria-hidden="true" />
-              {summary.prNumber ? t("cloudTask.viewPrNumber", { number: summary.prNumber }) : t("cloudTask.viewPr")}
+            <button type="button" onClick={() => void openExternalLink(summary.prUrl!)} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-medium hover:brightness-110">
+              {t("cloudTask.reviewChanges")}
               <ExternalLink size={12} aria-hidden="true" />
             </button>
           )}
           {summary?.publishable && (
-            <button type="button" disabled={pending !== null} onClick={() => void run("publish")} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-60">
-              {pending === "publish" ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <GitPullRequest size={13} aria-hidden="true" />}
-              {t("cloudTask.openPr")}
+            <button type="button" disabled={pending !== null} onClick={() => void run("publish")} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-medium hover:brightness-110 disabled:opacity-60">
+              {pending === "publish" && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
+              {t("cloudTask.publish")}
             </button>
           )}
           {summary?.stoppable && (
@@ -284,12 +279,13 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
             </button>
           )}
         </div>
-        {actionError && <p role="alert" className="mt-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">{actionError}</p>}
+        {summary?.publishable && <p className="mt-2 text-[12px] leading-5 text-ink-tertiary">{t("cloudTask.publishHint")}</p>}
+        {actionError && <p role="alert" className="mt-2 rounded-lg bg-inset px-3 py-2 text-[12px] text-ink-secondary">{actionError}</p>}
 
         {changes && changes.files > 0 && (
           <section className="mt-5">
             <h4 className="mb-1.5 text-[12px] font-semibold text-ink-secondary">
-              {t("cloudTask.changesTitle")} <span className="font-mono font-normal"><span className="text-success">+{changes.additions}</span> <span className="text-danger">−{changes.deletions}</span></span>
+              {t("cloudTask.changesTitle")} <span className="font-mono font-normal text-ink-tertiary">+{changes.additions} −{changes.deletions}</span>
             </h4>
             <Changes jobId={jobId} files={changes.files} />
           </section>
@@ -298,17 +294,17 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
         {plan && (
           <section className="mt-5">
             <h4 className="mb-1.5 text-[12px] font-semibold text-ink-secondary">{t("cloudTask.plan")}</h4>
-            <TodoList todos={plan} />
+            <TodoList todos={plan} working={working} />
           </section>
         )}
 
         <section className="mt-5">
-          <h4 className="mb-1.5 text-[12px] font-semibold text-ink-secondary">{t("cloudTask.progress")}</h4>
+          <h4 className="mb-1.5 text-[12px] font-semibold text-ink-secondary">{t("cloudTask.steps")}</h4>
           <div className="space-y-2" aria-live="polite" aria-relevant="additions">
             {steps.map((step, index) => <StepRow key={`${step.t}:${index}`} step={step} />)}
           </div>
           {activity.loading && !steps.length && (
-            <div className="flex items-center gap-1.5 text-[12.5px] text-ink-secondary"><Loader2 size={12} className="animate-spin" aria-hidden="true" />{t("cloudTask.loadingProgress")}</div>
+            <div className="flex items-center gap-1.5 text-[12.5px] text-ink-secondary"><Loader2 size={12} className="animate-spin" aria-hidden="true" />{t("cloudTask.loadingSteps")}</div>
           )}
           {!activity.loading && !steps.length && (
             <p className="text-[12.5px] text-ink-secondary">{activity.reason ?? activity.error ?? (activity.live ? t("cloudTask.noStepsYet") : t("cloudTask.noSteps"))}</p>
@@ -316,7 +312,7 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
           {steps.length > 0 && activity.live && working && (
             <div className="mt-3 flex items-center gap-1.5 text-[12px] text-ink-tertiary"><Loader2 size={12} className="animate-spin" aria-hidden="true" />{t("cloudTask.stillWorking")}</div>
           )}
-          {activity.error && steps.length > 0 && <p className="mt-2 text-[12px] text-warning">{activity.error}</p>}
+          {activity.error && steps.length > 0 && <p className="mt-2 text-[12px] text-ink-secondary">{activity.error}</p>}
         </section>
       </div>
     </aside>

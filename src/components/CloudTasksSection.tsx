@@ -1,7 +1,7 @@
-import { ChevronRight, Cloud, Loader2 } from "lucide-react";
+import { ChevronRight, Cloud } from "lucide-react";
 
 import { cn } from "@/lib/cn";
-import { cloudTaskStatus, stepHeadline, TONE_CLASS, useBotCloudTasks } from "@/lib/cloud-tasks";
+import { cloudTaskStatus, cloudTaskStatusClass, projectName, useBotCloudTasks } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
 import { useStore } from "@/state/store";
 
@@ -18,7 +18,8 @@ export function CloudTasksSection({ botId, botName }: { botId: string; botName: 
       <ul className="overflow-hidden rounded-xl bg-card">
         {tasks.map((task) => {
           const status = cloudTaskStatus({ summary: task });
-          const line = status.live && task.lastStep ? stepHeadline(task.lastStep) : task.repository;
+          // what it is doing while it works; afterwards, the project it worked in
+          const line = (status.live ? status.note : undefined) ?? projectName(task.repository);
           return (
             <li key={task.id} className="border-b border-hairline/30 last:border-b-0">
               <button
@@ -30,10 +31,7 @@ export function CloudTasksSection({ botId, botName }: { botId: string; botName: 
                   <div className="truncate text-[13px] font-medium text-ink">{task.title}</div>
                   <div className="truncate text-[12px] text-ink-secondary">{line}</div>
                 </div>
-                <span className={cn("inline-flex shrink-0 items-center gap-1 text-[11.5px] font-semibold", TONE_CLASS[status.tone])}>
-                  {status.live && <Loader2 size={11} className="animate-spin" aria-hidden="true" />}
-                  {status.label}
-                </span>
+                <span className={cn("shrink-0 text-[11.5px] font-medium", cloudTaskStatusClass(status))}>{status.label}</span>
                 <ChevronRight size={14} className="shrink-0 text-ink-tertiary" aria-hidden="true" />
               </button>
             </li>

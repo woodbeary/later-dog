@@ -34,12 +34,15 @@ work runs there, not on your Mac, so your Mac stays free and several tasks can r
 To start one, ask a dog in plain words, for example "do this in the cloud" or "split this into cloud tasks and run them
 in parallel".
 
-A Cloud task card appears in the chat that started it. It shows the task's live status (Setting up, Working, Ready for
-review or Needs attention) and what it is doing right now. Click the card to open the task beside the chat. There you can
-see its progress step by step, its plan and the files it changed. **Watch screen** shows its live screen while it runs,
-**Stop** ends it, and **Open draft PR** opens the result. The dog's Computer panel lists its cloud tasks too.
+A card appears in the chat that started it. It says what the dog is working on, gives one plain status (Working, Ready to
+review, Done, Stopped or Needs you) and has one button. **Open** shows the task beside the chat: its steps, its plan and
+the files it changed, with **Watch screen** to see its live screen and **Stop** to end it while it runs. Once there is
+something to look at, the button becomes **Review changes**. **Steps** on the card lists what the task did, in plain
+words. When the task finishes, the card settles and the dog carries on in the chat. The dog's Computer panel lists its
+cloud tasks too.
 
-The result goes to a draft pull request on GitHub. Merging stays with you.
+The result goes to GitHub as a draft for you to review: the dog publishes it, or you can press **Publish** beside the
+chat. Merging stays with you.
 
 A cloud task needs later.dog Cloud set up on your Cloudflare account, and a GitHub repository its GitHub login can read.
 The repository needs no setup: the first task connects it, starts from its default branch and installs its dependencies
