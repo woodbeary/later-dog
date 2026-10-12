@@ -30,11 +30,13 @@ const create = () => IncludedAiDriver.create({ instanceId: INCLUDED_AI_INSTANCE,
 
 describe("later.dog AI", () => {
   it("is in every fleet, and waits for the free trial without calling anyone", async () => {
-    expect(instanceConfigs({} as never)[INCLUDED_AI_INSTANCE]).toMatchObject({ driver: "laterdogAi", displayName: "later.dog" });
+    // the free models are accounts named by provider: Kimi, and Grok beside it
+    expect(instanceConfigs({} as never)[INCLUDED_AI_INSTANCE]).toMatchObject({ driver: "laterdogAi", displayName: "Kimi" });
+    expect(instanceConfigs({} as never).laterdogGrok).toMatchObject({ driver: "laterdogGrok", displayName: "Grok" });
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     const instance = await create();
-    expect(await instance.snapshot()).toMatchObject({ state: "unavailable", reason: "Start the free trial to use later.dog AI." });
+    expect(await instance.snapshot()).toMatchObject({ state: "unavailable", reason: "Start the free trial to use the free models." });
     expect(fetcher).not.toHaveBeenCalled();
     await instance.dispose();
   });
@@ -67,10 +69,12 @@ describe("the engine a new dog gets", () => {
 
 describe("when later.dog AI can't answer", () => {
   it("says what happened and what to do next, never a raw HTTP error", () => {
-    expect(includedAiError(429, JSON.stringify({ error: { code: "daily_limit", message: "x" } }))).toContain("used today's free later.dog AI");
-    expect(includedAiError(401, "{}")).toBe("Your free later.dog AI has ended. Sign in to Claude or ChatGPT to keep going.");
+    expect(includedAiError(429, JSON.stringify({ error: { code: "daily_limit", message: "x" } }))).toContain("used today's free messages");
+    // everyone's allowance for the day, not a passing hiccup
+    expect(includedAiError(503, JSON.stringify({ error: { code: "busy_today", message: "x" } }))).toContain("at today's limit for everyone");
+    expect(includedAiError(401, "{}")).toBe("Your free trial has ended. Sign in to Claude or ChatGPT to keep going.");
     expect(includedAiError(503, "{}")).toContain("busy right now");
-    expect(includedAiError(413, JSON.stringify({ error: { code: "too_large" } }))).toContain("too much for later.dog AI");
+    expect(includedAiError(413, JSON.stringify({ error: { code: "too_large" } }))).toContain("too much for the free model");
     expect(includedAiError(400, "{}")).toBeUndefined();
   });
 

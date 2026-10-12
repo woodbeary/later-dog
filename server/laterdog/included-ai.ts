@@ -22,6 +22,7 @@ const ENDED_WITH_PLAN = "Your free trial has ended. Sign in to Claude or ChatGPT
 const ended = () => (planOfferedNow() ? ENDED_WITH_PLAN : ENDED);
 const DAILY = "You've used today's free messages. They come back tomorrow, or sign in to Claude or ChatGPT to keep going now.";
 const BUSY = "The free model is busy right now. Try again in a minute, or sign in to Claude or ChatGPT.";
+const FULL_TODAY = "The free models are at today's limit for everyone. They're back tomorrow, or sign in to Claude or ChatGPT to keep going now.";
 const TOO_LARGE = "That was too much for the free model to take in at once, most likely a large screenshot. Try again, or start a new chat.";
 
 export function includedAiError(status: number, body: string): string | undefined {
@@ -30,6 +31,7 @@ export function includedAiError(status: number, body: string): string | undefine
   if (status === 401) return ended();
   if (status === 413) return TOO_LARGE;
   if (status === 429 && code === "daily_limit") return DAILY;
+  if (code === "busy_today") return FULL_TODAY;
   if (status === 429 || status === 503 || status === 502) return BUSY;
   return undefined;
 }
