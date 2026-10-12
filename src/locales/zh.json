@@ -30,7 +30,6 @@
   "teamImport.backupCopies": "导入的狗狗与狗群会添加为副本；重复的名称会加上编号。",
   "teamImport.newSection": "为 {name} 添加一个狗群。现有狗群不会变更；重复的名称会加上编号。",
   "noEngines.title": "选择你的狗狗使用的 AI",
-  "noEngines.intro": "免费试用 later.dog AI，或用你已有的 Claude 或 ChatGPT 订阅登录。",
   "noEngines.more": "更多运行狗狗的方式",
   "engines.cloud": "云端",
   "engines.local": "本地",

@@ -347,7 +347,6 @@
   "attach.previewAudio": "{name} を再生",
   "attach.audioUnavailable": "ここでは再生できない音声です。コピーを保存できます。",
   "noEngines.title": "犬たちが使うAIを選ぶ",
-  "noEngines.intro": "later.dog AIを無料で試すか、お使いのClaudeまたはChatGPTのプランでサインインしてください。",
   "noEngines.more": "犬たちを動かすその他の方法",
   "attach.retrySaveAria": "{name} を再保存",
   "attach.downloading": "ダウンロード中…",

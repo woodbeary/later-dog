@@ -380,14 +380,14 @@ describe("the AI step of first run", () => {
     expect(row("claude").textContent).toBe("ClaudeReady");
   });
 
-  it("offers later.dog AI free while a trial is on offer, opens the browser check, and reads Ready once it passes", async () => {
+  it("offers the free models while a trial is on offer, opens the browser check, and reads Ready once it passes", async () => {
     let trial: Record<string, unknown> = { state: "offered", minutes: 30, days: 7, ai: true };
     fixture.routes["GET /api/computers/trial"] = () => trial;
     fixture.routes["POST /api/computers/trial"] = () => (trial = { state: "pending", url: "https://cloud.later.dog/trial?claim=abc" });
     await mount();
     const free = row("free-ai");
-    expect(free.textContent).toBe("later.dog AIFree with the trial. No account needed.Try free");
-    expect(document.body.textContent).toContain("or try later.dog AI free");
+    expect(free.textContent).toBe("Kimi and GrokFree with the trial. No account needed.Try free");
+    expect(document.body.textContent).toContain("or start free on Kimi or Grok");
     await click(buttonIn(free)!);
     expect(fixture.trialCalls).toContain("POST /api/computers/trial");
     expect(fixture.open).toHaveBeenCalledWith("https://cloud.later.dog/trial?claim=abc");
