@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.23 — 2026-10-12
+
+- **A card about your Mac says so.** When a Kimi or Grok dog asks to act on your own Mac, the card reads "wants to use this Mac" instead of "use its computer", so it can't be taken for the dog's own cloud computer.
+
 ## 0.3.22 — 2026-10-12
 
 - **Messages you send mid-reply get answered.** On Kimi and Grok, something you send while a dog is still writing is answered in the same turn, instead of waiting until you write again.
