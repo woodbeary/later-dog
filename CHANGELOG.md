@@ -2,9 +2,16 @@
 
 ## 0.3.16 — 2026-10-12
 
-- **Open the computer and it turns on.** Opening a dog's computer starts it if it never started and wakes it if it's asleep, so you see its screen right away.
-- The + menu's apps entry reads **Connect apps**, like the Apps page.
-- **Keep going when an account runs out** shows once you have two accounts to switch between.
+- **Off-leash means it on the free models.** On Kimi and Grok, a dog that's Off-leash now works on its own computer and browser without stopping for a card at every step. Connected apps still ask first, and Heel still asks for everything.
+- **Cloud tasks in plain words.** One card at message width: what the dog is working on, one status (Working, Ready to review, Done, Stopped, Needs you), a thin progress line and one button. Steps fold away; no PR numbers, branches or git terms. When a cloud task can't run here, the dog says so in one sentence and does the work in the chat instead.
+- **Open the computer and it turns on.** Opening a dog's computer starts it if it never started and wakes it if it's asleep.
+- **A dog that needs your hands says so in the chat**, with Open, not only inside the Computer panel.
+- **Approvals say whose computer:** "use its computer" for the dog's own, "use this Mac" for yours.
+- **The + menu** offers Heel and Off-leash, like the dog's settings, and its apps entry reads Connect apps.
+- **Apps shows what works.** Apps that need a Composio key no longer sit greyed out; one line says a key brings them in. The tour names apps that connect in one click.
+- **Free trial for everyone on a network.** Up to three people sharing an office, campus or hotspot can each start the free trial, and when the day's free allowance runs out for everyone, later.dog says so instead of "try again in a minute".
+- **Keep going when an account runs out** shows once you have two accounts.
+- Everyday words say dog, not agent.
 
 ## 0.3.15 — 2026-10-12
 
