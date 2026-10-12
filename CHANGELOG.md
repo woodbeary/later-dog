@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.20 — 2026-10-12
+
+- **Plain words when a step didn't work.** If a step of a Kimi or Grok dog's task fails or isn't allowed, the chat says "Some steps didn't work or weren't allowed, so check them before relying on this answer" instead of a technical notice.
+
 ## 0.3.19 — 2026-10-12
 
 - **A free dog's first computer task asks nothing.** On Kimi and Grok, an Off-leash dog picks its own cloud computer and gets on with the job, with no "wants to use a computer" card. Choosing your Mac still asks, and Heel still asks for everything.
