@@ -18,11 +18,11 @@ export interface DefaultSelectionContext {
   refusal?: (instance: SelectableInstance) => string | undefined;
 }
 
-const INCLUDED_LAST = "laterdogAi";
+const INCLUDED_LAST = new Set(["laterdogAi", "laterdogGrok"]);
 
 const claudeFirst = (instances: readonly SelectableInstance[]) =>
   instances.find((instance) => instance.driverKind === "claudeAgent")
-    ?? instances.find((instance) => instance.driverKind !== INCLUDED_LAST)
+    ?? instances.find((instance) => !INCLUDED_LAST.has(instance.driverKind))
     ?? instances[0];
 
 /** Installed and waiting on a sign-in. A custom endpoint brings its own

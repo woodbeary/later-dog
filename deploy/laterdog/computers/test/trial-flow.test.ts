@@ -285,7 +285,7 @@ describe("free trials, end to end", () => {
         image: "laterdog-desktop:test",
       },
     ]);
-    expect(await refusal(await create(w, key))).toEqual({ status: 409, code: "limit_reached", message: "A free trial has one computer at a time; delete it first." });
+    expect(await refusal(await create(w, key))).toEqual({ status: 409, code: "trial_one_computer", message: "The free trial includes one cloud computer. later.dog Cloud gives every dog its own." });
 
     const owned = await createdId(w, OWNER_KEY, { size: "large" });
     expect(w.containers.get(owned)!.starts).toMatchObject([{ instance: "standard-3" }]);

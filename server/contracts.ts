@@ -440,6 +440,10 @@ export interface ProviderAuthenticationStart {
   expiresAt: string | null;
   /** A short-lived code to enter only at the provider's authorization URL. */
   userCode?: string;
+  /** The provider's page that hands the sign-in straight back to the CLI on
+   * the machine running later.dog, so nothing is pasted. Opened only by an
+   * app on that same machine. */
+  callbackUrl?: string;
 }
 
 export interface ProviderAuthenticationStatus extends Omit<ProviderAuthenticationStart, "phase"> {

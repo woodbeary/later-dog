@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CloudAccountState } from "../../electron/cloud-account.mjs";
 import { activeLocale, t } from "@/lib/i18n";
-import { cloudPlanView } from "@/lib/cloud-plan";
+import { cloudPlanView, startCloudPlan } from "@/lib/cloud-plan";
 import { engineSignedOut } from "@/lib/failed-turn";
 import { browserAvailable, builtInBrowserEnabled, type FeatureFlagConfig } from "@/lib/feature-flags";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
@@ -139,6 +139,9 @@ export function openPlaceAction(
       appSettings("general");
       return true;
     }
+    case "get-cloud":
+      void startCloudPlan().catch(() => appSettings("computer"));
+      return true;
     case "open-my-cloud": {
       const desktop = window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudAccount;
       if (desktop) void desktop.connectHome().catch(() => {});

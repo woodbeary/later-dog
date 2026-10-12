@@ -14,7 +14,8 @@
 // itself, which is why there is no OAuth client code in this repository.
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { ProviderAuthenticationStart, ProviderAuthenticationStatus } from "../contracts.ts";
@@ -51,6 +52,53 @@ export function claudeLoginPrompt(output: string): { authorizationUrl: string } 
   return null;
 }
 
+/** The page the CLI itself would open: Anthropic's sign-in, sending the
+ * result straight back to the CLI's own listener on this machine, so nothing
+ * is pasted. Null for anything else. */
+export function claudeCallbackLink(value: string | null | undefined): string | null {
+  const link = claudeSignInLink(value);
+  if (!link) return null;
+  try {
+    const redirect = new URL(new URL(link).searchParams.get("redirect_uri") ?? "");
+    return redirect.protocol === "http:" && (redirect.hostname === "localhost" || redirect.hostname === "127.0.0.1") ? link : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A stand-in browser for the CLI: it writes the page the CLI asks to open
+ * into a file instead of opening it, so the app opens it in the person's own
+ * browser. Not on Windows, where BROWSER is not a script. */
+function browserCatcher(): { dir: string; file: string; command: string } | null {
+  if (process.platform === "win32") return null;
+  try {
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-claude-login-"));
+    const file = join(dir, "page");
+    const command = join(dir, "open");
+    if (/['\n]/.test(dir)) { rmSync(dir, { recursive: true, force: true }); return null; }
+    writeFileSync(command, `#!/bin/sh\nprintf '%s' "$1" > '${file}'\n`, { mode: 0o700 });
+    return { dir, file, command };
+  } catch {
+    return null;
+  }
+}
+
+/** The page the stand-in browser caught, waiting briefly: the CLI opens it
+ * just before it prints the fallback link. */
+async function caughtPage(file: string, waitMs = 1_500): Promise<string | null> {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    try {
+      if (existsSync(file)) {
+        const page = claudeCallbackLink(readFileSync(file, "utf8").trim());
+        if (page) return page;
+      }
+    } catch { /* not written yet */ }
+    if (Date.now() >= until) return null;
+    await new Promise((done) => setTimeout(done, 50));
+  }
+}
+
 /** What Anthropic's page shows after sign-in: a code, sometimes with `#state`. */
 export function claudeLoginCode(value: string): string | null {
   const code = value.trim();
@@ -70,6 +118,8 @@ type Flow = {
   homeKey: string;
   env: NodeJS.ProcessEnv;
   completion?: { resolve: () => void; reject: (error: Error) => void };
+  /** Where the stand-in browser writes the page the CLI opens. */
+  catcher?: { dir: string; file: string; command: string } | null;
   stopping?: Promise<void>;
   terminationFailed?: boolean;
 };
@@ -316,8 +366,11 @@ export class ClaudeLoginController {
     if (flow.status.phase !== "waiting") return;
     let child: ReturnType<typeof spawnCli>;
     try {
-      // No browser on a server: the CLI then prints the link instead of opening it.
-      const browserless = process.platform === "win32" ? {} : { BROWSER: "true" };
+      // The CLI never opens a browser itself: on a server there is none. A
+      // stand-in catches the page it would open (sign-in that comes back to
+      // the CLI by itself), and the printed fallback link takes a pasted code.
+      flow.catcher = browserCatcher();
+      const browserless = process.platform === "win32" ? {} : { BROWSER: flow.catcher?.command ?? "true" };
       child = spawnCli(this.options.cli, ["auth", "login"], {
         env: { ...flow.env, ...browserless, NO_COLOR: "1" },
         stdio: ["pipe", "pipe", "pipe"],
@@ -340,7 +393,12 @@ export class ClaudeLoginController {
       flow.status = { ...flow.status, authorizationUrl: prompt.authorizationUrl };
       flow.ready = true;
       clearTimeout(flow.startupTimer);
-      flow.resolve({ ...flow.status, phase: "waiting" });
+      const catcher = flow.catcher;
+      void (catcher ? caughtPage(catcher.file) : Promise.resolve(null)).then((callbackUrl) => {
+        if (flow.status.phase !== "waiting") return;
+        if (callbackUrl) flow.status = { ...flow.status, callbackUrl };
+        flow.resolve({ ...flow.status, phase: "waiting" });
+      });
     };
     child.stdout.on("data", receive);
     child.stderr.on("data", receive);
@@ -377,6 +435,10 @@ export class ClaudeLoginController {
     if (flow.status.phase !== "waiting") return;
     clearTimeout(flow.startupTimer);
     clearTimeout(flow.expiryTimer);
+    if (flow.catcher) {
+      rmSync(flow.catcher.dir, { recursive: true, force: true });
+      flow.catcher = null;
+    }
     flow.status = {
       phase,
       flowId: flow.status.flowId,

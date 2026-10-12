@@ -1688,7 +1688,8 @@ const API_KEY_FLEET: InstanceConfigMap = {
     driver: "openai-compat", displayName: "OpenRouter", access: "api", icon: { kind: "preset", preset: "openrouter" },
     config: { url: "https://openrouter.ai/api/v1", apiKeyEnv: "LATERDOG_OPENROUTER_API_KEY" },
   },
-  laterdogAi: { driver: "laterdogAi", displayName: "later.dog", access: "subscription" },
+  laterdogAi: { driver: "laterdogAi", displayName: "Kimi", access: "subscription", icon: { kind: "preset", preset: "moonshot" } },
+  laterdogGrok: { driver: "laterdogGrok", displayName: "Grok", access: "subscription", icon: { kind: "preset", preset: "xai" } },
 };
 
 // Default fleet: one instance per built-in driver (upstream

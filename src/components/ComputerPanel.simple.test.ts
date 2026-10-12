@@ -183,14 +183,15 @@ describe("Computer panel", () => {
     expect(render(makeBot({ computer: "off", busy: true })).byTestId("computer-live")).toBeUndefined();
   });
 
-  it("sends the person of a dog with no screen to where it works", () => {
+  it("turns a dog's computer back on with one button, no picker", () => {
     fixture.seed = { phase: "off" };
     const rendered = render(makeBot({ computer: "off" }));
     expect(rendered.html).toContain("Scout has no screen. It can still chat and do anything that doesn&#x27;t need one.");
-    const choose = rendered.byTestId("choose-where-works")!;
-    expect(text(choose.props.children)).toBe("Choose where Scout works");
-    (choose.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleSettings", open: true, section: "access", botId: "scout" });
+    expect(rendered.byTestId("choose-where-works")).toBeUndefined();
+    const turnOn = rendered.byTestId("turn-on-computer")!;
+    expect(text(turnOn.props.children)).toBe("Turn on Scout's computer");
+    (turnOn.props.onClick as () => void)();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "scout", patch: { computer: "cloud" } });
   });
 });
 

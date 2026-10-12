@@ -18,7 +18,7 @@ export type Place = "cloud" | "vm" | "local" | "browser";
 export const PLACE_STATES = [
   "auto", "auto-team",
   "cc-cannot", "cc-tools-off", "cc-sign-in", "cc-new", "cc-starting", "cc-waking", "cc-on", "cc-asleep",
-  "cc-no-hours", "cc-at-once", "cc-unavailable", "cc-ended", "cc-no-start", "cc-clearing", "cc-provider",
+  "cc-no-hours", "cc-at-once", "cc-trial-one", "cc-unavailable", "cc-ended", "cc-no-start", "cc-clearing", "cc-provider",
   "cc-on-my-cloud", "cc-needs-key", "vps",
   "browser", "browser-off", "browser-cannot",
   "local", "local-unavailable", "vm", "vm-cannot", "place-failed",
@@ -34,7 +34,7 @@ export type PlaceSource = "works-on" | "pin" | "auto-pin" | "routine" | "room";
 /** The next actions a place offers. Each is one button in the app and, on a
  * stored row, one sentence a phone can read. */
 export const PLACE_ACTIONS = [
-  "choose-model", "allow-computer", "sign-in", "start", "wake", "watch", "see-plan", "manage-computers",
+  "choose-model", "allow-computer", "sign-in", "start", "wake", "watch", "see-plan", "get-cloud", "manage-computers",
   "try-again", "open-my-cloud", "turn-on-browser", "open-team-map", "open-vm-settings",
   "clear-pin", "change-routine", "open-computer-panel",
 ] as const;
@@ -160,6 +160,9 @@ export const PLACE_EN = {
   "place.view.ccAtOnce.lineOne": "Your {plan} plan includes 1 cloud computer, and {holders} has it.",
   "place.view.ccAtOnce.lineMany": "Your {plan} plan includes {max} cloud computers, and {holders} have them.",
   "place.view.ccAtOnce.lineUnknown": "All the cloud computers your plan includes are in use.",
+  "place.view.ccTrialOne.short": "In use",
+  "place.view.ccTrialOne.line": "The free trial includes one cloud computer, and {holders} has it.",
+  "place.view.ccTrialOne.lineUnknown": "The free trial includes one cloud computer, and another dog has it.",
   "place.view.ccUnavailable.short": "Not available now",
   "place.view.ccUnavailable.line": "Cloud computers can't start right now. It isn't anything you did.",
   "place.view.ccEnded.short": "Plan ended",
@@ -201,6 +204,7 @@ export const PLACE_EN = {
   "place.action.wake": "Wake it now",
   "place.action.watch": "Watch",
   "place.action.seePlan": "See your plan",
+  "place.action.getCloud": "Get later.dog Cloud",
   "place.action.manageComputers": "Manage cloud computers",
   "place.action.tryAgain": "Try again",
   "place.action.openMyCloud": "Open My Cloud",
@@ -227,6 +231,7 @@ export const PLACE_WORDS: Record<PlaceActionId, string> = {
   wake: "Wake it from the Computer panel.",
   watch: "Watch it from the Computer panel.",
   "see-plan": "See your plan on the Plan page.",
+  "get-cloud": "Get later.dog Cloud in Settings → Computer.",
   "manage-computers": "Manage your cloud computers in Settings → Computer.",
   "try-again": "Try again.",
   "open-my-cloud": "Open My Cloud from the menu at the top of the sidebar.",
@@ -262,6 +267,7 @@ const STATE: Record<PlaceState, { key: string; action: PlaceActionId | null }> =
   "cc-asleep": { key: "ccAsleep", action: "wake" },
   "cc-no-hours": { key: "ccNoHours", action: "see-plan" },
   "cc-at-once": { key: "ccAtOnce", action: "manage-computers" },
+  "cc-trial-one": { key: "ccTrialOne", action: "get-cloud" },
   "cc-unavailable": { key: "ccUnavailable", action: "try-again" },
   "cc-ended": { key: "ccEnded", action: "see-plan" },
   "cc-no-start": { key: "ccNoStart", action: "try-again" },
@@ -288,7 +294,7 @@ const PASSING: ReadonlySet<PlaceState> = new Set(["cc-unavailable", "cc-no-start
 /** Actions that change a setting, a sign-in or the plan: a User can't take
  * them, so the line ends "Ask an Admin to change it." instead. */
 const ADMIN_ONLY: ReadonlySet<PlaceActionId> = new Set([
-  "choose-model", "allow-computer", "sign-in", "see-plan", "manage-computers", "open-my-cloud",
+  "choose-model", "allow-computer", "sign-in", "see-plan", "get-cloud", "manage-computers", "open-my-cloud",
   "turn-on-browser", "open-team-map", "open-vm-settings", "change-routine",
 ]);
 /** Starting or waking a computer early: a User's own message does it, so
@@ -303,6 +309,7 @@ const ACTION_KEY: Record<PlaceActionId, PlaceKey> = {
   wake: "place.action.wake",
   watch: "place.action.watch",
   "see-plan": "place.action.seePlan",
+  "get-cloud": "place.action.getCloud",
   "manage-computers": "place.action.manageComputers",
   "try-again": "place.action.tryAgain",
   "open-my-cloud": "place.action.openMyCloud",
@@ -378,6 +385,7 @@ function lineKey(state: PlaceState, params: PlaceParams, { server, reach }: Plac
   if (state === "cc-sign-in" && server === "my-cloud") return "place.view.ccSignIn.lineMyCloud";
   // A refusal read from a code alone has no numbers or names to give.
   if (state === "cc-no-hours" && (params.hours === undefined || !params.month)) return "place.view.ccNoHours.lineUnknown";
+  if (state === "cc-trial-one") return params.holders?.length ? "place.view.ccTrialOne.line" : "place.view.ccTrialOne.lineUnknown";
   if (state === "cc-at-once") {
     if (!params.holders?.length || !params.plan || params.max === undefined) return "place.view.ccAtOnce.lineUnknown";
     return params.max === 1 ? "place.view.ccAtOnce.lineOne" : "place.view.ccAtOnce.lineMany";
@@ -499,6 +507,8 @@ export function cloudRefusal(failure: { message: string; code?: string; status?:
   if (code === "hours_used" || hours) {
     return { state: "cc-no-hours", params: hours ? { plan: hours[1], hours: Number(hours[2]), month: hours[3] } : {} };
   }
+  // the free trial's one computer is taken: the way on is the plan
+  if (code === "trial_one_computer" || /free trial (?:has|includes) one (?:cloud )?computer/i.test(message)) return { state: "cc-trial-one", params: {} };
   const atOnce = AT_ONCE.exec(message);
   if (code === "at_once" || atOnce) {
     return { state: "cc-at-once", params: atOnce ? { plan: atOnce[1], max: Number(atOnce[2]) } : {} };

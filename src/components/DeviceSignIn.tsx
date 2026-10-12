@@ -3,7 +3,7 @@
 // grok.com account (a one-time code entered at the provider's page), and the
 // ChatGPT plan (a browser page, no code). The same card on the desktop, a
 // self-hosted server and My Cloud.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, Loader2, LogIn, X } from "lucide-react";
 import { api, ApiError, useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
@@ -20,6 +20,8 @@ export interface DeviceSignInStatus {
   userCode?: string;
   expiresAt: string | null;
   message?: string;
+  /** Claude's page that hands the sign-in back to the CLI by itself. */
+  callbackUrl?: string;
 }
 
 /** Whose page an engine's device code is entered at. */
@@ -145,6 +147,8 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
+  // one start per sheet, even when an effect runs twice
+  const autoStarted = useRef(false);
   const base = `/api/instances/${encodeURIComponent(instanceId)}/auth`;
   const copy = DEVICE_SIGN_IN_COPY[provider];
   const failed = t(browserPkce ? "engineSetup.chatgpt.failed" : copy.failed);
@@ -172,7 +176,8 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
   };
 
   useEffect(() => {
-    if (!autoStart || started) return;
+    if (!autoStart || started || autoStarted.current) return;
+    autoStarted.current = true;
     setStarted(true);
     void start();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the sheet opens

@@ -4,17 +4,25 @@ import { savedTrial } from "./cloud-computers.ts";
 import { planOfferedNow } from "./cloud-trial.ts";
 import { trialAi } from "./included-trial.ts";
 
+// The free models later.dog powers, one account per provider so people pick
+// Kimi or Grok by name. Both run through the trial's relay, which routes by
+// the requested model. The Kimi instance keeps the original "laterdogAi" id
+// so existing dogs stay on it.
 export const INCLUDED_AI_DRIVER = "laterdogAi";
 export const INCLUDED_AI_INSTANCE = "laterdogAi";
+export const INCLUDED_GROK_DRIVER = "laterdogGrok";
+export const INCLUDED_GROK_INSTANCE = "laterdogGrok";
+export const INCLUDED_AI_INSTANCES: readonly string[] = [INCLUDED_AI_INSTANCE, INCLUDED_GROK_INSTANCE];
 const FALLBACK_URL = "https://cloud.later.dog/v1/ai";
-const MODELS = { default: "kimi-k2.6", options: [{ id: "kimi-k2.6", label: "Kimi K2.6", contextWindow: 256_000 }, { id: "grok-4.3", label: "Grok 4.3", contextWindow: 256_000 }] };
-const NOT_STARTED = "Start the free trial to use later.dog AI.";
-const ENDED = "Your free later.dog AI has ended. Sign in to Claude or ChatGPT to keep going.";
-const ENDED_WITH_PLAN = "Your free later.dog AI has ended. Sign in to Claude or ChatGPT, or keep going on later.dog Cloud in Settings, Computer.";
+const KIMI_MODELS = { default: "kimi-k2.6", options: [{ id: "kimi-k2.6", label: "Kimi K2.6", contextWindow: 256_000 }] };
+const GROK_MODELS = { default: "grok-4.3", options: [{ id: "grok-4.3", label: "Grok 4.3", contextWindow: 256_000 }] };
+const NOT_STARTED = "Start the free trial to use the free models.";
+const ENDED = "Your free trial has ended. Sign in to Claude or ChatGPT to keep going.";
+const ENDED_WITH_PLAN = "Your free trial has ended. Sign in to Claude or ChatGPT, or keep going on later.dog Cloud in Settings, Computer.";
 const ended = () => (planOfferedNow() ? ENDED_WITH_PLAN : ENDED);
-const DAILY = "You've used today's free later.dog AI. It comes back tomorrow, or sign in to Claude or ChatGPT to keep going now.";
-const BUSY = "later.dog AI is busy right now. Try again in a minute, or sign in to Claude or ChatGPT.";
-const TOO_LARGE = "That was too much for later.dog AI to take in at once, most likely a large screenshot. Try again, or start a new chat.";
+const DAILY = "You've used today's free messages. They come back tomorrow, or sign in to Claude or ChatGPT to keep going now.";
+const BUSY = "The free model is busy right now. Try again in a minute, or sign in to Claude or ChatGPT.";
+const TOO_LARGE = "That was too much for the free model to take in at once, most likely a large screenshot. Try again, or start a new chat.";
 
 export function includedAiError(status: number, body: string): string | undefined {
   let code = "";
@@ -28,34 +36,39 @@ export function includedAiError(status: number, body: string): string | undefine
 
 const notReady = () => (savedTrial()?.ended ? ended() : NOT_STARTED);
 
-export const IncludedAiDriver: ProviderDriver<Record<string, never>> = {
-  driverKind: INCLUDED_AI_DRIVER,
-  metadata: { displayName: "later.dog", supportsMultipleInstances: false },
-  models: MODELS,
-  decodeConfig: () => ({}),
-  defaultConfig: () => ({}),
+function includedDriver(driverKind: string, displayName: string, models: typeof KIMI_MODELS): ProviderDriver<Record<string, never>> {
+  return {
+    driverKind,
+    metadata: { displayName, supportsMultipleInstances: false },
+    models,
+    decodeConfig: () => ({}),
+    defaultConfig: () => ({}),
 
-  async create(input) {
-    return createOpenAIChatRuntime({
-      input,
-      driverKind: INCLUDED_AI_DRIVER,
-      apiKey: () => trialAi()?.token ?? "",
-      apiUrl: trialAi()?.api ?? FALLBACK_URL,
-      models: () => MODELS,
-      requestBody: (model, messages, stream) => ({ model, messages, stream }),
-      httpErrorLabel: "later.dog AI",
-      errorText: includedAiError,
-      missingKeyError: notReady(),
-      unavailableReason: notReady(),
-      timeoutMs: 120_000,
-      generateModel: () => MODELS.default,
-      computerUse: true,
-      nudgeAnnouncedAction: true,
-      nativeLog: {
-        source: "laterdog.ai.chat.completions",
-        outgoing: (_turn, messages, model) => ({ model, messageCount: messages.length }),
-        incoming: ({ text, usage }) => ({ text, usage }),
-      },
-    });
-  },
-};
+    async create(input) {
+      return createOpenAIChatRuntime({
+        input,
+        driverKind,
+        apiKey: () => trialAi()?.token ?? "",
+        apiUrl: trialAi()?.api ?? FALLBACK_URL,
+        models: () => models,
+        requestBody: (model, messages, stream) => ({ model, messages, stream }),
+        httpErrorLabel: displayName,
+        errorText: includedAiError,
+        missingKeyError: notReady(),
+        unavailableReason: notReady(),
+        timeoutMs: 120_000,
+        generateModel: () => models.default,
+        computerUse: true,
+        nudgeAnnouncedAction: true,
+        nativeLog: {
+          source: "laterdog.ai.chat.completions",
+          outgoing: (_turn, messages, model) => ({ model, messageCount: messages.length }),
+          incoming: ({ text, usage }) => ({ text, usage }),
+        },
+      });
+    },
+  };
+}
+
+export const IncludedAiDriver = includedDriver(INCLUDED_AI_DRIVER, "Kimi", KIMI_MODELS);
+export const IncludedGrokDriver = includedDriver(INCLUDED_GROK_DRIVER, "Grok", GROK_MODELS);

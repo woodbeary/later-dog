@@ -85,7 +85,9 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
  * is "create linear comment". */
 export function toolLabel(tool?: string): string {
   if (!tool) return t("approval.tool.takeAction");
-  const bare = tool.replace(/^mcp__[^_]+__/, "").replace(/_/g, " ");
+  // later.dog's own tools reach a chat engine as agents_<name>: the server
+  // name is not part of what the dog wants to do
+  const bare = tool.replace(/^mcp__[^_]+__/, "").replace(/^agents_/, "").replace(/_/g, " ");
   const nice: ToolLabels = {
     Bash: "approval.tool.runCommand",
     Read: "approval.tool.readFile",
@@ -97,6 +99,8 @@ export function toolLabel(tool?: string): string {
     manage_routine: "approval.tool.changeRoutine",
     stage_skill: "approval.tool.enableSkill",
     update_skill: "approval.tool.updateSkill",
+    skill_manage: "approval.tool.saveTrick",
+    skills_list: "approval.tool.checkTricks",
     update_profile: "approval.tool.updateProfile",
     // An ACP driver can know the protocol's toolCall kind but not the
     // tool's name, and sends the kind as the card's tool

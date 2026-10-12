@@ -9,7 +9,7 @@ import {
     parseLearnCommand,
     parseSaveRunRequest,
 } from "./skill-learn.ts";
-import { SAVE_RUN_AS_SKILL_LINE } from "../shared/learn-request.ts";
+import { SAVE_RUN_AS_SKILL_LINE, TEACH_TRICK_LINE } from "../shared/learn-request.ts";
 
 describe("parseLearnCommand", () => {
     it("recognises /learn with and without a request", () => {
@@ -53,6 +53,15 @@ describe("expandLearnTurnText", () => {
         const expanded = buildLearnPrompt("");
         expect(expanded).toContain("workflow we just went through");
         expect(learnSource("")).toBe(`${LEARN_SOURCE_PREFIX}conversation`);
+    });
+});
+
+describe("Teach a trick, in plain words", () => {
+    it("expands exactly like /learn with the words after it, and only as the opening line", () => {
+        const words = "Turn my rough notes into a short weekly update";
+        expect(parseSaveRunRequest(`${TEACH_TRICK_LINE} ${words}`)).toEqual({ request: words });
+        expect(expandLearnTurnText(`${TEACH_TRICK_LINE} ${words}`)).toBe(expandLearnTurnText(`/learn ${words}`));
+        expect(expandLearnTurnText(`Can you ${TEACH_TRICK_LINE} ${words}`)).toBe(`Can you ${TEACH_TRICK_LINE} ${words}`);
     });
 });
 

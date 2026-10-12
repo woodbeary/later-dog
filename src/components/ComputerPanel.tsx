@@ -1396,11 +1396,11 @@ export function ComputerPanel({
               {phase === "off" && (
                 <button
                   type="button"
-                  data-testid="choose-where-works"
-                  onClick={() => dispatch({ type: "toggleSettings", open: true, section: "access", botId: profileBot.id })}
+                  data-testid="turn-on-computer"
+                  onClick={() => updateComputerSelection({ computer: "cloud" })}
                   className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover"
                 >
-                  {t("computer.chooseWhereWorks", { name: bot.name })}
+                  {t("computer.turnOn", { name: bot.name })}
                 </button>
               )}
               {(phase === "show-ready-boat" || phase === "show-sleeping-boat" || phase === "show-pending-boat") && (

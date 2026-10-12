@@ -155,7 +155,7 @@ async function createComputer(request: Request, env: Env, caller: Caller): Promi
   });
   if (!reservation.ok) {
     if (caller.trial && reservation.refusal.code === "limit_reached") {
-      return apiError({ ...reservation.refusal, message: "A free trial has one computer at a time; delete it first." });
+      return apiError({ status: 409, code: "trial_one_computer", message: "The free trial includes one cloud computer. later.dog Cloud gives every dog its own." });
     }
     return apiError(reservation.refusal);
   }

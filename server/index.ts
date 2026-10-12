@@ -636,7 +636,7 @@ import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
 import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
-import { INCLUDED_AI_INSTANCE } from "./laterdog/included-ai.ts";
+import { INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
@@ -2659,7 +2659,7 @@ async function asPlaceFailure(
     ...(providerStatus !== undefined ? { status: providerStatus } : {}),
   }, boat.boatAccount(cfg)?.included === true);
   const row: PlaceRow = { state: read.state, params: { bot: bot.name, ...read.params }, source };
-  if (row.state === "cc-at-once") row.params.holders = await cloudComputerHolders(bot.id);
+  if (row.state === "cc-at-once" || row.state === "cc-trial-one") row.params.holders = await cloudComputerHolders(bot.id);
   return placeUnavailable(place, row, Boolean(CLOUD_HOME));
 }
 /** The bots that hold this account's cloud computers, other than `botId`,
@@ -16197,7 +16197,7 @@ ROUTES.push(createCloudTrialRoutes({
 // trial by itself, so the first dog answers without a setup screen.
 if (!process.env.VITEST) setTimeout(() => {
   void (async () => {
-    const own = (await describeInstances()).some((instance) => instance.instanceId !== INCLUDED_AI_INSTANCE
+    const own = (await describeInstances()).some((instance) => !INCLUDED_AI_INSTANCES.includes(instance.instanceId)
       && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false);
     if (own) return;
     if (await autoStartTrial({ otherComputers: () => boat.otherComputersConfigured(cfg) })) {
@@ -16208,12 +16208,15 @@ if (!process.env.VITEST) setTimeout(() => {
 }, 1_500).unref?.();
 
 async function reloadIncludedAi() {
-  const entry = instanceConfigs(cfg)[INCLUDED_AI_INSTANCE];
-  if (!entry || !registry.get(INCLUDED_AI_INSTANCE)) return;
-  bus.detach(INCLUDED_AI_INSTANCE);
-  await registry.load({ [INCLUDED_AI_INSTANCE]: entry });
-  const live = registry.get(INCLUDED_AI_INSTANCE);
-  if (live) bus.attach([live]);
+  const configs = instanceConfigs(cfg);
+  for (const instanceId of INCLUDED_AI_INSTANCES) {
+    const entry = configs[instanceId];
+    if (!entry || !registry.get(instanceId)) continue;
+    bus.detach(instanceId);
+    await registry.load({ [instanceId]: entry });
+    const live = registry.get(instanceId);
+    if (live) bus.attach([live]);
+  }
   broadcast({ kind: "config", ...configStatus() });
 }
 

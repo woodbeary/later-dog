@@ -10,6 +10,7 @@ import { ClaudeLoginController, claudeLoginCode, claudeLoginPrompt, claudeSignIn
 // never touches the network or any real credential.
 const FAKE = `#!/usr/bin/env node
 import { appendFileSync, existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 const home = process.env.HOME;
 const mode = process.env.FAKE_AUTH_MODE || 'success';
@@ -26,6 +27,14 @@ if (args.join(' ') === 'auth status --json') {
   if (mode === 'no-url') { setInterval(() => {}, 1000); }
   else {
     process.stdout.write('Opening browser to sign in…\\n');
+    // like the real CLI: open the page that comes back to its own listener
+    if (process.env.BROWSER && process.env.BROWSER !== 'true') {
+      spawnSync(process.env.BROWSER, ['https://claude.com/cai/oauth/authorize?code=true&client_id=fixture&redirect_uri=http%3A%2F%2Flocalhost%3A53584%2Fcallback&state=abc']);
+    }
+    if (mode === 'callback') {
+      // the person finishes in the browser; the listener gets the code
+      setTimeout(() => { writeFileSync(join(home, 'authenticated'), 'fixture only'); process.stdout.write('Login successful\\n'); process.exit(0); }, 300);
+    }
     const link = mode === 'evil' ? 'https://evil.example/oauth/authorize?code=true' : 'https://claude.com/cai/oauth/authorize?code=true&client_id=fixture&state=abc';
     process.stdout.write('If the browser didn\\'t open, visit: ' + link + '\\n');
     process.stdout.write('Paste code here if prompted > ');
@@ -123,6 +132,10 @@ describe("Claude server-owned sign-in", () => {
     const controller = create("success", { onAuthenticated: async () => { refreshed++; } });
     const start = await controller.start();
     expect(start).toMatchObject({ phase: "waiting", authorizationUrl: "https://claude.com/cai/oauth/authorize?code=true&client_id=fixture&state=abc" });
+    // the page the CLI opened, caught instead of opened, hands the sign-in back by itself
+    if (process.platform !== "win32") {
+      expect(start.callbackUrl).toBe("https://claude.com/cai/oauth/authorize?code=true&client_id=fixture&redirect_uri=http%3A%2F%2Flocalhost%3A53584%2Fcallback&state=abc");
+    }
     expect(start.userCode).toBeUndefined();
     expect(start.flowId).toMatch(/^[0-9a-f-]{36}$/);
     // a second click while waiting returns the same link, no second process
@@ -132,8 +145,17 @@ describe("Claude server-owned sign-in", () => {
     expect(refreshed).toBe(1);
     expect(calls().map((call) => call.args)).toEqual([["auth", "status", "--json"], ["auth", "login"], ["auth", "status", "--json"]]);
     expect(calls().every((call) => call.home === home && call.configDir === join(home, ".claude"))).toBe(true);
-    expect(calls()[1].browser).toBe(process.platform === "win32" ? undefined : "true");
+    if (process.platform === "win32") expect(calls()[1].browser).toBeUndefined();
+    else expect(String(calls()[1].browser)).toMatch(/laterdog-claude-login-[^/]+\/open$/);
     await expect(controller.complete(start.flowId!, "GOODCODE#abc")).rejects.toThrow(/no longer available/);
+  });
+
+  it("finishes by itself when the browser hands the sign-in back, with nothing pasted", async () => {
+    const controller = create("callback");
+    const start = await controller.start();
+    expect(start.phase).toBe("waiting");
+    for (let i = 0; i < 60 && (await controller.get(start.flowId!)).phase === "waiting"; i++) await new Promise((done) => setTimeout(done, 50));
+    expect((await controller.get(start.flowId!)).phase).toBe("succeeded");
   });
 
   it("reports a rejected code without keeping the process, and refuses malformed codes before sending", async () => {

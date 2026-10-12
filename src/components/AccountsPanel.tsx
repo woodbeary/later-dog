@@ -391,6 +391,8 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
           <div className="mt-4">
             {!instance ? (
               <p role="alert" className="text-[13px] text-danger">{t("accounts.sheet.gone")}</p>
+            ) : instance.snapshot.state !== "available" ? (
+              <InstallFirst instance={instance} onCancel={onClose} />
             ) : instance.driverKind === "claudeAgent" ? (
               <ClaudeSignIn key={instance.instanceId} instanceId={instance.instanceId} autoStart compact onSignedIn={() => onSignedIn(instance.instanceId)} onCancelled={onClose} />
             ) : (
@@ -411,6 +413,36 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
   );
 }
 
+/** A provider whose app isn't on this computer yet: it is fetched from its
+ * maker first (the server checks it), then the sign-in takes over. */
+function InstallFirst({ instance, onCancel }: { instance: InstanceInfo; onCancel: () => void }) {
+  const { dispatch } = useStore();
+  const [error, setError] = useState<string | null>(null);
+  const installable = Boolean((instance as { install?: { server?: unknown } }).install?.server);
+  useEffect(() => {
+    if (!installable) return;
+    let cancelled = false;
+    void api<{ instances?: InstanceInfo[] }>(`/api/instances/${encodeURIComponent(instance.instanceId)}/install`, { method: "POST" })
+      .then(({ instances }) => { if (!cancelled && instances) dispatch({ type: "instances", instances }); })
+      .catch(() => { if (!cancelled) setError(t("onboarding.engines.setupFailed", { name: instance.displayName })); });
+    return () => { cancelled = true; };
+  }, [instance.instanceId, installable, instance.displayName, dispatch]);
+  return (
+    <div className="space-y-3">
+      {error || !installable ? (
+        <p role="alert" className="text-[13px] text-danger">{error ?? t("onboarding.engines.unavailable")}</p>
+      ) : (
+        <p role="status" className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
+          <Loader2 size={13} className="animate-spin" /> {t("accounts.sheet.gettingReady", { name: instance.displayName })}
+        </p>
+      )}
+      <div className="flex justify-end">
+        <button type="button" onClick={onCancel} className={pill}>{t("common.cancel")}</button>
+      </div>
+    </div>
+  );
+}
+
 export function AccountsPanel() {
   const { state, dispatch } = useStore();
   const battery = state.config?.accountBattery;
@@ -423,7 +455,11 @@ export function AccountsPanel() {
   const instancesRef = useRef(state.instances);
   instancesRef.current = state.instances;
 
-  useEffect(() => subscribeAddAccount(() => setSheet({ step: "pick" })), []);
+  useEffect(() => subscribeAddAccount((kind) => {
+    if (!kind) { setSheet({ step: "pick" }); return; }
+    const unused = unusedDefault(instancesRef.current, kind);
+    setSheet(unused ? { step: "signIn", instanceId: unused.instanceId } : { step: "name", kind });
+  }), []);
 
   const finished = async (instanceId: string) => {
     const isSignedIn = (instances: readonly InstanceInfo[]) => instances.some((candidate) => candidate.instanceId === instanceId && signedIn(candidate));

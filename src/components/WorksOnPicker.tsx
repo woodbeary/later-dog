@@ -17,7 +17,7 @@ export type WorksOn = NonNullable<Bot["computer"]> | "auto";
 export const WORKS_ON: readonly WorksOn[] = ["auto", "cloud", "local", "off"];
 
 const PICKER_ACTIONS: ReadonlySet<PlaceActionId> = new Set([
-  "choose-model", "allow-computer", "sign-in", "see-plan", "manage-computers", "open-my-cloud",
+  "choose-model", "allow-computer", "sign-in", "see-plan", "get-cloud", "manage-computers", "open-my-cloud",
 ]);
 
 export function worksOnPatch(place: WorksOn): BotUpdatePatch {

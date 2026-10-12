@@ -539,3 +539,16 @@ describe("Chat MCP schema validation", () => {
     await expect(long.execute("audit_write", { value: "y" }, f.controller.signal)).resolves.toMatchObject({ ok: true, text: "recorded:y" });
   });
 });
+
+describe("later.dog's own reviewed reads", () => {
+  it("ask nothing on the built-in agents server, while a write there and the same name elsewhere still ask", async () => {
+    const lists = `if (message.method === "tools/list") { reply(message, {tools:[{name:"skills_list",inputSchema:{type:"object",properties:{}}},{name:"skill_manage",inputSchema:{type:"object",properties:{}}}]}); continue; }`;
+    const builtIn = fixture(lists);
+    const other = fixture(lists);
+    const session = await mountChatTools({ agents: builtIn.server, custom: { mine: other.server } } as Parameters<typeof mountChatTools>[0], builtIn.controller.signal);
+    sessions.push(session);
+    expect(session.view("agents_skills_list", {}).ask).toBe(false);
+    expect(session.view("agents_skill_manage", {}).ask).toBe(true);
+    expect(session.view("mine_skills_list", {}).ask).toBe(true);
+  });
+});

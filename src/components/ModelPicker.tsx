@@ -23,6 +23,7 @@ import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { repeatedModelLabels, SimpleModelPane } from "./SimpleModelPane";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
+import { requestAddAccount } from "@/lib/add-account-request";
 import { friendlyEffort, simpleEffortLevels } from "@/lib/model-friendly";
 import { t } from "@/lib/i18n";
 import { COMPACT_SQUARE } from "@/lib/compact-chip";
@@ -377,6 +378,8 @@ export type RailProvider = {
   selected: boolean;
 };
 
+const INCLUDED_DRIVERS: ReadonlySet<string> = new Set(["laterdogAi", "laterdogGrok"]);
+
 /** The providers the rail shows, one button each, folded per sign-in family
  * and grouped Cloud / API keys / Local. Shared with the Simple view so both
  * list the same providers the same way. */
@@ -388,9 +391,16 @@ export function railProviders(instances: InstanceInfo[], selectedInstance: Insta
     openai: instances.find((instance) => signInFamily(instance) === "openai"),
   };
   const opensOn: Record<SignInFamily, InstanceInfo | undefined> = { claude: claudeInstance, openai: openaiInstance };
+  // A provider later.dog runs free and the person's own sign-in for it read
+  // the same ("Grok"): one row, the person's own once it works, else the free one.
+  const ready = (instance: InstanceInfo) => !needsCli(instance) && !needsSignIn(instance);
+  const included = instances.filter((instance) => INCLUDED_DRIVERS.has(instance.driverKind));
+  const twin = (instance: InstanceInfo) => (INCLUDED_DRIVERS.has(instance.driverKind)
+    ? instances.find((other) => !INCLUDED_DRIVERS.has(other.driverKind) && other.displayName === instance.displayName && ready(other))
+    : !ready(instance) ? included.find((free) => free.displayName === instance.displayName) : undefined);
   const providers = instances.filter((instance) => {
     const family = signInFamily(instance);
-    return !family || instance === firstOf[family];
+    return (!family || instance === firstOf[family]) && !twin(instance);
   });
   const entry = (instance: InstanceInfo): RailProvider => {
     const family = signInFamily(instance);
@@ -976,8 +986,16 @@ export function ModelPicker({
               providers={simpleProviders}
               onProvider={browseSimple}
               managedBy={railInstance?.policy?.organizationName ?? null}
-              needsSetup={railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel } : null}
+              needsSetup={railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: simpleFamily !== undefined && !railInstance.policy } : null}
               signIn={railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
+              // Claude and ChatGPT sign in where accounts live: Settings
+              // opens straight on that provider's sign-in.
+              onSignIn={() => {
+                if (!simpleFamily) return;
+                setOpen(false);
+                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
+                requestAddAccount(simpleFamily === "claude" ? "claudeAgent" : "codex");
+              }}
               onSetUp={() => {
                 // Sign-in is for the provider's own models: the full picker's main list.
                 if (simpleSignIn && hasOfficialModels) setPane("main");

@@ -77,15 +77,14 @@ vi.mock("@/state/store", async (importOriginal) => {
   };
 });
 
-const { BotSettingsDialog } = await import("./BotSettingsDialog");
+const { BotSettingsDialog, looksLikeSkillSource } = await import("./BotSettingsDialog");
 const { botLibraryItems } = await import("./bot-settings/library");
 const { BOT_SECTIONS, tabForSection } = await import("./bot-settings/sections");
 const { SoulField } = await import("./SoulField");
 const { LocalComputerAutoWarning } = await import("./LocalComputerAutoWarning");
 const { ModelPicker } = await import("./ModelPicker");
-const { MemorySection } = await import("./bot-settings/MemorySection");
+const { SimpleMemory } = await import("./bot-settings/SimpleMemory");
 const { RoutineEditor } = await import("./RoutinesPage");
-const { WorksOnPicker } = await import("./WorksOnPicker");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -151,12 +150,14 @@ beforeEach(() => {
 });
 
 describe("the dog editor's tabs", () => {
-  it("has exactly Details, Library and Computer, and lands on Details when opened bare", () => {
-    expect(BOT_SECTIONS.map((entry) => entry.id)).toEqual(["details", "library", "computer"]);
+  it("has exactly Details and Library, and lands on Details when opened bare", () => {
+    expect(BOT_SECTIONS.map((entry) => entry.id)).toEqual(["details", "library"]);
     const { html, nodes: tree } = dialog(makeBot());
     expect(html).toContain(">Details</button>");
     expect(html).toContain(">Library</button>");
-    expect(html).toContain(">Computer</button>");
+    // every dog has its own computer: no tab to choose where it works
+    expect(html).not.toContain(">Computer</button>");
+    expect(html).not.toContain("Where Scout works");
     expect(find({ nodes: tree }, "data-simple-tab", "details").props["aria-selected"]).toBe(true);
     for (const gone of ["All settings", "Search settings", "SOUL.md", "Advanced", "Slack", "Who can see it", "History", "Usage"]) {
       expect(html).not.toContain(gone);
@@ -167,15 +168,12 @@ describe("the dog editor's tabs", () => {
     const rendered = dialog(makeBot());
     click(find(rendered, "data-simple-tab", "library"));
     expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: true, section: "skills" });
-    click(find(rendered, "data-simple-tab", "computer"));
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: true, section: "access" });
   });
 
-  it("folds the old section ids onto the three tabs", () => {
+  it("folds the old section ids onto the two tabs", () => {
     expect(tabForSection("skills")).toBe("library");
     expect(tabForSection("memory")).toBe("library");
-    expect(tabForSection("access")).toBe("computer");
-    for (const section of ["overview", "identity", "soul", "model", "permissions", "voice", "history", "usage"] as const) {
+    for (const section of ["access", "overview", "identity", "soul", "model", "permissions", "voice", "history", "usage"] as const) {
       expect(tabForSection(section)).toBe("details");
     }
     openTab("memory");
@@ -393,6 +391,24 @@ describe("Library", () => {
     expect(dialog(bot).html).toContain("Imported 1. Switch it on below.");
   });
 
+  it("teaches a trick from plain words by asking the dog, in its chat", async () => {
+    const bot = makeBot();
+    click(find(dialog(bot), "data-simple-add-skill"));
+    expect(dialog(bot).html).toContain('placeholder="What should Scout learn?"');
+    change(find(dialog(bot), "aria-label", "Teach a trick"), "Turn my notes into a weekly update");
+    fixture.request = vi.fn(() => Promise.resolve({}));
+    const form = find(dialog(bot), "data-simple-teach");
+    await (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault: () => {} });
+    expect(fixture.request).not.toHaveBeenCalled();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "send", botId: "scout", threadId: "thread-scout", text: "Learn a new trick: Turn my notes into a weekly update" });
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: false });
+  });
+
+  it("tells a link or owner/repo from words describing a trick", () => {
+    for (const source of ["github:acme/skill", "acme/skill", "https://example.com/SKILL.md", "github.com/acme/skill"]) expect(looksLikeSkillSource(source)).toBe(true);
+    for (const words of ["Turn my notes into a weekly update", "summarise PRs / issues daily"]) expect(looksLikeSkillSource(words)).toBe(false);
+  });
+
   it("offers the library pool instead when the skills library is on", () => {
     fixture.storeState = { ...fixture.storeState, config: { features: { skillsLibrary: true } } };
     fixture.skills.libraryPool = [{ name: "triage" }];
@@ -407,17 +423,17 @@ describe("Library", () => {
 
   it("keeps memory mounted on every tab and lets it be switched off", () => {
     const rendered = dialog(makeBot());
-    const memory = rendered.nodes.find((node) => node.type === MemorySection)!;
+    const memory = rendered.nodes.find((node) => node.type === SimpleMemory)!;
     expect(memory.props.active).toBe(true);
     (memory.props.onToggle as (enabled: boolean) => void)(false);
     expect(patch).toHaveBeenLastCalledWith({ memoryEnabled: false });
     openTab("identity");
     const details = dialog(makeBot());
-    expect(details.nodes.find((node) => node.type === MemorySection)!.props.active).toBe(false);
+    expect(details.nodes.find((node) => node.type === SimpleMemory)!.props.active).toBe(false);
   });
 
-  it("shows the empty state, and what the dog made when there is some", () => {
-    expect(dialog(makeBot()).html).toContain("Pages, files, and apps Scout makes show up here.");
+  it("leaves Made in chat out until the dog has made something, then lists it", () => {
+    expect(dialog(makeBot()).html).not.toContain("Made in chat");
     const message = {
       id: "m1", role: "bot", kind: "text", at: Date.UTC(2026, 8, 30), text: "Done",
       attachments: [{ path: "/tmp/chart.png", kind: "image" }, { path: "/tmp/report.pdf", kind: "file", name: "report.pdf" }],
@@ -448,30 +464,5 @@ describe("Library", () => {
       { name: "notes.md", messageId: "latest", at: 200 },
       { name: "old-only.pdf", messageId: "old", at: 100 },
     ]);
-  });
-});
-
-describe("Computer", () => {
-  beforeEach(() => openTab("access"));
-
-  it("holds the where-works picker for this dog", () => {
-    const bot = makeBot();
-    const rendered = dialog(bot);
-    const picker = rendered.nodes.find((node) => node.type === WorksOnPicker)!;
-    expect(picker.props.bot).toBe(bot);
-    expect(rendered.html).toContain("Where Scout works");
-    expect(rendered.html).not.toContain("Cloud backend");
-    expect(rendered.html).not.toContain("Start VPS");
-  });
-
-  it("opens the Computer panel from the screen row", () => {
-    const rendered = dialog(makeBot());
-    const row = find(rendered, "data-testid", "access-screen");
-    expect(nodes(row.props.children).some((node) => node.props.children === "Scout's screen")).toBe(true);
-    const open = nodes(row.props.children).find((node) => node.type === "button")!;
-    expect(open.props.children).toBe("Open Computer panel");
-    click(open);
-    expect(fixture.dispatch).toHaveBeenNthCalledWith(1, { type: "toggleSettings", open: false });
-    expect(fixture.dispatch).toHaveBeenNthCalledWith(2, { type: "toggleComputer", open: true });
   });
 });

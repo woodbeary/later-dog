@@ -2,9 +2,14 @@
 
 ## 0.3.14 — 2026-10-12
 
-- **The tour waits its turn.** Its first tip shows once your dog has finished replying, instead of covering the answer as it arrives.
-- **Waiting on you reads that way.** While a dog's question is open, the message field says "Message Miso" with no stop button, because the dog is waiting for you, not working.
-- The tour no longer says every chat runs on your machine: on the free models a dog runs in the cloud.
+- **Pick the model by name.** The free models show as **Kimi** and **Grok** in the account list, each with its own mark, instead of one "later.dog" entry. Both run free through the trial. If you sign in to Grok yourself, your own account takes over that row.
+- **Signing in is one button.** Choosing Claude or ChatGPT before you've signed in shows a single **Sign in** button that opens Settings straight on that provider's sign-in. Claude finishes in your browser and comes back by itself, with no code to paste. If Claude or Codex isn't on your Mac yet, it's fetched first.
+- **Every dog has its own computer.** The "Where it works" picker and the Computer tab are gone. A dog whose computer is off gets one button to turn it back on.
+- **A simpler Library.** Tricks and what your dog remembers, in plain words: one switch for memory, the things it remembers as a list you can forget one by one, and **Teach a trick** takes a sentence, which your dog turns into a trick in chat. The memory files are still one click away.
+- **The free trial's one computer.** When another dog already has it, later.dog offers later.dog Cloud instead of asking you to delete a computer.
+- **The tour waits its turn.** Its first tip shows once your dog has finished replying, not over the answer as it arrives.
+- **Waiting on you reads that way.** While a dog's question is open, the message field says "Message Miso" with no stop button.
+- The tour no longer says every chat runs on your machine.
 
 ## 0.3.13 — 2026-10-12
 

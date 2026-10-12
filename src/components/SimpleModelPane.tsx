@@ -33,6 +33,7 @@ export function SimpleModelPane({
   needsSetup,
   signIn,
   onSetUp,
+  onSignIn,
   models,
   repeatedLabels,
   query,
@@ -52,11 +53,14 @@ export function SimpleModelPane({
   /** The organisation whose policy keeps bots off the browsed provider. */
   managedBy?: string | null;
   /** The browsed provider cannot list models yet (setup or sign-in). */
-  needsSetup?: { name: string } | null;
+  /** signIn: Claude or ChatGPT, whose one step is signing in (in Settings). */
+  needsSetup?: { name: string; signIn?: boolean } | null;
   /** The browsed provider lists only its local models until it is signed in. */
   signIn?: { name: string } | null;
   /** Opens the full picker on the browsed provider's setup. */
   onSetUp: () => void;
+  /** Claude or ChatGPT: sign in from Settings instead of the full picker. */
+  onSignIn?: () => void;
   /** The rows to show now: suggested, every model, or search results. */
   models: ModelOption[];
   /** Names more than one of the provider's models carry. */
@@ -145,9 +149,9 @@ export function SimpleModelPane({
               </div>
             ) : needsSetup ? (
               <div className="flex flex-col items-start gap-3 px-2 py-1.5 text-[12.5px] text-ink-secondary">
-                <span>{t("model.simple.needsSetup", { name: needsSetup.name })}</span>
-                <button type="button" data-simple-set-up onClick={onSetUp} className="rounded-full bg-accent px-3 py-1.5 text-[12.5px] font-medium text-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-                  {t("model.simple.setUp")}
+                {!needsSetup.signIn && <span>{t("model.simple.needsSetup", { name: needsSetup.name })}</span>}
+                <button type="button" data-simple-set-up onClick={needsSetup.signIn && onSignIn ? onSignIn : onSetUp} className="rounded-full bg-accent px-3 py-1.5 text-[12.5px] font-medium text-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  {needsSetup.signIn ? t("model.simple.signInTo", { name: needsSetup.name }) : t("model.simple.setUp")}
                 </button>
               </div>
             ) : models.length === 0 ? (
