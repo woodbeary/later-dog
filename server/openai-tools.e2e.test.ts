@@ -169,7 +169,7 @@ it("runs structured MCP calls through real harness approval and continuation, pr
           if (mode === "selected") expect(requests[before]!.tools?.map((tool) => tool.function.name)).toEqual(["selected_write_file"]);
         } else {
           expect(settled.status).toBe("failed");
-          expect(result?.content).toMatch(/denied/i);
+          expect(result?.content).toMatch(/did not allow this step/i);
           expect(existsSync(artifact)).toBe(false);
         }
       } else {

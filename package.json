@@ -1,7 +1,7 @@
 {
   "name": "laterdog",
   "private": true,
-  "version": "0.3.23",
+  "version": "0.3.24",
   "description": "later.dog \u2014 an open-source workspace for agents and cloud coding.",
   "homepage": "https://later.dog",
   "repository": {

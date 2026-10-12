@@ -682,7 +682,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
                   }
                 } else {
                   denials.push(shown.title);
-                  result = { ok: false, text: "Permission denied or expired; the tool was not executed." };
+                  result = { ok: false, text: "The person did not allow this step, or the request expired, so it did not run. Do not try it another way; tell them plainly that it was not allowed." };
                 }
               }
             } catch (error) {
