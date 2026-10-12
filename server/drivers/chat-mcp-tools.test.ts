@@ -563,4 +563,13 @@ describe("the dog's own computer", () => {
     expect(session.view("computer_computer_screenshot", {})).toMatchObject({ ask: true, ownComputer: true });
     expect(session.view("mine_computer_screenshot", {}).ownComputer).toBeUndefined();
   });
+
+  it("never counts the person's own Mac as the dog's computer", async () => {
+    const lists = `if (message.method === "tools/list") { reply(message, {tools:[{name:"computer_screenshot",inputSchema:{type:"object",properties:{}}}]}); continue; }`;
+    const mac = fixture(lists);
+    const session = await mountChatTools({ localComputer: { ...mac.server, scope: "local-computer" } } as Parameters<typeof mountChatTools>[0], mac.controller.signal, true);
+    sessions.push(session);
+    expect(session.view("computer_computer_screenshot", {})).toMatchObject({ ask: true });
+    expect(session.view("computer_computer_screenshot", {}).ownComputer).toBeUndefined();
+  });
 });

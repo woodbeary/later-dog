@@ -329,6 +329,18 @@ describe("OpenAI-compatible computer images", () => {
     expect(custom.recorder.events.some((event) => event.type === "request.opened")).toBe(true);
   });
 
+  it("still asks before each action on the person's own Mac when Off-leash", async () => {
+    const mac = await fixture((_body, response, round) => {
+      if (round === 1) sse(response, [chunk({ tool_calls: [{ ...toolCall(), function: { ...toolCall().function, name: "computer_write" } }] }, "tool_calls")]);
+      else answer(response);
+    });
+    const desktop = { ...mac.integrations!.custom!.audit, scope: "local-computer" } as NonNullable<SendTurnInput["integrations"]>["localComputer"];
+    await mac.start({ approvalMode: "auto", integrations: { localComputer: desktop } });
+    await mac.decide();
+    expect(await mac.completed()).toMatchObject({ ok: true });
+    expect(mac.recorder.events.some((event) => event.type === "request.opened")).toBe(true);
+  });
+
   it.each(["localComputer", "browser"] as const)("delivers %s screenshots after tool results and preserves approval", async (source) => {
     const prefix = source === "browser" ? "browser" : "computer";
     const f = await fixture((_body, response, round) => {

@@ -297,8 +297,11 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
       // A searched URL server answers over the internet: its initialize and
       // whole tools/list get the URL budget; command servers keep theirs.
       const tools = await client.tools(signal, include, searchable.has(name) ? REMOTE_MCP_STARTUP_MS : STARTUP_MS);
+      // The dog's own computer: a cloud, VM or remote one. The person's own
+      // desktop (the only descriptor with scope "local-computer") is theirs,
+      // not the dog's, so Off-leash still asks before each action there.
       return { name, client, builtInBrowser: descriptor === integrations?.browser, builtInAgents: descriptor === integrations?.agents,
-        builtInComputer: descriptor === integrations?.localComputer, tools };
+        builtInComputer: descriptor === integrations?.localComputer && integrations?.localComputer?.scope !== "local-computer", tools };
     }));
     for (const mount of mounts) {
       if (mount.status === "rejected") throw mount.reason;
