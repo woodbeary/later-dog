@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.17 — 2026-10-12
+
+- **Opening a dog's computer is clean the first time.** It starts once, and no error sits under a screen that came up fine. If the computer is busy starting or changing elsewhere, the panel says so in plain words.
+- **Accounts says what an account is for:** adding Claude or ChatGPT lets your dogs use the plan you already have.
+
 ## 0.3.16 — 2026-10-12
 
 - **Off-leash means it on the free models.** On Kimi and Grok, a dog that's Off-leash now works on its own computer and browser without stopping for a card at every step. Connected apps still ask first, and Heel still asks for everything.
