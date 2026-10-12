@@ -53,8 +53,6 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     const type = async (name: string, text: string) => {
       const ref = await target(name, ["textbox"]);
       await ui("click", "--ref", ref);
-      // The browser's type action focuses again and collapses selections.
-      // Clear through the native input event first, including on rename.
       await ui("eval", "--js", "(() => { const input = document.activeElement; if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) throw new Error('Expected focused input'); input.select(); return true; })()");
       await ui("press", "--keys", "Backspace");
       return ui("type", "--ref", ref, "--text", text);
@@ -112,8 +110,6 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     await teamMenu("Delivery");
     await click("Add dogs");
     await click("Researcher");
-    // Hold only the creation response: persistence and SSE remain real. The
-    // user can dismiss the nested dialog while that request is in flight.
     await ui("eval", "--js", `(() => {
       const original = window.fetch.bind(window);
       window.fetch = async (input, init) => {
@@ -185,13 +181,8 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     await expect.poll(async () => (await ui("eval", "--js", "window.teamDeleteRequests")).result).toBe(2);
     await ui("eval", "--js", "window.releaseTeamDelete(); true");
     await expect.poll(async () => (await api("/api/bots?messages=0")).sections.includes("Launch")).toBe(false);
-    // The server commits before the pending DELETE response reaches React.
-    // Finish this UI action before the next fixture client creates a section;
-    // otherwise its SSE update can race the previous response's section list.
     await expect.poll(snapshot).not.toContain('alertdialog "Delete Launch pack?"');
 
-    // Section management is available where the section lives, without
-    // requiring the team map. Cancel and Escape must leave its brief intact.
     await api("/api/sidebar-sections", "POST", { name: "Sidebar empty" });
     await api("/api/section-context?section=Sidebar%20empty", "PUT", { text: "Keep this until deletion is confirmed." });
     await click("Delete Sidebar empty section");
@@ -215,8 +206,6 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     await expect.poll(() => evaluate('Boolean(document.querySelector("[data-sidebar-section-id=\\"section:Sidebar empty\\"]"))')).toBe(false);
     expect((await fetch(`${info.url}/api/section-context?section=Sidebar%20empty`)).status).toBe(404);
 
-    // The visible delete button shares the established keep-members behavior:
-    // active, pinned and archived bots move to General with their chats intact.
     await control("send", "--bot", a.id, "--text", "Keep this conversation when its sidebar section is deleted.");
     expect(await control("wait", "--bot", a.id, "--timeout", "30")).toMatchObject({ status: "settled" });
     const transcript = (await control("messages", "--bot", a.id, "--limit", "10") as any).messages;
@@ -275,13 +264,9 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     console.info(JSON.stringify({ fixture: info!, screenshot, emptyTeam: true, multiBotMove: true, delayedMemberCreation: true, reload: true, renameAndDelete: true,
       sidebarDelete: true, sidebarCancelAndFocus: true, preservedSectionMembers: ["active", "pinned", "archived", "group"],
       preservedBotMessages: transcript.length, preservedGroupMessages: roomTranscript.length }));
-    // Room confirmations also sit over the mobile drawer. Escape must cancel
-    // just that confirmation, leaving the drawer and its room intact.
     preview = await mountPreview({ info: { url: info!.url } }, {
       entry: "/__slow-sidebar-entry.js", route: "/__sidebar-room-delete.html", title: "Room deletion drawer regression", logLevel: "silent",
       extraRoutes: [{ path: "/__slow-sidebar-entry.js", handler: async (_req, res) => {
-        // Hold the actual sidebar import beyond expect.poll's default window,
-        // reproducing a cold preview without replacing its UI or server.
         await new Promise((resolve) => setTimeout(resolve, 2_000));
         res.setHeader("content-type", "application/javascript");
         res.end('import "/scripts/testing/sidebar-preview.tsx";');
@@ -289,7 +274,6 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     });
     await ui("eval", "--js", `location.href = ${JSON.stringify(preview.previewUrl)}; true`);
     const roomMenu = async () => {
-      // The new preview must load its module and initial server state first.
       await expect.poll(snapshot, { timeout: 15_000 }).toContain("Drawer: open");
       await expect.poll(() => evaluate(`Boolean(document.querySelector('[data-sidebar-group-row="${group.id}"]'))`),
         { timeout: 10_000 }).toBe(true);
@@ -331,7 +315,7 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
         writeFileSync(`${fixtureLog}.team-lifecycle-failure.json`, JSON.stringify(result, null, 2));
         await runControlLaterDog(["ui", "screenshot", "--ui", fixtureHandle, "--out", `${fixtureLog}.team-lifecycle-failure.png`]);
         console.info(JSON.stringify({ failureEvidence: `${fixtureLog}.team-lifecycle-failure.json` }));
-      } catch { /* The original failure remains authoritative if the browser stopped. */ }
+      } catch {}
     }
     await waitForExit(child, { signal: "SIGINT", graceMs: 30_000 });
     await preview?.close();

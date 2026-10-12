@@ -1,7 +1,3 @@
-// Windows CUA smoke: prove the staged win32 SDK bundle loads through the same
-// env-var redirect the packaged app uses and that one embedded driver host can
-// start and stop. Mirrors electron/cua.mjs startEmbedded(); run it after
-// `pnpm build:cua:win`, which produces dist-native/cua-win32-x64/.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -34,9 +30,6 @@ if (!createBackgroundExecutable(readFileSync(binary)).equals(readFileSync(backgr
   throw new Error("background daemon does not match the CLI's executable sections and derived PE headers");
 }
 
-// The bundled resolver patch (prepare-cua-win.mjs) redirects the SDK's native
-// library lookup to exactly this path; verify the redirect is present, or the
-// packaged app would fall back to node_modules paths that do not exist.
 const bundledSource = readFileSync(bundle, "utf8");
 if (!bundledSource.includes("LATERDOG_CUA_SDK_LIBRARY")) {
   console.error("staged cua-sdk.mjs lacks the LATERDOG_CUA_SDK_LIBRARY resolver patch — re-run pnpm build:cua:win");
@@ -47,12 +40,10 @@ process.env.LATERDOG_CUA_SDK_LIBRARY = dll;
 process.env.CUA_DRIVER_RS_TELEMETRY_ENABLED = "0";
 const watchdog = setTimeout(() => {
   console.error("smoke:cua-win timed out");
-  process.exit(1); // Closing the host also closes the daemon's parent-liveness pipe.
+  process.exit(1);
 }, 30_000);
 
 async function checkNoConsole(pid) {
-  // Probe only this smoke's daemon from a separate, hidden process. An existing
-  // process with no console makes AttachConsole fail with ERROR_INVALID_HANDLE.
   await promisify(execFile)("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `
 Add-Type -TypeDefinition @'
 using System.Runtime.InteropServices;
@@ -76,8 +67,6 @@ if (typeof sdk.EmbeddedCuaDriverHost !== "function") {
   process.exit(1);
 }
 
-// No screen capture or input: initialize the retained CLI's MCP connection to
-// the GUI-subsystem daemon and enumerate its tool definitions, then stop both.
 async function checkProxy(socketPath) {
   const child = spawn(binary, ["mcp", "--embedded", "--socket", socketPath], {
     windowsHide: true, stdio: ["pipe", "pipe", "pipe"],
@@ -152,9 +141,7 @@ try {
 } catch (err) {
   try {
     await host.stop();
-  } catch {
-    // startup already failed; stop is best-effort before destroy
-  }
+  } catch {}
   host.uniffiDestroy?.();
   console.error("smoke:cua-win FAILED:", err);
   process.exit(1);

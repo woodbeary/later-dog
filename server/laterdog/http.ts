@@ -11,14 +11,12 @@ import { Supervisor, message } from "./supervisor.ts";
 const idSchema = z.string().uuid();
 const wakeupSettlementSchema = z.discriminatedUnion("outcome", [z.object({ outcome: z.literal("delivered") }).strict(),
   z.object({ outcome: z.literal("dropped"), reason: z.string().trim().min(1).max(500) }).strict()]);
-/** Which dogs have a wake-up waiting, as the hosted Worker reads it (deploy/laterdog/cloudflare/src/wakeup-hint.ts): a JSON list, or "*" past 50. */
 export const WAKEUP_BOTS_HEADER = "x-laterdog-wakeup-bots";
 export function wakeupReport(bots: string[]): string { return bots.length > 50 ? "*" : JSON.stringify(bots); }
 export const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("publish"), summary: z.string().min(1).max(20_000).optional() }).strict(), z.object({ action: z.literal("verify") }).strict(),
   z.object({ action: z.literal("merge") }).strict(), z.object({ action: z.literal("cancel"), acknowledgeUnknown: z.boolean().default(false) }).strict(),
   z.object({ action: z.literal("reconcile"), taskId: z.string().regex(/^(task|session)_[a-zA-Z0-9_-]+$/) }).strict(),
-  // writeScopes replaces the parent's paths for this repair, for evidence that puts the fix next door (a shared helper beside the route).
   z.object({ action: z.literal("correct"), brief: z.string().trim().min(1).max(100_000), requestKey: z.string().min(8).max(200),
     writeScopes: z.array(scopePath).min(1).max(40).optional() }).strict(),
   z.object({ action: z.literal("review"), requestKey: z.string().min(8).max(200), profileId: z.string().max(100).optional() }).strict(),
@@ -36,7 +34,6 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
         const body = z.object({ code: z.string().min(20).max(100), label: z.string().trim().min(1).max(100) }).strict().parse(await readBody(req,4096));
         return json(res,200,bridge.pair(body.code,body.label));
       }
-      // A request naming a dog must present that dog's derived token (dog-access.ts); it never falls back to admin or device access.
       const dog = authenticateDog(req.headers[DOG_HEADER], presented, token);
       const admin = !dog && secretEquals(presented, token); const device = admin || dog ? undefined : bridge.authenticate(presented);
       if (!admin && !dog && !device) return json(res,401,{ error: "Valid supervisor or paired-device token required" });
@@ -48,7 +45,6 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
         }
         return json(res,403,{ error: "Paired devices may only poll and settle their own local requests" });
       }
-      // The admin token reaches every route below; a dog's token only the routes its MCP tools call, for its own jobs.
       const scope = dog ? dogScope(supervisor.store,dog) : ADMIN_SCOPE; scope.check(method,url.pathname);
       const profilePath = /^\/v1\/profiles\/([a-zA-Z0-9_-]+)\/(access|tasks|login)$/.exec(url.pathname);
       if (profilePath && profilePath[2] === "login" && method === "POST") return json(res,202,await supervisor.loginProfile(profilePath[1]));
@@ -56,10 +52,8 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
       if (url.pathname === "/v1/github/access" && method === "GET") return json(res,200,await supervisor.inspectGitHub());
       if (url.pathname === "/v1/github/login" && method === "POST") return json(res,202,await supervisor.loginGitHub());
       if (url.pathname === "/v1/observations" && method === "POST") return json(res,201,recordObservation(supervisor.store,scope.observation(await readBody(req,30_000))));
-      // The admin token's answers say which dogs have a wake-up waiting, so the hosted Worker can let a sleeping container sleep.
       const reportWakeups = () => { if (!dog) res.setHeader(WAKEUP_BOTS_HEADER,wakeupReport(supervisor.store.wakeupBots())); };
       if (url.pathname === "/v1/workspace" && method === "GET") { const snapshot = scope.snapshot(supervisor.snapshot()); reportWakeups(); return json(res,200,snapshot); }
-      // A hosted supervisor cannot call the desktop, so the desktop pulls its dogs' wake-ups and settles each one (server/laterdog/wakeups.ts).
       if (url.pathname === "/v1/wakeups/pull" && method === "POST") {
         const body = z.object({ bots: z.array(z.string().regex(/^[\w-]{1,100}$/)).max(1000), limit: z.number().int().min(1).max(50).default(20) }).strict().parse(await readBody(req,120_000));
         const wakeups = supervisor.store.pendingWakeups(new Set(body.bots),body.limit); reportWakeups(); return json(res,200,{ wakeups });
@@ -78,7 +72,6 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
       }
       if (url.pathname === "/v1/jobs" && method === "POST") {
         const body = await readBody(req,200_000);
-        // A delegation that names no account profile goes to later.dog Cloud when it is set up, else to the default profile.
         if (body && typeof body === "object" && !Array.isArray(body) && !("profileId" in body)) (body as Record<string, unknown>).profileId = supervisor.preferredProfile();
         const request = scope.jobRequest(body);
         await supervisor.ensureRepository(request);

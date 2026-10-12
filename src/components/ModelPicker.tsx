@@ -1,11 +1,3 @@
-// Compact model picker: providers live on a Cloud/Local rail. Ready engines
-// show a short suggested list with search and an explicit all-models view;
-// an installed engine that needs sign-in, or the bot's own engine when it
-// needs setup, shows one focused action instead of a disabled wall. Engines
-// that are not installed and not in use stay in Settings.
-// Reasoning effort rides along (EffortRow): model and effort are one choice to
-// the person making it, so the chat header and the settings dialog render the
-// same row and write through the same action.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, KeyRound, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { useStore, currentTaskBot, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
@@ -54,16 +46,8 @@ export function engineStatus(instance: InstanceInfo): string {
   return instance.snapshot.version ?? t("model.ready");
 }
 
-/** How long "Looking for local models…" may stay up. Opening the local list
- * re-probes local servers, and the answer rides on an engine status check
- * that can be slow; after this the list shows what it has, and a late answer
- * still lands when it arrives. */
 export const LOCAL_PROBE_TIMEOUT_MS = 5_000;
 
-/** Local servers (Ollama, LM Studio…) are otherwise probed only at startup,
- * after sign-in, or on refresh, so a model started since then would stay
- * invisible. Resolves when the refresh settles or the timeout passes, never
- * rejects: an offline app keeps its last known catalog. */
 export function probeLocalModels(
   instanceId: string,
   refreshModels: (instanceId: string) => Promise<void>,
@@ -80,28 +64,15 @@ export function probeLocalModels(
   });
 }
 
-/** Whether the rail's engine offers the way into local models. Claude runs
- * them through its own CLI, signed in or not, so its entry stays while none
- * have been found yet: opening it is what looks again. Other engines offer it
- * once they list a local model. */
 export function offersLocalModels(instance: InstanceInfo | undefined, localCount: number): boolean {
   if (!instance) return false;
   return localCount > 0 || (instance.driverKind === "claudeAgent" && !needsCli(instance) && !instance.policy);
 }
 
-/** The others capitalize cleanly; "xhigh" would read "Xhigh". */
 export function effortLabel(level: EffortLevel): string {
   return level === "xhigh" ? "X-High" : level[0].toUpperCase() + level.slice(1);
 }
 
-/** How hard the bot thinks, for the engine it currently runs on. Rendered
- * both in the picker's popover and in the settings dialog's Model section so
- * the two cannot drift: one list of levels, one `setModel` dispatch.
- *
- * `undefined` ("Default") is not the `none` level — Default sends nothing and
- * lets the engine decide, `none` is a level the engine is told to use. Only
- * pi offers both, and dropping either would change what an existing bot
- * sends, so both stay and the tooltips say which is which. */
 export function EffortRow({
   bot,
   threadId,
@@ -124,7 +95,6 @@ export function EffortRow({
     return <ModelVariantRow bot={bot} threadId={threadId} updateBotDefault={updateBotDefault} className={className} label={label} compact={compact} />;
   }
   const levels = instance?.capabilities?.effortLevels;
-  // An engine with no levels gets no control at all, not an empty one.
   if (!levels?.length) return null;
 
   if (compact) return (
@@ -143,8 +113,6 @@ export function EffortRow({
   return (
     <div className={className}>
       {label}
-      {/* wraps rather than dividing a fixed width: pi offers Default plus six
-          levels, which a segmented control would squeeze in the popover */}
       <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label="Reasoning effort">
         {[undefined, ...levels].map((level) => (
           <button
@@ -176,7 +144,6 @@ function variantLabel(option: ModelVariantOption): string {
   return option.id === "default" ? "OpenCode default" : option.label;
 }
 
-/** ACP variant ids are opaque; their model/session declares the available choices. */
 export function ModelVariantRow({ bot, threadId, updateBotDefault, className, label, compact = false, wide = false }: {
   bot: Bot;
   threadId?: string;
@@ -184,7 +151,6 @@ export function ModelVariantRow({ bot, threadId, updateBotDefault, className, la
   className?: string;
   label?: ReactNode;
   compact?: boolean;
-  /** Compact only: the select spans the whole row (the Simple picker's band). */
   wide?: boolean;
 }) {
   const { state, dispatch } = useStore();
@@ -261,7 +227,6 @@ export function ModelVariantRow({ bot, threadId, updateBotDefault, className, la
   );
 }
 
-/** Switching models must not carry an opaque variant from the previous model. */
 export function modelSelectionForPick(selection: ModelSelection, instance: InstanceInfo, model: string): ModelSelection {
   const next: ModelSelection = { instanceId: instance.instanceId, model };
   if (instance.instanceId === selection.instanceId) {
@@ -284,7 +249,6 @@ function ModelRow({
   option: ModelOption;
   current: boolean;
   defaultId: string;
-  /** The bot's model, in a thread's picker: "(bot's model)". */
   botModel?: boolean;
   onPick: () => void;
 }) {
@@ -320,8 +284,6 @@ function ModelRow({
   );
 }
 
-/** A thread's picker: back onto the bot's model, so the thread moves with
- * the bot again. Checked while the thread follows the bot. */
 export function FollowBotModelRow({ name, model, follows, onPick }: { name: string; model: string; follows: boolean; onPick: () => void }) {
   return (
     <button
@@ -376,9 +338,7 @@ function ModelSearch({
 }
 
 export type RailProvider = {
-  /** The rail's own entry: one per sign-in family, else one per instance. */
   instance: InstanceInfo;
-  /** What a click opens: for a sign-in family, the account last browsed. */
   target: InstanceInfo;
   label: string;
   selected: boolean;
@@ -386,9 +346,6 @@ export type RailProvider = {
 
 const INCLUDED_DRIVERS: ReadonlySet<string> = new Set(["laterdogAi", "laterdogGrok"]);
 
-/** The providers the rail shows, one button each, folded per sign-in family
- * and grouped Cloud / API keys / Local. Shared with the Simple view so both
- * list the same providers the same way. */
 export function railProviders(instances: InstanceInfo[], selectedInstance: InstanceInfo | undefined,
   claudeInstance: InstanceInfo | undefined, openaiInstance: InstanceInfo | undefined) {
   const firstOf: Record<SignInFamily, InstanceInfo | undefined> = {
@@ -397,8 +354,6 @@ export function railProviders(instances: InstanceInfo[], selectedInstance: Insta
     openai: instances.find((instance) => signInFamily(instance) === "openai"),
   };
   const opensOn: Record<SignInFamily, InstanceInfo | undefined> = { claude: claudeInstance, openai: openaiInstance };
-  // A provider later.dog runs free and the person's own sign-in for it read
-  // the same ("Grok"): one row, the person's own once it works, else the free one.
   const ready = (instance: InstanceInfo) => !needsCli(instance) && !needsSignIn(instance);
   const included = instances.filter((instance) => INCLUDED_DRIVERS.has(instance.driverKind));
   const twin = (instance: InstanceInfo) => (INCLUDED_DRIVERS.has(instance.driverKind)
@@ -424,7 +379,6 @@ export function railProviders(instances: InstanceInfo[], selectedInstance: Insta
 export function ModelEngineRail({ instances, selectedInstance, claudeInstance, openaiInstance, onSelect }: {
   instances: InstanceInfo[];
   selectedInstance?: InstanceInfo;
-  /** The account a folded button opens on (the last one browsed). */
   claudeInstance?: InstanceInfo;
   openaiInstance?: InstanceInfo;
   onSelect: (instance: InstanceInfo) => void;
@@ -444,7 +398,6 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
         className={cn("relative flex size-9 items-center justify-center rounded-lg", selected ? "bg-control ring-1 ring-hairline/50" : "hover:bg-control/60", managedBy && "opacity-40")}
       >
         <InstanceProviderMark instance={target} size={18} />
-        {/* the same provider can sit in Cloud and API keys: the key marks which */}
         {target.access === "api" && (
           <span data-rail-key-badge className="absolute bottom-0 left-0 flex size-3.5 items-center justify-center rounded-full bg-panel text-ink-secondary">
             <KeyRound size={9} aria-hidden="true" />
@@ -490,12 +443,9 @@ export function ClaudeAccountSelect({ accounts, selectedId, onSelect }: {
 }
 
 const POPOVER_WIDTH = 420;
-/** The Simple view's width: a 128px provider column beside the models. */
 export const SIMPLE_POPOVER_WIDTH = 380;
-/** The header chip's accounts and the message field's models: small menus. */
 export const ACCOUNT_MENU_WIDTH = 220;
 export const MODEL_MENU_WIDTH = 240;
-/** Past this many models, the Simple view's opened list gets a search box. */
 const SIMPLE_SEARCH_AFTER = 12;
 
 export function ModelPicker({
@@ -510,12 +460,8 @@ export function ModelPicker({
   bot: Bot;
   threadId?: string;
   className?: string;
-  /** Expand the menu in-flow under the trigger so it cannot overflow a
-   * narrow parent (the Agent profile sidebar). */
   contained?: boolean;
-  /** Open upward from a trigger beside the message field. */
   above?: boolean;
-  /** Only the account (chat header) or only the model (beside the message field). */
   part?: "account" | "model";
   label?: ReactNode;
 }) {
@@ -531,8 +477,6 @@ export function ModelPicker({
   const [probingLocal, setProbingLocal] = useState<string | null>(null);
   const [scope, setScope] = useState<"bot" | "thread">("thread");
   const ownerOrAdmin = useOwnerOrAdmin();
-  // Guests can choose a model for their own Cloud conversation, not change
-  // the shared bot's default. Keep choices thread-only until authority loads.
   const simpleUpdatesBotDefault = !state.config?.cloudHome || ownerOrAdmin === true;
   const [fullView, setFullView] = useState(false);
   const [page, setPage] = useState<"accounts" | "models">("accounts");
@@ -541,15 +485,12 @@ export function ModelPicker({
     selection: ModelSelection; updateBotDefault: boolean; name: string } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<{ left: number; maxHeight: number }>();
-  // The bot's model just changed from this thread's picker: say how many
-  // threads kept a model of their own, until the picker opens again.
   const [changedBotModel, setChangedBotModel] = useState(false);
   const refreshingRef = useRef(false);
   const lastClaudeIdRef = useRef<string | null>(null);
   const lastOpenaiIdRef = useRef<string | null>(null);
 
   const simpleView = !fullView;
-  // The Simple view has its own, narrower width; the full picker keeps its.
   const popoverWidth = part === "account" ? ACCOUNT_MENU_WIDTH : part === "model" ? MODEL_MENU_WIDTH
     : simpleView ? SIMPLE_POPOVER_WIDTH : POPOVER_WIDTH;
   useLayoutEffect(() => {
@@ -590,14 +531,10 @@ export function ModelPicker({
   const railInstance =
     pickerInstances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ?? pickerInstances[0];
   const displayedInstanceId = railInstance?.instanceId;
-  // A plan account discovers its allowed models only after sign-in. An empty
-  // catalog must still lead to cloud sign-in, never local-model injection.
   const hasOfficialModels = Boolean(railInstance?.snapshot.chatgptPlan || railInstance?.models.options.some((option) => !option.custom));
   const customOnly = isCustomOnly(railInstance);
   useEffect(() => {
     if (railId !== null && railId !== displayedInstanceId) {
-      // A refresh can remove the provider being browsed. Reset its list, not
-      // the saved model selection or the pane chosen when reopening the menu.
       setPane(customOnly || !hasOfficialModels ? "custom" : "main");
       setQuery("");
       setShowAll(false);
@@ -611,9 +548,7 @@ export function ModelPicker({
     refreshingRef.current = true;
     setRefreshing(true);
     void refreshInstances()
-      .catch(() => {
-        // Keep the last known catalog when the app is temporarily offline.
-      })
+      .catch(() => {})
       .finally(() => {
         refreshingRef.current = false;
         setRefreshing(false);
@@ -627,9 +562,7 @@ export function ModelPicker({
     const instanceId = displayedInstanceId;
     void refreshInstances()
       .then(() => instanceId ? refreshInstanceModels(instanceId) : undefined)
-      .catch(() => {
-        // Keep the last known catalog when the app is temporarily offline.
-      })
+      .catch(() => {})
       .finally(() => {
         refreshingRef.current = false;
         setRefreshing(false);
@@ -649,7 +582,6 @@ export function ModelPicker({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (query) setQuery("");
-      // The Simple view shows no local pane to step back from.
       else if (!simpleView && pane === "custom" && railInstance?.models.options.some((option) => !option.custom)) setPane("main");
       else setOpen(false);
     };
@@ -697,8 +629,6 @@ export function ModelPicker({
     resetList();
   };
 
-  // A thread's picker knows whether the thread follows its bot's model
-  // (absent from a server too old to say).
   const profile = state.bots.find((candidate) => candidate.id === bot.id) ?? bot;
   const follows = threadId ? profile.tasks?.find((task) => task.threadId === threadId)?.followsBotModel : undefined;
   const botModelInstance = state.instances.find((instance) => instance.instanceId === profile.modelSelection.instanceId);
@@ -707,8 +637,6 @@ export function ModelPicker({
     : profile.modelSelection.model;
   const ownModelThreads = threadsOnOwnModel(profile.modelSelection, profile.tasks ?? []).length;
 
-  /** Back onto the bot's model: the server keeps no model of the thread's
-   * own for a pick that is the bot's. */
   const pickBotModel = () => {
     setOpen(false);
     if (follows !== false) return;
@@ -725,8 +653,6 @@ export function ModelPicker({
   const pick = (instance: InstanceInfo, model: string, keepOpen = false) => {
     if (instance.policy) return;
     const nextSelection = modelSelectionForPick(selection, instance, model);
-    // Simple mode has no scope choice: an owner's pick is also the bot's
-    // default, while a Cloud guest changes only their own conversation.
     const updateBotDefault = !threadId || (simpleView ? simpleUpdatesBotDefault : scope === "bot");
     const targets = updateBotDefault ? [currentTaskBot(profile, threadId ?? bot.threadId), profile] : [bot];
     if (targets.some((target) => modelSwitchNeedsAsk(approvalModeFor(target),
@@ -786,14 +712,7 @@ export function ModelPicker({
   const simpleFamily = signInFamily(railInstance);
   const simpleAccounts = simpleFamily === "claude" ? claudeAccounts : simpleFamily === "openai" ? openaiAccounts : [];
   const simpleLabel = simpleProviders.find((provider) => provider.selected)?.label ?? railInstance?.displayName ?? "";
-  // Simple mode has no separate local pane: a provider lists its own models,
-  // then the local ones it can run (loaded first). Its own models need the
-  // sign-in local ones do not, so a signed-out engine lists only those, and
-  // a way to sign in after them. None of this hangs on the full picker's
-  // pane, so browsing back to a provider shows the same list.
   const simpleSignIn = !customOnly && needsSignIn(railInstance);
-  // Beside the message field every model of the account shows, signed in or
-  // not: signing in happens when a message is sent.
   const simpleOfficial = customOnly || (simpleSignIn && part !== "model") ? [] : official;
   const simpleLocal = partitionCustomModels(custom);
   const simpleAll = [...simpleOfficial, ...simpleLocal.pinned, ...simpleLocal.rest];
@@ -801,14 +720,10 @@ export function ModelPicker({
   const simpleSuggested = railInstance
     ? suggestedModels(simpleAll, railInstance.models.default, currentModel, COMPACT_MODEL_COUNT)
     : [];
-  // "Show all" opens the list in place: the suggested rows stay on top.
   const simpleOpened = [...simpleSuggested, ...simpleAll.filter((option) => !simpleSuggested.includes(option))];
   const simpleSearch = showAll && simpleAll.length > SIMPLE_SEARCH_AFTER;
   const simpleQuery = simpleSearch ? query : "";
   const simpleModels = simpleQuery ? filterCustomModels(simpleOpened, simpleQuery) : showAll ? simpleOpened : simpleSuggested;
-  // Browsing to a provider, or opening its whole list, is asking for every
-  // model it has, so one that runs local models looks for them again (local
-  // servers are otherwise probed only at startup, after sign-in or on refresh).
   const lookForLocalIn = (instance: InstanceInfo) => {
     if (offersLocalModels(instance, instance.models.options.filter((option) => option.custom).length)) lookForLocal(instance);
   };
@@ -823,9 +738,6 @@ export function ModelPicker({
       ?? account.models.options.find((option) => !option.custom)?.id;
     if (model) pick(account, model, true);
   };
-  // The chat header's chip: the accounts signed in now (the free ones
-  // included), each under the name the person gave it. The current one stays
-  // listed even if it has since signed out, so the check has a row.
   const signedInNow = (instance: InstanceInfo) => !instance.policy && !needsCli(instance) && !needsSignIn(instance);
   const accountRows: AccountMenuRow[] = simpleProviders.flatMap((provider) => {
     const family = signInFamily(provider.instance);
@@ -841,12 +753,9 @@ export function ModelPicker({
       ?? account.models.options.find((option) => !option.custom)?.id ?? account.models.default;
     if (model) pick(account, model);
   };
-  // The message field's chip: every model usable now, by account in the
-  // header's order, and the current one even before its account signs in.
   const modelGroups: ModelMenuGroup[] = accountRows.flatMap((row) => {
     const usable = !row.instance.policy && !needsCli(row.instance) && !needsSignIn(row.instance);
     if (!usable && row.instance.instanceId !== selection.instanceId) return [];
-    // only the models switched on in Settings, Models (the current one stays)
     const own = row.instance.models.options.filter((option) => !option.custom);
     const models = (own.length > 0 ? own : row.instance.models.options).filter((option) =>
       modelShown(row.instance.instanceId, option.id, hiddenModels) || (row.instance.instanceId === selection.instanceId && option.id === selection.model));
@@ -861,12 +770,10 @@ export function ModelPicker({
   const simpleEffort = activeLevels.length > 0 ? {
     levels: simpleEffortLevels(activeLevels, selection.effort),
     current: selection.effort,
-    // Follow the same Cloud authority rule as a Simple model pick.
     onPick: (level: EffortLevel) => dispatch({ type: "setModel", botId: bot.id, threadId,
       ...(threadId && simpleUpdatesBotDefault ? { updateBotDefault: true } : {}), selection: { ...selection, effort: level } }),
   } : null;
 
-  // In a thread's picker the bot's model says so, beside the thread's own.
   const botModelId = follows !== undefined && profile.modelSelection.instanceId === railInstance?.instanceId
     ? profile.modelSelection.model : undefined;
   const renderRow = (option: ModelOption) => (
@@ -939,8 +846,6 @@ export function ModelPicker({
             <span className="text-ink-secondary"> · {modelProvider(active, selection.model)}</span>
           )}
         </span>
-        {/* outside the truncating span: a long model name must not be what
-            hides the effort the header exists to surface */}
         {part === "model" ? null : selectedVariantLabel !== undefined ? (
           <span data-model-variant className="max-w-[120px] truncate text-ink-secondary">· {selectedVariantLabel}</span>
         ) : selection.effort && (
@@ -979,7 +884,6 @@ export function ModelPicker({
           {...motion.exitProps}
           style={contained ? undefined : { ...placement, width: popoverWidth }}
           className={cn(
-            // the model menu's More models opens beside it, so it may not clip
             "flex flex-col rounded-2xl border border-hairline/50 bg-card", part === "model" ? "overflow-visible" : "overflow-hidden",
             contained
               ? "relative mt-3 w-full max-h-[min(420px,50dvh)]"
@@ -1045,8 +949,6 @@ export function ModelPicker({
               modelsOnly={part === "model"}
               needsSetup={part !== "model" && railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: simpleFamily !== undefined && !railInstance.policy } : null}
               signIn={part !== "model" && railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
-              // Claude and ChatGPT sign in where accounts live: Settings
-              // opens straight on that provider's sign-in.
               onSignIn={() => {
                 if (!simpleFamily) return;
                 setOpen(false);
@@ -1054,14 +956,12 @@ export function ModelPicker({
                 requestAddAccount(simpleFamily === "claude" ? "claudeAgent" : "codex");
               }}
               onSetUp={() => {
-                // Sign-in is for the provider's own models: the full picker's main list.
                 if (simpleSignIn && hasOfficialModels) setPane("main");
                 setFullView(true);
               }}
               models={simpleModels}
               repeatedLabels={repeatedModelLabels(simpleAll)}
               query={simpleQuery}
-              // One button that opens the list and folds it back, so focus stays on it.
               showAll={simpleAll.length > simpleSuggested.length && !simpleQuery ? {
                 count: simpleAll.length,
                 open: showAll,
@@ -1088,7 +988,6 @@ export function ModelPicker({
               botModelId={part === "model" ? undefined : botModelId}
               onPick={(model) => railInstance && pick(railInstance, model)}
               variantsRow={active?.capabilities?.modelVariants ? (
-                // A closed select shows only its choice, so it keeps a short name.
                 <ModelVariantRow compact wide bot={bot} threadId={threadId} updateBotDefault={Boolean(threadId) && simpleUpdatesBotDefault}
                   label={<span className="shrink-0 text-[12px] font-medium text-ink-secondary">{t("model.simple.reasoning")}</span>} />
               ) : undefined}
@@ -1183,7 +1082,6 @@ export function ModelPicker({
                 )}
 
                 {railInstance.policy ? (
-                  // The organisation does not allow this engine: shown, never pickable.
                   <div data-policy-blocked className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1 text-[12.5px] leading-relaxed text-ink-secondary">
                     <p className="font-medium text-ink">{t("policy.managedBy", { organization: railInstance.policy.organizationName })}</p>
                     <p className="mt-1">{t("policy.modelBlocked", { organization: railInstance.policy.organizationName })}</p>
@@ -1299,13 +1197,6 @@ export function ModelPicker({
                   </>
                 )}
 
-                {/* The header has nowhere else to put effort, so the popover
-                    carries it. `contained` callers (the settings dialog) render
-                    their own EffortRow card, and two copies of one control in
-                    one view read as a bug. Reads the bot's active engine, not
-                    the rail being browsed: effort applies to the model this bot
-                    runs on now, and picking a model on another rail closes the
-                    popover. */}
                 {!contained && (
                   <EffortRow
                     compact

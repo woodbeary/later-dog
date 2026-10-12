@@ -182,8 +182,6 @@ export function WebhookEditor({ webhook, bots, onClose, onCredential }: { webhoo
 
 export interface ActivityItem { id: string; at: number; outcome: WebhookAttempt["outcome"]; eventName: string; preview: string; reason?: string; run?: RoutineRun }
 
-/** Recent deliveries for one webhook: recorded attempts, plus runs from
- * before attempts were recorded. Newest first, at most 30. */
 export function webhookActivity(webhook: WebhookTrigger, webhookAttempts: WebhookAttempt[], routineRuns: RoutineRun[]): ActivityItem[] {
   const runById = new Map(routineRuns.map((run) => [run.id, run]));
   const attemptsByRun = new Set(webhookAttempts.map((attempt) => attempt.runId).filter(Boolean));
@@ -207,17 +205,12 @@ export function webhookActivity(webhook: WebhookTrigger, webhookAttempts: Webhoo
   return [...attempts, ...legacy].sort((a, b) => b.at - a.at).slice(0, 30);
 }
 
-/** Pause/enable, delete, and the private-URL copy, shared by the Automations
- * page's Webhooks tab and the Triggers pop-up. `copy: "link"` puts the
- * private URL itself on the clipboard; the default is the terminal command. */
 export function useWebhookActions() {
   const { dispatch } = useStore();
   const [credentials, setCredentials] = useState<Record<string, WebhookCredential>>(() =>
     loadWebhookCredentials(webhookCredentialStore()),
   );
   const [working, setWorking] = useState<string | null>(null);
-  // A second click can arrive before React paints the shared disabled state.
-  // Claim synchronously, so rotations cannot race and save a revoked URL.
   const workingRef = useRef(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedKind, setCopiedKind] = useState<"command" | "link">("command");
@@ -289,8 +282,6 @@ export function useWebhookActions() {
   return { credentials, setCredentials, rememberCredential, working, copiedId, copiedKind, error, setError, invoke, createAndCopyCommand };
 }
 
-/** A destination-first webhook view: choose a dog endpoint on the left, then
- * either copy its setup command or inspect its deliveries on the right. */
 export function WebhooksPanel({
   bots,
   createRequest,

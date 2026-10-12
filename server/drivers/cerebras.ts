@@ -2,11 +2,7 @@ import { z } from "zod";
 import type { ModelCatalog, ProviderDriver } from "../contracts.ts";
 import { createOpenAIChatRuntime } from "./openai-chat.ts";
 
-// Cerebras serves open models on wafer-scale chips: same OpenAI chat
-// contract, several times the tokens per second of a GPU cloud.
 const DEFAULT_URL = "https://api.cerebras.ai/v1";
-// The account tier is unknown: use the shared free-tier limit, not paid 128K.
-// https://inference-docs.cerebras.ai/models/overview
 const DEFAULT_MODELS: ModelCatalog = {
   default: "gpt-oss-120b",
   options: [
@@ -34,7 +30,6 @@ function decodeConfig(raw: unknown): CerebrasConfig {
 
 const modelCard = z.object({ id: z.string().min(1) });
 
-/** Cerebras answers "Only 'text' content type can be used" for these. */
 const TEXT_ONLY_MODELS = /^(?:gpt-oss|llama3\.1-8b|llama-3\.3-70b)/i;
 
 export const CerebrasDriver: ProviderDriver<CerebrasConfig> = {
@@ -80,9 +75,7 @@ export const CerebrasDriver: ProviderDriver<CerebrasConfig> = {
           options.push(known.get(parsed.data.id) ?? { id: parsed.data.id, label: parsed.data.id });
         }
         if (options.length) catalog = withConfiguredModel(options);
-      } catch {
-        // A failed refresh keeps the last usable catalog, including custom models.
-      }
+      } catch {}
     };
     if (apiKey) void refreshModels();
     return createOpenAIChatRuntime({

@@ -10,8 +10,6 @@ vi.mock("../DesktopCapabilities", () => ({
 
 const { ConflictNotice, LendingReviewNotice, MemoryFileRows, MemoryGauge, MemoryJournalList, MemoryUpkeepCard } = await import("./MemorySection");
 
-// renderToStaticMarkup HTML-escapes quotes and apostrophes; decode before
-// comparing against plain-text fixtures.
 function render(element: Parameters<typeof renderToStaticMarkup>[0]): string {
   return renderToStaticMarkup(element).replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
 }
@@ -42,7 +40,6 @@ describe("MemoryGauge", () => {
     expect(markup).toContain("60 lines are not being loaded");
     expect(markup).toContain("only the first 200 lines load each turn");
     expect(markup).toContain("bg-danger");
-    // the bar never overflows its track
     expect(markup).toContain('aria-valuenow="100"');
   });
 });
@@ -126,7 +123,6 @@ describe("MemoryJournalList", () => {
     expect(markup).toContain("+2 −0 · show what changed");
     expect(markup).toContain("+one");
     expect(markup.match(/>Undo</g)).toHaveLength(1);
-    // the redacted row explains itself instead of offering an Undo it cannot honour
     expect(markup).toContain("Can't undo");
     expect(markup).toContain("sensitive text that was hidden");
     expect(markup).toContain("Scout rewrote 1 line in the keys topic");

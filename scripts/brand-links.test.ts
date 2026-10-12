@@ -1,10 +1,7 @@
-// later.dog is its own project. No tracked file names the project it started from: the one attribution the Apache
-// License requires lives in NOTICE and nowhere else. Repository links point at github.com/woodbeary/later-dog.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-// Assembled from parts so that this file does not carry the names it guards against.
 const FORMER_NAMES = new RegExp(
   [["open", "maus"], ["maus", "bot"], ["mil", "ind"], ["supa", "maus"], ["(?<![a-z])o", "mb(?:[-_.:](?=[a-z])|[0-9])"], ["(?<![A-Z])O", "MB_"], ["\\bo", "gb\\b"],
     ["\\.o", "mb[a-z]"], ["o", "mbbackup"]]
@@ -12,7 +9,6 @@ const FORMER_NAMES = new RegExp(
     .join("|"),
   "i",
 );
-// A dot instead of a hyphen names a repository that does not exist.
 const WRONG_REPOSITORY = /github\.com\/woodbeary\/later\.dog\b/i;
 const EXEMPT = new Set(["NOTICE", "scripts/brand-links.test.ts"]);
 

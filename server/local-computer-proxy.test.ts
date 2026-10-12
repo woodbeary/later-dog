@@ -12,7 +12,6 @@ import { describe, expect, it } from "vitest";
 import { gatedLocalComputer } from "./local-computer.ts";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 
-// A disposable MCP child that never opens a computer or reads user data.
 const FAKE_DRIVER = `
 const readline = require("node:readline");
 let calls = 0;
@@ -56,10 +55,6 @@ describe("local computer proxy (isolated child and control endpoint)", () => {
     let child: ChildProcess | undefined;
     try {
       if (runtime === "electron") {
-        // Build the real descriptor INSIDE Electron: in a Node-only test
-        // process.execPath hides a missing ELECTRON_RUN_AS_NODE flag. Never
-        // load the user's app, daemon, or data, and fail before spawning a
-        // malformed descriptor (which would launch a GUI).
         const electron = createRequire(import.meta.url)("electron") as string;
         const moduleUrl = new URL("./local-computer.ts", import.meta.url).href;
         const bootstrap = spawnSync(electron, ["--input-type=module", "-e", `
@@ -126,8 +121,6 @@ describe("local computer proxy (isolated child and control endpoint)", () => {
   });
 
   it("hands every engine a provider-safe tools/list, whatever root schema the driver ships", async () => {
-    // cua-driver 0.22.1's browser_prepare root: an anyOf of untyped branches
-    // that strict providers refuse, failing the whole turn.
     const driver = `
 const readline = require("node:readline");
 const inputSchema = {type:"object",required:[],additionalProperties:true,
@@ -163,7 +156,6 @@ readline.createInterface({input: process.stdin}).on("line", (line) => {
       });
       expect(click.inputSchema).toEqual({ type: "object", properties: {} });
 
-      // Anything that is not the answer to a tools/list reaches the agent as sent.
       const other = await rpc(2, "initialize");
       expect(other.result.echo.inputSchema.anyOf).toHaveLength(2);
     } finally {

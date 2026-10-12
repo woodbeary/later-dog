@@ -1,4 +1,3 @@
-// Provider brand marks, keyed by driver kind. Official logos only.
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { HermesMark } from "./HermesMark";
@@ -38,7 +37,6 @@ export function CodexMark({ size = 16, className }: IconProps) {
   );
 }
 
-/** Official Kimi mark (Moonshot). */
 export function KimiMark({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={cn("fill-[var(--color-ink)]", className)} aria-hidden>
@@ -54,7 +52,6 @@ export function KimiMark({ size = 16, className }: IconProps) {
   );
 }
 
-/** Official Factory Droid mark (factory.ai favicon). */
 export function DroidMark({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 508 508" className={className} aria-hidden>
@@ -66,7 +63,6 @@ export function DroidMark({ size = 16, className }: IconProps) {
   );
 }
 
-/** Official Google Antigravity mark. */
 export function AntigravityMark({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={cn("fill-[var(--color-ink)]", className)} aria-hidden>
@@ -78,7 +74,6 @@ export function AntigravityMark({ size = 16, className }: IconProps) {
   );
 }
 
-/** Official OpenCode mark. */
 export function OpenCodeMark({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={cn("fill-[var(--color-ink)]", className)} aria-hidden>
@@ -87,7 +82,6 @@ export function OpenCodeMark({ size = 16, className }: IconProps) {
   );
 }
 
-/** Official Qwen mark. */
 export function QwenMark({ size = 16, className }: IconProps) {
   const grad = "laterdog-qwen-mark";
   return (
@@ -107,16 +101,13 @@ export function QwenMark({ size = 16, className }: IconProps) {
   );
 }
 
-/** Official pi (pi.dev) mark — geometric "Pi" wordmark from pi.dev/logo.svg. */
 export function PiMark({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 800 800" className={cn("fill-[var(--color-ink)]", className)} aria-hidden>
-      {/* P shape: outer boundary clockwise, inner hole counter-clockwise */}
       <path
         fillRule="evenodd"
         d="M165.29 165.29 H517.36 V400 H400 V517.36 H282.65 V634.72 H165.29 Z M282.65 282.65 V400 H400 V282.65 Z"
       />
-      {/* i dot */}
       <path d="M517.36 400 H634.72 V634.72 H517.36 Z" />
     </svg>
   );
@@ -162,10 +153,6 @@ export function ProviderMark({ driverKind, size, className }: IconProps & { driv
   }
 }
 
-/** Built-in provider identities for an instance override. Existing driver
- * marks remain the source of truth whenever no override is configured.
- * Paths for Gemini, Azure, AWS, DeepSeek, Meta, Mistral, and OpenRouter are
- * from Simple Icons (CC0 1.0). The Cohere path is from Lobe Icons (MIT). */
 export function PresetProviderMark({ preset, size = 16, className }: IconProps & { preset: ProviderIconPreset }) {
   switch (preset) {
     case "openai": return <CodexMark size={size} className={className} />;

@@ -1,12 +1,3 @@
-// Dev gallery for the welcome flow, like mascot-preview.html for the mascot:
-// every beat, in every skin, with reduced motion on or off, without touching
-// the workspace's real onboarding record. Served by Vite in dev at
-// /onboarding-preview.html; not part of the packaged app.
-//
-// The flow talks to whatever harness the dev proxy points at, so the engines
-// and phone beats show real data when `pnpm dev:server` is running and their
-// empty or error states when it is not. Saving the preview bot fails on
-// purpose (there is no such bot), which exercises the exit beat's error path.
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
@@ -26,8 +17,6 @@ const PREVIEW_BOT = {
 
 const BEATS = beatsFor({ desktop: true, reel: true });
 
-/** ?beat=engines&skin=linen&reduced=1&all=1 — so a screenshot script can
- * open any state directly. Unknown values fall back to the defaults. */
 function fromUrl() {
   const params = new URLSearchParams(location.search);
   const beat = params.get("beat") as BeatId | null;
@@ -41,7 +30,6 @@ function fromUrl() {
   };
 }
 
-/** One window-sized stage in one skin. The flow fills it via `embedded`. */
 function Stage({ skin, beat, run, scale = 1, entrance }: { skin: SkinId; beat: BeatId; run: number; scale?: number; entrance: Exclude<DogMotion, "none"> }) {
   const width = 1100;
   const height = 720;
@@ -78,8 +66,6 @@ function Preview() {
     document.documentElement.dataset.reducedMotion = reduced ? "true" : "false";
   }, [reduced]);
 
-  // ?debug=1 — after a few seconds, log what the guide's face was drawn as.
-  // Lets a headless run inspect the animation loop's output without DevTools.
   useEffect(() => {
     if (!new URLSearchParams(location.search).has("debug")) return;
     const timer = setTimeout(() => {

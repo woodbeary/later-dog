@@ -42,7 +42,7 @@ describe("parseBotDirectory", () => {
         entry({ slug: "UPPER CASE" }),
         entry({ slug: "no-prompt", prompt: "" }),
         entry({ slug: "elsewhere", detailUrl: "https://evil.example/bots/x/" }),
-        entry(), // duplicate slug
+        entry(),
         "not an object",
       ],
     });
@@ -66,9 +66,6 @@ describe("fetchBotDirectory", () => {
   });
 
   it("rejects an oversized response while reading, not after buffering it whole", async () => {
-    // no content-length header on purpose: the announced-size shortcut must
-    // not be the only guard. The stream never ends on its own — the fetch
-    // has to bail the moment the cap is crossed, or this test times out.
     const chunk = new TextEncoder().encode("x".repeat(64 * 1024));
     let sent = 0;
     let cancelled = false;
@@ -84,7 +81,6 @@ describe("fetchBotDirectory", () => {
     const big = vi.fn(async () => new Response(endless));
     await expect(fetchBotDirectory(big as unknown as typeof fetch)).rejects.toThrow("too large");
     expect(cancelled).toBe(true);
-    // barely past the 1 MB cap — nowhere near what an unbounded read would take
     expect(sent).toBeLessThan(2_000_000);
 
     const announced = vi.fn(async () =>

@@ -18,8 +18,6 @@ const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const invalid = (message: string): Error => Object.assign(new Error(message), { status: 400 });
 
-/** Validate without rewriting the command. Resolving a symlink, or folding
- * `..` across one, could make a grant apply in a different directory. */
 export function validateCommandAllowlistCandidate(value: unknown): CommandAllowlistCandidate {
   if (!record(value)) throw invalid("A command, absolute working directory and engine instance are required.");
   const { command, cwd, providerInstanceId } = value;
@@ -34,7 +32,6 @@ export function validateCommandAllowlistCandidate(value: unknown): CommandAllowl
     /[\p{Cc}\p{Cs}]/u.test(cwd) || !isAbsolute(cwd) || cwd.split(sep === "\\" ? /[\\/]/ : /\//).includes("..")) {
     throw invalid("The working directory must be an absolute path without parent-directory segments.");
   }
-  // On Windows, `\work` is rooted but still depends on the current drive.
   if (process.platform === "win32" && !/^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+(?:[\\/]|$))/.test(cwd)) {
     throw invalid("The working directory must include its drive or network share.");
   }
@@ -42,12 +39,9 @@ export function validateCommandAllowlistCandidate(value: unknown): CommandAllowl
     providerInstanceId.length > 200 || /[\p{Cc}\p{Cs}]/u.test(providerInstanceId)) {
     throw invalid("A valid engine instance is required.");
   }
-  // Keep directory spelling exact too. A false negative is preferable to
-  // treating two paths as equivalent without knowing the engine's filesystem.
   return { command, cwd, providerInstanceId };
 }
 
-/** Runtime metadata that cannot identify an exact scope never auto-allows. */
 export function commandAllowlistCandidate(value: unknown): CommandAllowlistCandidate | null {
   try { return validateCommandAllowlistCandidate(value); } catch { return null; }
 }
@@ -60,9 +54,6 @@ function sameScope(left: CommandAllowlistCandidate, right: CommandAllowlistCandi
   return left.command === right.command && left.cwd === right.cwd && left.providerInstanceId === right.providerInstanceId;
 }
 
-/** Installation-local grants, deliberately separate from bot profiles and
- * templates. Callers must also exclude this file from workspace backups.
- * One server owns the store; a successful atomic save precedes publication. */
 export class CommandAllowlistStore {
   private rules: StoredRule[] = [];
   private unreadable = false;
@@ -94,8 +85,6 @@ export class CommandAllowlistStore {
       }
       this.rules = rules;
     } catch (error) {
-      // Missing means no grants. Any other read/validation failure disables
-      // all grants and forbids overwriting evidence of a damaged store.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.unreadable = true;
     }
   }

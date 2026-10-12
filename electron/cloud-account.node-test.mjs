@@ -57,7 +57,6 @@ test("Cloud origin comes only from the build's configuration; only explicit fixt
   const saved = { LATERDOG_CLOUD_ORIGIN: process.env.LATERDOG_CLOUD_ORIGIN };
   delete process.env.LATERDOG_CLOUD_ORIGIN;
   try {
-    // nothing built in: no origin means no Cloud, never somebody else's
     assert.equal(configuredCloudOrigin(), "");
     assert.throws(() => cloudOrigin(), /not configured/);
     assert.throws(() => cloudOrigin("https://cloud.example.test"));
@@ -100,18 +99,13 @@ test("a failed check keeps the last verified answer (never a malformed one), say
   const f = await fixture(t); await f.connect();
   const paid = { plan: "pro", tier: "max", status: "active", expiresAt: f.now + 3 * 3600_000, version: 1 };
   f.entitlement = paid; await f.client.refresh(); f.sessionStatus = 503;
-  // One dropped check is not news: the plan, the Cloud and Connect stay.
   let state = await f.client.refresh();
   assert.equal(state.status, "connected"); assert.deepEqual(state.entitlement, paid); assert.equal(state.checking, undefined); assert.equal(f.saved.token, accessToken);
-  // Repeated failures: still the last verified answer, now quietly "checking".
   state = await f.client.refresh();
   assert.equal(state.status, "connected"); assert.deepEqual(state.entitlement, paid); assert.equal(state.checking, true);
-  // A malformed answer is a failed check too: never adopted.
   f.sessionStatus = 200; f.invalidEntitlement = true;
   state = await f.client.refresh(); assert.equal(state.status, "connected"); assert.deepEqual(state.entitlement, paid);
-  // An answer clears "checking".
   f.invalidEntitlement = false; state = await f.client.refresh(); assert.equal(state.checking, undefined); assert.deepEqual(state.entitlement, paid);
-  // A long outage: unavailable, with no entitlement, but the plan last verified is still named.
   f.sessionStatus = 503; await f.client.refresh(); f.now += 15 * 60_000;
   state = f.client.state(); assert.equal(state.status, "unavailable"); assert.equal(state.entitlement, undefined); assert.deepEqual(state.lastPlan, { tier: "max", active: true });
   f.sessionStatus = 200; f.invalidIdentity = true;
@@ -165,7 +159,6 @@ test("active Pro requires a future expiry and free+active is never accepted", as
     f.entitlement = invalid; const state = await f.client.refresh();
     assert.equal(state.status, "connected"); assert.deepEqual(state.entitlement, free);
   }
-  // With no verified answer to keep, it is unavailable.
   f.now += 15 * 60_000; assert.equal(f.client.state().status, "unavailable"); assert.equal(f.client.state().entitlement, undefined);
 });
 
@@ -198,7 +191,6 @@ test("a plan newer than the app (personal, max) is paid with that tier, told onc
   f.entitlement = { plan: "max", status: "inactive", expiresAt: f.now - 1, version: 2 };
   assert.deepEqual((await f.client.refresh()).entitlement, { plan: "pro", tier: "max", status: "inactive", expiresAt: f.now - 1, version: 2 });
   assert.equal(warnings.length, 2);
-  // A newer plan gets no exemption from the rest of the checks: each is a failed check, never adopted.
   const kept = f.client.state().entitlement;
   for (const invalid of [{ plan: "max", status: "active", expiresAt: null, version: 1 }, { plan: "max", status: "active", expiresAt: f.now, version: 1 },
     ...["Max", "", "pro ", "m".repeat(25), 5, null].map(plan => ({ plan, ...paid }))]) {
@@ -225,12 +217,10 @@ test("the plan hint is saved for display only, follows the verified plan, and is
   assert.equal(f.saved.planHint, undefined, "a free account saves no plan");
   f.entitlement = { plan: "pro", tier: "personal", status: "active", expiresAt: f.now + 3600_000, version: 1 };
   await f.client.refresh(); assert.deepEqual(f.saved.planHint, { tier: "personal", active: true }); assert.equal(f.saved.entitlement, undefined);
-  // Restored offline: named, but nothing is active and nothing is verified.
   f.sessionStatus = 503; f.client.close();
   const restored = await fixture(t); restored.saved = { ...f.saved, origin: restored.origin }; restored.sessionStatus = 503;
   const state = await restored.client.start();
   assert.equal(state.status, "unavailable"); assert.equal(state.entitlement, undefined); assert.deepEqual(state.lastPlan, { tier: "personal", active: true });
-  // A malformed hint is no hint.
   const odd = await fixture(t); odd.saved = { ...f.saved, origin: odd.origin, planHint: { tier: "<b>", active: "yes" } }; odd.sessionStatus = 503;
   assert.equal((await odd.client.start()).lastPlan, undefined);
   restored.sessionStatus = 200; restored.entitlement = { plan: "free", status: "inactive", expiresAt: null, version: 2 };
@@ -250,7 +240,6 @@ test("a sign-in that reached its end asks to sign in again, keeps the plan, and 
   await f.client.refresh();
   await assert.rejects(f.client.signInAgain(), /still signed in/);
   f.now += 86400_000 + 1;
-  // Even before a check runs, the state says so.
   assert.equal(f.client.state().status, "reauth-required"); assert.equal(f.client.state().message, "expired");
   const ended = await f.client.refresh();
   assert.equal(ended.status, "reauth-required"); assert.equal(ended.message, "expired"); assert.deepEqual(ended.lastPlan, { tier: "max", active: true });
@@ -276,16 +265,13 @@ test("only the Admin's own answer ends a sign-in: a 401/403 page from in between
   const f = await fixture(t); await f.connect();
   const paid = { plan: "pro", tier: "max", status: "active", expiresAt: f.now + 3 * 3600_000, version: 1 };
   f.entitlement = paid; await f.client.refresh();
-  // A firewall or bot-check page (Cloudflare serves cloud.later.dog).
   f.sessionPage = 403;
   let state = await f.client.refresh();
   assert.equal(state.status, "connected"); assert.deepEqual(state.entitlement, paid); assert.equal(state.checking, undefined);
   f.sessionPage = 401; state = await f.client.refresh();
   assert.equal(state.status, "connected"); assert.equal(state.checking, true); assert.equal(f.saved.token, accessToken);
-  // A JSON 403 that is not about the sign-in (a wrong origin) does not end it either.
   f.sessionPage = null; f.sessionError = { status: 403, body: { error: "invalid_origin" } };
   state = await f.client.refresh(); assert.equal(state.status, "connected"); assert.deepEqual(state.entitlement, paid);
-  // The Admin's own "invalid_token": sign in again, the plan still named.
   f.sessionError = { status: 401, body: { error: "invalid_token" } };
   state = await f.client.refresh(); assert.equal(state.status, "reauth-required"); assert.equal(state.message, "access-ended");
   assert.deepEqual(state.lastPlan, { tier: "max", active: true });
@@ -325,7 +311,6 @@ test("sign-out durably forgets personal Cloud and revokes only its credential; o
   assert.ok(f.requests.every(row => row.route.startsWith("/api/cloud/desktop/")));
   f.revoked = false; await f.connect(); f.sessionStatus = 503;
   assert.equal((await f.client.signOut()).message, "signout-local-only"); assert.equal(f.saved, null);
-  // A 403 page from in between (a firewall) revoked nothing: it is disclosed, never taken as done.
   f.sessionStatus = 200; await f.connect(); f.sessionPage = 403;
   assert.equal((await f.client.signOut()).message, "signout-local-only"); assert.equal(f.revoked, false);
 });
@@ -362,7 +347,6 @@ test("Cloud records use separate encrypted atomic storage, not plaintext or save
   const directory = await mkdtemp(join(tmpdir(), "laterdog-cloud-record-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const file = join(directory, "cloud-account.bin"); let unlocked = true;
-  // The fixture substitutes encryption; it does not use the user's keychain.
   const store = createCloudAccountStore({ file, encryption: { available: async () => unlocked,
     encrypt: value => Buffer.from(value).map(byte => byte ^ 0x55), decrypt: value => Buffer.from(value).map(byte => byte ^ 0x55).toString() } });
   await store.write({ token: accessToken }); assert.deepEqual(await store.read(), { token: accessToken });
@@ -374,15 +358,12 @@ test("a saved Cloud sign-in is read back after a restart with Electron 43's decr
   const directory = await mkdtemp(join(tmpdir(), "laterdog-cloud-electron43-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const file = join(directory, "cloud-account.bin");
-  // Exactly what safeStorage.decryptStringAsync resolves to in Electron 43, not a bare string.
   const electron43 = { available: async () => true, encrypt: async value => Buffer.from(value).map(byte => byte ^ 0x55),
     decrypt: async value => ({ shouldReEncrypt: false, result: Buffer.from(value).map(byte => byte ^ 0x55).toString() }) };
   await createCloudAccountStore({ file, encryption: electron43 }).write({ token: accessToken });
-  // A new store over the same file stands in for the next app launch.
   assert.deepEqual(await createCloudAccountStore({ file, encryption: electron43 }).read(), { token: accessToken });
 });
 
-/** Electron 43's safeStorage shape over a one-byte key. `lock.locked` stands in for a locked keychain. */
 const electron43Store = (file, lock = { locked: false }, decrypt) => createCloudAccountStore({ file, encryption: { available: async () => !lock.locked,
   encrypt: async value => Buffer.from(value).map(byte => byte ^ 0x55),
   decrypt: decrypt ?? (async value => ({ shouldReEncrypt: false, result: Buffer.from(value).map(byte => byte ^ 0x55).toString() })) } });
@@ -393,9 +374,7 @@ test("a saved Cloud sign-in that can never be read is removed, and signing in ag
   t.after(() => rm(directory, { recursive: true, force: true }));
   const file = join(directory, "cloud-account.bin");
   for (const decrypt of [
-    // This computer's key no longer opens it (Windows after a reinstall onto a new profile).
     async () => { throw new Error("Error while decrypting the ciphertext provided to safeStorage.decryptString."); },
-    // It opens to something that is not JSON, or to JSON that is not a sign-in.
     async () => ({ shouldReEncrypt: false, result: "not json" }),
     async () => ({ shouldReEncrypt: false, result: JSON.stringify({ token: "not-a-cloud-token" }) }),
   ]) {

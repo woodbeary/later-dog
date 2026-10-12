@@ -1,18 +1,3 @@
-// CUA computer-use wiring for the Electron main process.
-//
-// Two modes, per cua-driver's EMBEDDING.md:
-//  - "embedded" (packaged app): spawn our own private daemon via
-//    EmbeddedCuaDriverHost so TCC grants attribute to later.dog and the
-//    driver inherits them. One prompt, named later.dog, out of the box.
-//  - "standalone" (dev): attach to an already-installed CuaDriver.app daemon
-//    (its own TCC identity, typically already granted on a dev machine).
-//
-// Agents never talk to the daemon socket directly — they spawn the official
-// stdio MCP proxy: `cua-driver mcp [--embedded --socket <path>]`. The proxy
-// executes nothing; the host-owned daemon does.
-//
-// The resulting connection descriptor is written to
-// <userData>/cua-connection.json for the harness server to hand to drivers.
 
 import { app, ipcMain, systemPreferences } from "electron";
 import { execFile } from "node:child_process";
@@ -26,7 +11,6 @@ import { pathToFileURL } from "node:url";
 import localOriginModule from "./local-origin.cjs";
 import { permissionChecklist } from "./mac-permissions.mjs";
 
-// Local control answers only the local server's UI (electron/local-origin.cjs).
 const { localOnly } = localOriginModule;
 
 const require = createRequire(import.meta.url);
@@ -53,14 +37,11 @@ const CUA_ENV = { CUA_DRIVER_RS_TELEMETRY_ENABLED: "0" };
 const execFileAsync = promisify(execFile);
 process.env.CUA_DRIVER_RS_TELEMETRY_ENABLED ??= "0";
 
-// Where cua-driver installs itself on Windows: under the user profile, with
-// the packages directory holding the versioned releases. The installer's own
-// directory is kept as a fallback for machines where the layout differs.
 const WIN_INSTALLED_DRIVERS = [
   path.join(app.getPath("home"), ".cua-driver", "packages", "current", "cua-driver.exe"),
   path.join(app.getPath("home"), "AppData", "Local", "Programs", "CuaDriver", "cua-driver.exe"),
 ];
-let embeddedHost = null; // EmbeddedCuaDriverHost | null
+let embeddedHost = null;
 let startupAbort = null;
 let lifecycleGeneration = 0;
 let macRetry = null;
@@ -91,10 +72,6 @@ function ensureLinuxRuntime() {
       let bundledDriverPath;
       if (app.isPackaged && !process.env.CUA_DRIVER_PATH) {
         bundledDriverPath = path.join(process.resourcesPath, "cua-linux-x64", "cua-driver");
-        // AppImage builders may normalize the read-only resource tree to 0755
-        // or 0775. Always copy only the pinned binaries to a fresh 0700
-        // process-owned directory and verify their hashes after the copy, so
-        // every AppImage follows the same execution invariant.
         if (process.env.APPIMAGE) {
           reapStaleAppImageCuaBundles();
           linuxBundleStage ??= stageAppImageCuaBundle({ resourcesPath: process.resourcesPath });
@@ -187,20 +164,14 @@ async function loadEmbeddedSdk() {
 }
 
 async function attachStandalone(signal) {
-  // Windows must stay on the owned embedded host, never an unrelated daemon.
   if (process.platform !== "darwin") return null;
   const driver = fs.existsSync(INSTALLED_DRIVER) ? INSTALLED_DRIVER : null;
   if (!driver) return null;
   if (!(await socketAlive(STANDALONE_SOCKET))) {
     signal.throwIfAborted();
-    // Launch CuaDriver.app through LaunchServices so Accessibility /
-    // Screen Recording stay on com.trycua.driver — the identity this
-    // machine already granted — instead of the freshly signed later.dog.
     const launch = execFileAsync("/usr/bin/open", ["-a", "CuaDriver"], {
       timeout: 8_000, killSignal: "SIGKILL", maxBuffer: 8_192,
     });
-    // execFile's AbortSignal path can send TERM independently of its timeout
-    // killSignal. Stop must also bound a launcher that ignores TERM.
     const abort = () => launch.child.kill("SIGKILL");
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
@@ -223,8 +194,6 @@ async function attachStandalone(signal) {
 }
 
 async function startEmbedded(binary, signal) {
-  // Import from the staged Resources tree in production. The app intentionally
-  // excludes general node_modules, so a bare package import only works in dev.
   const sdk = await loadEmbeddedSdk();
   signal.throwIfAborted();
   if (process.platform === "darwin") {
@@ -235,7 +204,6 @@ async function startEmbedded(binary, signal) {
     ].filter(Boolean).join(" and ");
     if (missing) throw new Error(`${missing} required; later.dog asks for them when a dog first uses this Mac`);
   }
-  // The native SDK owns the child lifecycle but exposes no windowsHide option.
   const host = new sdk.EmbeddedCuaDriverHost(resolveEmbeddedDriverBinary(binary), HOST_BUNDLE_ID);
   try {
     const conn = await host.start({ signal });
@@ -251,9 +219,7 @@ async function startEmbedded(binary, signal) {
   } catch (err) {
     try {
       await host.stop();
-    } catch {
-      // startup already failed; stop is best-effort before destroy
-    }
+    } catch {}
     host.uniffiDestroy?.();
     throw err;
   }
@@ -299,9 +265,6 @@ export async function startCua() {
       }
     }
   } else if (process.platform === "darwin" && (await socketAlive(STANDALONE_SOCKET))) {
-    // Dev machine with the platform CuaDriver daemon already running. Windows
-    // is deliberately excluded: there the shared pipe belongs to whatever
-    // driver the user happens to have, so it is never adopted implicitly.
     nextConnection = {
       mode: "standalone",
       socketPath: STANDALONE_SOCKET,
@@ -356,9 +319,7 @@ export async function stopCua() {
     try {
       await host.stop();
       host.uniffiDestroy?.();
-    } catch {
-      // daemon holds a parent-liveness pipe; host death closes it anyway
-    }
+    } catch {}
   }
   if (!startupAbort && connectionStore.get()) {
     persistAndNotify({ mode: "unavailable", reason: "desktop-host-stopped" });
@@ -397,8 +358,6 @@ export function registerCuaIpc() {
   }));
   ipcMain.handle("cua:linux-retry", localOnly("cua:linux-retry", async () => {
     if (process.platform === "darwin" || process.platform === "win32") {
-      // Concurrent IPC requests share the whole stop/start sequence. A later
-      // explicit Stop (including quit) or startup cancels its delayed restart.
       const platformLabel = process.platform === "darwin" ? "macOS" : "Windows";
       macRetry ??= (async () => {
         try {

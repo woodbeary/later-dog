@@ -1,20 +1,11 @@
-// The pinned agent-browser release the harness downloads for the bots'
-// browser (docs/plans/browser-engine.md). Digests were computed from the
-// official GitHub assets on 2026-09-08, except the explicitly versioned Windows
-// vendor build below. Update pins through a reviewed native end-to-end run.
-// The Dockerfile retains the official Linux version.
 export const AGENT_BROWSER_VERSION = "0.37.0";
 
 export interface AgentBrowserReleaseAsset {
-  /** `<platform>-<arch>`; Linux adds `-musl` on Alpine-style systems. */
   target: string;
-  /** File name on the GitHub release. */
   asset: string;
   sha256: string;
   bytes: number;
-  /** A reviewed platform-specific vendor revision; other assets use the upstream version. */
   version?: string;
-  /** Exact release URL for a reviewed vendor build, never a mutable latest URL. */
   url?: string;
 }
 
@@ -46,8 +37,6 @@ const RELEASES = new Map<string, AgentBrowserReleaseAsset>([
   [
     "win32-x64",
     {
-      // Upstream 0.37.0 still lacks PR #1781's Windows cold-start fix.
-      // Retain the native-verified revision until its replacement is tested.
       target: "win32-x64", version: "0.36.0-laterdog.1",
       asset: "agent-browser-win32-x64-0.36.0-laterdog.1.exe",
       url: "https://github.com/woodbeary/later-dog/releases/download/browser-engine-v0.36.0-laterdog.1/agent-browser-win32-x64-0.36.0-laterdog.1.exe",
@@ -64,7 +53,6 @@ export function agentBrowserReleaseVersion(asset: AgentBrowserReleaseAsset | nul
   return asset?.version ?? AGENT_BROWSER_VERSION;
 }
 
-/** The asset for this machine, or null where Vercel publishes none. */
 export function resolveAgentBrowserReleaseAsset(
   platform: NodeJS.Platform = process.platform,
   arch: string = process.arch,

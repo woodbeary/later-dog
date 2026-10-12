@@ -4,7 +4,6 @@ import { githubApi, waitForReleaseCi } from "./release-ci.mjs";
 const SHA = "a".repeat(40);
 type Run = { id: number; event: string; status: string; head_branch: string; created_at: string };
 
-/** A scripted GitHub: each poll returns the next state of the runs. */
 function fakeGitHub(polls: Array<{ runs: Run[]; gates?: Record<number, string | null> }>) {
   const calls: string[] = [];
   let poll = -1;

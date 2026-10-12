@@ -112,7 +112,6 @@ describe("what a row records", () => {
     expect(more).toContain('["-k","[hidden]","-p","8080"]');
     expect(more).toContain("https://mcp.zapier.com/api/mcp/s/[hidden]/sse");
     expect(more).toContain("https://[hidden]@mcp.example.com/sse");
-    // readable names and ids stay readable
     expect(more).toContain("getting-started-guide-2024");
     expect(more).toContain("4575b1f7-c16c-4afa-82ce-bcc2fdc70374");
     expect(values).toContain('"--api-key","[hidden]","--token=[hidden]","--verbose","--port","8080"');
@@ -158,7 +157,6 @@ describe("the monthly file", () => {
     await flushAdminActivity(dir);
     appendAdminAction(dir, { category: "people", action: "people.update", actor: BOSS, before: { "signIn.members": [] }, after: { "signIn.members": ["ada@example.test"] } });
     await flushAdminActivity(dir);
-    // A write in a new hour prunes: the default window already covers January 2025 → gone.
     expect(existsSync(adminActivityFileFor(dir, old))).toBe(false);
     const file = adminActivityFileFor(dir, recent);
     if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);

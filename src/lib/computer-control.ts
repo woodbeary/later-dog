@@ -11,9 +11,6 @@ export type BrowserControlTransitionFailure =
   | "durable-release"
   | "native-release";
 
-/** BrowserPanel owns a two-phase lease because direct scoped host tokens can
- * bypass the renderer. Take is native-first; release is durable-first. A
- * failed take stays locally held, and a failed release reasserts the hold. */
 export async function transitionBrowserControlLease(input: {
   action: "take" | "release";
   requestDurableControl: (action: "take" | "release") => Promise<boolean>;
@@ -34,9 +31,6 @@ export async function transitionBrowserControlLease(input: {
   return { ok: true };
 }
 
-/** Positive-only authoritative sync. A held snapshot always tightens the
- * Electron gate; false snapshots never release it because loopback callers
- * can influence server state. Trusted release flows clear it explicitly. */
 export function heldComputerControlBotIds(
   snapshots: Record<string, Pick<ComputerControlSnapshot, "held">>,
 ): string[] {
@@ -45,9 +39,6 @@ export function heldComputerControlBotIds(
     .map(([botId]) => botId);
 }
 
-/** Coordinate the public server lease with Electron's private browser gate.
- * Take is local-first; release is server-first. BrowserPanel passes
- * `syncNativeBrowser: false` because it owns the same choreography itself. */
 export async function transitionComputerControlLease<
   Action extends ComputerControlAction,
   Snapshot extends ComputerControlSnapshot,

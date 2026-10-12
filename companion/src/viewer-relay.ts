@@ -14,17 +14,12 @@ interface ViewerSession {
   origin: string;
   expiresAt: number;
   sockets: Set<{ destroy(): void }>;
-  /** A Local VM viewer lives only as long as its control lease holds. */
   watch?: ReturnType<typeof setInterval>;
 }
 
-/** Whether `controlLeaseId` still holds `botId`'s computer, asked on behalf of
- * the paired device. Any failure must answer false. */
 export type ControlCheck = (deviceId: string, botId: string, controlLeaseId: string) => Promise<boolean>;
 
 const VIEWER_PATH = /^\/vps-viewer\/([A-Za-z0-9_-]{32})(\/.*)?$/;
-/** Both joins hand back a loopback noVNC address: a VPS through its SSH
- * tunnel, and the Local VM's own published port. */
 const BOT_JOIN_PATH = /^\/api\/bots\/([\w-]+)\/(computer|local-computer)\/join$/;
 const CONTROL_LEASE = /^[A-Za-z0-9_-]{16,120}$/;
 const CONTROL_CHECK_MS = 3_000;
@@ -163,9 +158,6 @@ export class CompanionViewerRelay {
     const viewer = safeLoopbackViewer(body.joinUrl);
     if (!viewer) return value;
     if (!deviceId) throw new Error("the paired device has no viewer identity");
-    // A Local VM viewer is bound to the control lease that asked for it, and
-    // is closed the moment that lease stops holding the computer. Without a
-    // lease, or nothing to check it with, it is never handed out at all.
     const localVm = join[2] === "local-computer";
     if (localVm && (!controlLeaseId || !CONTROL_LEASE.test(controlLeaseId) || !this.#checkControl)) {
       throw new Error("a Local VM viewer needs a control lease");

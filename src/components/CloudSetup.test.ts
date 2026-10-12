@@ -36,7 +36,6 @@ function render() {
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 const text = (node: Node): string => Children.toArray(node.props.children).map(child => typeof child === "string" || typeof child === "number" ? String(child) : isValidElement(child) ? text(child as Node) : "").join("");
 const button = (label: string) => render().nodes.find(node => node.type === "button" && text(node) === label);
-/** Open a step that is not the current one by its title. */
 const expand = (title: string) => render().nodes.find(node => node.type === "button" && text(node).startsWith(title))!.props.onClick!();
 const statuses = () => Object.fromEntries(render().nodes.filter(node => node.props["data-cloud-setup-step"]).map(node => [node.props["data-cloud-setup-step"], node.props["data-status"]]));
 async function mount() { render(); for (const effect of f.effects) effect(); await flush(); }
@@ -121,17 +120,14 @@ it("on a new Cloud lists the three steps, sign-in first and required, each from 
   expect(bridge.state).toHaveBeenCalledOnce();
   expect(html).not.toContain("Let My Cloud use this Mac");
   expect(api).not.toHaveBeenCalled();
-  // Plain words, no confirmation dialog, not a modal.
   expect(html).not.toMatch(/workspace|organis/i);
   expect(html).not.toContain('aria-modal="true"');
   expect(html).not.toContain('role="dialog"');
-  // Nothing to try until an engine can run.
   expect(button("Try it")).toBeUndefined();
 });
 
 it("sign-in is done when any engine can run; its action shows the existing sign-in when it is not on screen", async () => {
   await mount();
-  // In the chat view the Cloud's sign-in already fills the window.
   expect(button("Sign in")).toBeUndefined();
   f.state.activeView = "routines";
   button("Sign in")!.props.onClick!();
@@ -144,7 +140,6 @@ it("sign-in is done when any engine can run; its action shows the existing sign-
 it("try something is done by the server's record of a finished turn, and Try it puts the example into the chat", async () => {
   f.state.instances = [ready];
   await mount();
-  // Signed in, the next step open is bringing bots; trying something is a click away.
   expect(button("Try it")).toBeUndefined();
   expect(button("Copy to My Cloud")).toBeTruthy();
   expand("Try something that runs while you're away");
@@ -152,11 +147,9 @@ it("try something is done by the server's record of a finished turn, and Try it 
   button("Try it")!.props.onClick!();
   expect(dispatched).toEqual([{ type: "select", id: "b1" }]);
   expect(appendComposerDraft).toHaveBeenCalledExactlyOnceWith("bot:b1:t1", "Every morning at 8, check the top stories on Hacker News and send me a short summary.");
-  // Pressed again with the example still waiting in the composer: not twice.
   vi.mocked(getDraft).mockReturnValueOnce("Every morning at 8, check the top stories on Hacker News and send me a short summary.");
   button("Try it")!.props.onClick!();
   expect(appendComposerDraft).toHaveBeenCalledOnce();
-  // Sent or not, only the server's record ticks it.
   expect(statuses().try).toBe("todo");
   f.state.instances = [signedOut];
   f.state.config.onboarding = { ...EMPTY_ONBOARDING, firstTurnAt: "2026-09-30T08:00:00.000Z" };
@@ -178,7 +171,6 @@ it("Hide setup is one click, kept in the Cloud's own settings, and is the move's
   expect(dispatched).toContainEqual({ type: "configStatus", config: expect.objectContaining({ onboarding: expect.objectContaining({ hintsSeen: [CLOUD_SETUP_HIDDEN] }) }) });
   expect(bridge.dismiss).toHaveBeenCalledOnce();
   expect(render().html).not.toContain("data-cloud-setup");
-  // Another device, a reload, cleared browser storage: the Cloud's record decides.
   f.values = []; f.state.config.onboarding = { ...EMPTY_ONBOARDING, hintsSeen: [CLOUD_SETUP_HIDDEN] };
   vi.mocked(bridge.state).mockResolvedValue(overview({ suggest: false }));
   await mount();
@@ -188,7 +180,6 @@ it("Hide setup is one click, kept in the Cloud's own settings, and is the move's
 it("bringing bots opens the copy in place; Copy starts it, and Not now is kept as skipped", async () => {
   await mount();
   expect(render().html).not.toContain("Copy 4 dogs and 37 chats");
-  // One step is open at a time: here, signing in.
   expect(button("Copy to My Cloud")).toBeUndefined();
   expand("Bring your dogs from this computer");
   button("Copy to My Cloud")!.props.onClick!();
@@ -202,7 +193,6 @@ it("bringing bots opens the copy in place; Copy starts it, and Not now is kept a
   push({ phase: "done", action: "move", destination: CLOUD, moved: { bots: 4, rooms: 1, chats: 37 } });
   expect(statuses().move).toBe("done");
 
-  // Another Cloud, where the person says Not now instead.
   f.values = []; f.effects = [];
   await mount();
   expand("Bring your dogs from this computer");
@@ -224,7 +214,6 @@ it("offers bringing bots only in the desktop app, and never asks to lend this Ma
   await mount();
   expect(Object.keys(statuses())).toEqual(["engine", "move", "try"]);
   expect(open).not.toHaveBeenCalled();
-  // A browser.
   f.values = []; vi.mocked(api).mockClear();
   vi.stubGlobal("window", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
   await mount();

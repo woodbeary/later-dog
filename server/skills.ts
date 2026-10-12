@@ -1,30 +1,3 @@
-// Imported Agent Skills, per bot.
-//
-// A skill is the open agentskills.io format: a folder named after the skill
-// holding SKILL.md (YAML frontmatter: name + description) and, in richer
-// skills, scripts and references. This store implements a deliberately
-// narrow v1 of that spec:
-//
-//   - SKILL.md only. Registry audits (Snyk "ToxicSkills", Feb 2026) found
-//     confirmed exfiltration payloads in 2-13% of public skills. Supporting
-//     files are outside the v1 review and integrity boundary, so every one is
-//     skipped and named on the review surface.
-//   - imports land DISABLED. The UI shows the full SKILL.md and the scan
-//     warnings; a person enables it after reading. Nothing an import
-//     contains reaches any prompt before that.
-//   - provenance is pinned: source URL and content hash are recorded at
-//     import so "where did this come from" always has an answer.
-//
-// Enabled skills reach the bot two ways, mirroring how MEMORY.md works:
-// an index line per skill (name + description, hard budget) rides the
-// system prompt, and the files themselves sit in the workspace where the
-// CLI's own file tools — or its native .claude/skills discovery — read
-// them on demand.
-//
-// Agent-authored skills (/learn + skill_manage) use the same store, but
-// land in staged.json first. A person confirms the in-app card before
-// applyStagedSkillWrite promotes and enables the exact bytes the person
-// reviewed.
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -55,9 +28,6 @@ import { librarySkillFilePath, listLibrarySkills, type LibrarySkillListing } fro
 import { workspaceDir } from "./workspace.ts";
 import { isSkillName, parseSkillMd, scanSkillText, SKILL_FILE_MAX_BYTES, type ParsedSkill } from "../shared/skill-md.ts";
 
-// SKILL.md parsing and the static scan live in shared/ so the package
-// format (Admin and the renderer included) validates skills with the exact
-// same rules; re-exported here under their historical path.
 export {
   DESCRIPTION_MAX,
   isSkillName,
@@ -68,15 +38,11 @@ export {
   type ParsedSkill,
 } from "../shared/skill-md.ts";
 
-/** Total skills prompt block budget. */
 export const INDEX_MAX_SKILLS = 30;
 export const INDEX_MAX_BYTES = 4_000;
 const loggedIndexOmissions = new Map<string, string>();
-/** Agent-authored writes sit here until a person confirms the in-app card. */
 export const MAX_STAGED_SKILLS = 20;
 export const STAGED_GIST_MAX = 240;
-/** Learned skills are duplicated onto their durable review card. Keep that
- * exact review payload bounded while leaving fetched skill imports unchanged. */
 export const STAGED_SKILL_FILE_MAX_BYTES = 32 * 1024;
 
 interface SkillManifestEntry {
@@ -89,27 +55,17 @@ interface SkillManifestEntry {
   compatibility?: string;
   warnings: string[];
   skippedFiles: string[];
-  /** Makes approval replay safe if the process stops after promotion but
-   * before the confirmation card is durably settled. Never exposed to agents. */
   appliedStageId?: string;
-  /** Immutable workspace revision selected by the protected manifest. Older
-   * skills omit this and continue to use skills/<name>. */
   storageRevision?: string;
-  /** Organization library only: which install added it, and the SKILL.md
-   * hashes as released and as written. Never exposed to agents or clients. */
   package?: SkillPackageStamp;
 }
 
 export interface SkillPackageStamp {
   installId: string;
-  /** The skill's name in the package. */
   key: string;
   release: string;
   r: string;
   w: string;
-  /** Additive to contract §3.2: "preset" when a bot made from one of the
-   * install's presets got it (server/presets.ts). Absent: the install itself
-   * put it there (a team's bot, or an offered skill). */
   via?: "preset";
 }
 
@@ -207,8 +163,6 @@ function entryExistsWithoutFollowing(path: string): boolean {
   }
 }
 
-/** Native discovery has two app-created levels (`.claude/skills`, etc.).
- * Check each without following symlinks before scanning or creating below it. */
 function nativeLinkDirectory(root: string, relative: string, create: boolean): string | null {
   const [family, leaf] = relative.split("/");
   if (!family || !leaf) return null;
@@ -237,9 +191,6 @@ function nativeLinkDirectory(root: string, relative: string, create: boolean): s
   return linkState === "directory" ? linkDir : null;
 }
 
-/** Approval and enablement state stays outside the bot's working directory.
- * The skill text is readable in the workspace; the control record is not a
- * file the agent is expected to edit as part of ordinary work. */
 function skillStateDir(botId: string): string {
   return join(DATA_DIR, "skill-state", botId);
 }
@@ -262,7 +213,6 @@ function readManagedLinks(botId: string): string[] {
   }
 }
 
-// Rebuilt on every turn and almost always the same list.
 function writeManagedLinks(botId: string, names: string[]): void {
   mkdirSync(skillStateDir(botId), { recursive: true, mode: 0o700 });
   writeFileAtomicIfChanged(managedLinksPath(botId), `${JSON.stringify([...new Set(names)].sort(), null, 2)}\n`, { mode: 0o600 });
@@ -285,8 +235,6 @@ function manifestFromFile(path: string): SkillManifest | null {
 
 function readManifest(botId: string): SkillManifest {
   const securePath = manifestPath(botId);
-  // Existence is the migration marker. If protected state is corrupt, fail
-  // closed instead of falling back to an agent-writable legacy manifest.
   if (existsSync(securePath)) return manifestFromFile(securePath) ?? {};
 
   const legacyRoot = existingSkillsRoot(botId);
@@ -296,8 +244,6 @@ function readManifest(botId: string): SkillManifest {
   const legacy = manifestFromFile(legacyPath) ?? {};
   const migrated: SkillManifest = {};
   for (const [name, entry] of Object.entries(legacy)) {
-    // Legacy state lived inside the bot workspace. Preserve metadata, but no
-    // workspace-authored bit may silently carry enablement into secure state.
     const {
       appliedStageId: _appliedStageId,
       storageRevision: _storageRevision,
@@ -308,9 +254,7 @@ function readManifest(botId: string): SkillManifest {
   writeManifest(botId, migrated);
   try {
     rmSync(legacyPath, { force: true });
-  } catch {
-    // The secure file now exists and always wins; stale legacy bytes are inert.
-  }
+  } catch {}
   return migrated;
 }
 
@@ -319,9 +263,6 @@ function comparablePath(path: string): string {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-/** True only for a symlink/junction whose target is this exact bot skill.
- * The readlink fallback also recognizes a broken app link without following
- * it, while never claiming a user-owned directory or an unrelated symlink. */
 function nativeLinkPointsToSkill(link: string, target: string): boolean {
   try {
     if (!lstatSync(link).isSymbolicLink()) return false;
@@ -337,8 +278,6 @@ function nativeLinkPointsToSkill(link: string, target: string): boolean {
   }
 }
 
-/** Recognize only app storage targets without following them: skills/<name>
- * from older releases, or one content revision under skills/.revisions/. */
 function nativeLinkDirectlyTargetsOwnedSkill(
   link: string,
   root: string,
@@ -359,9 +298,6 @@ function nativeLinkDirectlyTargetsOwnedSkill(
 
 type NativeLinkRemoval = "removed" | "preserved" | "retry";
 
-/** Move one exact directory entry aside before deciding whether it is ours.
- * `renameSync` is the identity boundary: a workspace process may replace the
- * original name at any time, but it cannot change which entry was moved. */
 function removeOwnedNativeLink(
   botId: string,
   link: string,
@@ -415,15 +351,8 @@ function writeManifest(botId: string, manifest: SkillManifest): void {
   writeFileAtomic(manifestPath(botId), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 }
 
-/** The native discovery dirs of the CLIs bots run. A skill enabled here is
- * linked into each, inside the workspace, so engines with first-class skill
- * support load it themselves with their own progressive disclosure. */
 const NATIVE_SKILL_DIRS = [".claude/skills", ".agents/skills", ".grok/skills"];
 
-/** Revoke native links without following an unsafe `skills/` root. An enabled
- * app link otherwise starts resolving into the bot-controlled replacement.
- * Compare the link text, not its real path, so a user-replaced same-name link
- * remains untouched. */
 function removeNativeLinksForUnsafeSkillsRoot(
   botId: string,
   root: string,
@@ -434,8 +363,6 @@ function removeNativeLinksForUnsafeSkillsRoot(
   for (const dir of NATIVE_SKILL_DIRS) {
     const linkDir = nativeLinkDirectory(root, dir, false);
     if (!linkDir) {
-      // The directory may become safe again later, so retain the registry as
-      // a cleanup hint without following its current replacement.
       for (const name of previouslyManaged) retry.add(name);
       continue;
     }
@@ -462,24 +389,15 @@ function removeNativeLinksForUnsafeSkillsRoot(
   }
   try {
     writeManagedLinks(botId, [...retry]);
-  } catch {
-    // The protected manifest remains authoritative. A later turn retries link
-    // reconciliation; failure here must not roll back or misreport a skill.
-  }
+  } catch {}
 }
 
-/** Recreate the native-discovery links from the manifest. Links, not copies,
- * so disable/remove has exactly one source of truth; junctions on Windows
- * because directory symlinks there need privileges junctions do not. */
 export function syncSkillLinks(
   botId: string,
   options: { beforeRemove?: (link: string) => void } = {},
 ): void {
   const root = workspaceDir(botId);
   const previouslyManaged = readManagedLinks(botId);
-  // A bot can edit its workspace. Never follow a replaced skills root while
-  // deciding which native links are safe to publish. Existing app links must
-  // still be revoked, or they start resolving into the replacement.
   if (directoryEntryState(skillsDir(botId)) === "unsafe") {
     removeNativeLinksForUnsafeSkillsRoot(botId, root, previouslyManaged, options.beforeRemove);
     return;
@@ -496,11 +414,7 @@ export function syncSkillLinks(
     let existing: string[] = [];
     try {
       existing = readdirSync(linkDir).filter(isSkillName);
-    } catch {
-      // A missing native directory is created below only when needed.
-    }
-    // Scanning safely adopts links made by releases before managed-links.json.
-    // The registry adds names whose link directory can no longer be listed.
+    } catch {}
     for (const name of new Set([...existing, ...previouslyManaged])) {
       const link = join(linkDir, name);
       const target = desired.get(name);
@@ -533,24 +447,18 @@ export function syncSkillLinks(
           process.platform === "win32" ? "junction" : "dir",
         );
         managed.add(name);
-      } catch {
-        // A user-owned same-name path wins; never replace an unknown path.
-      }
+      } catch {}
     }
   }
   try {
     writeManagedLinks(botId, [...managed]);
-  } catch {
-    // Native discovery is a repairable projection of the protected manifest.
-  }
+  } catch {}
 }
 
 export interface SkillListing {
   name: string;
   description: string;
   enabled: boolean;
-  /** Only review-created learned skills have a revision token strong enough
-   * to support an in-place, review-gated update. */
   editable: boolean;
   source: string;
   sha256: string;
@@ -626,10 +534,6 @@ export function readSkillFile(botId: string, name: string): string | null {
   }
 }
 
-/** Install a fetched skill, DISABLED. The caller has already fetched the
- * files; this validates and scans SKILL.md, records every skipped supporting
- * file, writes only the reviewed bytes, and records provenance. Returns the
- * listing (with warnings) for the review screen. */
 export function installSkill(
   botId: string,
   source: string,
@@ -640,10 +544,6 @@ export function installSkill(
   return installPreparedSkill(botId, source, prepared, { enabled: false });
 }
 
-/** The organization library's path: a skill the organization's Admin
- * published arrives switched ON (the Admin is the review), with the install
- * stamp that lets the library find it again. `source` is chosen by the
- * caller (`org:<ref>@<release>`), never read from the package. */
 export function installOrgSkill(
   botId: string,
   source: string,
@@ -657,7 +557,6 @@ export function installOrgSkill(
   return installPreparedSkill(botId, source, prepared, { enabled: true, package: { ...stamp } });
 }
 
-/** A bot's skills that an organization install added, with their stamps. */
 export function skillPackageStamps(botId: string): Array<{ name: string; enabled: boolean; stamp: SkillPackageStamp }> {
   return Object.entries(readManifest(botId)).flatMap(([name, entry]) => entry.package
     ? [{ name, enabled: entry.enabled, stamp: { ...entry.package } }]
@@ -687,10 +586,7 @@ function removeReviewedRevision(botId: string, revision: string, sha256: string)
   if (!learnedSkillDirectoryMatches(directory, sha256)) return;
   try {
     rmSync(directory, { recursive: true, force: true });
-  } catch {
-    // This storage is no longer selected. Explicit skill removal also scans
-    // the revision namespace, so a transient cleanup failure is recoverable.
-  }
+  } catch {}
 }
 
 function retireReviewedSkillStorage(botId: string, name: string, entry: SkillManifestEntry): void {
@@ -702,10 +598,7 @@ function retireReviewedSkillStorage(botId: string, name: string, entry: SkillMan
   if (!directory || !learnedSkillDirectoryMatches(directory, entry.sha256)) return;
   try {
     rmSync(directory, { recursive: true, force: true });
-  } catch {
-    // The manifest no longer selects these bytes; retry is unnecessary for
-    // correctness, and explicit removal cleans matching leftovers.
-  }
+  } catch {}
 }
 
 function removeReviewedRevisionsNamed(botId: string, name: string): void {
@@ -729,9 +622,7 @@ function removeReviewedRevisionsNamed(botId: string, name: string): void {
       const parsed = parseSkillMd(readFileSync(file, "utf8"));
       if ("error" in parsed || parsed.name !== name) continue;
       rmSync(directory, { recursive: true, force: true });
-    } catch {
-      // A changed or busy revision stays inert and can be removed manually.
-    }
+    } catch {}
   }
 }
 
@@ -748,12 +639,8 @@ export function removeSkill(botId: string, name: string): { removed: true } | { 
   const targetState = target ? directoryEntryState(target) : "missing";
   delete manifest[name];
   writeManifest(botId, manifest);
-  // Remove our native links while their target still exists, so ownership
-  // can be proven without ever deleting a user-replaced path.
   syncSkillLinks(botId);
   if (entry.storageRevision) {
-    // Re-check both the revisions parent and the reviewed content immediately
-    // before deletion. Never follow a workspace-replaced `.revisions` link.
     removeReviewedRevision(botId, entry.storageRevision, entry.sha256);
   } else if (target && targetState === "directory") {
     rmSync(target, { recursive: true, force: true });
@@ -775,11 +662,7 @@ export interface StagedSkillWrite {
   warnings: string[];
   skippedFiles: string[];
   createdAt: string;
-  /** Hash of the installed SKILL.md the reviewer is replacing. Updates fail
-   * closed if the live skill changes after the proposal was staged. */
   baseSha256?: string;
-  /** UUID of the exact previously approved revision. Unlike timestamps, this
-   * cannot collide if a skill is removed and recreated with identical bytes. */
   baseAppliedStageId?: string;
 }
 
@@ -813,15 +696,12 @@ function stagedPath(botId: string): string {
 
 function readStaged(botId: string): StagedStore {
   const securePath = stagedPath(botId);
-  // As with the manifest, protected state is authoritative once present.
   if (existsSync(securePath)) {
     try {
       const parsed: unknown = JSON.parse(readFileSync(securePath, "utf8"));
       const result = stagedStoreSchema.safeParse(parsed);
       if (result.success) return result.data;
-    } catch {
-      // Corrupt protected state fails closed; never consult workspace state.
-    }
+    } catch {}
     return { writes: {} };
   }
 
@@ -829,16 +709,11 @@ function readStaged(botId: string): StagedStore {
   if (!legacyRoot) return { writes: {} };
   const legacyPath = join(legacyRoot, "staged.json");
   if (!existsSync(legacyPath)) return { writes: {} };
-  // Legacy stages were agent-writable and have no trustworthy review-card
-  // binding. Discard them rather than turning old workspace data into a live
-  // proposal in the protected store.
   const empty: StagedStore = { writes: {} };
   writeStaged(botId, empty);
   try {
     rmSync(legacyPath, { force: true });
-  } catch {
-    // The protected empty store is now authoritative.
-  }
+  } catch {}
   return empty;
 }
 
@@ -927,18 +802,12 @@ function sameDirectoryIdentity(path: string, expected: { dev: number; ino: numbe
   return current?.dev === expected.dev && current.ino === expected.ino;
 }
 
-/** Publish reviewed bytes once under a stage-derived immutable directory.
- * The protected manifest selects the live revision in a separate atomic
- * write, so a crash leaves either the old version active or the new version
- * active—never a half-replaced skill. */
 function publishReviewedRevision(
   botId: string,
   stageId: string,
   skillMd: string,
   sha256: string,
 ): string {
-  // Finish the only file in protected app state. No agent-writable path is
-  // opened until the complete directory is published as one rename.
   const state = skillStateDir(botId);
   mkdirSync(state, { recursive: true, mode: 0o700 });
   if (directoryEntryState(state) !== "directory") {
@@ -1009,9 +878,6 @@ function publishReviewedRevision(
   return revision;
 }
 
-/** Stage a new directory, then publish it and its manifest entry together.
- * A thrown manifest write removes the just-published directory, so callers
- * never observe a half-installed skill. Existing skills are never replaced. */
 function commitNewSkillFiles(
   botId: string,
   name: string,
@@ -1137,8 +1003,6 @@ function updatePreparedSkill(
   }
   try {
     const storageRevision = publishReviewedRevision(botId, options.appliedStageId, skillMd, sha256);
-    // Re-read immediately before the pointer swap. This preserves unrelated
-    // manifest changes and the user's latest enabled/disabled choice.
     const latestManifest = readManifest(botId);
     const latest = latestManifest[name];
     if (
@@ -1174,9 +1038,6 @@ function updatePreparedSkill(
   }
 }
 
-/** Agent-authored skill write: scanned and staged. Proposed bytes never reach
- * the prompt or native discovery links before a person confirms the in-app
- * card; an update keeps its previously approved version live meanwhile. */
 export function stageSkillWrite(
   botId: string,
   input: {
@@ -1226,9 +1087,6 @@ export function stageSkillWrite(
     return { error: "stored SKILL.md changed after review — restore or remove it before proposing an update" };
   }
   const store = readStaged(botId);
-  // A crash after manifest commit but before card/stage settlement leaves a
-  // replay record. It is already durable and must not reserve a name or one of
-  // the bounded proposal slots forever.
   for (const [id, staged] of Object.entries(store.writes)) {
     if (manifest[staged.name]?.appliedStageId === id) delete store.writes[id];
   }
@@ -1302,10 +1160,6 @@ export function rejectStagedSkillWrite(
   return alreadyApplied ? { applied: true } : { rejected: true };
 }
 
-/** Promote the exact reviewed bytes. Creates become enabled; updates preserve
- * the user's latest enabled/disabled choice. `onApplied` settles the durable
- * approval card before the stage is deleted, making a restart between those
- * operations safe to replay through appliedStageId. */
 export function applyStagedSkillWrite(
   botId: string,
   id: string,
@@ -1351,8 +1205,6 @@ export function applyStagedSkillWrite(
   return installed;
 }
 
-/** Full Access uses the same exact-content apply path. Once installed, a
- * receipt or staging-cleanup failure must not tell the caller to apply again. */
 export function applySkillWriteWithReceipt(
   botId: string,
   staged: Pick<StagedSkillWrite, "id" | "sha256">,
@@ -1375,10 +1227,6 @@ export function applySkillWriteWithReceipt(
   }
 }
 
-/** Undo for a learned-skill write that applied without a person: a create
- * is removed; an update gets the SKILL.md it replaced back, as a fresh
- * revision through the same stage and apply path. Only while the skill is
- * exactly as that write left it; otherwise `stale`, and nothing changes. */
 export function undoSkillWrite(
   botId: string,
   write: { stagedId: string; name: string; action: StagedSkillAction; previous?: { skillMd: string; source: string } },
@@ -1407,17 +1255,11 @@ export function undoSkillWrite(
   return { undone: true };
 }
 
-/** The skills block appended to a bot's system prompt: enabled skills only,
- * index lines only — the same progressive-disclosure shape the spec asks
- * agents for. Bodies never ride the prompt; the bot reads the file when a
- * task matches. */
 export function skillsSystemPrompt(botId: string, assignedLibrary?: readonly string[]): string {
   return composeSkillsSystemPrompt(botId, assignedLibrary);
 }
 
 function composeSkillsSystemPrompt(botId: string, assignedLibrary: readonly string[] | undefined): string {
-  // Reconcile links on every turn. If the workspace copy changed since its
-  // review, integrity filtering below removes it from native discovery too.
   syncSkillLinks(botId);
   const enabled = resolveBotSkills(botId, assignedLibrary).filter((skill) => skill.enabled);
   if (!enabled.length) {
@@ -1456,12 +1298,6 @@ function composeSkillsSystemPrompt(botId: string, assignedLibrary: readonly stri
   return block(lines, omitted.length);
 }
 
-// --- Skills library composition (features.skillsLibrary) ---
-
-/** One bot's private skills plus its assigned library skills, private
- * winning any name collision (the lane's resolution order: bot-private >
- * library > bundled). `undefined` assignments return exactly
- * `listSkills(botId)` — the flag-off contract. */
 export function resolveBotSkills(botId: string, assignedLibrary: readonly string[] | undefined): SkillListing[] {
   const own = listSkills(botId);
   if (!assignedLibrary?.length) return own;
@@ -1471,10 +1307,6 @@ export function resolveBotSkills(botId: string, assignedLibrary: readonly string
   return [...own, ...fromLibrary];
 }
 
-/** The Skills surface listing: the bot's merged skills tagged by origin,
- * plus the library entries not yet assigned (the add-from-library pool).
- * A private skill shadows a same-named library skill, so origin reflects
- * what the bot actually reads. */
 export interface BotSkillWithOrigin extends SkillListing {
   origin: "private" | "library";
 }
@@ -1494,9 +1326,6 @@ export function listBotSkillsWithOrigin(
   return { skills, library };
 }
 
-/** Read-only view of a bot's per-bot skill copies for the library
- * migration: manifest entries, their resolved directories, and whether the
- * stored SKILL.md still matches the reviewed sha256. */
 export interface MigratableSkillCopy {
   name: string;
   directory: string | null;
@@ -1527,9 +1356,6 @@ export function listMigratableSkills(botId: string): MigratableSkillCopy[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Drop manifest entries the migration has archived. The caller archives
- * the bytes first and passes the sha256 it read, so a skill that changed
- * between read and removal is left untouched. */
 export function removeManifestEntry(botId: string, name: string, expectSha256: string): { removed: true } | { error: string } {
   if (!isSkillName(name)) return { error: "invalid skill name" };
   const manifest = readManifest(botId);

@@ -8,8 +8,6 @@ import { deviceFlowUnavailable, type DeviceSignInStatus } from "./DeviceSignIn";
 
 const SIGN_IN_HOSTS = ["claude.com", "claude.ai", "console.anthropic.com", "platform.claude.com"];
 
-/** Never turn arbitrary process output into a link: only Anthropic's own
- * sign-in pages over https. The server applies the same rule first. */
 export function claudeSignInLink(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
@@ -22,9 +20,6 @@ export function claudeSignInLink(value: string | null | undefined): string | nul
   }
 }
 
-/** Anthropic's page that sends the sign-in straight back to Claude Code on the
- * machine running later.dog: nothing to paste. Only this app on that same
- * machine opens it; a remote client has no way back to that listener. */
 export function claudeCallbackLink(value: string | null | undefined): string | null {
   const link = claudeSignInLink(value);
   if (!link || window.laterdog?.remoteClient?.active === true) return null;
@@ -55,9 +50,7 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
   const [busy, setBusy] = useState<"start" | "finish" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
-  // one start per sheet, even when an effect runs twice
   const [autoStarted] = useState(() => ({ current: false }));
-  // a pasted code only when the browser can't hand the sign-in back
   const [withCode, setWithCode] = useState(false);
   const base = `/api/instances/${encodeURIComponent(instanceId)}/auth`;
   const callback = withCode ? null : claudeCallbackLink(auth?.callbackUrl);
@@ -91,7 +84,6 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
     };
   }, [auth]);
 
-  // signing in in the browser finishes by itself: watch for it
   useEffect(() => {
     if (auth?.phase !== "waiting" || !auth.flowId || !callback) return;
     const flowId = auth.flowId;
@@ -144,7 +136,6 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
       await settle(next);
     } catch (cause) {
       if (deviceFlowUnavailable(cause)) {
-        // the server already knows the outcome; ask it rather than guess
         try {
           const { auth: next }: { auth: DeviceSignInStatus } = await api(`${base}/status?flowId=${encodeURIComponent(auth.flowId)}`);
           await settle(next);

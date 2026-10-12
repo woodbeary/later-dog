@@ -41,8 +41,6 @@ it("preserves peer approval expiry through real HTTP responses and durable deleg
     const target = (await cli("new-bot", "--name", "Approval target")).bot;
     target.threadId = target.activeTaskId;
     await api("PATCH", `/api/bots/${from.id}`, { approvePeerComms: true });
-    // Reuse the shared launcher's disposable data and restricted environment.
-    // The import hook controls only the peer timer, not approval or dispatch.
     await waitForExit(fixture.child, { signal: "SIGTERM" });
     const env = verificationServerEnvironment({ ...process.env, FAKE_CLAUDE_MODE: "slow",
       FAKE_CLAUDE_SLOW_FINISH_GATE: gate }, dataDir, Number(new URL(url).port));
@@ -56,8 +54,6 @@ it("preserves peer approval expiry through real HTTP responses and durable deleg
     await expect.poll(async () => {
       try { return (await fetch(url + "/api/health")).ok; } catch { return false; }
     }, { timeout: 20_000 }).toBe(true);
-    // Routines retain the one-hop ask/delegate lifecycle. Ordinary chat uses
-    // coordinate_bots instead; do not bypass that production routing boundary.
     const created = await api("POST", "/api/routines", {
       name: "Peer approval fixture", prompt: "Hold this fixture turn while approval is tested.",
       botId: from.id, enabled: false,
@@ -77,7 +73,7 @@ it("preserves peer approval expiry through real HTTP responses and durable deleg
     }, { timeout: 15_000 }).toBe(true);
     for (const outcome of ["deny", "expired"] as const) {
       const pending = api("POST", "/api/internal/ask-bot", { toBotId: target.id, message: "Do not dispatch without approval" }, token);
-      void pending.catch(() => {}); // retain the rejection for the awaited assertion below
+      void pending.catch(() => {});
       const approval = await card(from.threadId);
       if (outcome === "deny") await api("POST", `/api/threads/${from.threadId}/respond`, { requestId: approval.card.requestId, behavior: "deny" });
       else writeFileSync(expiry, "expire");
@@ -89,8 +85,6 @@ it("preserves peer approval expiry through real HTTP responses and durable deleg
       evidence.push({ operation: "ask-bot", outcome, result, card: settled.card });
       rmSync(expiry, { force: true });
     }
-    // A peer may become private while its approval is open. The failure
-    // receipt may echo the addressed id, but must not disclose its new name.
     const unavailableAsk = api("POST", "/api/internal/ask-bot", { toBotId: target.id, message: "Check access again after approval" }, token);
     void unavailableAsk.catch(() => {});
     const unavailableCard = await card(from.threadId);
@@ -123,8 +117,6 @@ it("preserves peer approval expiry through real HTTP responses and durable deleg
     evidence.push({ operation: "delegate-bot", receipt, targetDispatched: false });
     expect((await cli("wait", "--bot", from.id, "--task", from.threadId, "--timeout", "25")).status).toBe("settled");
 
-    // Ordinary chat's multi-target gate must retain each refusal's origin,
-    // rather than saying that every target was denied by the user.
     rmSync(expiry, { force: true });
     rmSync(gate, { force: true });
     rmSync(fixture.fixtureDumpPath, { force: true });

@@ -1,4 +1,3 @@
-// How many treats a dog has been given, under its name on its profile. Hidden until the first treat.
 import { useEffect, useState } from "react";
 import { t } from "@/lib/i18n";
 import { onTreat, treatCount } from "@/lib/treats";

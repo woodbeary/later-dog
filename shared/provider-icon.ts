@@ -75,8 +75,6 @@ function imageDimensions(bytes: Uint8Array, mime: string): { width: number; heig
   return null;
 }
 
-/** Validate the complete persisted value. Custom images are local data URLs,
- * never remote URLs, and use magic bytes so a forged MIME label is rejected. */
 export function providerIconError(icon: ProviderIcon): string | null {
   if (icon.kind === "preset") {
     return (PROVIDER_ICON_PRESETS as readonly string[]).includes(icon.preset)

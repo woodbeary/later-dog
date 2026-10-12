@@ -1,21 +1,15 @@
 export type CloudMachineStatus = "provisioning" | "ready" | "stopped" | "payment-problem" | "failed";
 export type CloudSetupStep = "reserving" | "storage" | "starting" | "checking";
-/** What the renderer may know about the person's Cloud machine: never a code. */
 export interface CloudMachine {
   status: CloudMachineStatus;
   origin?: string;
-  /** While setting up, when the Admin says: the step it is at, and whether it is slow. */
   setup?: { step: CloudSetupStep; slow?: true };
-  /** A failed setup's next automatic try, when the Admin says. */
   retryAt?: number;
-  /** The volume now and the most the plan lets it grow to, when the Admin says. */
   disk?: { gb: number; maxGb: number };
 }
-/** A payment received but not yet linked to this account: nobody pays twice. */
 export interface CloudPurchase { state: "confirming" | "held"; tier?: string; paidAt?: number }
 export interface CloudHomeGrant { origin: string; code: string; expiresAt: number }
 export interface CloudHomeTarget { origin: string; grant: CloudHomeGrant | null }
-/** `largest`: the top plan, so nobody is pointed at a larger one. */
 export interface CloudPlanDisk { maxBytes: number; volumeBytes?: number; startBytes?: number; largest?: true }
 export interface RememberedCloudHome { accountId: string; origin: string }
 export declare const CLOUD_HOME_NAME: string;

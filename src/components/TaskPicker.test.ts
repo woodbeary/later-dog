@@ -15,8 +15,6 @@ describe("taskPickerPointerIntent", () => {
   });
 
   it("does not let the click that accompanies a double-click close the row", () => {
-    // HTML fires click (detail=1), click (detail=2), then dblclick. Closing
-    // on the first of those unmounts the menu before rename can start.
     expect(taskPickerPointerIntent("click", 2)).toBe("ignore");
     expect(taskPickerPointerIntent("dblclick", 2)).toBe("rename");
   });
@@ -59,7 +57,6 @@ describe("project thread grouping", () => {
 
 describe("task picker copy", () => {
   it("advertises both gestures the row actually handles", () => {
-    // the hint moved into the catalog with the rest of the picker's copy
     expect(t("task.renameHint")).toContain("double-click");
     expect(t("task.renameHint")).toContain("right-click");
     expect(TASK_PICKER_DISMISS_MS).toBeGreaterThanOrEqual(500);

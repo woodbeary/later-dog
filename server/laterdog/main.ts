@@ -9,7 +9,6 @@ const supervisor = new Supervisor(store,{ dataDir, ...loadSupervisorConfig(dataD
 const server = createSupervisorServer(supervisor,supervisorToken(dataDir));
 const port = Number(process.env.LATERDOG_PORT ?? 9010);
 server.on("error",(error: NodeJS.ErrnoException) => {
-  // A second desktop or supervisor on the same port is a configuration fact worth stating; a bare EADDRINUSE stack is not.
   console.error(error.code === "EADDRINUSE"
     ? `later.dog supervisor: port ${port} is already in use by another supervisor (a second pnpm laterdog:dev, or pnpm laterdog:supervisor). Stop it, or save a hosted connection in ~/.laterdog/supervisor.json so this desktop does not start one.`
     : message(error));
@@ -21,7 +20,6 @@ void supervisor.tick().catch((error) => console.error(message(error)));
 let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return; shuttingDown = true; clearInterval(timer);
-  // A reverse proxy's keep-alive sockets would keep server.close() waiting forever; drop them, and never outlive the host's grace period.
   const deadline = setTimeout(() => { console.error("later.dog supervisor: forcing exit after shutdown timeout"); process.exit(0); }, 10_000); deadline.unref();
   supervisor.stop(); await supervisor.drain();
   await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });

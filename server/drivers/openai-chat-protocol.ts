@@ -1,12 +1,9 @@
-// Structured chat-completions calls. Assistant content is never parsed as a tool.
 export interface ChatToolCall {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
 }
 
-/** Calls one model reply may carry (its index bound). The turn's own total is
- * MAX_TURN_TOOL_CALLS in openai-chat.ts. */
 const MAX_REPLY_TOOL_CALLS = 32;
 const MAX_ARGUMENT_CHARS = 256_000;
 
@@ -17,8 +14,6 @@ export function object(value: unknown): Record<string, unknown> | undefined {
     ? value as Record<string, unknown> : undefined;
 }
 
-/** Opaque provider reasoning blocks must keep their original order/signatures.
- * OpenRouter streams the sequence as arrays of blocks, not tool-call deltas. */
 export class ChatReasoningDetails {
   readonly blocks: Record<string, unknown>[] = [];
   private chars = 0;
@@ -34,7 +29,6 @@ export class ChatReasoningDetails {
   }
 }
 
-/** One accumulator per completion: indexes identify deltas; IDs correlate results. */
 export class ChatToolCalls {
   private calls = new Map<number, ChatToolCall>();
   private argumentChars = 0;

@@ -17,10 +17,6 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Spied, not replaced: every call still reaches the real filesystem, and the
-// tests can count the fsyncs and reads a save costs. The shared test setup
-// has already loaded atomic.ts (through config.ts) against the real module,
-// so load a fresh copy that sees the spies.
 vi.mock("node:fs", { spy: true });
 vi.resetModules();
 const spied = await import("node:fs");
@@ -81,8 +77,6 @@ describe("writeFileAtomic", () => {
   });
 });
 
-// fsync is F_FULLFSYNC on macOS, ~4 ms of blocked event loop per call, and
-// several per-turn saves put back exactly what the file already holds.
 describe("writeFileAtomic durability", () => {
   let dir: string;
   beforeEach(() => {
@@ -142,7 +136,6 @@ describe("writeFileAtomicIfChanged", () => {
     const p = join(dir, "x.json");
     writeFileAtomic(p, '{"unread":true}');
     clearSpies();
-    // Same length, different bytes: only the read can tell.
     expect(writeFileAtomicIfChanged(p, '{"unread":fals}')).toBe(true);
     expect(readFileSync(p, "utf8")).toBe('{"unread":fals}');
     expect(spied.fsyncSync).toHaveBeenCalledTimes(1);
@@ -206,10 +199,6 @@ describe("writeFileAtomicIfChanged", () => {
   });
 });
 
-// Windows refuses a rename onto an existing path while anything else holds a
-// handle to either file, and a virus scanner or the search indexer opening a
-// just-closed file for a few milliseconds is enough. Callers treat a throw here
-// as a failed save, so a transient error used to lose the write.
 describe("renameWithRetry", () => {
   function failing(times: number, code: string) {
     let calls = 0;
@@ -241,12 +230,10 @@ describe("renameWithRetry", () => {
   it("gives up rather than retrying forever", () => {
     const stub = failing(Number.MAX_SAFE_INTEGER, "EPERM");
     expect(() => renameWithRetry("a.tmp", "a", stub.rename)).toThrow(/EPERM/);
-    expect(stub.calls).toBe(6); // first attempt plus five backoffs
+    expect(stub.calls).toBe(6);
   });
 
   it("does not retry an error that will never clear", () => {
-    // Busy-waiting on a missing directory or a cross-device rename would hide
-    // a real bug behind a delay and still fail.
     for (const code of ["ENOENT", "EXDEV", "EISDIR"]) {
       const stub = failing(Number.MAX_SAFE_INTEGER, code);
       expect(() => renameWithRetry("a.tmp", "a", stub.rename)).toThrow(new RegExp(code));

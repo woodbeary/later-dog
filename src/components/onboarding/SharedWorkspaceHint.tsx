@@ -1,8 +1,3 @@
-// What a member of a hosted team workspace sees on first open instead of the
-// welcome flow. The workspace config belongs to its admins, so a member
-// could neither save the tour nor stop it coming back. One quiet note below
-// the header, clear of the composer, says where they are. It is not a
-// dialog: nothing waits on it. Dismissal is remembered in this browser only.
 import { useId, useState } from "react";
 import { DogAvatar } from "@/components/Avatar";
 import { t } from "@/lib/i18n";
@@ -13,7 +8,6 @@ export function sharedHintDismissed(): boolean {
   try {
     return localStorage.getItem(DISMISSED_KEY) === "1";
   } catch {
-    // private window or blocked storage: show it, once per visit
     return false;
   }
 }
@@ -21,9 +15,7 @@ export function sharedHintDismissed(): boolean {
 function rememberDismissed(): void {
   try {
     localStorage.setItem(DISMISSED_KEY, "1");
-  } catch {
-    // not remembered; it is a hint, not a gate
-  }
+  } catch {}
 }
 
 export function SharedWorkspaceHint({

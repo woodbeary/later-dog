@@ -7,8 +7,6 @@ import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 
-// Deliberate opt-in: never discover the user's CLI or install a dependency.
-// The supplied binary runs against synthetic config and an owned loopback API.
 const cli = process.env.LATERDOG_OPENCODE_E2E_CLI;
 const test = cli ? it : it.skip;
 
@@ -36,7 +34,6 @@ test("persists per-conversation OpenCode efforts and sends them through ACP afte
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
     const effort = body.reasoning?.effort ?? body.reasoning_effort;
-    // Retain only synthetic markers and selection metadata, never complete prompts.
     const marker = [...JSON.stringify(body.input ?? []).matchAll(/VARIANT_[AB]_\d+/g)].at(-1)?.[0];
     receipts.push({ marker, endpoint: req.url!, model: body.model, effort, effortPresent: Object.hasOwn(body.reasoning ?? {}, "effort") || Object.hasOwn(body, "reasoning_effort") });
     if (effort === "none") {
@@ -125,8 +122,6 @@ test("persists per-conversation OpenCode efforts and sends them through ACP afte
       'child.on("exit", code => process.exit(code ?? 1));',
       'child.on("error", error => { console.error(error.message); process.exit(1); });',
     ].join("\n"), { mode: 0o700 });
-    // The shared launcher deliberately installs only Claude. Seed this owned
-    // fixture's optional instance while stopped, then exercise its real API.
     await waitForExit(fixture.child, { signal: "SIGTERM" });
     const ombConfigPath = join(dataDir, "config.json");
     const ombConfig = JSON.parse(readFileSync(ombConfigPath, "utf8"));
@@ -159,8 +154,6 @@ test("persists per-conversation OpenCode efforts and sends them through ACP afte
       const captured = receipts.slice(before).filter((receipt) => receipt.marker === marker);
       expect(captured).toEqual(expect.arrayContaining([expect.objectContaining({ endpoint: "/v1/responses", model: "reasoning-fixture", effortPresent: effort !== undefined, ...(effort === undefined ? {} : { effort }) })]));
       expect(captured.some((receipt) => receipt.effort === "none")).toBe(false);
-      // Auxiliary calls (for example, native title generation) must not make
-      // an incorrect main-conversation effort look like a passing capture.
       const transcript = await control(["messages", "--bot", bot.id, "--task", taskId, "--limit", "20"]);
       const reply = transcript.messages.filter((message: any) => message.role === "bot" && message.kind === "text").at(-1);
       expect(reply?.text).toBe(`fixture-ok:${effort ?? "omitted"}`);
@@ -169,7 +162,6 @@ test("persists per-conversation OpenCode efforts and sends them through ACP afte
     await turn(taskA, "VARIANT_A_1", "low");
     await turn(taskB, "VARIANT_B_1", undefined);
     await assertSelections();
-    // A real server restart verifies durable model choices, not just client state.
     await restart();
     await assertSelections();
     await turn(taskA, "VARIANT_A_2", "low");

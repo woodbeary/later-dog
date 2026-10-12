@@ -1,5 +1,3 @@
-// Real-model search acceptance through an isolated later.dog server.
-// Existing sign-in is explicitly designated; personal chats/config are not copied.
 import { copyFileSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { launchVerificationServer, runControlLaterDog } from "./control-laterdog.ts";
@@ -21,7 +19,6 @@ try {
   const codexHome = join(fixture.info.dataDir, ".codex");
   mkdirSync(codexHome, { recursive: true });
   copyFileSync(auth, join(codexHome, "auth.json"));
-  // No search-mode override: exercise Codex's normal default too.
   writeFileSync(join(codexHome, "config.toml"), '');
   await api("PATCH", "/api/instances/codex", { cli });
   console.log(JSON.stringify({ fixture: fixture.info }));
@@ -47,12 +44,8 @@ try {
     const searches = records.filter(record => record.msg?.method === "item/completed" && record.msg?.params?.item?.type === "webSearch");
     writeFileSync(join(output, `${model}-search.json`), JSON.stringify(searches, null, 2));
     entry.searches = searches.map(record => record.msg.params.item);
-    // webSearch has no status field in Codex 0.154. Verify result records,
-    // rather than mistaking an absent status or a completed turn for success.
     const hasResults = (item: any) => item.results?.some((result: any) => result.type === "text_result" && result.url && result.snippet && result.title !== "Internal Error");
     entry.failedSearchCalls = entry.searches.filter((item: any) => !hasResults(item));
-    // A failed page fetch may be recovered. Require actual search results AND
-    // a fetched source page; preserve intermediate failures in the report.
     entry.verified = verifiedNativeSearch(entry.wait?.status, entry.searches, entry.messages.messages);
     save();
     console.log(JSON.stringify({ model, status: entry.wait?.status, verified: entry.verified, searches: entry.searches }));

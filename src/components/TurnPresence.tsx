@@ -1,6 +1,3 @@
-// Left-edge tail: mascot looks around while it works, with a live activity
-// sheen beside it. The moment there is an answer, the label is gone while
-// the canonical transcript row performs the settle-in animation above it.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { MOTION } from "@/lib/motion";
@@ -17,7 +14,6 @@ export function TurnPresence({
   visible: boolean;
   label?: string;
   answering?: boolean;
-  /** Turn start (epoch ms) — shows a self-ticking elapsed readout while working. */
   since?: number | null;
 }) {
   const [mounted, setMounted] = useState(visible);
@@ -39,7 +35,6 @@ export function TurnPresence({
       return;
     }
     setPhase("out");
-    // unmounts once `.turn-mascot-out` (one base beat) has played
     const timer = setTimeout(() => setMounted(false), MOTION.base);
     return () => clearTimeout(timer);
   }, [visible, answering, mounted]);

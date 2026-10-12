@@ -25,7 +25,6 @@ function panelWidth(): number {
   return 440;
 }
 
-/** The agent's own plan. Its current item spins only while the task still works; a finished plan holds still. */
 function TodoList({ todos, working }: { todos: CloudTaskTodo[]; working: boolean }) {
   return (
     <ul className="space-y-1" aria-label={t("cloudTask.plan")}>
@@ -57,7 +56,6 @@ function StepRow({ step }: { step: CloudTaskStep }) {
         </div>
       );
     case "tool": case "error": {
-      // the same plain sentence the chat card shows, with the exact file or command beside it
       const plain = plainStep(step);
       if (!plain) return null;
       const Mark = step.k === "error" ? AlertTriangle : ChevronRight;

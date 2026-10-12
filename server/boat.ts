@@ -1,15 +1,3 @@
-// Boat (boat.dev) provider — the bot's cloud computer. Ported from
-// agentcal-api src/providers/box.js, reshaped per-bot instead of
-// per-customer: every bot gets one persistent boat (deterministic name),
-// stop pauses billing while the disk survives, and Join always mints a
-// FRESH desktop URL (stream tokens rotate on every state change — never
-// persist one).
-//
-// Substrate facts (probed by agentcal 2026-07-24 on a live boat):
-//   - REST only: POST /boxes/{id}/commands runs shell synchronously.
-//   - stop→archived ~5s, resume→idle ~8s; disk persists, tmux does not.
-//   - X11 desktop with Chrome + Ghostty; passwordless sudo; node 24.
-//   - the dedicated IP rotates across archive/resume — never persist it.
 import { createHash } from "node:crypto";
 
 import { DATA_DIR, type AppConfig } from "./config.ts";
@@ -40,8 +28,6 @@ const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'
 
 export const MAX_REMOTE_COMMAND_LENGTH = 4_000;
 
-/** Run an owner-supplied console command without inheriting provider or
- * account credentials from the boat's environment. */
 export function isolatedRemoteCommand(command: string): string {
   return [
     "exec env -i",
@@ -58,8 +44,6 @@ export function isolatedRemoteCommand(command: string): string {
   ].join(" ");
 }
 
-// Boat's provider surface keeps its historical Box-era names: env LATERDOG_BOX_API,
-// base path /api/box/v1, REST paths /boxes/*, and the box_ token prefix.
 const READY = new Set(["idle", "ready", "running"]);
 const SLEEPING = new Set(["archived", "archiving", "stopped", "stopping"]);
 const DEFAULT_BOAT_TTL_SECONDS = 8 * 60 * 60;
@@ -67,8 +51,6 @@ const TRIAL_BOAT_TTL_SECONDS = 2 * 60 * 60;
 const BOAT_CREATE_IN_PROGRESS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
 const BOAT_DELETE_OPERATION_POLL_DELAYS_MS = [0, 100, 250, 500, 1_000, 2_000] as const;
 const BOAT_INVENTORY_PAGE_SIZE = 200;
-// Current self-serve accounts top out below 2,000 boats. Keep the walk
-// bounded anyway: a broken or adversarial cursor must not hold Settings open.
 const MAX_BOAT_INVENTORY_PAGES = 10;
 const LEGACY_MANAGED_BOAT_NAME = /^laterdog-[a-z0-9]{1,8}-[a-f0-9]{6}$/;
 const SCOPED_MANAGED_BOAT_NAME = /^laterdog-[a-f0-9]{12}-[a-z0-9]{1,8}-[a-f0-9]{6}$/;
@@ -91,15 +73,8 @@ const BOAT_STATES = new Set([
   "removing",
   "error",
 ]);
-// Provider listings are account-wide. Hash the durable local environment id
-// into every new name so another later.dog installation using the same Boat
-// account cannot mistake this installation's computers for abandoned ones.
-// The environment UUID itself never leaves the local data directory.
 let scopedBoatPrefixCache: string | null = null;
 
-/** Resolve only after server startup has migrated the legacy data directory
- * and acquired its writer lease. A static-import side effect here used to
- * create the new directory too early and suppress that migration. */
 function scopedBoatPrefix(): string {
   if (scopedBoatPrefixCache) return scopedBoatPrefixCache;
   const scope = createHash("sha256")
@@ -142,9 +117,6 @@ export interface BoatIdentityInspection {
 
 export type BoatTurnLifecycleAction = "attach" | "provision" | "wake";
 
-/** Decide lifecycle work before a turn mounts Boat. Only a turn whose place
- * is Cloud gets here (Auto never reads the Boat account), so a missing Boat
- * is created and a sleeping one woken. */
 export function boatTurnLifecycleAction(state: string | null): BoatTurnLifecycleAction {
   if (state && READY.has(state)) return "attach";
   return state ? "wake" : "provision";
@@ -154,17 +126,10 @@ export type ManagedBoatMutationClaim = (
   instance: ManagedBoatInventoryInstance,
 ) => (() => void) | void;
 
-/** Keep one provider account for the whole logical operation. Settings may
- * replace the shared config object after an async request has started; every
- * follow-up (rename, readiness, cleanup, etc.) must keep using the credential
- * that selected or created the Boat in the first place. */
 function snapshotBoatConfig(cfg: AppConfig): AppConfig {
   return { box: cfg.box ? { token: cfg.box.token } : undefined };
 }
 
-/** The base URL follows the credential in use (included-services.ts): an own
- * token goes to Boat (LATERDOG_BOX_API points it at a stub in tests), Cloud Pro's
- * included token only to its relay. */
 function boatFetch(cfg: AppConfig, path: string, opts: RequestInit = {}) {
   const account = boatAccount(cfg);
   return fetch(`${account?.api ?? boatProviderApi()}${path}`, {
@@ -190,9 +155,6 @@ interface BoatDeletionOperation {
   status: "pending" | "processing" | "blocked" | "completed";
 }
 
-/** Accept only the immutable identity fields needed to follow a delete. Any
- * malformed success envelope falls back to a direct Boat read instead of
- * authorizing journal retirement. */
 function boatDeletionOperation(
   body: any,
   boxId: string,
@@ -222,9 +184,6 @@ function boatDeleteProvedAbsent(result: Awaited<ReturnType<typeof boatJson>>): b
   return result.status === 404 || result.status === 410;
 }
 
-/** Retire the create receipt before the deletion fence. If that first durable
- * write fails, the fence remains and no caller can reuse a Boat whose ownership
- * recovery is uncertain. */
 function finishRecordedBoatDeletion(boxId: string): void {
   retireDeletedBoatCreate(boxId);
   forgetBoatId(boxId);
@@ -233,8 +192,6 @@ function finishRecordedBoatDeletion(boxId: string): void {
 
 type BoatDeletionReconciliation = "confirmed" | "pending" | "blocked";
 
-/** Reconcile one durable deletion against the exact provider operation/Box.
- * Account LIST omission is never evidence: it is eventually consistent. */
 async function reconcileRecordedBoatDeletion(
   cfg: AppConfig,
   initial: BoatDeletionRecord,
@@ -272,8 +229,6 @@ async function reconcileRecordedBoatDeletion(
     }
   }
 
-  // A direct immutable-id 404/410 is the only alternate completion proof.
-  // A live identity keeps the fence even when the operation endpoint is down.
   const inspected = await inspectBoatIdentity(cfg, record.boxId);
   if (!inspected.available) return record.phase === "blocked" ? "blocked" : "pending";
   if (!inspected.identity) {
@@ -289,9 +244,6 @@ async function reconcileRecordedBoatDeletion(
   return record.phase === "blocked" ? "blocked" : "pending";
 }
 
-/** Prove that a replacement token can see every durable deletion target
- * before Settings swaps credentials. Unlike normal reconciliation, a bare
- * 404 is not completion proof here: it may simply be a different account. */
 export async function verifyBoatDeletionCredential(cfg: AppConfig): Promise<void> {
   cfg = snapshotBoatConfig(cfg);
   for (const initial of boatDeletionSnapshot()) {
@@ -303,9 +255,7 @@ export async function verifyBoatDeletionCredential(cfg: AppConfig): Promise<void
         polled = await boatJson(cfg, `/deletion-operations/${record.operationId}`, {
           signal: AbortSignal.timeout(20_000),
         });
-      } catch {
-        // The exact Boat identity below can still prove account continuity.
-      }
+      } catch {}
       if (polled?.ok) {
         const operation = boatDeletionOperation(polled.body, record.boxId, record.operationId);
         if (operation) {
@@ -338,8 +288,6 @@ export async function verifyBoatDeletionCredential(cfg: AppConfig): Promise<void
   }
 }
 
-/** Bind a successful DELETE response to the durable target before polling.
- * A malformed receipt leaves the prepared fence intact. */
 async function confirmAcceptedBoatDeletion(
   cfg: AppConfig,
   record: BoatDeletionRecord,
@@ -364,8 +312,6 @@ async function confirmAcceptedBoatDeletion(
   return reconcileRecordedBoatDeletion(cfg, next, pollDelaysMs);
 }
 
-/** Send (or explicitly retry) DELETE only after the immutable target is on
- * disk. The returned pending state always has a validated operation receipt. */
 async function requestRecordedBoatDeletion(
   cfg: AppConfig,
   identity: { boxId: string; name: string; ownerBotId: string | null },
@@ -408,15 +354,11 @@ function legacyBoatNameFor(botId: string): string {
   return `laterdog-${prefix}-${hash}`;
 }
 
-// Deterministic per installation and bot. The bot hash kills truncated-id
-// collisions; the environment scope prevents cross-install ownership claims.
 export async function boatNameFor(botId: string) {
   const { prefix, hash } = boatBotNameParts(botId);
   return `${scopedBoatPrefix()}${prefix}-${hash}`;
 }
 
-/** Credential restoration must accept both current installation-scoped names
- * and durable pre-scope names that the ownership journal may have adopted. */
 export async function boatNameMatchesBot(botId: string, name: string): Promise<boolean> {
   return name === await boatNameFor(botId) || name === legacyBoatNameFor(botId);
 }
@@ -437,11 +379,6 @@ export async function runCommand(cfg: AppConfig, boxId: string, command: string,
   };
 }
 
-// Desktop access, in the order that actually works (agentcal probing):
-//   1) VNC (POST /desktop?vnc=1) — plain WebSocket, survives P2P-blocking
-//      networks; answers {provisioning:true} first, so poll for the URL.
-//   2) WebRTC stream (POST /desktop) as fallback — STUN-only, can hang.
-// The desktopUrl stored on the boat object is NOT usable on its own.
 async function mintDesktopUrl(cfg: AppConfig, boxId: string, { vncBudgetMs = 60_000 } = {}) {
   assertBoatNotDeleting(boxId);
   const t0 = Date.now();
@@ -460,11 +397,8 @@ async function mintDesktopUrl(cfg: AppConfig, boxId: string, { vncBudgetMs = 60_
 async function waitReady(cfg: AppConfig, boxId: string, budgetMs = 90_000) {
   assertBoatNotDeleting(boxId);
   const deadline = Date.now() + budgetMs;
-  // Every request ends with the budget: a relay that accepts the connection
-  // and then stalls must not hold a turn's start past it.
   const untilDeadline = () => AbortSignal.timeout(Math.max(1, deadline - Date.now()));
   const outOfTime = (error: unknown) => error instanceof Error && error.name === "TimeoutError";
-  // Boat's words for the last failed resume, if the wait runs out on them.
   let resumeFailure: Error | null = null;
   try {
     while (Date.now() < deadline) {
@@ -473,10 +407,6 @@ async function waitReady(cfg: AppConfig, boxId: string, budgetMs = 90_000) {
       const state = body?.box?.state;
       if (READY.has(state)) return body.box;
       if (state === "error") return null;
-      // an archiving boat can't resume until the snapshot lands — nudge after.
-      // A refusal (a plan limit, say) is final: report it now. A server error
-      // is retried on the next poll, as Boat asks; 409 is a state race with a
-      // wake already under way.
       if (state === "archived") {
         const resumed = await boatJson(cfg, `/boxes/${boxId}/resume`, { method: "POST", signal: untilDeadline() });
         if (resumed.ok) resumeFailure = null;
@@ -495,11 +425,6 @@ async function waitReady(cfg: AppConfig, boxId: string, budgetMs = 90_000) {
   return null;
 }
 
-// Resolving a bot's boat means LISTing every boat in the account, so it is
-// the most expensive thing on any hot path. The name is deterministic, so
-// once we know the id we can go straight at it — the cache is refreshed
-// whenever the direct read fails (deleted/renamed boat) and always carries
-// the live state so callers can still see "archived".
 const boatIdCache = new Map<string, string>();
 
 function boatInventoryProblem(status: number, body: any, included = false): string {
@@ -556,15 +481,6 @@ async function listBoatPages(
   return { ok: false, problem: "boat.dev returned too many cloud computer pages — narrow the account inventory and refresh" };
 }
 
-/**
- * One account listing for Settings and deletion guards. Only boats
- * carrying later.dog's exact deterministic name shape leave this boundary;
- * provider desktop links, IPs, environment details and other raw fields never
- * reach the renderer. Only names scoped to this installation may become
- * ownerless rows. Legacy names are accepted solely when a current bot proves
- * ownership; foreign-install and ownerless legacy rows remain invisible and
- * therefore cannot become deletion targets.
- */
 export async function listManagedBoats(
   cfg: AppConfig,
   owners: ManagedBoatOwner[],
@@ -598,11 +514,6 @@ export async function listManagedBoats(
     instances: [],
   });
 
-  // A successful create is journaled before the account-wide LIST is
-  // guaranteed to include it. Reconcile that durable identity with the
-  // authoritative direct endpoint so Settings can still display and delete
-  // the computer. Credential replacement probes deliberately opt out: their
-  // token must be judged only by the account inventory it can list.
   let candidates = [...listed.boats];
   if (options.adoptLegacy !== false) {
     const namedOwnerByBotId = new Map(namedOwners.map((entry) => [entry.owner.botId, entry] as const));
@@ -634,7 +545,6 @@ export async function listManagedBoats(
         return invalidInventory(inspected.problem ?? "A remembered cloud computer could not be verified");
       }
       if (!inspected.identity) {
-        // Direct 404/410 is stronger than an eventually-consistent LIST row.
         candidates = candidates.filter((candidate) => candidate?.id !== recovery.boxId);
         retireDeletedBoatCreate(recovery.boxId);
         continue;
@@ -667,8 +577,6 @@ export async function listManagedBoats(
         return invalidInventory(error instanceof Error ? error.message : "A cloud computer deletion could not be verified");
       }
       if (state === "confirmed") {
-        // LIST may still contain a stale row after the exact operation/direct
-        // endpoint proved deletion. Do not let it resurrect the computer.
         candidates = candidates.filter((candidate) => candidate?.id !== deletion.boxId);
         continue;
       }
@@ -694,8 +602,6 @@ export async function listManagedBoats(
         candidates.push({ id: current.boxId, name: current.name, state: "removing" });
         continue;
       }
-      // A prepared request may have lost its response, and a blocked request
-      // is retryable. Keep the exact row actionable only after a direct read.
       const inspected = await inspectBoatIdentity(cfg, current.boxId);
       if (!inspected.available || !inspected.identity || inspected.identity.name !== current.name) {
         return invalidInventory(inspected.problem ?? "A cloud computer deletion target could not be verified");
@@ -741,23 +647,15 @@ export async function listManagedBoats(
     let owner: ManagedBoatOwner | null = null;
     let legacyOwner = false;
     if (SCOPED_MANAGED_BOAT_NAME.test(name)) {
-      // A valid later.dog name for another environment is account-visible but not
-      // ours to display or mutate.
       if (!name.startsWith(scopedPrefix)) continue;
       owner = ownerByCurrentName.get(name) ?? null;
     } else if (LEGACY_MANAGED_BOAT_NAME.test(name)) {
-      // Pre-scope names have no installation provenance. A live local bot is
-      // the only safe ownership proof; unmatched legacy rows stay provider-
-      // managed until the person handles them in boat.dev directly.
       owner = ownerByLegacyName.get(name) ?? null;
       if (!owner) continue;
       legacyOwner = true;
     } else {
       continue;
     }
-    // Once a row names this installation (or a live bot through its legacy
-    // deterministic name), silently skipping a malformed/duplicated identity
-    // could let bot deletion mistake provider corruption for absence.
     if (!BOAT_ID.test(boxId)) {
       return invalidInventory("boat.dev returned an invalid id for a later.dog-managed cloud computer — refresh or repair it in boat.dev");
     }
@@ -789,10 +687,6 @@ export async function listManagedBoats(
   return { configured: true, available: true, problem: null, instances };
 }
 
-/** Direct identity proof for a Boat remembered in the local create journal.
- * Unlike account LIST, this endpoint is not eventually consistent. Only the
- * immutable id, provider name and allowlisted lifecycle state cross this
- * boundary. */
 export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promise<BoatIdentityInspection> {
   cfg = snapshotBoatConfig(cfg);
   if (!BOAT_ID.test(boxId)) {
@@ -870,8 +764,6 @@ const QUIESCE_BROWSER = [
 
 async function stopBoat(cfg: AppConfig, boxId: string): Promise<void> {
   assertBoatNotDeleting(boxId);
-  // Browser shutdown is best-effort, but the provider stop is not: Settings
-  // must never say a computer is sleeping when boat.dev rejected the action.
   await runCommand(cfg, boxId, QUIESCE_BROWSER, { timeoutMs: 5_000 }).catch(() => null);
   const stopped = await boatJson(cfg, `/boxes/${boxId}/stop`, { method: "POST" });
   if (!stopped.ok) {
@@ -885,8 +777,6 @@ function forgetBoatId(boxId: string): void {
   }
 }
 
-/** Explicit Settings action. Re-listing prevents a stale row from targeting a
- * renamed or foreign provider resource. This never wakes or joins a Boat. */
 export async function sleepManagedBoat(
   cfg: AppConfig,
   owners: ManagedBoatOwner[],
@@ -912,9 +802,6 @@ export async function sleepManagedBoat(
   }
 }
 
-/** Permanent Settings action. The caller must echo the exact freshly-listed
- * machine name as well as its id; boat.dev independently requires the id in
- * its confirmation header. */
 export async function deleteManagedBoat(
   cfg: AppConfig,
   owners: ManagedBoatOwner[],
@@ -928,14 +815,10 @@ export async function deleteManagedBoat(
   if (remembered) {
     const reconciled = await reconcileRecordedBoatDeletion(cfg, remembered, [0]);
     if (reconciled === "confirmed") return { ok: true };
-    // A validated accepted operation owns this target. Retrying DELETE would
-    // create a second operation and weaken the only trustworthy receipt.
     const current = getBoatDeletion(boxId);
     if (current?.phase === "accepted") {
       return { ok: true, pending: true as const };
     }
-    // Prepared (ambiguous request) and blocked records may be retried only by
-    // this explicit Settings/bot-deletion path after fresh identity checks.
   }
   const instance = await revalidateManagedBoat(cfg, owners, boxId);
   if (instance.inUse) {
@@ -968,11 +851,8 @@ export async function findBoat(cfg: AppConfig, botId: string) {
   if (cachedId) {
     let direct: Awaited<ReturnType<typeof boatJson>> | null = null;
     try {
-      // Bounded like every other Boat read: a relay that accepts the
-      // connection and stalls must not hold a turn's setup for minutes.
       direct = await boatJson(cfg, `/boxes/${cachedId}`, { signal: AbortSignal.timeout(20_000) });
     } catch {
-      // A direct read can fail while the account listing still succeeds.
       // Fall through to the authoritative paginated lookup before deciding.
     }
     const directBoat = direct?.body?.box;
@@ -980,7 +860,7 @@ export async function findBoat(cfg: AppConfig, botId: string) {
     if (direct?.ok && directBoat?.id !== cachedId) {
       throw Object.assign(new Error("boat.dev returned an invalid cloud computer identity"), { status: 503 });
     }
-    boatIdCache.delete(botId); // gone or broken — fall back to the listing
+    boatIdCache.delete(botId);
   }
   const name = await boatNameFor(botId);
   const legacyName = legacyBoatNameFor(botId);
@@ -988,8 +868,6 @@ export async function findBoat(cfg: AppConfig, botId: string) {
   if (!listed.ok) {
     throw Object.assign(new Error(listed.problem), { status: 503 });
   }
-  // Prefer the installation-scoped identity. A legacy name remains
-  // discoverable only for this exact local bot id.
   const expected = listed.boats.filter((candidate: any) => candidate?.name === name || candidate?.name === legacyName);
   if (expected.some((candidate: any) => !BOAT_ID.test(candidate?.id))) {
     throw Object.assign(new Error("boat.dev returned an invalid cloud computer identity"), { status: 503 });
@@ -1008,7 +886,6 @@ export async function findBoat(cfg: AppConfig, botId: string) {
   return found;
 }
 
-/** Ready-or-null without the LIST when we already know the boat. */
 export async function readyBoat(cfg: AppConfig, botId: string, budgetMs = 60_000) {
   cfg = snapshotBoatConfig(cfg);
   const boat = await findBoat(cfg, botId);
@@ -1017,8 +894,6 @@ export async function readyBoat(cfg: AppConfig, botId: string, budgetMs = 60_000
   return waitReady(cfg, boat.id, budgetMs);
 }
 
-/** The Boat credential a request uses: the person's own token, else Cloud
- * Pro's included one. Settings' own-key flows read cfg.box.token instead. */
 export function boatAccount(cfg: AppConfig): ServiceCredential | null {
   return boatCredential(cfg.box?.token);
 }
@@ -1031,17 +906,11 @@ function usesIncludedBoat(cfg: AppConfig): boolean {
   return boatAccount(cfg)?.included === true;
 }
 
-/** What Settings shows: configured-or-not, and whether that is Cloud Pro's
- * included account rather than a saved key. Never the token. */
 export function describeBoatAccount(cfg: AppConfig): { configured: boolean; included?: true } {
   const account = boatAccount(cfg);
   return { configured: Boolean(account), ...(account?.included ? { included: true as const } : {}) };
 }
 
-/** Ask the provider whether a token is real, before we let someone save
- * it. Without this the paste "succeeds", and the first sign of trouble is
- * a 401 in a different panel minutes later, with nothing to act on. Only
- * ever an own token, so only ever Boat itself. */
 export async function verifyToken(token: string): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
     const res = await fetch(`${boatProviderApi()}/boxes`, {
@@ -1050,8 +919,6 @@ export async function verifyToken(token: string): Promise<{ ok: true } | { ok: f
     });
     if (res.ok) return { ok: true };
     if (res.status === 401 || res.status === 403) {
-      // the common mistake is pasting some other credential entirely —
-      // boat API keys are prefixed, so say which thing is wrong
       return {
         ok: false,
         message: token.startsWith("box_")
@@ -1065,20 +932,12 @@ export async function verifyToken(token: string): Promise<{ ok: true } | { ok: f
   }
 }
 
-/** A rejected Cloud relay token: nothing the person pasted, so nothing
- * for them to fix in Settings. Plan-neutral: every Cloud plan includes them. */
 const INCLUDED_BOAT_UNAVAILABLE = "The cloud computers included with your Cloud plan aren't available right now. Try again later.";
 
-/** Turn a provider refusal into something a person can act on. The
- * provider's own message is better than anything we can invent — it knows
- * the plan, the limit and the link — so prefer it and only fall back to
- * our own wording when it says nothing useful. `included`: the request used
- * Cloud Pro's included token, not the person's own. */
 export function boatErrorMessage(status: number, what: string, body?: any, included = false): string {
   const theirs = typeof body?.message === "string" ? body.message.trim() : "";
   const link = typeof body?.error?.details?.billingUrl === "string" ? body.error.details.billingUrl : "";
   if (status === 402) {
-    // e.g. "Start the $20/month Boat plan to create sandboxes."
     return [theirs || "boat.dev needs a paid Boat plan before it will create a computer.", link].filter(Boolean).join(" ");
   }
   if (status === 401 || status === 403) {
@@ -1091,11 +950,6 @@ export function boatErrorMessage(status: number, what: string, body?: any, inclu
   return theirs ? `${what} failed: ${theirs}` : `${what} failed (${status})`;
 }
 
-/** A refused start as an error that keeps the provider's status and code
- * (the Admin's own, such as subscription_inactive), so a failed place is
- * read from the code first and from the words only until every refusal
- * has one (shared/place-view.ts cloudRefusal). Named apart from `status`,
- * which a route would answer with. */
 export function boatRefusal(status: number, what: string, body?: any, included = false): Error & { boatStatus: number; boatCode?: string } {
   const code = body?.error?.code ?? body?.code;
   return Object.assign(new Error(boatErrorMessage(status, what, body, included)), {
@@ -1103,10 +957,6 @@ export function boatRefusal(status: number, what: string, body?: any, included =
   });
 }
 
-/** boat.dev trial accounts reject the normal eight-hour auto-stop with a
- * structured `trial_auto_stop_required` refusal. Retry that one condition
- * once at the provider's advertised maximum (or the documented two-hour
- * trial ceiling). Other create failures must retain their original error. */
 function trialBoatTtlSeconds(body: any): number | null {
   const code = body?.error?.code ?? body?.code;
   if (code !== "trial_auto_stop_required") return null;
@@ -1119,8 +969,6 @@ function trialBoatTtlSeconds(body: any): number | null {
 
 type BoatCreateResult = Awaited<ReturnType<typeof boatJson>> & {
   request: BoatCreateRequest;
-  /** Automatic deletion is safe only for a Boat first created by this exact
-   * provisioning call. A journal recovery may point at durable user data. */
   createdThisAttempt: boolean;
 };
 
@@ -1130,18 +978,11 @@ function idempotentCreateInProgress(result: Awaited<ReturnType<typeof boatJson>>
 }
 
 async function requestBoatCreate(cfg: AppConfig, botId: string, ttlSeconds: number): Promise<BoatCreateResult> {
-  // The computer is a desktop the bot's own engine drives from here, so it
-  // needs no AI sign-in of its own: provider-side env injection stays off and
-  // no key this later.dog holds is ever sent to it. A trial-TTL retry must
-  // receive a different idempotency key, and the journal on disk never
-  // carries a credential.
   const body = JSON.stringify({ ttlSeconds, noEnv: true });
   let attempt = beginBoatCreate(botId, body);
   let request = attempt.request;
   let createdThisAttempt = attempt.startedNow;
 
-  // A previous process received the Boat but died before naming it. Resolve
-  // the durable identity directly; never issue a second create first.
   if (request.boxId) {
     const recovered = await boatJson(cfg, `/boxes/${request.boxId}`, {
       signal: AbortSignal.timeout(20_000),
@@ -1170,8 +1011,6 @@ async function requestBoatCreate(cfg: AppConfig, botId: string, ttlSeconds: numb
         body,
       });
     } catch (error) {
-      // A dropped response is ambiguous: boat.dev may already have created
-      // the Boat. One retry with the same key recovers it safely.
       if (ambiguousRetries++ === 0) continue;
       throw error;
     }
@@ -1189,9 +1028,6 @@ async function requestBoatCreate(cfg: AppConfig, botId: string, ttlSeconds: numb
       return { ...last, request, createdThisAttempt };
     }
     if ((last.status >= 500 || last.ok) && ambiguousRetries++ === 0) continue;
-    // A 5xx or any idempotency conflict can follow a provider-side create;
-    // keep its key for recovery. Only a definitive client rejection proves
-    // this request did not create a Boat and may be replaced safely.
     if (last.status < 500 && last.status !== 409 && !last.ok) discardBoatCreate(request);
     return { ...last, request, createdThisAttempt };
   }
@@ -1204,9 +1040,6 @@ async function createBoat(cfg: AppConfig, botId: string) {
   return trialTtl === null ? first : requestBoatCreate(cfg, botId, trialTtl);
 }
 
-/** A prior explicit delete always wins over provisioning. Reconcile/retry the
- * old immutable target, then require a fresh provision request so one click
- * can never both erase and silently recreate the same computer. */
 async function finishPriorDeletionBeforeProvision(cfg: AppConfig, botId: string): Promise<void> {
   const remembered = boatDeletionSnapshot().filter((record) => record.ownerBotId === botId);
   if (!remembered.length) return;
@@ -1230,7 +1063,6 @@ async function finishPriorDeletionBeforeProvision(cfg: AppConfig, botId: string)
   );
 }
 
-/** Boat state for the Computer panel. */
 export async function boatStatus(cfg: AppConfig, botId: string) {
   cfg = snapshotBoatConfig(cfg);
   if (!boatConfigured(cfg)) return { configured: false, box: null };
@@ -1241,10 +1073,6 @@ export async function boatStatus(cfg: AppConfig, botId: string) {
   };
 }
 
-/**
- * Find-or-create the bot's persistent boat, wait for ready, and mint a fresh
- * desktop URL. The boat ships its own computer-use driver.
- */
 export async function provisionBoat(cfg: AppConfig, botId: string, _botName: string) {
   cfg = snapshotBoatConfig(cfg);
   if (!boatConfigured(cfg)) {
@@ -1257,12 +1085,7 @@ export async function provisionBoat(cfg: AppConfig, botId: string, _botName: str
   let createRequest: BoatCreateRequest | null = null;
   try {
     if (!boat) {
-      // Deletion can be prepared by another process after the initial lookup.
-      // Never create a replacement until the durable fence is reconciled.
       assertBotBoatNotDeleting(botId);
-      // Provider-side backstop: archives itself (billing pauses, disk
-      // survives) if every stop path dies. Trial accounts get one narrower
-      // retry when boat.dev reports their shorter TTL ceiling.
       const createRes = await createBoat(cfg, botId);
       if (!createRes.ok || !createRes.body?.box?.id) {
         throw boatRefusal(createRes.status, "boat create", createRes.body, usesIncludedBoat(cfg));
@@ -1280,16 +1103,12 @@ export async function provisionBoat(cfg: AppConfig, botId: string, _botName: str
     const ready = await waitReady(cfg, boat.id);
     if (!ready) throw new Error("box did not become ready within 90s — retry in a minute");
 
-    // Nothing to install: every boat ships its own computer-use driver.
     const joinUrl = await mintDesktopUrl(cfg, boat.id);
     if (!joinUrl) throw new Error("box desktop link could not be created");
     return { boxId: boat.id, machineName: vmName, reused: !created, state: ready.state, joinUrl };
   } catch (error) {
     if (!created || !boat?.id) throw error;
     const originalMessage = error instanceof Error ? error.message : String(error);
-    // Capture the provider's current name when possible. Naming may be the
-    // step that failed, so the desired deterministic name is only a fallback
-    // for the durable fence, never proof of a later live identity.
     const inspected = await inspectBoatIdentity(cfg, boat.id);
     if (inspected.available && !inspected.identity) {
       retireDeletedBoatCreate(boat.id);
@@ -1320,20 +1139,15 @@ export async function provisionBoat(cfg: AppConfig, botId: string, _botName: str
   }
 }
 
-/** Wake the bot's boat and return a FRESH desktop URL. */
 export async function joinBoat(cfg: AppConfig, botId: string) {
   cfg = snapshotBoatConfig(cfg);
   const boat = await findBoat(cfg, botId);
   if (!boat) throw new Error("no computer yet — provision it first");
   const ready = await waitReady(cfg, boat.id);
   if (!ready) throw new Error("the box did not wake in time — try again");
-  // Provider archive/resume preserves disk but not processes; the boat brings
-  // its own driver daemon back up, so there is nothing to reattach here.
   return { joinUrl: await mintDesktopUrl(cfg, boat.id), state: ready.state ?? null };
 }
 
-/** Mint a human-control URL without changing provider lifecycle or guest
- * processes. This is the only join path allowed while a bot turn is active. */
 export async function joinReadyBoat(cfg: AppConfig, botId: string) {
   cfg = snapshotBoatConfig(cfg);
   const boat = await findBoat(cfg, botId);
@@ -1347,7 +1161,6 @@ export async function joinReadyBoat(cfg: AppConfig, botId: string) {
   return { joinUrl: await mintDesktopUrl(cfg, boat.id), state: boat.state ?? null };
 }
 
-/** Archive the bot's boat now (billing pauses, disk survives). */
 export async function sleepBoat(cfg: AppConfig, botId: string) {
   cfg = snapshotBoatConfig(cfg);
   const boat = await findBoat(cfg, botId);
@@ -1357,7 +1170,6 @@ export async function sleepBoat(cfg: AppConfig, botId: string) {
   return { ok: true };
 }
 
-/** Owner-scoped shell for the Computer panel's console. */
 export async function execOnBoat(cfg: AppConfig, botId: string, command: string) {
   cfg = snapshotBoatConfig(cfg);
   if (command.length > MAX_REMOTE_COMMAND_LENGTH) {
@@ -1371,32 +1183,15 @@ export async function execOnBoat(cfg: AppConfig, botId: string, command: string)
   return { exitCode: out.exitCode, stdout: out.stdout.slice(-4000), stderr: out.stderr.slice(-2000) };
 }
 
-// Screenshot for the Computer panel + screen-in-chat. Two hops: capture
-// to a file on the boat (scrot straight to JPEG — no ImageMagick startup
-// unless a downscale is actually needed), then read the bytes back.
-// Base64 over command stdout is NOT reliable for the panel's full-size
-// frames (probed 2026-08-12: an otherwise-complete payload came back with
-// a corrupted length), so the frame is always fetched over HTTP here.
-//
-// The frame is for a person: it fills the panel and opens in the chat's
-// image viewer, so it keeps the desktop's native size up to 1080p and a
-// quality where page text stays legible. Only wider displays are scaled
-// down, with -resize rather than -thumbnail so the resample is not the
-// fast-and-blurry kind meant for icons. The pointer is drawn into the frame
-// (scrot --pointer, ffmpeg -draw_mouse): watching the bot work means seeing
-// where its cursor is, and X11 captures leave it out by default.
 const PANEL_PATH = "/tmp/laterdog-panel.jpg";
 export const PANEL_FRAME_WIDTH = 1920;
 export const PANEL_FRAME_QUALITY = 85;
-// ffmpeg's -q:v runs 2 (best) to 31; 3 lands near JPEG quality 85.
 const PANEL_FRAME_FFMPEG_Q = 3;
 
-/** The shell that captures one panel frame on the boat. Exported for tests. */
 export function panelShotCommand({ width = PANEL_FRAME_WIDTH, quality = PANEL_FRAME_QUALITY, framePath = PANEL_PATH, nativeSize = false } = {}): string {
   return [
     "export DISPLAY=${DISPLAY:-:0}",
     `f=${shellQuote(framePath)}`,
-    // a stale frame must not pass `test -s` when every capture tool fails
     'rm -f "$f"',
     'w=$(xdotool getdisplaygeometry 2>/dev/null | cut -d" " -f1)',
     'case "$w" in ""|*[!0-9]*) w=0;; esac',
@@ -1407,14 +1202,9 @@ export function panelShotCommand({ width = PANEL_FRAME_WIDTH, quality = PANEL_FR
 }
 const SHOT_CMD = panelShotCommand();
 
-// A compromised boat can answer with an arbitrarily large "frame"; cap what
-// the server ever buffers for one (raw bytes, before base64) so a single
-// response cannot exhaust memory.
 const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 const FRAME_TOO_LARGE = "the box frame exceeds the 8 MB limit";
 
-/** Read a file off the boat as base64 — raw artifact bytes when the API
- * supports it (33% less transfer, no JSON envelope), else the files API. */
 async function readFileBase64(cfg: AppConfig, boxId: string, path: string, signal?: AbortSignal): Promise<string | null> {
   let bytes: Buffer | null = null;
   let tooLarge = false;
@@ -1442,8 +1232,6 @@ async function readFileBase64(cfg: AppConfig, boxId: string, path: string, signa
   return null;
 }
 
-/** `knownBoatId` skips boat resolution entirely — the screen poller holds
- * the id for the whole turn and must not re-resolve it every frame. */
 export async function screenshotBoat(cfg: AppConfig, botId: string, knownBoatId?: string, options?: { signal?: AbortSignal; nativeSize?: boolean }) {
   cfg = snapshotBoatConfig(cfg);
   let boxId = knownBoatId;

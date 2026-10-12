@@ -1,5 +1,3 @@
-// A request spoken on a Live call is an ordinary user message with a small
-// "via call" line under it; typed messages have none.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -21,7 +19,6 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false }, host: { packaged: true, platform: "other" }, localComputer: { available: false, reasonCode: "cua-driver-unavailable", message: "" } }, ready: true }),
 }));
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
-// the thread controls are not what this test is about
 vi.mock("./ModelPicker", () => ({ ModelPicker: () => createElement("span") }));
 vi.mock("./ApprovalModeSelector", async (importOriginal) => ({ ...await importOriginal<typeof import("./ApprovalModeSelector")>(), ApprovalModeSelector: () => createElement("span") }));
 
@@ -45,7 +42,6 @@ describe("via call label", () => {
     expect(markup).toContain("typed words");
     expect(markup).toContain("spoken words");
     expect(markup.match(/>via call</g)).toHaveLength(1);
-    // the label follows the spoken request, not the typed one
     expect(markup.indexOf(">via call<")).toBeGreaterThan(markup.indexOf("spoken words"));
   });
 

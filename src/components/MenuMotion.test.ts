@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// There is no DOM here, so a few lines stand in for React: state held by call
-// order, layout effects run after each render when their deps change, and a
-// state change renders again, the way React settles before it paints.
 const react = vi.hoisted(() => {
   const slots: unknown[] = [];
   const effects: Array<{ deps: unknown[]; cleanup: void | (() => void) }> = [];

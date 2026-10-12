@@ -1,9 +1,3 @@
-// The server answers as soon as it listens, not once every engine CLI has
-// answered a probe (each may take up to its 8 s timeout). Only a first run
-// needs the engine a new bot gets before it listens: the starter bot is made
-// on it. Turns still wait for that read, which is where the server learns
-// what each engine supports. Real server, fake Claude CLI with a slow
-// `auth status`.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,7 +30,6 @@ function freshHome(): string {
   return home;
 }
 
-/** Start the server on `home` and resolve once /api/health answers. */
 async function boot(home: string, knobs: Record<string, string> = {}) {
   const port = await freePortBlock([0, 1]);
   const base = `http://127.0.0.1:${port}`;
@@ -82,8 +75,6 @@ it("answers on a later start while an engine CLI is still being probed, and runs
   const release = join(home, "release-auth");
   const dump = join(home, "fake-claude-dump.json");
   const server = await boot(home, { FAKE_CLAUDE_PROBE_LOG: probes, FAKE_CLAUDE_HOLD_AUTH: release });
-  // The probe the server is still waiting on is alive: health did not wait
-  // for it (the server would have killed it at its timeout first).
   let held = 0;
   await expect.poll(() => {
     held = existsSync(probes) ? Number(/^auth (\d+)$/m.exec(readFileSync(probes, "utf8"))?.[1] ?? 0) : 0;
@@ -91,7 +82,6 @@ it("answers on a later start while an engine CLI is still being probed, and runs
   }, { timeout: 10_000 }).toBeGreaterThan(0);
   expect(() => process.kill(held, 0)).not.toThrow();
 
-  // A turn sent now, in a conversation or a room, waits for that read.
   await server.control("send", "--bot", starter.id, "--task", starter.threadId, "--text", "Right after the start");
   await server.control("send-channel", "--channel", room.id, "--text", "Right after the start, in a room");
   await new Promise((resolve) => setTimeout(resolve, 1_500));
@@ -113,7 +103,6 @@ it("starts the words a later start restored before a message sent while the engi
   const first = await boot(home);
   const [starter] = (await first.get("/api/bots?messages=0")).bots;
   await first.stop();
-  // Words still queued for the conversation when the last run stopped.
   const db = new DatabaseSync(join(home, "messages.db"));
   try {
     db.prepare("INSERT INTO chat_followups(id, kind, owner_id, thread_id, send_id, status, payload) VALUES (?, 'bot', ?, ?, NULL, 'pending', ?)")

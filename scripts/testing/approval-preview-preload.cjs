@@ -1,5 +1,4 @@
 const { contextBridge, ipcRenderer } = require("electron");
-// Only used by the disposable smoke window, never by the packaged app.
 contextBridge.exposeInMainWorld("laterdog", {
   platform: process.platform,
   getCapabilities: async () => ({

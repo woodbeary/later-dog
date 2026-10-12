@@ -1,4 +1,3 @@
-// Explicit --import in the isolated visibility fixture only; never bundled.
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -10,7 +9,6 @@ MessageSearchWorker.prototype.search = async function (...args) {
   const hits = await search.apply(this, args);
   const hold = join(DATA_DIR, "hold-search-result");
   if (existsSync(hold)) {
-    // Signal only after real SQLite results exist, before the HTTP await resumes.
     writeFileSync(`${hold}.ready`, JSON.stringify(hits));
     const deadline = Date.now() + 10_000;
     while (existsSync(hold)) {

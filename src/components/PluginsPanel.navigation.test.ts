@@ -4,9 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bot, InstanceInfo } from "@/state/store";
 import { api } from "@/state/store";
 
-// PluginsPanel's own state, seeded by call order: effects never run under
-// server rendering, so the catalog is put in place the way a finished fetch
-// would leave it. Indexes outside the map keep their initial values.
 const fixture = vi.hoisted(() => ({
   surface: "apps" as "apps" | "mcp",
   dispatch: vi.fn(),
@@ -255,7 +252,6 @@ describe("Apps pop-up", () => {
     expect(tab(true).preventDefault).toHaveBeenCalledOnce();
     expect(active).toBe(last);
 
-    // A resize can hide whichever search previously held focus.
     active = hiddenDesktopSearch;
     expect(tab().preventDefault).toHaveBeenCalledOnce();
     expect(active).toBe(first);
@@ -316,7 +312,7 @@ describe("Apps pop-up", () => {
   it("keeps the per-bot banner, stale notice and self-host key link reachable", () => {
     fixture.instances = [claude];
     fixture.bots = [bot("scout", { composio: false })];
-    fixture.overrides.set(7, true); // stale
+    fixture.overrides.set(7, true);
     let { html } = render();
     expect(html).toContain("Couldn&#x27;t re-check your apps just now");
     fixture.overrides.set(7, false);
@@ -359,7 +355,6 @@ describe("Apps pop-up", () => {
     const rings = tree.filter((node) => node.props["data-used-by-avatar"] !== undefined);
     expect(rings.map((ring) => ring.props["data-used-by-avatar"])).toEqual(["scout", "arrow", "photo"]);
     for (const ring of rings) {
-      // a fixed disc that clips, with the avatar centred in it
       expect(String(ring.props.className).split(" ")).toEqual(expect.arrayContaining([
         "flex", "size-5", "shrink-0", "items-center", "justify-center", "overflow-hidden", "rounded-full", "bg-menu", "ring-2", "ring-menu",
       ]));
@@ -369,22 +364,17 @@ describe("Apps pop-up", () => {
   });
 
   it("draws them small enough that no mascot body reaches the ring", () => {
-    // CursorAvatar's viewBox is the face box plus 15 units on every side.
     const box = FACE_BOX + 30;
     const centre = FACE_BOX / 2;
     for (const body of Object.values(MASCOT_BODIES)) {
       const d = body.body.match(/ d="([^"]+)"/)![1]!;
-      // Absolute moves and cubics only, so the numbers pair up as points.
       expect(d.replace(/[-\d.\s]/g, ""), body.id).toMatch(/^[MCZ]+$/);
       const [x, y, scale] = body.fit.match(/-?\d*\.?\d+/g)!.map(Number) as [number, number, number];
       const numbers = d.match(/-?\d*\.?\d+/g)!.map(Number);
-      // A cubic stays inside its control points' hull, and distance from the
-      // centre is convex, so the farthest control point bounds the outline.
       let reach = 0;
       for (let i = 0; i + 1 < numbers.length; i += 2) {
         reach = Math.max(reach, Math.hypot(x + numbers[i]! * scale - centre, y + numbers[i + 1]! * scale - centre));
       }
-      // inside a size-5 ring: a 10px radius
       expect((reach / box) * USED_BY_AVATAR_SIZE, body.id).toBeLessThan(10);
     }
   });

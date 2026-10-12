@@ -1,8 +1,3 @@
-// A synthetic catalog shaped like Whop's official MCP server, which lists 425
-// tools in 1.2 MB of JSON: `<area>_<action>` names over a few dozen areas, a
-// company_id on nearly every tool, readOnlyHint on the reads, and the odd
-// distractor whose description mentions other areas' words. No real Whop
-// data: every name and sentence here is made up for tests.
 import type { FakeHttpMcpTool } from "./fake-http-mcp-server.ts";
 
 const AREAS = [
@@ -53,12 +48,8 @@ function schemaFor(action: string, padding: number): Record<string, unknown> {
   return { type: "object", properties, required, additionalProperties: false };
 }
 
-/** `count` tools, at most 432: two distractors, then each action across
- * every area in turn. With `padding`, each schema carries that many more
- * characters, to reach a catalog of a given size. */
 export function whopLikeCatalog(count = 300, padding = 0): FakeHttpMcpTool[] {
   const tools: FakeHttpMcpTool[] = [
-    // distractors that mention payments and lists without being the list
     { name: "stats_get", description: "Get statistics for a company, such as payments listed by day.", inputSchema: schemaFor("get", padding), annotations: { readOnlyHint: true } },
     { name: "payments_list_refunded", description: "List payments that were refunded, with their refund details, for a company across every product and plan it sells.", inputSchema: schemaFor("list", padding), annotations: { readOnlyHint: true } },
   ];
@@ -76,16 +67,6 @@ export function whopLikeCatalog(count = 300, padding = 0): FakeHttpMcpTool[] {
   return tools.slice(0, count);
 }
 
-// ── a catalog that puts its meaning in parameters ──
-//
-// Modeled on what the live Whop server showed (synthetic text, none of it
-// Whop's own): many descriptions say little ("Lists payments, newest
-// first."), while the words a person asks with live in parameters: a
-// `metric` enum offering revenue, a period enum offering this_week.
-// "revenue" is in the descriptions of only three unrelated tools, and the
-// tools that answer revenue questions name it only in their schemas.
-// "payment" and "member" appear all over the catalog, so they say little
-// on their own, and payments_list never mentions failed payments at all.
 
 const id = (what: string) => ({ type: "string", description: `The ${what}'s ID.` });
 const page = {
@@ -101,7 +82,6 @@ const range = {
 const t = (name: string, description: string, inputSchema: Record<string, unknown>, readOnly = true): FakeHttpMcpTool =>
   ({ name, description, inputSchema, annotations: readOnly ? { readOnlyHint: true } : {} });
 
-/** About sixty tools in the shape above, plus generic filler areas. */
 export function parameterHeavyCatalog(): FakeHttpMcpTool[] {
   const tools: FakeHttpMcpTool[] = [
     t("products_list", "Lists products, newest first.", obj({ ...company, visibility: { type: "string", enum: ["visible", "hidden", "archived"] }, ...page })),

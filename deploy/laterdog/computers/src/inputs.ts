@@ -1,5 +1,3 @@
-// Validation of API request bodies and query parameters. Pure, so it is unit tested; every failure is a 400 with a code.
-
 import type { Refusal } from "./auth";
 
 export const SIZES = { small: "standard-1", standard: "standard-2", large: "standard-3", xlarge: "standard-4" } as const;
@@ -26,7 +24,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// Every control character (tab and newline included) is refused in names; NUL is refused everywhere (argv cannot carry it).
 // oxlint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
@@ -130,7 +127,6 @@ export function parseExec(body: unknown): Parsed<ExecInput> {
   return { ok: true, value };
 }
 
-/** Idempotency-Key header: optional, 1 to 200 visible ASCII characters. */
 export function parseIdempotencyKey(raw: string | null): Parsed<string | undefined> {
   if (raw === null) return { ok: true, value: undefined };
   if (!/^[\x21-\x7e]{1,200}$/.test(raw)) return bad("invalid_idempotency_key", "Idempotency-Key must be 1 to 200 visible ASCII characters.");

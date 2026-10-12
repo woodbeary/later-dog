@@ -1,11 +1,3 @@
-// Bundle electron-updater into one self-contained file the packaged app can
-// require. This app ships ZERO node_modules at runtime (the harness + UI are
-// pre-compiled into Resources), so a main-process dependency has to be
-// vendored. esbuild inlines electron-updater + its whole dep tree; `electron`
-// stays external (resolved from the runtime). Output ships via files:electron/**.
-//
-// The bundle is then patched so an AppImage update keeps the path the user
-// launches — see scripts/patch-appimage-updater.mjs for why.
 import { build } from "esbuild";
 import { createRequire } from "node:module";
 import { readFile, writeFile } from "node:fs/promises";
@@ -23,8 +15,6 @@ const entryPoint = require.resolve("electron-updater");
 
 await build({
   entryPoints: [entryPoint],
-  // Keep source labels reproducible when an isolated worktree reuses the
-  // identical node_modules tree through a symlink.
   absWorkingDir: entryPoint.split(`${sep}node_modules${sep}`)[0],
   bundle: true,
   platform: "node",
@@ -35,7 +25,5 @@ await build({
   logLevel: "info",
 });
 
-// Throws when upstream's shape moved, so a bundle that would silently break
-// AppImage launchers never reaches a release.
 await writeFile(outfile, patchOrganizationUpdater(patchMacUpdater(patchAppImageUpdater(await readFile(outfile, "utf8")))));
 console.log("patched AppImage replacement, native Mac staging readiness and one-shot organisation relaunch");

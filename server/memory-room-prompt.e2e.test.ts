@@ -1,7 +1,3 @@
-// A room turn mounts the same agents server as a 1:1 turn, memory_update
-// included — so its system prompt must give the same write guidance. Pinned
-// against the real server because the two prompts are assembled inline in
-// two different places, and only the assembled bytes prove they agree.
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
@@ -20,25 +16,20 @@ it("gives a room turn the memory_update guidance, not the file-tools one", async
   };
   const dump = () => {
     try {
-      // SAFETY: the fake CLI writes exactly this shape; a missing or partial file reads as no dump yet
       return JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8")) as { systemPrompt?: string; prompt?: unknown };
     } catch {
       return undefined;
     }
   };
   try {
-    // SAFETY: control-laterdog returns the created bot record under `bot`
     const { bot: lead } = await runControlLaterDog(["new-bot", "--name", "Lead"], { env }) as { bot: { id: string } };
-    // SAFETY: same shape as above
     const { bot: helper } = await runControlLaterDog(["new-bot", "--name", "Helper"], { env }) as { bot: { id: string } };
-    // A 1:1 turn first: it is the reference the room turn must match.
     await runControlLaterDog(["send", "--bot", lead.id, "--text", "Remember that the fixture garden is watered on Mondays."], { env });
     await runControlLaterDog(["wait", "--bot", lead.id, "--timeout", "30"], { env });
     const direct = dump()?.systemPrompt ?? "";
     expect(direct).toContain("Change MEMORY.md only with memory_update");
     expect(direct).not.toContain("update it with your file tools");
 
-    // SAFETY: the groups route returns the created room under `group`
     const { group } = await api("POST", "/api/groups", {
       name: "Garden room", memberIds: [lead.id, helper.id],
       setup: { bulletin: "", defaultResponder: { kind: "member", botId: lead.id } },

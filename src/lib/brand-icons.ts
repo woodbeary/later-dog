@@ -1,40 +1,12 @@
-// Brand marks for the connector catalog (lib/mcp-connectors.ts), drawn by
-// components/BrandIcon.tsx.
-//
-// Source: Simple Icons (https://simpleicons.org,
-// https://github.com/simple-icons/simple-icons), npm simple-icons@16.32.0,
-// released 2026-09-20 (tarball integrity sha512-BwqATHxAulx7X6kNdTkecy7PBjLkgtAHcgrwYLd9iA+cD2At9DzhJwdwaSELk2+aZe01IfiM/Wxtyp68Dvup2A==).
-// Each `path` is the one <path d> of icons/<slug>.svg (a 24×24 viewBox),
-// copied unchanged; `title`, `hex`, `source` and `guidelines` come from that
-// slug's entry in data/simple-icons.json. All ten are identical in 16.34.0,
-// the latest release on 2026-10-08.
-//
-// License: Simple Icons is released under CC0-1.0, and its data gives none of
-// these ten an icon license of its own. The marks are their owners'
-// trademarks. later.dog shows them only to identify the service a connector
-// signs in to, beside its name, with the shape unchanged, in the brand's own
-// colour or, where that colour would vanish on the white tile, in black (see
-// markColor). `guidelines` keeps each brand's usage rules where Simple Icons
-// links them; `source` is where Simple Icons took the mark from.
-//
-// The simple-icons package is not a dependency: the app ships these ten
-// paths and nothing else. To refresh a mark, copy it from a newer release and
-// update the version above.
 
 export interface BrandMark {
-  /** The brand's name, as Simple Icons titles it. */
   title: string;
-  /** The brand colour: six hex digits, no "#". */
   hex: string;
-  /** The mark: SVG path data on a 24×24 viewBox. */
   path: string;
-  /** Where Simple Icons took the mark from. */
   source: string;
-  /** The brand's usage guidelines, where Simple Icons links them. */
   guidelines?: string;
 }
 
-/** Keyed by connector id, which for each of these is its Simple Icons slug. */
 export const BRAND_MARKS: Readonly<Record<string, BrandMark>> = {
   atlassian: {
     title: "Atlassian",
@@ -104,22 +76,14 @@ export const BRAND_MARKS: Readonly<Record<string, BrandMark>> = {
   },
 };
 
-/** The mark for a connector id or toolkit slug; undefined when there is none. */
 export function brandMark(id: string): BrandMark | undefined {
   return Object.hasOwn(BRAND_MARKS, id) ? BRAND_MARKS[id] : undefined;
 }
 
-/** Every mark sits on this tile in every skin, light or dark: brand colours
- * are chosen to stand on white, and a white tile reads on dark glass too. */
 export const BRAND_TILE = "#ffffff";
 
-/** A mark's one-colour form, for a brand colour too pale for the tile. */
 export const BRAND_INK = "#000000";
 
-/** Below this contrast with the tile, a brand colour leaves only a ghost of
- * its mark: Intercom's #6AFDEF is 1.24:1 on white. Such a mark is drawn in
- * BRAND_INK rather than in a darkened brand colour. Neon's #34D59A, at
- * 1.89:1, still reads as its green mark and keeps it. */
 export const MIN_MARK_CONTRAST = 1.5;
 
 function luminance(hex: string): number {
@@ -131,14 +95,11 @@ function luminance(hex: string): number {
   return 0.2126 * red! + 0.7152 * green! + 0.0722 * blue!;
 }
 
-/** WCAG contrast ratio of two six-digit hex colours, 1 to 21. */
 export function contrastRatio(a: string, b: string): number {
   const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (lighter! + 0.05) / (darker! + 0.05);
 }
 
-/** The colour a mark is drawn in on BRAND_TILE: its brand colour, or its
- * one-colour form where the brand colour would vanish on the tile. */
 export function markColor(mark: BrandMark): string {
   const brand = `#${mark.hex}`;
   return contrastRatio(brand, BRAND_TILE) >= MIN_MARK_CONTRAST ? brand : BRAND_INK;

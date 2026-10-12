@@ -16,10 +16,6 @@ const RECONNECT_MESSAGE = "Connection interrupted. Reconnecting the browser view
 
 const NO_CONTROL = { held: false, controlling: false, owned: false };
 
-/** Closing a panel releases its lease. A new connection never silently
- * restores permission to type, and never replays old browser frames.
- * There is no Take control button: interacting takes the browser from the
- * bot, and a few idle seconds hand it back (see createBrowserControl). */
 export function LiveBrowser({ bot }: { bot: Bot }) {
   const { state } = useStore();
   const [attempt, setAttempt] = useState(0);
@@ -35,7 +31,6 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
   const [viewport, setViewport] = useState({ width: 1280, height: 720 });
   const [takeStatus, setTakeStatus] = useState<BrowserTakeStatus>("");
   const [fullscreen, setFullscreen] = useState(false);
-  // The server keeps the view open while the bot's own command holds the browser.
   const [busy, setBusy] = useState(false);
   const viewer = useRef("");
   const generation = useRef(0);
@@ -46,7 +41,6 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
   const typingDialog = useRef<HTMLDialogElement>(null);
   const inputQueue = useRef<ReturnType<typeof createBrowserInputQueue> | null>(null);
   const browserControl = useRef<ReturnType<typeof createBrowserControl> | null>(null);
-  // The latest server control state, for callbacks that outlive a render.
   const controlNow = useRef(NO_CONTROL);
   const haltMessage = useRef("");
   const urlEditing = useRef(false);
@@ -56,29 +50,21 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
     : state.config?.browserProfiles?.find((profile) => profile.id === bot.browserProfile)?.name ?? `${bot.name}’s own browser`;
   useEffect(() => { if (showProfiles) profilesDialog.current?.showModal(); else profilesDialog.current?.close(); }, [showProfiles]);
   useEffect(() => {
-    // Typed text goes to the field the person picked, so keep control while they write it.
     browserControl.current?.hold(showTyping);
     if (showTyping) typingDialog.current?.showModal(); else typingDialog.current?.close();
   }, [showTyping]);
 
   const action = useCallback(async (body: Record<string, unknown>, expected = viewer.current) => {
     if (!expected) throw new Error("Open the browser connection first.");
-    // 120s matches the server's browser requestTimeoutMs: restart replies can
-    // be legitimately slow (see the reconnect note in the stream error
-    // handler), but a wedged request must surface an error instead of
-    // leaving the panel pending forever.
     return api(`/api/bots/${encodeURIComponent(bot.id)}/browser/action`, { method: "POST", body: JSON.stringify({ ...body, viewerId: expected }), timeoutMs: 120_000 });
   }, [bot.id]);
   const interact = useCallback((item: BrowserInteraction) => {
-    // Another window's hold is never contested from here; the server refuses it too.
     if (controlNow.current.held && !controlNow.current.owned) return;
     browserControl.current?.interact(item);
   }, []);
   const input = useCallback((body: Record<string, unknown>) => interact({ input: body }), [interact]);
   const command = (body: Record<string, unknown>) => interact({ command: body });
   const reconnect = useCallback(() => {
-    // Invalidate synchronously: an old request may finish before React runs
-    // the effect cleanup for this reconnect.
     generation.current++;
     reconnectCount.current = 0;
     viewer.current = "";
@@ -106,7 +92,7 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
     const source = new EventSource(`/api/bots/${encodeURIComponent(bot.id)}/browser/live`);
     const listen = (name: string, handler: (data: any) => void) => source.addEventListener(name, (event) => {
       if (stopped || !ownsConnection()) return;
-      try { handler(JSON.parse((event as MessageEvent).data)); } catch { /* Malformed events are not rendered. */ }
+      try { handler(JSON.parse((event as MessageEvent).data)); } catch {}
     });
     listen("waiting", () => { if (!viewer.current) setBusy(true); });
     listen("ready", (data) => {
@@ -135,8 +121,6 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
       });
       setConnected(true);
     });
-    // A ready event alone is not recovery: a flapping stream can open and
-    // fail immediately. Reset the retry budget only after a live heartbeat.
     listen("heartbeat", () => { reconnectCount.current = 0; });
     listen("frame", (data) => { if (viewer.current) setFrame({ ...data, viewerId: viewer.current, generation: current }); });
     listen("tabs", (data) => {
@@ -152,14 +136,10 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
     listen("control", (data) => {
       controlNow.current = data;
       setControl(data);
-      // Only another window's hold hides the page; this viewer's own take
-      // keeps it visible while the bot finishes.
       if (data.held && !data.owned) { setFrame(null); setTabs([]); setAddress(""); }
       browserControl.current?.observe();
     });
     source.addEventListener("error", (event) => {
-      // A closed source may still deliver its queued error after a profile
-      // switch or reconnect. It must not clear the replacement viewer/input.
       if (stopped || !ownsConnection()) return;
       stopped = true;
       let message = "Browser connection ended. Reconnect to continue watching.";
@@ -169,7 +149,7 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
           const data = JSON.parse(event.data);
           message = data.message || message;
           retryable = data.retryable === true;
-        } catch { /* Malformed server errors require explicit reconnect. */ }
+        } catch {}
       }
       const delay = retryable ? RECONNECT_DELAYS[reconnectCount.current] : undefined;
       if (delay !== undefined) {
@@ -177,15 +157,12 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
         message = RECONNECT_MESSAGE;
         reconnectTimer = setTimeout(() => {
           if (!ownsConnection()) return;
-          // Reopen observation only, not browser commands or a human lease.
           generation.current++;
           setAttempt((value) => value + 1);
         }, delay);
       }
       setError(message); setBusy(false); setConnected(false); setFrame(null); setControl({ held: false, controlling: false, owned: false });
       controlNow.current = NO_CONTROL; setTakeStatus("");
-      // Keep this generation alive: a successful restart closes its stream
-      // before the action reply arrives, and must still reconnect afterward.
       viewer.current = ""; inputQueue.current?.clear(); inputQueue.current = null;
       browserControl.current?.close(); browserControl.current = null; source.close();
     });
@@ -193,8 +170,6 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
       stopped = true;
       clearTimeout(reconnectTimer);
       if (ownsConnection()) {
-        // Closing the panel hands control back before the connection ends;
-        // held or unsent input is left to the server's disconnect cleanup.
         browserControl.current?.leave();
         browserControl.current?.close(); browserControl.current = null;
         generation.current++; viewer.current = ""; pendingOperation.current = null;
@@ -204,10 +179,6 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
     };
   }, [bot.id, bot.browserProfile, attempt, action]);
 
-  // On macOS a full-screen element takes the whole window into native full
-  // screen, where minimize is disabled. The button has to lead back out, and
-  // it follows the document so Esc, the green button and View > Toggle Full
-  // Screen keep it honest too (MOCA-266).
   useEffect(() => {
     const update = () => setFullscreen(Boolean(panel.current) && document.fullscreenElement === panel.current);
     document.addEventListener("fullscreenchange", update);
@@ -230,8 +201,6 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
       await queue?.drain();
       if (generation.current !== current || viewer.current !== expected) return;
       await action(body, expected);
-      // A halted queue silently drops input; restore the banner the
-      // setError("") above cleared so the view does not look interactive.
       if (inputQueue.current?.stopped() && generation.current === current) setError(haltMessage.current);
       if (generation.current === current && body.type === "restart") reconnect();
     }
@@ -242,15 +211,9 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
       }
     }
   };
-  // Usable whenever connected and no other window holds the browser: the
-  // first real interaction takes control from the bot by itself.
   const heldElsewhere = control.held && !control.owned;
   const interactive = connected && !heldElsewhere && !pending;
-  // The dialog pins a lease; it cannot acquire one or freeze the field the
-  // person picked. Click that page field first, before writing in the dialog.
   const typingReady = interactive && control.owned && control.controlling;
-  // Toolbar actions wait out a take as they wait out a running action, so a
-  // repeated click cannot pile up behind it. Page input still buffers.
   const taking = takeStatus === "pending" || takeStatus === "slow";
   const commandsReady = interactive && !taking;
   const reconnecting = error === RECONNECT_MESSAGE;
@@ -266,7 +229,6 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
         <button className={`${button} shrink-0`} disabled={!commandsReady} aria-label="New tab" title="New tab" onClick={() => command({ type: "tab-new" })}><Plus size={17} /></button>
       </div>
       <button className={button} title={fullscreen ? "Exit full screen" : "Full screen"} aria-label={fullscreen ? "Exit full screen" : "Full screen"} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
-      {/* Profiles can't switch while this window holds the browser: opening them hands it back now, not after the idle wait. */}
       <button className={`${button} rounded-xl bg-inset p-2`} title={`Browser profile: ${profileName}`} aria-label="Browser profiles" aria-expanded={showProfiles} onClick={() => { browserControl.current?.handBack(); setShowProfiles(true); }}><UserRound size={16} /></button>
     </div>
     <form className="flex h-12 items-center gap-1 border-b border-hairline/40 px-2" onSubmit={(e) => { e.preventDefault(); if (commandsReady && address.trim()) command({ type: "navigate", url: /^https?:\/\//i.test(address.trim()) ? address.trim() : `https://${address.trim()}` }); }}>
@@ -296,8 +258,6 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
         acknowledge={(seq) => { if (generation.current === frame.generation && viewer.current === frame.viewerId) void action({ type: "ack", seq }, frame.viewerId).catch(() => {}); }}
         onDecodeError={() => { if (generation.current === frame.generation && viewer.current === frame.viewerId) setError("A browser frame could not be decoded. Close and reopen the panel to reconnect."); }} />
         : <div className="flex min-h-64 flex-col items-center justify-center gap-3 p-6 text-center text-[13px] text-ink-secondary">{connected && heldElsewhere ? <Hand size={24} /> : error && !reconnecting ? <Globe size={24} /> : <Loader2 size={24} className="animate-spin" />}<span>{heldElsewhere ? "Live view paused for human control" : reconnecting ? "Reconnecting…" : error ? "Browser disconnected" : busy ? t("browser.live.botBusy", { name: bot.name }) : "Opening the live browser…"}</span></div>}
-      {/* Status only, never a control: it floats over the top of the page,
-          readable at any panel width, and every click passes through it. */}
       <div role="status" className="pointer-events-none absolute inset-x-0 top-2 flex justify-center px-3">
         {takeStatus === "slow" ? <span className={`${pill} border-hairline text-ink-secondary`}>
           <Loader2 size={13} className="shrink-0 animate-spin" aria-hidden="true" /><span className="truncate">{t("browser.control.waiting", { name: bot.name })}</span>
@@ -310,7 +270,6 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
     </div>
     <dialog ref={profilesDialog} onClose={() => setShowProfiles(false)} onClick={(e) => { if (e.target === e.currentTarget) setShowProfiles(false); }} className="m-auto w-[min(420px,calc(100%-32px))] max-h-[80vh] overflow-auto rounded-2xl border border-hairline/50 bg-card p-5 text-ink shadow-2xl backdrop:bg-black/40">
       <div className="mb-4 flex items-center justify-between"><h2 className="text-[15px] font-medium">Browser profiles</h2><button className={button} aria-label="Close browser profiles" onClick={() => setShowProfiles(false)}><X size={16} /></button></div>
-      {/* Opening this hands an idle hold back at once; say why the switcher waits otherwise. */}
       {(heldElsewhere || (control.owned && (pending || taking))) && <p className="mb-3 text-[12px] text-ink-secondary">{t(heldElsewhere ? "browser.profiles.heldElsewhere" : "browser.profiles.busy")}</p>}
       <BrowserProfilesManager bot={bot} disabled={pending || control.held} onProfileChanged={() => { setShowProfiles(false); reconnect(); }} />
     </dialog>

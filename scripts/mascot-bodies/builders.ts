@@ -1,44 +1,13 @@
-/**
- * The ten catalog outlines, as absolute cubic path data.
- *
- * Adapted from Blob Studio's studio/src/shapes/builtin.ts at fixed parameters.
- * Cubics only, because the phone's twenty-line path parser understands `M`, `C`
- * and `Z` and nothing else — emitting anything richer here would mean growing a
- * parser on the platform least able to afford it.
- *
- * Every generated outline is one closed, non-self-intersecting subpath centred on
- * (100, 100) of a 200x200 stage, wound the same way, so its interior is
- * unambiguous under the non-zero winding rule however the later rasteriser walks
- * it. `viewBox` is advisory and must not be used to normalise — see the note on
- * the field.
- */
-
 export interface BodyDef {
   id: string
   name: string
-  /** Absolute cubic path data: `M`, `C` and `Z` only. */
   d: string
-  /**
-   * `[minX, minY, width, height]` of the artwork's nominal canvas — advisory only.
-   *
-   * Do not normalise against this. Derive bounds by flattening the path, because
-   * `blob`'s deliberately disagrees with its box: it is padded past the 200x200 stage
-   * so its lobe is not shaved off.
-   */
   viewBox: [number, number, number, number]
-  /**
-   * Optional parts drawn over the body in the same gradient, as raw SVG markup in the
-   * outline's own coordinate space with `{{GRADIENT}}` where the body's paint goes. They
-   * are decoration only: the solver sizes the face against `d`, the clip is `d`, and the
-   * native catalogs (which draw the outline alone) never see them. Each part carries a
-   * stable class so `src/styles.css` can move it with the mascot state.
-   */
   decorations?: string
 }
 
 type Sextet = [number, number, number, number, number, number]
 
-/** Quadratic control point to its exact cubic pair. */
 function quadToCubic(
   x0: number, y0: number, cx: number, cy: number, x1: number, y1: number
 ): Sextet {
@@ -49,7 +18,6 @@ function quadToCubic(
   ]
 }
 
-/** A straight run as a degenerate cubic, so the emitted path stays cubics-only. */
 function lineToCubic(x0: number, y0: number, x1: number, y1: number): Sextet {
   return [
     x0 + (x1 - x0) / 3, y0 + (y1 - y0) / 3,
@@ -58,23 +26,14 @@ function lineToCubic(x0: number, y0: number, x1: number, y1: number): Sextet {
   ]
 }
 
-/** Circular-arc magic number: four cubics approximate a circle to ~0.02%. */
 const KAPPA = 0.5522847498307936
 
-/**
- * Fixed-point to five decimals, trailing zeros trimmed.
- *
- * Never exponent notation: the iOS parser is a character scanner that reads every
- * letter as a command, so a stray `e` would be taken for a curve and would
- * silently corrupt the outline.
- */
 function fmt(n: number): string {
   let s = n.toFixed(5)
   if (s.includes(".")) s = s.replace(/0+$/, "").replace(/\.$/, "")
   return s === "-0" ? "0" : s
 }
 
-/** Accumulates `M`/`C`/`Z`, closing the ring with a real cubic rather than leaning on `Z`. */
 class Path {
   private parts: string[] = []
   private origin: [number, number] = [0, 0]
@@ -87,7 +46,6 @@ class Path {
     return this
   }
 
-  /** Absolute cubic from the current point. */
   curveTo(c: Sextet): Path {
     this.parts.push("C" + c.map(fmt).join(" "))
     this.at = [c[4], c[5]]
@@ -102,13 +60,6 @@ class Path {
     return this.curveTo(quadToCubic(this.at[0], this.at[1], cx, cy, x, y))
   }
 
-  /**
-   * One quarter of an axis-aligned ellipse, from the current point to (x, y),
-   * bulging towards the corner (kx, ky) — the point where the tangents at the two
-   * ends meet, i.e. the box corner the arc rounds off. Reads like `quadTo`, but
-   * pulls each control point only KAPPA of the way to the corner instead of 2/3,
-   * which is what makes the result a circle rather than a parabola.
-   */
   quarterTo(kx: number, ky: number, x: number, y: number): Path {
     const [x0, y0] = this.at
     return this.curveTo([
@@ -118,7 +69,6 @@ class Path {
     ])
   }
 
-  /** Closes the ring, adding a straight cubic back to the start if we are not already there. */
   close(): string {
     const [x, y] = this.at
     const [sx, sy] = this.origin
@@ -127,9 +77,6 @@ class Path {
   }
 }
 
-/* ------------------------------------------------------------------ builders */
-
-/** Blob Studio's `circle`, as four KAPPA quarters instead of two `A` halves. */
 function buildEllipse(w: number, h: number): string {
   const rx = w / 2
   const ry = h / 2
@@ -142,17 +89,10 @@ function buildEllipse(w: number, h: number): string {
     .close()
 }
 
-/**
- * Blob Studio's `roundedBox`, with its quadratic corners promoted to KAPPA arcs.
- * Quadratics bulge visibly at a 75-unit radius, and the capsule's caps are meant
- * to be circles.
- */
 function buildRoundedBox(w: number, h: number, radius: number): string {
   const x = 100 - w / 2
   const y = 100 - h / 2
   const k = Math.min(radius, w / 2, h / 2)
-  // A cap that eats the whole side leaves a zero-length run; skip it rather than
-  // emit a degenerate cubic the rasteriser would have to special-case.
   const wide = w - 2 * k > 1e-9
   const tall = h - 2 * k > 1e-9
   const p = new Path().moveTo(x + k, y)
@@ -167,11 +107,6 @@ function buildRoundedBox(w: number, h: number, radius: number): string {
   return p.close()
 }
 
-/**
- * Blob Studio's `blob`: a circle whose radius breathes around the turn, drawn as
- * quadratics through the midpoints between successive samples. Each quadratic
- * becomes its exact cubic, so the curve is unchanged, not re-fitted.
- */
 function buildBlob(w: number, h: number, wobble: number): string {
   const STEPS = 24
   const pts: [number, number][] = []
@@ -195,10 +130,6 @@ function buildBlob(w: number, h: number, wobble: number): string {
   return p.close()
 }
 
-/**
- * Blob Studio's `drop`. Its two `C` segments carry over untouched; its one `A`
- * — a semicircle of radius `hw` across the bottom — becomes two KAPPA quarters.
- */
 function buildDrop(w: number, h: number, belly: number): string {
   const hw = w / 2
   const top = 100 - h / 2
@@ -213,7 +144,6 @@ function buildDrop(w: number, h: number, belly: number): string {
     .close()
 }
 
-/** Blob Studio's `cone`: quadratics via `quadToCubic`, straight runs via `lineToCubic`. */
 function buildCone(w: number, h: number, tip: number, base: number): string {
   const hw = w / 2
   const hh = h / 2
@@ -234,7 +164,6 @@ const lerp = (a: [number, number], b: [number, number], t: number): [number, num
   a[1] + (b[1] - a[1]) * t,
 ]
 
-/** Blob Studio's `hex`: each vertex cut back along both its edges and arced across. */
 function buildPolygon(w: number, h: number, sides: number, round: number): string {
   const n = Math.max(3, Math.round(sides))
   const pts: [number, number][] = []
@@ -256,28 +185,16 @@ function buildPolygon(w: number, h: number, sides: number, round: number): strin
   return p.close()
 }
 
-/* ------------------------------------------------------------------ catalog */
-
-/**
- * later.dog's own body: a round head with two floppy ears hanging past the cheeks, as one
- * silhouette. The ears are lobes on the outline rather than separate shapes, so the interior
- * stays one roomy head and the face solver finds a large circle here.
- * Drawn clockwise from the crown: the right half is authored, the left half is the same
- * curves mirrored and walked back up to the crown. The notch where each ear meets the
- * cheek is a real concave corner: its two curves leave the point in different directions.
- */
 const DOG_RIGHT: Sextet[] = [
-  [120, 24, 134, 30, 142, 44],     // crown to the root of the right ear
-  [160, 50, 182, 78, 184, 112],    // the ear's outer edge, falling past the cheek
-  [185, 130, 174, 140, 160, 138],  // the ear's rounded tip
-  [156, 134, 150, 124, 146, 112],  // its inner edge, up into the cheek notch
-  [144, 140, 128, 176, 100, 178],  // cheek down to the chin
+  [120, 24, 134, 30, 142, 44],
+  [160, 50, 182, 78, 184, 112],
+  [185, 130, 174, 140, 160, 138],
+  [156, 134, 150, 124, 146, 112],
+  [144, 140, 128, 176, 100, 178],
 ]
 
-/** The three curves of `DOG_RIGHT` that are the ear: outer edge, tip, inner edge. */
 const DOG_EAR = DOG_RIGHT.slice(1, 4)
 
-/** Mirrors a cubic across the stage's vertical centre line. */
 const mirror = (c: Sextet): Sextet => [200 - c[0], c[1], 200 - c[2], c[3], 200 - c[4], c[5]]
 
 function buildDog(): string {
@@ -294,25 +211,12 @@ function buildDog(): string {
   return p.close()
 }
 
-/**
- * The dog's ears as two separate parts, so CSS can swing each one with the mascot's
- * state while the outline underneath stays the solver's and the clip's truth.
- *
- * Each part traces the silhouette's own ear curves exactly — outer edge, tip and inner
- * edge are `DOG_EAR` verbatim, so at rest the part sits on the lobe pixel for pixel —
- * and closes through the inside of the head, where the same gradient hides the seam.
- * The closing run starts 6 units in from the ear's root and ends at the cheek notch,
- * which keeps it inside the head through every pose the stylesheet uses (a few degrees
- * about the root, a few units of travel). The hinge is that root, (142, 44): the point
- * where the crown turns into the ear.
- */
 function buildDogEar(side: "left" | "right"): string {
   const curves = side === "right" ? DOG_EAR : DOG_EAR.map(mirror)
   const sx = side === "right" ? 1 : -1
   const x = (v: number) => (side === "right" ? v : 200 - v)
   const p = new Path().moveTo(x(136), 44).lineTo(x(142), 44)
   for (const c of curves) p.curveTo(c)
-  // from the notch, back inside the head and up to the start
   p.curveTo([x(146) - 6 * sx, 110, x(136), 90, x(136), 62])
   return p.close()
 }
@@ -323,16 +227,10 @@ function buildDogDecorations(): string {
   return part("left") + part("right")
 }
 
-/** The catalog in persisted order: the eight dog breeds first (`dog`, the Retriever, is the default), then the shapes. */
 export const BODY_DEFS: BodyDef[] = [
   { id: "dog", name: "Retriever", d: buildDog(), viewBox: [0, 0, 200, 200], decorations: buildDogDecorations() },
-  // The other breeds. The desktop draws every breed with DogAvatar (src/components/DogAvatar.tsx); the outline here is
-  // the round head the face solver and the native catalogs use, so a breed chosen on the desktop still renders anywhere.
   ...([["beagle", "Beagle"], ["shepherd", "Shepherd"], ["corgi", "Corgi"], ["husky", "Husky"], ["pug", "Pug"], ["poodle", "Poodle"], ["chihuahua", "Chihuahua"]] as const)
     .map(([id, name]): BodyDef => ({ id, name, d: buildEllipse(200, 190), viewBox: [0, 0, 200, 200] })),
-  // The wobble pushes lobes past the nominal 200x200 stage — its radius factor peaks at
-  // 1.042, so the outline reaches 4.2 units outside. Its box is padded to hold that: a
-  // 200x200 viewBox here would let the scanline pass silently shave the top lobe flat.
   { id: "blob", name: "Blob", d: buildBlob(200, 200, 0.35), viewBox: [-5, -5, 210, 210] },
   { id: "circle", name: "Circle", d: buildEllipse(200, 200), viewBox: [0, 0, 200, 200] },
   { id: "squircle", name: "Squircle", d: buildRoundedBox(200, 200, (Math.min(200, 200) / 2) * 0.5), viewBox: [0, 0, 200, 200] },

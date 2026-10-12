@@ -1,4 +1,3 @@
-// Real visual acceptance in disposable Podman desktops, with no user data.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -12,7 +11,6 @@ if (!podman || !machine || !image) throw new Error("Set explicit LATERDOG_DESKTO
 const output = resolve(process.env.LATERDOG_DESKTOP_VERIFY_OUTPUT || ".laterdog-scratch/japanese");
 mkdirSync(output, { recursive: true });
 writeFileSync(resolve(output, "receipt.json"), JSON.stringify({ capturesComplete: false, visualReview: "pending" }, null, 2));
-// Keep Podman's existing connection/SSH configuration, but isolate app imports.
 const podmanEnv = { ...process.env };
 const runtime = mkdtempSync(resolve(output, "runtime-"));
 process.env.HOME = process.env.USERPROFILE = resolve(runtime, "home");
@@ -21,7 +19,6 @@ mkdirSync(process.env.HOME, { recursive: true });
 try {
   await capture();
 } finally {
-  // runtime is an absolute, freshly created child of the evidence directory.
   assert(runtime.startsWith(resolve(output, "runtime-")));
   rmSync(runtime, { recursive: true, force: true });
 }
@@ -40,8 +37,6 @@ async function capture() {
     assert.match(workspace, /^\/tmp\/laterdog-font-[A-Za-z0-9]+$/);
     const target = { ...perBotLocalVmTarget(randomUUID()), containerName: `laterdog-font-fixture-${randomUUID()}`, workspaceDir: workspace };
     const args = containerRunArgs("podman", randomUUID(), target);
-    // Separate known Firefox/Podman sandbox issue #853 is not this font patch.
-    // Supply its prerequisite in the visual fixture only; production args stay unchanged.
     args.splice(args.length - 1, 0, "--cap-add", "SYS_CHROOT");
     args[args.length - 1] = imageId;
     try {
@@ -49,13 +44,12 @@ async function capture() {
       run(["cp", localHtml, `${target.containerName}:/home/cua/workspace/index.html`]);
       run(["exec", "--user", "cua", ...driverEnv, target.containerName, "sh", "-c", "timeout 45 sh -c 'until xset q >/dev/null 2>&1; do sleep 1; done' && mkdir -p /tmp/font-proof-profile && { firefox-esr --no-remote --profile /tmp/font-proof-profile --width 1000 --height 700 file:///home/cua/workspace/index.html >/tmp/font-firefox.log 2>&1 & }"]);
       const font = run(["exec", "--user", "cua", target.containerName, "fc-match", ":lang=ja"]);
-      // Use the bundled driver; optional X11 inspection utilities may be absent.
       const deadline = Date.now() + 45_000;
       for (;;) {
         let windows = "";
         try {
           windows = run(["exec", "--user", "cua", ...driverEnv, target.containerName, CUA_EXECUTABLE, "call", "list_windows", "{}", "--socket", CUA_SOCKET]);
-        } catch { /* daemon may still be starting */ }
+        } catch {}
         if (windows.includes("日本語")) break;
         assert(Date.now() < deadline, "Japanese-titled Firefox window did not become ready");
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -68,8 +62,6 @@ async function capture() {
       records.push({ attempt, image, imageId, font, screenshot: `desktop-${attempt}.png` });
       console.log(JSON.stringify(records.at(-1)));
     } finally {
-      // Also remove a partially created container if podman run fails or times out.
-      // Only remove its workspace after container removal succeeds.
       run(["rm", "-f", "--ignore", target.containerName]);
       machineRun(["rm", "-rf", "--", workspace]);
     }

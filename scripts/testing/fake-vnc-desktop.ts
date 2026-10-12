@@ -1,8 +1,3 @@
-// An offline RFB 3.8 desktop with a real-sized picture and VNC
-// authentication, for driving a client the way a person would: every pointer
-// and key event is recorded, and each click paints a marker where it landed
-// so the client's next update shows it. No host display, container daemon or
-// network outside loopback is used.
 import { createServer } from "node:http";
 import { EventEmitter, once } from "node:events";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -10,7 +5,6 @@ import { WebSocketServer, type WebSocket } from "ws";
 export interface FakeVncDesktopOptions {
   width?: number;
   height?: number;
-  /** Paints the initial desktop as RGB triples, row-major. */
   paint?: (x: number, y: number) => [number, number, number];
 }
 
@@ -20,8 +14,6 @@ export async function fakeVncDesktop(options: FakeVncDesktopOptions = {}) {
   const width = options.width ?? 1280;
   const height = options.height ?? 800;
   const paint = options.paint ?? (() => [0x1a, 0x24, 0x36]);
-  // BGRX, little-endian 32-bit: what a client asking for true colour with
-  // red at 16, green at 8 and blue at 0 expects.
   const framebuffer = Buffer.alloc(width * height * 4);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -91,17 +83,15 @@ export async function fakeVncDesktop(options: FakeVncDesktopOptions = {}) {
         pending = pending.subarray(length);
         if (phase === 0) {
           phase = 1;
-          socket.send(Buffer.from([1, 2])); // VNC authentication only
+          socket.send(Buffer.from([1, 2]));
         } else if (phase === 1) {
           if (message[0] !== 2) { socket.close(); return; }
           phase = 2;
-          socket.send(Buffer.alloc(16, 0x5a)); // the challenge
+          socket.send(Buffer.alloc(16, 0x5a));
         } else if (phase === 2) {
-          // The client's DES answer is recorded, not checked: the fixture
-          // proves the client authenticates, not that DES works.
           authResponses.push(Buffer.from(message));
           phase = 3;
-          socket.send(Buffer.alloc(4)); // SecurityResult OK
+          socket.send(Buffer.alloc(4));
         } else if (phase === 3) {
           phase = 4;
           const name = Buffer.from("Isolated Local VM");
@@ -123,7 +113,6 @@ export async function fakeVncDesktop(options: FakeVncDesktopOptions = {}) {
           const event = { buttons: message[1], x: message.readUInt16BE(2), y: message.readUInt16BE(4) };
           pointer.push(event);
           events.emit("pointer", event);
-          // A left press paints a marker where it landed.
           if (event.buttons & 1 && !(lastButtons & 1)) {
             const size = 24;
             const x0 = Math.max(0, Math.min(width - size, event.x - size / 2));
@@ -149,7 +138,6 @@ export async function fakeVncDesktop(options: FakeVncDesktopOptions = {}) {
     keys,
     authResponses,
     connections: () => connections,
-    /** Typed characters, from key-down events in the printable range. */
     typed: () => keys.filter(k => k.down && k.keysym >= 0x20 && k.keysym <= 0xff).map(k => String.fromCharCode(k.keysym)).join(""),
     nextPointer: () => once(events, "pointer", { signal: AbortSignal.timeout(10_000) }),
     async close() {

@@ -1,6 +1,3 @@
-// Real server; only the provider's planning is scripted. A Chief of Staff's
-// level flows down to the threads it opens with teammates, so the person
-// stops switching each one off "Ask for approval" by hand.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -24,8 +21,6 @@ it("starts a thread a Chief opens with a teammate at the Chief's level, and a Ch
   const messages = async (threadId: string) => (await api("GET", `/api/threads/${threadId}/messages?limit=100`)).messages as any[];
   const persistedTask = (botId: string, threadId: string) => JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8"))
     .find((bot: any) => bot.id === botId).tasks.find((task: any) => task.threadId === threadId);
-  /** The Chief brings `teammate` in from `threadId` (coordinate_bots opens a
-   * thread with them); resolves with the teammate's provider turn. */
   const bringIn = async (chief: any, threadId: string, teammate: any, requestKey: string) => {
     plans[teammate.id] = { turns: [{ reply: `${teammate.name} checked the fixture report.` }] };
     (plans[chief.id] ??= { turns: [] }).turns.push(
@@ -45,18 +40,14 @@ it("starts a thread a Chief opens with a teammate at the Chief's level, and a Ch
     const ada = (await cli("new-bot", "--name", "Ada", "--section", "Operations")).bot;
     const bea = (await cli("new-bot", "--name", "Bea", "--section", "Operations")).bot;
 
-    // The person put this Chief conversation on Approve for me.
     await api("PATCH", `/api/bots/${chief.id}/tasks/${chief.activeTaskId}`, { approvalMode: "auto", acknowledgeLocalAuto: true });
     const adaTurn = await bringIn(chief, chief.activeTaskId, ada, "check-auto");
-    // Ada's own level is Ask, yet the thread Clive opened with her runs Approve for me,
-    // the thread says where that came from, and Ada's default does not move.
     expect(adaTurn.permissionMode).toBe("auto");
     expect(persistedTask(ada.id, adaTurn.threadId)).toMatchObject({ approvalMode: "auto", autoApprove: false });
     expect((await messages(adaTurn.threadId)).some(message => message.kind === "activity"
       && message.tool?.name === "Off-leash — delegated by Clive, a Chief of Staff on Off-leash")).toBe(true);
     expect((await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === ada.id).approvalMode ?? "ask").toBe("ask");
 
-    // A Chief conversation still on Ask raises nobody.
     const askThread = (await api("POST", `/api/bots/${chief.id}/tasks`, { title: "Plain Ask work" }, 201)).task;
     const beaTurn = await bringIn(chief, askThread.threadId, bea, "check-ask");
     expect(beaTurn.permissionMode).toBe("default");

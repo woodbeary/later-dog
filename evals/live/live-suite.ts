@@ -14,10 +14,6 @@ import {
   type LiveScenarioOutcome,
 } from "./types.ts";
 
-/** Tier-3 glue: loading, adapting, checking and scoring live scenarios.
- * Pure functions only — everything that touches a server or a real model
- * lives in run-live.ts, so all of this is unit-testable offline. */
-
 const LIVE_DIR = join(dirname(fileURLToPath(import.meta.url)));
 export const LIVE_SCENARIOS_DIR = join(LIVE_DIR, "scenarios");
 export const LIVE_BASELINES_DIR = join(LIVE_DIR, "baselines");
@@ -35,8 +31,6 @@ export function loadLiveConfig(path: string = LIVE_CONFIG_PATH): LiveConfig {
   return liveConfigSchema.parse(JSON.parse(readFileSync(path, "utf8")));
 }
 
-/** Steps whose default timeout must widen to the live turn timeout: a real
- * model turn takes seconds-to-minutes, unlike the scripted engine. */
 const WAIT_STEP_KINDS = new Set<Step["kind"]>([
   "waitForTurns",
   "waitForNodeStatus",
@@ -57,10 +51,6 @@ function isWaitStep(step: Step): step is WaitStep {
   return WAIT_STEP_KINDS.has(step.kind as WaitStepKind);
 }
 
-/** Adapts a live scenario into the tier-1 scenario shape the world already
- * boots: empty scripted turns (the real model drives), wait steps widened
- * to the configured turn timeout, and only the assertion-shaped invariants
- * (botReplied is live-only and scored separately). */
 export function toScenario(live: LiveScenario, config: LiveConfig): Scenario {
   return {
     id: live.id,
@@ -118,7 +108,6 @@ export function suiteScore(outcomes: LiveScenarioOutcome[]): number {
 export interface ThresholdResult {
   pass: boolean;
   minScoreMet: boolean;
-  /** Score drop from the recorded baseline, when one exists. */
   drift?: number;
 }
 

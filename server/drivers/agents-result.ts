@@ -1,8 +1,6 @@
 import { redactSecretsInText } from "../../shared/redact.ts";
 import { TOOL_RESULT_MAX_CHARS, TOOL_RESULT_PREVIEW_CHARS, toolResultPrefix } from "../tool-results.ts";
 
-/** The operation already happened. Saving overflow must never retry it or
- * turn a successful operation into a failed MCP call. Only cache I/O is timed. */
 export async function boundedAgentResult(text: string, save: (text: string, truncated: boolean) => Promise<unknown>): Promise<string> {
   if (text.length <= 24_000) return text;
   const redacted = redactSecretsInText(text);

@@ -1,7 +1,3 @@
-// The exit beat: the first dog gets a breed, a color and a name. The breeds are drawn in the chosen color, so the
-// picker is the preview: the selected dog shows once, in its tile, never again beside the form. Everything is optional
-// with a sensible default, and Start chatting always works, even when the save fails (the dog can be changed later
-// from its profile). What the dog is for is not asked here: the person tells the dog in chat.
 import { useEffect, useState } from "react";
 import { DogAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
@@ -39,7 +35,6 @@ export function MeetYourBotBeat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The dog speaks first: its chat greets the person and, when its engine can answer, asks what to start on.
   const sayHello = (id: string) => void api(`/api/bots/${encodeURIComponent(id)}/hello`, { method: "POST", body: "{}" }).catch(() => {});
 
   const save = async () => {

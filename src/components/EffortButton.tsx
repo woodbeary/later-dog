@@ -1,6 +1,3 @@
-// Beside the model button: how hard the model thinks, as Claude Code shows
-// it. One word on the button; a Faster-to-Smarter slider behind it, and fast
-// mode where the model has it. Nothing shows for a model without either.
 import { CircleHelp, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
@@ -13,7 +10,6 @@ import { fastModeFits } from "@/lib/fast-mode";
 import { useMenuMotion } from "./MenuMotion";
 import { Switch } from "./SettingsPrimitives";
 
-/** The level marked Recommended: the middle of the scale people expect. */
 export function recommendedEffort(levels: readonly EffortLevel[]): EffortLevel | undefined {
   return levels.includes("medium") ? "medium" : undefined;
 }
@@ -28,7 +24,6 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
   const instance = state.instances.find((candidate) => candidate.instanceId === selection.instanceId);
   const levels: EffortLevel[] = (instance?.capabilities?.effortLevels ?? []).filter((level) => level !== "none");
   const fast = fastModeFits(instance, selection.model);
-  // Same authority rule as a model pick: a Cloud guest changes only their chat.
   const updateBotDefault = Boolean(threadId) && (!state.config?.cloudHome || ownerOrAdmin === true);
 
   useEffect(() => {
@@ -104,7 +99,6 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
                   >
                     {level === current
                       ? <span className="h-4 w-5 rounded-[5px] bg-ink shadow-sm" />
-                      // the engine's own default: shown, but not as a choice made
                       : !current && level === recommended
                         ? <span className="h-4 w-5 rounded-[5px] bg-ink/35" />
                         : <span className="size-1 rounded-full bg-ink-tertiary" />}

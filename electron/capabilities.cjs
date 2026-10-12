@@ -1,6 +1,3 @@
-// Pure desktop capability detection shared by Electron main tests and the
-// renderer contract. Keep this file free of Electron imports so every branch
-// is deterministic and unit-testable.
 
 const DESKTOP_PLATFORMS = new Set(["darwin", "linux", "win32"]);
 const UNAVAILABLE_LOCAL_STATUSES = new Set(["disabled", "checking", "starting", "error", "stopped", "unavailable"]);
@@ -21,8 +18,6 @@ function nativeDesktopActions(platform) {
 function linuxSession(platform, env) {
   if (platform !== "linux") return "unknown";
   const declared = String(env.XDG_SESSION_TYPE ?? "").toLowerCase();
-  // A Wayland user session may also expose DISPLAY for XWayland. Prefer the
-  // Wayland signal so the UI never bypasses portal-mediated behavior.
   if (declared === "wayland" || env.WAYLAND_DISPLAY) return "wayland";
   if (declared === "x11" || declared === "xorg") return "x11";
   if (env.DISPLAY) return "x11";
@@ -69,7 +64,6 @@ function localComputerReady(platform, connection) {
   if (platform === "darwin") {
     return Boolean(validLegacyConnection && (connection.mode === "embedded" || connection.mode === "standalone"));
   }
-  // Windows only exposes the host-owned embedded connection.
   if (platform === "win32") {
     return Boolean(validLegacyConnection && connection.mode === "embedded");
   }
@@ -94,8 +88,6 @@ function desktopCapabilities({
   packaged = false,
   localConnection = null,
   homeDir = require("node:os").homedir(),
-  // The page asking is a remote server's UI: this computer's screen, voice
-  // and local control are not on offer, whatever the host could do.
   remote = false,
   credentialStore = null,
 } = {}) {
@@ -136,9 +128,6 @@ function desktopCapabilities({
     enabled: connectionEnabled(hostPlatform, localConnection),
     status: localStatus,
   };
-  // These fields expose local-machine detail (installed driver, seat,
-  // diagnostics), so populate them only when no remote override replaces
-  // localComputer below; a remote page must never receive local values.
   if (!remote) {
     if (localConnection?.mode === "unavailable" && typeof localConnection.reason === "string" &&
         localConnection.reason.trim() && localConnection.reason.length <= 2_000) {
@@ -201,9 +190,6 @@ function desktopCapabilities({
               : "Desktop",
       session: hostSession,
       packaged: Boolean(packaged),
-      // so the renderer can show paths as ~/… without a Node builtin in
-      // the sandboxed preload; a remote server's page learns nothing about
-      // this computer's users
       homeDir: remote ? "" : homeDir,
     },
     windowChrome:

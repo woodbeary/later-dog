@@ -1,5 +1,3 @@
-// Scripted provider fixture that exercises the REAL injected agents MCP proxy.
-// The plan and evidence are confined to the isolated launcher's temporary home.
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -7,33 +5,19 @@ import { waitForExit } from "./cleanup.ts";
 
 type AgentsIntegration = { command: string; args: string[]; env: Record<string, string> };
 
-// Claude reads its MCP config and system prompt files once, at launch. The
-// harness removes both when the first turn settles, so a process kept warm
-// for later turns must not read them again.
 const launchFiles = new Map<string, string>();
 const readAtLaunch = (path: string) => {
   if (!launchFiles.has(path)) launchFiles.set(path, readFileSync(path, "utf8"));
   return launchFiles.get(path)!;
 };
 
-/** `launch` replaces Claude's argv files for another fake engine: the agents
- * server it mounted, its instructions, and extra evidence fields. `progress`
- * streams a plan's `progress` text before the turn waits on its gate, and its
- * `progressAfterGate` text once the gate opens. */
 export async function runRoomHandoffAgent(argv: string[], planPath: string, prompt?: unknown,
   launch?: { integration: AgentsIntegration; system: string; evidence?: Record<string, unknown> },
   progress?: (text: string) => void): Promise<string> {
   const arg = (flag: string) => argv[argv.indexOf(flag) + 1];
   const integration = launch?.integration ?? Object.values(JSON.parse(readAtLaunch(arg("--mcp-config"))).mcpServers as Record<string, AgentsIntegration>)
     .find(s => s.env?.LATERDOG_BOT_ID);
-  // A depth-capped delegated turn mounts no agents server: answer from the prompt alone.
   if (!integration) {
-    // Nothing in such a launch's argv says which bot it is — only the task
-    // text does. A test that needs a delegated reply to land at an exact
-    // point (a wake it must follow) holds it here on a gate file, named by a
-    // substring of the task text: `${planPath}.gates.json`, a JSON array of
-    // { promptIncludes, gateFile }. The wait is unbounded like any plan
-    // gate: the test that set it owns when it opens.
     const gatesPath = `${planPath}.gates.json`;
     const taskText = String((prompt as any)?.message?.content ?? "");
     for (const rule of existsSync(gatesPath) ? JSON.parse(readFileSync(gatesPath, "utf8")) as Array<{ promptIncludes: string; gateFile: string }> : []) {
@@ -50,9 +34,6 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
   }
   const botId = integration.env.LATERDOG_BOT_ID;
   const system = launch?.system ?? readAtLaunch(arg("--append-system-prompt-file"));
-  // Claude snapshots the launch-time system prompt for a session. A retained
-  // process or --resume launch receives changed turn-scoped instructions in
-  // the user message, so inspect both surfaces just as the model does.
   const turnContext = `${system}\n${JSON.stringify(prompt)}`;
   const resumed = turnContext.includes("Your downstream room requests have settled.");
   const basePlan = JSON.parse(readFileSync(planPath, "utf8"))[botId] ?? {};
@@ -110,9 +91,6 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
       }
       if (typeof plan.progress === "string") progress?.(plan.progress);
       if (plan.readyFile) writeFileSync(plan.readyFile, "ready");
-      // All MCP calls have completed. An explicit test gate is owned by the
-      // parent test's timeout, not the transport deadline: long conversation
-      // fixtures may deliberately keep a teammate waiting across many turns.
       if (plan.gateFile) clearTimeout(timer);
       if (plan.gateFile && !existsSync(plan.gateFile)) await new Promise<void>(resolve => {
         gateTimer = setInterval(() => {

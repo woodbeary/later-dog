@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isWorkspaceRunning, qrToString, runOnboardingCommand, runServe, type CliOptions } from "./cli.ts";
 
 const mocks = vi.hoisted(() => ({
-  // the fleet path is off in these tests: no credential in the environment
   fleetCredential: vi.fn(() => null),
   fleetAccess: vi.fn(),
   FLEET_CREDENTIAL_ENV: "LATERDOG_INSTALLATION_CREDENTIAL",
@@ -65,8 +64,6 @@ function childProcess(): ChildProcess {
   return child;
 }
 
-// Invoke only the handler installed by runServe, never signal the test runner
-// or another process. The child is an EventEmitter, not a real subprocess.
 function interrupt(): void {
   const handlers = process.listeners("SIGINT").filter((handler) => !signalListeners.get("SIGINT")?.has(handler));
   expect(handlers).toHaveLength(1);
@@ -166,7 +163,6 @@ describe("CLI startup lifecycle", () => {
 
   it("hands the running tunnel to background endpoint recovery and takes it back on stop", async () => {
     let healthRequests = 0;
-    // Nothing answers before serve starts its server; then it is up.
     vi.stubGlobal("fetch", vi.fn(async () => (++healthRequests === 1
       ? Response.json({}, { status: 503 })
       : Response.json({ app: "laterdog", pid: childPid }))));
@@ -247,8 +243,6 @@ describe("CLI startup lifecycle", () => {
     const code = "ABCD-EFGH-JKLM";
     const expiresAt = Date.now() + 300_000;
     const pairingUrl = `${origin}/pair#code=${code}`;
-    // A real server mints both encodings of one window; Android can only scan
-    // the laterdog:// one (android/core Connection.kt).
     const credential = `laterdog_pair_${"a".repeat(43)}`;
     const inviteUrl = `laterdog://pair?address=${encodeURIComponent(origin)}&token=${credential}&name=fixture`;
     let healthRequests = 0;
@@ -260,9 +254,6 @@ describe("CLI startup lifecycle", () => {
       if (address === `http://127.0.0.1:${options.port}/api/auth/pairing`) {
         expect(init?.method).toBe("POST");
         expect(JSON.parse(String(init?.body))).toEqual({ label: "Android", scopes: ["client"] });
-        // A server started without LATERDOG_PUBLIC_URL: it mints the credential but
-        // cannot name itself, so it returns no links at all. The CLI was told
-        // the public address with --public-url and must build both from that.
         return Response.json({ code, url: null, expiresAt, credential, serverName: "fixture", hint: "set LATERDOG_PUBLIC_URL" });
       }
       expect(address).toMatch(/\/\.well-known\/laterdog\/environment$/);
@@ -286,8 +277,6 @@ describe("CLI startup lifecycle", () => {
     expect(output).toMatch(/[▀▄█]/);
     expect(output).toContain(`Or open ${origin}/pair on your phone and enter the code.`);
     expect(output).toContain("On Android, open the later.dog app and scan the QR with its pairing scanner.");
-    // The QR rendered for an Android phone must be the app-scheme invite, not
-    // the https link its scanner rejects.
     expect(output).toContain(qrToString(inviteUrl));
     expect(output).not.toContain(qrToString(pairingUrl));
     expect(output).toContain("client access: chat and approvals, not settings or pairing administration");

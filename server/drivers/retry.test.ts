@@ -74,7 +74,6 @@ describe("classifyError", () => {
   });
 
   it("prefers the transient reading when stderr carries both shapes", () => {
-    // a crash whose stderr mentions throttling is worth one more try
     expect(classifyError({ exitCode: 1, stderr: "error: 429 too many requests" })).toEqual({
       transient: true,
       reason: "rate_limited",
@@ -114,9 +113,6 @@ describe("classifyError — usage limits", () => {
     expect(classifyError({ exitCode: 1, stderr: text })).toEqual({ transient: true, reason: "rate_limited" });
     expect(classifyError({ exitCode: 1, stderr: "API Error: 429 Rate limit reached: weekly limit reached" })).toEqual({ transient: false, reason: "quota" });
   });
-  // A subscription's usage limit is not a 429 to retry through: the window
-  // is hours away. It is terminal for this engine, and the harness may
-  // carry the task to another account or engine instead.
   it("calls a subscription usage limit a quota problem, not a retry", () => {
     for (const text of [
       "You've hit your usage limit for this session. Try again at 7pm.",
@@ -127,7 +123,6 @@ describe("classifyError — usage limits", () => {
       expect(classifyError({ text }), text).toEqual({ transient: false, reason: "quota" });
     }
   });
-  // Claude Code 2.1.x names the limit it hit, and says when it resets.
   it("calls each limit Claude Code 2.1.x names a quota problem, in either transport shape", () => {
     for (const text of [
       "You've hit your session limit · resets 3pm (America/Los_Angeles)",
@@ -143,7 +138,6 @@ describe("classifyError — usage limits", () => {
       expect(classifyError({ text }), text).toEqual({ transient: false, reason: "quota" });
       expect(classifyError({ exitCode: 1, stderr: text }), text).toEqual({ transient: false, reason: "quota" });
     }
-    // a model may say "limit" in passing without any limit being hit
     expect(classifyError({ text: "You've hit your stride; the session limit is fine" })).toEqual({ transient: false, reason: "unknown" });
   });
 });

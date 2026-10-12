@@ -37,8 +37,6 @@ const vmResumeStatus = () => ({
   viewer_url: "http://127.0.0.1/fixture-viewer", idle_timeout_ms: 480 * 60_000, max_instances: 2,
   commands: {}, workspace_path: "/fixture/workspace", workspace_guest_path: "/home/cua/workspace",
 });
-// A host capture outlives an aborted renderer fetch. Keep this work pending
-// until explicitly released, so reconnects exercise real lifecycle contention.
 const transport = {
   resetVm: () => { vmRunning = false; vmDesktopReady = false; }, vmStarts: 0, vmReadinessReads: 0, requests: 0, aborted: 0, conflicts: 0, capturing: false,
   joining: false, duringJoin: 0, controlCalls: 0, opened: 0, abortedJoins: 0,
@@ -86,13 +84,10 @@ window.fetch = async (input, init) => {
     transport.vmRequests++;
     if (mode === "held") {
       transport.vmPending = true;
-      // Deliberately finish even after cancellation to prove an old frame
-      // cannot replace the next conversation's preview.
       await new Promise<void>((resolve) => { transport.releaseVm = () => { transport.vmPending = false; resolve(); }; });
     }
     return json({ image: vmScreenshot });
   }
-  // The real server refuses provision/sleep while a turn owns the boat.
   if (path.endsWith("/computer/provision")) {
     if (turnActive) return json({ error: CLOUD_COMPUTER_BUSY_ERROR }, 409);
     return json({ state: "idle" });
@@ -148,7 +143,6 @@ window.fetch = async (input, init) => {
     });
     return json({ joinUrl: "/vps-viewer/fixture/" });
   }
-  // Never allow the fixture's lifecycle actions to reach a real provider.
   if (path.endsWith("/computer/sleep")) {
     return json({ error: "This fixture tests previews only" }, 409);
   }

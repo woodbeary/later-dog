@@ -1,6 +1,3 @@
-// The desktop owns one child, including while its health probe is pending.
-// Startup port selection stays with the caller; runtime recovery retries the
-// established port so existing renderer and Companion connections can recover.
 export function createServerSupervisor({
   restart,
   stop,
@@ -43,8 +40,6 @@ export function createServerSupervisor({
         result = await restart();
       } catch (error) {
         log(`server recovery failed: ${error?.message ?? error}`);
-        // A thrown start with a still-owned child is not permission to fork
-        // a sibling. The caller must reap failed probes before returning.
         result = { abort: current !== null };
       }
       if (stopped) return;
@@ -59,7 +54,6 @@ export function createServerSupervisor({
     if (stopped || current) throw new Error("Cannot replace an owned server child");
     current = proc;
     proc.once("exit", () => {
-      // Late exits from a failed boot must not clear a replacement's state.
       if (current !== proc) return;
       const wasReady = readySince !== null;
       if (wasReady && now() - readySince >= stableUptimeMs) attempts = 0;

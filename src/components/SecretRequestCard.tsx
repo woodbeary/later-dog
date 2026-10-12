@@ -45,8 +45,6 @@ export function SecretRequestCard({
         ? "The key is safe; resuming failed"
         : "Waiting to resume safely";
 
-  // A successful decline has no durable card to show. If its continuation
-  // failed, bring the card back with the same retry affordance as a saved key.
   if (declined && (secret.resumed || !error)) return null;
 
   const notifyProvided = async () => {

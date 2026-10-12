@@ -2,11 +2,8 @@ import type { z } from "zod";
 
 import type { JsonValue } from "../shared/json.ts";
 
-// The plain-JSON vocabulary lives in shared/json.ts now (part of the wire
-// model); re-exported here so existing importers keep working.
 export type { JsonObject, JsonPrimitive, JsonValue } from "../shared/json.ts";
 
-/** JSON.parse without a reviver can only produce JSON-compatible values. */
 export function parseJson(text: string): JsonValue {
   return JSON.parse(text);
 }

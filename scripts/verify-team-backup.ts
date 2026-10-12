@@ -1,4 +1,3 @@
-// One owned fake-engine fixture. This command accepts no live server URL.
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import { launchVerificationServer, runControlLaterDog } from "./control-laterdog.ts";
@@ -50,17 +49,12 @@ export async function verifyTeamBackup(report: (event: unknown) => void = () => 
     await assert.rejects(post("/api/teams/import?mode=replace", backup), /Replacing your pack/);
     await assert.rejects(post("/api/teams/import", { ...backup, version: 999 }), /Invalid backup/);
     assert.deepEqual(await request("/api/bots", {}, url), after);
-    // Setup-only files must preserve the same persona, without importing
-    // conversations or permissions. Exercise the real manifest import too.
     const manifest = await post("/api/teams/export", { name: "Fixture manifest" });
     assert.equal(manifest.team.members.find((member: { name: string }) => member.name === "Backup probe").soul, soul);
     const fromManifest = await post("/api/teams/import?mode=add", manifest);
     assert.equal(fromManifest.bots.find((candidate: { name: string }) => candidate.name === "Backup probe 3").soul, soul);
     assert.ok(fromManifest.bots.every((candidate: { section?: string }) => candidate.section === "Fixture manifest"));
     const packageExport = await post("/api/teams/export", { format: "package", name: "Fixture manifest" });
-    // Older library files, repeated imports, project rooms and Markdown all
-    // use the same additive path. Compare EVERY existing record each time,
-    // including previous imports, section Chiefs and room membership.
     for (const [index, example] of [
       { format: "legacy v1", path: "/api/teams/import?mode=add", body: { ...manifest, version: 1, team: { ...manifest.team, room: { name: "Ignored legacy room", defaultResponder: { kind: "everyone" } } } } },
       { format: "legacy v2 project", path: "/api/teams/import?mode=project&room=Template%20room", body: manifest },
@@ -85,8 +79,6 @@ export async function verifyTeamBackup(report: (event: unknown) => void = () => 
     await command("send", "--bot", fromManifest.bots[0].id, "--text", "Confirm the imported template is ready. Reply once.");
     assert.equal((await command("wait", "--bot", fromManifest.bots[0].id, "--timeout", "30") as { status: string }).status, "settled");
     assert.ok(JSON.stringify(await command("messages", "--bot", fromManifest.bots[0].id, "--limit", "10")).includes("hello from fake claude"));
-    // The copied history is usable for a fresh turn without resuming the
-    // original provider session or altering the original bot's transcript.
     await command("send", "--bot", added.id, "--text", "Continue the imported conversation. Reply once.");
     const resumed = await command("wait", "--bot", added.id, "--timeout", "30") as { status: string };
     assert.equal(resumed.status, "settled");

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { waitUntil } from "./api.ts";
 
-// The loop is state-based, but its deadline must also bound each read: a
-// request that connects and never completes has to fail the wait, not
-// park it forever with the deadline check unreachable.
 describe("waitUntil", () => {
   it("rejects when a read never completes before the deadline", async () => {
     const stalled = new Promise<string>(() => {});

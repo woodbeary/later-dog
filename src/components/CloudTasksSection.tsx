@@ -18,7 +18,6 @@ export function CloudTasksSection({ botId, botName }: { botId: string; botName: 
       <ul className="overflow-hidden rounded-xl bg-card">
         {tasks.map((task) => {
           const status = cloudTaskStatus({ summary: task });
-          // what it is doing while it works; afterwards, the project it worked in
           const line = (status.live ? status.note : undefined) ?? projectName(task.repository);
           return (
             <li key={task.id} className="border-b border-hairline/30 last:border-b-0">

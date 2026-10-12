@@ -1,6 +1,3 @@
-// pnpm build:server && pnpm build:companion
-// pnpm exec electron scripts/smoke-phone-relay-auth.cjs
-// Real Electron children and pairing registry, disposable home, fake engine.
 const { app, utilityProcess } = require("electron");
 const assert = require("node:assert/strict");
 const { randomBytes } = require("node:crypto");
@@ -79,7 +76,6 @@ app.whenReady().then(async () => {
   const phoneHeaders = { authorization: `Bearer ${paired.body.token}` };
   const phone = (path, method = "GET", body, extra = {}) => api(phonePort, path, method, body, { ...phoneHeaders, ...extra });
   assert.equal((await phone("/api/bots", "POST", {})).status, 503, "bootstrap must fail closed");
-  // Reproduce the old relay: marker/device alone cannot authorize a mutation.
   assert.equal((await api(harnessPort, "/api/bots", "POST", {}, {
     "x-laterdog-companion": "1", "x-laterdog-companion-device": paired.body.device.id,
   })).status, 403);
@@ -99,8 +95,6 @@ app.whenReady().then(async () => {
     return current && !current.busy && current.messages.some((m) => m.text?.includes("hello from fake claude")) && current;
   });
   assert.ok(bot.messages.some((m) => m.text?.includes("Hello from the paired phone")));
-  // An app restart must not make an existing phone pair again. The registry
-  // persists the phone identity while the private relay credential rotates.
   const sidecarExited = once(sidecar, "exit");
   sidecar.kill();
   await sidecarExited;

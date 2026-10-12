@@ -1,7 +1,3 @@
-// Build the native recognizer as a real app bundle. macOS privacy enforcement
-// does not accept a purpose string embedded in a loose command-line binary on
-// current releases; TCC reads the Info.plist belonging to the executable's
-// bundle and terminates the process before Swift can recover when it is absent.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -18,11 +14,6 @@ export function buildSpeechHelper() {
   const contents = path.join(speechHelperBundle, "Contents");
   mkdirSync(path.join(contents, "MacOS"), { recursive: true });
   copyFileSync(path.join(resourcesDir, "speech-helper-Info.plist"), path.join(contents, "Info.plist"));
-  // The mac app ships for arm64 and x64, and the helper rides inside both
-  // bundles, so it must be universal — bare `swiftc` builds host-arch only,
-  // which inside an Intel app is a dictation helper that cannot launch.
-  // macos12 matches the app's LSMinimumSystemVersion; the Speech/AVFoundation
-  // APIs used here are all older than that.
   const localPackage = process.env.LATERDOG_LOCAL_PACKAGE === "1";
   const slices = (localPackage ? [process.arch === "arm64" ? "arm64" : "x86_64"] : ["arm64", "x86_64"]).map((arch) => {
     const slice = `${speechHelperBinary}-${arch}`;
@@ -43,9 +34,6 @@ export function buildSpeechHelper() {
   if (expected.some(arch => !archs.trim().split(/\s+/).includes(arch))) {
     throw new Error(`speech helper lacks the requested architecture: ${archs.trim()}`);
   }
-  // Give development builds a stable identity and the same audio entitlement
-  // as the release. electron-builder replaces this ad-hoc signature when it
-  // signs the containing distribution.
   execFileSync(
     "codesign",
     [

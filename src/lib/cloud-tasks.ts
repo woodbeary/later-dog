@@ -201,7 +201,6 @@ export const cloudTaskPatch = (jobId: string) => api<{ patch: string }>(`/api/la
 const WAKEUP_SEND_ID = /^laterdog_([0-9a-f]{32})_\d+$/;
 const WAKEUP_TEXT = /^later\.dog job [0-9a-f-]{36}: ([a-z_]+)\./;
 
-/** A wake-up the supervisor sent a dog's chat when its cloud task moved: shown as a slim update line, not as the person's words. */
 export function cloudWakeupOf(message: { role: string; kind?: string; sendId?: string; text?: string }): { jobId: string; event: string } | null {
   if (message.role !== "user" || (message.kind !== undefined && message.kind !== "text") || !message.sendId) return null;
   const hex = WAKEUP_SEND_ID.exec(message.sendId)?.[1];
@@ -212,7 +211,6 @@ export function cloudWakeupOf(message: { role: string; kind?: string; sendId?: s
   };
 }
 
-/** What a wake-up says happened, as one plain sentence: the chat's update row and the sidebar's preview. */
 export function wakeupLine(event: string): string {
   switch (event) {
     case "collected": return t("cloudTask.update.collected");
@@ -226,33 +224,25 @@ export function wakeupLine(event: string): string {
   }
 }
 
-/** Where a task is, in the few words a person needs: is it working, is there something to look at, is it over, does it need them. */
 export type CloudTaskPhase = "checking" | "unknown" | "waiting" | "working" | "review" | "done" | "stopped" | "attention";
 
 export interface CloudTaskStatusView {
   phase: CloudTaskPhase;
-  /** Working, Waiting, Ready to review, Done, Stopped or Needs you. */
   label: string;
-  /** Still moving: the status shimmers and the task keeps being read. */
   live: boolean;
-  /** What it is doing right now, or how it ended, in plain words. */
   note?: string;
-  /** The supervisor's own reason (a blocker or a read error), kept behind Steps and in the panel. */
   detail?: string;
-  /** How far along its run is, 0 to 1, for the card's progress line. Phases, not time. */
   progress: number;
 }
 
 const SETTING_UP: Readonly<Record<string, number>> = { starting: 0.16, install: 0.22, clone: 0.28, setup: 0.34 };
 
-/** How far a run got by its stage: setting up fills the first third, the work the middle, wrapping up the rest. */
 function stageProgress(stage: string | undefined): number {
   if (!stage) return 0.12;
   if (Object.hasOwn(SETTING_UP, stage)) return SETTING_UP[stage]!;
   return stage === "done" ? 0.85 : 0.55;
 }
 
-/** Why a task has not started, from the supervisor's own wording; anything else just waits. */
 function waitingNote(blocker: string | undefined): string | undefined {
   if (!blocker) return undefined;
   if (blocker.startsWith("Waiting for dependency") || blocker.startsWith("Waiting for conflicting writer")) return t("cloudTask.note.otherTask");
@@ -260,12 +250,10 @@ function waitingNote(blocker: string | undefined): string | undefined {
   return undefined;
 }
 
-/** Tool names arrive bare (Read) or namespaced by an MCP server (mcp__server__tool, whose server name may hold single underscores). */
 function bareTool(tool: string): string {
   return tool.replace(/^mcp__.+?__/, "");
 }
 
-/** What the agent is doing, from its latest step, in a few words that never name a file or a command. */
 export function doingNote(step: CloudTaskStep | undefined): string {
   if (!step) return t("cloudTask.doing.working");
   switch (step.k) {
@@ -293,8 +281,6 @@ export function cloudTaskStatus(entry: CloudTaskEntry | undefined): CloudTaskSta
     return { phase: "checking", label: t("cloudTask.status.checking"), live: false, progress: 0 };
   }
   const detail = summary.blocker ? { detail: summary.blocker } : {};
-  // A working task's blocker is a status read that failed and will be tried again, or one left from an earlier step:
-  // not a reason to show the person.
   const working = (note: string, progress: number): CloudTaskStatusView =>
     ({ phase: "working", label: t("cloudTask.status.working"), live: true, note, progress });
   const endedAt = summary.stage ? stageProgress(summary.stage) : 0;
@@ -326,8 +312,6 @@ export function cloudTaskStatus(entry: CloudTaskEntry | undefined): CloudTaskSta
   }
 }
 
-/** The status word's look, the same in the card, the panel and the Computer panel: monochrome, with the
- * app's own "Thinking" sheen while it works and full ink when it needs the person. */
 export function cloudTaskStatusClass(view: CloudTaskStatusView): string {
   if (view.live) return "thinking-shimmer animate-shimmer";
   if (view.phase === "attention") return "font-medium text-ink";
@@ -341,16 +325,12 @@ export function stageLabel(stage: string): string {
     case "clone": return t("cloudTask.stage.clone");
     case "setup": return t("cloudTask.stage.setup");
     case "done": return t("cloudTask.stage.done");
-    // "claude" is the agent at work; an unknown stage reads the same rather than as its code name
     default: return t("cloudTask.doing.working");
   }
 }
 
-/** A step as a person reads it: a short plain sentence, and the exact file, command or address
- * beside it only as a quiet detail. */
 export interface PlainStep { text: string; detail?: string }
 
-/** The first line of what the agent said, without markdown marks. */
 function firstLine(text: string): string {
   const line = text.split("\n").map((part) => part.trim()).find(Boolean) ?? "";
   return line.replace(/^(?:#{1,6}\s+|[-*>]\s+)/, "").replace(/`/g, "").replace(/\*\*/g, "");
@@ -380,8 +360,6 @@ export function plainStep(step: CloudTaskStep): PlainStep | null {
   }
 }
 
-/** A run's steps as a person reads them: plain sentences, a repeated line said once, and the agent's
- * closing words left to the finish line rather than said twice. The newest 200 at most. */
 export function plainSteps(steps: readonly CloudTaskStep[]): PlainStep[] {
   const finalWords = new Set(steps.flatMap((step) => (step.k === "done" && step.text ? [step.text.trim()] : [])));
   const plain: PlainStep[] = [];
@@ -396,7 +374,6 @@ export function plainSteps(steps: readonly CloudTaskStep[]): PlainStep[] {
   return plain.slice(-200);
 }
 
-/** The project a task works in, by its repository's name alone: "later-dog", not "woodbeary/later-dog". */
 export function projectName(repository: string | undefined): string {
   return repository?.split("/").filter(Boolean).pop() ?? "";
 }

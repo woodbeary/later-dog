@@ -17,8 +17,6 @@ export function SoulField({ bot, onPatch }: { bot: Bot; onPatch: (patch: { soul?
   const [info, setInfo] = useState<SoulRead | null>(null);
   const [resolving, setResolving] = useState(false);
 
-  // A new bot, or a server-side change (drift resolved, another client),
-  // replaces the draft. While the user types, the draft leads.
   useEffect(() => {
     setDraft(bot.soul ?? "");
   }, [bot.id, bot.soul]);

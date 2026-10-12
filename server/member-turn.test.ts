@@ -8,7 +8,6 @@ describe("memberTurnSelection", () => {
     expect(() => assertModelVariantSupported({ variant: "" }, { modelVariants: true })).toThrow("saved model variant");
     expect(() => assertModelVariantSupported({ variant: "low", effort: "high" }, { modelVariants: true })).toThrow("saved model variant");
     expect(() => assertModelVariantSupported({}, {})).not.toThrow();
-    // The runtime ACP allowlist, not a global effort enum, governs these IDs.
     for (const variant of ["none", "minimal", "custom/Deep_mode"]) {
       expect(() => assertModelVariantSupported({ variant }, { modelVariants: true })).not.toThrow();
     }

@@ -1,5 +1,3 @@
-// Per-turn ask gate, adapted from the approval lifecycle in #780.
-// Register before publishing: a harness listener may answer synchronously.
 import { newId, type RequestOutcome } from "../contracts.ts";
 import type { AskQuestion } from "../../shared/ask-question.ts";
 
@@ -9,7 +7,6 @@ type Source = "user" | "timeout" | "system";
 interface Card {
   kind: "permission" | "question";
   ask: Ask;
-  /** Exactly-once: a second finish is a no-op because the card left the map. */
   finish(source: Source, decision?: { allowed?: boolean; message?: string }): void;
 }
 
@@ -61,9 +58,6 @@ export function createChatToolApproval(options: {
             if (!pending.delete(ask.id)) return;
             clearTimeout(timer);
             options.signal.removeEventListener("abort", abort);
-            // Only the person's reply resolves a question; a timeout or
-            // abort resolves null so no system note can occupy the answer
-            // slot the model reads as the person's words.
             const reply = typeof decision?.message === "string" && decision.message.length > 0 ? decision.message : null;
             options.resolvedQuestion(ask, reply !== null, source);
             resolve(reply);
@@ -85,13 +79,10 @@ export function createChatToolApproval(options: {
         return "rejected";
       }
       if (card.kind === "permission") {
-        // An answer is not a permission: only allow or deny settles it.
         if (behavior !== "allow") return "unavailable";
         card.finish("user", { allowed: true });
         return "allowed-once";
       }
-      // And an allow is not an answer: a question settles only on a real
-      // reply, never a blank the model would have to interpret.
       if (behavior === "answer" && typeof message === "string" && message.trim()) {
         card.finish("user", { message });
         return "answered";

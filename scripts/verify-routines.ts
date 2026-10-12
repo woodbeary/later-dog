@@ -1,4 +1,3 @@
-// Real scheduler, routes, MCP proposal and renderer, only in a disposable home.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -103,8 +102,6 @@ try {
   await parkUntilSignal();
 } finally {
   const final = await api("GET", "/api/routines").catch(() => null);
-  // Ctrl-C can reach the child before this owner reads its API. Preserve the
-  // actual persisted records before fixture cleanup, without calling them an API response.
   const routineFile = join(fixture.info.dataDir, "routines.json");
   const persisted = !final && existsSync(routineFile) ? JSON.parse(readFileSync(routineFile, "utf8")) : undefined;
   writeFileSync(`${fixture.info.logPath}.json`, JSON.stringify({ evidence, final, persisted }, null, 2));

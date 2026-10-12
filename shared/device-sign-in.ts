@@ -1,9 +1,3 @@
-// Where a person enters the one-time code that signs an engine's CLI in on
-// the machine running later.dog (`codex login --device-auth`, `grok login
-// --device-auth`). The server reads the page and the code from the CLI's
-// output with these rules, and the app checks them again before it shows a
-// link. Neither ever turns arbitrary output into a link, or lets a token ride
-// along in one.
 
 export type DeviceSignInProvider = "codex" | "grok";
 
@@ -15,8 +9,6 @@ const RULES: Record<DeviceSignInProvider, { page(value: string): string | null; 
     code: /^[A-Z0-9]{4,8}-[A-Z0-9]{4,8}$/,
   },
   grok: {
-    // xAI's own sign-in hosts. The page may carry the code itself (the
-    // provider's "complete" link); nothing else may ride in its query.
     page: (value) => {
       if (!/^https:\/\/[^\s#]+$/.test(value)) return null;
       let url: URL;
@@ -28,23 +20,16 @@ const RULES: Record<DeviceSignInProvider, { page(value: string): string | null; 
   },
 };
 
-/** The provider's own page for entering `userCode`, or null for anything
- * else. A code carried in the page's link must be that same code. */
 export function deviceSignInLink(provider: DeviceSignInProvider, value: string | null | undefined, userCode?: string): string | null {
   const page = value ? RULES[provider].page(value) : null;
   if (!page) return null;
   return [...new URL(page).searchParams.values()].every((carried) => carried === userCode) ? page : null;
 }
 
-/** A one-time code as this provider formats it. */
 export function isDeviceSignInCode(provider: DeviceSignInProvider, value: string | null | undefined): value is string {
   return typeof value === "string" && RULES[provider].code.test(value);
 }
 
-/** The page and the code from a CLI's output, once both lines have arrived
- * whole: output arrives in chunks that may stop halfway through a code, so
- * the last, unfinished line is never read. `text` is already free of
- * terminal styling. */
 export function deviceSignInPrompt(provider: DeviceSignInProvider, text: string): { authorizationUrl: string; userCode: string } | null {
   const lines = text.split(/\r?\n/).slice(0, -1).map((line) => line.trim());
   const at = lines.findIndex((line) => RULES[provider].page(line) !== null);

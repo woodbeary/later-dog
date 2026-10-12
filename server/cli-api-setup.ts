@@ -1,5 +1,3 @@
-// Small, stateless probes for CLI onboarding. The caller owns consent for the
-// metered completion and persistence; neither credentials nor replies are logged.
 export const API_ENDPOINTS = [
   { id: "openai", label: "OpenAI API", url: "https://api.openai.com/v1", keyUrl: "https://platform.openai.com/api-keys" },
   { id: "openrouter", label: "OpenRouter", url: "https://openrouter.ai/api/v1", keyUrl: "https://openrouter.ai/settings/keys" },
@@ -13,7 +11,6 @@ export function normalizeApiUrl(value: string): string {
   try { url = new URL(input); } catch { throw invalid(); }
   const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if (
-    // Reject invisible URL characters and ambiguous authority/path separators.
     // eslint-disable-next-line no-control-regex
     /[\u0000-\u0020\u007f\\?#]/u.test(input) || url.username || url.password ||
     input.slice(input.indexOf("://") + 3).split("/")[0]?.includes("@") ||
@@ -38,10 +35,7 @@ function httpFailure(status: number, completion: boolean): SetupApiError {
 
 async function setupJson(url: string, key: string, body?: Record<string, unknown>): Promise<unknown> {
   const base = normalizeApiUrl(url);
-  // The wizard trims newly pasted keys. Existing credentials must be tested
-  // exactly as the runtime will send them, not silently repaired only here.
   const token = key;
-  // Header credentials must not contain control characters or whitespace.
   // eslint-disable-next-line no-control-regex
   if (!token || /[\u0000-\u0020\u007f]/u.test(token)) throw new SetupApiError("Enter a non-empty API key without spaces or line breaks.");
   const completion = body !== undefined;
@@ -50,7 +44,6 @@ async function setupJson(url: string, key: string, body?: Record<string, unknown
   const abort = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Include reading the response body in the deadline, not only headers.
     return await Promise.race([
       (async () => {
         const response = await fetch(`${base}${completion ? "/chat/completions" : "/models"}`, {
@@ -76,8 +69,6 @@ async function setupJson(url: string, key: string, body?: Record<string, unknown
     ]);
   } catch (error) {
     if (error instanceof SetupApiError) throw error;
-    // fetch errors can contain a URL, echoed credentials, or provider content.
-    // Deliberately expose neither their message nor their cause.
     throw new SetupApiError("Could not reach the API. Check the network and direct API URL; redirects are not followed.");
   } finally {
     clearTimeout(timer);
@@ -93,7 +84,6 @@ export async function fetchSetupModels(url: string, key: string): Promise<Array<
   for (const entry of Array.isArray(json?.data) ? json.data : []) {
     const item = record(entry);
     const id = typeof item?.id === "string" ? item.id.trim() : "";
-    // Model IDs and display labels reach the terminal; block control sequences.
     // eslint-disable-next-line no-control-regex
     if (!id || /[\u0000-\u001f\u007f]/u.test(id) || models.has(id)) continue;
     // eslint-disable-next-line no-control-regex
@@ -104,15 +94,11 @@ export async function fetchSetupModels(url: string, key: string): Promise<Array<
   return [...models.values()];
 }
 
-/** Call only after consent, passing the effective instance's provider routing. */
 export async function verifySetupCompletion(url: string, key: string, model: string, provider?: string): Promise<void> {
   const id = model.trim();
-  // Keep manually entered IDs safe to show in the terminal and saved setup.
   // eslint-disable-next-line no-control-regex
   if (!id || /[\u0000-\u001f\u007f]/u.test(id)) throw new SetupApiError("Choose a non-empty model ID without control characters.");
   const host = new URL(normalizeApiUrl(url)).hostname.toLowerCase();
-  // Mirror OpenAICompatDriver's OpenRouter-only routing, without inheriting
-  // environment overrides that the caller may have deliberately disabled.
   const pinProvider = provider && (host === "openrouter.ai" || host.endsWith(".openrouter.ai"));
   const json = record(await setupJson(url, key, {
     model: id,

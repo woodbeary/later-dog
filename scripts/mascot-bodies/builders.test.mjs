@@ -51,10 +51,7 @@ describe("body builders", () => {
 
   it("traces each ear part along the silhouette's own ear curves", () => {
     const dog = BODY_DEFS.find(s => s.id === "dog");
-    // the right ear's outer edge, tip and inner edge, verbatim from the outline
     const rightEar = "C160 50 182 78 184 112C185 130 174 140 160 138C156 134 150 124 146 112";
-    // the outline walks the left ear back up, from the notch to the crown;
-    // the part walks it down from the crown like the right one. Same curves.
     const leftEarUp = "C50 124 44 134 40 138C26 140 15 130 16 112C18 78 40 50 58 44";
     const leftEarDown = "C40 50 18 78 16 112C15 130 26 140 40 138C44 134 50 124 54 112";
     expect(dog.d).toContain(rightEar);

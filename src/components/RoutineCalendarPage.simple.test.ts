@@ -4,9 +4,6 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppState, Bot } from "@/state/store";
 import type { Routine, RoutineRun } from "@/lib/routines";
 
-// Hook-by-call-order harness (as in ModelPicker.simple.test.ts): the page's
-// own state survives between captures, so a click followed by a fresh capture
-// shows what the page renders next. Effects never run.
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
@@ -80,7 +77,6 @@ function textOf(node: ReactNode): string {
 }
 const named = (name: string) => (node: Node) => typeof node.type === "function" && node.type.name === name;
 
-/** One capture of the page's own returned tree, keeping state between calls. */
 function capture(render: () => ReactNode): Node[] {
   let tree: Node[] = [];
   function Capture() { fixture.index = 0; tree = nodes(render()); return null; }
@@ -97,7 +93,6 @@ function buttons(tree: Node[]): Map<string, Node["props"]> {
   }
   return map;
 }
-/** A full render (children included) from fresh state. */
 function markup(element: ReactElement): string {
   fixture.values = [];
   fixture.index = 0;
@@ -258,8 +253,6 @@ describe("routine editor", () => {
     expect(html).not.toMatch(/aria-pressed="true"/);
   });
 
-  // Continuity was only reachable by asking a bot; the editor offers it for
-  // repeating bot routines, right under the instructions.
   it("offers Remember the last run for a repeating routine, off unless the routine has it", () => {
     expect(editor(routine)).toMatch(/<input type="checkbox" aria-label="Remember the last run"(?![^>]*checked)[^>]*>/);
     expect(editor({ ...routine, continuity: true })).toMatch(/<input type="checkbox" aria-label="Remember the last run"[^>]*checked[^>]*>/);

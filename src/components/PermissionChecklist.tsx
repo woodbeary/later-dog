@@ -52,14 +52,12 @@ export function PermissionChecklist({
   stagger = false,
 }: {
   host: ChecklistHost;
-  /** Null while the bridge has not answered. */
   checklist: DesktopPermissionChecklist | null;
   busy: DesktopPermission | null;
   onRequest: (permission: DesktopPermission) => void;
   onOpenSettings: (permission: DesktopPermission) => void;
   onRelaunch?: () => void;
   permissions?: readonly DesktopPermission[];
-  /** The welcome tour's rows arrive one after another. */
   stagger?: boolean;
 }) {
   const app = brand().name;
@@ -75,7 +73,6 @@ export function PermissionChecklist({
         const actions = rowActions(permission, status, host);
         const relaunch = actions.relaunchNote && onRelaunch;
         const Icon = ICONS[permission];
-        // One thing on the right: the action when there is one (it already says the switch is off), else the status.
         const action = actions.enable
           ? (
             <button type="button" disabled={busy !== null} onClick={() => onRequest(permission)} className={cn(actionClass, "inline-flex items-center gap-1.5")}>
@@ -99,7 +96,6 @@ export function PermissionChecklist({
               <div className="min-w-0">
                 <div className="text-[14px] font-medium text-ink">{permissionName(permission)}</div>
                 <div className="mt-0.5 text-[12.5px] text-ink-secondary">{t(DETAIL[permission])}</div>
-                {/* one note: the stale-build hint when it applies (it ends where the relaunch note would), else the relaunch note */}
                 {(actions.staleHint || actions.relaunchNote) && (
                   <div className="mt-1 text-[12px] leading-relaxed text-ink-secondary">
                     {actions.staleHint ? t("permissions.staleHint", { app }) : t("permissions.screenRelaunch", { app })}

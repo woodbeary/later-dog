@@ -10,8 +10,6 @@ const MAX_RESPONSE_BYTES = 512 * 1024;
 
 const timestampSchema = z.string().max(64).nullable().optional();
 
-// Connection-state fields are optional so an older or trimmed provider
-// response still parses; a missing field can only make a tunnel look active.
 const tunnelActivityFields = {
   status: z.string().max(32).nullable().optional(),
   created_at: timestampSchema,
@@ -28,9 +26,6 @@ const tunnelSchema = z.object({
   ...tunnelActivityFields,
 });
 
-// The account-wide scan also sees tunnels that other services own, including
-// locally configured ones. Each item is parsed on its own so one unfamiliar
-// tunnel cannot hide the rest of the page.
 const scannedTunnelSchema = z.object({
   id: z.uuid(),
   name: z.string().min(1).max(256),
@@ -80,18 +75,14 @@ export type CloudflareFetch = (
 ) => Promise<Response>;
 
 export interface CloudflareTunnel {
-  /** Connection state, when the provider returned it. */
   activity?: TunnelActivity;
   id: string;
   name: string;
 }
 
 export interface CloudflareTunnelPage {
-  /** Items in this page that did not match the expected tunnel shape. */
   skipped: number;
-  /** Raw number of items the provider returned in this page. */
   returned: number;
-  /** Account-wide count for the query, when the provider reported one. */
   totalCount: number | null;
   tunnels: Array<CloudflareTunnel & { activity: TunnelActivity; managedConfig: boolean }>;
 }
@@ -108,7 +99,6 @@ export class CloudflareAPIError extends Error {
   constructor(
     public readonly code: string,
     public readonly status: number | null = null,
-    /** Cloudflare's Retry-After (delay-seconds form only) on a 429, else null. */
     public readonly retryAfterSeconds: number | null = null,
   ) {
     super(code);
@@ -204,17 +194,11 @@ export class CloudflareAPI {
 
     let response: Response;
     try {
-      // Calling a stored global fetch as `this.fetcher(...)` rebinds its
-      // receiver to this API instance. Workers rejects that with an illegal
-      // invocation, so detach the function before invoking it.
       const fetcher = this.fetcher;
       response = await fetcher(new URL(path, API_BASE), {
         body,
         headers,
         method: init.method ?? "GET",
-        // Workers only implements `follow` and `manual`. Keep redirects manual
-        // so the bearer token is never forwarded to a redirect destination;
-        // the non-2xx response checks below reject the 3xx response.
         redirect: "manual",
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
@@ -226,8 +210,6 @@ export class CloudflareAPI {
     }
 
     if (response.status === 429) {
-      // Cloudflare API limits are per user token and shared by every request
-      // this Worker makes. A distinct code lets the cron stop early.
       const retryAfter = response.headers.get("retry-after")?.trim() ?? "";
       await response.body?.cancel();
       throw new CloudflareAPIError(
@@ -277,9 +259,6 @@ export class CloudflareAPI {
     return { result: result.data, totalCount };
   }
 
-  /** One page of the account's undeleted tunnels, with connection state. The
-   * query is deliberately unfiltered by name so its total is the account-wide
-   * count that the provider quota applies to. */
   async listTunnelPage(page: number, perPage: number): Promise<CloudflareTunnelPage> {
     const query = new URLSearchParams({
       is_deleted: "false",
@@ -308,7 +287,6 @@ export class CloudflareAPI {
     return { returned: result.length, skipped, totalCount, tunnels };
   }
 
-  /** Total DNS records in the zone, for the record-quota alert. */
   async countDNSRecords(): Promise<number | null> {
     const query = new URLSearchParams({ page: "1", per_page: "1" });
     const { totalCount } = await this.requestEnvelope(

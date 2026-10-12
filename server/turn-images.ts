@@ -1,10 +1,3 @@
-// Turn-local image admission.
-//
-// Composer messages persist a standalone <attached-image> transport tag so
-// every client can render the attachment later. Providers should not have to
-// discover that image through a filesystem tool (and an approval round trip),
-// so this module turns only app-owned tags from the CURRENT message into the
-// structured image input each native protocol understands.
 import { lstatSync, realpathSync, statSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 
@@ -15,8 +8,6 @@ import type { TurnImageInput } from "./contracts.ts";
 import { decodeAttachmentAttribute } from "./message-file.ts";
 import { PICTURES_PER_MESSAGE } from "../shared/picture-limit.ts";
 
-/** Matches the companion composer policy. Four maximum-sized images are
- * bounded to 40 MiB before a provider is asked to ingest them. */
 export const TURN_IMAGE_MAX_COUNT = PICTURES_PER_MESSAGE;
 export const TURN_IMAGE_MAX_BYTES = TURN_IMAGE_MAX_COUNT * IMAGE_MAX_BYTES;
 
@@ -58,9 +49,6 @@ function walk(node: MarkdownNode, visit: (node: MarkdownNode) => void): void {
   }
 }
 
-/** Find only exact, standalone HTML transport tags. mdast keeps examples in
- * code fences/code spans out of HTML nodes; the line boundary check keeps
- * prose containing a tag literal from becoming an attachment capability. */
 function imageTagCandidates(text: string): TagCandidate[] {
   const candidates: TagCandidate[] = [];
   walk(fromMarkdown(text) as MarkdownNode, (node) => {
@@ -84,9 +72,6 @@ function ownedImage(path: string, attachmentsDir: string): TurnImageInput | null
   const name = path.split(/[\\/]/).at(-1) ?? "";
   if (!OWNED_IMAGE_NAME.test(name)) return null;
 
-  // The composer receives and returns the exact server-generated path. A
-  // basename match alone would let an arbitrary /tmp/<uuid>.png masquerade
-  // as an app attachment, so the lexical path must point into this store too.
   const expected = resolve(attachmentsDir, name);
   if (resolve(path) !== expected) return null;
 
@@ -106,21 +91,15 @@ function ownedImage(path: string, attachmentsDir: string): TurnImageInput | null
 }
 
 export interface ExtractTurnImagesOptions {
-  /** Injectable only so focused tests never touch the user's data store. */
   attachmentsDir?: string;
   maxCount?: number;
   maxBytes?: number;
 }
 
-/** Resolve and remove trusted image tags from provider-facing text. The
- * caller continues to persist the original string unchanged. Invalid tags
- * stay visible as ordinary text and never turn into native image input. */
 export function extractTurnImages(
   text: string,
   options: ExtractTurnImagesOptions = {},
 ): { text: string; images: TurnImageInput[] } {
-  // Almost every turn is plain text. Skipping the Markdown tree for those
-  // turns keeps image transport work out of the hot send path.
   if (!text.includes("<attached-image")) return { text, images: [] };
 
   const attachmentsDir = options.attachmentsDir ?? ATTACHMENTS_DIR;

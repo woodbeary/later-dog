@@ -1,6 +1,3 @@
-// The facade the server uses for a dog's cloud computer, against a local stub that plays later.dog's computers service
-// (/v1) and Boat (/api/box/v1). It must leave Boat untouched until later.dog's computers are chosen, then keep every
-// shape and decision index.ts relies on.
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
@@ -27,7 +24,6 @@ describe("the cloud computer facade", () => {
   let computers: typeof import("./computers.ts");
   let boat: typeof import("./boat.ts");
   const fleet = new Map<string, FakeComputer>();
-  // What each idempotency key first made, kept after deletion: a replayed key answers with it.
   const keys = new Map<string, FakeComputer>();
   const requests: Recorded[] = [];
   const failures = new Map<string, { status: number; error?: { code?: string; message?: string } }>();
@@ -73,7 +69,6 @@ describe("the cloud computer facade", () => {
         if (url.pathname === "/v1/computers" && method === "POST") {
           const name = JSON.parse(body).name as string;
           if (concurrentCreate) {
-            // Another request with this key is still creating the computer.
             add("", "sleeping", concurrentCreate); concurrentCreate = null;
             return send(409, { error: { code: "idempotency_in_progress", message: "a create with this key is in progress" } });
           }
@@ -306,7 +301,6 @@ describe("the cloud computer facade", () => {
     computer.state = "running"; frame = Buffer.alloc(8 * 1024 * 1024 + 1, 0xff);
     await expect(computers.screenshotBoat(noBoat, "", computer.id)).rejects.toThrow(/8 MB/);
 
-    // A Boat computer a turn began on still reaches Boat, and one of later.dog's is never sent to Boat.
     expect(await computers.runCommand(withBoat, "bx_23456789", "true")).toEqual({ ok: true, exitCode: 0, stdout: "boat", stderr: "" });
     expect(requests.at(-1)?.path).toBe("/api/box/v1/boxes/bx_23456789/commands");
     vi.stubEnv("LATERDOG_COMPUTERS_API", "");
@@ -365,7 +359,6 @@ describe("the cloud computer facade", () => {
     expect(fleet.has(computer.id)).toBe(false);
     expect(release).toHaveBeenCalledTimes(2);
 
-    // Gone between the list and the delete: deleted all the same. A refusal keeps its status for the route.
     const raced = add("raced-bot", "sleeping");
     failures.set(`DELETE /v1/computers/${raced.id}`, { status: 404 });
     expect(await computers.deleteManagedBoat(noBoat, [owner("raced-bot")], raced.id, raced.name)).toEqual({ ok: true });

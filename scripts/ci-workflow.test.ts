@@ -7,7 +7,6 @@ const workflow = parse(readFileSync(new URL("../.github/workflows/ci.yml", impor
 const requiredRuntimeJobs = ["vitest", "behavior-evals", "packaged-server", "windows-cua", "electron-smokes"];
 
 function runGate(needs: Record<string, unknown>) {
-  // Execute the actual gate, not a duplicate of its success/failure logic.
   const command = workflow.jobs.gate.steps[0].run as string;
   const script = command.match(/node --input-type=module -e '([\s\S]+)'/);
   expect(script).not.toBeNull();
@@ -27,8 +26,6 @@ function gateNeeds(runtime: string) {
   };
 }
 
-// later.dog's ci.yml is its own (no gate job, no platform fan-out); these checks
-// describe upstream later.dog's workflow and run only where that workflow is.
 describe.skipIf(!workflow.jobs?.gate)("CI concurrency", () => {
   it("supersedes old PR checks but never cancels a running main or merge-queue run", () => {
     expect(workflow.on.push.branches).toEqual(["main"]);
@@ -37,8 +34,6 @@ describe.skipIf(!workflow.jobs?.gate)("CI concurrency", () => {
   });
 
   it("keeps main to one running and one waiting run, apart from PR and merge-queue groups", () => {
-    // One group for every main push: GitHub keeps the running run and only
-    // the newest waiting one, so a burst of merges cannot pile up full runs.
     expect(workflow.concurrency.group).toBe(
       "ci-${{ github.event_name == 'merge_group' && github.event.merge_group.head_ref || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}",
     );
@@ -48,13 +43,10 @@ describe.skipIf(!workflow.jobs?.gate)("CI concurrency", () => {
     const stop = parse(readFileSync(new URL("../.github/workflows/ci-stop-closed.yml", import.meta.url), "utf8"));
     expect(stop.on).toEqual({ pull_request: { types: ["closed"] } });
     expect(stop.concurrency).toEqual({ group: "ci-pr-${{ github.event.pull_request.number }}", "cancel-in-progress": true });
-    // For pull_request events ci.yml's group expression reduces to pr-<number>.
     expect(workflow.concurrency.group).toContain("github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)");
   });
 
   it("never lets a merged PR's stop run join main's group", () => {
-    // A merged PR's closed event reports the base branch as github.ref, so any
-    // ref-named group here cancelled main's CI on every merge (Oct 3 2026).
     const stop = parse(readFileSync(new URL("../.github/workflows/ci-stop-closed.yml", import.meta.url), "utf8"));
     expect(stop.concurrency.group).not.toContain("github.ref");
     expect(stop.concurrency.group).toContain("github.event.pull_request.number");
@@ -93,9 +85,7 @@ describe.skipIf(!workflow.jobs?.gate)("CI concurrency", () => {
     const wait = release.jobs.ci.steps.find((step: { run?: string }) => step.run === "node scripts/release-ci.mjs");
     expect(wait.if).toBe("${{ !inputs.ship_without_ci }}");
     expect(wait.env).toMatchObject({ SHA: "${{ needs.prepare.outputs.sha }}", VERSION: "${{ needs.prepare.outputs.version }}" });
-    // The script reads ci.yml's gate by its job name.
     expect(readFileSync(new URL("./release-ci.mjs", import.meta.url), "utf8")).toContain(`job.name === "${workflow.jobs.gate.name}"`);
-    // The release lane is a branch, so its runs get their own concurrency group.
     expect(workflow.on).toHaveProperty("workflow_dispatch");
   });
 
@@ -135,14 +125,10 @@ describe.skipIf(!workflow.jobs?.gate)("CI concurrency", () => {
     )).toBe(true);
     for (const [name, job] of Object.entries(workflow.jobs) as [string, { needs?: string | string[]; if?: string }][]) {
       if (["static", "gate"].includes(name)) continue;
-      // The one deploy job: after the control-plane checks, on main pushes only. It is
-      // not part of the merge gate.
       if (name === "deploy-composio-broker") {
         expect(job.needs).toEqual(["control-plane"]);
         expect(job.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/main'");
         expect(workflow.jobs.gate.needs).not.toContain(name);
-        // Without the Cloudflare token the deploy is skipped with a warning, not failed:
-        // every step after the token check waits on it.
         const [check, ...rest] = job.steps as { id?: string; if?: string; env?: Record<string, string>; run?: string }[];
         expect(check.id).toBe("token");
         expect(check.env).toEqual({ CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}" });

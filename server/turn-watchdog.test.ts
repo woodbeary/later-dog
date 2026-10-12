@@ -1,5 +1,3 @@
-// Stall-watchdog contract: activity keeps a turn alive indefinitely, human
-// approvals pause the clock, silence past the ceiling stalls exactly once.
 import { describe, expect, it } from "vitest";
 
 import { TurnWatchdog, type WatchedTurn } from "./turn-watchdog.ts";
@@ -51,7 +49,6 @@ describe("TurnWatchdog", () => {
     tick(STALL * 100);
     dog.sweep();
     expect(stalls).toHaveLength(0);
-    // the answer restarts the clock rather than inheriting the wait
     dog.setWaitingOnHuman("t1", false);
     tick(STALL - 1);
     dog.sweep();
@@ -77,7 +74,6 @@ describe("TurnWatchdog", () => {
     tick(STALL * 100);
     dog.sweep();
     expect(stalls).toHaveLength(0);
-    // Resolving an unrelated human ask cannot clear the resource wait.
     dog.setWaitingOnHuman("t1", false);
     tick(STALL * 100);
     dog.sweep();

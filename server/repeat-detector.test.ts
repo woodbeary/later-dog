@@ -8,7 +8,6 @@ describe("callKey", () => {
     expect(callKey("Bash", "  git status ")).toBe("Bash:git status");
     expect(callKey("Bash", undefined)).toBeNull();
     expect(callKey("Bash", "")).toBeNull();
-    // ACP titles that are just the tool name again carry no arguments
     expect(callKey("Bash", "Bash")).toBeNull();
     expect(callKey("Read", "Read src/index.ts")).toBe("Read:Read src/index.ts");
   });
@@ -46,7 +45,6 @@ describe("RepeatDetector", () => {
     const d = new RepeatDetector({ thresholds: [2], maxKeysPerThread: 2 });
     d.record("t1", "Bash:a");
     d.record("t1", "Bash:b");
-    // Refresh a, so b is the least-recently-seen entry.
     expect(d.record("t1", "Bash:a").threshold).toBe(2);
     d.record("t1", "Bash:c");
     expect(d.record("t1", "Bash:a").count).toBe(3);

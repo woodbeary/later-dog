@@ -1,4 +1,3 @@
-// Real registry, OAuth and renderer; no real Whop account or financial calls.
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -15,7 +14,6 @@ let ui: MountedPreview | undefined;
 let browser: { close(): Promise<void> } | undefined;
 try {
   const api = fixtureApi(fixture.info.url);
-  // An unrelated existing name must survive Connect untouched.
   await api("POST", "/api/mcp/servers", { name: "whop", command: "node", args: ["unrelated-fixture.mjs"], enabled: false });
   const pairing = await api("POST", "/api/auth/pairing", { scopes: ["admin", "client"] });
   let authorizationUrl = "";
@@ -44,7 +42,6 @@ try {
       }
       let raw = "";
       for await (const chunk of req) raw += chunk;
-      // Only the fixture substitutes transport: production always saves the official URL.
       if (raw) { const body = JSON.parse(raw); if (body.url === "https://mcp.whop.com/mcp") body.url = mcp.url; raw = JSON.stringify(body); }
       const response = await fetch(`${fixture.info.url}${path}`, { method: req.method,
         headers: { "content-type": "application/json", cookie: req.headers.cookie ?? "", "x-forwarded-for": "192.0.2.10" },
@@ -74,8 +71,6 @@ try {
   assert.equal(await page.locator('[data-apps-grid] [data-app-tile="whop"]').count(), 1);
   assert.equal(await page.getByText("Set up Whop", { exact: true }).count(), 0);
   const status = async () => (await api("GET", "/api/mcp/servers")).servers;
-  // This browser is not on the server's machine and the fixture has no https
-  // address to come back to, so the paste-back box is shown up front.
   const pasteBack = () => page.getByText("After you approve, your browser shows a page that can't load. Copy that page's full address and paste it here.", { exact: true });
   const complete = async () => {
     await pasteBack().waitFor();
@@ -130,7 +125,6 @@ try {
   assert.ok(oauth.counts.revoke > 0);
   assert.equal(await page.getByText("Whop is connected and enabled. Bot access follows each bot’s MCP server selection.", { exact: true }).count(), 0);
   assert.equal(await row.getByText(/list_products/).count(), 0);
-  // A successful login alone must not claim the tool connection is ready.
   failTest = true;
   await connect(); await complete();
   await page.getByText("Signed in, but Whop’s tools could not be loaded. Please connect again to retry.", { exact: true }).waitFor();

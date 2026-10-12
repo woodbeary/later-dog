@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { BRAND_INK, BRAND_MARKS, BRAND_TILE, MIN_MARK_CONTRAST, brandMark, contrastRatio, markColor } from "./brand-icons";
 import { MCP_CONNECTORS } from "./mcp-connectors";
 
-// SVG path data and nothing else: commands and numbers, no markup or URLs.
 const PATH_DATA = /^[Mm][MmZzLlHhVvCcSsQqTtAa0-9.,\s-]+$/;
 
 describe("brand marks for the connector catalog", () => {
@@ -51,7 +50,6 @@ describe("brand marks for the connector catalog", () => {
       expect(drawn, id).toBe(contrastRatio(brand, BRAND_TILE) >= MIN_MARK_CONTRAST ? brand : BRAND_INK);
       expect(contrastRatio(drawn, BRAND_TILE), id).toBeGreaterThanOrEqual(MIN_MARK_CONTRAST);
     }
-    // Intercom's pale cyan falls back to its black form; Neon's lighter green still reads
     expect(markColor(BRAND_MARKS.intercom)).toBe(BRAND_INK);
     expect(markColor(BRAND_MARKS.neon)).toBe("#34D59A");
     expect(markColor(BRAND_MARKS.cloudflare)).toBe("#F38020");

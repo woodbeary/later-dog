@@ -1,18 +1,10 @@
-// The live permissions checklist, for every surface that draws it. Polls
-// while `active` (the person grants in System Settings and comes back) and
-// on every window focus; a request replaces the checklist with the bridge's
-// answer to it. Without the bridge the checklist stays null and nothing
-// is asked, so a browser renders the same rows with their desktop-only words.
 import { useCallback, useEffect, useState } from "react";
 import { permissionBridge, readChecklist, type DesktopPermission, type DesktopPermissionChecklist } from "./desktop-permissions";
 
 export interface DesktopPermissionsState {
-  /** Null until the bridge answers, and always without a bridge. */
   checklist: DesktopPermissionChecklist | null;
-  /** The grant whose system prompt is open right now. */
   busy: DesktopPermission | null;
   refresh: () => Promise<void>;
-  /** Shows the real system prompt for one grant, then re-reads them all. */
   request: (permission: DesktopPermission) => Promise<void>;
   openSettings: (permission: DesktopPermission) => Promise<void>;
 }
@@ -26,9 +18,7 @@ export function useDesktopPermissions({ active = true, intervalMs = 2000 }: { ac
     if (!bridge) return;
     try {
       setChecklist(readChecklist(await bridge.status()));
-    } catch {
-      // an older shell without the channel: the rows keep saying "Checking…"
-    }
+    } catch {}
   }, [bridge]);
 
   useEffect(() => {
@@ -60,9 +50,7 @@ export function useDesktopPermissions({ active = true, intervalMs = 2000 }: { ac
   const openSettings = useCallback(async (permission: DesktopPermission) => {
     try {
       await bridge?.openSettings(permission);
-    } catch {
-      // System Settings could not be opened; the row still says what is missing
-    }
+    } catch {}
   }, [bridge]);
 
   return { checklist, busy, refresh, request, openSettings };

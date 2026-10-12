@@ -1,6 +1,3 @@
-// API authentication. The Worker stores only the SHA-256 of the API key (secret COMPUTERS_KEY_SHA256, lowercase hex),
-// hashes the presented bearer and compares the two digests in constant time. The API is server to server: a request
-// that carries an Origin header came from a browser and is refused before the key is even looked at.
 
 export type Refusal = { status: number; code: string; message: string };
 
@@ -9,7 +6,6 @@ export async function sha256Hex(text: string): Promise<string> {
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** Compares two strings without an early exit; only their lengths (public here: both are 64-character digests) can leak. */
 export function constantTimeEqual(a: string, b: string): boolean {
   const left = new TextEncoder().encode(a);
   const right = new TextEncoder().encode(b);
@@ -32,7 +28,6 @@ export const BROWSER_ORIGIN: Refusal = {
   message: "The computers API is called from servers only; requests with an Origin header are refused.",
 };
 
-/** Undefined when the request may use the API; otherwise why not. */
 export async function refuseApiRequest(headers: Headers, keySha256: string | undefined): Promise<Refusal | undefined> {
   if (headers.has("origin")) return BROWSER_ORIGIN;
   const expected = keySha256?.trim().toLowerCase() ?? "";

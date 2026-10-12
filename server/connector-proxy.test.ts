@@ -57,8 +57,6 @@ describe("connector MCP bridge", () => {
     const lines = start({
       LATERDOG_HARNESS_URL: harness,
       LATERDOG_CONNECTOR_TOKEN: "bridge-secret",
-      // A simultaneously mounted agents proxy may define this different
-      // value in Codex's flattened child environment.
       LATERDOG_COMMS_TOKEN: "agents-secret",
       LATERDOG_BOT_ID: "bot-1",
       LATERDOG_THREAD_ID: "thread-1",
@@ -153,8 +151,6 @@ describe("connector MCP bridge", () => {
     const upstream = await listen((request) => {
       request.resume();
       request.on("end", sawInitialize);
-      // Deliberately never respond. The proxy must abort this request and
-      // return its local capability result instead of hanging OpenCode.
     });
     const lines = start({ LATERDOG_CONNECTOR_UPSTREAM_URL: upstream });
     child!.stdin.write(`${JSON.stringify({

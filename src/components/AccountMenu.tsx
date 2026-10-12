@@ -1,6 +1,3 @@
-// The chat header's account chip opens this: the accounts a chat can run on,
-// one row each, and nothing else. Models and effort live by the message
-// field; signing in happens when a message is sent on an account that needs it.
 import { Check, Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";

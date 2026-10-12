@@ -98,8 +98,6 @@ describe("message-linked files", () => {
     expect(messageReferencesFile("<file:///Users/sam/report.md>", "/Users/sam/report.md"))
       .toBe(true);
 
-    // Equivalent separators and dot segments are normalised within a path
-    // flavour, but distinct path flavours and casing remain distinct.
     expect(messageReferencesFile(
       "[Open it](C:/Users/Dog/drafts/../report.md)",
       "C:\\Users\\Dog\\report.md",
@@ -124,8 +122,6 @@ describe("message-linked files", () => {
       "//server/share/team notes.md",
     )).toBe(true);
 
-    // Decoding is deliberately single-pass: a double-encoded space must not
-    // authorize the ordinary decoded path.
     expect(messageReferencesFile(
       "[Open it](C:/Users/Dog/release%2520notes.md?download=1)",
       "C:\\Users\\Dog\\release notes.md",
@@ -141,7 +137,6 @@ describe("message-linked files", () => {
     expect(messageReferencesFile(markdown, report)).toBe(true);
     expect(messageReferencesFile(markdown, notes)).toBe(true);
     expect(messageImageTargetAt(markdown, markdown.indexOf("![Chart]"))).toBe(chart);
-    // The folders a dropped backslash would have joined are not what was linked.
     expect(messageReferencesFile(markdown, "C:\\Users\\Dog.laterdog\\workspaces\\bot_drafts\\report.md")).toBe(false);
   });
 
@@ -328,7 +323,6 @@ describe("message-linked files", () => {
     writeFileSync(secret, "not for this conversation");
     symlinkSync(secret, join(workspace, "escape.md"));
 
-    // The code lets the client offer Show in folder for exactly this refusal.
     const refusal = { status: 403, code: "outside_workspace" };
     await expect(openMessageFile("../outside/secret.md", [workspace])).rejects.toMatchObject(refusal);
     await expect(openMessageFile(secret, [workspace])).rejects.toMatchObject(refusal);

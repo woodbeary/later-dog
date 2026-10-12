@@ -19,7 +19,6 @@ vi.mock("./cli-setup.ts", () => setup);
 describe("laterdog command line", () => {
   it("parses commands and flags, and explains mistakes", () => {
     const serve = parseArgs(["serve", "--port", "9001", "--data-dir", "/tmp/x", "--label", "cab mini", "--tailscale", "--no-pair"], {});
-    // --data-dir is resolved against the platform: C:\tmp\x on Windows.
     expect(serve).toMatchObject({ command: "serve", port: 9001, dataDir: resolve("/tmp/x"), label: "cab mini", tailscale: true, pair: false });
     expect(parseArgs(["pair", "--client", "--public-url", "https://h/"], {})).toMatchObject({ command: "pair", client: true, publicUrl: "https://h" });
     expect(parseArgs(["sessions", "revoke", "abc"], {})).toMatchObject({ command: "sessions", revoke: "abc" });
@@ -66,8 +65,6 @@ describe("laterdog command line", () => {
   });
 
   it("takes the phone kind non-interactively, because a scripted pair never sees the chooser", () => {
-    // `docker compose exec … pair` and any piped run skip the interactive
-    // chooser, and an Android phone is the one that needs a different QR.
     expect(parseArgs(["pair", "--phone", "android"], {})).toMatchObject({ command: "pair", phone: "android" });
     expect(parseArgs(["pair", "--phone", "iOS"], {})).toMatchObject({ phone: "ios" });
     expect(parseArgs(["pair", "--phone", "blackberry"], {})).toEqual({ error: expect.stringContaining("ios or android") });
@@ -95,7 +92,6 @@ describe("laterdog command line", () => {
       expect(out).toContain(qrToString(invite));
       expect(out).not.toContain(qrToString(url));
       expect(out).toContain("Scan that in the later.dog app");
-      // The web link is still offered, but not as the thing to scan.
       expect(out).toContain(`web browser:   ${url}`);
       expect(out).not.toContain("open or scan:");
     });
@@ -104,8 +100,6 @@ describe("laterdog command line", () => {
       const out = block({ phone: "ios" });
       expect(out).toContain(qrToString(url));
       expect(out).not.toContain(qrToString(invite));
-      // Naming a link the block never prints leaves the iOS app, which takes a
-      // pasted invite, with nothing to paste.
       expect(out).toContain(`phone app:     ${invite}`);
       expect(out).toContain(`open or scan:  ${url}`);
     });
@@ -115,7 +109,6 @@ describe("laterdog command line", () => {
       expect(out).toContain(qrToString(url));
       expect(out).toContain("The Android app needs the phone-app link");
       expect(out).toContain("LATERDOG_PUBLIC_URL");
-      // It must not claim the QR is scannable in the app when it is not.
       expect(out).not.toContain("Scan that in the later.dog app");
     });
   });
@@ -430,7 +423,6 @@ describe.skipIf(process.platform === "win32")("serve --tunnel", () => {
       LATERDOG_CLOUDFLARED_PATH: fake,
       LATERDOG_TUNNEL_ORIGIN_PORT: String(originPort),
     };
-    // a credential the control plane does not know stops the start; nothing serves
     const rejected = cli(["serve", "--tunnel", "--no-pair", "--port", String(port), "--data-dir", dataDir], {
       ...fleetEnv,
       LATERDOG_INSTALLATION_CREDENTIAL: `laterdog_install_${"x".repeat(22)}.${"y".repeat(43)}`,
@@ -480,7 +472,6 @@ describe.skipIf(process.platform === "win32")("serve --tunnel", () => {
     const stub = await startControlPlaneStub();
     const fake = join(home, "cloudflared");
     writeFileSync(fake, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
-    // sign this data dir in, in-process, against the stub
     vi.stubEnv("LATERDOG_CONTROL_PLANE_URL", stub.url);
     const quiet = { log: () => undefined, error: () => undefined, ask: async () => stub.otp };
     expect(await runLogin({ command: "login", port: 1, dataDir, tailscale: false, tunnel: false, client: false, pair: true, json: false, email: "cli@example.test" }, quiet)).toBe(0);
@@ -505,10 +496,8 @@ describe.skipIf(process.platform === "win32")("serve --tunnel", () => {
       while (!out.includes("open or scan:") && Date.now() < deadline && child.exitCode === null) await new Promise((r) => setTimeout(r, 200));
       expect(out).toContain(`later.dog is running on http://127.0.0.1:${port}, reachable at ${stub.endpointUrl}`);
       expect(out).toContain(`open or scan:  ${stub.endpointUrl}/pair#code=`);
-      // a fresh connector token was fetched for this run
       expect(stub.calls).toContain("POST /v1/installations/self/endpoint");
 
-      // the gateway comes up with the guardian; through it the harness is reachable...
       let descriptor: Response | null = null;
       const gatewayDeadline = Date.now() + 20_000;
       while (Date.now() < gatewayDeadline) {
@@ -521,13 +510,11 @@ describe.skipIf(process.platform === "win32")("serve --tunnel", () => {
         await new Promise((r) => setTimeout(r, 250));
       }
       expect(descriptor?.status, out.match(/^tunnel:.*$/gm)?.join("\n")).toBe(200);
-      // ...but a request with no headers at all, which the loopback listener would take as the owner, is a stranger here
       const stranger = await fetch(`${gateway}/api/bots`);
       expect(stranger.status).toBe(403);
       expect(((await stranger.json()) as { error: string }).error).toMatch(/through a proxy/);
       expect(await (await fetch(`${gateway}/api/health`)).json()).toEqual({ app: "laterdog" });
       expect(typeof ((await (await fetch(`http://127.0.0.1:${port}/api/health`)).json()) as { pid: unknown }).pid).toBe("number");
-      // the printed code pairs a device through the gateway, and its session is honoured there
       const match = /pairing code:  ([A-Z2-9-]+)/.exec(out);
       expect(match).toBeTruthy();
       const paired = await fetch(`${gateway}/api/auth/pair`, {
@@ -573,7 +560,6 @@ describe("laterdog access", () => {
       expect(await runAccess({ ...base, accessAction: "add", email: "not-an-email" }, io)).toBe(2);
       const saved = JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8"));
       expect(saved.signIn).toEqual({ admins: ["her@example.test"], members: ["@agentada.test"] });
-      // moving an entry between lists replaces it rather than duplicating it
       expect(await runAccess({ ...base, accessAction: "add", email: "her@example.test", chatOnly: true }, io)).toBe(0);
       expect(JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8")).signIn).toEqual({ admins: [], members: ["@agentada.test", "her@example.test"] });
       out.length = 0;
@@ -582,8 +568,6 @@ describe("laterdog access", () => {
       expect(await runAccess({ ...base, accessAction: "remove", email: "her@example.test" }, io)).toBe(0);
       expect(await runAccess({ ...base, accessAction: "remove", email: "her@example.test" }, io)).toBe(1);
       expect(JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8")).signIn).toEqual({ admins: [], members: ["@agentada.test"] });
-      // Each change once more than one person signs in is in the admin
-      // activity log, named for the command line; the first, a lone admin, is not.
       const rows = readAdminActivityRange(dataDir, { from: new Date(Date.now() - 600_000), to: new Date(Date.now() + 600_000) });
       expect(rows.map((row) => [row.action, row.actor.kind, row.changed])).toEqual([
         ["people.update", "cli", ["signIn.members"]],
@@ -626,9 +610,6 @@ describe.skipIf(process.platform === "win32")("serve --domain", () => {
       expect(caddyfile).toContain(`reverse_proxy 127.0.0.1:${port}`);
       expect(caddyfile).toContain(`reverse_proxy 127.0.0.1:${port + 1}`);
     } finally {
-      // Cleanup must not mask the real failure: a server that never reached
-      // the Caddy step has no pid file, and the assertions above already
-      // named what actually went wrong.
       const caddyPid = existsSync(join(home, "caddy.pid")) ? Number(readFileSync(join(home, "caddy.pid"), "utf8").trim() || "0") : 0;
       child.kill("SIGTERM");
       await exited(child);

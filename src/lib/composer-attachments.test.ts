@@ -1,5 +1,3 @@
-// composeMessage with images, the image tag round-trip through
-// transcript attachment splitting, and the mime gate the composer pastes through.
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -25,19 +23,15 @@ import {
   replyTargetTakesFocus,
 } from "./composer-attachments";
 
-/** Exercises the spacing and empty-draft cases for pasted text insertion. */
 function appendPastedTextTests() {
-  /** Keeps an existing draft ahead of newly inserted pasted content. */
   function addsPastedContentAfterDraft() {
     expect(appendPastedText("Keep this", "Edit this too")).toBe("Keep this\n\nEdit this too");
   }
 
-  /** Avoids duplicating a separator when the draft already ends with a newline. */
   function preservesExistingTrailingNewline() {
     expect(appendPastedText("Keep this\n", "Edit this too")).toBe("Keep this\nEdit this too");
   }
 
-  /** Inserts pasted content directly when no draft exists yet. */
   function insertsIntoEmptyDraft() {
     expect(appendPastedText("", "Edit this too")).toBe("Edit this too");
   }
@@ -49,7 +43,6 @@ function appendPastedTextTests() {
 
 describe("appendPastedText", appendPastedTextTests);
 
-/** Builds a stable image attachment fixture for prompt and preview tests. */
 function image(path: string): ImageAttachment {
   return {
     kind: "image",
@@ -71,8 +64,6 @@ describe("composeMessage with images", () => {
 
   it("escapes a hostile path the same way file paths are escaped", () => {
     const prompt = composeMessage("", [image('/x/")} onload="evil()')]);
-    // every quote is entity-encoded, so the payload can never break out of
-    // the attribute — the tag stays one well-formed element
     expect(prompt).toMatch(/<attached-image path="[^"]*" name="shot.png" \/>/);
     expect(prompt).toContain("&quot;");
   });
@@ -336,7 +327,6 @@ describe("splitTranscriptAttachments", () => {
       '<pasted-text index="1">', "first", "</pasted-text>", "",
       '<pasted-text index="2">', "a literal </pasted-text> mention", "</pasted-text>",
     ].join("\n");
-    // the first line naming the closing token ends the block, as the bot sees it
     expect(splitTranscriptAttachments(stored).display).toBe(["first", "", "a literal </pasted-text> mention", "</pasted-text>"].join("\n"));
   });
 
@@ -385,20 +375,7 @@ describe("isImageFile", () => {
   });
 });
 
-/**
- * Helper to construct a mock clipboard item for DataTransferItemList testing.
- *
- * @param kind - Item kind (e.g. 'file' or 'string').
- * @param type - Item MIME type.
- * @param file - File instance returned by getAsFile, if any.
- * @returns Mock clipboard item object.
- */
 function mockClipboardItem(kind: string, type: string, file: File | null = null) {
-  /**
-   * Returns the mock file or null.
-   *
-   * @returns Mock file or null.
-   */
   function getAsFile() {
     return file;
   }
@@ -670,8 +647,6 @@ describe("private image intake", () => {
 });
 
 describe("composerShouldRefocus", () => {
-  // the test environment has no DOM, so a few plain objects stand in for the
-  // handful of Element members the rule reads
   type Fake = { name: string; parent?: Fake; closest: (sel: string) => Fake | null; contains: (el: unknown) => boolean };
   const node = (name: string, parent?: Fake): Fake => {
     const self: Fake = {
@@ -716,8 +691,6 @@ describe("composerShouldRefocus", () => {
   });
 });
 
-// MOCA-263: clicking Reply left the caret outside the draft, so the reply
-// could not be typed without clicking the box first.
 describe("replyTargetTakesFocus", () => {
   it("focuses the draft when a message is chosen to reply to, or the target changes", () => {
     expect(replyTargetTakesFocus(null, "m1")).toBe(true);
@@ -732,7 +705,6 @@ describe("replyTargetTakesFocus", () => {
 });
 
 describe("composerTakesFocusOnOpen", () => {
-  // no DOM here either: plain objects stand in for the Element members read
   type Fake = {
     parent?: Fake;
     role?: string;

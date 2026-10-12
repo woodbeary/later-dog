@@ -15,7 +15,6 @@ it("persists shared user context and includes it in preview, direct and group tu
     expect(response.status).toBe(status);
     return response.json() as Promise<T>;
   };
-  // Read only the synthetic engine's system text, never its environment.
   const sentSystem = () => (JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8")) as { systemPrompt: string }).systemPrompt;
   try {
     const { bot } = await api<{ bot: WireBot }>("/api/bots", "POST", { name: "Profile fixture" }, 201);

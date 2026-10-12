@@ -1,7 +1,6 @@
 import { readdir, readFile, mkdir, writeFile, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 const canonical = 'skills/laterdog';
-// Codex reads .agents/skills, Cursor .cursor/skills, Claude Code .claude/skills; `skills/` holds the plugin-style copies.
 const targets = ['.agents/skills', '.cursor/skills', '.claude/skills', 'skills'];
 for (const entry of await readdir(canonical, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;

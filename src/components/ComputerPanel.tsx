@@ -53,7 +53,6 @@ import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { CloudTrialOffer, useCloudTrial } from "./CloudTrial";
 
-/** Keep local failure copy translatable while it remains in panel state. */
 class LocalizedPanelError extends Error {
   constructor(
     readonly key: LocaleKey,
@@ -105,7 +104,6 @@ type Phase =
   | "error";
 
 interface LocalVmStatus {
-  /** Optional: a hosted server can lag behind this app. */
   resumable?: boolean;
   stop_reason?: "idle" | null;
   mode: "shared" | "per-bot" | "pool";
@@ -139,9 +137,7 @@ function readPanelWidth(): number {
   try {
     const stored = Number(localStorage.getItem(PANEL_WIDTH_KEY));
     if (Number.isFinite(stored) && stored >= PANEL_MIN_WIDTH && stored <= PANEL_MAX_WIDTH) return stored;
-  } catch {
-    /* storage blocked — default width */
-  }
+  } catch {}
   return PANEL_DEFAULT_WIDTH;
 }
 
@@ -150,16 +146,13 @@ export function ComputerPanel({
 }: {
   bot: Bot;
 }) {
-  // Docked flush under the Windows caption corner: drop the header 16px.
   const { padClass } = useCaptionChrome();
   const [panelWidth, setPanelWidth] = useState(readPanelWidth);
   const resizeFrom = useRef<{ x: number; width: number } | null>(null);
   const persistPanelWidth = (width: number) => {
     try {
       localStorage.setItem(PANEL_WIDTH_KEY, String(width));
-    } catch {
-      /* storage blocked — width lives for this session */
-    }
+    } catch {}
   };
   const onResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
     resizeFrom.current = { x: event.clientX, width: panelWidth };
@@ -176,8 +169,6 @@ export function ComputerPanel({
     event.currentTarget.releasePointerCapture(event.pointerId);
     persistPanelWidth(panelWidth);
   };
-  /** Keyboard resize: the same clamp and stored preference the pointer flow
-   * uses, so arrow-key changes stay in React state like a drag would. */
   const onResizeBy = (delta: number) => {
     setPanelWidth((current) => {
       const next = Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, current + delta));
@@ -188,8 +179,6 @@ export function ComputerPanel({
   const separatorRef = useRef<HTMLDivElement>(null);
   const [separatorWidth, setSeparatorWidth] = useState<number | null>(null);
   useEffect(() => {
-    // The width state lives with the panel; mirror the styled panel only
-    // so the slider semantics stay truthful for assistive tech.
     const panel = separatorRef.current?.closest("aside");
     if (!panel) return;
     const read = () => setSeparatorWidth(panel.offsetWidth);
@@ -238,11 +227,8 @@ export function ComputerPanel({
   const permissionHost = checklistHost(typeof window === "undefined" ? undefined : window.laterdog);
   const localPermissionGap = localComputerPermissionGap({ capabilities, permissions: desktopPermissions });
   const providerSupportsLocal = instanceSupportsLocalComputer(state.instances, bot);
-  // A later.dog Cloud home never offers this computer (shared/cloud-home.ts).
   const localSelectable = placeOffered("local", state.config) && localComputerSelectable({ capabilities, providerSupportsLocal });
   const localDisabledReason = localComputerDisabledReason({ capabilities, providerSupportsLocal, permissions: desktopPermissions });
-  // Where this app runs and who is looking: every place below is worded
-  // from it (shared/place-view.ts), the same as the chip and a failed row.
   const placeSeat = usePlaceSeat(state.config, capabilities.host.platform);
   const [phase, setPhase] = useState<Phase>("checking");
   const askingForGrants = phase === "local-unavailable" && providerSupportsLocal && localPermissionGap.length > 0;
@@ -294,8 +280,6 @@ export function ComputerPanel({
     browser?: boolean;
     acknowledgeLocalAuto?: boolean;
   }) => {
-    // Clear old-provider UI in the same render as the optimistic profile
-    // change. The resolving effect waits for its PATCH before doing any work.
     setResolvedComputerSelection(null);
     setTeamComputer(null);
     setPhase("checking");
@@ -329,9 +313,6 @@ export function ComputerPanel({
   const [previewRefreshing, setPreviewRefreshing] = useState(false);
   const [previewRetry, setPreviewRetry] = useState(0);
   const [vmFrame, setVmFrame] = useState<string | null>(null);
-  // The Local VM's interactive noVNC viewer (passworded, autoconnect). The
-  // preview below is a periodic screenshot that swallows clicks — this URL is
-  // the only way a person can actually drive the VM.
   const [vmViewerUrl, setVmViewerUrl] = useState<string | null>(null);
   const [vmStatus, setVmStatus] = useState<LocalVmStatus | null>(null);
   const [pending, setPending] = useState<
@@ -341,8 +322,6 @@ export function ComputerPanel({
   const [viewerOpen, setViewerOpen] = useState(false);
   const [error, setError] = useState<Error | string | null>(null);
   const errorText = panelErrorText(error);
-  // Keep installation reachable before the engine is ready. Actual browser
-  // operations below still require browserAvailableHere.
   const browserAvailableHere = browserAvailable(state.config);
   const browserEnabled = builtInBrowserEnabled(state.config) && bot.browser !== false
     && (browserAvailableHere || state.config?.browserEngine?.installable === true);
@@ -378,8 +357,6 @@ export function ComputerPanel({
   const selectedInstance = state.instances.find(
     (instance) => instance.instanceId === bot.modelSelection.instanceId,
   );
-  // Pause the screenshot poll while this bot's viewer is open; seed from the
-  // live viewer so a remount/switch mid-session doesn't wrongly resume it.
   useEffect(() => {
     let alive = true;
     const dv = window.laterdog?.desktopViewer;
@@ -407,10 +384,7 @@ export function ComputerPanel({
     selectedInstance?.snapshot.state === "available" &&
       selectedInstance.capabilities?.computerMcp,
   );
-  // One rule for both cloud backends (shared/cloud-computer.ts).
   const cloudSupported = canWorkOnCloud(cloudEngineOf(selectedInstance));
-  // resolve the mode on open; boat endpoints are only ever hit on the
-  // cloud path, so local/off can never render a JSON error as an image
   useEffect(() => {
     let alive = true;
     setResolvedComputerSelection(null);
@@ -422,8 +396,6 @@ export function ComputerPanel({
     setVmViewerUrl(null);
     setVmStatus(null);
     setError(null);
-    // The selection may be optimistic for up to the profile debounce. Never
-    // let it choose a provider until the PATCH lane confirms server state.
     if (!computerSelectionPersisted || !surfaceReady) return;
     if (bot.computer === undefined) {
       setPhase("auto-unavailable");
@@ -458,7 +430,6 @@ export function ComputerPanel({
           const status: LocalVmStatus = rawStatus;
           setResolvedComputerSelection({ botId: bot.id, threadId: bot.threadId, computer: bot.computer, cloudBackend });
           setVmStatus(status);
-          // parse at the boundary: our own status endpoint sends a string or nothing
           const viewerUrl = String(status.viewer_url ?? "");
           if (viewerUrl.startsWith("http") || viewerUrl.startsWith("/desktop-viewer#")) {
             setVmViewerUrl(new URL(viewerUrl, window.location.href).href);
@@ -504,7 +475,6 @@ export function ComputerPanel({
       };
     }
     if (bot.computer === "cloud" && !cloudSupported) {
-      // Its line is the cloud computer's own place view, below.
       setPhase("error");
       return;
     }
@@ -530,10 +500,6 @@ export function ComputerPanel({
             setPhase("ready");
             return;
           }
-          // App updates can bump IMAGE_LAYER_VERSION while this bot still has
-          // a managed container from the previous release. Provision refuses
-          // to overwrite it by design, so surface the explicit replacement
-          // path instead of automatically issuing a request that can only 409.
           if (status.managed && status.container !== "missing" && !status.imageMatches) {
             setError(status.problem);
             setPhase("vps-incompatible");
@@ -576,16 +542,10 @@ export function ComputerPanel({
         alive = false;
       };
     }
-    // Opening the panel only looks. With Cloud computer chosen, the bot's
-    // first computer call creates or wakes the Boat, or the person's own
-    // Start it now / Wake it now button does; on Auto the panel only reports
-    // an existing Boat.
     api(threadPath("computer"))
       .then((status) => {
         if (!alive) return;
         const action = resolveBoatPanelAction({
-          // This conversation is on the cloud computer: the bot's Works on,
-          // or a pin (the person's, or select_computer's).
           computer: livePlace === "cloud" ? "cloud" : undefined,
           configured: Boolean(status.configured),
           boatState: typeof status.box?.state === "string" ? status.box.state : null,
@@ -613,10 +573,6 @@ export function ComputerPanel({
           return;
         }
         if (action === "attach-ready-boat" || (bot.computer === "cloud" && action === "show-ready-boat")) {
-          // A ready boat, the bot's own or the one this conversation was
-          // moved to (select_computer): going straight to ready lets the
-          // turn's live frames and the screenshot poll show what the bot is
-          // doing.
           setBoatState(typeof status.box?.state === "string" ? status.box.state : null);
           setPhase("ready");
           return;
@@ -655,15 +611,10 @@ export function ComputerPanel({
     threadPath,
   ]);
 
-  // busy-boat waits for the turn's own provisioning. Nothing else re-runs the
-  // resolve effect until the turn ends, so watch the boat ourselves and attach
-  // as soon as it is ready — the screen should appear mid-turn, not after.
   useEffect(() => {
     if (phase !== "busy-boat") return;
     let alive = true;
     const check = () => {
-      // The turn ended: settle on what this conversation's cloud computer
-      // is now (the bot's Works on, or a pin to it), and stop looking.
       if (!profileBot.busy && livePlace === "cloud") {
         setRetry((n) => n + 1);
         return;
@@ -675,7 +626,7 @@ export function ComputerPanel({
           setBoatState(state);
           if (isReadyBoatState(state)) setPhase("ready");
         })
-        .catch(() => { /* the next tick tries again */ });
+        .catch(() => {});
     };
     const timer = window.setInterval(check, 5_000);
     return () => {
@@ -684,9 +635,6 @@ export function ComputerPanel({
     };
   }, [phase, threadPath, profileBot.busy, livePlace]);
 
-  // Live frames of this conversation's screen come straight from the app's
-  // stream, never through the store. Only a frame heard while this preview is
-  // up may replace it, and the poll below waits while they keep coming.
   const pageVisible = usePageVisible();
   const lastLiveAt = useRef(0);
   const previewBusy = useRef(bot.busy);
@@ -717,8 +665,6 @@ export function ComputerPanel({
     const shoot = async () => {
       if (inFlight || controller.signal.aborted) return;
       if (Date.now() - lastAttemptAt < (retryDelay ?? (previewBusy.current ? 4000 : 30_000))) return;
-      // Resume polling if a busy bot stops publishing frames. A single old
-      // SSE event is not evidence of a working stream for the whole turn.
       if (previewBusy.current && Date.now() - lastLiveAt.current < 10_000) return;
       inFlight = true;
       retryDelay = null;
@@ -737,8 +683,6 @@ export function ComputerPanel({
         }
       } catch (e) {
         if (!controller.signal.aborted && lastLiveAt.current <= startedAt) {
-          // A canceled client request can leave its capture running on the
-          // host. Contention is temporary, not a disconnected computer.
           if (e instanceof ApiError && isRemoteScreenshotContention(e)) {
             retryDelay = 1000;
             contentionSince ??= Date.now();
@@ -759,8 +703,6 @@ export function ComputerPanel({
       }
     };
     void shoot();
-    // Read the current cadence without aborting a capture on every busy
-    // transition. Only connection/action changes replace its generation.
     const timer = setInterval(shoot, 1000);
     return () => {
       controller.abort();
@@ -768,8 +710,6 @@ export function ComputerPanel({
     };
   }, [cloudPreviewReady, threadPath, cloudBackend, viewerOpen, pageVisible, pending, controlPending, previewRetry]);
 
-  // Local VM preview comes directly from Cua Driver through the harness. It
-  // does not use the password-protected noVNC viewer or cloud endpoints.
   useEffect(() => {
     if (phase !== "vm" || !computerStatusCurrent || viewerOpen || !pageVisible) return;
     const controller = new AbortController();
@@ -789,10 +729,6 @@ export function ComputerPanel({
           setPreviewError(null);
         }
       } catch (e) {
-        // The first miss leaves the pane with nothing to show, so it stays a
-        // panel error. Later transient misses are the preview's own retry
-        // business — they keep the last frame, back off, and never rewrite
-        // the panel banner every tick.
         if (!controller.signal.aborted) {
           retryDelay = 5000;
           if (initialAttempt) setError(e instanceof Error ? e.message : String(e));
@@ -823,8 +759,6 @@ export function ComputerPanel({
       ((phase === "vm" && vmViewerUrl) || cloudPreviewReady),
   );
 
-  // who-is-driving: SSE keeps this fresh; the mount fetch covers a panel
-  // opened after the last frame (e.g. an app reload mid-hold)
   const control = state.computerControl[bot.id] ?? { held: false, helpReason: null };
   useEffect(() => {
     let alive = true;
@@ -859,14 +793,9 @@ export function ComputerPanel({
     return snap;
   }, [bot.id, dispatch]);
 
-  // The engine owns its browser; there is no native surface to hold.
   const setNativeBrowserControl = useCallback(async (): Promise<boolean> => true, []);
 
   const transitionControl = useCallback(async (action: ComputerControlAction) => {
-    // BrowserPanel performs the same two-phase transition itself. Every
-    // other computer surface must also gate Electron's direct browser host:
-    // the server hold is bot-wide, and a shell-capable agent can otherwise
-    // bypass the server proxy while the person drives Local VM/Box/VPS.
     return transitionComputerControlLease({
       action,
       syncNativeBrowser: bot.computer !== "browser",
@@ -903,8 +832,6 @@ export function ComputerPanel({
     setControlPending(true);
     setError(null);
     let tookControl = false;
-    // A plain-web development session still needs a synchronous blank tab;
-    // the packaged app uses the reliable Electron viewer window below.
     let fallbackTab: Window | null = null;
     if (!window.laterdog?.desktopViewer && !window.laterdog?.openExternal) {
       fallbackTab = window.open("", "_blank");
@@ -938,8 +865,6 @@ export function ComputerPanel({
       }
     } catch (e) {
       fallbackTab?.close();
-      // Release the bot before waiting on best-effort tunnel cleanup. A sick
-      // SSH process must never leave the agent paused indefinitely.
       if (tookControl) await transitionControl("release").catch(() => {});
       if (cloudPreviewReady && cloudBackend === "vps") {
         await api(threadPath("computer/viewer-close"), { method: "POST", body: "{}" }).catch(() => {});
@@ -985,7 +910,6 @@ export function ComputerPanel({
       .finally(() => setPending(null));
   };
 
-  /** Taking the free cloud computer from the panel's offer starts it. */
   const [autoStartCloud, setAutoStartCloud] = useState(false);
   const takeFreeCloud = () => {
     setAutoStartCloud(true);
@@ -1002,9 +926,6 @@ export function ComputerPanel({
     booted.current = true;
     takeFreeCloud();
   });
-  // Taking the free computer and opening the panel can both ask for a start
-  // in the same draw. One ask at a time: a second would only meet the first
-  // one's lock, and its refusal would sit under a screen that came up fine.
   const provisioning = useRef(false);
   const startCloudComputer = () => {
     if (provisioning.current) return;
@@ -1020,13 +941,10 @@ export function ComputerPanel({
         setPhase("ready");
       })
       .catch((e) => {
-        // A turn started meanwhile: it starts the computer it needs, and the
-        // panel watches.
         if (isActiveTurnRefusal(e)) {
           setPhase("busy-boat");
           return;
         }
-        // Settings or another window is starting or changing it right now.
         setError(isRemoteScreenshotContention({ status: Number(e?.status ?? 409), message: String(e?.message ?? "") })
           ? new LocalizedPanelError("computer.err.changing")
           : e.message);
@@ -1062,7 +980,6 @@ export function ComputerPanel({
         });
       }
       if (action !== "vm-delete") {
-        // Shared mode has one desktop, started from the same route as Settings.
         const lifecyclePath = action === "vm-start" && vmStatus?.mode !== "per-bot"
           ? "/api/local-computer/start"
           : `/api/bots/${bot.id}/local-computer/${action === "vm-start" ? "start" : "run"}`;
@@ -1117,14 +1034,10 @@ export function ComputerPanel({
     startCloudComputer();
   });
 
-  // Opening the dog's computer turns it on, the way the reference app does:
-  // a cloud computer that has not started yet starts, a sleeping one wakes.
-  // Once per open, only for someone who may start it, never mid-turn.
   const openedStart = useRef(false);
   useEffect(() => {
     if (openedStart.current || window.laterdog?.remoteClient?.active === true) return;
     if (phase !== "cloud-new" && phase !== "cloud-asleep") return;
-    // the same rule as the panel's own Start it now / Wake it now button
     const action = cloudView.action?.id;
     if ((action !== "start" && action !== "wake") || !panelOffers(action) || pending !== null) return;
     openedStart.current = true;
@@ -1146,18 +1059,12 @@ export function ComputerPanel({
     }
   };
 
-  // While a turn holds this conversation's cloud computer: only one that is
-  // really starting spins (busyBoatView).
   const busyBoat = busyBoatView(boatState, profileBot.busy === true);
-  // The live cloud computer, as this panel last saw it for this conversation
-  // (the bot's Works on, or a pin to it). Nothing starts it but the bot's
-  // first computer call or the person's own Start it now / Wake it now.
   const cloudComputer: PlaceFacts["computer"] = !computerStatusCurrent || livePlace !== "cloud" || cloudBackend !== "box" ? undefined
     : phase === "starting" ? "starting"
       : phase === "busy-boat" ? (busyBoat.spinner ? "starting" : busyBoat.line === "computer.cloud.asleep" ? "asleep" : "none")
         : phase === "ready" ? "on"
           : boatState === "archived" || boatState === "stopped" ? "asleep" : undefined;
-  /** One place's state, line and action (shared/place-view.ts). */
   const viewOf = (place: PlaceFacts["place"], refusal?: PlaceFacts["refusal"]): PlaceView => placeViewFor({
     ...placeFacts({
       bot, place, seat: placeSeat, config: state.config, instances: state.instances,
@@ -1167,8 +1074,6 @@ export function ComputerPanel({
     }),
     ...(refusal ? { refusal } : {}),
   });
-  // A start this panel asked for and was refused (a plan limit, say) reads
-  // as the same state a failed turn's row does, never the relay's words.
   const cloudRefused = bot.computer === "cloud" && cloudBackend === "box" && phase === "error" && error && !(error instanceof LocalizedPanelError)
     ? cloudRefusal({ message: errorText ?? "", status: Number((error as { status?: unknown }).status ?? 0) || undefined }, state.config?.box?.included === true)
     : undefined;
@@ -1184,9 +1089,6 @@ export function ComputerPanel({
     if (id === "open-vm-settings") return openVmSettings();
     openPlaceAction(id, { botId: profileBot.id, threadId: profileBot.threadId }, dispatch);
   };
-  /** Whether this panel offers the action: not one it already is (watching,
-   * the panel itself), and a start or wake only for this bot's own chosen
-   * cloud computer while no turn holds it. */
   const panelOffers = (id: PlaceActionId | undefined): id is PlaceActionId => Boolean(id) && id !== "watch" && id !== "open-computer-panel"
     && ((id !== "start" && id !== "wake") || (canManageCloud && !profileBot.busy));
   const placeActionButton = (view: PlaceView, className = "mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover") =>
@@ -1198,8 +1100,6 @@ export function ComputerPanel({
   const emptyState = {
     checking: t("computer.phase.checking"),
     starting: cloudBackend === "vps" ? t("computer.phase.starting") : cloudView.line,
-    // A turn that has not used its cloud computer yet has not started one
-    // (busyBoatView, read into the cloud computer's place view above).
     "busy-boat": cloudView.line,
     unconfigured: cloudView.line,
     "auto-unavailable": autoView.line,
@@ -1223,9 +1123,6 @@ export function ComputerPanel({
     <aside
       className={cn(
         "animate-panel-in relative flex h-full shrink-0 flex-col border-l border-hairline/40 bg-panel",
-        // Below md (a phone on remote access) the stored width would push the
-        // chat to zero and run off the edge, so cover the window like the
-        // settings and inspector panels. `!` beats the inline width.
         "max-md:absolute max-md:inset-0 max-md:z-40 max-md:w-full!",
       )}
       style={{ width: panelWidth }}
@@ -1490,7 +1387,6 @@ export function ComputerPanel({
             {errorText}
           </div>
         )}
-        {/* Who is driving — take the wheel / hand it back */}
         {(cloudPreviewReady || phase === "vm" || currentTeamComputer) && control.helpReason && !control.held && (
           <div className="mt-3 rounded-xl bg-card p-4">
             <div className="text-[13px] leading-relaxed text-ink">

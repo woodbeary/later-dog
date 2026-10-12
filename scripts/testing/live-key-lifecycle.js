@@ -1,8 +1,5 @@
-// Evaluate with control:laterdog ui eval in its disposable threads preview only.
-// No credential is saved and getUserMedia never touches a physical device.
 (async () => {
   if (location.pathname !== "/__threads.html") throw new Error("Use the isolated ui launch preview");
-  // Use the renderer's existing module instance, including after Vite HMR.
   const asset = (path) => performance.getEntriesByType("resource").filter((entry) => entry.name.includes(path)).at(-1)?.name ?? path;
   const media = await import(asset("/src/lib/live-call-media.ts"));
   const mode = await import(asset("/src/lib/call-mode.ts"));
@@ -48,7 +45,6 @@
       await settle();
       if (!finishSave) throw new Error("Key save was not pending");
       if (action === "dismissal") document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-      // Keyboard activation switches chat without the outside-pointer dismissal.
       else select("Fixture Starter");
       await settle();
       if (action === "targetReplacement" && !document.querySelector('[aria-label="Live call with Fixture Starter"]')) throw new Error("Chat did not switch");

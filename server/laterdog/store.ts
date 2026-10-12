@@ -65,7 +65,6 @@ export class WorkspaceStore {
       return job;
     });
   }
-  /** Progress that changes every poll (a task's stage, its latest step): kept on the job without an event or a wake-up. */
   touch(id: string, patch: Partial<Job>): Job {
     return this.transaction(() => {
       const job = { ...this.job(id), ...patch };
@@ -98,7 +97,6 @@ export class WorkspaceStore {
     if (this.jobs().some((job) => job.repository === repo.slug && activeJob(job))) throw Object.assign(new Error("Wait for active jobs before changing repository policy"), { status: 409 });
     this.db.prepare("INSERT INTO repositories VALUES(?,?) ON CONFLICT(slug) DO UPDATE SET document=excluded.document").run(repo.slug, JSON.stringify(repo));
   }
-  /** Wake-ups still waiting for these dogs' conversations, oldest first. A desktop pulls them when the supervisor cannot call it (hosted). */
   pendingWakeups(bots: ReadonlySet<string>, limit = 20): Wakeup[] {
     const wakeups: Wakeup[] = [];
     for (const row of this.db.prepare("SELECT id,document FROM outbox WHERE delivered=0 ORDER BY id").all() as { id: number; document: string }[]) {
@@ -108,12 +106,10 @@ export class WorkspaceStore {
     }
     return wakeups;
   }
-  /** The dogs with a wake-up still waiting: the hosted Worker answers a desktop's pull itself, without waking the container, when none is its. */
   wakeupBots(): string[] {
     const rows = this.db.prepare("SELECT document FROM outbox WHERE delivered=0").all() as { document: string }[];
     return [...new Set(rows.map((row) => (JSON.parse(row.document) as Wakeup).botId))].sort();
   }
-  /** 1 = handed to the conversation, 2 = dropped (the reason is recorded on the job). False when it was already settled, so a retry is harmless. */
   settleWakeup(id: number, settlement: WakeupSettlement): boolean {
     return this.transaction(() => {
       const row = this.db.prepare("SELECT job_id AS jobId FROM outbox WHERE id=? AND delivered=0").get(id) as { jobId: string } | undefined;

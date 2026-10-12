@@ -11,7 +11,6 @@ const deferred = () => {
 };
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 
-// Capture the real command handler without mounting live event effects.
 function mount(request: typeof fetch) {
   vi.useFakeTimers();
   vi.stubGlobal("fetch", request);

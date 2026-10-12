@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest";
 import { runScenario } from "./runners/run-scenario.ts";
 import { loadScenarios } from "./runners/run-evals.ts";
 
-// The offline tier-1 gate: every scenario runs against a freshly booted
-// real server with the deterministic scripted engine. These are the
-// behavior pins the release report diffs.
 describe("behavior evals", () => {
   const scenarios = loadScenarios();
   it("loads at least the founding scenario set", () => {

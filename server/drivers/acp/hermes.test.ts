@@ -66,7 +66,6 @@ describe("hermesConfiguredModel", () => {
     expect(hermesConfiguredModel(env)).toEqual({
       id: HERMES_CONFIG_MODEL_ID,
       label: "anthropic/claude-opus-4.6 (Hermes config)",
-      // ModelPicker shows a custom-only agent ONLY its custom-flagged options.
       custom: true,
     });
   });
@@ -84,15 +83,11 @@ describe("hermesConfiguredModel", () => {
   );
 
   it("treats a commented-out key with no config.yaml as not configured", () => {
-    // The shipped .env carries `# OPENROUTER_API_KEY=`; without config.yaml
-    // there's no evidence of a working provider, so it must not read as configured.
     const env = home("# OPENROUTER_API_KEY=\n");
     expect(hermesConfiguredModel(env)).toBeNull();
   });
 
   it("treats a commented-out key with config.yaml as configured (Nous Portal)", () => {
-    // A Nous Portal user has OAuth tokens, not an OpenRouter API key.
-    // config.yaml existing is sufficient evidence of a working provider.
     const env = home("# OPENROUTER_API_KEY=\n", "model:\n  default: z-ai/glm-5.2\n");
     expect(hermesConfiguredModel(env)).toEqual({
       id: HERMES_CONFIG_MODEL_ID,
@@ -118,9 +113,6 @@ describe("hermesConfiguredModel", () => {
   });
 
   it("offers the configured model when only config.yaml exists (Nous Portal OAuth)", () => {
-    // A Nous Portal user logs in via OAuth — no API key in .env, but
-    // config.yaml exists with a default model. This is the most common
-    // setup for `hermes setup` / `hermes login` users.
     const root = mkdtempSync(join(tmpdir(), "laterdog-hermes-nous-"));
     dirs.push(root);
     const h = join(root, ".hermes");
@@ -193,15 +185,12 @@ describe("hermesConfiguredModel", () => {
   });
 
   it("does not map to an ACP model id, so no session/set_model is sent for it", () => {
-    // This is what makes Hermes fall through to its own configured provider.
     expect(hermesAcpModelId(HERMES_CONFIG_MODEL_ID)).toBeNull();
   });
 });
 
 describe("hermesAcpModelId", () => {
   it("forwards Hermes' own provider-scoped ids untouched", () => {
-    // These are what `session/new` advertises. Returning null for them is what
-    // confined the picker to locally injected hosts.
     expect(hermesAcpModelId("openrouter:qwen/qwen3.8-max")).toBe("openrouter:qwen/qwen3.8-max");
     expect(hermesAcpModelId("openrouter:deepseek/deepseek-v4-flash")).toBe(
       "openrouter:deepseek/deepseek-v4-flash",
@@ -227,9 +216,6 @@ describe("fetchHermesAcpModels probe deadline", () => {
     for (const d of dirs.splice(0)) await removeTempDir(d);
   });
 
-  // Minimal ACP CLI: answers initialize at once, then session/new after
-  // FAKE_SESSION_DELAY_MS with a two-model catalog. Plain JS in a .ts file so
-  // the node shebang runs it on every supported runtime.
   const FAKE_CLI_SOURCE = `#!/usr/bin/env node
 let buf = "";
 const delay = Number(process.env.FAKE_SESSION_DELAY_MS || "0");
@@ -267,8 +253,6 @@ process.stdin.on("data", (chunk) => {
     dirs.push(home);
     const cli = join(home, "fake-hermes.ts");
     writeFileSync(cli, FAKE_CLI_SOURCE, { mode: 0o755 });
-    // The spawn gets exactly this env, so PATH has to survive for the
-    // script's /usr/bin/env node shebang to resolve.
     return { cli, env: { PATH: process.env.PATH ?? "", ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}), HOME: home, USERPROFILE: home, ...env } };
   }
 
@@ -305,8 +289,6 @@ process.stdin.on("data", (chunk) => {
   it.each(["not-a-number", "0", "-1", "0.5", "Infinity", "2147483648"])("ignores invalid timeout %s and falls back to the 15s default", async (timeout) => {
     expect(HERMES_ACP_MODELS_DEFAULT_TIMEOUT_MS).toBe(15_000);
     const { cli, env } = fakeCli({ FAKE_SESSION_DELAY_MS: "150", [HERMES_ACP_MODELS_TIMEOUT_ENV]: timeout });
-    // Resolving at all before any realistic default proves the override was
-    // rejected; a 0/NaN deadline would have returned [] immediately.
     await expect(fetchHermesAcpModels(cli, env)).resolves.toEqual(CATALOG);
   });
 });

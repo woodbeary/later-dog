@@ -7,7 +7,6 @@ const deferred = () => {
   const promise = new Promise<void>((done) => { resolve = done; });
   return { promise, resolve };
 };
-// Takes, flushes and hand-backs chain several promises; let them all run.
 const settle = async () => { for (let turn = 0; turn < 50; turn++) await Promise.resolve(); };
 const mouse = (eventType: string, button = "left") => ({ type: "input_mouse", eventType, x: 10, y: 20, button, clickCount: 1, modifiers: 0 });
 const key = (eventType: string, value = "a") => ({ type: "input_keyboard", eventType, key: value,
@@ -54,7 +53,6 @@ describe("taking browser control implicitly", () => {
     expect(h.queue.enqueue).not.toHaveBeenCalled();
     take.resolve(); await settle();
     expect(h.queue.enqueue.mock.calls.map(([body]) => body)).toEqual([press, lift]);
-    // Control is held now, so the next click goes straight to the page.
     h.interact({ input: press });
     expect(h.queue.enqueue).toHaveBeenLastCalledWith(press);
     await settle();
@@ -71,9 +69,7 @@ describe("taking browser control implicitly", () => {
     await settle();
     expect(h.sent).toEqual([]);
     take.resolve(); await settle();
-    // The toolbar action finishes before any later page input is sent.
     expect(h.sent).toEqual([["input", press], ["input", hover], ["input", lift], ["command", { type: "back" }]]);
-    // Input arriving while that action runs still waits behind the buffer.
     h.interact({ input: key("keyDown", "b") });
     back.resolve(); await settle();
     expect(h.sent.slice(4)).toEqual([["input", key("keyDown")], ["input", key("keyUp")], ["input", key("keyDown", "b")]]);
@@ -110,7 +106,6 @@ describe("taking browser control implicitly", () => {
     expect(h.options.onError).toHaveBeenLastCalledWith(refused);
     expect(h.sent).toEqual([]);
     expect(h.options.onTakeStatus).toHaveBeenLastCalledWith("");
-    // The release of that dropped click is not a new interaction; a new click is.
     h.interact({ input: lift }); await settle();
     expect(h.options.take).toHaveBeenCalledOnce();
     h.interact({ input: press }); await settle();
@@ -144,13 +139,10 @@ describe("taking browser control implicitly", () => {
     const navigate = { type: "navigate", url: "https://example.com/" };
     h.interact({ input: press }, { input: lift }, { input: key("keyDown") }, { command: navigate });
     take.resolve(); await settle();
-    // Only the toolbar action that means the same on any page still runs.
     expect(h.sent).toEqual([["command", navigate]]);
     expect(h.options.onTakeStatus).toHaveBeenLastCalledWith("stale");
-    // The key's release never reaches the page that never saw it go down.
     h.interact({ input: key("keyUp") });
     expect(h.queue.enqueue).not.toHaveBeenCalled();
-    // The next click is the person's own, on the page as it is now.
     h.interact({ input: press });
     expect(h.queue.enqueue).toHaveBeenLastCalledWith(press);
     expect(h.options.onTakeStatus).toHaveBeenLastCalledWith("");
@@ -186,7 +178,6 @@ describe("taking browser control implicitly", () => {
     h.interact({ input: press }); await settle();
     expect(h.options.take).not.toHaveBeenCalled();
     expect(h.options.onHalted).toHaveBeenCalledOnce();
-    // Toolbar actions do not go through the halted queue.
     h.interact({ command: { type: "reload" } }); await settle();
     expect(h.options.take).toHaveBeenCalledOnce();
     expect(h.sent).toEqual([["command", { type: "reload" }]]);
@@ -221,7 +212,6 @@ describe("handing browser control back", () => {
     vi.advanceTimersByTime(1); await settle();
     expect(h.options.release).toHaveBeenCalledOnce();
     expect(h.queue.drain.mock.invocationCallOrder[0]).toBeLessThan(h.options.release.mock.invocationCallOrder[0]!);
-    // The bot has it again: the next click takes control afresh.
     h.interact({ input: press }); await settle();
     expect(h.options.take).toHaveBeenCalledTimes(2);
   });
@@ -293,7 +283,6 @@ describe("handing browser control back", () => {
 
   it("hands back a hold the server kept after a timed-out take, but never another person's", async () => {
     vi.useFakeTimers();
-    // The server gives up waiting for the bot after 15s and keeps the hold.
     const timedOut = () => new Promise<unknown>((_, reject) => { setTimeout(() => reject(new Error(refused)), 15_000); });
     const kept = harness();
     kept.options.take.mockImplementationOnce(timedOut);
@@ -314,7 +303,7 @@ describe("handing browser control back", () => {
   it("hands back an unused hold the server reports, without postponing an armed hand-back", async () => {
     vi.useFakeTimers();
     const unused = harness();
-    unused.server.owned = true; // e.g. a failed restart left this viewer holding the browser
+    unused.server.owned = true;
     unused.control.observe();
     vi.advanceTimersByTime(BROWSER_HAND_BACK_MS); await settle();
     expect(unused.options.release).toHaveBeenCalledOnce();
@@ -322,7 +311,7 @@ describe("handing browser control back", () => {
     h.interact({ input: press }, { input: lift }); await settle();
     h.server.owned = true;
     vi.advanceTimersByTime(5_000);
-    h.control.observe(); // a control event must not keep the bot waiting longer
+    h.control.observe();
     vi.advanceTimersByTime(BROWSER_HAND_BACK_MS - 5_000); await settle();
     expect(h.options.release).toHaveBeenCalledOnce();
   });
@@ -376,7 +365,6 @@ describe("handing browser control back", () => {
     reload.resolve(); await settle();
     vi.advanceTimersByTime(0); await settle();
     expect(busy.options.release).toHaveBeenCalledOnce();
-    // Taking control again goes back to the normal idle wait.
     busy.interact({ input: press }, { input: lift }); await settle();
     vi.advanceTimersByTime(BROWSER_HAND_BACK_MS - 1); await settle();
     expect(busy.options.take).toHaveBeenCalledTimes(2);

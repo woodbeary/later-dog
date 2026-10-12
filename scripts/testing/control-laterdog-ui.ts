@@ -1,13 +1,3 @@
-// `control-laterdog ui`: drive the real React renderer headlessly against the
-// isolated fake-engine fixture, through the agent-browser binary the harness
-// already pins (server/browser-engine-release.ts). One launch owns a fixture
-// server, a Vite preview of the full <App/>, and one headless browser session
-// whose HOME is the fixture's disposable data directory; every other verb
-// attaches to that session through the handle file the launch printed.
-//
-// Imported by scripts/control-laterdog.ts, which owns HELP and the MUTATING set;
-// this file touches that module's bindings only inside functions so the
-// import cycle is harmless whichever file is loaded first.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
@@ -30,9 +20,7 @@ import {
 import { fixtureApi, mountPreview, type MountedPreview } from "./preview-fixture.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-/** Gitignored, persistent: the binary and its Chrome download once per checkout. */
 export const UI_TOOLS_DIR = join(ROOT, ".laterdog-scratch", "verify-tools");
-/** Verbs that change the fixture or the page; they take the explicit handle, never discovery. */
 export const UI_MUTATING = new Set(["click", "type", "press", "flag", "eval"]);
 
 const ENTRIES = {
@@ -42,7 +30,6 @@ const ENTRIES = {
 const FAKE_MODES = ["happy", "exit-early", "hang", "malformed", "stream", "not-logged-in", "slow", "background-result"];
 const SEEDED_BOT = "Pepper";
 const PLATFORM_ENV = ["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ"];
-// Where `agent-browser install` unpacks Chrome for Testing below `$HOME/.agent-browser/browsers/chrome-<version>/`.
 const CHROME_LAYOUTS: Partial<Record<NodeJS.Platform, string[]>> = {
   darwin: [
     "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
@@ -62,15 +49,11 @@ export interface UiHandle {
   home: string;
   botId: string;
   logPath: string;
-  /** Chrome the session launched with; null when agent-browser located a browser itself. */
   chrome: string | null;
 }
 
 type SessionEnv = Pick<UiHandle, "home" | "session" | "chrome">;
 
-/** The exact environment `open` launched with. Later verbs must repeat it:
- * agent-browser relaunches the browser (losing the page) when launch
- * settings drift, and the daemon socket lives under this HOME. */
 export function sessionEnv(handle: SessionEnv, parentEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const temp = join(handle.home, "tmp");
   const env: NodeJS.ProcessEnv = {
@@ -91,8 +74,6 @@ export function sessionEnv(handle: SessionEnv, parentEnv: NodeJS.ProcessEnv = pr
   return env;
 }
 
-/** Run one agent-browser verb with --json and return its `data`. The binary's
- * stderr is never surfaced: it can echo paths and environment. */
 export function agentBrowser(
   binary: string,
   env: NodeJS.ProcessEnv,
@@ -124,7 +105,7 @@ export function agentBrowser(
         return;
       }
       let result: { success?: unknown; data?: unknown; error?: unknown } | null = null;
-      try { result = JSON.parse(output); } catch { /* not JSON: reported below */ }
+      try { result = JSON.parse(output); } catch {}
       const data = result?.data;
       if (code === 0 && result?.success === true && data && typeof data === "object" && !Array.isArray(data)) {
         done(data as Record<string, unknown>);
@@ -139,8 +120,6 @@ export function agentBrowser(
   });
 }
 
-/** Chrome for Testing that `agent-browser install` unpacked under the tools
- * directory, newest version first; null when it found a system browser instead. */
 export function installedChrome(toolsDir = UI_TOOLS_DIR, platform: NodeJS.Platform = process.platform): string | null {
   const browsers = join(toolsDir, ".agent-browser", "browsers");
   let versions: string[];
@@ -160,9 +139,6 @@ export function installedChrome(toolsDir = UI_TOOLS_DIR, platform: NodeJS.Platfo
   return null;
 }
 
-/** LATERDOG_AGENT_BROWSER_PATH, then the tools directory, then PATH; otherwise the
- * pinned download, verified by size and SHA-256. Chrome follows the same rule
- * with AGENT_BROWSER_EXECUTABLE_PATH. Both land once under UI_TOOLS_DIR. */
 export async function ensureUiBrowser(
   parentEnv: NodeJS.ProcessEnv = process.env,
   log: (line: string) => void = () => {},
@@ -210,7 +186,6 @@ function loadHandle(raw: unknown, verb: string): UiHandle {
   return handle as UiHandle;
 }
 
-/** A verb on a dead daemon would launch a fresh blank browser and drive that. */
 async function requireLiveSession(handle: UiHandle): Promise<void> {
   const data = await agentBrowser(handle.binary, sessionEnv(handle), ["session", "list"], 10_000);
   const sessions = Array.isArray(data.sessions) ? data.sessions : [];
@@ -223,10 +198,8 @@ async function snapshot(handle: UiHandle, interactive: boolean): Promise<Record<
   return agentBrowser(handle.binary, sessionEnv(handle), ["snapshot", ...(interactive ? ["-i"] : [])]);
 }
 
-/** How long `--name` waits for its element to be rendered before giving up. */
 const TARGET_WAIT_MS = 5_000;
 
-/** `--ref @eN` verbatim, or the one element whose accessible name is `--name`. */
 async function resolveTarget(handle: UiHandle, values: Record<string, unknown>, verb: string): Promise<{ target: string; name?: string }> {
   const ref = typeof values.ref === "string" ? values.ref.trim() : "";
   const name = typeof values.name === "string" ? values.name : "";
@@ -235,14 +208,6 @@ async function resolveTarget(handle: UiHandle, values: Record<string, unknown>, 
     if (!/^@?e\d+$/.test(ref)) throw new ControlLaterDogError(`--ref must look like @e12, got ${JSON.stringify(ref)}`, "refs come from `ui snapshot`");
     return { target: ref.startsWith("@") ? ref : `@${ref}` };
   }
-  // An element appears when React renders it, not when the previous command
-  // returned, so a single snapshot races the UI: the model row this drives is
-  // painted from an API read, and a name looked up one tick early is simply
-  // absent. Wait for it, the way every UI driver has an implicit wait — this
-  // is what made the smoke fail on ~1 run in 8, always as "no element is
-  // named", on four unrelated branches. Ambiguity is not a race, so two
-  // matches are still reported the moment they are seen, and a name that
-  // never arrives fails with the same error as before, just later.
   const deadline = Date.now() + TARGET_WAIT_MS;
   let matches: Array<[string, { name?: unknown; role?: unknown }]> = [];
   for (;;) {
@@ -280,9 +245,6 @@ const summarizeBots = (bots: Array<Record<string, unknown>>) =>
   bots.map((bot) => ({ id: bot.id, name: bot.name, busy: bot.busy === true,
     waitingForTeammates: bot.waitingForTeammates === true, activity: bot.activity ?? null }));
 
-/** Settled means three things at once: the seeded bot's turn ended (the shared
- * wait tool decides how), no bot in the fixture is still busy, and the page
- * shows the newest message the server has and reports network idle. */
 async function waitSettle(handle: UiHandle, timeoutSeconds: number): Promise<Record<string, unknown>> {
   const deadline = Date.now() + timeoutSeconds * 1_000;
   const remaining = () => Math.max(1, Math.ceil((deadline - Date.now()) / 1_000));
@@ -300,8 +262,6 @@ async function waitSettle(handle: UiHandle, timeoutSeconds: number): Promise<Rec
     if (Date.now() >= deadline) return { ok: false, ...state() };
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  // The transcript rows carry data-mid; the newest text row proves the
-  // renderer caught up with the server before a snapshot reads it.
   const messages = Array.isArray(wait.messages) ? wait.messages as Array<{ id?: unknown; kind?: unknown }> : [];
   const newest = [...messages].reverse().find((message) => message.kind === "text" && typeof message.id === "string");
   const env = sessionEnv(handle);
@@ -320,7 +280,6 @@ async function waitSettle(handle: UiHandle, timeoutSeconds: number): Promise<Rec
   return { ok: true, status: "settled", bots, renderer, browser, wait };
 }
 
-/** The `ui` verbs other than launch. Every one takes the explicit handle. */
 export async function runControlLaterDogUi(args: string[]): Promise<unknown> {
   const [verb = "help", ...rest] = args;
   if (verb === "help" || verb === "--help" || verb === "-h") return HELP_UI;
@@ -365,7 +324,7 @@ export async function runControlLaterDogUi(args: string[]): Promise<unknown> {
     await requireLiveSession(handle);
     await agentBrowser(handle.binary, sessionEnv(handle), ["screenshot", out], 60_000);
     let bytes = 0;
-    try { bytes = statSync(out).size; } catch { /* reported as 0 */ }
+    try { bytes = statSync(out).size; } catch {}
     if (!bytes) throw new ControlLaterDogError(`agent-browser reported a screenshot it did not write: ${out}`);
     return { ok: true, path: out, bytes };
   }
@@ -423,9 +382,6 @@ function parkUntilSignalOrExit(child: ChildProcess, stopRequested: () => boolean
   });
 }
 
-/** `ui launch`: fixture, preview, seeded bot, browser session, handle file;
- * park until interrupted, then close the browser, the preview and the
- * fixture in that order. Only ever runs from the executable CLI. */
 export async function launchUi(
   args: string[],
   parentEnv: NodeJS.ProcessEnv = process.env,
@@ -453,8 +409,6 @@ export async function launchUi(
   }
   const note = (line: string) => io.stderr.write(`ui launch: ${line}\n`);
 
-  // A Ctrl-C at any point after this stops the launch at its next step and
-  // still runs the cleanup below for whatever already started.
   let stopRequested = false;
   const startup = new AbortController();
   const requestStop = () => { stopRequested = true; startup.abort(); };
@@ -475,8 +429,6 @@ export async function launchUi(
     await api("PATCH", "/api/config", { language: "en" });
     const created = await runControlLaterDog(["new-bot", "--name", SEEDED_BOT, "--url", fixture.info.url]) as { bot: { id: string } };
     checkpoint();
-    // stdout carries the handle and nothing else; Vite's port and dependency
-    // notes would otherwise land there first.
     preview = await mountPreview(fixture, { ...entry, logLevel: "warn" });
     checkpoint();
     const session: SessionEnv = { home: fixture.info.dataDir, session: `laterdog-ui-${new URL(fixture.info.url).port}`, chrome };
@@ -510,8 +462,6 @@ export async function launchUi(
     process.off("SIGINT", requestStop);
     process.off("SIGTERM", requestStop);
     if (opened) {
-      // closeBrowserSession waits until the daemon is really gone; a plain
-      // `close` only acknowledges. Both are scoped to this fixture's HOME.
       if (!await closeBrowserSession(opened.binary, opened.env)) {
         await agentBrowser(opened.binary, opened.env, ["close"], 15_000).catch(() => {});
       }

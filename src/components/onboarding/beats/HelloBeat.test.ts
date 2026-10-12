@@ -35,7 +35,6 @@ describe("the greeting beat", () => {
     expect(html).not.toContain("<input");
     expect(html).toContain("shared later.dog");
     expect(html).toContain("nothing to install");
-    // Continue moves on; there is nothing to save
     const primary = nodes(tree).find((node) => typeof node.type === "function" && node.props.onClick);
     primary!.props.onClick!();
     expect(props.onNext).toHaveBeenCalledOnce();

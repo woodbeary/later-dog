@@ -1,4 +1,3 @@
-// Release freshness is independent of account-specific model availability.
 function parseCodexReleaseVersion(value: string): { parts: number[]; prerelease: boolean } | null {
   const match = /^(?:.*\bcodex-cli\s+)?v?(\d+)\.(\d+)\.(\d+)(-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i.exec(value.trim());
   return match ? { parts: match.slice(1, 4).map(Number), prerelease: Boolean(match[4]) } : null;
@@ -33,7 +32,6 @@ export function createCodexReleaseReader(fetchImpl: typeof fetch = fetch, now = 
         if (!parsed || parsed.prerelease) throw new Error("Invalid stable release");
         return version;
       } catch {
-        // Offline checks must not make an otherwise usable engine unavailable.
         expires = now() + 5 * 60 * 1000;
         return null;
       }

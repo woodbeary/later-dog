@@ -222,9 +222,7 @@ test("a reclaimed endpoint is re-provisioned at restart and a full provider retr
   const route = async (request, response) => {
     const key = `${request.method} ${request.url}`;
     calls.push(key);
-    for await (const _chunk of request) {
-      // Drain the body; none of these routes takes one.
-    }
+    for await (const _chunk of request) {}
     if (request.url.startsWith("/v1/installations/self")) {
       assert.equal(request.headers.authorization, `Bearer ${INSTALLATION_CREDENTIAL}`);
     }
@@ -234,7 +232,6 @@ test("a reclaimed endpoint is re-provisioned at restart and a full provider retr
       case "GET /v1/installations/self":
         return reply(response, 200, { installation, credentialExpiresAt });
       case "GET /v1/installations/self/endpoint":
-        // The idle tunnel was reclaimed while this computer was away.
         return reply(response, 200, { endpoint: null });
       case "POST /v1/installations/self/endpoint":
         return capacityAvailable
@@ -286,7 +283,6 @@ test("a reclaimed endpoint is re-provisioned at restart and a full provider retr
     assert.equal(full.status, "error");
     assert.match(full.message, /^Secure HTTPS links are temporarily full\. Pair on this Wi-Fi or with Tailscale for now; we'll retry automatically\./);
     assert.match(full.message, new RegExp(`Reference: ${REQUEST_ID}`));
-    // The old connector token is kept until a replacement exists.
     assert.equal(document[MANAGED_COMPANION_TOKEN_FIELD], OLD_CONNECTOR_TOKEN);
     const retry = scheduled.find((timer) => timer.milliseconds === 600_000);
     assert.ok(retry, "the server's Retry-After sets the automatic retry delay");

@@ -7,7 +7,6 @@ it.each(["fake-acp-cli.ts", "fake-claude-cli.ts", "fake-codex-app-server.ts"])(
   "%s exits when its parent dies even if ppid stays unchanged",
   async (file) => {
     const childCode = [
-      // Windows retains the spawning PID. Exercise that path on every OS.
       'Object.defineProperty(process, "ppid", { value: process.ppid });',
       "await import(" + JSON.stringify(new URL(file, import.meta.url).href) + ");",
       'setTimeout(() => console.log("FAKE_READY"), 750);',
@@ -36,13 +35,11 @@ it.each(["fake-acp-cli.ts", "fake-claude-cli.ts", "fake-codex-app-server.ts"])(
       const exited = once(parent, "exit");
       parent.kill("SIGKILL");
       await exited;
-      // The fake inherits this pipe, so EOF proves it exited too, without
-      // treating a briefly unreaped zombie as a still-running process.
       await expect.poll(() => ended, { timeout: 5_000 }).toBe(true);
     } finally {
       const pid = Number(output.match(/FAKE_PID:(\d+)/)?.[1]);
       if (!ended && pid > 0) {
-        try { process.kill(pid, "SIGKILL"); } catch { /* already exited */ }
+        try { process.kill(pid, "SIGKILL"); } catch {}
       }
       await waitForExit(parent, { signal: "SIGKILL" });
     }

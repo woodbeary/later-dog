@@ -113,7 +113,7 @@ describe("createCopyFeedback", () => {
     await feedback.click("a");
     vi.advanceTimersByTime(1000);
     await feedback.click("a");
-    vi.advanceTimersByTime(1000); // old timer would have fired at 1200
+    vi.advanceTimersByTime(1000);
     expect(states).toEqual(["copied", "copied"]);
     vi.advanceTimersByTime(COPY_FEEDBACK_MS);
     expect(states).toEqual(["copied", "copied", "idle"]);
@@ -182,7 +182,7 @@ describe("a web write that never settles", () => {
     await vi.advanceTimersByTimeAsync(WEB_WRITE_TIMEOUT_MS);
     expect(await second).toBe("failed");
     rejecting.rejectLate(new Error("late"));
-    await vi.advanceTimersByTimeAsync(0); // an unhandled rejection would fail the run
+    await vi.advanceTimersByTimeAsync(0);
   });
 
   it("a second click while the hung write is pending is busy, and works after it settles", async () => {
@@ -196,7 +196,7 @@ describe("a web write that never settles", () => {
     await vi.advanceTimersByTimeAsync(WEB_WRITE_TIMEOUT_MS);
     expect(await first).toBe("copied");
     expect(states).toEqual(["copied"]);
-    const again = feedback.click("a"); // not stuck busy: a new attempt starts (and times out the same way)
+    const again = feedback.click("a");
     expect(web.writeText).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(WEB_WRITE_TIMEOUT_MS);
     expect(await again).toBe("copied");

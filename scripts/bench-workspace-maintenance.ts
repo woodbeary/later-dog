@@ -1,4 +1,3 @@
-// Disposable fixtures only; never import config before isolating data.
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,6 +1,3 @@
-// A bot whose engine also runs outside this server (a Telegram gateway, a Slack
-// bot) holds no turn-scoped capability. `<data dir>/external-runtimes.json`
-// gives it a standing one for a pinned thread: real server, fake engine.
 import { once } from "node:events";
 import { spawn } from "node:child_process";
 import { chmodSync, writeFileSync } from "node:fs";
@@ -53,8 +50,6 @@ afterAll(async () => {
   await fixture.close();
 });
 
-// Hold a real HTTP body after the server accepts its headers, then revoke
-// the credential before admitting any tool side effect.
 async function delayedBody(path: string, body: unknown) {
   const raw = JSON.stringify(body);
   const req = request(`${base}${path}`, { method: "POST", headers: {
@@ -100,16 +95,14 @@ describe("a bot's external runtime", () => {
     const runtime = await createBot("Gateway");
     const peer = await createBot("Peer");
     try {
-      // nothing configured: the bearer is just an unknown token
       expect((await asRuntime("GET", "/api/internal/agents")).status).toBe(401);
 
-      // the file is read on demand — no restart between writing it and using it
       writeFileSync(runtimesFile(), JSON.stringify({ [runtime.id]: { token: TOKEN, threadId: runtime.threadId } }), { mode: 0o600 });
       const roster = await asRuntime("GET", "/api/internal/agents");
       expect(roster.status).toBe(200);
       const names = roster.body.bots.map((bot: { name: string }) => bot.name);
       expect(names).toContain("Peer");
-      expect(names).not.toContain("Gateway"); // the caller itself is never a peer
+      expect(names).not.toContain("Gateway");
       expect((await asRuntime("GET", "/api/internal/agents", undefined, `${TOKEN}x`)).status).toBe(401);
       expect((await asRuntime("GET", `/api/internal/agents?self=${peer.id}`)).status).toBe(403);
       for (const claim of [{ fromBotId: peer.id }, { fromThreadId: peer.threadId }, { depth: 1 }]) {
@@ -118,16 +111,12 @@ describe("a bot's external runtime", () => {
         })).status).toBe(403);
       }
 
-      // a token another user could read is not a secret
       if (process.platform !== "win32") {
         chmodSync(runtimesFile(), 0o644);
         expect((await asRuntime("GET", "/api/internal/agents")).status).toBe(401);
         chmodSync(runtimesFile(), 0o600);
       }
 
-      // The runtime has no live turn on this server, so its delegation cannot
-      // wait for one to finish: it is picked up immediately, from the bot's
-      // own main thread, which never needed a warm-up task.
       const tasksBefore = (await botState(peer.id)).tasks.length;
       const delegated = await asRuntime("POST", "/api/internal/delegate-bot", {
         fromBotId: runtime.id,
@@ -143,7 +132,6 @@ describe("a bot's external runtime", () => {
       }, { timeout: 15_000 }).toBe(true);
       await expect.poll(async () => (await botState(peer.id)).busy, { timeout: 15_000 }).toBeFalsy();
 
-      // the capability is peer comms only: nothing that creates or changes state
       for (const [method, path, body] of [
         ["POST", "/api/internal/threads", { fromBotId: runtime.id, fromThreadId: runtime.threadId, title: "Side quest", message: "go" }],
         ["POST", "/api/internal/create-bot", { fromBotId: runtime.id, name: "Minion" }],
@@ -155,7 +143,7 @@ describe("a bot's external runtime", () => {
         expect((await asRuntime(method, path, body)).status, `${method} ${path}`).toBe(403);
       }
       const gateway = await botState(runtime.id);
-      expect(gateway.tasks.length).toBe(1); // no task was opened on the runtime's bot either
+      expect(gateway.tasks.length).toBe(1);
     } finally {
       for (const bot of [runtime, peer]) {
         await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
@@ -196,7 +184,6 @@ describe("a bot's external runtime", () => {
       expect((await botState(runtime.id)).threadId).toBe(sibling.body.task.threadId);
       expect((await asRuntime("GET", `/api/internal/agents?fromThreadId=${runtime.threadId}`)).status).toBe(200);
       expect((await asRuntime("GET", `/api/internal/agents?fromThreadId=${sibling.body.task.threadId}`)).status).toBe(403);
-      // A bare token cannot identify a stable conversation.
       writeFileSync(runtimesFile(), JSON.stringify({ [runtime.id]: TOKEN }));
       expect((await asRuntime("GET", "/api/internal/agents")).status).toBe(401);
       writeFileSync(runtimesFile(), JSON.stringify({ [runtime.id]: { token: TOKEN, threadId: peer.threadId } }));
@@ -232,8 +219,6 @@ describe("a bot's external runtime", () => {
       const receipt = await client.rpc("tools/call", { name: "check_delegation", arguments: { task_id: taskId } });
       expect(receipt.isError).not.toBe(true);
       expect(receipt.content[0].text).toContain("finished task");
-      // The runtime reads its own result; the bot's engine is not woken on
-      // the pinned thread to answer it a second time.
       await expect.poll(async () => (await botState(runtime.id)).busy, { timeout: 15_000 }).toBeFalsy();
       const pinned = (await api("GET", `/api/threads/${runtime.threadId}/messages?limit=100`)).body.messages;
       expect(pinned.filter((message: { role: string; turnId?: string; from?: unknown }) =>

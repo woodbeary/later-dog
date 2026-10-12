@@ -1,7 +1,3 @@
-// The transcript viewport shared by 1:1 chats and rooms: which rows mount,
-// when the pane follows the bottom, and how it holds still while rows are
-// prepended. Run against a small stand-in for React's hooks (the suite has
-// no DOM) and a scroller whose height is its mounted row count.
 import type { DependencyList } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,8 +47,6 @@ const react = vi.hoisted(() => {
     useEffect: effect(false),
     useLayoutEffect: effect(true),
   };
-  /** Render until state settles: a render-phase update re-renders before
-   * committing, as React does; layout effects run before passive ones. */
   function render(draw: () => void, commit: () => void) {
     for (let pass = 0; pass < 20; pass++) {
       runtime.cursor = 0;
@@ -82,8 +76,6 @@ const store = vi.hoisted(() => ({
   dispatch: (() => {}) as (action: unknown) => void,
 }));
 vi.mock("@/state/store", () => ({ useStore: () => store }));
-// Scrolling a search hit into view needs the real DOM; the window around it
-// is what this suite checks.
 vi.mock("@/lib/focus-message", () => ({ useFocusMessage: () => {} }));
 
 import { useTranscriptViewport } from "./use-transcript-viewport";
@@ -124,8 +116,6 @@ function mount(initial: Partial<Props> = {}) {
   const draw = () => {
     result = useTranscriptViewport(props);
   };
-  // what React's commit does before layout effects: attach refs, lay out rows
-  // (a browser clamps scrollTop when the content gets shorter)
   const commit = () => {
     result.scrollRef.current = scroller as unknown as HTMLDivElement;
     result.transcriptRef.current = {} as HTMLDivElement;
@@ -146,7 +136,6 @@ function mount(initial: Partial<Props> = {}) {
       props = { ...props, ...next };
       react.render(draw, commit);
     },
-    /** A user event: handlers run, then React re-renders, then the frame. */
     act(handler: () => void) {
       handler();
       react.render(draw, commit);
@@ -195,7 +184,6 @@ describe("transcript viewport", () => {
     view.rerender({ messages: rows(11) });
     expect(scroller.scrollTop).toBe(11 * ROW - 400);
 
-    // the composer growing (or a busy flip) re-pins a following reader too
     scroller.extra = 80;
     view.rerender({ pinOn: [true] });
     expect(scroller.scrollTop).toBe(11 * ROW + 80 - 400);
@@ -214,7 +202,6 @@ describe("transcript viewport", () => {
     );
     expect(view.current.following).toBe(false);
 
-    // scrolling back down to the end resumes following
     view.act(() => {
       scroller.scrollTop = 200;
       view.current.scrollHandlers.onScroll();
@@ -226,7 +213,6 @@ describe("transcript viewport", () => {
     });
     expect(view.current.following).toBe(true);
 
-    // ArrowUp in the composer edits; outside it, it scrolls
     view.act(() => press("ArrowUp", new HTMLTextAreaElement()));
     expect(view.current.following).toBe(true);
     view.act(() => press("PageUp"));
@@ -247,8 +233,6 @@ describe("transcript viewport", () => {
     view.act(() => view.current.showEarlier());
     expect(view.current.hiddenCount).toBe(60);
 
-    // opening a thread mounts one window, even when the person last wrote
-    // long before its end
     view.rerender({ threadId: "other", messages: [{ id: "ask", role: "user" }, ...rows(299, 1_001)] });
     expect(view.current.transcriptKey).toBe("bot:other");
     expect(view.current.hiddenCount).toBe(180);
@@ -260,7 +244,6 @@ describe("transcript viewport", () => {
     for (let total = 301; total <= 900; total++) {
       view.rerender({ messages: rows(total) });
       expect(view.current.windowedMessages.length).toBeLessThanOrEqual(120);
-      // rows leaving at the top leave a following reader at the bottom
       expect(scroller.scrollTop).toBe(scroller.bottom);
     }
     expect(view.current.windowedMessages[0]?.id).toBe("m780");
@@ -269,8 +252,6 @@ describe("transcript viewport", () => {
   });
 
   it("keeps the person's newest message mounted while a long turn follows it", () => {
-    // tool steps draw nothing by default, so a turn can add far more rows
-    // than the window holds while the question is still all there is to see
     let thread: Row[] = [...rows(30), { id: "ask", role: "user" }];
     const view = mount({ messages: thread });
     for (let step = 0; step < 150; step++) {
@@ -282,7 +263,6 @@ describe("transcript viewport", () => {
     expect(view.current.windowedMessages[0]?.id).toBe("ask");
     expect(view.current.windowedMessages).toHaveLength(151);
 
-    // the next message ends that turn's hold, and the window is one window again
     view.rerender({ messages: [...thread, { id: "ask2", role: "user" }] });
     expect(view.current.windowedMessages).toHaveLength(120);
     expect(view.current.windowedMessages.at(-1)?.id).toBe("ask2");
@@ -291,15 +271,12 @@ describe("transcript viewport", () => {
   it("keeps the person's newest message mounted when many steps arrive at once", () => {
     const asked: Row[] = [...rows(30), { id: "ask", role: "user" }];
     const view = mount({ messages: asked });
-    // a reconnect catching up delivers the turn's steps in one update
     view.rerender({ messages: [...asked, ...rows(150, 100)] });
     expect(view.current.windowedMessages[0]?.id).toBe("ask");
     expect(scroller.scrollTop).toBe(scroller.bottom);
   });
 
   it("keeps the window to two windows while one long stretch follows a single message", () => {
-    // a long computer-use turn, or bots answering each other in a room: the
-    // person wrote once and every row since then draws
     let thread: Row[] = [{ id: "ask", role: "user" }];
     const view = mount({ messages: thread });
     for (let step = 0; step < 600; step++) {
@@ -308,7 +285,6 @@ describe("transcript viewport", () => {
       expect(view.current.windowedMessages.length).toBeLessThanOrEqual(2 * 120);
       expect(view.current.following).toBe(true);
       expect(scroller.scrollTop).toBe(scroller.bottom);
-      // the question stays while the turn fits in one more window
       if (thread.length <= 2 * 120) expect(view.current.windowedMessages[0]?.id).toBe("ask");
     }
     expect(view.current.windowedMessages).toHaveLength(120);
@@ -316,8 +292,6 @@ describe("transcript viewport", () => {
   });
 
   it("does not hold for a message that is already above the window", () => {
-    // opened (or Jump to latest) in the middle of a long turn: the question
-    // is behind Show earlier, so there is nothing on screen to hold
     let thread: Row[] = [...rows(30), { id: "ask", role: "user" }, ...rows(200, 1_000)];
     const view = mount({ messages: thread });
     expect(view.current.hiddenCount).toBe(111);
@@ -369,8 +343,6 @@ describe("transcript viewport", () => {
   });
 
   it("re-tails a following window when the thread shrinks but still reaches past its start", () => {
-    // a branch switch can shorten the thread without dropping below the
-    // window's start; the person's newest message may now sit before it
     const view = mount({ messages: rows(300) });
     view.rerender({ messages: rows(620) });
     expect(view.current.hiddenCount).toBe(500);
@@ -382,7 +354,6 @@ describe("transcript viewport", () => {
     expect(view.current.windowedMessages.map((row) => row.id)).toContain("ask");
     expect(scroller.scrollTop).toBe(scroller.bottom);
 
-    // a reader who has scrolled away keeps the rows they are reading
     view.act(() => press("PageUp"));
     view.rerender({ messages: rows(500) });
     expect(view.current.hiddenCount).toBe(440);
@@ -426,7 +397,6 @@ describe("transcript viewport", () => {
     const view = mount({ messages: rows(50, 100) });
     scroller.scrollTop = 300;
     view.act(() => view.current.loadOlder());
-    // same window start and first row, so only the thread change runs the hold
     view.rerender({ threadId: "other" });
     view.rerender({ threadId: "thread", messages: [...rows(50, 50), ...rows(50, 100)] });
     expect(scroller.scrollTop).toBe(300);

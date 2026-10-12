@@ -1,6 +1,3 @@
-// The packaged/built/source ladder for the sidecar's entry point. The case
-// that used to be missing is the third rung: a dev checkout where nobody has
-// run `pnpm build:companion`, which is most dev checkouts.
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -23,7 +20,6 @@ const resolve = (isPackaged, present) =>
 describe("companion entry resolution", () => {
   it("packaged: only the staged resource counts", () => {
     expect(resolve(true, [PACKAGED, BUILT, SOURCE])).toEqual({ entry: PACKAGED, execArgv: [] });
-    // sources exist on a dev machine running a packaged build; they are not runnable resources
     expect(resolve(true, [BUILT, SOURCE])).toBeNull();
   });
 

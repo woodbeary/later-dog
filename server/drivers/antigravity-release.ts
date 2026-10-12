@@ -1,7 +1,3 @@
-// URLs come from Google's official ACP registry entry. Hashes and expanded
-// member sizes were checked independently in T3 Code on 2026-09-03.
-// Registry: agentclientprotocol/registry@81bf71b55e15f630c4fb8a86d20d3088071d2071
-// Metadata: pingdotgg/t3code@8ea52c8f2
 export const ANTIGRAVITY_RELEASE_VERSION = "agy_acp_server_1.1.1";
 
 export interface AntigravityReleaseAsset {

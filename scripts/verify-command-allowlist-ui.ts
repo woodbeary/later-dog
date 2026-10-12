@@ -1,5 +1,3 @@
-// Real renderer and API against an explicit control-laterdog UI fixture handle.
-// The only substituted responses exercise unavailable-provider and retry UI.
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -31,7 +29,6 @@ const evidenceDir = resolve(".laterdog-scratch/verify-evidence/command-allowlist
 mkdirSync(evidenceDir, { recursive: true });
 const screenshot = (name: string) => ui("screenshot", "--out", resolve(evidenceDir, `${name}.png`));
 
-// A successful ui verb validates that the handle still owns a live fixture.
 await visible("Message Pepper");
 const info = JSON.parse(readFileSync(handle, "utf8")) as { botId: string; logPath: string };
 const path = `/api/bots/${info.botId}/command-allowlist`;
@@ -44,8 +41,6 @@ assert.equal(typeof trigger, "string");
 await click(trigger);
 const menu = await snapshot();
 assert.ok(menu.includes('menuitem "Command allowlist"'));
-// Full access is unavailable in the ordinary browser preview. Its exact
-// placement and unchanged callback are covered by the selector unit test.
 await click("Command allowlist");
 await visible("No commands saved yet.");
 assert.equal(await activeLabel(), "Close command allowlist");
@@ -91,8 +86,6 @@ assert.equal(await evaluate("document.activeElement?.textContent"), "Manage comm
 assert.ok((await snapshot()).includes('button "Close settings"'));
 console.log("PASS settings management opens the same allowlist and Escape leaves settings open");
 
-// Restrict the stubs to the exact allowlist GET; all real writes and the
-// successful retry still pass through the isolated server.
 await evaluate(`(() => {
   const original = window.fetch.bind(window);
   window.fetch = async (input, init) => {

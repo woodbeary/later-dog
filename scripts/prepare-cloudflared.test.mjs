@@ -158,7 +158,6 @@ describe("pinned cloudflared packaging", () => {
     expect(parsePrepareCloudflaredArgs(["--current"])).toEqual({ current: true });
     expect(() => parsePrepareCloudflaredArgs(["--all"])).toThrow(/Usage:/);
     expect(() => parsePrepareCloudflaredArgs(["--current", "--current"])).toThrow(/Usage:/);
-    // `laterdog serve --tunnel` stages into its data dir
     expect(parsePrepareCloudflaredArgs(["--current", "--root", "/srv/laterdog"])).toEqual({ current: true, root: "/srv/laterdog" });
     expect(() => parsePrepareCloudflaredArgs(["--root"])).toThrow(/Usage:/);
     expect(() => parsePrepareCloudflaredArgs(["--root", "/a", "--root", "/b"])).toThrow(/Usage:/);
@@ -212,7 +211,7 @@ describe("pinned cloudflared packaging", () => {
     bigEndian[5] = 2;
     bigEndian.writeUInt16BE(183, 18);
     const otherMachine = executableFixture("linux-arm64");
-    otherMachine.writeUInt16LE(40, 18); // EM_ARM is not AArch64.
+    otherMachine.writeUInt16LE(40, 18);
     const truncated = executableFixture("linux-arm64").subarray(0, 19);
     for (const bytes of [arm32, bigEndian, otherMachine, truncated]) {
       expect(() => executableTarget(bytes)).toThrow(/unsupported/);

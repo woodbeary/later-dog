@@ -1,11 +1,3 @@
-// The first asserted renderer recipe: docs/verification/chat-ui.md, run by a
-// machine. It spawns the real `control-laterdog ui launch` (a child it can Ctrl-C),
-// drives the real <App/> through the ui verbs, and reads the outcome back from
-// the accessibility tree — the same evidence a person would collect by hand.
-//
-// Needs the pinned agent-browser binary. It runs when one resolves (the tools
-// directory, LATERDOG_AGENT_BROWSER_PATH or PATH) or when LATERDOG_UI_E2E=1 asks for the
-// verified download; otherwise it is skipped with a printed reason.
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,19 +20,14 @@ if (!enabled) {
   console.log(`skipping control-laterdog ui e2e: no agent-browser binary resolves (looked in ${UI_TOOLS_DIR}, LATERDOG_AGENT_BROWSER_PATH and PATH); set LATERDOG_UI_E2E=1 to install the pinned release`);
 }
 const run = enabled ? it : it.skip;
-// A cold run downloads the binary and Chrome; a warm one launches in seconds.
-// A forced run may still have Chrome for Testing to download (agent-browser can
-// be cached while Chrome is not), so give every forced run the long budget.
 const LAUNCH_TIMEOUT_MS = forced ? 600_000 : 180_000;
 
-// Synthetic provider outcomes exercise the UI, not the commands themselves.
 const TOOL_CALLS = JSON.stringify([
   { name: "Bash", input: { command: "pnpm control:laterdog doctor" }, ok: true },
   { name: "Bash", input: { command: "pnpm control:laterdog ui click --name Missing" }, ok: false },
   { name: "Bash", input: { command: "pnpm control:laterdog ui flag --set features.showToolCalls=true --dry-run" }, ok: true },
 ]);
-const REPLY = "hello from fake claude"; // the fake engine's default reply text
-// LATERDOG_UI_EVIDENCE_DIR keeps the screenshot (CI uploads it); otherwise it is temporary.
+const REPLY = "hello from fake claude";
 const evidenceDir = process.env.LATERDOG_UI_EVIDENCE_DIR ? resolve(ROOT, process.env.LATERDOG_UI_EVIDENCE_DIR) : mkdtempSync(join(tmpdir(), "laterdog-ui-evidence-"));
 const ownsEvidenceDir = !process.env.LATERDOG_UI_EVIDENCE_DIR;
 
@@ -50,17 +37,14 @@ interface Launched {
   stderr: () => string;
 }
 
-/** Start `ui launch` as a real foreground process and wait for its handle. */
 function launch(args: string[]): Promise<Launched> {
   return new Promise((done, fail) => {
-    // Own process group: a timeout must take the launch AND whatever it is
-    // running (an `agent-browser install` mid-download) down with it.
     const child = spawn(process.execPath, ["--experimental-strip-types", CLI, "ui", "launch", ...args], {
       cwd: ROOT, env: process.env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32",
     });
     const killGroup = (signal: NodeJS.Signals) => {
       if (child.pid && process.platform !== "win32") {
-        try { process.kill(-child.pid, signal); return; } catch { /* group already gone */ }
+        try { process.kill(-child.pid, signal); return; } catch {}
       }
       child.kill(signal);
     };
@@ -78,9 +62,6 @@ function launch(args: string[]): Promise<Launched> {
     child.stdout!.on("data", (chunk: Buffer) => {
       stdout += String(chunk);
       if (settled) return;
-      // The handle is the pretty-printed object at the start of a line; any
-      // earlier line would be a tool printing on stdout, which the launch
-      // is meant to prevent, so a parse from there still recovers.
       const start = stdout.startsWith("{") ? 0 : stdout.indexOf("\n{") + 1;
       if (start <= 0 && !stdout.startsWith("{")) return;
       try {
@@ -88,9 +69,7 @@ function launch(args: string[]): Promise<Launched> {
         settled = true;
         clearTimeout(timer);
         done({ child, info, stderr: () => stderr });
-      } catch {
-        // the pretty-printed handle is still arriving
-      }
+      } catch {}
     });
     child.once("close", (code) => {
       if (settled) return;
@@ -104,7 +83,6 @@ function launch(args: string[]): Promise<Launched> {
 const ui = (verb: string, handle: string, ...args: string[]) =>
   runControlLaterDog(["ui", verb, "--ui", handle, ...args]) as Promise<Record<string, any>>;
 
-/** Interactive refs by accessible name, from a snapshot's `refs` table. */
 const refsNamed = (snapshot: Record<string, any>, name: string, role?: string) =>
   Object.entries(snapshot.refs as Record<string, { name: string; role: string }>)
     .filter(([, element]) => element.name === name && (!role || element.role === role))
@@ -199,8 +177,6 @@ describe("control-laterdog ui drives the real renderer", () => {
     })()`);
     await click("You");
     await click("Settings");
-    // Settings is its own chunk (src/components/lazy-screens.tsx): opened before
-    // the idle prefetch has fetched it, it paints once the chunk arrives.
     await expect.poll(() => evaluate(`(() => {
       const change = document.querySelector('[data-saved-api-key="openaiCompat"] button[aria-expanded="false"]');
       change?.click();
@@ -208,20 +184,17 @@ describe("control-laterdog ui drives the real renderer", () => {
     })()`), { timeout: 10_000 }).toBe(true);
     await expect.poll(() => evaluate(`document.querySelector('[data-api-key-row="openaiCompat"]') !== null`), { timeout: 10_000 }).toBe(true);
 
-    // A saved key with an untouched field can be checked again.
     await expect.poll(() => evaluate(`${testButton}?.disabled ?? null`), { timeout: 10_000 }).toBe(false);
     await click("Test");
     await expect.poll(() => evaluate("window.keyTests")).toEqual([{ provider: "openaiCompat" }]);
     await expect.poll(verdict).toBe("Saved key: Model catalog reachable: fixture-model. Authentication and chat not verified.");
 
-    // Enter saves the trimmed draft, clears the field and checks the saved key.
     await type("  fixture-draft-key  ");
     await enter();
     await expect.poll(() => evaluate(`${input}?.value ?? null`), { timeout: 10_000 }).toBe("");
     await expect.poll(() => evaluate("window.keyTests")).toEqual([{ provider: "openaiCompat" }, { provider: "openaiCompat" }]);
     expect(await evaluate("window.keySaves")).toBe(1);
 
-    // Pasted prose is refused before anything is saved.
     await type("not a key at all");
     await enter();
     await expect.poll(rowText, { timeout: 10_000 }).toContain("That doesn't look like an API key");
@@ -229,7 +202,6 @@ describe("control-laterdog ui drives the real renderer", () => {
     mkdirSync(evidenceDir, { recursive: true });
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "provider-key-refused.png"));
 
-    // A failed save keeps the draft; a later success clears it and checks again.
     await type("fixture-replacement-key");
     await evaluate("window.rejectKeySave = true");
     await enter();
@@ -255,7 +227,6 @@ describe("control-laterdog ui drives the real renderer", () => {
     expect(handle).toMatchObject({ url: info.url, previewUrl: info.previewUrl, botId: info.botId, home: info.dataDir, session: `laterdog-ui-${new URL(info.url).port}` });
     expect(existsSync(handle.binary)).toBe(true);
 
-    // The flag flips on the server; the renderer picks it up over SSE.
     const dry = await ui("flag", info.ui, "--set", "features.showToolCalls=true", "--dry-run");
     expect(dry).toMatchObject({ ok: true, dryRun: true, patch: { features: { showToolCalls: true } } });
     const flagged = await ui("flag", info.ui, "--set", "features.showToolCalls=true");
@@ -313,28 +284,18 @@ describe("control-laterdog ui drives the real renderer", () => {
     const after = await ui("snapshot", info.ui);
     expect(after.ok).toBe(true);
     const tree = after.snapshot as string;
-    // The sidebar row previews the reply too; read the transcript landmark.
     const transcriptStart = tree.indexOf('log "Conversation with Pepper"');
     expect(transcriptStart).toBeGreaterThan(-1);
     const transcript = tree.slice(transcriptStart);
-    expect(transcript).toContain('StaticText "hello"'); // the sent turn
-    // (a) the fake engine's reply text, as a transcript row
+    expect(transcript).toContain('StaticText "hello"');
     expect(transcript).toContain(`StaticText "${REPLY}"`);
-    // (b) the scripted Bash call rendered as a tool chip, named by its tool
     expect(transcript).toMatch(/StaticText "Bash"/);
     expect(tree).not.toContain("Not logged in");
     expect(tree).not.toContain("Execution timeline");
 
-    // These are real control operations: the fixture health check succeeds
-    // and a deliberately missing UI target rejects instead of reporting green.
     expect(await runControlLaterDog(["doctor", "--url", info.url])).toMatchObject({ ok: true });
     await expect(ui("click", info.ui, "--name", "Deliberately missing QA control")).rejects.toThrow("no element is named");
 
-    // A control the app paints after its data arrives must still be
-    // clickable. Resolving --name used to take one snapshot, so a lookup
-    // that landed a tick early failed as "no element is named" — the smoke's
-    // own model row, and ~1 run in 8 red on four unrelated branches. The
-    // button below is planted with the same delay the real one has.
     await ui("eval", info.ui, "--js", `(() => {
       const late = document.createElement("button");
       late.textContent = "Late QA control";
@@ -363,7 +324,6 @@ describe("control-laterdog ui drives the real renderer", () => {
     const title = await ui("eval", info.ui, "--js", "document.title");
     expect(title).toMatchObject({ ok: true, result: "Isolated later.dog Chat" });
 
-    // Ctrl-C: browser, preview and fixture close; only the fixture's data goes.
     await waitForExit(launched.child, { signal: "SIGINT", graceMs: 30_000 });
     expect(launched.child.exitCode).toBe(0);
     expect(existsSync(info.dataDir)).toBe(false);

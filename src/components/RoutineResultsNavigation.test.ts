@@ -13,8 +13,6 @@ vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, useStore: () => ({ state: fixture.state ?? original.initialState, dispatch: fixture.dispatch }) };
 });
-// The real useCaptionChrome rides along: it only asks this module for the
-// window chrome, and these tests render the desktop-neutral layout.
 vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   ...await importOriginal<typeof import("./DesktopCapabilities")>(),
   useDesktopCapabilities: () => ({ capabilities: { host: {}, dictation: { available: false } }, ready: true }),
@@ -61,8 +59,6 @@ function textOf(node: ReactNode): string {
   return Children.toArray(node).map((child) => isValidElement<{ children?: ReactNode }>(child) ? textOf(child.props.children) : textOf(child)).join("");
 }
 
-/** Capture the real component's returned controls under React's hook
- * dispatcher; no DOM imitation or replacement navigation implementation. */
 function buttonsFrom(render: () => ReactNode): Map<string, Button> {
   const buttons = new Map<string, Button>();
   function visit(node: ReactNode) {

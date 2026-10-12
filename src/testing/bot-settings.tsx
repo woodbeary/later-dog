@@ -20,7 +20,6 @@ function Fixture() {
   const [delayReads, setDelayReads] = useState(false);
   const toggleDelay = () => { slowReads = !slowReads; setDelayReads(slowReads); };
   useEffect(() => {
-    // Delay reads after taking their snapshot to reproduce stale responses.
     const realFetch = window.fetch;
     const delayedFetch: typeof window.fetch = async (input, init) => {
       const response = await realFetch.call(window, input, init);

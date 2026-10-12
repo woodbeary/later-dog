@@ -5,18 +5,6 @@ import { join } from "node:path";
 import type { RuntimeEvent } from "./contracts.ts";
 import type { Store } from "./store.ts";
 
-/**
- * Automatic continuity: when a turn ends without a final answer and the work
- * is resumable (a budget cap), persist a structured handoff and
- * let the harness start a `Continue:` thread on the same bot — transparent to
- * the bot, which just sees a normal new thread seeded with the handoff.
- *
- * The handoff is written by the driver that has the full transcript in hand;
- * the continuation is driven by a bus subscriber in the harness (index.ts).
- */
-
-/** Resolve the handoff directory the same way the server resolves its data
- * dir (server/cli.ts): LATERDOG_HOME wins, else ~/.laterdog. */
 export function handoffDir(): string {
   return join(process.env.LATERDOG_HOME || join(homedir(), ".laterdog"), "handoffs");
 }
@@ -36,8 +24,6 @@ export interface HandoffInput {
   }>;
 }
 
-/** Persist a structured markdown handoff for a turn that ended without a
- * final answer. Returns the file path, or null when the write fails. */
 export function writeTurnHandoff(input: HandoffInput): string | null {
   try {
     const dir = handoffDir();
@@ -70,7 +56,7 @@ export function writeTurnHandoff(input: HandoffInput): string | null {
         }
       } else if (m.role === "tool") {
         let verdict = "?";
-        try { verdict = JSON.parse(String(m.content)).ok ? "ok" : "FAILED"; } catch { /* keep "?" */ }
+        try { verdict = JSON.parse(String(m.content)).ok ? "ok" : "FAILED"; } catch {}
         L.push(`   result ${verdict}: ${String(m.content ?? "").replace(/\s+/g, " ").slice(0, 220)}`);
       }
     }
@@ -94,20 +80,8 @@ export function writeTurnHandoff(input: HandoffInput): string | null {
   }
 }
 
-/** The harness's own budget stops, in its own words: the chat driver's
- * "Stopped after 64 steps without a final answer…" and the older model-call
- * cap. Matched from the start of the failure, so a provider's error text can
- * never read as one: "upstream HTTP 429: Rate limit reached" is not a spent
- * budget. */
 const CAP_STOP = /^(?:stopped after \d+ [a-z ]+ without a final answer|model-call limit reached)/i;
 
-/** Classify a terminal turn as resumable. Returns the reason for the
- * continuation (`cap` = budget exhausted), or null when the turn must not be
- * auto-continued. Only a cap is continued. A provider error (a rate limit, a
- * quota, a rejected key, a model that cannot take the request) fails the same
- * way in a new thread: continuing would go straight back to the provider that
- * just refused. A tool error includes a person's or the approval policy's
- * denial, and a new unattended thread would retry what was refused. */
 export function classifyContinuable(_stopReason: string | null | undefined, failure: string | undefined): "cap" | null {
   return failure && CAP_STOP.test(failure) ? "cap" : null;
 }
@@ -122,11 +96,6 @@ const CONTINUE_TITLE = /^Continue: /;
 const MAX_PER_BOT_PER_HOUR = 5;
 const WINDOW_MS = 3600e3;
 
-/** Bus subscriber: on `cap.exhausted`, create a `Continue:` task on the same
- * bot and start a turn seeded with the handoff. Bounded — at most five
- * continuations per bot per hour, never a continuation of a continuation, and
- * never the same source thread twice. A failure escalates with an activity
- * message carrying the handoff path instead of silently recursing. */
 export function makeCapContinuationSubscriber(deps: CapContinuationDeps): (event: RuntimeEvent) => void {
   const state = new Map<string, { last: number; count: number; continued: Set<string> }>();
   return (event: RuntimeEvent) => {
@@ -146,8 +115,6 @@ export function makeCapContinuationSubscriber(deps: CapContinuationDeps): (event
       if (CONTINUE_TITLE.test(deadTask.title ?? "")) return;
       const approvalMode = deadTask.approvalMode === "ask" || deadTask.approvalMode === "full" ? deadTask.approvalMode : undefined;
       const contTask = deps.store.createTask(
-        // Not activated: the person's open thread stays theirs, and their next
-        // message goes where they were, not into the continuation.
         bot.id, `Continue: ${(deadTask.title ?? "task").slice(0, 90)}`, false,
         deadTask.projectId, undefined, approvalMode, deadTask.modelSelection,
       );
@@ -171,7 +138,7 @@ export function makeCapContinuationSubscriber(deps: CapContinuationDeps): (event
             role: "bot", kind: "activity",
             tool: { name: `Turn ended without a final answer — auto-continuation failed (${String(msg).slice(0, 200)}). Handoff: ${event.handoffPath}. Start a new thread that reads it to continue.`, ok: false },
           });
-        } catch { /* the escalation message itself failed; nothing else to do */ }
+        } catch {}
       }
     })();
   };

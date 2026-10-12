@@ -1,19 +1,5 @@
-// The application menu. It exists for two reasons: the Server submenu,
-// where the user switches between the local server and paired remote ones,
-// and the macOS Preferences… item (Electron has no role for it, so it is
-// built explicitly). Everything else is Electron's standard roles so macOS
-// keeps Edit/Window and Windows/Linux get the same items under a visible bar.
 import { Menu, app } from "electron";
 
-/**
- * @param {object} input
- * @param {{ id: string, name: string, origin: string }[]} input.environments
- * @param {string} input.activeId  "local" or an environment id
- * @param {(id: string) => void} input.onSwitch
- * @param {() => void} input.onAddFromClipboard
- * @param {(id: string) => void} input.onForget
- * @param {() => void} input.onOpenSettings
- */
 export function buildApplicationMenu({ environments, activeId, onSwitch, onAddFromClipboard, onForget, onOpenSettings }) {
   const isMac = process.platform === "darwin";
   const active = environments.find((e) => e.id === activeId) ?? null;

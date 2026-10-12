@@ -1,10 +1,3 @@
-// The two routes that launch an executable chosen in Settings with a copy of
-// the server's own environment: the pre-save CLI probe (POST /api/cli-test)
-// and the Claude Code update (POST /api/instances/:id/claude-update). Over
-// the real HTTP boundary, with every credential the shared lists name
-// (config.ts) in that environment, neither hands one on; PATH, HOME and
-// proxy settings still arrive. Disposable home; no network; a stub
-// executable that records the environment it was given.
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -17,10 +10,6 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
-// Every name on the shared lists, and one more under the control plane's
-// LATERDOG_CLOUD_ prefix, so a credential added to a list later is covered too.
-// Not the hosted model pair: a desktop holding either refuses to boot unless
-// it is a complete portal-managed workspace (hosted-models.ts).
 const HOSTED_ONLY = ["LATERDOG_HOSTED_MODELS", "LATERDOG_HOSTED_MODEL_TOKEN"];
 const secretNames = [...new Set<string>([
   ...WORKSPACE_CREDENTIAL_ENV, ...PROVIDER_CREDENTIAL_ENV, ...CONTROL_PLANE_ENV, "LATERDOG_CLOUD_FIXTURE_TOKEN",
@@ -44,14 +33,11 @@ async function post(path: string, body: unknown) {
   return { status: response.status, body: await response.json().catch(() => null) as any };
 }
 
-/** `node <stub>` plus fixed arguments, as a wrapper string the Engines panel
- * accepts: no shebang or exec bit, so it runs the same on every platform. */
 const stubCli = (...fixed: string[]) =>
   [process.execPath, join(home, "stub-cli.mjs"), ...fixed].map((part) => JSON.stringify(part)).join(" ");
 
 function expectNoCredentials(file: string) {
   const env = JSON.parse(readFileSync(file, "utf8")) as Record<string, string>;
-  // Proves the dump is the server's environment, not an empty one.
   expect(env.HOME).toBe(home);
   expect(env.PATH?.split(delimiter)).toEqual(expect.arrayContaining(process.env.PATH!.split(delimiter).filter(Boolean)));
   expect(env).toMatchObject(kept);
@@ -65,8 +51,6 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-cli-probe-env-"));
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
-  // Answers like a signed-in Claude Code; `probe` (the CLI test) and
-  // `update` (the Claude update) record the environment they ran with.
   writeFileSync(join(home, "stub-cli.mjs"), `import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 const args = process.argv.slice(2);
@@ -76,7 +60,6 @@ else if (args.at(-1) === "--version") console.log("9.9.9 (Claude Code)");
 `);
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
     instances: {
-      // Pin the fleet's other defaults so this never probes an installed CLI.
       ...Object.fromEntries(["codex", "cursor", "openaiCompat", "mistral", "qwen", "hermes", "pi"].map((id) => [id, { driver: "not-a-real-driver" }])),
       claude: { driver: "claudeAgent", displayName: "Claude", config: { cli: stubCli() } },
     },
@@ -104,7 +87,7 @@ else if (args.at(-1) === "--version") console.log("9.9.9 (Claude Code)");
     try {
       const health = await fetch(`${base}/api/health`);
       if (health.ok && (await health.json() as { pid?: number }).pid === child.pid) break;
-    } catch { /* starting */ }
+    } catch {}
     if (Date.now() > deadline) throw new Error(`the server did not start:\n${log}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }

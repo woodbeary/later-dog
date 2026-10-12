@@ -6,8 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { CodexDeviceAuthController, codexDevicePrompt } from "./codex-device-auth.ts";
 
-// Every subprocess uses this script and a disposable HOME. No real Codex
-// process, provider network call, or user's credentials are involved.
 const FAKE = `#!/usr/bin/env node
 import { appendFileSync, existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -80,10 +78,6 @@ describe("Codex server-owned device authentication", () => {
   const create = (mode = "success", overrides: Partial<ConstructorParameters<typeof CodexDeviceAuthController>[0]> = {}) => {
     const controller = new CodexDeviceAuthController({
       cli, environment: () => ({ ...process.env, HOME: home, CODEX_HOME: join(home, ".codex"), INSTANCE_MARKER: "own-instance", FAKE_AUTH_MODE: mode }),
-      // The code is surfaced the moment the CLI writes it; these windows only
-      // bound a CLI that never does. Fake-CLI spawns can take seconds on a
-      // loaded machine, so a tight window reports a slow machine as a missing
-      // sign-in code.
       startupTimeoutMs: 10_000, lifetimeMs: 15_000, terminateTimeoutMs: 50,
       ...overrides,
     });
@@ -150,7 +144,6 @@ describe("Codex server-owned device authentication", () => {
       const controller = create("waiting");
       await controller.start();
       await expect(controller.signOut()).rejects.toThrow("sign-in in progress");
-      // A sibling instance on the same credential home is refused as well.
       await expect(create("waiting").signOut()).rejects.toThrow("sign-in is running");
       expect(calls().map((call) => call.args)).not.toContainEqual(["logout"]);
       await controller.cancel();
@@ -174,7 +167,6 @@ describe("Codex server-owned device authentication", () => {
       signedIn();
       const controller = create("logout-hang", { startupTimeoutMs: 1000 });
       await expect(controller.signOut()).rejects.toThrow("could not remove the sign-in");
-      // The lock is released: a later sign-out on the same home proceeds.
       await expect(create("success").signOut()).resolves.toBeUndefined();
     });
 
@@ -271,13 +263,9 @@ describe("Codex server-owned device authentication", () => {
     const controller = create("status-hang", { startupTimeoutMs: 1000 });
     const starting = controller.start();
     const rejection = expect(starting).rejects.toThrow("cancelled");
-    // Wait out a slow first spawn exactly as long as the controller's own
-    // startup window does, so this poll cannot expire before cancel matters.
     await expect.poll(() => existsSync(join(home, "calls.jsonl")), { timeout: 10_000 }).toBe(true);
     await controller.cancel();
     await rejection;
-    // The default windows tolerate slow spawns; keep one deliberately short
-    // here so the missing-code deadline is still exercised quickly.
     await expect(create("status-hang", { startupTimeoutMs: 250 }).start()).rejects.toThrow("did not provide");
   });
 
@@ -335,7 +323,6 @@ describe("Codex server-owned device authentication", () => {
   });
 
   it("expires and reaps an unattended flow", async () => {
-    // Long enough for two fake-CLI spawns on a loaded machine, short enough to expire promptly.
     const controller = create("waiting", { lifetimeMs: 1500 });
     const start = await controller.start();
     await expect.poll(async () => (await controller.get(start.flowId!)).phase, { timeout: 5000 }).toBe("expired");

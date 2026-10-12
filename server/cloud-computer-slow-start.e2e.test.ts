@@ -1,11 +1,3 @@
-// A cloud computer's first start takes about a minute, longer than one
-// computer call may wait. The call that runs out is told the computer is
-// still starting (not that someone else has it), a later call works, and the
-// computer is created once. A start that stalls ends at the start budget with
-// one "didn't start" row instead of "still starting" until the watchdog.
-// The real server, the fake Claude CLI and a stub of the Admin's Boat relay,
-// with the call wait and the start budget shortened; disposable home, no
-// network.
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type ServerResponse } from "node:http";
@@ -21,7 +13,6 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FAKE_CLAUDE = join(ROOT, "server/testing/fake-claude-cli.ts");
 const INCLUDED = `box_laterdog_${randomUUID()}`;
 const FRAME = Buffer.from("/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==", "base64");
-/** One computer call waits this long on a start; the whole start, this long. */
 const CALL_WAIT_MS = 1_500;
 const START_BUDGET_MS = 20_000;
 const STILL_STARTING = "The cloud computer is still starting. This call was not performed. Take a fresh screenshot in a moment.";
@@ -36,8 +27,6 @@ describe("a slow cloud computer start", () => {
   let relay: Server;
   const rows: Array<{ id: string; name?: string; state: string }> = [];
   const requests: string[] = [];
-  /** The relay keeps a new computer "provisioning" while this is set, and
-   * never answers a desktop link request while `desktop` is set. */
   const hold = { provisioning: false, desktop: false };
   const held: ServerResponse[] = [];
 
@@ -120,7 +109,6 @@ describe("a slow cloud computer start", () => {
           return send(200, { ok: true, box: seen });
         }
         if (verb === "desktop" && req.method === "POST") {
-          // Accepted, never answered: a relay that stalls.
           if (hold.desktop) return void held.push(res);
           return send(200, { desktopUrl: `https://desktop.invalid/${row.id}` });
         }
@@ -181,7 +169,6 @@ describe("a slow cloud computer start", () => {
     hold.provisioning = true;
     const bot = await cloudBot("Slow starter");
     const sent = await startTurn(bot.id, "Open the cloud desktop");
-    // Still starting is what it is doing, and nobody else has it.
     expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
     expect(creates()).toBe(1);
 
@@ -199,7 +186,6 @@ describe("a slow cloud computer start", () => {
     const bot = await cloudBot("Shared starter");
     const first = await startTurn(bot.id, "Open the cloud desktop");
     await until(() => screenshot(first), result => !result.isError, 20_000);
-    // A second conversation of the same bot, while the first holds the computer.
     const { task: sibling } = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Second look" });
     const second = await startTurn(bot.id, "Look at the cloud desktop too", sibling.threadId);
     const answer = await screenshot(second);
@@ -221,7 +207,6 @@ describe("a slow cloud computer start", () => {
       expect(Date.now() - started).toBeGreaterThanOrEqual(START_BUDGET_MS - CALL_WAIT_MS - 1_000);
       expect(row.tool.name).toBe("error: Stuck starter's cloud computer didn't start. Try again.");
       expect(row.tool.place).toEqual({ state: "cc-no-start", params: { bot: "Stuck starter" }, source: "works-on" });
-      // The failure ended the turn, with that one row.
       await until(() => task(bot.id), current => current?.busy === false, 20_000);
       expect(await failedRows(bot.id)).toHaveLength(1);
       await api("DELETE", `/api/bots/${bot.id}`);

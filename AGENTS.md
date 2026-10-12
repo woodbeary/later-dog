@@ -3,6 +3,11 @@
 Always use pnpm instead of npm. Node 24+ is required.
 Keep native backend limitations visible; fixture success does not qualify a live provider.
 
+No comments in code. Say it with names, types and tests; only lines tools read
+(lint and test directives) and the licence notices adapted code came with stay.
+`scripts/no-comments.test.ts` fails on any other; `node scripts/no-comments.ts --write`
+removes them.
+
 
 Before claiming a server or conversation change works, follow
 [`docs/verification/README.md`](docs/verification/README.md). Always launch an

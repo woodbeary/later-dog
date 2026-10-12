@@ -2,9 +2,6 @@ import { parseJson, type JsonValue } from "./schema.ts";
 import { isBotPackage, parseBotPackage, parsePackageDocument, type PackageDocument, type ParsedBotPackage } from "./bot-package.ts";
 import { parseTeamManifest, type ParsedTeamManifest } from "./team-manifest.ts";
 
-/** The public GitHub repository that publishes the community template
- * catalog (a catalog.json at the root of its main branch). None is built in:
- * a deployment names its own with LATERDOG_TEAM_LIBRARY_REPOSITORY; unset, the Templates shelf says so. */
 export function teamLibraryRepository(env: NodeJS.ProcessEnv = process.env): string | null {
   const value = (env.LATERDOG_TEAM_LIBRARY_REPOSITORY ?? "").trim();
   if (!value) return null;
@@ -13,7 +10,6 @@ export function teamLibraryRepository(env: NodeJS.ProcessEnv = process.env): str
   return `https://github.com/${match[1]}/${match[2]}`;
 }
 
-/** Where that repository's files are read from. */
 export function teamLibraryRawRoot(repository: string): string {
   const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)$/.exec(repository);
   if (!match) throw new Error("The pack library repository address is invalid");
@@ -79,7 +75,6 @@ function stringList(value: unknown, field: string, maxItems: number): string[] {
   return value.map((item, index) => text(item, `${field}[${index}]`, 100));
 }
 
-/** Validate the remotely maintained index before any of it reaches the renderer. */
 export function parseTeamCatalog(value: unknown, repositoryUrl: string): TeamCatalog {
   if (!isRecord(value) || value.format !== "laterdog.catalog" || value.version !== 1) {
     throw new Error("The pack library catalog is not supported");
@@ -178,8 +173,6 @@ export type ParsedShareableTeam = ParsedTeamManifest | ParsedBotPackage | Packag
 function parseShareable(value: JsonValue | string): ParsedShareableTeam {
   if (typeof value === "string") return parseBotPackage(value);
   if (!isBotPackage(value)) return parseTeamManifest(value);
-  // A shared team (v2) is read as a file: it cannot claim a publisher.
-  // Version 1 keeps its original shape for older callers.
   return (value as { version?: unknown }).version === 1 ? parseBotPackage(value) : parsePackageDocument(value, { trust: "file" });
 }
 
@@ -202,8 +195,6 @@ function safeSegment(value: string): boolean {
   return /^[A-Za-z0-9._-]+$/.test(value) && value !== "." && value !== "..";
 }
 
-/** Resolve only public GitHub Markdown playbooks and legacy JSON team files.
- * Other hosts never reach server fetch. */
 export function githubManifestUrls(input: string): string[] {
   let url: URL;
   try {

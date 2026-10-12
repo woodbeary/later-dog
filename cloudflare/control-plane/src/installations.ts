@@ -346,8 +346,6 @@ export async function requireInstallation(
   return (await requireInstallationAndRead(request, env, null)).installation;
 }
 
-/** Authenticates the installation and records that it was seen. An optional
- * read of its own data rides in the same D1 batch, saving a round trip. */
 export async function requireInstallationAndRead<T>(
   request: Request,
   env: Env,
@@ -369,12 +367,9 @@ export async function requireInstallationAndRead<T>(
         WHERE id = ? AND revoked_at IS NULL`,
     ).bind(now, installation.installation_id),
   ];
-  // The read runs after the writes, as it did as a separate query. A batch is
-  // one transaction, so if the read fails the check-in rolls back with it.
   if (read) statements.push(read(installation.installation_id));
   const results = await env.DB.batch(statements);
   installation.last_seen_at = now;
-  // The UPDATEs return no rows. When a read is batched, its result is last.
   const row = read ? ((results.at(-1)?.results[0] as T | undefined) ?? null) : null;
   return { installation, row };
 }

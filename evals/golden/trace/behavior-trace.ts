@@ -1,11 +1,5 @@
 import type { ScenarioResult } from "../../scorers/snapshot.ts";
 
-/** The normalized behavior trace one scenario run leaves behind: the
- * stable, release-diffable summary of what the harness did. Argument
- * values are deliberately absent (they are scenario data); the trace pins
- * the tool sequence, the argument key shape, error outcomes, dispatch
- * tree, send admission, and the overall assertion outcome. */
-
 export interface TraceTurn {
   bot: string;
   index: number;

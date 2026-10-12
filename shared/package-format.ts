@@ -1,22 +1,3 @@
-// The later.dog package file ("laterdog.package"): one team, or a library
-// of skills and preset bots, as a single portable document.
-//
-// This module is the single validation gate for that file. The server, the
-// renderer's import preview and the Admin upload (through the pinned
-// runtime) all parse with exactly this code, so it may only import zod, yaml,
-// croner (via routine-schedule) and the other pure modules in shared/. No
-// Buffer, no node:fs, no node:crypto: TextEncoder and atob only.
-//
-// Two versions exist. v1 is the original team package (JSON or the BotMRR
-// Markdown playbook). v2 adds the team brief, pictures, starter notes,
-// connection slots, presets, room goals and library-only packages. Every
-// reader here accepts both and always returns v2.
-//
-// What never travels is excluded by construction: the schema has no field
-// for chat history, secrets, model choices, computers, visibility or
-// personal settings, and unknown fields are stripped. Secrets written INSIDE
-// free text are a separate problem, handled by redactPackageSecrets (export)
-// and packageSecretFindings (Admin upload).
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
@@ -26,17 +7,13 @@ import { normalizeCronSchedule } from "./routine-schedule.ts";
 import { isSkillName, parseSkillMd, scanSkillText, SKILL_FILE_MAX_BYTES } from "./skill-md.ts";
 
 export const PACKAGE_FORMAT = "laterdog.package";
-/** The newest version this module reads and writes. */
 export const PACKAGE_VERSION = 2;
-/** Canonical UTF-8 bytes of the whole document. */
 export const PACKAGE_MAX_BYTES = 4 * 1024 * 1024;
 export const PACKAGE_MAX_SKILLS = 60, AGENT_MAX_SKILLS = 30, PACKAGE_MAX_PRESETS = 20, PACKAGE_MAX_CONNECTIONS = 20;
-/** Decoded picture bytes. */
 export const AVATAR_MAX_BYTES = 64 * 1024;
 export const SEED_FILE_MAX_BYTES = 256 * 1024, SEED_MAX_FILES = 100, SEED_MAX_BYTES = 1024 * 1024;
 export const TEAM_BRIEF_MAX_BYTES = 24_000, RELEASE_NOTES_MAX = 4_000;
 
-/** v1 limits, kept exactly as the v1 reader always enforced them. */
 export const PACKAGE_V1_VERSION = 1;
 export const PACKAGE_V1_MAX_SKILLS = 20;
 export const BOTMRR_MARKDOWN_VERSION = 1;
@@ -61,12 +38,9 @@ const AVATAR_MIMES = ["image/png", "image/jpeg", "image/webp"] as const;
 const AVATAR_CROPS = ["circle", "rounded", "square"] as const;
 
 const encoder = new TextEncoder();
-/** UTF-8 byte length, the unit every byte cap here is written in. */
 export function utf8Bytes(value: string): number {
   return encoder.encode(value).length;
 }
-
-// ── shared field helpers (the team manifest reader uses these too) ────────
 
 export const requiredText = (max: number) =>
   z.string({ error: "must be text" }).trim().min(1, { message: "is required" }).max(max, { message: "is too long" });
@@ -119,7 +93,6 @@ const intervalWindow = z.object({
 }).strict().refine(({ start, end }) => start < end, {
   message: "must end later on the same day",
 });
-/** Unchanged from v1: once, daily, interval and cron. */
 export const packageRoutineScheduleSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("cron"), expression: requiredText(256), timeZone: requiredText(100) }).strict(),
   z.object({ type: z.literal("once"), at: z.number().int() }),
@@ -181,9 +154,6 @@ const requirementsSchema = z.object({
   platforms: z.array(requiredText(80)).max(10).optional(),
 });
 const ROOM_RESPONDER_KINDS = new Set(["agent", "everyone", "mentions", "auto"]);
-/** A responder kind from a newer release degrades to the room's first member
- * as lead, which is what a room without a responder does, instead of
- * refusing the whole package. Malformed values still fail below. */
 function knownRoomResponder(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const room = value as { members?: unknown; defaultResponder?: unknown };
@@ -203,8 +173,6 @@ const roomSchema = z.preprocess(knownRoomResponder, z.object({
     z.object({ kind: z.literal("agent"), agent: key }),
     z.object({ kind: z.literal("everyone") }),
     z.object({ kind: z.literal("mentions") }),
-    // Read, not written: exports spell an Auto room as its lead (see
-    // server/package-export.ts) so every older app can still open them.
     z.object({ kind: z.literal("auto"), agent: key.optional() }),
   ]),
 }));
@@ -213,8 +181,6 @@ const exampleSchema = z.object({
   input: requiredText(4_000),
   output: requiredText(8_000),
 });
-
-// ── v1 (read only; upgraded on the way in, produced only by downgradeToV1) ─
 
 const packageDocumentV1Schema = z.object({
   format: z.literal(PACKAGE_FORMAT, { error: "This is not a later.dog package" }),
@@ -272,14 +238,11 @@ const packageDocumentV1Schema = z.object({
 
 export type PackageDocumentV1 = z.output<typeof packageDocumentV1Schema>;
 
-// ── v2 ─────────────────────────────────────────────────────────────────────
-
 const semver = z.string({ error: "must be text" }).regex(/^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/, {
   message: "must be a version like 1.2.3",
 });
 const slug = requiredText(80).regex(/^[a-z0-9][a-z0-9-]*$/, { message: "must be a lowercase slug" });
 const orgSlug = z.string({ error: "must be text" }).regex(/^[a-z][a-z0-9-]{1,30}$/, { message: "must be an organization's short name" });
-/** The MCP server name rule, with room left for a "-NN" suffix on import. */
 const connKey = z.string({ error: "must be text" }).regex(/^[a-z][a-z0-9_-]{0,27}$/, {
   message: "must be 1-28 lowercase letters, numbers, - or _, starting with a letter",
 });
@@ -287,7 +250,6 @@ const headerName = z.string({ error: "must be text" }).regex(/^[!#$%&'*+.^_`|~0-
   message: "must be a valid header name",
 });
 
-/** atob + bytes, or null when the text is not base64. */
 export function decodeBase64(value: string): Uint8Array | null {
   let binary: string;
   try {
@@ -300,7 +262,6 @@ export function decodeBase64(value: string): Uint8Array | null {
   return bytes;
 }
 
-/** The image really is the type it claims: no SVG or HTML behind an image mime. */
 export function pictureMatchesMime(bytes: Uint8Array, mime: string): boolean {
   const starts = (...values: number[]) => values.every((value, index) => bytes[index] === value);
   if (mime === "image/png") return starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
@@ -313,7 +274,6 @@ export function pictureMatchesMime(bytes: Uint8Array, mime: string): boolean {
 
 const avatarSchema = z.object({
   mime: z.enum(AVATAR_MIMES, { error: "must be a PNG, JPEG or WebP picture" }),
-  // base64 of at most AVATAR_MAX_BYTES
   data: z.string({ error: "must be text" }).max(87_384, { message: "is larger than 64 KB" }).regex(/^[A-Za-z0-9+/]+={0,2}$/, {
     message: "must be base64",
   }),
@@ -336,7 +296,6 @@ const appearanceSchema = z.object({
   avatar: avatarSchema.optional(),
 });
 
-/** Starter notes travel as MEMORY.md plus topic files. Daily logs never do. */
 export function isSeedPath(path: string): boolean {
   return path === "MEMORY.md" || (path.startsWith("memory/") && /^[\w][\w .-]{0,199}\.md$/.test(path.slice(7)));
 }
@@ -366,7 +325,6 @@ const agentSchema = z.object({
   description: optionalText(4_000),
   soul: soulSchema.optional(),
   appearance: appearanceSchema,
-  /** A suggestion only: every imported bot starts on Ask. */
   approval: z.enum(["ask", "auto"], { error: "must be ask or auto" }).optional(),
   playbooks: z.array(key).max(40).optional(),
   skills: z.array(skillName).max(AGENT_MAX_SKILLS).optional(),
@@ -377,9 +335,7 @@ const agentSchema = z.object({
 const routineSchema = z.object({
   key,
   name: requiredText(80),
-  /** The owner; for a room goal, the lead coordinator. */
   agent: key,
-  /** Present = a room goal (runs on this computer, no continuity). */
   room: key.optional(),
   prompt: requiredText(20_000),
   runOn: z.enum(["dog", "cloud"]),
@@ -388,11 +344,9 @@ const routineSchema = z.object({
   timeoutMinutes: z.number().int().min(1).max(1_440).optional(),
   overlap: z.enum(["skip", "queue"]).optional(),
   continuity: z.boolean().optional(),
-  /** The publisher's intent. File imports always arrive paused. */
   enabledAfterInstall: z.boolean(),
 });
 
-/** Preset bots: an allowlist. No approval, computer, browser, MCP, apps or model. */
 const presetSchema = z.object({
   key,
   name: oneLine(100),
@@ -421,7 +375,6 @@ function parsedUrl(value: string): URL | null {
   }
 }
 
-/** A credential SLOT: the address and the names of the values it needs. */
 const connectionSchema = z.object({
   key: connKey,
   label: requiredText(100),
@@ -447,7 +400,6 @@ export const packageDocumentSchema = z.object({
   format: z.literal(PACKAGE_FORMAT, { error: "This is not a later.dog package" }),
   version: z.literal(PACKAGE_VERSION, { error: "Package version is not supported" }),
   package: z.object({
-    /** The package slug: its identity across releases. */
     id: slug,
     release: semver,
     name: requiredText(100),
@@ -461,7 +413,6 @@ export const packageDocumentSchema = z.object({
     tags: z.array(requiredText(80)).max(30).optional(),
     outcomes: z.array(requiredText(240)).min(1).max(12),
     setupMinutes: z.number().int().min(1).max(240),
-    /** Stamped by Admin only; a file never chooses it (trust "file" drops it). */
     publisher: z.object({ organization: orgSlug, name: requiredText(100) }).optional(),
     requirements: requirementsSchema,
     team: z.object({
@@ -469,7 +420,6 @@ export const packageDocumentSchema = z.object({
       brief: z.string({ error: "must be text" }).refine((value) => utf8Bytes(value) <= TEAM_BRIEF_MAX_BYTES, {
         message: `must be at most ${TEAM_BRIEF_MAX_BYTES} bytes`,
       }).optional(),
-      /** The team's Chief of Staff. */
       leader: key.optional(),
     }).optional(),
     agents: z.array(agentSchema).max(200).default([]),
@@ -498,9 +448,6 @@ export type PackageConnection = NonNullable<PackageDefinition["connections"]>[nu
 export type PackageAvatar = NonNullable<PackageAgent["appearance"]["avatar"]>;
 export type PackageRoutineSchedule = PackageRoutine["schedule"];
 
-// ── part paths ─────────────────────────────────────────────────────────────
-
-/** Lists whose items are named by `key` in part paths: agents[scout].soul. */
 const KEYED_LISTS = new Set(["agents", "rooms", "routines", "playbooks", "presets", "connections"]);
 
 function segmentsAfter(head: string, rest: ReadonlyArray<PropertyKey>): string {
@@ -513,9 +460,6 @@ function segmentsAfter(head: string, rest: ReadonlyArray<PropertyKey>): string {
   return out;
 }
 
-/** Map a schema path onto the part-path grammar shared with Admin:
- * package.summary, team.brief, agents[scout].soul, skills[x].instructions,
- * agents[scout].seed.memory["MEMORY.md"]. Keys come from the raw input. */
 function describePath(input: unknown, path: ReadonlyArray<PropertyKey>): string {
   if (path[0] !== "package") return path.map(String).join(".") || "package";
   const pkg = input && typeof input === "object" ? (input as { package?: Record<string, unknown> }).package : undefined;
@@ -547,7 +491,6 @@ function schemaSentence(error: z.ZodError, input: unknown): string {
   return `${describePath(input, issue.path)} ${issue.message}`;
 }
 
-/** The v1 reader's historical message shape ("package.agents.0.name is too long"). */
 function v1SchemaSentence(error: z.ZodError): string {
   const issue = error.issues[0];
   if (!issue) return "This is not a bot package";
@@ -555,10 +498,6 @@ function v1SchemaSentence(error: z.ZodError): string {
   return path ? `${path} ${issue.message}` : issue.message;
 }
 
-// ── canonical form ─────────────────────────────────────────────────────────
-
-/** Sorted keys (default UTF-16 sort), undefined omitted, no whitespace,
- * leaves by JSON.stringify. The release sha256 is over exactly these bytes. */
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) {
@@ -569,7 +508,6 @@ export function canonicalJson(value: unknown): string {
   return `{${keys.map((name) => `${JSON.stringify(name)}:${canonicalJson(record[name])}`).join(",")}}`;
 }
 
-/** Canonical UTF-8 bytes of a document: what Admin stores and the cap measures. */
 export function packageBytes(document: unknown): number {
   return utf8Bytes(canonicalJson(document));
 }
@@ -577,8 +515,6 @@ export function packageBytes(document: unknown): number {
 function tooLarge(): PackageFormatError {
   return new PackageFormatError("too_large", `This package is larger than ${PACKAGE_MAX_BYTES / (1024 * 1024)} MB.`);
 }
-
-// ── cross-references ───────────────────────────────────────────────────────
 
 function invalid(message: string): PackageFormatError {
   return new PackageFormatError("invalid", message);
@@ -696,14 +632,11 @@ function checkV2References(pkg: PackageDefinition): void {
     if (!rooms.has(routine.room)) throw invalid(`Routine ${routine.key} references unknown group chat: ${routine.room}`);
     if (routine.runOn !== "dog") throw invalid(`Routine ${routine.key} is a group chat goal, which only runs on this computer`);
     if (routine.continuity) throw invalid(`Routine ${routine.key} is a group chat goal, which cannot carry continuity`);
-    // The goal scheduler refuses a lead who is not in the room.
     if (!roomMembers.get(routine.room)!.has(routine.agent)) {
       throw invalid(`Routine ${routine.key} is led by ${routine.agent}, who is not a member of group chat ${routine.room}`);
     }
   }
 }
-
-// ── Markdown (v1 only) ─────────────────────────────────────────────────────
 
 function markdownDocument(markdown: string): unknown {
   if (markdown.length > PACKAGE_MAX_BYTES) throw tooLarge();
@@ -727,17 +660,12 @@ function markdownDocument(markdown: string): unknown {
   return { format: PACKAGE_FORMAT, version: PACKAGE_V1_VERSION, package: definition };
 }
 
-// ── readers ────────────────────────────────────────────────────────────────
-
-/** True for a BotMRR Markdown string or an object that says it is a package. */
 export function isPackageDocument(value: unknown): boolean {
   if (typeof value === "string") return /^---\r?\n[\s\S]*?\bbotmrr:\s*1\b/m.test(value);
   return Boolean(value) && typeof value === "object" && !Array.isArray(value) &&
     (value as { format?: unknown }).format === PACKAGE_FORMAT;
 }
 
-/** Parse exactly one v1 document (JSON object or Markdown) with the v1 rules.
- * Kept for the v1 exporter and its Markdown renderer. */
 export function parsePackageV1(value: unknown): PackageDocumentV1 {
   const source = typeof value === "string" ? markdownDocument(value) : value;
   const parsed = packageDocumentV1Schema.safeParse(source);
@@ -753,13 +681,10 @@ function validateV2(source: unknown): PackageDocument {
   return parsed.data;
 }
 
-/** Normalize a v1 release ("01.2.03" → "1.2.3"): numeric parts, no leading zeros. */
 function normalizedRelease(release: string): string {
   return release.split(".").map((part) => String(Number.parseInt(part, 10))).join(".");
 }
 
-/** v1 → v2: chiefOfStaff becomes team.leader, the team is named after the
- * package, routines stay paused. Everything else is copied as it is. */
 export function upgradeV1(document: PackageDocumentV1): PackageDocument {
   const { chiefOfStaff, ...pkg } = document.package;
   return validateV2({
@@ -774,9 +699,6 @@ export function upgradeV1(document: PackageDocumentV1): PackageDocument {
   });
 }
 
-/** Accepts v1 (object or BotMRR Markdown string) and v2 (object). Always
- * returns v2. trust "file" (the default) deletes package.publisher: only
- * Admin may stamp who published a release. */
 export function parsePackageDocument(value: unknown, options: { trust?: PackageTrust } = {}): PackageDocument {
   const trust = options.trust ?? "file";
   let document: PackageDocument;
@@ -793,8 +715,6 @@ export function parsePackageDocument(value: unknown, options: { trust?: PackageT
     if (version !== PACKAGE_V1_VERSION && version !== PACKAGE_VERSION) {
       throw new PackageFormatError("unsupported_version", "Package version is not supported");
     }
-    // A cheap guard before any schema work; the exact cap is re-checked on
-    // the normalized document below.
     if (packageBytes(value) > PACKAGE_MAX_BYTES) throw tooLarge();
     document = version === PACKAGE_V1_VERSION ? upgradeV1(parsePackageV1(value)) : validateV2(value);
   }
@@ -803,10 +723,6 @@ export function parsePackageDocument(value: unknown, options: { trust?: PackageT
   return document;
 }
 
-// ── older apps ─────────────────────────────────────────────────────────────
-
-/** A v1 document for apps older than v2 support. Refuses what v1 cannot
- * represent; lists what it had to leave out. */
 export function downgradeToV1(document: PackageDocument):
   { document: PackageDocumentV1; dropped: string[] } | { error: string } {
   const pkg = document.package;
@@ -851,7 +767,6 @@ export function downgradeToV1(document: PackageDocument):
     team, publisher: _publisher, notes: _notes, presets: _presets, connections: _connections,
     skills: _skills, agents: _agents, routines: _routines, ...rest
   } = pkg;
-  // Older apps know no Auto room: spell one as its lead, as exports do.
   const rooms = rest.rooms?.map((room) => room.defaultResponder.kind !== "auto" ? room
     : { ...room, defaultResponder: { kind: "agent" as const, agent: room.defaultResponder.agent ?? room.members[0]! } });
   const v1: Record<string, unknown> = {
@@ -869,12 +784,8 @@ export function downgradeToV1(document: PackageDocument):
   }
 }
 
-// ── text leaves: secrets and scan ──────────────────────────────────────────
-
 type TextVisitor = (part: string, value: string) => string | void;
 
-/** Every string leaf of the document, with its part path, except picture
- * bytes. A visitor that returns a string replaces the leaf in place. */
 function visitText(document: PackageDocument, visit: TextVisitor): void {
   const walk = (holder: Record<string, unknown> | unknown[], slot: string | number, part: string) => {
     const value = (holder as Record<string | number, unknown>)[slot];
@@ -922,7 +833,6 @@ function visitText(document: PackageDocument, visit: TextVisitor): void {
   }
 }
 
-/** Part paths where a key- or password-shaped value appears. Never values. */
 export function packageSecretFindings(document: PackageDocument): string[] {
   const parts: string[] = [];
   visitText(document, (part, value) => {
@@ -931,9 +841,6 @@ export function packageSecretFindings(document: PackageDocument): string[] {
   return parts;
 }
 
-/** Replace every key- or password-shaped value with the redaction marker.
- * Idempotent. The caller re-parses: a redaction can break a skill's
- * frontmatter, and then the export must refuse with the parser's sentence. */
 export function redactPackageSecrets(document: PackageDocument): { document: PackageDocument; redacted: string[] } {
   const copy = structuredClone(document);
   const redacted: string[] = [];
@@ -946,7 +853,6 @@ export function redactPackageSecrets(document: PackageDocument): { document: Pac
   return { document: copy, redacted };
 }
 
-/** The skill scan (hidden blobs, curl|sh, invisible text) over every text part. */
 export function packageScanFindings(document: PackageDocument): Array<{ part: string; warning: string }> {
   const findings: Array<{ part: string; warning: string }> = [];
   visitText(document, (part, value) => {
@@ -955,9 +861,6 @@ export function packageScanFindings(document: PackageDocument): Array<{ part: st
   return findings;
 }
 
-// ── identity and contents ──────────────────────────────────────────────────
-
-/** Every item's stable identity: "agents:scout", "skills:x", … */
 export function packageKeys(document: PackageDocument): string[] {
   const pkg = document.package;
   return [

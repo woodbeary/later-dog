@@ -5,8 +5,6 @@ import { browserProfileDeletionBlockReason, browserProfilesMutation, newBrowserP
 import { isOwnerOrAdmin, readSessionState } from "@/lib/session";
 import { t } from "@/lib/i18n";
 
-/** Browser-panel and workspace settings share one editor. The server owns
- * session routing and erasure; this UI never handles cookies or partitions. */
 export function BrowserProfilesManager({ bot, onProfileChanged, disabled = false }: {
   bot?: Bot;
   onProfileChanged?: () => void;
@@ -35,8 +33,6 @@ export function BrowserProfilesManager({ bot, onProfileChanged, disabled = false
   const failed = async (cause: unknown) => {
     setError(cause instanceof Error ? cause.message : t("settings.profiles.saveError"));
     if (cause instanceof ApiError && cause.status === 409) {
-      // Preserve typed names and the error. Refresh the base list, then let
-      // the person review it and explicitly retry rather than merge a wipe.
       try {
         const config: ConfigStatus = await api("/api/config");
         dispatch({ type: "configStatus", config });
@@ -113,8 +109,6 @@ export function BrowserProfilesManager({ bot, onProfileChanged, disabled = false
     setBusy(true);
     setError("");
     try {
-      // Drain coalesced settings edits before the explicit profile change so
-      // an older queued patch cannot put the bot back on its previous login.
       await flushBotPatches(currentBot.id);
       const result: { bot: BotAnnouncement } = await api(`/api/bots/${encodeURIComponent(currentBot.id)}`, {
         method: "PATCH",

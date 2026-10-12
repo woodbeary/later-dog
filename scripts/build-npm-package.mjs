@@ -1,9 +1,3 @@
-// Assemble the `laterdog` npm package: the self-contained server bundle,
-// the built UI, the bundled skills and the CLI, with a package.json of its
-// own. `npx laterdog serve` then needs Node 24+ and nothing else.
-//
-//   pnpm build:server && pnpm exec vite build && node scripts/build-npm-package.mjs
-//   cd release/npm && npm pack        # or npm publish --access public
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,9 +18,6 @@ mkdirSync(out, { recursive: true });
 cpSync(join(root, "dist-server"), join(out, "dist-server"), { recursive: true });
 cpSync(join(root, "dist"), join(out, "dist"), { recursive: true });
 if (existsSync(join(root, "skills"))) cpSync(join(root, "skills"), join(out, "skills"), { recursive: true });
-// The enterprise layer, bundled by scripts/bundle-server.mjs, under the path
-// server/enterprise.ts loads from: <package>/enterprise/server/index.js.
-// Source-available under its own license; inert without LATERDOG_LICENSE_KEY.
 const enterpriseBundle = join(root, "dist-server", "enterprise", "server", "index.js");
 if (existsSync(enterpriseBundle)) {
   mkdirSync(join(out, "enterprise", "server"), { recursive: true });
@@ -37,7 +28,6 @@ if (existsSync(enterpriseBundle)) {
 }
 cpSync(join(root, "LICENSE"), join(out, "LICENSE"));
 
-// The bin lives next to the bundle so serverEntry() finds index.js by path.
 writeFileSync(join(out, "cli.js"), `#!/usr/bin/env node\nimport "./dist-server/laterdog.js";\n`);
 
 writeFileSync(

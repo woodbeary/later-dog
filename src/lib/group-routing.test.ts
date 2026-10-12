@@ -100,7 +100,6 @@ describe("composer hint, in the reader's language", () => {
     setLocale("pt-br");
     expect(groupComposerHint(room({ kind: "everyone" }), members)).toBe("todos respondem");
     expect(groupComposerHint(room({ kind: "mentions" }), members)).toBe("@ para chamar um cachorro");
-    // Select the non-first member so fallback routing cannot satisfy the assertion.
     expect(groupComposerHint(room({ kind: "member", botId: "lead" }), members)).toBe("Atlas responde");
     expect(groupComposerHint({ dm: true } as Parameters<typeof groupComposerHint>[0], members)).toBe(
       "continuar a conversa",

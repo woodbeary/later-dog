@@ -15,7 +15,6 @@ export type SidebarSectionAttention = {
   working: number;
 };
 
-/** Summarize signals that would otherwise disappear when a section closes. */
 export function sidebarSectionAttention(
   bots: SidebarAttentionBot[],
   groups: SidebarAttentionGroup[],

@@ -4,8 +4,6 @@ import { restingStateForBot, stateForBot, turnState } from "./mascot";
 
 describe("stateForBot", () => {
   it("still alerts on a failed tool call when a digest receipt follows it", () => {
-    // Phase 0 writes a digest row after every turn, so the failed chip is
-    // no longer the last row; the mood must read past the receipt.
     expect(stateForBot({
       name: "Atlas",
       messages: [

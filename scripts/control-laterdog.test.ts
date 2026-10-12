@@ -1,6 +1,3 @@
-// What crosses from the launching shell into a fixture server: only what a
-// test scripted on purpose. A real OpenAI key must never reach a fixture that
-// could send it to OpenAI.
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";

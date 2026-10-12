@@ -1,5 +1,3 @@
-// An offline RFB 3.8 desktop for the real noVNC renderer. No host display,
-// container daemon or network outside loopback is used.
 import { createServer } from "node:http";
 import { EventEmitter, once } from "node:events";
 import { WebSocketServer } from "ws";
@@ -18,9 +16,8 @@ export async function fakeVnc() {
     socket.send(Buffer.from("RFB 003.008\n"));
     const frame = () => {
       const data = Buffer.alloc(4 + 12 + 16 * 16 * 4);
-      data.writeUInt16BE(1, 2); // one raw rectangle
+      data.writeUInt16BE(1, 2);
       data.writeUInt16BE(16, 8); data.writeUInt16BE(16, 10);
-      // noVNC requests little-endian RGBX in SetPixelFormat.
       for (let i = 16; i < data.length; i += 4) data[i] = 255;
       socket.send(data);
     };

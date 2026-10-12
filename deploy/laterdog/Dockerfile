@@ -1,5 +1,3 @@
-# The build stage runs on the builder's native platform (the bundle is platform-independent); only the small runtime stage
-# is emulated when the target is linux/amd64 on an Apple Silicon machine, as Cloudflare Containers require.
 FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS build
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
@@ -9,7 +7,6 @@ COPY . .
 RUN pnpm laterdog:build
 
 FROM node:24-bookworm-slim
-# sqlite3, openssl and curl serve the entrypoint's state backup/restore; see deploy/laterdog/entrypoint.sh.
 RUN apt-get update && apt-get install -y --no-install-recommends git gh ca-certificates openssh-client sqlite3 openssl curl && rm -rf /var/lib/apt/lists/*
 ENV PNPM_HOME=/opt/pnpm
 ENV PATH=/opt/pnpm:$PATH

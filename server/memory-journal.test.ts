@@ -1,7 +1,3 @@
-// The journal records every change to a memory file that the server can
-// see, keeps the prior text so a revert needs nothing else, and never
-// takes down the change it records. Bot writes are caught at the turn
-// boundary; these tests simulate a bot's file tool with a plain write.
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -109,9 +105,7 @@ describe("journalMemoryWrite / readMemoryJournal", () => {
     const file = journalFile(bot);
     expect(file.startsWith(WORKSPACES_DIR)).toBe(false);
     expect(file.startsWith(JOURNAL_DIR)).toBe(true);
-    // Windows has no POSIX mode bits: the write path sets them, the platform reports 0666.
     if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
-    // Windows has no POSIX mode bits: the write path sets them, the platform reports 0666.
     if (process.platform !== "win32") expect(statSync(JOURNAL_DIR).mode & 0o777).toBe(0o700);
   });
 
@@ -169,11 +163,9 @@ describe("journalMemoryWrite / readMemoryJournal", () => {
 
   it("never throws when the journal cannot be written", async () => {
     const bot = freshBot();
-    // an append onto a directory fails on every platform
     mkdirSync(journalFile(bot), { recursive: true });
     expect(() => journalMemoryWrite(bot, "memory/a.md", "one", { actor: "person", via: "ui" })).not.toThrow();
     await expect(flushMemoryJournal(bot)).resolves.toBeUndefined();
-    // the change itself still happened
     expect(readMemoryDoc(bot, "memory/a.md").text).toBe("one");
     expect(readMemoryJournal(bot, 10)).toEqual([]);
     rmSync(journalFile(bot), { recursive: true, force: true });
@@ -189,12 +181,10 @@ describe("revertMemoryChange", () => {
     const result = revertMemoryChange(bot, edit.entry!.id);
     expect(result.ok).toBe(true);
     expect(readMemoryDoc(bot, "memory/y.md").text).toBe("original\n");
-    // Windows has no POSIX mode bits: the write path sets them, the platform reports 0666.
     if (process.platform !== "win32") expect(statSync(join(workspaceDir(bot), "memory", "y.md")).mode & 0o777).toBe(0o600);
     await flushMemoryJournal(bot);
     const [latest] = readMemoryJournal(bot, 1);
     expect(latest).toMatchObject({ actor: "person", via: "revert", before: "agent rewrote this\n", kind: "edited" });
-    // and the revert can itself be reverted
     expect(revertMemoryChange(bot, latest.id).ok).toBe(true);
     expect(readMemoryDoc(bot, "memory/y.md").text).toBe("agent rewrote this\n");
   });
@@ -234,10 +224,8 @@ describe("turn boundary", () => {
     writeFileSync(join(workspaceDir(bot), "memory", "existing.md"), "was here\n");
     beginMemoryTurn(bot, "thread-a");
     await flushMemoryJournal(bot);
-    // first sighting is not a change
     expect(readMemoryJournal(bot, 10)).toEqual([]);
 
-    // the bot's file tools at work
     writeFileSync(join(workspaceDir(bot), "MEMORY.md"), "- 2026-09-10 · from chat \"Follow-up\" · user prefers short replies\n");
     writeFileSync(join(workspaceDir(bot), "memory", "existing.md"), "was here\nand more\n");
     mkdirSync(join(workspaceDir(bot), "memory", "log"), { recursive: true });
@@ -248,7 +236,6 @@ describe("turn boundary", () => {
       ["memory/existing.md", "edited", "bot", "turn", "thread-a"],
       ["memory/log/2026-09-10.md", "created", "bot", "turn", "thread-a"],
     ]);
-    // a second end for the same thread is a no-op, and the next turn sees nothing new
     expect(endMemoryTurn("thread-a")).toEqual([]);
     beginMemoryTurn(bot, "thread-b");
     expect(endMemoryTurn("thread-b")).toEqual([]);
@@ -266,7 +253,6 @@ describe("turn boundary", () => {
     mkdirSync(join(workspaceDir(bot), "memory"));
     beginMemoryTurn(bot, "t2");
     endMemoryTurn("t2");
-    // the disk edit was journaled at begin, not at end
     await flushMemoryJournal(bot);
     expect(readMemoryJournal(bot, 10).map((r) => [r.path, r.actor, r.via])).toEqual([[MEMORY_INDEX, "person", "disk"]]);
   });

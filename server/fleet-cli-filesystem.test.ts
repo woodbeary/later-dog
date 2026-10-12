@@ -15,8 +15,6 @@ vi.mock("node:child_process", async (importOriginal) => {
     ...actual,
     execFileSync: (command: string, args: string[], options: ExecFileSyncOptionsWithStringEncoding) => {
       fixture.calls.push({ command, args, options });
-      // Only account discovery is synthetic. The actual unprivileged Node helper
-      // runs against a disposable home; no useradd, chown or system services run.
       if (command === "/usr/bin/getent") return fixture.account || `laterdog-acme:x:${process.getuid!()}:${process.getgid!()}:fixture:${fixture.home}:/usr/sbin/nologin\n`;
       return actual.execFileSync(command, args, options);
     },
@@ -189,7 +187,6 @@ describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)("fleet
       { ...valid, input: "10" }, { ...valid, output: null }, { ...valid, trigger: null }, { ...valid, trigger: { kind: 4 } },
     ];
     writeFileSync(monthly, records.map((row) => JSON.stringify(row)).join("\n") + '\nnot JSON: fixture-private-secret\n{"at":"torn-fixture-private-secret');
-    // Adjacent months must never be opened by a current-month summary.
     symlinkSync("/dev/zero", join(data, "usage", "2026-08.jsonl"));
     symlinkSync("/dev/zero", join(data, "usage", "2026-10.jsonl"));
     const reference = summarizeUsage(readUsage(data, { from: new Date("2026-09-01T00:00:00Z"), to: now }), "bot").total;
@@ -235,7 +232,6 @@ describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)("fleet
     } else writeFileSync(monthly, Buffer.alloc(4 * 1024 * 1024 + 1, secret));
     const start = performance.now();
     expect(() => deps.usage(targetData, "laterdog-acme", now)).toThrow(/^could not usage workspace file as laterdog-acme: check ownership, links, file size and permissions$/);
-    // Special files must fail on descriptor checks, not wait for the 5s kill deadline.
     expect(performance.now() - start).toBeLessThan(2000);
     expect(readFileSync(outside, "utf8")).toBe(secret);
   });

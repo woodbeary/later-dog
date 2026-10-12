@@ -1,10 +1,3 @@
-// Draft or refresh a JSON language pack with an authenticated local Claude
-// CLI. Models never run in CI: generated copy is reviewed and committed
-// like code, while --check stays deterministic and safe for forks.
-//
-//   node scripts/generate-locale.mjs it "Italian"
-//   node scripts/generate-locale.mjs pt-br --accept
-//   node scripts/generate-locale.mjs --check
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -95,8 +88,6 @@ export function validateTranslationCatalog(source, translation, { requireComplet
 }
 
 export function validateTranslationHashes(source, translation, hashes) {
-  // The structural validator reports malformed catalogs. Hash validation
-  // should add no follow-on TypeError that hides that useful error.
   if (!isRecord(translation)) return [];
   if (!isRecord(hashes)) return ["source-hash record must be a JSON object"];
   const problems = [];
@@ -167,14 +158,9 @@ function readSourceHashes() {
 function tryRemove(path) {
   try {
     rmSync(path, { force: true });
-  } catch {
-    // A successful replacement is authoritative; antivirus may briefly hold
-    // the old backup on Windows, which is harmless and recoverable.
-  }
+  } catch {}
 }
 
-/** Same-directory replacement. Windows cannot rename over an existing file,
- * so it gets a short-lived backup and restores it if installation fails. */
 export function writeTextAtomically(path, contents, platform = process.platform) {
   const token = randomUUID();
   const temp = join(dirname(path), `.${basename(path)}.${token}.tmp`);
@@ -273,9 +259,6 @@ export function modelInvocation(platform = process.platform, comSpec = process.e
   ];
   if (platform !== "win32") return { args, command: "claude" };
 
-  // Windows installs the CLI as claude.cmd, which Node cannot execute
-  // directly. The command line is entirely constant; catalog text and locale
-  // labels are delivered over stdin and can never become cmd.exe syntax.
   return {
     command: comSpec,
     args: [
@@ -393,8 +376,6 @@ export function main(argv = process.argv.slice(2)) {
   ]));
   state.locales[code] = nextHashes;
 
-  // Install the catalog first. If the second write fails, deterministic
-  // --check reports the stale state rather than blessing an old translation.
   writeJsonAtomically(outFile, merged);
   writeJsonAtomically(join(LOCALES_DIR, SOURCE_HASH_FILE), state);
   console.error(`wrote ${outFile}; review every changed string and register new locale "${code}" in src/locales/index.ts`);

@@ -18,8 +18,6 @@ import {
   type McpServerRow,
 } from "./mcp-connectors";
 
-// The server's own naming rules, read from its source so the two cannot drift
-// (the renderer does not compile server modules).
 const registry = readFileSync(new URL("../../server/mcp-registry.ts", import.meta.url), "utf8");
 const SERVER_NAME = new RegExp(/const MCP_NAME = \/(.+)\/;/.exec(registry)![1]!);
 const RESERVED = new Set([...(/const RESERVED_MCP_NAMES = new Set\(\[([\s\S]*?)\]\)/.exec(registry)![1]!.matchAll(/"([^"]+)"/g))].map((match) => match[1]!));
@@ -54,7 +52,6 @@ describe("connector catalog", () => {
   });
 
   it("describes what a dog can do with each in one short line of English copy", () => {
-    // about one line of a row in the pop-up's two-column list (the rest is in its tooltip)
     const keys = [
       ...MCP_CONNECTORS.map((connector) => connector.description),
       ...MCP_CONNECTORS.flatMap((connector) => (connector.note ? [connector.note] : [])),
@@ -78,7 +75,6 @@ describe("connector catalog", () => {
       return `${url.host}${url.pathname.replace(/\/+$/, "")}`;
     });
     expect(unique(endpoints)).toBe(true);
-    // no two entries could ever claim the same configured server
     for (const connector of MCP_CONNECTORS) {
       expect(MCP_CONNECTORS.filter((other) => matchesConnectorUrl(other, connector.url)).map((other) => other.id)).toEqual([connector.id]);
     }
@@ -104,9 +100,7 @@ describe("recognizing a configured server", () => {
     expect(connectorState(row({ name: "linear" }))).toBe("available");
     expect(connectorState(row({ name: "linear", enabled: false, auth: "signed-in" }))).toBe("available");
     expect(connectorState(row({ name: "linear", enabled: true, auth: "signed-in" }))).toBe("connected");
-    // added by hand with its own token header: already connected
     expect(connectorState(row({ name: "linear", enabled: true, headerKeys: ["Authorization"] }))).toBe("connected");
-    // on, but signed out and without a token: it would only answer 401
     expect(connectorState(row({ name: "linear", enabled: true }))).toBe("needs-sign-in");
     expect(connectorState(row({ name: "linear", enabled: true, headerKeys: ["X-Team"] }))).toBe("needs-sign-in");
     expect(connectorState(row({ name: "linear", enabled: true, auth: "needs-sign-in" }))).toBe("needs-sign-in");
@@ -146,7 +140,6 @@ describe("recognizing a configured server", () => {
 
 type Call = { path: string; method: string; body?: unknown };
 
-/** A fake of the MCP server routes that records every request in order. */
 function fakeApi(routes: Record<string, (body: unknown) => unknown>) {
   const calls: Call[] = [];
   const api = vi.fn(async (path: string, init?: { method?: string; body?: string }) => {
@@ -177,7 +170,6 @@ describe("Connect", () => {
     const onSignIn = vi.fn();
     const onServers = vi.fn();
     const onSignedIn = vi.fn((server: string) => {
-      // signed in before its tools are checked
       expect(server).toBe("linear");
       expect(calls.map((call) => call.path)).not.toContain("/api/mcp/servers/linear/test");
     });

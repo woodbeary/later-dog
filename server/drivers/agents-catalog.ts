@@ -1,48 +1,20 @@
-// The agents tool catalog: every tool the harness offers a bot about its own
-// team, threads, memory, routines, profile and skills, and which of them a
-// given turn gets to see.
-//
-// This file is definitions only. It reads no environment and makes no calls,
-// so any front end (the stdio MCP proxy today) can ask what a profile mounts.
-// agents-call.ts carries out a tool; agents-client.ts talks to the harness.
-//
-// The serialized result of availableTools() is what the model is sent on every
-// turn. It is pinned byte for byte, and its size budgeted, by
-// agents-catalog-wire.test.ts: change a description or a schema on purpose,
-// then update the goldens there.
 import { CREDENTIAL_TARGETS } from "../../shared/credential-request.ts";
 import { OPTIONS_CARD_LIMITS, WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared/options-card.ts";
 import { agentToolAnnotations } from "../agent-tool-policy.ts";
 
-/** Which tools a turn is shown. The harness decides each of these when it
- * builds the integration (server/index.ts agentsIntegration); the server
- * still authenticates and scopes every call, so this is presentation only. */
 export interface CatalogProfile {
-  /** A standing process outside any turn: peer tools and polling only. */
   externalRuntime: boolean;
-  /** A room turn or an ordinary direct chat: one bounded teamwork path. */
   coordinating: boolean;
-  /** In a coordinating turn, may the bot open separate jobs on itself. */
   ownThreadCreation: boolean;
   skillAuthoring: boolean;
-  /** Opt-in computer sharing (server features.sharedComputers). */
   sharedComputers: boolean;
-  /** A voice is actually configured for this bot (tts voiceReady). */
   voiceNotes: boolean;
-  /** The server is a Cloud home (server/cloud-home.ts): no "this computer"
-   * of the person's and no Local VM to offer. */
   cloudHome: boolean;
   memoryEnabled?: boolean;
-  /** The bot is its section's Chief of Staff (bot.chiefOfStaff). Only then
-   * are the Chief-only tools and parameters shown; the server refuses them
-   * to every other bot. */
   chief: boolean;
-  /** Written into start_thread's schema in a coordinating turn. */
   botId: string;
 }
 
-/** The profile a spawned proxy was given. Everything is off unless the
- * harness says "1". */
 export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
   const externalRuntime = env.LATERDOG_EXTERNAL_RUNTIME === "1";
   return {
@@ -69,12 +41,6 @@ export const WEEKDAYS = [
   "sunday",
 ] as const;
 
-// One flat object, deliberately free of oneOf/const/format: several agent
-// CLIs flatten or drop JSON-Schema composition keywords when converting MCP
-// tools into their provider's function-call format, and a model that never
-// saw the branches guesses shapes forever (the 0.1.38 field failure). The
-// per-type rules live in descriptions and are enforced with guiding errors
-// in normalizeScheduleInput below.
 const ROUTINE_SCHEDULE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -153,11 +119,6 @@ const ROUTINE_SCHEDULE_SCHEMA = {
   required: ["type"],
 } as const;
 
-// The routine fields are one constant used by both routine tools below:
-// spread into propose_routine, and as the `changes` of propose_routine_action.
-// On the wire each tool still carries the schema written out in full. Sharing
-// it there would need $ref/$defs, which provider conversions do not survive
-// (see the note on ROUTINE_SCHEDULE_SCHEMA and #544).
 const ROUTINE_FIELDS_SCHEMA = {
   name: { type: "string", minLength: 1, maxLength: 80, description: "Short name shown in Routines." },
   instructions: {
@@ -169,7 +130,6 @@ const ROUTINE_FIELDS_SCHEMA = {
   schedule: ROUTINE_SCHEDULE_SCHEMA,
   run_on: {
     type: "string",
-    // "box" is Boat's historical run_on destination id (agents wire contract).
     enum: ["dog", "box"],
     description: "Default dog keeps the bot's selected model and configured computer, INCLUDING a self-hosted VPS. Omit this field for normal schedules. box runs on the bot's cloud computer, same model; it needs cloud computers set up and is not the generic cloud/VPS option. Legacy cloud values from list_routines mean box, not VPS.",
   },
@@ -195,16 +155,10 @@ const ROUTINE_FIELDS_SCHEMA = {
   },
 } as const;
 
-// propose_profile's one sentence about for_bot_id, which a bot that is not a
-// Chief is not shown (catalogTools), along with the parameter itself.
 const CHIEF_PROFILE_TARGET = " A Chief of Staff may pass for_bot_id (from list_bots) for a requested change to another bot in its section.";
 const PROPOSAL_OUTCOME = " Read the result: granted Full Access may apply the change immediately. If applied, continue the requested work without another confirmation. Only a pending result requires ending the turn and waiting for the in-app decision. Never claim success from the permission mode alone; report failed or cancelled results honestly. This does not elevate another bot's execution permissions.";
-/** Routines, skills, profile and model: a bot's change to itself applies at
- * any level (server/direct-apply.ts). */
 const SELF_CHANGE_OUTCOME = " Read the result: a change to your own routines, skills, profile or model applies immediately, and the person sees it with an Undo; a change for another bot may wait for the person's confirmation. If applied, continue the requested work without another confirmation. Only a pending result requires ending the turn and waiting for the in-app decision. Never claim success without an applied result; report failed or cancelled results honestly. This does not elevate another bot's execution permissions.";
 
-/** Every tool, in the order it is listed. Four peer tools are worded
- * differently for an external runtime, which may poll inside one process. */
 const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "create_options_card",
@@ -422,7 +376,6 @@ const toolDefinitions = (externalRuntime: boolean) => [
   },
   {
     name: "create_bot",
-    // Every bot is shown this, not only a Chief: later.dog's rule (server/laterdog/dog-creation.ts).
     description:
       "Create a new bot when the person asks for another bot, agent or teammate. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It joins your section with the same access you have (never more) and greets the person in its own chat; then tell them it is in their sidebar. Omit modelSelection for the workspace default (a Chief may choose exact IDs from list_team_setup). If they gave it a job, hand the job over right away so it starts working without them repeating it. Maximum four new bots per turn.",
     inputSchema: {
@@ -902,26 +855,12 @@ const toolDefinitions = (externalRuntime: boolean) => [
 });
 
 const SKILL_TOOL_NAMES = new Set(["skills_list", "skill_manage"]);
-// A workspace with computer sharing off refuses the routes behind these two,
-// so they must not be advertised at all: a model that sees a tool it cannot
-// use spends turns discovering that.
 export const SHARED_COMPUTER_TOOL_NAMES = new Set(["list_shared_computers", "shared_computer"]);
-// Same capability rule: a bot with no configured voice must never be shown a
-// tool whose every call would end in a setup error. The route behind it
-// refuses regardless; this keeps the catalog honest about what can work.
 const VOICE_TOOL_NAMES = new Set(["send_voice_note"]);
-// And for a role: every route behind these refuses a bot that is not its
-// section's Chief of Staff, as it does a for_bot_id naming another bot on
-// propose_profile or propose_model. (A routine's for_bot_id is open to any
-// bot that can reach that peer, so it stays, and so does create_bot: in
-// later.dog any bot creates a bot on request, server/laterdog/dog-creation.ts.)
 const CHIEF_ONLY_TOOL_NAMES = new Set([
   "list_team_setup", "propose_team_setup", "propose_bot_deletion", "create_room", "manage_room", "retry_thread",
 ]);
 const CHIEF_TARGET_TOOL_NAMES = new Set(["propose_profile", "propose_model"]);
-// One teamwork path in room turns; keep all unrelated integrations available.
-// Ordinary direct chats use this same bounded coordinator. Goal-owned turns
-// retain their independent loop and cannot start a second coordinator.
 const ROOM_ONLY_TOOLS = new Set(["list_room_targets", "coordinate_bots", "send_to_bot"]);
 const ROOM_REPLACED_TOOLS = new Set(["ask_bot", "delegate_bot", "check_delegation", "wait_delegation", "start_thread"]);
 const EXTERNAL_TOOL_NAMES = new Set(["list_bots", "ask_bot", "delegate_bot", "check_delegation", "wait_delegation"]);
@@ -932,7 +871,6 @@ const CLOUD_HOME_SURFACE = {
   description: "auto = suitable configured computer, cloud = the dog's own cloud computer. Omit to list. This server runs in the cloud: the user's own computer is not a place here.",
 };
 
-/** The tools one turn is shown, exactly as tools/list serializes them. */
 export function availableTools(profile: CatalogProfile) {
   const tools = catalogTools(profile);
   return profile.cloudHome

@@ -15,6 +15,9 @@ Pull requests are welcome. Read this once; it is short on purpose: most of it is
   own tests, rather than growing `server/index.ts`.
 - **Match the altitude.** Plain Node, no frameworks on the server, one store, one event bus. A new runtime dependency
   needs a reason in the PR.
+- **No comments in code.** Names, types and tests carry the meaning; the reasoning goes in the PR. Only lint and test
+  directives and the licence notices of adapted code stay; `node scripts/no-comments.ts --write` removes the rest, and
+  CI fails on any left.
 
 Review and merge are a person's job (the maintainer, or a reviewer they name). A bot may open a draft PR; a bot never
 merges. If your change is cool and proven it will be merged; if it is proven but out of direction, the review says why.

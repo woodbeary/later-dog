@@ -1,7 +1,3 @@
-// Draws later.dog's mark — the default dog (the Retriever in src/components/dog-breeds.ts) on the green tile — into
-// public/app-icon.svg (inset, for the OS) and public/laterdog.svg (full-bleed, for the favicon and the in-app logo).
-// The dog is the same data the app draws, in fixed golden tones, so the icon and the avatars never drift apart.
-// Run: node scripts/laterdog-mark.ts && pnpm laterdog:icons
 import { writeFileSync } from "node:fs";
 import { BREEDS, type BreedLook, type Tone } from "../src/components/dog-breeds.ts";
 import { mouthGeometry, nosePath, round, tonguePath } from "../src/components/dog-geometry.ts";
@@ -52,7 +48,6 @@ function dog(look: BreedLook, id: string): string {
 
 function mark(viewBox: string, id: string): string {
   const look = BREEDS.dog;
-  // the dog fills about three quarters of the tile, tipped a few degrees for a little life
   const scale = 8.4;
   const dx = round(512 - 50 * scale), dy = round(528 - 52 * scale);
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}"><title>later.dog</title><defs>` +

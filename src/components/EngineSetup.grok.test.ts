@@ -19,8 +19,6 @@ const grok = (snapshot: InstanceInfo["snapshot"]): InstanceInfo => ({
 const signedOut = grok({ state: "available", authenticated: false, version: "grok 1.0.41" });
 const missing = grok({ state: "unavailable", reason: "`grok` CLI not found" });
 
-// Where the page is: the desktop app's own window on its own server, the
-// desktop paired to another server, or a browser on a server's page.
 const desktop = { platform: "darwin", openInstallTerminal: vi.fn(async () => true), remoteClient: { active: false } };
 const pairedDesktop = { ...desktop, remoteClient: { active: true } };
 

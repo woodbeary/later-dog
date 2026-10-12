@@ -34,7 +34,6 @@ describe("the generated catalog", () => {
       expect(bounds.minX, id).toBeLessThan(bounds.maxX);
       expect(bounds.minY, id).toBeLessThan(bounds.maxY);
     }
-    // the 200-unit stage bodies sit on it; the blob's lobe reaches past it
     expect(MASCOT_BODIES.circle.bounds).toEqual({ minX: 0, minY: 0, maxX: 200, maxY: 200 });
     expect(MASCOT_BODIES.blob.bounds.minY).toBeLessThan(0);
   });

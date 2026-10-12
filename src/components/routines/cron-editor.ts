@@ -23,7 +23,6 @@ export function cronChoiceFor(schedule: RoutineCronSchedule): CronChoice {
 export function cronDraftFor(schedule: RoutineCronSchedule | undefined, at: number): CronDraft {
   const timeZone = schedule?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const preset = schedule && presetParts(schedule.expression);
-  // An existing schedule's wall clock belongs to its zone, not this browser's.
   let parts: Intl.DateTimeFormatPart[];
   try {
     parts = new Intl.DateTimeFormat("en-US", { timeZone, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
@@ -48,7 +47,6 @@ export function cronEditorValue(choice: CronChoice, draft: CronDraft, after: num
       expression: choice === "cron" ? draft.expression : `${Number(minute)} ${Number(hour)} ${draft.day} ${choice === "yearly" ? draft.month : "*"} *`,
     };
     const normalized = normalizeCronSchedule(proposed, after);
-    // Unrelated edits must preserve arbitrary expressions and their zone exactly.
     return { schedule: unchanged ?? normalized, runs: nextCronRuns(normalized, after, 3), error: "" };
   } catch (error) {
     return { schedule: null, runs: [], error: error instanceof Error ? error.message : String(error) };

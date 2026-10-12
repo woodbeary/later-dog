@@ -1,19 +1,12 @@
-// Pure connection-state rules for idle tunnel reclaim. Everything here is
-// conservative: an unknown status, a missing or unparseable timestamp, or any
-// sign of a live connection means "not idle".
 
 export const NEVER_CONNECTED_RECLAIM_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export interface TunnelActivity {
-  /** Provider timestamps in epoch milliseconds, or null when absent. */
   connsActiveAt: number | null;
   connsInactiveAt: number | null;
   createdAt: number | null;
-  /** Entries in the deprecated `connections` array (normally empty). */
   connectionCount: number;
-  /** True when a timestamp was present but could not be parsed. */
   malformed: boolean;
-  /** `inactive` (never run), `down`, `degraded`, `healthy`, or null. */
   status: string | null;
 }
 
@@ -52,23 +45,10 @@ export function tunnelActivity(raw: RawTunnelActivity): TunnelActivity {
   };
 }
 
-/** How long the installation and endpoint must also have been quiet before
- * a tunnel idle for `reason` may be reclaimed. */
 export function quietPeriodMs(reason: IdleReason, policy: IdlePolicy): number {
   return reason === "never_connected" ? policy.neverConnectedMs : policy.offlineMs;
 }
 
-/**
- * Returns why a tunnel may be reclaimed, or null when it must be left alone.
- *
- * - `never_connected`: the provider says it has never run (`inactive`), it has
- *   no activation time, and it was created at least `neverConnectedMs` ago.
- * - `offline`: the provider says it is `down`, and its last connection ended
- *   at least `offlineMs` ago with no later activation.
- *
- * `healthy` and `degraded` tunnels, any reported connection, and any status
- * this code does not know are never idle.
- */
 export function idleTunnelReason(
   activity: TunnelActivity | undefined,
   now: number,

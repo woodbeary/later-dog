@@ -1,4 +1,3 @@
-// Entry point for the `laterdog` command (see cli.ts).
 import { main } from "./cli.ts";
 import { exitAfterFlush } from "./exit.ts";
 

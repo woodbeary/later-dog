@@ -9,7 +9,6 @@ import { useStore, type InstanceInfo } from "@/state/store";
 type Choice = "claude" | "codex" | "grok" | "api-key";
 type ChoiceKind = "claudeAgent" | "codex" | "grokAgent";
 
-/** The person's own engine of that kind: not a local-model or read-only one. */
 export function cloudEngine(instances: readonly InstanceInfo[], driverKind: ChoiceKind): InstanceInfo | undefined {
   return instances.find((instance) => instance.driverKind === driverKind && instance.access !== "custom" && !instance.readOnly);
 }
@@ -30,7 +29,6 @@ export function CloudEngineSignIn() {
   const choices: Array<{ id: Choice; driverKind: ChoiceKind; label: string; hint: string; instance?: InstanceInfo }> = [
     { id: "claude", driverKind: "claudeAgent", label: t("cloudSignIn.claude"), hint: t("cloudSignIn.claudeHint") },
     { id: "codex", driverKind: "codex", label: t("cloudSignIn.codex"), hint: t("cloudSignIn.codexHint") },
-    // Grok Build needs its CLI on this Cloud computer; an older image has none.
     ...(cloudEngine(state.instances, "grokAgent")?.snapshot.state === "available"
       ? [{ id: "grok" as const, driverKind: "grokAgent" as const, label: t("cloudSignIn.grok"), hint: t("cloudSignIn.grokHint") }]
       : []),

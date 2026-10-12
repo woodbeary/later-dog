@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-// Live end-to-end check of a deployed laterdog-computers Worker. It creates a computer, waits for it to boot, runs
-// commands, writes and reads a file, takes a screenshot, opens the desktop viewer and its VNC WebSocket, puts the computer
-// to sleep, wakes it, checks the file survived, and deletes it. Every step is timed.
-//
-//   node scripts/smoke.mjs [--out <dir>] [--keep] [--long]
-//
-// The API key is read from ~/.laterdog/computers-key and the API base from ~/.laterdog/computers.json; the key is never
-// printed. --keep leaves the computer running at the end (delete it yourself), --long adds a 110-second command to show
-// that long execs outlive the 100-second proxy limit some HTTP stacks have.
 
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -113,11 +104,6 @@ function rfbGreeting(url) {
   });
 }
 
-/**
- * The same WebSocket upgrade by hand, so the evidence is the literal answer: the HTTP status line (101), a valid
- * Sec-WebSocket-Accept, the first frame's bytes (the VNC server's RFB greeting), and then a round trip: our protocol
- * version goes up as a masked binary frame, as a browser's would, and the VNC server's list of security types comes back.
- */
 function rawUpgrade(url) {
   return new Promise((resolve, reject) => {
     const nonce = randomBytes(16).toString("base64");
@@ -137,7 +123,6 @@ function rawUpgrade(url) {
         resolve(result);
       };
       const step = () => {
-        // Server frames are unmasked: byte 0 is FIN + opcode, byte 1 the length (these short messages need no extension).
         while (buffer.length >= 2 && (buffer[1] & 0x7f) < 126 && buffer.length >= 2 + (buffer[1] & 0x7f)) {
           const opcode = buffer[0] & 0x0f;
           const payload = buffer.subarray(2, 2 + (buffer[1] & 0x7f));
@@ -146,12 +131,10 @@ function rawUpgrade(url) {
             result.opcode = opcode;
             result.banner = payload.toString("latin1");
             if (result.banner !== "RFB 003.008\n") return done();
-            // Client frames are masked (RFC 6455): FIN + binary, mask bit + length, the 4-byte key, the masked bytes.
             const version = Buffer.from("RFB 003.008\n", "latin1");
             const mask = randomBytes(4);
             socket.write(Buffer.concat([Buffer.from([0x82, 0x80 | version.length]), mask, Buffer.from(version.map((byte, i) => byte ^ mask[i % 4]))]));
           } else {
-            // RFB 3.8: one byte with the number of security types, then the types.
             after = Buffer.concat([after, payload]);
             if (after.length >= 1 && after.length >= 1 + after[0]) {
               result.securityTypes = [...after.subarray(1, 1 + after[0])];

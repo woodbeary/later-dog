@@ -11,8 +11,6 @@ function subscribeLocation(listener: () => void) {
 }
 const locationHash = () => location.hash;
 
-/** Served through the app's normal route/build. Only desktop pixels and
- * input cross the VM boundary; the VM never supplies this page's code. */
 export function DesktopViewer() {
   const screen = useRef<HTMLDivElement>(null);
   const rfb = useRef<RFB | null>(null);
@@ -140,7 +138,6 @@ export function DesktopViewer() {
     setPanel(null);
     if (panel) document.getElementById(panel)?.focus();
   };
-  // After the commit that clears `inert`, so focus is not dropped to <body>.
   const focusSoon = (id: string) => requestAnimationFrame(() => document.getElementById(id)?.focus());
   const togglePanel = (next: "keyboard" | "clipboard") => setPanel(value => value === next ? null : next);
   const slide = "transition-[width,translate,opacity] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
@@ -189,8 +186,6 @@ export function DesktopViewer() {
         <form onSubmit={event => {
           event.preventDefault();
           if (!rfb.current || !connected || !keyboardPanel) return;
-          // Explicit text entry works with phone keyboards without reading
-          // the device clipboard. Non-Latin text uses Unicode VNC keysyms.
           for (const char of text) {
             const code = char.codePointAt(0)!;
             rfb.current.sendKey(code === 10 ? 0xff0d : code === 9 ? 0xff09 : code <= 255 ? code : 0x01000000 | code, null);

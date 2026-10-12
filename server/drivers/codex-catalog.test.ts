@@ -196,7 +196,6 @@ base_url = "http://127.0.0.1:9/v1"
   });
 
   it("refuses a relative user home just like the identity lookup", async () => {
-    // Windows cannot express a relative path across different drives.
     const home = scratchHome({
       "config.toml": 'model_provider = "omlx"\nmodel = "relative-home-model"\n[model_providers.omlx]\nname = "Fixture"\nbase_url = "http://127.0.0.1:9/v1"\n',
     }, process.cwd());

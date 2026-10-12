@@ -9,8 +9,6 @@ const control = "rounded-lg px-3 py-2 text-[12px] text-ink-secondary hover:bg-co
 const field = "w-full rounded-lg border border-hairline/60 bg-inset px-3 py-2 text-[12px] text-ink outline-none focus:border-accent";
 type Inventory = { computers: TeamComputer[]; configured: boolean; problem?: string };
 
-/** This shelf is only an owner control. Its list is read-only; every paid
- * lifecycle action is a deliberate button press, never a render effect. */
 export function CanvasComputers({ open, createRequest, drop, sections, onClose, onDropHandled, onChange }: {
   open: boolean;
   createRequest: number;
@@ -221,8 +219,6 @@ export function CanvasComputers({ open, createRequest, drop, sections, onClose, 
               if (pending.current || pointer.current || event.button !== 0 || !event.isPrimary) return;
               event.currentTarget.focus({ preventScroll: true });
               pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false, computer, handle: event.currentTarget };
-              // This handle has no click action. Capture immediately so the
-              // first movement can leave the narrow shelf without losing it.
               event.currentTarget.setPointerCapture(event.pointerId);
             }} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={clearDrag}
             onLostPointerCapture={() => { if (pointer.current) clearDrag(); }}
@@ -246,8 +242,6 @@ export function CanvasComputers({ open, createRequest, drop, sections, onClose, 
               setHeldHere(computer.id);
               return post(computer.id, "join");
             }, (value) => {
-              // Only expose a deliberate link. A blocked popup must not trigger
-              // another lifecycle request, and provider URLs are never iframes.
               if (typeof value.joinUrl === "string" && value.joinUrl.startsWith("https://")) setViewer({ id: computer.id, url: value.joinUrl });
             })}>Open desktop <ExternalLink size={11} /></button>}
             {heldHereNow && <button className={`${control} text-accent`} disabled={busy !== null} onClick={() => void mutate(computer.id, () => post(computer.id, "control", { action: "release", controlLeaseId: controlLeaseId.current }), () => { setHeldHere(null); setViewer(null); })}>Return to dogs</button>}

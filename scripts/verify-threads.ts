@@ -1,4 +1,3 @@
-// Full app, real routes and fake provider in one disposable home.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -34,8 +33,6 @@ try {
   await api("POST", `/api/groups/${group.id}/tasks`, { title: "Weekly review" });
   await api("POST", `/api/bots/${pepper.id}/tasks/${gmailThread}`, {});
 
-  // New sends remain in flight for deterministic switching/Stop checks.
-  // Creating finishGate (only inside this fixture home) completes them.
   const finishGate = join(fixture.info.dataDir, "finish-preview-turns");
   const wrapper = join(fixture.info.dataDir, "preview-claude.mjs");
   writeFileSync(wrapper, [
@@ -43,8 +40,6 @@ try {
     'import { basename, join } from "node:path";',
     'process.env.FAKE_CLAUDE_MODE = "slow";',
     `process.env.FAKE_CLAUDE_SLOW_FINISH_GATE = ${JSON.stringify(finishGate)};`,
-    // Fixture-only launch receipts let a verifier exercise the same live
-    // permission broker as the provider, without accessing real accounts.
     `process.env.FAKE_CLAUDE_DUMP = join(${JSON.stringify(fixture.info.dataDir)}, basename(process.cwd()) + ".launch.json");`,
     `await import(${JSON.stringify(pathToFileURL(fileURLToPath(new URL("../server/testing/fake-claude-cli.ts", import.meta.url))).href)});`,
   ].join("\n"), { mode: 0o700 });

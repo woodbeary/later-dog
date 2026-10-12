@@ -1,14 +1,3 @@
-// Proves the line the app hands a Ubuntu user actually installs, and that the
-// command it replaced does not.
-//
-// The .deb update path ends with a command on the clipboard: the app
-// deliberately never installs the package itself. That makes the command the
-// whole deliverable, so it is executed here as root on a clean Ubuntu, through
-// a real shell, exactly as pasted — quoting included.
-//
-//   node scripts/smoke-deb-command.mjs <path-to-deb>
-//
-// Needs a container runtime; installing a system package is the point.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -27,8 +16,6 @@ function fail(message) {
 const deb = path.resolve(process.argv[2] ?? "");
 if (!deb.endsWith(".deb") || !existsSync(deb)) fail("pass the path to a .deb");
 
-// Inside the container the package sits at a path with a space and an
-// apostrophe, so the quoting the app emits is exercised, not assumed.
 const staged = "/root/pending dir/o'brien/later.dog.deb";
 const command = packageInstallCommand("deb", staged);
 console.log(`[smoke-deb-command] command under test:\n    ${command}\n`);
@@ -56,8 +43,6 @@ function inContainer(script, { expectFailure = false } = {}) {
   }
 }
 
-// Everything before the command under test is setup; `set -e` keeps a failed
-// setup from being read as a failed install.
 const prepare = [
   "set -e",
   "apt-get update -qq",
@@ -82,9 +67,6 @@ const checks = [
   ["the app binary is in place", installed.includes("EXECUTABLE=yes")],
 ];
 
-// The command this replaced. On a clean Ubuntu the dependencies are not
-// present, and dpkg resolves none of them — which is why the old in-app
-// installer could leave a user with a broken package.
 console.log("[smoke-deb-command] control: the `dpkg -i` the app used to run…");
 const control = inContainer([prepare, `dpkg -i "${staged}" || echo "DPKG_FAILED"`].join("\n"), {
   expectFailure: false,

@@ -19,7 +19,6 @@ const bot: Bot = {
   ],
 };
 
-// A bot row hands its thread list the row's props (see botRowProps).
 const threadList = (candidate: Bot, query = "") => createElement(BotThreadList, {
   ...botRowProps(initialState, vi.fn(), candidate, { density: "comfortable", quiet: false, query, onMenu: vi.fn() }),
   selected: true,
@@ -32,8 +31,6 @@ describe("sidebar bot threads", () => {
     expect(markup).toContain('data-sidebar-thread-row="idle" aria-current="page"');
     expect(markup).toContain(`Long research · ${formatUpdatedAt(2)} · Working`);
     expect(markup).toContain(`Needs approval · ${formatUpdatedAt(3)} · Waiting · Unread`);
-    // New thread lives on the bot row as an icon beside New folder; the list
-    // carries no indent rail and no trailing text button
     expect(markup).not.toContain("New thread");
     expect(markup).not.toContain("border-l");
     expect(markup).not.toContain("disabled");
@@ -65,8 +62,6 @@ describe("sidebar bot threads", () => {
     expect(markup).toContain('aria-label="Actions for Research folder"');
     expect(markup).toContain('aria-label="Change Research folder icon"');
     expect(markup).toContain('data-sidebar-folder-row="research" draggable="true"');
-    // Native buttons do not inherit their parent's drag gesture in Chromium.
-    // Dragging from the label must start the same row-owned folder drag.
     expect(markup).toContain('<button type="button" data-sidebar-folder-label="research" draggable="true"');
     expect(markup).toContain("🧪");
     expect(markup).toContain("lucide-folder");
@@ -109,7 +104,6 @@ describe("sidebar bot threads", () => {
     expect(markup).toContain('aria-label="Launch team threads"');
     expect(markup).toContain('data-sidebar-thread-row="group-current" aria-current="page"');
     expect(markup).toContain("Previous review");
-    // New thread lives on the room row now, not at the end of the list
     expect(markup).not.toContain("New thread");
     const picker = renderToStaticMarkup(createElement(StoreProvider, null, createElement(GroupTaskPicker, { group })));
     expect(picker).toContain('aria-label="All threads"');

@@ -2,15 +2,12 @@ export type AvatarImageProvider = "openai" | "xai" | "custom";
 
 export interface ImageGenerationConfig {
   provider?: AvatarImageProvider;
-  /** Legacy OpenAI key; never sent to another provider. */
   key?: string;
   customApiKey?: string;
   customUrl?: string;
   customModel?: string;
 }
 
-/** A deliberately configured Images API endpoint, not a provider-returned URL.
- * Local HTTP is useful for self-hosted routers; internet endpoints require TLS. */
 export function normalizeImageGenerationUrl(value: string): string {
   const message = "Use an HTTPS API base URL, or HTTP for a local router, without passwords, query parameters or fragments";
   let url: URL;

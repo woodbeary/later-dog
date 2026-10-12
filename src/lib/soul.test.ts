@@ -32,7 +32,6 @@ describe("soulPatchFor", () => {
   });
 
   it("returns null one byte over the limit, even via a multi-byte character", () => {
-    // "é" is 2 bytes; 9 ascii bytes + 2 = 11, one over a limit of 10.
     const value = `${"a".repeat(9)}é`;
     expect(utf8Bytes(value)).toBe(11);
     expect(soulPatchFor(value, 10)).toBeNull();

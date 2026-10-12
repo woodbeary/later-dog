@@ -164,7 +164,6 @@ describe("independent bot threads", () => {
     expect(state.bots[0]?.messages).toEqual([replacement]);
     expect(state.bots[0]?.activeLeafId).toBe(replacement.id);
     expect(state.bots[0]?.awaitingThreadSnapshot).toBe(false);
-    // A delayed HTTP duplicate must not undo a later server patch.
     const edited = { ...replacement, text: "Newer state" };
     state = reducer(state, { type: "messagePatched", threadId: "second", message: edited });
     state = reducer(state, { type: "botPatched", bot: response });
@@ -205,7 +204,6 @@ describe("independent bot threads", () => {
     expect(state.bots[0]).toMatchObject({ threadId: replacement.threadId, tasks: [replacement], messages: [], activeLeafId: null, awaitingThreadSnapshot: false });
     expect(state.selectedId).toBe(bot.id);
     expect(state.bots[1]).toBe(otherBot);
-    // A late event for the deleted thread cannot repopulate its replacement.
     expect(reducer(state, { type: "messageAdded", threadId: onlyThread.threadId, message: onlyThread.messages[0]! })).toBe(state);
   });
 
@@ -289,7 +287,6 @@ describe("independent bot threads", () => {
     const unpinned = reducer(autoPinned, { type: "updateTask", botId: bot.id, threadId: "first", patch: { surface: null } });
     expect(unpinned.bots[0]?.tasks?.[0]?.surface).toBeUndefined();
     expect(unpinned.bots[0]?.tasks?.[0]?.surfaceAuto).toBeUndefined();
-    // Any other thread edit leaves the machine's record as it is.
     const listPinned = reducer(autoPinned, { type: "updateTask", botId: bot.id, threadId: "first", patch: { pinned: true } });
     expect(listPinned.bots[0]?.tasks?.[0]).toMatchObject({ surface: "browser", surfaceAuto: true });
   });
@@ -340,8 +337,6 @@ describe("connector grants persistence", () => {
       slack: { tools: "*" },
     };
     await persistBotUpdate("bot-1", { connectorTools: grants }, new AbortController().signal, request);
-    // Exact-set semantics: the wire body is the record verbatim, so a
-    // reload of what the server stored equals what the person picked.
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({ connectorTools: grants });
   });
 
@@ -741,8 +736,6 @@ describe("notification routing", () => {
   });
 
   it("opens the room when the thread is a group's — never a bot task switch that would 404", () => {
-    // room approval/question notifications carry the asker bot with the
-    // GROUP's thread id; the exact destination is the room itself
     const dispatch = vi.fn();
 
     openNotificationTarget(dispatch, { botId: "bot-1", threadId: "room-thread" }, { bots, groups });
@@ -1167,7 +1160,6 @@ describe("optimistic sent messages", () => {
       const confirmed = reducer(reconciled, { type: "threadActive", threadId: bot.threadId, activeLeafId: fork.id });
       const reply: Message = { id: "a2", role: "bot", kind: "text", text: "new answer", at: 5, parentId: fork.id };
       const answered = reducer(confirmed, { type: "messageAdded", threadId: bot.threadId, message: reply });
-      // the POST response for the same fork arrives last and must not rewind
       const late = reducer(answered, { type: "messageAdded", threadId: bot.threadId, message: fork });
       expect(visibleMessages(late.bots[0]!).map((message) => message.text)).toEqual(["Ready", "second try", "new answer"]);
       expect(late.bots[0]?.messages.some((message) => message.id.startsWith("optimistic-"))).toBe(false);
@@ -1423,7 +1415,6 @@ describe("teammate wait announcements", () => {
     modelSelection: { instanceId: "codex", model: "default" }, busy: true, activity: "working", waitingForTeammates: true,
     messages: [{ id: "message", role: "user", kind: "text", at: 1, text: "Keep this conversation" }],
   };
-  // The existing wire explicitly clears the coordination wait on settlement.
   it.each(["botPatched", "taskSwitched", "botPatchedSwitch"] as const)("clears the wait when a working frame reports settlement via %s", (kind) => {
     const announcement = { ...waiting, waitingForTeammates: false };
     const next = reducer({ ...initialState, bots: [waiting] }, {
@@ -1867,7 +1858,6 @@ describe("scrollback pages", () => {
       type: "olderMessages",
       threadId: "thread-1",
       generation: loading.transcriptGeneration["thread-1"] ?? 0,
-      // m3 overlaps the page this client already holds
       messages: [message("m1", 1), message("m2", 2), message("m3", 3)],
       hasMore: false,
     });
@@ -1881,7 +1871,6 @@ describe("scrollback pages", () => {
     const loading = reducer({ ...initialState, bots: [withLeaf] }, { type: "loadOlderMessages", threadId: "thread-1" });
     const generation = loading.transcriptGeneration["thread-1"] ?? 0;
 
-    // an edit rewinds the visible branch while the page is on the wire
     const rewound = reducer(loading, { type: "threadActive", threadId: "thread-1", activeLeafId: "m3" });
     expect(rewound.transcriptGeneration["thread-1"]).not.toBe(generation);
 
@@ -1918,14 +1907,12 @@ describe("scrollback pages", () => {
 
   it("keeps the open transcript's scrollback answer when a bot frame does not switch it", () => {
     const open = { ...bot, tasks: [{ threadId: "thread-1", title: "Long", createdAt: 1 }] } as never as Bot;
-    // Another client opened thread-2; its frame carries thread-2's page.
     const opened = reducer({ ...initialState, bots: [open] }, {
       type: "botPatched",
       bot: { ...open, threadId: "thread-2", tasks: [{ threadId: "thread-2", title: "New", createdAt: 2 }, ...open.tasks!], messages: [], hasMore: false } as never,
     });
     expect(opened.bots[0]).toMatchObject({ threadId: "thread-1", hasMore: true });
     expect(opened.bots[0].messages.map((m) => m.id)).toEqual(["m3", "m4"]);
-    // A reply with this thread's newest page leaves the scrollback already loaded.
     const loaded = { ...initialState, bots: [{ ...open, hasMore: false }] };
     const replied = reducer(loaded, { type: "botPatched", bot: { ...open, messages: [message("m4", 4)], hasMore: true } as never });
     expect(replied.bots[0].messages.map((m) => m.id)).toEqual(["m3", "m4"]);
@@ -1946,13 +1933,11 @@ describe("scrollback pages", () => {
       hasMore: true,
     } as never as Group;
     const withRoom = { ...initialState, groups: [group] };
-    // a frame that carries the whole thread and no page marker IS the thread
     const complete = reducer(withRoom, {
       type: "groupPatched",
       group: { id: "room", threadId: "room-thread", messages: [message("m8", 8), message("m9", 9)] } as never as Group,
     });
     expect(complete.groups[0].hasMore).toBe(false);
-    // a patch with no transcript leaves the answer alone
     const renamed = reducer(withRoom, { type: "groupPatched", group: { id: "room", name: "Renamed" } });
     expect(renamed.groups[0].hasMore).toBe(true);
   });
@@ -1980,13 +1965,12 @@ describe("messageAdded leaf adoption", () => {
   });
 
   it("keeps the leaf when a late artifact is chain-inserted mid-branch", () => {
-    // the settle-time screenshot arrives parented to m1 while m2 is the leaf
     const next = reducer(state, {
       type: "messageAdded",
       threadId: "thread-1",
       message: { id: "shot", at: 3, parentId: "m1", role: "bot", kind: "screen", png: "x" } as never as Message,
     });
-    expect(next.bots[0].activeLeafId).toBe("m2"); // the user's message stays the tail
+    expect(next.bots[0].activeLeafId).toBe("m2");
     expect(next.bots[0].messages.map((m) => m.id)).toContain("shot");
   });
 
@@ -2074,7 +2058,6 @@ describe("bot settings section", () => {
       open: true,
     });
     expect(next.botSettingsSection).toBe("soul");
-    // Bare reopen (mascot) must not auto-expand a leftover section.
     expect(next.botSettingsExpandAccordion).toBe(false);
   });
 
@@ -2136,19 +2119,16 @@ describe("bot settings section", () => {
   });
 
   it("selecting a different bot resets botSettingsSection to overview", () => {
-    // Add bot A and select it
     let state = reducer(initialState, {
       type: "botAdded",
       bot: { ...bot, id: "bot-a", threadId: "thread-a" },
     });
-    // Add bot B (becomes selected automatically)
     state = reducer(state, {
       type: "botAdded",
       bot: { ...bot, id: "bot-b", threadId: "thread-b" },
     });
     expect(state.selectedId).toBe("bot-b");
 
-    // Set section to "identity" while bot-b is selected
     state = reducer(state, {
       type: "toggleSettings",
       open: true,
@@ -2156,7 +2136,6 @@ describe("bot settings section", () => {
     });
     expect(state.botSettingsSection).toBe("identity");
 
-    // Select bot A → should reset to "overview" because we're changing bots
     const next = reducer(state, {
       type: "select",
       id: "bot-a",
@@ -2165,14 +2144,12 @@ describe("bot settings section", () => {
   });
 
   it("re-selecting the same bot keeps botSettingsSection, but selecting a different bot resets it", () => {
-    // Add bot A (becomes selected)
     let state = reducer(initialState, {
       type: "botAdded",
       bot: { ...bot, id: "bot-a", threadId: "thread-a" },
     });
     expect(state.selectedId).toBe("bot-a");
 
-    // Open settings with section "soul"
     state = reducer(state, {
       type: "toggleSettings",
       open: true,
@@ -2180,21 +2157,18 @@ describe("bot settings section", () => {
     });
     expect(state.botSettingsSection).toBe("soul");
 
-    // Re-select bot A (same bot) → section should stay "soul"
     state = reducer(state, {
       type: "select",
       id: "bot-a",
     });
     expect(state.botSettingsSection).toBe("soul");
 
-    // Add bot B (becomes selected)
     state = reducer(state, {
       type: "botAdded",
       bot: { ...bot, id: "bot-b", threadId: "thread-b" },
     });
     expect(state.selectedId).toBe("bot-b");
 
-    // Select bot A again → should reset to "overview" because we're changing from bot-b to bot-a
     state = reducer(state, {
       type: "select",
       id: "bot-a",
@@ -2204,8 +2178,6 @@ describe("bot settings section", () => {
 });
 
 describe("activity panel", () => {
-  // The activity panel is a sibling of the inspector and the computer panel:
-  // one side panel at a time, and any view change closes it.
   it("starts closed", () => {
     expect(initialState.activityOpen).toBe(false);
   });
@@ -2349,8 +2321,6 @@ describe("conversation model variant discoveries", () => {
   const discovery = (variants: ModelVariantState = { options: [{ id: "minimal", label: "Minimal" }], currentValue: "minimal" }, threadId = "first", turnId = "turn-1"): RuntimeEvent =>
     ({ ...base(threadId, turnId), type: "session.model-variants", model: selection.model, variants });
 
-  // The desktop shows a reply once it is finished, so a streamed delta has
-  // nothing to update; only the model-variant fold reads runtime frames.
   it("ignores reply and reasoning deltas but still folds model-variant frames", () => {
     const apply = (state: AppState, event: RuntimeEvent) => {
       const action = runtimeFrameAction(event);
@@ -2446,22 +2416,15 @@ describe("live call state", () => {
     expect(reducer(ended, { type: "liveCall", call: null }).liveCall).toBeNull();
   });
 
-  // GET /api/live/call races the event stream: an answer that left before a
-  // newer live.call frame landed must not put back an older line (a phantom
-  // bar for a call that has ended, or no bar for one that just began).
   it("takes a lookup of the line only if no newer frame landed while it was out", () => {
     const since = initialState.liveCallVersion;
     const framed = reducer(initialState, { type: "liveCall", call });
     expect(reducer(framed, { type: "liveCallLookup", call: null, since, seq: 1 })).toBe(framed);
     const fresh = reducer(framed, { type: "liveCallLookup", call: { ...call, status: "ended", endReason: "idle" }, since: framed.liveCallVersion, seq: 2 });
     expect(fresh.liveCall?.status).toBe("ended");
-    // a lookup is not newer news than the next lookup
     expect(fresh.liveCallVersion).toBe(framed.liveCallVersion);
   });
 
-  // Two snapshots can overlap (a reconnect while the first one is out):
-  // both lookups leave at the same version, and the answers can come back
-  // in either order.
   it("never lets an earlier lookup's answer replace a later one's", () => {
     const since = initialState.liveCallVersion;
     const later = reducer(initialState, { type: "liveCallLookup", call, since, seq: 2 });

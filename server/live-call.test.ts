@@ -51,7 +51,6 @@ describe("createLiveSession", () => {
       { type: "message", role: "user", content: [{ type: "input_text", text: "Check the release notes" }] },
       { type: "message", role: "assistant", content: [{ type: "output_text", text: "Done: two fixes." }] },
     ]);
-    // the key is a header, never part of the session body
     expect(String(init?.body)).not.toContain("sk-live-secret");
   });
 
@@ -123,19 +122,14 @@ describe("live startup context", () => {
     expect(text).toContain("Never answer it yourself.");
   });
 
-  // On a Cloud the harness is a server in the cloud: a voice that says it
-  // runs on the person's own computer offers what it cannot reach. It names
-  // the place in the bot's own words (cloudHomePrompt), so the two cannot drift.
   it("on a Cloud, says the voice runs on the user's My Cloud, not their own computer", () => {
     const text = liveInstructions({ name: "Rigel", title: "QA" }, { cloudHome: true });
     expect(text.split("\n")[0]).toBe(`You are Rigel, QA, an AI agent that runs on ${CLOUD_HOME_PLACE}.`);
     expect(text.split("\n")[0]).toBe("You are Rigel, QA, an AI agent that runs on the user's My Cloud, their always-on later.dog in the cloud, not on their own computer.");
-    expect(text).not.toMatch(/\blaterdog\b/); // the code identifier, never the product's name
+    expect(text).not.toMatch(/\blaterdog\b/);
     expect(liveInstructions({ name: "Rigel" }, { cloudHome: false }).split("\n")[0]).toBe("You are Rigel, an AI agent that runs in later.dog on the user's own computer.");
   });
 
-  // The bot's work happens where it runs: on a Cloud that is My Cloud, never
-  // "the computer" just after the voice was told it is not on their computer.
   it("says the bot changes things where it runs", () => {
     const backend = (cloudHome: boolean) => liveInstructions({ name: "Rigel" }, { cloudHome }).split("\n").find((line) => line.startsWith("- Rigel:"));
     expect(backend(true)).toContain("It researches, writes, changes things on My Cloud, and answers questions");
@@ -149,8 +143,6 @@ describe("live startup context", () => {
     expect(text).toContain("While you work you get quiet status notes");
   });
 
-  // The voice called itself "the voice layer" and offered to "ask the backend"
-  // when asked which AI model it is. It is the bot, and it checks without asking.
   it("makes the voice the bot itself: first person, no backend talk, no asking to check", () => {
     const text = liveInstructions({ name: "CFO", title: "Chief Financial Officer" });
     expect(text.split("\n")[0]).toBe("You are CFO, Chief Financial Officer, an AI agent that runs in later.dog on the user's own computer.");
@@ -159,7 +151,6 @@ describe("live startup context", () => {
     expect(text).toContain("Never mention a backend, delegation, a voice layer, or another system or model doing the work");
     expect(text).toContain("Never ask the user whether you may look something up or check something");
     expect(text).toContain("- The user asks something about you that this conversation does not already answer, for example which AI model you run on.");
-    // OpenAI's trained delegation labels stay as they are
     for (const label of ["Backchannel policy:", "Interruption policy:", "Delegation policy:", "Backend tools:", "Delegate to the backend when:", "Do not delegate to the backend when:"]) {
       expect(text).toContain(label);
     }

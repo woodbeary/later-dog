@@ -1,5 +1,3 @@
-// Compatibility alias: `laterdog pair` lives in cli.ts now. Kept because
-// docs and images reference dist-server/pair-cli.js.
 import { main } from "./cli.ts";
 import { exitAfterFlush } from "./exit.ts";
 

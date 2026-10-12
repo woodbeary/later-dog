@@ -64,7 +64,6 @@ test("a loading screen that never becomes ready cannot block server startup", as
   assert.equal(ready, false);
   t.mock.timers.tick(1); await flush();
   assert.equal(ready, true);
-  // Still the app's only window: destroying it would quit before the workspace exists.
   assert.equal(splash.window.destroyed, false);
   assert.deepEqual(calls, []);
   splash.attach(win);

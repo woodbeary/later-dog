@@ -1,6 +1,3 @@
-// The native CUA SDK launches the daemon without CREATE_NO_WINDOW. Derive a
-// Windows GUI-subsystem copy for that daemon; keep the upstream CLI unchanged
-// for the stdio MCP proxy. No executable section or entry point is modified.
 export function createBackgroundExecutable(source) {
   const fail = () => { throw new Error("Unsupported CUA executable: expected a complete x64 PE32+ console image"); };
   if (!Buffer.isBuffer(source) || source.length < 64 || source.toString("ascii", 0, 2) !== "MZ") fail();
@@ -19,8 +16,6 @@ export function createBackgroundExecutable(source) {
   const certificateStart = source.readUInt32LE(certificateEntry);
   const certificateSize = source.readUInt32LE(certificateEntry + 4);
   const headersEnd = sectionTable + sectionCount * 40;
-  // A modified image must not carry the original publisher's signature. Only
-  // remove a trailing certificate table; refuse unfamiliar overlays/layouts.
   if ((certificateStart === 0) !== (certificateSize === 0) ||
       (certificateSize && (certificateStart < headersEnd || certificateStart % 8 !== 0 ||
         certificateStart + certificateSize !== source.length))) fail();
@@ -33,7 +28,7 @@ export function createBackgroundExecutable(source) {
   }
 
   const result = Buffer.from(source.subarray(0, imageEnd));
-  result.writeUInt16LE(2, optional + 68); // IMAGE_SUBSYSTEM_WINDOWS_GUI
+  result.writeUInt16LE(2, optional + 68);
   result.fill(0, certificateEntry, certificateEntry + 8);
   result.writeUInt32LE(0, optional + 64);
   let checksum = 0;

@@ -21,7 +21,6 @@ export const configSchema = z.object({
 }).strict();
 export function supervisorDataDir(): string { return process.env.LATERDOG_DATA_DIR ?? join(process.env.LATERDOG_HOME ?? join(homedir(), ".laterdog"), "supervisor"); }
 export function supervisorToken(dataDir = supervisorDataDir()): string {
-  // Secrets pasted into a hosting platform often carry a trailing newline; an untrimmed token would reject every call with 401.
   if (process.env.LATERDOG_TOKEN?.trim()) return process.env.LATERDOG_TOKEN.trim();
   const file = process.env.LATERDOG_TOKEN_FILE ?? join(dataDir,"access-token");
   if (existsSync(file)) return readFileSync(file,"utf8").trim();
@@ -47,10 +46,7 @@ function validOrigin(raw: string): string {
 export const connectionSchema = z.object({ url: z.string().url(), tokenFile: z.string().min(1).transform((file) => file.replace(/^~(?=\/)/, homedir()))
   .refine(isAbsolute, "tokenFile must be an absolute path") }).strict();
 export interface SupervisorConnection { origin: string; tokenFile?: string; source: "environment" | "file" | "local" }
-/** `<data>/supervisor.json`, beside the local supervisor's own `supervisor/` directory: `{ "url": "https://…", "tokenFile": "/abs/path" }`. */
 export function supervisorConnectionFile(): string { return join(process.env.LATERDOG_HOME ?? join(homedir(), ".laterdog"), "supervisor.json"); }
-/** Which supervisor this desktop's workspace, proxy and bots talk to. `LATERDOG_SUPERVISOR_URL` wins; then the saved connection file, so a
- * packaged app launched from Finder reaches a hosted supervisor; otherwise the local supervisor the desktop starts itself. */
 export function supervisorConnection(): SupervisorConnection {
   if (process.env.LATERDOG_SUPERVISOR_URL) {
     return { origin: validOrigin(process.env.LATERDOG_SUPERVISOR_URL), ...(process.env.LATERDOG_TOKEN_FILE ? { tokenFile: process.env.LATERDOG_TOKEN_FILE } : {}), source: "environment" };
@@ -63,7 +59,6 @@ export function supervisorConnection(): SupervisorConnection {
   return { origin: "http://127.0.0.1:9010", source: "local" };
 }
 export function supervisorOrigin(): string { return supervisorConnection().origin; }
-/** The bearer this desktop presents. A hosted connection must name an existing token file: generating one here would only produce 401s. */
 export function desktopSupervisorToken(): string {
   if (process.env.LATERDOG_TOKEN?.trim()) return process.env.LATERDOG_TOKEN.trim();
   const connection = supervisorConnection();

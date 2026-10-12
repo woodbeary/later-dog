@@ -1,6 +1,3 @@
-// The registry: one Durable Object (named "registry") listing every computer, so listing is one call and the
-// MAX_COMPUTERS cap and Idempotency-Key replays are decided in one place, one request at a time. Each computer's own
-// Durable Object stays the source of truth and copies its summary here after every change.
 
 import { DurableObject } from "cloudflare:workers";
 import type { Refusal } from "./auth";
@@ -43,7 +40,6 @@ export class ComputerRegistry extends DurableObject<Env> {
     )`);
   }
 
-  /** Claims an id (and a slot under the cap) for a new computer, or returns the one an earlier request with this key made. */
   reserve(input: { name?: string; size: Size; idempotencyKey?: string; max: number }): Reservation {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
@@ -52,7 +48,6 @@ export class ComputerRegistry extends DurableObject<Env> {
       const prior = sql.exec<{ computer_id: string }>("SELECT computer_id FROM idempotency WHERE key = ?", input.idempotencyKey).toArray()[0];
       const row = prior && sql.exec<Row>("SELECT * FROM computers WHERE id = ?", prior.computer_id).toArray()[0];
       if (row) return { ok: true, id: row.id, name: row.name, size: row.size as Size, replayed: true };
-      // The computer that key created was deleted since; the key starts over.
       sql.exec("DELETE FROM idempotency WHERE key = ?", input.idempotencyKey);
     }
     const count = sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM computers").one().n;
@@ -70,7 +65,6 @@ export class ComputerRegistry extends DurableObject<Env> {
     return { ok: true, id, name, size: input.size, replayed: false };
   }
 
-  /** Copies a computer's latest summary. Never inserts, so a late copy cannot bring back a deleted computer. */
   update(computer: ComputerView): void {
     this.ctx.storage.sql.exec(
       "UPDATE computers SET name = ?, size = ?, state = ?, created_at = ?, last_active_at = ?, snapshot_at = ?, error = ? WHERE id = ?",
@@ -85,7 +79,6 @@ export class ComputerRegistry extends DurableObject<Env> {
     );
   }
 
-  /** Forgets a computer; true when it was listed. */
   remove(id: string): boolean {
     const sql = this.ctx.storage.sql;
     const listed = sql.exec("SELECT 1 FROM computers WHERE id = ?", id).toArray().length > 0;

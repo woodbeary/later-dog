@@ -5,7 +5,6 @@ import { DatabaseSync } from "node:sqlite";
 import { expect, it, vi } from "vitest";
 import { createWorkspaceBackup } from "./workspace-backup.ts";
 
-// Capture the real worker to exercise an abrupt exit, not a simulated result.
 const running = vi.hoisted(() => ({ worker: undefined as import("node:worker_threads").Worker | undefined }));
 vi.mock("node:worker_threads", async importOriginal => {
   const actual = await importOriginal<typeof import("node:worker_threads")>();
@@ -17,8 +16,6 @@ vi.mock("node:worker_threads", async importOriginal => {
   } };
 });
 
-// Real encrypted backups of 800+ files: about 3 s on Linux and macOS but about
-// 25 s on the Windows runners, so a 30 s limit there timed out under load.
 const TIMEOUT_MS = 120_000;
 
 it("keeps the request loop running during the snapshot copy, not just encryption", async () => {
@@ -45,10 +42,6 @@ it("keeps the request loop running during the snapshot copy, not just encryption
   }
 }, TIMEOUT_MS);
 
-// A copy's status poll (GET /api/cloud-move counts chats in the live message
-// database) opens its own connection while the restore's backup snapshots that
-// database, and the busy moment of that connection opening or closing used to
-// fail the snapshot outright ("database is locked", or Node's "not an error").
 it("waits for another connection's moment on the message database instead of failing the snapshot", async () => {
   const directory = mkdtempSync(join(tmpdir(), "laterdog-backup-worker-busy-"));
   const database = join(directory, "messages.db");
@@ -58,8 +51,6 @@ it("waits for another connection's moment on the message database instead of fai
   const insert = store.prepare("INSERT INTO messages VALUES (?, ?, '{}')");
   for (let i = 0; i < 40; i++) insert.run(`thread-${i % 3}`, `message-${i}`);
   store.close();
-  // The other connection holds the database the way that busy moment does:
-  // in WAL mode, only exclusive locking mode keeps another reader out.
   const holder = new DatabaseSync(database);
   holder.exec("PRAGMA locking_mode = EXCLUSIVE");
   holder.exec("BEGIN EXCLUSIVE");
@@ -70,7 +61,6 @@ it("waits for another connection's moment on the message database instead of fai
     .then(result => ({ result, error: undefined }), (error: unknown) => ({ result: undefined, error }))
     .finally(() => { settled = true; });
   try {
-    // Hold it until the snapshot is reading it (its copy exists from then on), and a moment longer.
     const root = join(directory, ".backups");
     const reading = () => existsSync(root) && readdirSync(root).some(id => existsSync(join(root, id, "snapshot", "messages-snapshot.db")));
     await expect.poll(() => settled || reading(), { interval: 1, timeout: TIMEOUT_MS }).toBe(true);

@@ -1,10 +1,3 @@
-// Parent-death guardian for the managed Companion origin.
-//
-// Electron launches this small Node process with an open stdin pipe. It owns
-// both the stable loopback gateway and cloudflared. If Electron crashes, the
-// pipe reaches EOF; the guardian invalidates forwarding, kills cloudflared,
-// and only then releases port 8812. An orphan connector can therefore never
-// expose whatever process happens to bind a reusable local port later.
 import { spawn } from "node:child_process";
 import path from "node:path";
 
@@ -22,9 +15,6 @@ const copyEnvironmentValue = (source, target, names) => {
   }
 };
 
-/** cloudflared gets OS process plumbing only. An allowlist strips every
- * TUNNEL_*, CF_*, CLOUDFLARED_*, proxy, config, logging, protocol, and secret
- * variable without relying on an inevitably incomplete blocklist. */
 export function minimalCloudflaredEnvironment(
   environment = process.env,
   platform = process.platform,
@@ -37,8 +27,6 @@ export function minimalCloudflaredEnvironment(
   return minimal;
 }
 
-/** Environment for launching this file through the packaged Electron binary
- * in Node mode. It is just as narrow as the connector environment. */
 export function minimalGuardianEnvironment(
   environment = process.env,
   platform = process.platform,
@@ -75,9 +63,6 @@ async function terminateConnector(child, graceMs = 250) {
     };
     child.once("exit", finish);
     child.once("error", () => {
-      // An asynchronous spawn failure has no process to wait for. Once a pid
-      // exists, an error event alone is not proof that the OS process died;
-      // retaining the gateway is the fail-closed choice until `exit` arrives.
       if (!Number.isSafeInteger(child.pid)) finish();
     });
   });
@@ -89,8 +74,6 @@ async function terminateConnector(child, graceMs = 250) {
   try {
     child.kill("SIGKILL");
   } catch {}
-  // Do not release the gateway on a timer. Holding the loopback port is the
-  // fail-closed state until the OS confirms cloudflared is dead.
   await exit;
 }
 
@@ -111,7 +94,6 @@ function ownerLoss(ownerInput, signalSource) {
   });
 }
 
-/** Run one guardian lifetime. Exported for deterministic lifecycle tests. */
 export async function runManagedCompanionGuardian({
   cloudflaredBinary,
   tokenFile,
@@ -198,8 +180,3 @@ export function guardianArguments(argv) {
   return { cloudflaredBinary, tokenFile, target, originPort };
 }
 
-// Executed as a process through managed-companion-guardian-main.mjs. This file
-// is a library on purpose: managed-companion-tunnel.mjs imports an environment
-// helper from it, and anything that bundles that module (the headless CLI's
-// entries) would otherwise inline a "run when executed directly" check that
-// is true for the bundle itself.

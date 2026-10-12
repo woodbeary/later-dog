@@ -176,7 +176,6 @@ describe("server device-code sign-in", () => {
     };
     const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(EngineSetup, { instance: engine })));
     expect(markup).toContain("Continue with ChatGPT");
-    // Any later.dog Cloud plan, not only Pro.
     expect(markup).toContain("separate from later.dog Cloud and API billing");
     expect(markup).not.toContain("codex login");
     expect(markup).not.toContain("Device-code login");

@@ -1,9 +1,4 @@
 // @vitest-environment happy-dom
-// The open chat's rows re-render only when their own message changes. A
-// store event elsewhere (another bot's frame, a field of this bot that no
-// row shows) renders none of them; a patched tool chip renders that chip
-// and nothing else. Counted through the leaf each row draws, which is not
-// memoized here, so it renders exactly when its row does.
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -47,8 +42,6 @@ const { t } = await import("@/lib/i18n");
 
 const message = (id: string, parentId: string | undefined, fields: Partial<Message>): Message =>
   ({ id, parentId, role: "bot", kind: "text", at: new Date(2026, 9, 3, 9, Number(id.slice(1))).getTime(), ...fields });
-// Three turns, each a question, one tool step and an answer; the last turn's
-// step is still running.
 const messages: Message[] = [];
 for (let turn = 0; turn < 3; turn++) {
   const at = turn * 3;
@@ -103,7 +96,6 @@ async function rowRendersAfter(change: (current: AppState) => AppState) {
 }
 
 beforeAll(async () => {
-  // late on the day of the thread, so its separator reads "Today"
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(2026, 9, 3, 23, 0));
   vi.stubGlobal("fetch", () => new Promise(() => {}));
@@ -147,7 +139,6 @@ describe("chat transcript rows", () => {
     expect(document.body.textContent).toContain("Read file 2, page 2");
   });
 
-  // The separator used to follow every store event; now it follows the date.
   it("moves Today on to Yesterday after midnight, at the next store event", async () => {
     vi.setSystemTime(new Date(2026, 9, 4, 0, 30));
     const scout = state.bots.find((bot) => bot.id === "scout")!;
@@ -200,7 +191,6 @@ describe("chat transcript rows", () => {
       await switchTo("host");
       expect(speak()).toEqual([]);
     } finally {
-      // the stubbed globals go in afterAll
       window.laterdog = bridge;
     }
   });

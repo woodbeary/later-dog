@@ -15,12 +15,10 @@ import { AttachmentPreviewDialog, previewImage, type PreviewImage } from "./Atta
 import { CitationBadge } from "./CitationUI";
 import type { CitationAttachment } from "@/lib/citations";
 
-/** Electron 32 removed File.path — only the preload can name a file. */
 export function pathForFile(file: File): string {
   return window.laterdog?.getPathForFile?.(file) ?? "";
 }
 
-/** Renders pending attachments and their composer actions. */
 export function ComposerAttachments({
   items,
   onAdd,
@@ -48,8 +46,6 @@ export function ComposerAttachments({
 }) {
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<PreviewImage | null>(null);
-  // dragenter/dragleave fire once per element crossed, so the overlay
-  // tracks depth rather than the last event it happened to see
   const depth = useRef(0);
   const callbacks = useRef({ onAdd, onNotice, onPendingChange, allowImages, uploadImage, admitFiles });
   callbacks.current = { onAdd, onNotice, onPendingChange, allowImages, uploadImage, admitFiles };
@@ -68,8 +64,6 @@ export function ComposerAttachments({
       depth.current = Math.max(0, depth.current - 1);
       if (depth.current === 0) setDragging(false);
     };
-    // without preventDefault the window navigates to the dropped file and
-    // the app is simply gone
     const onOver = (e: DragEvent) => {
       if (carriesFiles(e)) e.preventDefault();
     };
@@ -80,8 +74,6 @@ export function ComposerAttachments({
       setDragging(false);
       const dropped = Array.from(e.dataTransfer?.files ?? []);
       const admitted = callbacks.current.admitFiles?.(dropped) ?? { files: dropped, notice: null };
-      // Same intake the attach button uses: a dropped file and a picked one
-      // must not appear in a different order.
       const operation = Symbol("attachment-drop");
       pendingDrops.current.add(operation);
       callbacks.current.onPendingChange?.(true);

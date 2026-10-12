@@ -1,9 +1,3 @@
-// later.dog cloud computers: every dog gets its own Linux desktop on Cloudflare Containers.
-//
-// This Worker is the front door. /v1/... is the API later.dog's server calls (bearer key, server to server only);
-// /desktop/<id>/<token>/... is the signed viewer link a person opens to watch a computer and take it over. Each computer is
-// a DogComputer Durable Object addressed by its id (src/computer.ts); one ComputerRegistry Durable Object lists them
-// (src/registry.ts). README.md describes the API, the costs and the idle policy.
 
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
@@ -40,7 +34,6 @@ export { DogComputer } from "./computer";
 export { ComputerRegistry } from "./registry";
 export { TrialRegistry } from "./trial-registry";
 
-// Secrets are set with `wrangler secret put` (README.md), so the generated Env type does not know them.
 declare global {
   interface Env {
     COMPUTERS_KEY_SHA256?: string;
@@ -172,7 +165,6 @@ async function createComputer(request: Request, env: Env, caller: Caller): Promi
     result = { ok: false, refusal: { status: 502, code: "start_failed", message: error instanceof Error ? error.message : String(error) } };
   }
   if (!result.ok) {
-    // A computer that never started is not kept around (or counted against the cap).
     if (!reservation.replayed) {
       await stub.remove().catch(() => undefined);
       await caller.registry.remove(reservation.id);
@@ -198,7 +190,6 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
     case "delete": {
       const result = await stub.remove();
       const listed = await caller.registry.remove(id);
-      // Deleting is idempotent while the registry still lists the computer (an earlier delete stopped halfway).
       if (!result.ok && !(result.refusal.status === 404 && listed)) return apiError(result.refusal);
       return json({ deleted: true });
     }
@@ -633,7 +624,6 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
       case "redirect":
         return new Response(null, { status: 302, headers: { location: target.location, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
       case "desktop":
-        // The computer's Durable Object checks the link against its current boot and serves or proxies the request.
         return await computer(env, target.id).fetch(request);
       case "not_found":
         return target.api ? apiError(NO_ENDPOINT) : new Response("Not found\n", { status: 404 });

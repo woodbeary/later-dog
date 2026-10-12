@@ -12,13 +12,10 @@ import {
 } from "../../shared/place-view";
 import { canUseMcpServer } from "../../shared/tool-scope";
 
-/** The catalog's words for a place key (src/locales/en.json mirrors it). */
 export const placeTranslate: PlaceTranslate = (key, params) => t(key as LocaleKey, params);
 
-/** What the app knows about where it runs and who is looking. */
 export interface PlaceSeat {
   server: ServerKind;
-  /** This desktop is signed in to a paid later.dog Cloud plan. */
   plan: boolean;
   role: "admin" | "user";
 }
@@ -28,7 +25,6 @@ export function serverKind(config: Pick<ConfigStatus, "cloudHome"> | null | unde
   return platform === "darwin" ? "mac" : platform === "win32" ? "pc" : "linux";
 }
 
-/** The engine facts a place reads, from the bot's engine. */
 function engineFacts(instance: InstanceInfo | undefined, model: string | undefined): PlaceFacts["engine"] {
   const label = instance?.models?.options?.find((option) => option.id === model)?.label;
   return {
@@ -40,7 +36,6 @@ function engineFacts(instance: InstanceInfo | undefined, model: string | undefin
   };
 }
 
-/** Every fact of a bot's place but the place itself and its live state. */
 export function placeFacts(input: {
   bot: Pick<Bot, "name" | "modelSelection" | "toolScope" | "cloudBackend" | "browser">;
   place: PlaceFacts["place"];
@@ -70,34 +65,25 @@ export function placeFacts(input: {
   };
 }
 
-/** One place's view, in the person's language. */
 export function placeViewFor(facts: PlaceFacts): PlaceView {
   return placeView(facts, { translate: placeTranslate, locale: activeLocale() });
 }
 
-/** A stored failed-turn row's place, worded for this reader. A desktop on a
- * paid plan reads "needs a Boat key" as what it is for it: the plan's cloud
- * computers work on My Cloud. */
 export function placeRowViewFor(row: PlaceRow, seat: PlaceSeat, worksOnLabel?: string): PlaceView {
   const read = row.state === "cc-needs-key" && seat.plan && seat.server !== "my-cloud" ? { ...row, state: "cc-on-my-cloud" as const } : row;
   return placeRowView(read, { server: seat.server, role: seat.role, worksOnLabel, translate: placeTranslate, locale: activeLocale() });
 }
 
-/** Whether a place can't be picked at all: no setting here makes it work. */
 export function placeBlocked(view: PlaceView): boolean {
   return view.state === "cc-cannot" || view.state === "cc-on-my-cloud" || view.state === "cc-needs-key" || view.state === "browser-off"
     || view.state === "browser-cannot" || view.state === "vm-cannot" || view.state === "local-unavailable";
 }
 
-/** Whether a place's state is a problem to name on its card, not its usual description. */
 export function placeHasIssue(view: PlaceView): boolean {
   return placeBlocked(view) || view.state === "cc-tools-off" || view.state === "cc-sign-in" || view.state === "cc-needs-key"
     || view.state === "cc-unavailable";
 }
 
-/** The desktop bridge's plan: paid or not. Reads the native snapshot only;
- * never signs in or refreshes. False without a bridge (a browser, a server's
- * page). */
 export function useCloudPlanPaid(): boolean {
   const bridge = typeof window === "undefined" || window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudAccount;
   const [account, setAccount] = useState<CloudAccountState | null>(null);
@@ -111,7 +97,6 @@ export function useCloudPlanPaid(): boolean {
   return Boolean(bridge) && cloudPlanView(account).kind === "paid";
 }
 
-/** Where this app runs and who is looking: one hook for every place control. */
 export function usePlaceSeat(config: Pick<ConfigStatus, "cloudHome"> | null | undefined, platform: DesktopCapabilities["host"]["platform"]): PlaceSeat {
   const plan = useCloudPlanPaid();
   const ownerOrAdmin = useOwnerOrAdmin();

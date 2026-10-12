@@ -23,9 +23,6 @@ export async function makeClient(base: string): Promise<ApiClient> {
   };
 }
 
-/** One read, bounded by the wait's own deadline: a request that connects
- * but never completes would otherwise park the loop forever and the
- * deadline check below would never run. */
 async function readWithDeadline<T>(read: () => Promise<T>, what: string, deadline: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -43,8 +40,6 @@ async function readWithDeadline<T>(read: () => Promise<T>, what: string, deadlin
   }
 }
 
-/** Polls read() until accept() holds. All eval waits are state-based:
- * no scenario ever passes or fails on a sleep. */
 export async function waitUntil<T>(
   what: string,
   read: () => Promise<T>,

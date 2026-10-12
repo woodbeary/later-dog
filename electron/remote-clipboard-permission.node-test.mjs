@@ -12,9 +12,6 @@ const VPS = "https://viernes.tail1.ts.net:9444";
 const OTHER = "https://other.tail1.ts.net:9444";
 const mainSource = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
-// The real appPermissionHandlers (the ones main.mjs installs) fed by the real
-// environments authority: only Electron itself is faked. `ctx.state` is read
-// per request, exactly like main's `activeEnvironment(environmentsState)`.
 function harness(envState, { cloud = null } = {}) {
   const mainContents = { getURL: () => "" };
   const ctx = { state: envState, main: mainContents, cloud };
@@ -88,7 +85,6 @@ test("only the main application window is trusted", () => {
 
 test("the main-window guard is explicit: no main contents, missing or foreign contents all deny", () => {
   const h = harness(viewing("vps"));
-  // Call the handlers directly: the harness helpers default an undefined contents to the main one.
   const ask = (contents) => {
     let granted;
     h.handlers.request(contents, "clipboard-sanitized-write", (value) => { granted = value; }, { requestingUrl: `${VPS}/`, isMainFrame: true });
@@ -96,7 +92,7 @@ test("the main-window guard is explicit: no main contents, missing or foreign co
   };
   assert.deepEqual(ask(h.mainContents), [true, true], "exact live main window");
   for (const contents of [null, undefined, { getURL: () => `${VPS}/` }]) assert.deepEqual(ask(contents), [false, false], String(contents));
-  h.ctx.main = null; // main passes null for a missing or destroyed window
+  h.ctx.main = null;
   assert.deepEqual(ask(h.mainContents), [false, false], "no main window");
   assert.deepEqual(ask(null), [false, false], "null never matches a null main");
   assert.deepEqual(ask(undefined), [false, false], "undefined never matches a null main");
@@ -119,7 +115,6 @@ test("switching or forgetting the server withdraws the old origin at once", () =
 test("the Cloud keeps its microphone and writes the clipboard by the same rule, and the server gets no microphone", () => {
   const CLOUD = "https://laterdog-u-0123456789ab.fly.dev";
   const audio = { isMainFrame: true, mediaTypes: ["audio"] };
-  // The Cloud is the page in the main window; no remote server is active.
   const h = harness(viewing("local"), { cloud: CLOUD });
   h.mainContents.getURL = () => `${CLOUD}/chat`;
   assert.equal(h.request("media", `${CLOUD}/chat`, audio), true, "Cloud still hears the microphone");
@@ -128,12 +123,10 @@ test("the Cloud keeps its microphone and writes the clipboard by the same rule, 
   assert.equal(h.request("clipboard-sanitized-write", `${CLOUD}/chat`), true, "the Cloud writes the clipboard (its copy buttons)");
   assert.equal(h.request("clipboard-sanitized-write", `${CLOUD}/chat`, { isMainFrame: false }), false, "main frame only");
   assert.equal(h.request("clipboard-read", `${CLOUD}/chat`), false, "never reads it");
-  // The active remote server writes the clipboard but never hears the microphone.
   const r = harness(viewing("vps"), { cloud: CLOUD });
   assert.equal(r.request("clipboard-sanitized-write", `${VPS}/`), true);
   assert.equal(r.request("media", `${VPS}/`, audio), false, "a paired server never hears the microphone");
   assert.equal(r.check("media", VPS, audio), false);
-  // Both trusts together: the Cloud keeps its microphone and clipboard writes while a remote server is the active environment elsewhere.
   r.mainContents.getURL = () => `${CLOUD}/chat`;
   assert.equal(r.request("media", `${CLOUD}/chat`, audio), true);
   assert.equal(r.request("clipboard-sanitized-write", `${CLOUD}/chat`), true);

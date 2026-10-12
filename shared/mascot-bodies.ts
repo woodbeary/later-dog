@@ -1,26 +1,5 @@
-/**
- * The mascot bodies a bot can wear.
- *
- * GENERATED FILE — do not hand-edit. Run `pnpm gen:bodies` to rebuild it from
- * `scripts/gen-mascot-bodies.ts`, which solves each face placement against the real
- * expression geometry and verifies that nothing clips.
- *
- * Every body carries the same face at the same size: the generator clamps the whole
- * catalog to the smallest face any one body can hold, so the mascot reads as one
- * character in different bodies rather than ten different mascots. Roomier bodies simply
- * end up with more margin around the face.
- *
- * The fields match `CursorSilhouette` exactly, so a body can be handed to the renderer
- * with no adapter in between.
- *
- * A body may also carry `decorations`: parts drawn over the outline in the same gradient
- * (the dog's two ears), each with a stable class that `src/styles.css` moves with the
- * mascot's state. They are web-only — the native catalogs draw the outline alone.
- */
-
 import { z } from "zod";
 
-/** Every selectable body id, in the order the picker shows them. */
 export const MASCOT_BODY_IDS = ["dog", "beagle", "shepherd", "corgi", "husky", "pug", "poodle", "chihuahua", "blob", "circle", "squircle", "capsule", "drop", "shield", "hexagon", "diamond"] as const;
 
 export type MascotBodyId = (typeof MASCOT_BODY_IDS)[number];
@@ -29,30 +8,15 @@ export const mascotBodySchema = z.enum(MASCOT_BODY_IDS);
 
 export interface MascotBody {
   id: MascotBodyId;
-  /** Human-readable name, used for the picker and the accessible label. */
   name: string;
-  /** Transform mapping the outline into the face box. */
   fit: string;
-  /** Body markup. `{{GRADIENT}}` is replaced with the bot's own gradient. */
   body: string;
-  /** The same outline without a fill, used as the clip region. */
   clip: string;
-  /**
-   * Tight bounds of the outline in its own path space. The renderer pins the body's
-   * gradient to this box in user space, so a decoration drawn over the body takes the
-   * body's shading exactly.
-   */
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
-  /**
-   * Parts drawn over the body in the same gradient, in the same path space as `body`,
-   * with `{{GRADIENT}}` replaced the same way. Absent for a plain outline.
-   */
   decorations?: string;
-  /** Where the face sits inside the body, in face-space units. */
   anchor: { x: number; y: number; scale: number };
 }
 
-/** The shipped mascot, and the fallback for any unrecognised value. */
 export const DEFAULT_MASCOT_BODY: MascotBodyId = "dog";
 
 export const MASCOT_BODIES: Record<MascotBodyId, MascotBody> = {
@@ -203,7 +167,6 @@ export const MASCOT_BODIES: Record<MascotBodyId, MascotBody> = {
   },
 };
 
-/** Runtime-safe read of an untrusted persisted or streamed body id. */
 export function botMascotBody(value: unknown): MascotBodyId {
   return mascotBodySchema.safeParse(value).data ?? DEFAULT_MASCOT_BODY;
 }

@@ -91,13 +91,8 @@ const MULTI_ACCOUNT_CONFIG = {
   max_accounts_per_toolkit: 5,
   require_explicit_selection: true,
 } as const;
-// Workers on the free plan get 50 subrequests per request, and the connected
-// inventory runs two paginated sweeps back to back — 20 pages each keeps the
-// worst case at ~40 fetches with headroom for the session lookup. At 100
-// accounts per page nobody real is near the ceiling.
 const MAX_CONNECTED_ACCOUNT_PAGES = 20;
 const ACCOUNT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-/** Composio's catalog cursor is base64 of the page and limit. */
 const CATALOG_CURSOR = /^[A-Za-z0-9+/_=-]{1,256}$/;
 const printableAliasSchema = z.string().min(1).max(64).refine((value) => {
   for (const character of value) {
@@ -155,9 +150,6 @@ function parseSession(value: SessionWire): ComposioSession {
     url: url.toString(),
     headers,
     userId: config?.user_id,
-    // Only `enable` gates reuse: the cap and selection flags are requested at
-    // creation, and recreating a Session would post the same config and get
-    // the same echo back — strict equality here can only churn, never fix.
     multiAccountConfigured: multi?.enable === true,
   };
 }
@@ -209,16 +201,8 @@ async function createSession(env: Env, userId: string) {
   return parseSession(sessionWireSchema.parse(await response.json()));
 }
 
-/** Session ids this isolate already tried to upgrade once. If the fresh
- *  Session STILL doesn't echo multi-account, Composio isn't granting it —
- *  serve single-account behavior instead of recreating a Session and writing
- *  D1 on every request. */
 const multiAccountUpgradeAttempted = new Set<string>();
 
-/** A Session's MCP URL and headers are fixed for its id, so the MCP relay
- *  reuses one this isolate verified recently instead of re-reading it from
- *  Composio before every JSON-RPC message. Lookups use the session_id D1
- *  returned for the request, so a replaced Session never hits a stale entry. */
 const VERIFIED_SESSION_TTL_MS = 5 * 60_000;
 const VERIFIED_SESSION_LIMIT = 1_000;
 const verifiedSessions = new Map<string, { session: ComposioSession; verifiedAt: number }>();
@@ -226,7 +210,6 @@ const verifiedSessions = new Map<string, { session: ComposioSession; verifiedAt:
 function rememberSession(session: ComposioSession) {
   verifiedSessions.delete(session.sessionId);
   verifiedSessions.set(session.sessionId, { session, verifiedAt: Date.now() });
-  // Maps iterate in insertion order, so the oldest entries go first.
   for (const sessionId of verifiedSessions.keys()) {
     if (verifiedSessions.size <= VERIFIED_SESSION_LIMIT) break;
     verifiedSessions.delete(sessionId);
@@ -245,10 +228,6 @@ function verifiedSession(sessionId: string | null) {
   return undefined;
 }
 
-/** last_seen_at only shows an installation is still in use, and nothing reads
- *  it more finely, so it is not worth a D1 write on every request. Ten
- *  minutes is still precise enough for an idle-installation sweep over
- *  installations_last_seen_idx. */
 const LAST_SEEN_INTERVAL_MS = 10 * 60_000;
 
 function touchLastSeen(installation: InstallationRow, env: Env, ctx: ExecutionContext) {
@@ -281,8 +260,6 @@ async function verifySession(installation: InstallationRow, env: Env, ctx: Execu
     return session;
   }
   if (!session?.multiAccountConfigured) {
-    // Connected accounts are attached to this stable Composio user ID. A new
-    // Session upgrades legacy installations without relinking OAuth grants.
     session = await createSession(env, installation.composio_user_id);
     multiAccountUpgradeAttempted.add(session.sessionId);
     await env.DB.prepare("UPDATE installations SET session_id = ?, last_seen_at = ? WHERE id = ?")
@@ -348,21 +325,11 @@ async function proxyMcp(request: Request, installation: InstallationRow, env: En
   };
   let response = await forward(session);
   if (reused && !incomingMcpSession && (response.status === 404 || response.status === 410)) {
-    // Composio dropped the Session after this isolate verified it. With no
-    // mcp-session-id (normally an initialize, but also any message the
-    // desktop server sends after losing its transport-session map), the
-    // client has nothing to re-initialize, so do what an uncached request
-    // would: look the Session up again (replacing it if it is gone) and
-    // resend once. A 404 or 410 from the MCP URL means nothing was dispatched.
-    // With an mcp-session-id, the 404 passes through and the client
-    // re-initializes, as before.
     forgetSession(session.sessionId);
     await response.body?.cancel();
     session = await verifySession(installation, env, ctx);
     response = await forward(session);
   }
-  // Any upstream failure may mean the Session went bad, so look it up again
-  // on the next message.
   if (!response.ok) forgetSession(session.sessionId);
   const headers = new Headers({
     "content-type": response.headers.get("content-type") ?? "application/json",
@@ -374,8 +341,6 @@ async function proxyMcp(request: Request, installation: InstallationRow, env: En
 }
 
 async function catalog(env: Env, url: URL) {
-  // The catalog runs past a thousand toolkits, so pass the caller's cursor
-  // through — dropping it capped the marketplace at one page.
   const params = new URLSearchParams({ limit: "500", sort_by: "usage" });
   const cursor = url.searchParams.get("cursor");
   if (cursor && CATALOG_CURSOR.test(cursor)) params.set("cursor", cursor);
@@ -422,8 +387,6 @@ async function listSessionToolkits(
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
   for (let page = 0; page < MAX_CONNECTED_ACCOUNT_PAGES; page += 1) {
-    // Avoid walking the full marketplace just to render the Connected tab.
-    // Composio supports a server-side connected-only filter on this route.
     const params = new URLSearchParams({ limit: "50", is_connected: "true" });
     if (cursor) params.set("cursor", cursor);
     const response = await composioRequest(
@@ -561,8 +524,6 @@ async function authorize(
   ctx: ExecutionContext,
 ) {
   const session = await ensureSession(installation, env, ctx);
-  // Listing can be denied to the broker's key scope; authorize must still
-  // work, with the alias guardrails degrading to first-account behavior.
   const accounts = await listConnectedAccounts(env, installation.composio_user_id, [slug]).catch(() => []);
   const serviceAccounts = accounts.filter((account) => account.toolkit?.slug?.toLowerCase() === slug);
   const usableAccounts = serviceAccounts.filter((account) => /^(active|initiated|initializing|pending)$/i.test(account.status ?? ""));
@@ -571,7 +532,6 @@ async function authorize(
   }
   if (serviceAccounts.length > 0 && !alias) {
     if (serviceAccounts.every((account) => /^(initializing|initiated|expired)$/i.test(account.status ?? ""))) {
-      // Keep abandoned flows/grants intact; a unique alias cannot replace them.
       alias = `laterdog-retry-${crypto.randomUUID()}`;
     } else {
       return json({ error: "Add an account alias so the existing connection is not replaced" }, 400);
@@ -644,9 +604,6 @@ async function requestAlias(request: Request) {
     if (new TextEncoder().encode(raw).byteLength > 2048) {
       throw new Response(JSON.stringify({ error: "request body is too large" }), { status: 413, headers: JSON_HEADERS });
     }
-    // Some Fetch implementations expose a zero-length POST as a non-null
-    // ReadableStream. First-account authorization intentionally has no alias,
-    // so accept that wire representation exactly like a missing body.
     if (!raw.trim()) return undefined;
     body = aliasRequestSchema.parse(JSON.parse(raw));
   } catch (error) {
@@ -676,9 +633,6 @@ async function route(request: Request, env: Env, ctx: ExecutionContext) {
   if (accountMatch && request.method === "DELETE") {
     return disconnectAccount(accountMatch[1], accountMatch[2], installation, env, ctx);
   }
-  // Composio prefixes slugs that would otherwise start with a digit, so
-  // 1Password is `_1password` and 21RISK is `_21risk`. Admitting a leading
-  // underscore keeps those toolkits reachable instead of 404ing here.
   const match = url.pathname.match(/^\/v1\/connectors\/([a-z0-9_][a-z0-9_-]{0,80})(?:\/(authorize))?$/);
   if (match?.[2] && request.method === "POST") return authorize(match[1], await requestAlias(request), installation, env, ctx);
   if (match && !match[2] && request.method === "DELETE") return disconnect(match[1], installation, env, ctx);

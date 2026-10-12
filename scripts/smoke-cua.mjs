@@ -1,12 +1,8 @@
-// Read-only end-to-end smoke for the staged, packaged CUA path: native SDK
-// host -> private embedded daemon -> official stdio MCP proxy -> desktop frame.
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-// staging is per-arch since the Intel build (dist-native/<arch>/…); default to
-// the host arch, which is the only one whose native SDK can load in-process
 const hostArch = process.arch === "arm64" ? "arm64" : "x64";
 const resources = process.env.LATERDOG_CUA_RESOURCES ?? join(root, "dist-native", hostArch);
 process.env.LATERDOG_CUA_SDK_LIBRARY = join(resources, "cua-sdk/native/libcua_driver_sdk.dylib");

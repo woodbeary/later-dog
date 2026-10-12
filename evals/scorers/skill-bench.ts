@@ -7,29 +7,17 @@ import type {
   SkillBenchReport,
 } from "../runners/run-skill-bench.ts";
 
-/** Pure scorers for the skill bench. The runner only produces arm runs
- * (with-skill and without-skill ScenarioResults); every number in the
- * alpha report is computed here from frozen results, never from a live
- * server. */
-
 export function mean(values: number[]): number {
   if (values.length === 0) return 0;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-/** Sample standard deviation (n - 1). A single sample carries no variance
- * information, so n < 2 reports 0; the report separately states the
- * replicate count so a 0 is never read as "no variance observed". */
 export function stddev(values: number[]): number {
   if (values.length < 2) return 0;
   const m = mean(values);
   return Math.sqrt(values.reduce((sum, value) => sum + (value - m) ** 2, 0) / (values.length - 1));
 }
 
-/** The scripted provider makes no API calls, so there are no real token
- * counts to read. This is a deterministic chars/4 estimate of what rode
- * the prompt (system + user prompt + tool-call JSON per evidence turn);
- * the live tier is where measured usage replaces it. */
 export function estimateTokens(result: ScenarioResult): number {
   let chars = 0;
   for (const turn of result.evidence.turns) {
@@ -54,12 +42,6 @@ function armSummary(runs: SkillBenchArmRun[]): SkillBenchArmSummary {
   };
 }
 
-/** An assertion is non-discriminating when its pass rate is identical in
- * both arms: it pins something true regardless of the skill, so it cannot
- * attribute any change to the skill under test. Such assertions are still
- * useful as controls; the flag keeps them out of the effect story.
- * Deltas are computed per prompt from each run's own assertion list, so
- * prompts may assert different things without bleeding into each other. */
 function assertionDeltas(bench: SkillBenchFixture, runs: SkillBenchArmRun[]): SkillBenchAssertionDelta[] {
   const deltas: SkillBenchAssertionDelta[] = [];
   for (const prompt of bench.prompts) {
@@ -71,8 +53,6 @@ function assertionDeltas(bench: SkillBenchFixture, runs: SkillBenchArmRun[]): Sk
       const withoutPasses = withoutRuns.filter((run) => run.result.assertions[index]?.pass === true).length;
       const withRate = withRuns.length === 0 ? 0 : withPasses / withRuns.length;
       const withoutRate = withoutRuns.length === 0 ? 0 : withoutPasses / withoutRuns.length;
-      // High variance: within this prompt and arm, replicates of the same
-      // run disagree about this assertion. Only assessable with n >= 2.
       let highVariance = false;
       for (const arm of ["with", "without"] as const) {
         const group = promptRuns.filter((run) => run.arm === arm);

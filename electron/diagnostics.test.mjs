@@ -17,10 +17,6 @@ const {
   CREDENTIAL_ENV_NAMES,
 } = require("./diagnostics.mjs");
 
-// The desktop shell cannot import TypeScript, so its credential list is a
-// hand copy of server/config.ts WORKSPACE_CREDENTIAL_ENV. This test is the
-// drift alarm: a name added server-side without updating the copy here would
-// otherwise ship an unredacted export path.
 describe("credential env parity with server/config.ts", () => {
   it("matches WORKSPACE_CREDENTIAL_ENV exactly", () => {
     const config = readFileSync(new URL("../server/config.ts", import.meta.url), "utf8");

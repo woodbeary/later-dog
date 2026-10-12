@@ -1,5 +1,3 @@
-// Real ComputerPanel in an isolated fake-engine workspace; only the desktop
-// transport is simulated. No host Docker or user profile is accessed.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,7 +7,7 @@ import { mountPreview } from "./testing/preview-fixture.ts";
 import { agentBrowser, ensureUiBrowser, sessionEnv } from "./testing/control-laterdog-ui.ts";
 
 const fixture = await launchVerificationServer();
-const home = mkdtempSync(join(tmpdir(), "laterdog-vmr-")); // Keep macOS browser sockets below their path limit.
+const home = mkdtempSync(join(tmpdir(), "laterdog-vmr-"));
 let preview: Awaited<ReturnType<typeof mountPreview>> | undefined;
 let browser: { binary: string; env: NodeJS.ProcessEnv } | undefined;
 try {
@@ -38,15 +36,12 @@ try {
   assert.equal(await evaluate(`document.body.textContent.includes("isn't available for this bot")`), false);
   await command("screenshot", "aside", join(evidenceDir, "stopped.png"));
   if (record) {
-    // Hide only fixture controls in the video, leaving product UI untouched.
     await evaluate(`document.querySelector('.fixed.left-2.top-2').style.visibility = 'hidden'`);
     await command("record", "start", join(evidenceDir, "resume.mp4"));
   }
   await command("find", "role", "button", "click", "--name", "Start Local VM", "--exact");
   await wait(`window.cloudPreviewFixture.vmStarts === 1`);
   await wait(`Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('Starting Local VM') && b.disabled && b.getAttribute('aria-busy') === 'true')`);
-  // The POST has returned but Cua is still warming up: the button must keep
-  // spinning rather than become clickable or claim the desktop is ready.
   await wait(`window.cloudPreviewFixture.vmReadinessReads >= 2`);
   assert.equal(await evaluate(`Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('Starting Local VM') && b.disabled)`), true);
   await command("screenshot", "aside", join(evidenceDir, "starting.png"));

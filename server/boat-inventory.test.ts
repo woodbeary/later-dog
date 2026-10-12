@@ -27,7 +27,6 @@ describe("later.dog-managed Boat inventory", () => {
   let deleteBody: Record<string, unknown> | null = null;
   let deletionPollStatus = 200;
   let directStatus = 200;
-  /** Accept direct Boat reads and never answer them: a stalled relay. */
   let directHangs = false;
   const hung: ServerResponse[] = [];
   let deletionStatuses: DeletionStatus[] = ["completed"];
@@ -205,7 +204,6 @@ describe("later.dog-managed Boat inventory", () => {
     boats = [{ id: boxId, name: legacyNameFor(botId), state: "ready" }];
 
     expect((await boat.listManagedBoats(cfg, [{ botId, name: "Legacy", inUse: false }])).available).toBe(true);
-    // Refreshing the same provider row must not grow the ownership journal.
     requests.length = 0;
     expect((await boat.listManagedBoats(cfg, [{ botId, name: "Legacy", inUse: false }])).available).toBe(true);
     expect(requests.map(({ method, path }) => `${method} ${path}`)).toEqual([
@@ -552,8 +550,6 @@ describe("later.dog-managed Boat inventory", () => {
     expect(journal.boatCreateRecoverySnapshot()).toContainEqual({ botId, boxId, resolved: true });
     expect(requests.some((request) => request.method === "DELETE")).toBe(true);
 
-    // Once LIST drops the row, direct absence is authoritative and retires
-    // the recovery receipt on the next inventory refresh.
     boats = [];
     pageResponses = new Map([["", { boxes: [], nextCursor: null }]]);
     await expect(boat.listManagedBoats(cfg, owners)).resolves.toMatchObject({ instances: [] });
@@ -576,8 +572,6 @@ describe("later.dog-managed Boat inventory", () => {
     ).resolves.toEqual({ ok: true, pending: true });
     expect(requests.filter((request) => request.method === "DELETE")).toHaveLength(1);
 
-    // The account LIST is stale, but the exact operation/id record keeps the
-    // Settings row honest and blocks all normal use after a restart.
     pageResponses = new Map([["", { boxes: [], nextCursor: null }]]);
     await expect(boat.listManagedBoats(cfg, owners)).resolves.toMatchObject({
       available: true,
@@ -670,18 +664,14 @@ describe("later.dog-managed Boat inventory", () => {
   it("bounds the direct read of a known Boat, so a stalled relay can't hold a turn's setup", async () => {
     const botId = "stalled-direct-read";
     boats = [{ id: "bx_456789ab", name: legacyNameFor(botId), state: "ready" }];
-    await expect(boat.findBoat(cfg, botId)).resolves.toMatchObject({ id: "bx_456789ab" }); // caches the id
+    await expect(boat.findBoat(cfg, botId)).resolves.toMatchObject({ id: "bx_456789ab" });
     directHangs = true;
     requests.length = 0;
-    // The direct read's own deadline expires at once instead of after 20 s;
-    // the listing behind it keeps its real one. Without a deadline the read
-    // waits on the stalled relay and this test times out.
     const deadline = vi.spyOn(AbortSignal, "timeout")
       .mockImplementationOnce(() => AbortSignal.abort(new DOMException("deadline", "TimeoutError")));
     try {
       await expect(boat.findBoat(cfg, botId)).resolves.toMatchObject({ id: "bx_456789ab" });
       expect(deadline).toHaveBeenNthCalledWith(1, 20_000);
-      // Gave up on the direct read and answered from the listing.
       expect(requests.map(request => `${request.method} ${request.path}`)).toEqual(["GET /api/box/v1/boxes"]);
     } finally {
       deadline.mockRestore();

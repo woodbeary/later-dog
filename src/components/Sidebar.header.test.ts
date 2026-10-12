@@ -77,13 +77,11 @@ describe("sidebar top row", () => {
     expect(end).toBeGreaterThan(start);
     return html.slice(start, end);
   };
-  /** The class list of the first element carrying `attribute`. */
   const classesOf = (html: string, attribute: string) => {
     const match = new RegExp(`${attribute}(?:="[^"]*")? class="([^"]*)"`).exec(html);
     expect(match, attribute).not.toBeNull();
     return match![1].split(" ");
   };
-  /** Where the lights' space, the slot (drag spacer + switcher), the switcher and the buttons start in the row. */
   const order = (row: string) => ({
     lights: row.indexOf("data-traffic-light-space"),
     slot: row.indexOf("data-sidebar-top-slot"),
@@ -97,7 +95,6 @@ describe("sidebar top row", () => {
     desktop();
     const html = render();
     const row = topRow(html);
-    // Twice the lights' centre line tall, so centred controls share that line.
     expect(MAC_TRAFFIC_LIGHT_CENTER_Y).toBe(23);
     expect(row).toMatch(/^data-sidebar-top-row="true" class="[^"]*\bitems-center\b[^"]*" style="-webkit-app-region:drag;height:46px"/);
     const { lights, slot, spacer, switcher, buttons } = order(row);
@@ -107,21 +104,12 @@ describe("sidebar top row", () => {
     expect(switcher).toBe(-1);
     expect(buttons).toBeGreaterThan(spacer);
     expect(row.slice(buttons).match(/<button/g)).toHaveLength(1);
-    // 16px in on the left like the lights; 8px on the right, so the last
-    // button sits near the sidebar's edge. `relative` anchors the switcher's
-    // error note to the row; without it the note drops to the sidebar's foot.
     const rowClasses = classesOf(row, "data-sidebar-top-row");
     expect(rowClasses).toEqual(expect.arrayContaining(["relative", "pl-4", "pr-2"]));
     expect(rowClasses).not.toContain("px-4");
-    // The lights end 76px in on macOS 26; their space ends 12px past them,
-    // so nothing clickable (nor its hover background) reaches them.
     expect(classesOf(row, "data-traffic-light-space")).toEqual(expect.arrayContaining(["w-[72px]", "shrink-0"]));
-    // The slot between the lights and the buttons is the size container the
-    // switcher reads. Its spacer is empty (so it stays a drag region) and
-    // takes the slack.
     expect(classesOf(row, "data-sidebar-top-slot")).toEqual(expect.arrayContaining(["@container/sidebar-top", "min-w-0", "flex-1"]));
     expect(row).toContain('<div data-sidebar-top-spacer="true" class="min-w-0 flex-1"></div>');
-    // The switcher is capped and gives way first; the buttons never shrink.
     const switcherClasses = classesOf(row, "data-sidebar-top-switcher");
     expect(switcherClasses).toEqual(expect.arrayContaining(["min-w-0", "max-w-[140px]"]));
     expect(switcherClasses).not.toContain("flex-1");
@@ -194,7 +182,6 @@ describe("sidebar glass head and foot", () => {
       expect(search).toBeLessThan(list);
       expect(list).toBeLessThan(foot);
       expect(foot).toBeLessThan(apps);
-      // One frame holds both bars, so the list scrolls under each of them.
       expect(html.match(/data-glass-frame=""/g)).toHaveLength(1);
       expect(at("data-glass-frame")).toBeLessThan(head);
     },

@@ -1,4 +1,3 @@
-// Run against the preview URL printed by verify-rich-tables.ts, never a live app.
 import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -73,7 +72,6 @@ try {
   await dialog.getByRole("alert").waitFor();
   await page.keyboard.press("Escape");
 
-  // A failed download is retryable, and a dismissed download cannot reopen the dialog.
   const fileRoute = "**/messages/*/file";
   await page.route(fileRoute, (route) => route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"Synthetic offline error"}' }));
   await preview.click();

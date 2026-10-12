@@ -1,9 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { runGolden } from "./run-golden.ts";
 
-/** Thin CLI adapter so run-evals can delegate `pnpm eval --golden` while
- * run-golden.ts stays importable from tests. */
-
 export async function runGoldenCli(args: string[]): Promise<number> {
   const wanted = new Set<string>();
   for (let index = 0; index < args.length; index += 1) {

@@ -12,7 +12,6 @@ const inputClass = "w-full rounded-lg border border-hairline/50 bg-inset px-3 py
 const buttonClass = "inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[13px] font-medium text-accent-ink disabled:opacity-40";
 const validPassword = (value: string) => value.length >= 12 && value.length <= 1024;
 
-/** A renderer reload cannot apply a restore; the owning server must restart. */
 export function WorkspaceBackupRestartNotice({ onRetry }: { onRetry?: () => void } = {}) {
   const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState(false);
@@ -98,8 +97,6 @@ export function WorkspaceBackupSettings() {
       method: "POST", body: JSON.stringify({ password: exportPassword, clientState: collectWorkspaceClientState() }),
     });
     if (alive.current) { setExportPassword(""); setConfirmPassword(""); }
-    // Native download streams large archives without buffering them in the
-    // renderer. Same-origin cookies/desktop headers preserve owner access.
     if (!alive.current) return;
     const url = `/api/workspace-backup/download/${encodeURIComponent(result.id)}`;
     setDownload({ url, filename: result.filename });
@@ -134,8 +131,6 @@ export function WorkspaceBackupSettings() {
 
   const restoreBackup = () => perform("restore", async () => {
     if (!preview || confirmation !== "REPLACE") return;
-    // This stage ID is also the restore ID. Persist it before the request so
-    // a lost response still lets this browser recover its own drafts at boot.
     localStorage.setItem(WORKSPACE_RESTORE_MARKER, preview.id);
     try {
       await api("/api/workspace-backup/restore", {
@@ -166,7 +161,6 @@ export function WorkspaceBackupSettings() {
           {download && <a href={download.url} download={download.filename} className="break-all text-[13px] text-accent-text underline">{t("backup.downloadAgain", { filename: download.filename })}</a>}
         </form>
       </Card>
-      {/* On a server open in the desktop app: the same copy as its Copy this computer here offer. */}
       <CloudMoveImport />
       <Card title={t("backup.import")} subtitle={t("backup.importHint")}>
         <form className="flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); void previewBackup(); }}>
@@ -189,7 +183,6 @@ function pendingRestoreId(): string | null {
   try { return localStorage.getItem(WORKSPACE_RESTORE_MARKER); } catch { return null; }
 }
 
-/** Do not mount stale composer caches before the initiating browser recovers. */
 export function WorkspaceBackupRecovery({ children }: { children: ReactNode }) {
   const [restoreId] = useState(pendingRestoreId);
   const [ready, setReady] = useState(!restoreId);
@@ -221,7 +214,6 @@ export function WorkspaceBackupRecovery({ children }: { children: ReactNode }) {
   const continueWithoutDrafts = () => {
     try {
       localStorage.removeItem(WORKSPACE_RESTORE_MARKER);
-      // Re-enter normal bootstrap so expired sessions can reach sign-in.
       window.location.reload();
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   };

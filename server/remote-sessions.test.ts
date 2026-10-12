@@ -1,6 +1,3 @@
-// End to end over a real harness: a client that is not on this machine pairs
-// once, then uses the API, the served UI and the event stream with a bearer
-// token or the session cookie, and is refused again after revocation.
 import { spawn, type ChildProcess } from "node:child_process";
 import { request } from "node:http";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -25,12 +22,8 @@ let home: string;
 let child: ChildProcess;
 let stderr = "";
 
-/** Every request from "elsewhere": a non-loopback Host, and a distinct
- * forwarded source so the pairing lockout is exercised on purpose only. */
 const remote = (source: string, extra: Record<string, string> = {}) => ({ host: REMOTE_HOST, "x-forwarded-for": source, ...extra });
 
-/** Plain node:http, because fetch silently drops a custom Host header and the
- * whole point is to arrive with one that is not loopback. */
 function call(
   path: string,
   init: { method?: string; headers?: Record<string, string>; body?: string } = {},
@@ -59,8 +52,6 @@ function call(
   });
 }
 
-/** Hold a JSON body after the server has accepted its authenticated headers,
- * so a test can revoke that session before the route commits its mutation. */
 function delayedCall(
   path: string,
   init: { headers: Record<string, string>; body: unknown },
@@ -128,8 +119,6 @@ beforeAll(async () => {
   mkdirSync(join(home, ".laterdog"), { recursive: true });
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Served UI</title>");
-  // Avoid probing whatever agent CLIs happen to be installed on the test
-  // machine; remote-session behavior does not depend on an engine.
   writeFileSync(join(home, ".laterdog", "config.json"), JSON.stringify({
     instances: { fixture: { driver: "remote-session-test-shadow" } },
     profile: { name: "Security fixture", email: "private@example.invalid" },
@@ -150,8 +139,6 @@ beforeAll(async () => {
       LATERDOG_APP_VERSION: "9.9.9-test",
       LATERDOG_ENVIRONMENT_LABEL: "cab mini",
       LATERDOG_BROWSER_CONNECTION: join(home, "browser-test-connection.json"),
-      // Slow heartbeat on purpose: the revocation test must prove the stream is
-      // ended by the revoke itself, not by the next heartbeat noticing.
       LATERDOG_SSE_HEARTBEAT_MS: "4000",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -162,9 +149,7 @@ beforeAll(async () => {
     try {
       const res = await fetch(`${BASE}/api/health`);
       if (res.ok) return;
-    } catch {
-      /* not up yet */
-    }
+    } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`server did not start:\n${stderr}`);
@@ -192,11 +177,6 @@ describe("before pairing", () => {
     expect(descriptor.body.environmentId).toMatch(/^[0-9a-f-]{36}$/);
     expect(descriptor.body.label).toBe("cab mini");
     expect(descriptor.body.version).toBe("9.9.9-test");
-    // Exact, so a new pre-pairing field has to be added here on purpose.
-    // sharedComputers says this build OFFERS the protocol, never whether this
-    // machine is sharing anything — a stranger learns no more than the
-    // version. This fixture sets no features, so the opt-in gate is off and
-    // the key is absent: the server never advertises what it would refuse.
     expect(descriptor.body.capabilities).toEqual({
       remoteSessions: true,
       selfUpdate: "operator",
@@ -288,7 +268,6 @@ describe("pairing", () => {
     expect(paired.body.token).toMatch(/^laterdog_sess_/);
     expect(paired.body.session.label).toBe("Safari on Mac");
     expect(paired.body.environment.label).toBe("cab mini");
-    // a plain retry (no attempt id) is a second use of a consumed code: refused
     const again = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.3"), body: JSON.stringify({ code: opened.code }) });
     expect(again.status).toBe(401);
 
@@ -338,8 +317,6 @@ describe("pairing", () => {
 
     const sameOrigin = await call("/api/bots", { headers: remote("10.0.0.4", { cookie, origin: `http://${REMOTE_HOST}` }) });
     expect(sameOrigin.status).toBe(200);
-    // Every cookie-authenticated response re-issues the cookie with the
-    // session's current remaining life (sliding expiry), never on a 401.
     const refreshed = header(sameOrigin.headers, "set-cookie");
     expect(refreshed.split(";")[0]).toBe(cookie);
     expect(refreshed).toMatch(/Max-Age=\d+/);
@@ -358,10 +335,6 @@ describe("pairing", () => {
     expect((await call("/api/bots", { headers: remote("10.0.0.4", { cookie }) })).status).toBe(401);
   });
 
-  // The native companion apps were written against the desktop's companion
-  // sidecar and POST /api/pair with their own body and response shapes. A
-  // self-hosted server had no such route, so a phone could reach it, pass the
-  // health probe, and then ask for a credential the server could not issue.
   it("pairs a native companion app on its own route, with the body shape it sends", async () => {
     const opened = await pairingCode(["client"]);
     expect(opened.credential).toMatch(/^laterdog_pair_[A-Za-z0-9_-]{43}$/);
@@ -372,7 +345,6 @@ describe("pairing", () => {
       body: JSON.stringify({ credential: opened.credential, deviceName: "Pixel 9", pairRequestId: "11111111-2222-4333-8444-555555555555" }),
     });
     expect(paired.status).toBe(200);
-    // Exactly the fields android/core's PairResponseSerializer requires.
     expect(typeof paired.body.token).toBe("string");
     expect(paired.body.token.startsWith("laterdog_sess_")).toBe(true);
     expect(paired.body.serverName).toBe(opened.serverName);
@@ -381,14 +353,11 @@ describe("pairing", () => {
     expect(typeof paired.body.device.createdAt).toBe("number");
     expect(typeof paired.body.device.lastSeenAt).toBe("number");
 
-    // The token it returns is an ordinary session: it works, and it appears
-    // among the sessions an owner can revoke.
     const used = await call("/api/bots", { headers: remote("10.0.0.31", { authorization: `Bearer ${paired.body.token}` }) });
     expect(used.status).toBe(200);
     const listed = await call("/api/auth/sessions");
     expect(listed.body.sessions.some((s: { label: string }) => s.label === "Pixel 9")).toBe(true);
 
-    // Single use, shared with the typed code: the window is gone.
     const again = await call("/api/pair", {
       method: "POST",
       headers: remote("10.0.0.32"),
@@ -407,15 +376,11 @@ describe("pairing", () => {
     const opened = await pairingCode(["client"]);
     expect(opened.inviteUrl).not.toBeNull();
     const invite = new URL(opened.inviteUrl!);
-    // Android's PairingInvite.parse rejects anything that is not this exact
-    // scheme and host, which is why the https link in `url` cannot be scanned
-    // by the app (android/core Connection.kt).
     expect(invite.protocol).toBe("laterdog:");
     expect(invite.host).toBe("pair");
     expect(invite.searchParams.get("address")).toBe(PUBLIC_URL);
     expect(invite.searchParams.get("token")).toBe(opened.credential);
     expect(invite.searchParams.get("name")).toBe(opened.serverName);
-    // Both links open the same single window.
     expect(opened.url).toBe(`${PUBLIC_URL}/pair#code=${opened.code}`);
   });
 
@@ -469,7 +434,6 @@ describe("pairing", () => {
     });
     const outcome = await ended;
     expect(outcome.hello).toBe(true);
-    // well under the 4 s heartbeat: the revoke closed it, not the heartbeat
     expect(outcome.endedMs).toBeLessThan(2_500);
   });
 
@@ -517,7 +481,6 @@ describe("pairing", () => {
       streams.push(opened);
       return opened;
     }
-    // The names of saved OpenCode provider keys are the admin's to see.
     expect((await call("/api/config", { method: "PUT", body: JSON.stringify({ opencodeGo: { providerKeys: { VENICE_API_KEY: "venice-fixture-key" } } }) })).status).toBe(200);
     function expectClientConfig(config: any) {
       expect(config.opencodeGo).toEqual({ configured: false, providerKeys: [] });
@@ -532,8 +495,6 @@ describe("pairing", () => {
       expect(config.browserProfiles).toEqual([{ id: "fixture", name: "Fixture browser", partitionId: "fixture-private-partition" }]);
     }
     try {
-      // Connect the client first so a mutation of the shared payload would
-      // also corrupt the administrator's live event and the replay buffer.
       const client = await stream(clientHeaders);
       const hello = await client.until((frame) => frame.kind === "hello");
       const admin = await stream(adminHeaders);
@@ -582,7 +543,6 @@ describe("pairing", () => {
     const locked = await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.99"), body: JSON.stringify({ code: opened.code }) });
     expect(locked.status).toBe(429);
     expect(locked.body.error).toMatch(/from your address; try again in \d+s/);
-    // the code itself is untouched: another source can still use it
     expect((await call("/api/auth/pair", { method: "POST", headers: remote("10.0.0.100"), body: JSON.stringify({ code: opened.code }) })).status).toBe(200);
     expect(stderr).toMatch(/pairing refused from 10\.0\.0\.99/);
   });

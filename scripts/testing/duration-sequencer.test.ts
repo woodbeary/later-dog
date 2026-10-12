@@ -1,7 +1,3 @@
-// CI runs the suite as four shards per platform, one file at a time, so the
-// slowest shard sets how long every PR waits. These pin that the configured
-// sequencer splits by recorded seconds, still runs every file exactly once,
-// and that its weights stay keyed to files that exist.
 import { globSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +14,6 @@ const FILES = globSync(viteConfig.test?.include ?? [], { cwd: ROOT, exclude: (fi
   .sort();
 const specs = (files: readonly string[]) => files.map((file) => ({ moduleId: path.join(ROOT, file) }) as TestSpecification);
 const keyOf = (spec: TestSpecification) => weightKey(ROOT, spec.moduleId);
-// charged exactly as the sequencer charges it, unlisted e2e files included
 const seconds = (file: string) => planShards([file], WEIGHTS, 1).loads[0];
 
 function context(index: number, count: number, log: (line: string) => void = () => {}) {
@@ -42,7 +37,6 @@ describe("vitest shard balance", () => {
     const Sequencer = viteConfig.test?.sequence?.sequencer ?? BaseSequencer;
     const loads = (await split(Sequencer, FILES, 4)).map((shard) => shard.reduce((sum, file) => sum + seconds(file), 0));
     const mean = loads.reduce((sum, load) => sum + load, 0) / loads.length;
-    // equal file counts put three of the four slowest e2e files in one shard: ~1.4x the mean
     expect(Math.max(...loads) / mean, `recorded seconds per shard: ${loads.join(", ")}`).toBeLessThan(1.05);
   });
 

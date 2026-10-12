@@ -15,13 +15,8 @@ import "./styles.css";
 applyTheme(readTheme());
 applyFont(readFont());
 
-/** A pairing link lands on /pair. A remote browser without a session lands
- * there too, because every API call would otherwise fail with "pair this
- * device"; on the owner's own machine the server trusts loopback and this
- * check is a single fast request. */
 async function chooseRoot(): Promise<React.ReactNode> {
   if (location.pathname === "/pair") {
-    // The later.dog Cloud page's "Use in your browser": whose Cloud it is, then one Continue.
     const signIn = takeBrowserSignInFromLocation();
     if (signIn) {
       const preview = await previewBrowserSignIn(signIn);
@@ -31,8 +26,6 @@ async function chooseRoot(): Promise<React.ReactNode> {
   }
   const session = await readSessionState();
   if (session.kind === "unauthenticated") return <PairPage initialCode={null} reason={session.error} />;
-  // A service-trust server answers this machine's requests without a session
-  // but refuses to let it manage anything: sign in first, as a remote browser would.
   if (session.kind === "loopback" && session.trust === "service") return <PairPage initialCode={null} reason={SERVICE_TRUST_REASON} />;
   if (location.pathname === "/desktop-viewer") {
     const { DesktopViewer } = await import("./components/DesktopViewer");

@@ -1,5 +1,3 @@
-// A real later.dog conversation must survive a poisoned ACP process without the
-// person deleting its thread, and without replaying the failed turn's tools.
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,8 +32,6 @@ it.each([false, true])("recovers the same conversation after an ACP internal err
     ? readFileSync(rpcFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { pid: number; method: string }) : [];
   const prompts = () => calls().filter((call) => call.method === "session/prompt");
   try {
-    // Add only the repository-owned synthetic provider to the launcher's
-    // temporary config while stopped. Never discover the person's CLI/home.
     await waitForExit(fixture.child, { signal: "SIGTERM" });
     const configPath = join(dataDir, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
@@ -86,8 +82,6 @@ it.each([false, true])("recovers the same conversation after an ACP internal err
     expect(calls().filter((call) => call.method === "session/prompt.error")).toHaveLength(1);
     evidence.push({ failedTask: await task(), promptCallsBeforeRetry: prompts() });
 
-    // The fake keeps the error cached in its process even after removal.
-    // Only a replacement process can answer this explicit next user message.
     rmSync(failureFile);
     await send(retryText);
     expect((await wait()).status).toBe("settled");
@@ -95,7 +89,6 @@ it.each([false, true])("recovers the same conversation after an ACP internal err
     expect(prompts()[2].pid).not.toBe(firstProcess);
     const prompt = JSON.stringify(JSON.parse(readFileSync(`${dumpFile}.prompt.json`, "utf8")));
     expect(prompt.split(retryText).length - 1).toBe(1);
-    // Native resume owns the old history; it must not receive it twice.
     expect(prompt).not.toContain(firstText);
     expect(prompt).not.toContain(failedText);
     const finalMessages = await messages();

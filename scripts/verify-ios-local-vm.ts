@@ -1,13 +1,3 @@
-// Fake-engine server + synthetic Local VM + companion sidecar, in disposable
-// homes, for checking the iOS computer view against a Local VM by hand.
-//
-//   node --experimental-strip-types scripts/verify-ios-local-vm.ts
-//
-// Prints the sidecar address and a pairing code for the Simulator, then stays
-// up until Ctrl-C. The synthetic `docker` answers only inspection and the two
-// screenshot execs; each capture returns the captured desktop with another
-// character typed at its prompt, so a refresh is visible on the phone. It never reaches a real container runtime,
-// VM, or the user's later.dog data.
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -24,12 +14,8 @@ import { BASE_IMAGE_DIGEST, CUA_DRIVER_VERSION, IMAGE, IMAGE_LAYER_VERSION, TARG
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
-/** The synthetic desktop: a captured Local VM session (an XFCE desktop with
- * a terminal open), with `frame` characters typed at the prompt so each
- * capture is distinct. The capture holds no account or network details. */
 const captured = decodePng(readFileSync(join(root, "scripts/testing/fixtures/local-vm-desktop.png")));
 function scene(frame: number): (x: number, y: number) => [number, number, number] {
-  // The prompt's block cursor, in terminal cells of 9 by 16 pixels.
   const cursor = { x: 460, y: 153, w: 8, h: 16, step: 9 };
   const typed = frame % 4;
   return (x, y) => {
@@ -37,7 +23,6 @@ function scene(frame: number): (x: number, y: number) => [number, number, number
       const cell = Math.floor((x - cursor.x) / cursor.step);
       const inGlyph = (x - cursor.x) % cursor.step < cursor.w;
       if (cell === typed) return inGlyph ? [0xff, 0xff, 0xff] : [0, 0, 0];
-      // Typed characters: a lower-case run in the terminal's text colour.
       const ink = inGlyph && y >= cursor.y + 5 && y < cursor.y + 13 && (x - cursor.x) % cursor.step !== 3;
       return ink ? [0xd0, 0xd0, 0xd0] : [0, 0, 0];
     }
@@ -45,7 +30,6 @@ function scene(frame: number): (x: number, y: number) => [number, number, number
   };
 }
 
-/** A flat RGB PNG of `scene(frame)`, so each capture is distinct. */
 function desktopPng(frame: number, width = 1280, height = 800): Buffer {
   const pixel = scene(frame);
   const raw = Buffer.alloc((width * 3 + 1) * height);
@@ -65,8 +49,8 @@ function desktopPng(frame: number, width = 1280, height = 800): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
-  header[8] = 8; // bit depth
-  header[9] = 2; // truecolour
+  header[8] = 8;
+  header[9] = 2;
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", header),
@@ -117,10 +101,7 @@ for (let frame = 0; frame < 4; frame++) {
 }
 let fixture: VerificationServer | undefined;
 let sidecar: ChildProcess | undefined;
-// The VM's live desktop, behind VNC authentication like the real one.
 const desktop = await fakeVncDesktop({ paint: scene(0) });
-// A signal during server startup aborts it; the launcher then stops its child
-// and removes its own data directory before the launch promise settles.
 const startup = new AbortController();
 let launching: Promise<VerificationServer> | undefined;
 let stopping: Promise<void> | undefined;
@@ -136,8 +117,6 @@ process.once("SIGINT", () => void stop().then(() => process.exit(0)));
 process.once("SIGTERM", () => void stop().then(() => process.exit(0)));
 
 try {
-  // Read-only inspection plus the two screenshot execs. Anything else fails,
-  // so no command can reach a real container runtime.
   writeFileSync(join(bin, "docker"), `#!${process.execPath}
 const fs = require('node:fs');
 let args = process.argv.slice(2);
@@ -218,7 +197,6 @@ process.stdout.write(typeof result === 'string' ? result : JSON.stringify(result
   }, null, 2));
   console.log("Pair the Simulator with the address and code above. Allow computer view with:");
   console.log(`  curl -X POST http://127.0.0.1:${controlPort}/devices/<device-id>/cloud-desktop`);
-  // What the phone has done to the desktop, and who holds the computer.
   const eventsPort = await freePort();
   createHttpServer(async (_req, res) => {
     const control = await api("GET", `/api/bots/${bot.id}/computer/control`).catch(() => null);

@@ -1,7 +1,3 @@
-// A throwaway TLS certificate for tests that need a real https:// server:
-// made at test time with the openssl command line, valid for two days, for
-// this computer's loopback names and the made-up host proxy tests use. A
-// child process trusts it through NODE_EXTRA_CA_CERTS=<certPath>.
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,19 +5,15 @@ import { join } from "node:path";
 export interface TestTls {
   key: string;
   cert: string;
-  /** the certificate's file, for NODE_EXTRA_CA_CERTS */
   certPath: string;
 }
 
-/** The host name proxy tests give a server "on the internet". */
 export const TEST_TLS_HOST = "mcp.proxy-fixture.test";
 
-/** A certificate written into `dir`, or undefined where no openssl runs. */
 export function makeTestTls(dir: string): TestTls | undefined {
   const config = join(dir, "openssl.cnf");
   const keyPath = join(dir, "key.pem");
   const certPath = join(dir, "cert.pem");
-  // A config of its own, so no system openssl.cnf is needed (Windows).
   writeFileSync(config, [
     "[req]", "distinguished_name = dn", "x509_extensions = v3", "prompt = no",
     "[dn]", "CN = later.dog test",

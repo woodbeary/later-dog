@@ -35,8 +35,6 @@ function trustedApprovalModeRequest(requestId, botId, mode, acknowledgeLocalAuto
     (!threadOnly && mode !== "full" && mode !== "custom" && modelSelection === undefined))) {
     throw new Error("invalid thread for trusted approval mode");
   }
-  // A refresh copies the bot's saved level onto one thread. It stays
-  // thread-scoped so a lost reply cannot downgrade the bot default.
   if (typeof refreshPermissions !== "boolean" || (refreshPermissions && (!threadOnly || threadId === undefined || allThreads || modelSelection !== undefined))) {
     throw new Error("invalid permission refresh");
   }
@@ -116,11 +114,6 @@ function decodeTrustedApprovalModeResult(rawMessage) {
   };
 }
 
-/**
- * One-shot request/response coordinator for the private Electron -> embedded
- * server utilityProcess port. The process object is part of the correlation
- * key, so a stale or replacement child cannot answer another child's grant.
- */
 function createTrustedApprovalModeCoordinator({ randomId, timeoutMs = 10_000 } = {}) {
   if (typeof randomId !== "function") throw new Error("trusted approval-mode request id generator is unavailable");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
@@ -198,10 +191,6 @@ function createTrustedApprovalModeCoordinator({ randomId, timeoutMs = 10_000 } =
     });
   }
 
-  /** A Full/Custom request that crossed postMessage may already be durable
-   * even when its reply is lost or corrupt. Revoke it in-order on the same
-   * private port before surfacing the original failure. A later explicit
-   * selection wins and therefore suppresses this older compensation. */
   function failAmbiguously(requestId, error) {
     settle(requestId, (waiting) => {
       const elevated = waiting.mode === "full" || waiting.mode === "custom";
@@ -281,11 +270,6 @@ function createTrustedApprovalModeCoordinator({ randomId, timeoutMs = 10_000 } =
         return true;
       }
       if (!step.nextMessage || !step.nextPhase) {
-        // The server ACKs while a durable `committed` journal still keeps the
-        // mode inert. Only after this client-visible commit point do we send
-        // the exact one-way release. If the child dies before handling it,
-        // startup revokes the surviving journal to Ask; a reported failure
-        // can therefore never leave the bot elevated.
         try {
           if (waiting.threadOnly || waiting.allThreads) waiting.phase = "committing";
           proc.postMessage(trustedApprovalModeCommit(
@@ -325,15 +309,13 @@ function createTrustedApprovalModeCoordinator({ randomId, timeoutMs = 10_000 } =
     }
 
     const waiting = pending.get(result.requestId);
-    // It is still our protocol even when the answer is late, duplicated, or
-    // belongs to another child. Consume it, but never let it cross processes.
     if (!waiting || waiting.proc !== proc || waiting.phase !== "setting") return true;
     if (!result.ok) {
       settle(result.requestId, ({ reject }) => reject(new Error(result.error)));
       return true;
     }
     const resultMode = waiting.threadOnly && (waiting.mode === "full" || waiting.mode === "custom")
-      ? waiting.mode // Inert prepare reply; validate the actual thread at commit.
+      ? waiting.mode
       : waiting.threadOnly ? result.bot.tasks?.find(task => task.threadId === waiting.threadId)?.approvalMode
       : waiting.modelThreadId
       ? result.bot.tasks?.find((task) => task.threadId === waiting.modelThreadId)?.approvalMode
@@ -344,9 +326,6 @@ function createTrustedApprovalModeCoordinator({ randomId, timeoutMs = 10_000 } =
     }
     if (waiting.mode === "full" || waiting.mode === "custom") {
       try {
-        // The server keeps this selection executable as Ask while it records
-        // confirmation. Do not resolve until its correlated acknowledgement
-        // arrives and activation has been queued on this same ordered port.
         waiting.phase = "confirming";
         waiting.resultBot = result.bot;
         proc.postMessage(trustedApprovalModeConfirmation(

@@ -24,7 +24,6 @@ interface AvatarImageConfig {
   xai?: { key?: string };
 }
 
-/** Public settings describe availability without returning provider secrets. */
 export function avatarImageStatus(cfg: AvatarImageConfig) {
   const provider = cfg.imageGen?.provider ?? "openai";
   const openaiConfigured = Boolean(cfg.imageGen?.key?.trim());
@@ -34,9 +33,7 @@ export function avatarImageStatus(cfg: AvatarImageConfig) {
   let customUrl = "";
   try {
     if (cfg.imageGen?.customUrl?.trim()) customUrl = normalizeImageGenerationUrl(cfg.imageGen.customUrl);
-  } catch {
-    // A manually edited invalid URL must not become an outbound request.
-  }
+  } catch {}
   return {
     provider,
     configured: provider === "openai" ? openaiConfigured : provider === "xai" ? xaiConfigured : Boolean(customUrl && customModel),
@@ -49,7 +46,6 @@ export function avatarImageStatus(cfg: AvatarImageConfig) {
   };
 }
 
-/** Copy the mutable avatar fields before an asynchronous generation starts. */
 export function snapshotAvatarGenerationState(bot: AvatarGenerationState): AvatarGenerationState {
   return { avatarUrl: bot.avatarUrl, avatarCrop: bot.avatarCrop };
 }
@@ -61,11 +57,6 @@ export function avatarGenerationStateMatches(
   return current.avatarUrl === initial.avatarUrl && current.avatarCrop === initial.avatarCrop;
 }
 
-/**
- * Wrap free-form direction in a product-owned art brief. The fixed crop and
- * no-text constraints make the low-cost first result useful as a 28px avatar,
- * while JSON quoting prevents the user's direction from blurring its bounds.
- */
 export function avatarGenerationPrompt(bot: AvatarIdentity, direction: string): string {
   const bounded = direction.trim().slice(0, AVATAR_DIRECTION_MAX_CHARS);
   return [
@@ -86,11 +77,6 @@ export interface GeneratedAvatarImage {
   mime: "image/png" | "image/jpeg" | "image/webp";
 }
 
-/**
- * Read an untrusted provider response without first materialising an
- * arbitrarily large body. The image API returns base64 JSON, so a byte cap is
- * the real memory boundary; decoding happens only after the bounded read.
- */
 async function boundedResponseText(response: Response): Promise<string> {
   const advertised = Number(response.headers.get("content-length"));
   if (Number.isFinite(advertised) && advertised > MAX_UPSTREAM_RESPONSE_BYTES) {
@@ -181,17 +167,12 @@ export async function generateAvatarImage(
   try {
     text = await boundedResponseText(response);
   } catch (error) {
-    // A fetch can resolve its headers before the provider stalls. When the
-    // same timeout later aborts the response body, undici may surface either
-    // TimeoutError or AbortError; the signal is the authoritative cause.
     if (timeoutSignal.aborted || (error instanceof Error && error.name === "TimeoutError")) {
       throw Object.assign(new Error("Avatar generation timed out"), { status: 502 });
     }
     throw error;
   }
   if (!response.ok) {
-    // Upstream errors can repeat authorization headers, signed URLs, or other
-    // secrets. Return only the provider and HTTP status, never its raw body.
     const message = `${providerName} image generation failed (HTTP ${response.status})`;
     throw Object.assign(new Error(message), { status: response.status === 401 ? 401 : 502 });
   }
@@ -208,8 +189,6 @@ export async function generateAvatarImage(
   }
   const encoded = parsed.data.data[0]!.b64_json;
   if (!encoded) {
-    // Do not fetch arbitrary URLs returned by a provider. Compatible gateways
-    // must support the requested inline base64 response format.
     throw Object.assign(new Error(`${providerName} image generation must return base64 image data (b64_json)`), { status: 502 });
   }
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) {

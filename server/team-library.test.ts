@@ -12,7 +12,6 @@ import {
   teamLibraryRepository,
 } from "./team-library.ts";
 
-// No library is built in; these tests name one the way a deployment would.
 const REPOSITORY = "https://github.com/example/teams";
 const RAW_ROOT = teamLibraryRawRoot(REPOSITORY);
 

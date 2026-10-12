@@ -23,13 +23,10 @@ import {
 const HOUR = 60 * 60 * 1000;
 const PAGE = `${RELEASES_PAGE}/tag/v0.2.0`;
 
-/** GitHub's latest-release answer, trimmed to what the check reads. */
 const release = (tag, extra = {}) => ({ tag_name: tag, html_url: `${RELEASES_PAGE}/tag/${tag}`, draft: false, prerelease: false, ...extra });
 const respond = (body, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-/** A release check at 0.1.2 on a fake clock, recording every request and
- * every state patch. `h.answer(url, init)` is what GitHub says. */
 function harness(t, { on = true, currentVersion = "0.1.2", answer = () => respond(release("v0.1.2")) } = {}) {
   try {
     t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -71,7 +68,6 @@ function harness(t, { on = true, currentVersion = "0.1.2", answer = () => respon
 }
 
 test("versions compare in semver order: numbers as numbers, a prerelease before its release, build metadata ignored", () => {
-  // semver.org §11's own chain, then the release line after it.
   const chain = [
     "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1",
     "1.0.0", "1.0.1", "1.0.10", "1.2.0", "1.10.0", "2.0.0",
@@ -107,9 +103,7 @@ test("an answer offers only a plain release newer than this app, at this reposit
   assert.equal(releaseOffer(release("nightly"), "0.1.2"), null, "a malformed tag");
   for (const answer of [null, undefined, "v0.2.0", [], {}, { message: "Not Found" }]) assert.equal(releaseOffer(answer, "0.1.2"), null, JSON.stringify(answer));
   assert.equal(releaseOffer(release("v0.2.0"), "dev"), null, "a version this app cannot compare");
-  // A preview build hears about the release it previewed.
   assert.deepEqual(releaseOffer(release("v0.2.0"), "0.2.0-preview.1"), { version: "0.2.0", url: PAGE });
-  // The download page is this repository's, whatever the answer names.
   for (const html_url of [
     "https://evil.example/woodbeary/later-dog/releases/tag/v0.2.0",
     "http://github.com/woodbeary/later-dog/releases/tag/v0.2.0",
@@ -137,7 +131,6 @@ test("asks GitHub once a short while after launch, carrying nothing about the pe
   assert.equal(init.method, "GET");
   assert.equal(init.credentials, "omit");
   assert.equal(init.body, undefined);
-  // Only what GitHub's API asks of every caller; the User-Agent names the app, not its version.
   assert.deepEqual(init.headers, { accept: "application/vnd.github+json", "user-agent": "later.dog", "x-github-api-version": "2022-11-28" });
 });
 
@@ -157,7 +150,6 @@ test("a newer release is offered; the same, an older or a prerelease-looking one
     h.check.stop();
   }
 
-  // A release withdrawn later is no longer offered.
   const h = harness(t, { answer: () => respond(release("v0.2.0")) });
   h.check.start();
   await h.tick(RELEASE_CHECK_DELAY_MS);
@@ -215,7 +207,6 @@ test("checks at most every 12 hours, the person's own checks included", async (t
   await h.tick(1);
   assert.equal(h.requests.length, 2, "12 hours after the first");
 
-  // The person checks 6 hours later: the timer's next request waits 12 hours from theirs.
   await h.tick(6 * HOUR);
   await h.check.check(true);
   assert.equal(h.requests.length, 3);
@@ -224,13 +215,11 @@ test("checks at most every 12 hours, the person's own checks included", async (t
   await h.tick(1);
   assert.equal(h.requests.length, 4);
 
-  // Three more days, a step at a time (a mock tick runs a timer once): two a day.
   for (let step = 0; step < 6 * 12; step += 1) await h.tick(HOUR);
   const times = h.requests.map((request) => request.at);
   assert.equal(times.length, 4 + 6);
   for (let index = 1; index < times.length; index += 1) {
     const apart = times[index] - times[index - 1];
-    // The person's own check (the third) came 6 hours after the timer's second.
     assert.ok(apart >= (index === 2 ? 6 * HOUR : RELEASE_CHECK_INTERVAL_MS), `request ${index + 1} came ${apart / HOUR} h after the one before`);
   }
 });
@@ -252,7 +241,6 @@ test("off means no request at all, the person's check included; on asks at once"
   assert.equal(h.state.releaseCheck, "on");
   assert.deepEqual(h.state.available, { version: "0.2.0", url: PAGE });
 
-  // Off again: the offer comes down, and nothing more is asked.
   assert.equal(h.check.setEnabled(false), false);
   assert.deepEqual(h.saved, [true, false]);
   assert.deepEqual({ ...h.state }, { releaseCheck: "off", status: "idle", available: undefined, message: undefined });
@@ -260,7 +248,6 @@ test("off means no request at all, the person's check included; on asks at once"
   await h.check.check(true);
   assert.equal(h.requests.length, 1);
 
-  // On again within 12 hours of the last request: the spacing holds.
   const quick = harness(t, { answer: () => respond(release("v0.1.2")) });
   quick.check.start();
   await quick.tick(RELEASE_CHECK_DELAY_MS);
@@ -289,13 +276,11 @@ test("the person's check shows checking, and says when it failed; the timer's ne
   h.check.start();
   await h.check.check(true);
   assert.deepEqual(h.states.slice(1), [{ status: "checking" }, { status: "error", message: RELEASE_CHECK_FAILED }]);
-  // GitHub answers again: the result replaces the failure.
   h.answer = () => respond(release("v0.1.2"));
   await h.check.check(true);
   assert.equal(h.state.status, "idle");
   assert.equal(h.state.available, undefined);
 
-  // The person asks while the timer's request is out: one request, and its failure is theirs to see.
   let fail;
   const shared = harness(t, { answer: () => new Promise((_resolve, reject) => { fail = reject; }) });
   shared.check.start();
@@ -307,7 +292,6 @@ test("the person's check shows checking, and says when it failed; the timer's ne
   await asked;
   assert.deepEqual(shared.state, { releaseCheck: "on", status: "error", message: RELEASE_CHECK_FAILED });
 
-  // A failure while a newer release is on offer leaves the offer up.
   const offered = harness(t, { answer: () => respond(release("v0.2.0")) });
   offered.check.start();
   await offered.check.check(true);
@@ -328,7 +312,6 @@ test("the switch is remembered in userData, on until switched off", async (t) =>
     writeFileSync(join(dir, "release-check.json"), "{ not json");
     assert.equal(releaseCheckEnabled(dir), true);
 
-    // Started from a saved "off": nothing is asked, and switching on is saved.
     rememberReleaseCheck(dir, false);
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const fetch = t.mock.method(globalThis, "fetch", async () => respond(release("v0.1.2")));

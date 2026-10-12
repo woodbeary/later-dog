@@ -27,7 +27,6 @@ function anchorPresent(anchor: string | null): boolean {
   return !anchor || visible(anchor) !== null;
 }
 
-/** Press a control the way the user would; false when it is not on screen. */
 function press(anchor: string): boolean {
   const el = visible(anchor);
   if (!el) return false;
@@ -35,8 +34,6 @@ function press(anchor: string): boolean {
   return true;
 }
 
-/** A question or approval the person still owes the open chat. The tour waits
- * for it rather than cover it on a dog's first message. */
 export function waitingOnPerson(bot: Pick<Bot, "messages" | "activeLeafId"> | undefined): boolean {
   if (!bot) return false;
   return visibleMessages(bot).some((message) => message.kind === "options" && Boolean(message.card?.requestId)
@@ -84,7 +81,6 @@ export function GuidedTour() {
 
   const save = useCallback(
     (finish: boolean, id?: TourStep["id"]) => {
-      // A skip must follow an in-flight Next, not disappear behind its guard.
       const operation = pending.current.then(async () => {
         const patch = finish
           ? { onboarding: { hintsSeen: withTourFinished(latestRecord.current) } }
@@ -106,8 +102,6 @@ export function GuidedTour() {
       saving.current = true;
       setFailed(false);
       void save(false, step.id).then(() => {
-        // Only move the interface after progress was saved. A queued skip
-        // owns cleanup and must not have its panels reopened by this request.
         if (!closed.current && !(fromAnchor && step.onExit && ANCHOR_EFFECTS.has(step.onExit))) run(step.onExit);
       }).catch(() => setFailed(true)).finally(() => { saving.current = false; });
     },
@@ -124,13 +118,10 @@ export function GuidedTour() {
     dispatch({ type: "toggleTour", open: false });
   }, [state.pluginsOpen, run, save, dispatch]);
 
-  // the tour also waits out a dog's reply, so its first tip lands on a
-  // settled chat instead of covering the answer as it arrives
   const openBot = state.bots.find((bot) => bot.id === state.selectedId);
   const waiting = waitingOnPerson(openBot) || Boolean(openBot?.busy);
   const active = !dismissed && Boolean(record?.completedAt) && !state.welcomeOpen && step !== null && !waiting;
 
-  // entering a step runs its effect once per step
   useEffect(() => {
     if (!active || !step || entered.current === step.id) return;
     entered.current = step.id;
@@ -154,7 +145,6 @@ export function GuidedTour() {
     };
   }, [active, step, advance, run]);
 
-  // clicking the pointed-at control is as good as Next
   useEffect(() => {
     if (!active || !step?.anchor || step.id === "tour.apps-panel" || step.id === "tour.done") return;
     const onClick = (event: MouseEvent) => {

@@ -11,7 +11,6 @@ import { startFakeHttpMcp } from "./testing/fake-http-mcp-server.ts";
 import { startFakeOAuth } from "./testing/fake-oauth-server.ts";
 import { whopLikeCatalog } from "./testing/whop-like-catalog.ts";
 
-/** 425 tools in about the 1,207,608 bytes Whop's real tools/list measured. */
 function whopSizedCatalog() {
   const base = JSON.stringify(whopLikeCatalog(425)).length;
   const tools = whopLikeCatalog(425, Math.ceil((1_207_608 - base) / 425) - 1);
@@ -23,9 +22,6 @@ function whopSizedCatalog() {
 
 const fakeServer = fileURLToPath(new URL("./testing/fake-mcp-server.ts", import.meta.url));
 
-/** Let real I/O (sockets, child pipes) run while timers are faked. Bounded
- * by real time, not a count of turns: a loaded CI runner can need far more
- * turns for the same round trips (Date is not faked here). */
 async function untilReal(condition: () => boolean, limitMs = 15_000): Promise<void> {
   const started = Date.now();
   while (!condition() && Date.now() - started < limitMs) {
@@ -34,7 +30,6 @@ async function untilReal(condition: () => boolean, limitMs = 15_000): Promise<vo
   expect(condition()).toBe(true);
 }
 
-/** Settles `pending` into a readable state without awaiting it. */
 function watch<T>(pending: Promise<T>): { done: boolean; value?: T } {
   const state: { done: boolean; value?: T } = { done: false };
   void pending.then((value) => { state.done = true; state.value = value; });
@@ -142,7 +137,6 @@ describe("remote MCP probe", () => {
       await expect(probeMcpServer({ type: "http", url: fake.url, headers: { Authorization: "Bearer tok-docs" }, enabled: false }, 2_000))
         .resolves.toEqual({ ok: true, tools });
       expect(fake.seenHeaders[0]?.authorization).toBe("Bearer tok-docs");
-      // the handshake is complete before the tools are asked for
       expect(fake.seenHeaders.length).toBeGreaterThanOrEqual(3);
     } finally {
       await fake.close();
@@ -208,7 +202,6 @@ describe("remote MCP probe", () => {
     try {
       const probe = watch(probeMcpServer({ type: "http", url: fake.url, headers: {}, enabled: false }));
       await untilReal(() => fake.delayedToolsLists === 1);
-      // well past the 8 seconds a command gets
       await vi.advanceTimersByTimeAsync(10_000);
       await untilReal(() => probe.done);
       expect(probe.value).toEqual({ ok: true, tools });

@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 export async function startLaterDogSupervisor({ app, dataDir, port, ownerToken, log }) {
-  // A hosted supervisor (environment, or the saved connection beside the data directory) replaces the local one entirely.
   if (process.env.LATERDOG_SUPERVISOR_URL || fs.existsSync(path.join(dataDir,"supervisor.json")) || !app.isPackaged) return null;
   const directory = path.join(dataDir,"supervisor");
   fs.mkdirSync(directory,{ recursive: true, mode: 0o700 });

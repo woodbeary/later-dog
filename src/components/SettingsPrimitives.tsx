@@ -26,8 +26,6 @@ export function Switch({
     >
       <span
         className={cn(
-          // the knob takes the accent's ink when on: a white knob on a
-          // white (monochrome dark) track would disappear
           "absolute rounded-full transition-[left] motion-reduce:transition-none",
           checked ? "bg-[var(--color-accent-ink)]" : "bg-white",
           small ? "top-[2px] h-3 w-3" : "top-[3px] h-[18px] w-[18px]",
@@ -56,7 +54,6 @@ export function Card({
   );
 }
 
-/** Simple preferences share an aligned row; forms with several fields keep a Card. */
 export function SettingRow({
   title,
   subtitle,
@@ -83,9 +80,7 @@ export function SettingRow({
   );
 }
 
-/** A command the user is meant to run, with one-click copy. */
 export function CommandLine({ command, copyLabel = "Copy command" }: { command: string; copyLabel?: string }) {
-  // The command stays select-all when clipboard permission is denied.
   const { state, copy } = useCopyFeedback(command);
 
   return (

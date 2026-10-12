@@ -37,7 +37,6 @@ const fetchMock = vi.fn<typeof fetch>();
 
 beforeEach(() => {
   vi.resetAllMocks();
-  // The shared test setup supplies a throwaway HOME before module imports.
   dataDir = mkdtempSync(join(process.env.HOME!, "cli-pair-"));
   vi.stubEnv("LATERDOG_HOME", dataDir);
   options = { command: "pair", port: 18451, dataDir, tailscale: false, tunnel: false, client: false, pair: true, json: false };
@@ -62,7 +61,6 @@ beforeEach(() => {
     if ([advertisedOrigin, explicitOrigin].some((origin) => url === `${origin}/.well-known/laterdog/environment`)) {
       return Response.json({ environmentId: remoteWorkspaceId });
     }
-    // No real network fallback is allowed, including stale saved addresses.
     throw new Error(`Unexpected fixture request: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -160,10 +158,6 @@ describe("guided phone pairing address discovery", () => {
   });
 });
 
-// `laterdog pair` talks to 127.0.0.1, so the server answers as its owner and
-// builds the phone-app invite from its own public address (server/index.ts
-// POST /api/auth/pairing, through shared/pairing-link.ts). The CLI prints that
-// invite as it is, and builds its own only for --public-url.
 describe("the phone-app link `laterdog pair` prints", () => {
   const credential = `laterdog_pair_${"b".repeat(43)}`;
   const serverName = "Miguel's computer";
@@ -197,9 +191,6 @@ describe("the phone-app link `laterdog pair` prints", () => {
     expect(printed()).not.toContain(encodeURIComponent(advertisedOrigin));
   });
 
-  // LATERDOG_PUBLIC_URL may name a path behind a proxy. The phones dial an origin,
-  // so the server gives no invite; re-deriving one from the web link's origin
-  // would point the phone at the proxy's root instead.
   it("prints no invite for a server whose public address has a path", async () => {
     pairingResponse({ url: `https://proxy.example.test/laterdog/pair#code=${code}`, inviteUrl: null });
     expect(await runPair({ ...options, label: "Pixel" })).toBe(0);

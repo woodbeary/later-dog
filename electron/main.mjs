@@ -114,8 +114,6 @@ const { DESKTOP_MUTATION_HEADER, desktopServerHeaders } = require("./desktop-ser
 const { MIN_BOUNDS, normalizeUnreadCount, parseWindowState, resolveWindowState } = require("./window-state.cjs");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// 127.0.0.1 explicitly — vite binds IPv4; a bare "localhost" here can
-// resolve to ::1 and paint a black window
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
 let SERVER_PORT = 8799;
 const APP_ICON = path.join(__dirname, "resources/app-icon.png");
@@ -125,7 +123,6 @@ let desktopViewerContextId = null;
 let desktopWorkspaceManager = null;
 let desktopWorkspaceOwner = null;
 let pendingOrganizationEntry = takeOrganizationDeepLink(process.argv);
-// laterdog://cloud, delivered with the organisation action once main can navigate.
 const cloudEntry = createCloudEntry({
   reveal: () => { if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows()); },
   open: async () => {
@@ -188,9 +185,6 @@ function installWindowStatePersistence(win) {
   };
   win.on("resize", schedule);
   win.on("move", schedule);
-  // The renderer's caption buttons track the native maximize state (the
-  // restore/maximize glyph flips); a lost push just leaves a stale glyph
-  // until the next toggle, so a send failure is not fatal.
   const pushMaximized = () => {
     try {
       if (!win.isDestroyed()) win.webContents.send("window:maximized-changed", win.isMaximized());
@@ -217,40 +211,21 @@ function applyUnreadBadge(win = mainWindow) {
   if (process.platform === "darwin" || process.platform === "linux") app.setBadgeCount(count);
 }
 
-// GNOME groups the window with its installed desktop entry only when both
-// identities match. This must run before Electron becomes ready. Ubuntu also
-// uses Chromium's software renderer: the supported machine reproduced two
-// NVIDIA/libGLES GPU-process crashes that left an invisible focused window
-// intercepting input. This app is not graphics-heavy, so reliability wins.
 if (process.platform === "linux") {
   app.disableHardwareAcceleration();
   app.setDesktopName("dog.later.app.desktop");
 }
 
-// One instance per user: without this lock a second launch forks a second
-// harness server on a fallback port and splits data dirs in two. The loser
-// exits before any child or window exists; the winner surfaces itself.
 if (!app.requestSingleInstanceLock()) {
   console.log("[desktop] later.dog is already running — focusing that window");
   process.exit(0);
 }
 
-// An update install can start the new build while this process is still
-// inside the deferred before-quit cleanup further down, still holding the
-// lock; the relaunched copy then loses the check above and exits, leaving a
-// dead Starting window with no server. Electron's native autoUpdater emits
-// before-quit-for-update only when an update drives the quit (the vendored
-// electron-updater re-emits it on the same object before app.quit()), so the
-// lock is released on that event — never in before-quit, where a normal quit
-// would allow a concurrent second instance.
 nativeAutoUpdater.on("before-quit-for-update", () => releaseSingleInstanceLock(app));
 
 function deliverPackageInstall(win) {
   if (!pendingPackageInstallUrl || !win || win.isDestroyed()) return;
   if (win.webContents.isLoadingMainFrame()) return;
-  // A package installs into THIS computer's workspace, so it is handed to the
-  // local UI only. Showing a remote server: switch back to Local first; the
-  // pending link is delivered when that page finishes loading.
   let showingLocal = false;
   try {
     showingLocal = new URL(win.webContents.getURL()).origin === localPageOrigin();
@@ -297,12 +272,6 @@ app.on("second-instance", (_event, commandLine) => {
   deliverPackageInstall(target);
 });
 
-// Packaged: the harness server ships in Resources (compiled JS, zero deps)
-// and runs on Electron's own Node via utilityProcess. It serves the built
-// UI too, so the window talks to one origin and there is no dev proxy.
-// A stray server on the default port must not brick the app — fall back to
-// alternate ports until one binds AND identifies as ours (the probe checks
-// our API shape, not just a 200).
 let serverProc = null;
 let serverReady = !app.isPackaged;
 let secureCredentials = {};
@@ -311,19 +280,12 @@ let desktopDataDirLease = null;
 let profiles = null;
 let managedDesktop = null;
 let cloudAccount = null;
-// Settles once a saved Cloud sign-in is restored and checked (or there is none).
 let cloudAccountStarted = Promise.resolve();
-// True while that restore is under way: a Cloud page asking for the microphone waits for it.
 let cloudAccountRestoring = false;
-// Until it has finished, which Cloud is the person's is only a hint (updaterPageOffered).
 let cloudSignInRestored = false;
-/** Wait for a saved Cloud sign-in to finish restoring (a local read and one
- * check with later.dog Cloud), at most 5 s: Settings → later.dog Cloud must not take it
- * for signed out, nor the microphone refuse My Cloud for asking early. */
 function cloudAccountRestored() {
   return Promise.race([cloudAccountStarted, new Promise(resolve => setTimeout(resolve, 5_000).unref?.())]);
 }
-// The organization library channel: catalog and release bytes for the local runtime only.
 let orgLibrary = null;
 let companyBackupController = null;
 let companyBackupState = { busy: false };
@@ -348,15 +310,10 @@ const serverSupervisor = createServerSupervisor({
     serverStartConflictOnly = false;
     slog(`server ready pid=${proc.pid} port=${SERVER_PORT}`);
     serverLiveness.start(proc);
-    // Re-read the latest account credentials; registration may have completed
-    // while the replacement child's health probe was pending.
     syncManagedComposioCredentials();
-    // A restarted runtime has no library catalog until main sends it again.
     orgLibrary?.runtimeReady();
     if (managedDesktop) void managedDesktop.refresh().catch(() => {});
     routineWake.start();
-    // Existing chat windows reconnect in place, preserving unsent drafts.
-    // A window opened during the outage is still on our error page instead.
     for (const win of BrowserWindow.getAllWindows()) {
       if (!serverUnavailableWindows.has(win) || activeEnvironment(environmentsState) || profiles?.activeOrigin()) continue;
       void win.loadURL(`http://127.0.0.1:${SERVER_PORT}`).then(() => {
@@ -371,7 +328,6 @@ const serverSupervisor = createServerSupervisor({
     serverReady = false;
     serverProc = null;
     companyBackupSchedule?.reconcile();
-    // nothing to hold for while the scheduler is down; polling resumes on ready
     routineWake.stop();
   },
   onExhausted() {
@@ -386,10 +342,6 @@ const serverSupervisor = createServerSupervisor({
 });
 
 function desktopDataDir() {
-  // Match the historical desktop fallback for an unset or empty override,
-  // then pass this exact resolved path to the utility child. server/config.ts
-  // intentionally treats an empty LATERDOG_HOME differently, so inheriting it
-  // without normalization would lease one directory and write another.
   return process.env.LATERDOG_HOME || path.join(app.getPath("home"), ".laterdog");
 }
 
@@ -399,10 +351,7 @@ async function stopUtilityServer(proc, timeoutMs = UTILITY_SERVER_STOP_TIMEOUT_M
   if (!exited) return false;
   try {
     proc.kill();
-  } catch {
-    // The tracked exit promise below is still the authority. A throw can mean
-    // the process crossed the exit boundary immediately before kill().
-  }
+  } catch {}
   let timer;
   return Promise.race([
     exited.then(() => true),
@@ -418,10 +367,6 @@ let desktopCompanionRelay = null;
 
 const CREDENTIALS_FILE = path.join(app.getPath("userData"), "credentials.bin");
 
-/** Set once per launch: true when the store could not be READ, which is not
- * the same as the user having saved nothing. Everything downstream — the
- * server's view of "configured", and whether we may register a fresh
- * installation — keys off this rather than off an empty object. */
 let credentialStoreUnavailable = false;
 
 async function loadSecureCredentials() {
@@ -434,17 +379,12 @@ async function loadSecureCredentials() {
   });
   credentialStoreUnavailable = result.status === "unavailable";
   if (credentialStoreUnavailable) {
-    // Deliberately loud. A silent {} here is what made a keychain hiccup
-    // look like "your connected apps are gone".
     slog(`credential store unreadable after retries (${result.error}); saved keys are not loaded this launch`);
   }
   return result.credentials;
 }
 
 async function saveSecureCredentials(credentials) {
-  // A failed read means we do not know what the existing encrypted document
-  // contains. Never derive a replacement from that incomplete view: boot
-  // migrations must leave plaintext in place so a later launch can retry.
   if (credentialStoreUnavailable) {
     throw new Error("The operating-system credential store could not be read this launch");
   }
@@ -477,9 +417,6 @@ async function secureComposioConfig() {
       config.composio.apiKey = "";
       changed = true;
     }
-    // These were the old Connect credential and endpoint. They are no longer
-    // read; remove them during the upgrade so an unused secret is not left in
-    // plaintext indefinitely.
     for (const field of ["key", "url"]) {
       if (Object.hasOwn(config.composio, field)) {
         delete config.composio[field];
@@ -495,20 +432,12 @@ async function secureComposioConfig() {
   }
 }
 
-// The remaining workspace credentials (xai/box/voice/OpenCode keys) get
-// the same at-rest treatment as the Composio key above. New packaged-app
-// saves go straight through credential:set below; this boot-time sweep also
-// migrates plaintext left by older versions or direct development clients.
-// See workspace-credentials.mjs for the exact rules.
 async function secureWorkspaceConfig() {
   const dataDir = desktopDataDir();
   const configPath = path.join(dataDir, "config.json");
   try {
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
     const migrated = migrateWorkspaceCredentials(config, secureCredentials);
-    // credentials.bin first: if the OS store cannot take the secrets, the
-    // plaintext stays put and the next boot retries — losing the only copy
-    // is the one unacceptable outcome
     if (migrated.credentialsChanged) await saveSecureCredentials(migrated.credentials);
     secureCredentials = migrated.credentials;
     if (!migrated.configChanged) return;
@@ -520,17 +449,11 @@ async function secureWorkspaceConfig() {
   }
 }
 
-// No connected-apps broker is built in. A build points its packaged app at
-// its own Worker (cloudflare/composio-broker/README.md) through
-// LATERDOG_COMPOSIO_BROKER_URL; unset, connected apps are self-host only (a
-// Composio project key under Settings → API keys) and the Apps panel says so.
 function composioBrokerUrl() {
   const configured = process.env.LATERDOG_COMPOSIO_BROKER_URL?.trim();
   return normalizeManagedComposioBrokerUrl(configured || "");
 }
 
-/** The organisation Admin portal this build signs in to by default (Settings
- * → Organisation and the welcome flow); none unless the build names one. */
 function adminPortalOrigin() {
   const configured = (process.env.LATERDOG_ADMIN_ORIGIN ?? "").trim();
   if (!configured) return "";
@@ -541,11 +464,6 @@ function adminPortalOrigin() {
   }
 }
 
-// The packaged app has no terminal: everything about the server child's life
-// goes to server.log in the OS log dir (~/Library/Logs/later.dog on macOS,
-// Console.app-visible; %APPDATA%\later.dog\logs on Windows), which is also
-// why stdio is piped, not inherited — under a Finder/Explorer launch the
-// parent's stdio leads nowhere and a failed boot is otherwise undiagnosable.
 const LOG_DIR = app.getPath("logs");
 const DESKTOP_CRASH_LOG = path.join(LOG_DIR, "desktop-crashes.log");
 const DESKTOP_CRASH_LOG_MAX_BYTES = 512 * 1024;
@@ -571,13 +489,6 @@ import {
 } from "./companion.mjs";
 import { createRoutineWakeHold, rememberRoutineWake, routineWakeSettings } from "./routine-wake.mjs";
 
-/** IPC that controls this computer, its files, its logins or its updater is
- * answered only for the local server's UI (electron/local-origin.cjs). A
- * remote server's page gets a reduced bridge (preload.cjs) in the first
- * place; this is the second wall, shared with cua.mjs, updater.mjs and
- * android-device.mjs. Declared before any handler registration below: a
- * const declared later would be in its temporal dead zone at module load.
- */
 const { isLocalSender: senderIsLocal, isProfileSender, localOnly, localOnlySync, setLocalOrigin, setProfileOrigin } = localOriginModule;
 
 let companionPowerBlocker = null;
@@ -592,10 +503,6 @@ function syncCompanionKeepAwake(companionEnabled, keepAwake) {
   }
 }
 
-// Keep this computer awake for scheduled routines (electron/routine-wake.mjs):
-// the scheduler lives in the local server, which cannot run while the Mac
-// sleeps. One power assertion, held for the hour before a due routine and
-// while a run is in flight, plugged in only; the server says when.
 const routineWake = createRoutineWakeHold({
   fetchStatus: () => (serverReady
     ? fetch(`http://127.0.0.1:${SERVER_PORT}/api/routines/wake`, { signal: AbortSignal.timeout(5_000), redirect: "error", credentials: "omit" })
@@ -620,16 +527,9 @@ function slog(line) {
       logStream = fs.createWriteStream(path.join(LOG_DIR, "server.log"), { flags: "a" });
     }
     logStream.write(`[${new Date().toISOString()}] ${line}\n`);
-  } catch {
-    /* logging must never break startup */
-  }
+  } catch {}
 }
 
-// The server stream is intentionally asynchronous, but a fatal main-process
-// exception may terminate Electron before such a write is flushed. Crash
-// metadata gets its own tiny synchronous file. The formatter admits only a
-// fixed set of fields, so renderer URLs, page titles, exception messages and
-// absolute paths never land on disk or in a public bug report.
 function recordDesktopCrash(event) {
   let handle = null;
   try {
@@ -648,8 +548,6 @@ function recordDesktopCrash(event) {
       handle = fs.openSync(DESKTOP_CRASH_LOG, flags);
     } catch (error) {
       if (error?.code !== "ENOENT") return;
-      // O_EXCL makes first creation race-safe on Windows, where O_NOFOLLOW is
-      // unavailable, as well as on POSIX.
       try {
         handle = fs.openSync(
           DESKTOP_CRASH_LOG,
@@ -662,18 +560,12 @@ function recordDesktopCrash(event) {
     }
 
     const stats = fs.fstatSync(handle);
-    // A hard-linked or non-regular target is not an app-owned crash log.
     if (!stats.isFile() || stats.nlink !== 1) return;
     if (before && (before.dev !== stats.dev || before.ino !== stats.ino)) return;
-    // A renderer crash loop must not grow a persistent log without bound.
-    // The diagnostics export reads only a bounded tail, so dropping older
-    // crash metadata here preserves the useful part of the record.
     if (stats.size >= DESKTOP_CRASH_LOG_MAX_BYTES) fs.ftruncateSync(handle, 0);
     if (process.platform !== "win32") fs.fchmodSync(handle, 0o600);
     fs.writeFileSync(handle, `[${new Date().toISOString()}] ${record}\n`, "utf8");
-  } catch {
-    /* crash diagnostics must never change app lifecycle */
-  } finally {
+  } catch {} finally {
     if (handle !== null) {
       try {
         fs.closeSync(handle);
@@ -682,9 +574,6 @@ function recordDesktopCrash(event) {
   }
 }
 
-// uncaughtExceptionMonitor observes Node's fatal path without converting it
-// into a handled exception. In particular, an unhandled rejection still
-// follows Node's normal exit behaviour after its metadata is persisted.
 installDesktopCrashListeners({
   appTarget: app,
   processTarget: process,
@@ -693,22 +582,12 @@ installDesktopCrashListeners({
   mainWebContents: () => mainWindow?.webContents ?? null,
 });
 
-// ── managed companion connection ───────────────────────────────────────
-// Account onboarding provisions one remote Cloudflare Tunnel per desktop,
-// then calls reconcileManagedCompanionEndpointProvision below. Only the
-// endpoint is public state. The connector token stays in credentials.bin and
-// is passed to cloudflared through a private token file by the lifecycle
-// module — never through IPC, argv, the environment, or logs.
 let managedCompanionConnector = null;
 let companionAccountService = null;
 let companionDesiredThisLaunch = false;
 let companionLaunchGeneration = 0;
 let advertisementTransition = Promise.resolve();
 
-/** The one serialized credential mutation hook. Account onboarding and every
- * other runtime credential writer share this state, so persisting a tunnel
- * token can never overwrite an API key saved at the same time (or vice
- * versa). */
 export async function updateSecureCredentialDocument(derive, afterPersist) {
   if (!secureCredentialState) throw new Error("Secure credentials are not ready");
   try {
@@ -732,9 +611,6 @@ async function ensurePhoneSecretIdentity() {
     phoneSecretIdentity = created;
     return created;
   } catch (error) {
-    // Companion chat remains available. Pairing simply omits the public key,
-    // and mobile cards explain that secure entry needs the desktop until the
-    // OS credential store is available on a later launch.
     phoneSecretIdentity = null;
     slog(`phone credential key unavailable: ${error?.message ?? error}`);
     return null;
@@ -761,8 +637,6 @@ function publicManagedCompanionState() {
 }
 
 function decorateDesktopCompanionState(state) {
-  // The panel polls this state, so a sidecar that exited on its own releases
-  // the blocker within one poll instead of keeping the computer awake forever.
   syncCompanionKeepAwake(state.enabled && !state.error, state.keepAwake === true);
   return { ...state, managedConnection: publicManagedCompanionState() };
 }
@@ -777,9 +651,6 @@ function companionLaunchOptions(hostedUrl = null) {
     harnessPort: SERVER_PORT,
     mutationToken: companionMutationToken,
     hostedUrl,
-    // Only an embedded server receives the private half over its utility
-    // port. A dev server launched in another terminal cannot decrypt, so it
-    // must not advertise a public key and strand the phone on a dead path.
     secretPublicKey: app.isPackaged && serverProc ? phoneSecretIdentity?.publicKey ?? null : null,
     log: slog,
   };
@@ -806,9 +677,6 @@ function ensureManagedCompanionConnector() {
   return managedCompanionConnector;
 }
 
-/** Publish a hosted address only after its connector has passed public health
- * verification. Updating the owned sidecar in place preserves the exact
- * private origin generation and cannot invalidate an open pairing window. */
 function reconcileCompanionAdvertisement(
   endpoint,
   ownedGeneration = companionLaunchGeneration,
@@ -852,14 +720,10 @@ async function startManagedCompanionConnection({ waitForVerification = true } = 
 }
 
 async function startDesktopCompanion({ waitForHosted = true, remember = true } = {}) {
-  // Every way of turning the companion on (the switch, Tailscale's "Turn on
-  // and check", launch auto-start) passes here.
   const refusal = managedRemoteAccessRefusal();
   if (refusal) throw new Error(refusal);
   companionDesiredThisLaunch = true;
   companionLaunchGeneration += 1;
-  // Direct LAN comes up first. The hosted endpoint is added in place only
-  // after the guardian has verified the public route to this exact sidecar.
   const localState = await startCompanion(companionLaunchOptions());
   if (!localState.enabled || localState.error) {
     companionDesiredThisLaunch = false;
@@ -894,13 +758,9 @@ setCompanionLifecycleListener(({ expected, pid }) => {
   companionDesiredThisLaunch = false;
   companionLaunchGeneration += 1;
   syncCompanionKeepAwake(false, false);
-  // stop() invalidates the guardian's owner pipe synchronously, before the
-  // sidecar module removes this generation's private socket.
   void managedCompanionConnector?.stop().catch(() => {});
 });
 
-/** Narrow main-process hook for the account onboarding flow. Its return value
- * is explicitly secret-free and can be used to refresh the settings panel. */
 export async function reconcileManagedCompanionEndpointProvision(provision) {
   await updateSecureCredentialDocument((credentials) =>
     withManagedCompanionTunnelAccess(credentials, provision),
@@ -911,7 +771,6 @@ export async function reconcileManagedCompanionEndpointProvision(provision) {
   return publicManagedCompanionState();
 }
 
-/** Called only after the control plane has revoked/deleted the endpoint. */
 export async function clearManagedCompanionEndpointCredentials() {
   await updateSecureCredentialDocument((credentials) =>
     withoutManagedCompanionTunnelAccess(credentials),
@@ -921,9 +780,6 @@ export async function clearManagedCompanionEndpointCredentials() {
   return publicManagedCompanionState();
 }
 
-/** Account sign-out must stop advertising the hosted route before it asks
- * the control plane to revoke anything, but it must not erase the retry
- * credentials until that remote cleanup is durably scheduled. */
 async function stopManagedCompanionEndpointLocally() {
   await managedCompanionConnector?.stop();
   if (companionDesiredThisLaunch) await reconcileCompanionAdvertisement(null);
@@ -955,10 +811,7 @@ function ensureCompanionAccountService() {
   if (baseURL) {
     try {
       client = createControlPlaneClient({ baseURL });
-    } catch {
-      // An invalid explicit override disables hosted access. Direct LAN,
-      // Bonjour, and Tailscale pairing remain completely independent.
-    }
+    } catch {}
   }
   companionAccountService = createCompanionAccountService({
     client,
@@ -979,21 +832,12 @@ function ensureCompanionAccountService() {
     stopManagedEndpoint: stopManagedCompanionEndpointLocally,
     managedConnectionState: publicManagedCompanionState,
     companionIsOn: () => companionDesiredThisLaunch,
-    // Retry capacity/transient setup failures with backoff, and re-provision a
-    // reclaimed endpoint behind the same address without a new sign-in.
     autoRecover: true,
-    // The failure code and support reference reach server.log, and with it
-    // the bug-report bundle.
     log: (line) => slog(line),
   });
   return companionAccountService;
 }
 
-// Everything the bug-report bundle needs. The config summary comes from the
-// server's own booleans-only /api/config status (credentials are never
-// echoed), and the log goes through the redactor in diagnostics.mjs — so the
-// file is safe to paste into a public issue even if a future log line ever
-// carried a secret.
 async function gatherDiagnostics() {
   const serverStatus = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/config`, {
     signal: AbortSignal.timeout(3_000),
@@ -1021,8 +865,6 @@ async function gatherDiagnostics() {
   });
 }
 
-// Set by startServerPackaged: true only when every failing candidate port was
-// taken by another process — decides which error-page message renders.
 let serverStartConflictOnly = false;
 
 
@@ -1030,10 +872,6 @@ let serverStartConflictOnly = false;
 
 
 
-
-/** Run one private cleanup request at most once and acknowledge only after
- * Chromium confirms its session data is gone. Duplicate retries join the
- * same promise; a retry whose success ACK was lost receives a cached ACK. */
 
 function syncPhoneSecretKey(proc) {
   const message = phoneSecretPrivateKeyMessage(phoneSecretIdentity);
@@ -1060,11 +898,7 @@ function ensureCloudAccount() {
     onState: state => {
       rememberCloudHome(state);
       rememberedHome = rememberedCloudHome(rememberedHome, state);
-      // My Cloud's page, refused while the sign-in was being restored, now
-      // hears this app's update (a "Restart to update" it would miss).
       sendUpdaterState();
-      // Signing out, another account or another machine ends lending at once;
-      // a renewed sign-in resumes it (computer-sharing.mjs cloudLendingVerdict).
       computerSharing?.cloudChanged();
       if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.mainFrame.url.startsWith(`${rendererOrigin()}/`) &&
         !activeEnvironment(environmentsState) && !desktopRemoteAccess) mainWindow.webContents.send("cloud-account:state-changed", state);
@@ -1083,8 +917,6 @@ function ensureManagedDesktop() {
     decrypt: value => safeStorage.decryptStringAsync(value),
   };
   const store = createManagedDesktopStore({ file: path.join(app.getPath("userData"), "company-connection.bin"), encryption });
-  // Only what the Admin's library capability delivers, verified in main and
-  // relayed to the local runtime; never to a remote server's pages.
   orgLibrary = createOrgLibrary({
     dataDir: path.join(desktopDataDir(), "org-library"),
     store: createManagedDesktopStore({ file: path.join(app.getPath("userData"), "company-library.bin"), encryption }),
@@ -1096,17 +928,12 @@ function ensureManagedDesktop() {
   managedDesktop = createManagedDesktopClient({
     store, platform: process.platform, deviceName: os.hostname().slice(0, 100) || "My computer",
     applyConnection: connection => managedDesktopRelay.send(serverProc, connection),
-    // The organisation's read-only policy overlay; the runtime keeps it in memory.
     applyPolicy: policy => managedDesktopRelay.sendPolicy(serverProc, policy),
     migrateIdentity: identity => managedDesktopRelay.sendIdentity(serverProc, identity),
     library: orgLibrary,
     appVersion: app.getVersion(),
     openBrowser: url => shell.openExternal(url),
     onState: state => {
-      // Losing company access (sign-out, expiry, revocation, a lapsed licence)
-      // pauses daily backups; the schedule clears itself only when a different
-      // organisation or account connects. An Admin without backup storage ends it.
-      // license-expired repeats every heartbeat; an upload in flight stops, nothing else changes.
       if (state.status === "license-expired") companyBackupController?.abort();
       const lost = ["signed-out", "reauth-required"].includes(state.status), withoutStorage = state.status === "connected" && !state.cloudBackups;
       if (lost || withoutStorage) {
@@ -1117,8 +944,6 @@ function ensureManagedDesktop() {
         publishCompanyBackupState({ busy: Boolean(companyBackupController) });
       }
       companyBackupSchedule?.reconcile();
-      // Remote pages never receive local identity events, even if they were
-      // loaded in this window after an earlier local subscription.
       if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.mainFrame.url.startsWith(`${rendererOrigin()}/`) &&
           !activeEnvironment(environmentsState) && !desktopRemoteAccess) {
         mainWindow.webContents.send("organization:state-changed", state);
@@ -1148,13 +973,8 @@ function companyBackupScope() {
   if (desktopShutdownStarted || desktopRemoteAccess || !serverReady || !serverProc || activeEnvironment(environmentsState)) return null;
   const client = managedDesktop, connection = client?.connection(), state = client?.state();
   if (!connection || state?.status !== "connected" || !state.cloudBackups || connection.expiresAt <= Date.now()) return null;
-  // One person, one organisation, one data folder: re-enrolling this computer
-  // (a new deviceId) keeps the same daily schedule, and a schedule saved by an
-  // earlier version (whose key included a deviceId) is adopted, not forgotten.
   const dataDir = path.resolve(desktopDataDir());
   return { key: JSON.stringify([connection.portalOrigin, connection.organizationId, connection.email, dataDir]),
-    // Any enrollment of this same person, organisation and folder, whatever its
-    // deviceId: a credential that expired before the upgrade still carries over.
     adopts: saved => {
       try {
         const value = JSON.parse(saved);
@@ -1337,45 +1157,29 @@ function receivePhoneSecretSave(proc, rawMessage) {
 
 async function startServerOn(port) {
   if (desktopShutdownStarted) return { proc: null, abort: true };
-  // A bootstrap beside index.js that turns on Node's compile cache for this
-  // child, so a relaunch skips recompiling the server bundle.
   const { entry, compileCacheDir } = serverChildLaunch({
     resourcesPath: process.resourcesPath,
     userData: app.getPath("userData"),
   });
   const childEnv = managedComposioChildEnvironment(composioBrokerUrl(), secureCredentials, {
     ...process.env,
-    // The desktop parent owns the durable data-directory lease. Each utility
-    // server gets only a private capability that validates that same live
-    // owner; fallback-port children must not race to replace the parent lease.
     ...desktopDataDirLease.utilityServerLeaseEnvironment(),
     LATERDOG_HOME: desktopDataDir(),
-    // A packaged utility child must never fall back to a descriptor inherited
-    // from the launching shell. It starts fail-closed until this exact main
-    // process sends the private in-memory connection after spawn.
     LATERDOG_DESKTOP_PARENT: "1",
     LATERDOG_STATIC_DIR: path.join(process.resourcesPath, "ui"),
     LATERDOG_RESOURCES_PATH: process.resourcesPath,
     LATERDOG_SKILLS_DIR: path.join(process.resourcesPath, "skills"),
     LATERDOG_SERVER_PORT: String(port),
-    // the server advertises this to remote clients so version skew is visible
     LATERDOG_APP_VERSION: app.getVersion(),
     LATERDOG_USER_DATA: app.getPath("userData"),
     ...(secureCredentials.composioApiKey
       ? { COMPOSIO_API_KEY: secureCredentials.composioApiKey }
       : {}),
-    // "we could not read your keys" must not reach the UI as "you have none"
     LATERDOG_CREDENTIAL_STORE: credentialStoreUnavailable ? "unavailable" : "ok",
-    // one env var per stored workspace secret (xai/box/voice/OpenCode Go);
-    // the server prefers these over config.json, whose plaintext fields
-    // the boot migration has deleted
     ...workspaceCredentialEnv(secureCredentials),
   });
   delete childEnv.LATERDOG_BROWSER_CONNECTION;
   delete childEnv.LATERDOG_DESKTOP_PROFILE;
-  // Set here or not at all, never inherited from the launching shell. The
-  // bootstrap removes it before the server runs, so nothing the server
-  // spawns sees it.
   delete childEnv.LATERDOG_SERVER_COMPILE_CACHE;
   if (compileCacheDir) childEnv.LATERDOG_SERVER_COMPILE_CACHE = compileCacheDir;
   slog(`fork ${entry} port=${port}`);
@@ -1415,22 +1219,8 @@ async function startServerOn(port) {
     slog(`exited code=${code}`);
   });
   serverSupervisor.watch(proc);
-  // wait for the port to answer (fresh machine: first boot writes data dirs).
-  // Identity check is by PID: a dev harness server has the same API shape,
-  // so only the child we actually forked (matching pid + static serving)
-  // counts as ours.
-  // The budget is wall-clock, not a fixed poll count: a healthy boot can take
-  // well past 20s on cold machines or when pre-listen network calls stall
-  // (issue #506), and reaping an about-to-listen child reads to the user as
-  // "something else is using its ports" even though nothing was on them.
-  // The probe itself is deadline-bounded (a hung health endpoint cannot wedge
-  // us here forever) and reports WHY it gave up, so the error page can tell
-  // port conflict apart from slow startup.
   const identity = await pollServerIdentity({
     port,
-    // Getter, not value: proc.pid stays undefined until the async `spawn`
-    // event fires, and capturing it here would make the probe judge our own
-    // child a "foreign owner" on its first health answer.
     pid: () => proc.pid,
     bootTimeoutMs: SERVER_BOOT_TIMEOUT_MS,
     isExited: () => exited || desktopShutdownStarted,
@@ -1453,8 +1243,6 @@ async function startServerOn(port) {
 }
 
 async function startServerPackaged() {
-  // two passes: a quit-and-reopen relaunch can race the dying instance's
-  // server during teardown — one settle-and-retry covers it
   let everyPortForeignOwned = true;
   for (let attempt = 0; attempt < 2; attempt++) {
     for (const port of [8799, 18799, 28799]) {
@@ -1465,8 +1253,6 @@ async function startServerPackaged() {
         if (serverSupervisor.ready(started.proc)) return true;
       }
       if (started.abort) return false;
-      // A child that exited or timed out is not evidence of a port conflict —
-      // only "another process answered health checks" is.
       if (started.reason !== "foreign-owner") everyPortForeignOwned = false;
     }
     await new Promise((r) => setTimeout(r, 2500));
@@ -1487,11 +1273,6 @@ function syncManagedComposioCredentials() {
   }
 }
 
-// The page is built at failure time (not import time): the message depends on
-// how the boot failed, and the log path comes from LOG_DIR so Windows and
-// Linux users see their real location instead of a macOS guess. The link
-// opens the log through the window's setWindowOpenHandler, which routes to
-// the platform handler.
 function escapeHtml(value) {
   return value.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 }
@@ -1510,11 +1291,6 @@ function buildErrorPage({ allPortsOccupied }) {
   );
 }
 
-// How long one packaged-server child gets to answer /api/health before the
-// parent reaps it and tries the next port. Wall-clock, deliberately generous:
-// first boots write data dirs and pre-listen network calls (managed composio,
-// workspace credentials) can stall a healthy child far past 20s on some
-// machines, which used to surface as the misleading "ports are busy" page.
 const SERVER_BOOT_TIMEOUT_MS = 60_000;
 
 let cuaReady = Promise.resolve({ mode: "unavailable", reason: "not-started" });
@@ -1528,9 +1304,6 @@ function rendererOrigin() {
 
 function respondToDisplayMediaRequest(callback, response) {
   const error = invokeDisplayMediaCallback(callback, response);
-  // An empty response intentionally rejects the renderer request, and Electron
-  // can surface that rejection by throwing from the callback. A selected
-  // source should never fail delivery, so keep that path visible in logs.
   if (error && response.video) {
     console.error("[screen-preview] failed to deliver selected source:", error);
   }
@@ -1572,10 +1345,6 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
   const nextContextId =
     Object.prototype.toString.call(contextId) === "[object String]" ? contextId.slice(0, 120) : null;
 
-  // Desktop URLs contain rotating access tokens. A newly minted URL replaces
-  // the old viewer instead of being retained anywhere after its window closes.
-  // Clear the ref first so the stale window's close handler no-ops; on a bot
-  // change, tell the previous bot to release (same-bot reopen stays quiet).
   if (desktopViewerWindow && !desktopViewerWindow.isDestroyed()) {
     const previous = desktopViewerWindow;
     const previousOwner = desktopViewerOwner;
@@ -1598,8 +1367,6 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
     minWidth: 760,
     minHeight: 520,
     parent: owner,
-    // Not modal: the person still needs the app's "Hand control back" button
-    // while the desktop is open. `parent` keeps it floating above the app.
     modal: false,
     show: false,
     title,
@@ -1610,20 +1377,12 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      // Keep provider cookies away from the app renderer and discard them on
-      // app exit. The secret-bearing URL is sufficient to authenticate.
       partition: "laterdog-desktop-viewer",
     },
   });
   desktopViewerWindow = viewer;
   const viewerOrigin = url.origin;
 
-  // VNC needs rendering, keyboard/mouse input and WebSockets, plus the few
-  // permission-gated input capabilities a viewer page asks for: keyboard and
-  // pointer capture, the clipboard for paste, full screen. Those go to the
-  // viewer's own origin only — never camera, microphone, geolocation,
-  // notifications, USB, or any other privileged browser capability in this
-  // remote-content window (see desktop-viewer-permissions.mjs).
   viewer.webContents.session.setPermissionCheckHandler((_webContents, permission, requestingOrigin) =>
     desktopViewerPermissionAllowed(permission, requestingOrigin, viewerOrigin),
   );
@@ -1631,10 +1390,6 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
     callback(desktopViewerPermissionAllowed(permission, details?.requestingUrl || webContents.getURL(), viewerOrigin)),
   );
 
-  // A child window floats above the app but does not take the keyboard until
-  // it is focused: clicks land in the VNC canvas either way, keystrokes only
-  // reach the key window. Left unfocused, typing "into the VM" lands in the
-  // composer and ⌘1–9 switch bots while the mouse appears to work.
   viewer.once("ready-to-show", () => {
     if (viewer.isDestroyed()) return;
     viewer.show();
@@ -1644,7 +1399,6 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
   viewer.on("closed", () => {
     if (desktopViewerWindow !== viewer) return;
     desktopViewerWindow = null;
-    // The panel drops its "viewer open" state and releases control on this.
     notifyDesktopViewer(false);
     desktopViewerOwner = null;
     desktopViewerContextId = null;
@@ -1657,9 +1411,7 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
     try {
       const external = desktopViewerUrl(target);
       void shell.openExternal(external.toString());
-    } catch {
-      // Ignore non-web and insecure URLs from the remote viewer.
-    }
+    } catch {}
     return { action: "deny" };
   });
   viewer.webContents.on("will-navigate", (event, target) => {
@@ -1667,9 +1419,7 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
     event.preventDefault();
     try {
       void shell.openExternal(desktopViewerUrl(target).toString());
-    } catch {
-      // Keep privileged or malformed navigation out of the viewer.
-    }
+    } catch {}
   });
   viewer.webContents.on("did-fail-load", (_event, code, description, failedUrl, isMainFrame) => {
     if (!isMainFrame || code === -3 || viewer.isDestroyed() || failedUrl.startsWith("data:")) return;
@@ -1706,9 +1456,6 @@ function ensureDesktopWorkspace(owner) {
   });
   desktopWorkspaceManager = manager;
 
-  // Native child views outlive the renderer DOM unless we explicitly tear
-  // them down. Reloads, renderer crashes and owner destruction all close both
-  // panes without retaining their secret-bearing noVNC URLs.
   owner.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) manager.closeAll();
   });
@@ -1746,21 +1493,11 @@ ipcMain.on("desktop:unread-count", (event, value) => {
   applyUnreadBadge(sender);
 });
 
-// ── environments: this computer's server, or a paired remote one ──────
-// The app switches by loading the chosen server's own UI (electron/menu.mjs).
-// Only {id, name, origin} is stored here; the session credential is the
-// HttpOnly cookie /pair set for that origin, kept by Chromium's cookie jar.
 const { LOCAL_ID, activeEnvironment, allowedOrigins, parseEnvironments, parseHostedWorkspaceLink, serializeEnvironments, withActive, withEnvironment, withoutEnvironment, workspaceMenuTemplate, workspaceNavigationAllowed, workspaceSenderAllowed, workspaceSummary, workspaceWindowTitle } = environmentsModule;
 let environmentsState = { environments: [], activeId: LOCAL_ID };
 let computerSharing;
 const sharingPrompts = new Set();
 
-// Opt-in computer sharing is gated by the server this desktop runs, the same
-// way every other server setting reaches this process: the booleans-only
-// /api/config status (server/index.ts configStatus → features). It is read
-// before the connector could start and again whenever a workspace control is
-// used, so a maintainer who edits config.json and restarts the server does not
-// have to reinstall the app. Unreachable or older server → off.
 let sharedComputersAllowed = false;
 
 async function refreshSharedComputersAllowed() {
@@ -1771,7 +1508,6 @@ async function refreshSharedComputersAllowed() {
   return sharedComputersAllowed;
 }
 
-/** Refuse a workspace sharing control the server would refuse anyway. */
 async function requireSharedComputers() {
   if (await refreshSharedComputersAllowed()) return;
   throw new Error("Computer sharing is turned off on this server.");
@@ -1780,14 +1516,11 @@ async function requireSharedComputers() {
 function sharingController() {
   computerSharing ??= createComputerSharing({
     file: path.join(app.getPath("userData"), "computer-sharing.json"),
-    // The harness server's data directory holds provider API keys and
-    // sessions.json, so a broad share must never reach it either.
     protectedPaths: [desktopDataDir(), profilesDataRoot()],
     fetch: (...args) => session.defaultSession.fetch(...args),
     environments: () => environmentsState.environments,
     enabled: refreshSharedComputersAllowed,
     cloud: cloudLendingSnapshot,
-    // "In use" only for the person's Cloud, not a maintainer server's job.
     onChange: summary => lendingIndicator().update({ lending: summary.lending.length > 0, busy: Boolean(summary.busy && summary.lending.includes(summary.busy.env)) }),
     cuaConnection: () => cuaReady,
     hostControl: async (id, signal) => {
@@ -1807,9 +1540,6 @@ function sharingController() {
   return computerSharing;
 }
 
-/** The verified Cloud sign-in, as lending needs it: never a renderer's word.
- * The machine's address is remembered for that account across the minute-by-
- * minute re-verification, so the lending controls do not blink out. */
 let lastCloudHome = null;
 function cloudLendingSnapshot() {
   if (!cloudAccount) return null;
@@ -1821,21 +1551,16 @@ function cloudLendingSnapshot() {
   return { status: state.status, accountId, origin };
 }
 
-/** The saved "My Cloud" server entry for the person's machine, if any. */
 function cloudLendingEnvironment() {
   const snapshot = cloudLendingSnapshot();
   const origin = snapshot?.origin ?? (lastCloudHome?.accountId === snapshot?.accountId ? lastCloudHome?.origin : null);
   return origin ? environmentsState.environments.find(entry => entry.origin === origin) ?? null : null;
 }
 
-/** Stop lending: every Cloud grant off, in-flight work cancelled, now. It
- * needs no Cloud answer, so it works signed out or offline too. */
 function stopLending() {
   for (const env of environmentsState.environments) if (computerSharing?.cloudState(env).enabled) computerSharing.revoke(env);
 }
 
-/** "Lending settings…" in the menu bar: Settings → later.dog Cloud in the local
- * window, with none of the laterdog://cloud link's automatic actions. */
 async function openLendingSettings() {
   if (!app.isPackaged || desktopRemoteAccess || !serverReady) return;
   if (activeEnvironment(environmentsState)) persistEnvironments(withActive(environmentsState, LOCAL_ID));
@@ -1861,9 +1586,7 @@ function lendingIndicator() {
 async function offerComputerSharing(win) {
   const env = activeEnvironment(environmentsState);
   if (!env || sharingPrompts.has(env.id) || win.isDestroyed()) return;
-  // The person's own Cloud is lent to from Settings → later.dog Cloud, never here.
   if (env.origin === cloudAccount?.homeTarget()?.origin) return;
-  // Never offer a grant this build's server will not honour.
   if (!(await refreshSharedComputersAllowed()) || win.isDestroyed()) return;
   sharingPrompts.add(env.id);
   try {
@@ -1876,7 +1599,7 @@ async function offerComputerSharing(win) {
     });
     sharingController().decline(env, info);
     if (choice.response === 0) openWorkspaceSettings(env.id);
-  } catch { /* Not paired yet, an older server, or offline: no grant, no prompt. */ }
+  } catch {}
   finally { sharingPrompts.delete(env.id); }
 }
 
@@ -1908,7 +1631,6 @@ function writeEnvironments(state) {
   }
 }
 
-/** Where the main window should be: the active remote server, else Local. */
 function activeOrigin() {
   return activeEnvironment(environmentsState)?.origin ?? localPageOrigin();
 }
@@ -2069,25 +1791,17 @@ async function workspaceMenuAction(action) {
 
 function navigateMainWindow(url) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  // did-fail-load shows the connection error and returns to the local app.
   void mainWindow.loadURL(url).catch(() => {});
 }
 
-/** The person's Cloud address for their account, kept while a check with
- * later.dog Cloud is pending or failed, or the sign-in has ended
- * (cloud-home.mjs rememberedCloudHome). */
 let rememberedHome = null;
 
 async function switchEnvironment(id) {
   if (id === environmentsState.activeId || (id !== LOCAL_ID && !environmentsState.environments.some((entry) => entry.id === id))) return;
   const entry = environmentsState.environments.find((candidate) => candidate.id === id);
-  // "My Cloud" opens through the Cloud's own connection: never a page that
-  // asks for a pairing code the person has no server to read from.
   if (entry && cloudAccount && isCloudHomeEntry(entry, { homeOrigin: cloudAccount.homeTarget()?.origin, remembered: rememberedHome })) {
     try { await connectCloudHome(); return; } catch (error) {
       slog(`cloud home: could not connect from the Server menu (${error?.message ?? error})`);
-      // Signed in there already, it opens as any server does. Otherwise
-      // Settings → later.dog Cloud says the one next step (sign in again, or wait).
       if (!(await cloudHomeSignedIn(entry.origin))) { await openLendingSettings(); return; }
     }
   }
@@ -2153,22 +1867,15 @@ async function deliverOrganizationEntry() {
   return delivered;
 }
 
-/** laterdog://cloud carries nothing, so all it does is bring this app to
- * Settings → later.dog Cloud. Opened this way, that view signs in or connects to
- * My Cloud by itself (CloudAccountSettings). No prompt: a hosted server left
- * for it stays saved under Servers, and the Cloud replaces it anyway. */
 async function openCloudEntry() {
   if (!app.isPackaged) throw new Error("later.dog Cloud requires the installed desktop app.");
   if (desktopRemoteAccess) throw new Error("This app is connected to another computer. Disconnect it to use later.dog Cloud on this computer.");
   if (!serverReady) throw new Error("This installation is unavailable. Restart the app and open My Cloud again.");
-  // Let a saved sign-in finish restoring first: the view must not take it for
-  // signed out and start another.
   await cloudAccountRestored();
   const active = activeEnvironment(environmentsState);
   const showingCloud = Boolean(active) && active.origin === cloudAccount?.homeTarget()?.origin;
   if (active && !showingCloud) persistEnvironments(withActive(environmentsState, LOCAL_ID));
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow({ deferNavigation: !showingCloud });
-  // Already on the person's Cloud: bringing it forward is the whole action.
   if (showingCloud) return true;
   if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) {
     win.webContents.send("app:open-settings", "cloud");
@@ -2179,9 +1886,6 @@ async function openCloudEntry() {
   return true;
 }
 
-/** Settings → Servers on this computer's own page; with a saved server's id,
- * open on its Computer access panel, or (`panel: "copy"`) on its Copy this
- * computer here panel. */
 function openWorkspaceSettings(computerId, panel = "computer") {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const id = typeof computerId === "string" ? computerId : null, copy = panel === "copy";
@@ -2228,9 +1932,6 @@ async function connectHostedWorkspace(input, name) {
   return true;
 }
 
-/** A verified Cloud session that reports the person's machine lists it under
- * Servers. It never switches to it: this computer stays active until they
- * choose "Open My Cloud". Signed out, nothing here runs. */
 function rememberCloudHome(state) {
   try {
     const next = withCloudHome(environmentsState, state?.status === "connected" ? state.machine : null, () => randomUUID());
@@ -2240,13 +1941,6 @@ function rememberCloudHome(state) {
   }
 }
 
-/** The one action for Cloud Pro: open the person's machine in this window.
- * Already signed in there, it simply switches. Otherwise the Admin opens a
- * single-use pairing window on the machine, and the machine's pairing page
- * signs this app in (the same link flow as Connect to a server). The person
- * chose this in Settings, so there is no second confirmation. `open`
- * "phone" is "Use your Cloud on your phone": it lands on the Cloud's own
- * phone pairing (cloud-home.mjs cloudHomeConnectUrl). */
 async function connectCloudHome(open = null) {
   const client = ensureCloudAccount();
   const target = client.homeTarget();
@@ -2261,7 +1955,6 @@ async function connectCloudHome(open = null) {
   return client.state();
 }
 
-/** Whether this app's cookie already signs it in to that server. */
 async function cloudHomeSignedIn(origin) {
   try {
     const response = await session.defaultSession.fetch(`${origin}/api/auth/session`, { credentials: "include", signal: AbortSignal.timeout(5_000) });
@@ -2286,11 +1979,8 @@ async function forgetEnvironment(id) {
   sharingController().forget(env);
   const wasActive = environmentsState.activeId === id;
   persistEnvironments(withoutEnvironment(environmentsState, id));
-  // Leave a removed workspace immediately; forgetting an inactive connection
-  // must not reload the local app or discard a Settings form/chat draft.
   if (wasActive) navigateMainWindow(activeOrigin());
   try {
-    // Revoke the session on the server while the cookie is still here.
     const response = await session.defaultSession.fetch(`${env.origin}/api/auth/logout`, { method: "POST", credentials: "include", headers: { origin: env.origin }, signal: AbortSignal.timeout(5_000) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
   } catch (error) {
@@ -2298,25 +1988,13 @@ async function forgetEnvironment(id) {
     await dialog.showMessageBox({ type: "warning", message: "Connection forgotten; server sign-out could not be confirmed", detail: "Computer sharing is stopped. Revoke this desktop’s session on that server when it is reachable again." });
   }
   try {
-    // Logout clears this server's exact cookie. Cookie storage is host-wide,
-    // not port-scoped: clearing it here would sign out other saved workspaces.
     await session.defaultSession.clearStorageData({ origin: env.origin, storages: ["localstorage", "indexdb", "serviceworkers", "cachestorage"] });
   } catch (error) {
     slog(`forget server: storage clear failed: ${error?.message ?? error}`);
   }
 }
 
-/**
- * Displays the native context menu for editable fields, links, and selections,
- * enabling paste if text or a clipboard image is available.
- *
- * @param {Electron.BrowserWindow} win - Target browser window.
- * @param {Electron.ContextMenuParams} params - Context menu parameters from Electron.
- * @returns {void}
- */
 function showContextMenu(win, params) {
-  // nothing actionable here — no menu at all, rather than a wall of
-  // disabled items
   if (!params.isEditable && !params.linkURL && !params.misspelledWord && !params.selectionText) return;
   const menuItems = [];
   if (params.misspelledWord) {
@@ -2348,12 +2026,6 @@ function showContextMenu(win, params) {
   Menu.buildFromTemplate(menuItems).popup({ window: win, frame: params.frame });
 }
 
-/**
- * Creates and initializes the primary Electron browser window and configures
- * its lifecycle hooks, context menus, and navigation guards.
- *
- * @returns {void}
- */
 function createWindow({ deferNavigation = false } = {}) {
   const waitsForSkinSync = process.platform === "win32";
   const primary = screen.getPrimaryDisplay();
@@ -2363,10 +2035,6 @@ function createWindow({ deferNavigation = false } = {}) {
     ...restored.bounds,
     minWidth: MIN_BOUNDS.width,
     minHeight: MIN_BOUNDS.height,
-    // The renderer restores its persisted skin before mounting React and
-    // mirrors it over desktop:skin. Keep Windows hidden until that handshake
-    // recolors the native caption-button overlay, otherwise a saved light
-    // skin still flashes the Midnight-black block on every cold start.
     show: !waitsForSkinSync && !startupScreen,
     icon: APP_ICON,
     backgroundColor: "#070707",
@@ -2375,16 +2043,9 @@ function createWindow({ deferNavigation = false } = {}) {
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs"),
-      // The preload exposes the full bridge only to this origin (see preload.cjs).
-      // Companion client mode still serves the bundled UI from its own
-      // loopback relay, so it is a trusted local page while also needing the
-      // renderer's remote-only feature gates. Keep the two facts independent:
-      // upstream's origin boundary must not erase the client-mode marker.
       additionalArguments: [...desktopCompanionRendererArguments(rendererOrigin(), desktopRemoteAccess),
         ...(app.isPackaged && !desktopRemoteAccess ? ["--laterdog-company-desktop=1"] : []),
         ...(profiles ? ["--laterdog-profiles=1"] : []),
-        // The personal Cloud exists only when this build names one; without
-        // it the preload exposes no Cloud bridge and Settings shows no Cloud.
         ...(app.isPackaged && !desktopRemoteAccess && configuredCloudOrigin() ? ["--laterdog-cloud-account=1"] : []),
         ...(adminPortalOrigin() ? [`--laterdog-admin-origin=${adminPortalOrigin()}`] : [])],
     },
@@ -2406,9 +2067,6 @@ function createWindow({ deferNavigation = false } = {}) {
   attachUpdaterWindow(win);
   if (startupScreen) startupScreen.attach(win, { maximized: restored.maximized });
   else if (waitsForSkinSync) {
-    // A broken renderer or preload must not strand the app as an invisible
-    // process. Normal startup shows from desktop:skin almost immediately;
-    // this is only the bounded recovery path.
     const skinSyncFallback = setTimeout(() => {
       if (!win.isDestroyed() && !win.isVisible()) win.show();
     }, 5_000);
@@ -2429,13 +2087,9 @@ function createWindow({ deferNavigation = false } = {}) {
       void shell.openExternal(externalWebUrl(url)).catch(() => {
         console.warn("The external web link could not be opened");
       });
-    } catch {
-      // Reject non-web links and embedded credentials without opening them.
-    }
+    } catch {}
     return { action: "deny" };
   });
-  // Only the selected workspace may navigate this window. Switching is a
-  // native action, not a redirect/link from a remote page to the local bridge.
   const guardNavigation = (event, url) => {
     let origin = null;
     try {
@@ -2447,8 +2101,6 @@ function createWindow({ deferNavigation = false } = {}) {
   };
   win.webContents.on("will-navigate", guardNavigation);
   win.webContents.on("will-redirect", guardNavigation);
-  // Subframes: a page may not embed the local server, or any other saved
-  // server, inside this preload-bearing window.
   win.webContents.on("will-frame-navigate", (details) => {
     if (details.isMainFrame) return;
     let target = null;
@@ -2464,7 +2116,7 @@ function createWindow({ deferNavigation = false } = {}) {
     }
   });
   win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    if (!isMainFrame || errorCode === -3) return; // -3: aborted by a newer navigation
+    if (!isMainFrame || errorCode === -3) return;
     const remote = activeEnvironment(environmentsState);
     if (!remote) return;
     let origin = null;
@@ -2494,15 +2146,10 @@ function createWindow({ deferNavigation = false } = {}) {
   win.webContents.on("did-finish-load", () => deliverPackageInstall(win));
   win.webContents.on("did-finish-load", () => void offerComputerSharing(win));
 
-  // Native context menu for text inputs — without this, right-click does
-  // nothing in the Electron window (no Cut/Copy/Paste/Select All).
   win.webContents.on("context-menu", (_event, params) => {
     showContextMenu(win, params);
   });
 
-  // Packaged CI smoke hook. It validates the real renderer/preload bridge and
-  // same-origin embedded server, then follows the normal window-close path.
-  // No debugging port or sandbox override is needed.
   if (process.env.LATERDOG_SMOKE_TEST === "1") {
     win.webContents.once("did-finish-load", async () => {
       try {
@@ -2612,7 +2259,6 @@ function createWindow({ deferNavigation = false } = {}) {
   const remote = activeEnvironment(environmentsState);
   const openProfile = remote ? null : profiles?.activeOrigin() ?? null;
   if (!serverReady && (desktopRemoteAccess || (app.isPackaged && !remote && !openProfile))) serverUnavailableWindows.add(win);
-  // The confirmed native organisation action supplies the fixed local URL.
   if (deferNavigation) return win;
   if (desktopRemoteAccess) {
     win.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : buildErrorPage({ allPortsOccupied: serverStartConflictOnly }));
@@ -2628,8 +2274,6 @@ function createWindow({ deferNavigation = false } = {}) {
   return win;
 }
 
-// Local-control screen preview — served from the main process so the Screen
-// Recording permission prompt attributes to the app, never the server
 ipcMain.handle("screen:frame", localOnly("screen:frame", async () => {
   if (process.platform !== "darwin") return null;
   const sources = await desktopCapturer.getSources({
@@ -2639,40 +2283,14 @@ ipcMain.handle("screen:frame", localOnly("screen:frame", async () => {
   return sources[0]?.thumbnail.toDataURL() ?? null;
 }));
 
-// Onboarding permission checks. Status reads are free; the mic request
-// pops the real TCC prompt attributed to the app.
-//
-// Screen Recording has no pre-grant path. On macOS 15+ every one is broken:
-// getMediaAccessStatus("screen") wraps CGPreflightScreenCaptureAccess, which
-// caches per-process (stays "denied" for the whole session after the user
-// grants); a helper child binary gets TCC-attributed to ITSELF on macOS 26,
-// not the app, and plain executables no longer appear in the Settings pane
-// at all; and Sequoia+ re-prompts periodically regardless, so a pre-grant
-// expires. The one reliable path is a real in-process capture (screen:frame
-// above / getDisplayMedia via the handler below) — macOS prompts then,
-// attributed correctly. The permissions checklist (perm:request below,
-// mac-permissions.mjs) therefore asks for Screen Recording with exactly that:
-// one discarded 1×1 capture, and shows the cached status for what it is. The
-// perm:open-settings deep link stays as the repair path for denials.
-// Copy the engine command, then open a blank terminal. Renderer-controlled
-// text must never become a process argument: the user reviews and pastes it.
-// Returns false when the renderer should show the clipboard fallback.
 ipcMain.handle("engine:open-terminal", localOnly("engine:open-terminal", async (_event, command) => {
   if (typeof command !== "string" || !command.trim()) return false;
   clipboard.writeText(command);
   return openBlankTerminal();
 }));
 
-// Fallback for the renderer's copy button when the web Clipboard API rejects
-// (unfocused page, denied permission). Plain text only; resolves false on failure.
 ipcMain.handle("clipboard:write-text", localOnly("clipboard:write-text", (_event, text) => writeClipboardText(clipboard, text)));
 
-// OAuth/connect links are returned asynchronously, after Chromium's direct
-// click gesture has ended. Opening them through window.open can therefore be
-// rejected as a popup before setWindowOpenHandler ever sees the URL. Keep the
-// renderer sandboxed and let the main process open only ordinary web links.
-// A bot's working folder: the native picker, so the path is real and the
-// user never types one. Returns null when they cancel.
 ipcMain.handle("desktop:pick-folder", localOnly("desktop:pick-folder", async (event, current) => {
   const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
   const result = await dialog.showOpenDialog(win, {
@@ -2683,9 +2301,6 @@ ipcMain.handle("desktop:pick-folder", localOnly("desktop:pick-folder", async (ev
   return result.canceled ? null : (result.filePaths[0] ?? null);
 }));
 
-// One-click bug-report bundle. Secrets are never read; the report is
-// redacted again on the way out (diagnostics.mjs). null means the user
-// cancelled the save dialog.
 ipcMain.handle("desktop:export-diagnostics", localOnly("desktop:export-diagnostics", async (event) => {
   const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
   const report = await gatherDiagnostics();
@@ -2710,15 +2325,6 @@ ipcMain.handle("desktop:export-diagnostics", localOnly("desktop:export-diagnosti
   return result.filePath;
 }));
 
-// Bots hand users files as markdown links to paths inside the later.dog
-// home (workspaces, attachments). As plain anchors those resolved against the
-// page origin, so the click opened http://127.0.0.1:8799<path> in the default
-// browser and the server's SPA fallback answered with index.html — a second
-// copy of the chat UI instead of the file. Ask where to put it and copy it
-// there instead: a save dialog tells the user the file landed somewhere and
-// where, which a silent copy into ~/Downloads does not. The path is
-// renderer-controlled, so it must resolve inside ~/.laterdog and be a
-// regular file — never a symlink escape or directory.
 ipcMain.handle("desktop:save-file", localOnly("desktop:save-file", async (event, rawPath) => {
   return withSavableFile(rawPath, { home: os.homedir(), root: askingProfile(event) ? profiles.activeDataDir() : undefined }, async ({ defaultName, copyTo }) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
@@ -2730,7 +2336,6 @@ ipcMain.handle("desktop:save-file", localOnly("desktop:save-file", async (event,
       buttonLabel: "Save",
       properties: ["createDirectory", "showOverwriteConfirmation"],
     });
-    // Cancelling is a decision, not a failure — the bubble stays quiet.
     if (choice.canceled || !choice.filePath) return null;
     await copyTo(choice.filePath);
     shell.showItemInFolder(choice.filePath);
@@ -2738,17 +2343,11 @@ ipcMain.handle("desktop:save-file", localOnly("desktop:save-file", async (event,
   });
 }));
 
-// "Show in folder" for a bot-linked file outside its conversation's workspace.
-// The file must be on this computer: a window paired to another computer's
-// server is refused, because that server's paths mean nothing here.
 ipcMain.handle("desktop:reveal-file", localOnly("desktop:reveal-file", async (_event, rawPath) => {
   if (desktopRemoteAccess) throw new Error("That file is on the computer this app is connected to");
   return revealInFolder(rawPath, { reveal: (target) => shell.showItemInFolder(target) });
 }));
 
-// The renderer owns the skin, including the Windows caption buttons it draws
-// itself (titleBarStyle hidden, no native overlay). Keep syncing the window
-// background so a light skin never flashes the Midnight-black cold start.
 ipcMain.handle("desktop:skin", (event, skin) => {
   if (!isKnownSkin(skin)) return false;
   try {
@@ -2761,9 +2360,6 @@ ipcMain.handle("desktop:skin", (event, skin) => {
   return true;
 });
 
-// Caption controls for the overlay-less frameless window. The renderer's
-// buttons are the only way to act on the window, so the channels stay
-// open for the local page; a remote server's page never has them.
 for (const [channel, act] of [
   ["window:minimize", (win) => win.minimize()],
   ["window:toggle-maximize", (win) => (win.isMaximized() ? win.unmaximize() : win.maximize())],
@@ -2786,17 +2382,11 @@ ipcMain.handle("desktop:open-external", localOnly("desktop:open-external", async
   return true;
 }));
 
-// The Boat VNC viewer must be a top-level page for its token exchange. A
-// sandboxed modal BrowserWindow satisfies that requirement while keeping the
-// live desktop inside later.dog instead of sending the person to a browser.
 ipcMain.handle("desktop-viewer:open", localOnly("desktop-viewer:open", (event, rawUrl, title, contextId) => {
   const owner = BrowserWindow.fromWebContents(event.sender);
   return openDesktopViewer(owner, rawUrl, title, contextId);
 }));
 
-// Two Local VM desktops share the existing app BrowserWindow. The renderer
-// supplies only layout and intent; URL validation, sandboxing, session
-// isolation and the one-interactive-pane invariant stay in the main process.
 ipcMain.handle("desktop-workspace:open", localOnly("desktop-workspace:open", (event, input) =>
   desktopWorkspaceForEvent(event, true).open(input),
 ));
@@ -2816,8 +2406,6 @@ ipcMain.handle("desktop-workspace:close", localOnly("desktop-workspace:close", (
   return manager.close(contextId);
 }));
 
-// Close only when the caller owns the current viewer — otherwise one bot's
-// "Hand control back" would close (and release) another bot's viewer.
 ipcMain.handle("desktop-viewer:close", localOnly("desktop-viewer:close", (_event, contextId) => {
   const scoped = Object.prototype.toString.call(contextId) === "[object String]" ? contextId : null;
   if (scoped !== desktopViewerContextId) return false;
@@ -2825,16 +2413,11 @@ ipcMain.handle("desktop-viewer:close", localOnly("desktop-viewer:close", (_event
   return true;
 }));
 
-// Lets a (re)mounted panel seed viewer-open state instead of defaulting to false.
 ipcMain.handle("desktop-viewer:state-now", localOnly("desktop-viewer:state-now", () => ({
   open: Boolean(desktopViewerWindow && !desktopViewerWindow.isDestroyed()),
   contextId: desktopViewerContextId,
 })));
 
-// The session's permission handlers (app-permissions.mjs), set once the app
-// is ready. perm:status asks them, so `pageMic` is the very rule that decides
-// a page's microphone request: a blocked Live call then says whether this app
-// refused the page (a web browser can make the call) or the computer did.
 let appPermissions = null;
 ipcMain.handle("perm:status", (event) => ({
   mic:
@@ -2852,11 +2435,6 @@ ipcMain.handle("perm:request-mic", localOnly("perm:request-mic", async () => {
   }
 }));
 
-// The permissions checklist (the welcome tour's Permissions step, Settings →
-// Computers → Permissions, the Bot's computer panel): every grant a bot on
-// this Mac needs, read live, and the real system prompt for each, attributed
-// to this app. mac-permissions.mjs says how each is read and what macOS
-// caches. Local-only: a remote server's page learns nothing about this Mac.
 const macPermissionHost = () => ({ platform: process.platform, systemPreferences, desktopCapturer });
 let cuaGrantStart = null;
 function startCuaWhenGranted(checklist) {
@@ -2873,20 +2451,15 @@ function startCuaWhenGranted(checklist) {
 ipcMain.handle("perm:checklist", localOnly("perm:checklist", () => startCuaWhenGranted(permissionChecklist(macPermissionHost()))));
 ipcMain.handle("perm:request", localOnly("perm:request", async (_event, permission) => startCuaWhenGranted(await requestPermission(permission, macPermissionHost()))));
 
-// macOS never re-prompts a denied permission — the only path is System
-// Settings; deep-link straight to the right privacy pane.
 ipcMain.handle("perm:open-settings", localOnly("perm:open-settings", (_event, pane) => {
   if (!nativeActions.applePrivacySettings) return false;
   const panes = {
     mic: "Privacy_Microphone",
-    // the checklist's name for the same pane (permissions.openSettings)
     microphone: "Privacy_Microphone",
     screen: "Privacy_ScreenCapture",
     speech: "Privacy_SpeechRecognition",
     accessibility: "Privacy_Accessibility",
   };
-  // own-property lookup only — a renderer-supplied "__proto__"/"constructor"
-  // would otherwise resolve up the prototype chain to a truthy object
   const anchor = Object.hasOwn(panes, pane) ? panes[pane] : "Privacy";
   return shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${anchor}`);
 }));
@@ -2904,7 +2477,6 @@ ipcMain.handle("speech:start", localOnly("speech:start", (event, options) => {
     win.webContents.send("speech:end", { code: 2, reason: "unsupported-platform" });
     return;
   }
-  // a retry names a saved voice note; speech.mjs accepts only its own
   startSpeech(win, options && typeof options === "object"
     ? { endpointMs: options.endpointMs, ...(typeof options.file === "string" ? { file: options.file } : {}) }
     : undefined);
@@ -2916,14 +2488,7 @@ ipcMain.handle("speech:finish", localOnly("speech:finish", () => {
   if (nativeActions.appleSpeech) finishSpeech();
 }));
 
-// ── companion sidecar ──────────────────────────────────────────────────
-// The renderer gets these five and nothing else: it can turn the companion
-// on and off, look at it, open or cancel a pairing window, and remove a
-// device. It cannot reach the sidecar's control port itself.
 ipcMain.handle("companion:state", localOnly("companion:state", () => desktopCompanionState()));
-/** An enrolled organisation can turn remote access off. That refuses turning
- * the companion on and opening new pairings; it adds no prompt, and phones
- * that are already paired keep working until someone revokes them. */
 function managedRemoteAccessRefusal() {
   const policy = managedDesktop?.policy?.();
   return policy?.remoteAccess === false ? `${policy.organizationName} does not allow remote access to this computer.` : null;
@@ -2934,15 +2499,11 @@ ipcMain.handle("companion:keep-awake", localOnly("companion:keep-awake", async (
   rememberCompanionKeepAwake(Boolean(enabled));
   return desktopCompanionState();
 }));
-// ── keep awake for routines ────────────────────────────────────────────
-// The Automations page shows the hold and owns the toggle; the decision
-// itself stays in the main process with the power assertion.
 ipcMain.handle("routines:wake-state", localOnly("routines:wake-state", () => routineWake.poll()));
 ipcMain.handle("routines:keep-awake", localOnly("routines:keep-awake", async (_event, enabled) => {
   rememberRoutineWake(app.getPath("userData"), Boolean(enabled));
   return routineWake.poll();
 }));
-// Settings → General → Check for new versions (release-check.mjs).
 ipcMain.handle("release-check:set", localOnly("release-check:set", (_event, enabled) => setReleaseCheckEnabled(enabled === true)));
 ipcMain.handle("companion:refresh-tailscale", localOnly("companion:refresh-tailscale", () => refreshDesktopCompanionTailscale()));
 ipcMain.handle("companion:pairing", localOnly("companion:pairing", (_event, open, expectedToken) => {
@@ -2983,8 +2544,6 @@ function relaunchAfterDesktopRemoteChange() {
   if (desktopShutdownStarted) return;
   desktopShutdownStarted = true;
   const timer = setTimeout(() => {
-    // Electron's default uses its original native argv, not the JS array
-    // from which we consumed the one-shot organisation action.
     app.relaunch({ args: process.argv.slice(1) });
     app.quit();
   }, 250);
@@ -3012,8 +2571,6 @@ ipcMain.handle("desktop-remote:disconnect", localOnly("desktop-remote:disconnect
   return { active: false };
 }));
 
-// Auth and connector credentials never cross this boundary. Every handler
-// returns the same deliberately tiny, secret-free public account state.
 ipcMain.handle("companion-account:state", localOnly("companion-account:state", () => ensureCompanionAccountService().state()));
 ipcMain.handle("companion-account:request-code", localOnly("companion-account:request-code", (_event, email) =>
   ensureCompanionAccountService().requestCode(email),
@@ -3029,21 +2586,14 @@ const workspaceOnly = (handler) => (event, ...args) => {
   return handler(event, ...args);
 };
 const localWorkspaceOnly = (channel, handler) => localOnly(channel, workspaceOnly(handler));
-// Personal Cloud authority stays in main. No renderer-supplied address, token,
-// paid flag or callback can choose an account or activate Pro.
 for (const method of ["state", "begin", "signInAgain", "reopen", "cancel", "refresh", "signOut", "openDashboard"]) {
   ipcMain.handle(`cloud-account:${method}`, localWorkspaceOnly(`cloud-account:${method}`, () => ensureCloudAccount()[method]()));
 }
-// The machine and its code come from the verified session in main, never
-// from the renderer: this handler takes no arguments.
 ipcMain.handle("cloud-account:connectHome", localWorkspaceOnly("cloud-account:connectHome", () => connectCloudHome()));
-// The same, landing on the Cloud's phone pairing. The page names nothing:
-// "phone" is fixed here, and the Cloud still waits for a click to make a code.
 ipcMain.handle("cloud-account:connectHomeForPhone", localWorkspaceOnly("cloud-account:connectHomeForPhone", () => connectCloudHome("phone")));
 ipcMain.handle("organization:settings-opened", localWorkspaceOnly("organization:settings-opened", () => organizationEntry.settingsOpened()));
 ipcMain.handle("organization:state", localWorkspaceOnly("organization:state", () => ensureManagedDesktop().state()));
 ipcMain.handle("organization:begin", localWorkspaceOnly("organization:begin", (_event, input) => ensureManagedDesktop().begin(input)));
-// Reopens only the pending attempt's own sign-in page: no renderer input.
 ipcMain.handle("organization:reopen", localWorkspaceOnly("organization:reopen", () => ensureManagedDesktop().reopen()));
 ipcMain.handle("organization:cancel", localWorkspaceOnly("organization:cancel", () => ensureManagedDesktop().cancelEnrollment()));
 ipcMain.handle("organization:refresh", localWorkspaceOnly("organization:refresh", () => ensureManagedDesktop().refresh()));
@@ -3051,9 +2601,6 @@ ipcMain.handle("organization:disconnect", localWorkspaceOnly("organization:disco
   companyBackupConfigurationRevision++;
   companyBackupController?.abort(); preparedCompanyRestore = null;
   const client = ensureManagedDesktop();
-  // Disconnecting pauses the daily schedule instead of deleting it, so
-  // reconnecting the same organisation as the same person resumes it. Turning
-  // daily backups off in Settings → Backups is what ends it.
   return client.disconnect();
 }));
 ipcMain.on("company-backups:client-state", receiveCompanyBackupClientState);
@@ -3087,8 +2634,6 @@ ipcMain.handle("company-backups:restore", localWorkspaceOnly("company-backups:re
   if (companyBackupController || companyRestoreCommitting || !preparedCompanyRestore || preparedCompanyRestore.id !== input?.id || input?.confirmation !== "REPLACE" ||
       !connection || client.state().status !== "connected" || !client.state().cloudBackups || connection.expiresAt <= Date.now() ||
       preparedCompanyRestore.proc !== serverProc || preparedCompanyRestore.deviceId !== connection.deviceId) throw new Error("Preview this backup again and type REPLACE to confirm.");
-  // Consume the preview before yielding; duplicate IPC cannot commit it twice.
-  // On an uncertain response the existing local backup status is authoritative.
   preparedCompanyRestore = null;
   companyRestoreCommitting = true;
   try {
@@ -3099,14 +2644,6 @@ ipcMain.handle("company-backups:restore", localWorkspaceOnly("company-backups:re
   } finally { companyRestoreCommitting = false; }
 }));
 
-// ── Copy this computer here (electron/cloud-move.mjs, docs/copy-workspace.md) ──
-// This computer's workspace to a server the person owns and added here, their
-// later.dog Cloud included: started from Settings → Servers or Settings → later.dog Cloud
-// on this computer's own page. Where it goes comes only from main
-// (moveSenderDestination): this computer's own page names a saved server, a
-// server's own page (its card, its Settings → Backups) gets only itself, and
-// only the verified Cloud starts a copy from its own page; any other server's
-// Copy opens this computer's Settings on that server's copy.
 let cloudMove = null;
 const CLOUD_MOVE_LOCAL_ROUTES = /^\/api\/(?:workspace-backup\/(?:status|export|download\/[a-f\d-]{36})|cloud-move\/estimate)$/;
 
@@ -3126,20 +2663,17 @@ function ensureCloudMove() {
   return cloudMove;
 }
 
-/** The local renderer, or the server a copy goes to while it is open in this window. */
 function publishCloudMoveState(state) {
   const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
   if (!contents || desktopRemoteAccess) return;
   const active = activeEnvironment(environmentsState)?.origin;
   let frame = null;
-  try { frame = new URL(contents.mainFrame.url).origin; } catch { /* nothing loaded yet */ }
+  try { frame = new URL(contents.mainFrame.url).origin; } catch {}
   if ((!active && contents.mainFrame.url.startsWith(`${rendererOrigin()}/`)) || (active && frame === active && state.destination?.origin === active)) {
     contents.send("cloud-move:state-changed", state);
   }
 }
 
-/** What a server holds, asked with this window's own session there: the
- * status, or why a copy there cannot start (moveRefusal). */
 async function peekCloudMove(origin) {
   try {
     const response = await session.defaultSession.fetch(`${origin}/api/cloud-move`, { credentials: "include", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(5_000) });
@@ -3157,7 +2691,6 @@ const cloudMoveChoicesFile = () => path.join(app.getPath("userData"), "cloud-mov
 function cloudMoveDismissed(origin) {
   try { return JSON.parse(fs.readFileSync(cloudMoveChoicesFile(), "utf8"))?.dismissed?.includes(origin) === true; } catch { return false; }
 }
-/** Not now on a server's offer (for good), or Done after a copy there. */
 function dismissCloudMove(origin) {
   const move = ensureCloudMove();
   if (!move.running() && move.state().destination?.origin === origin) move.reset();
@@ -3167,37 +2700,24 @@ function dismissCloudMove(origin) {
   fs.writeFileSync(cloudMoveChoicesFile(), JSON.stringify({ dismissed: [...dismissed.filter(entry => typeof entry === "string"), origin].slice(-20) }), { mode: 0o600 });
 }
 
-/** What Settings and a server's card show about a copy to `dest` (null: this
- * computer's own page, no destination named). */
 async function cloudMoveOverview(dest, onServerPage) {
   const move = ensureCloudMove(), state = move.state();
-  // This computer's own page with no server named (its card, its Backups): nothing to offer, nothing to measure.
   if (!dest) return { ...state, local: null, cloud: null, fit: null, suggest: false, destination: null, blocked: null };
   const [local, peek] = await Promise.all([move.estimate().catch(() => null), dest.origin ? peekCloudMove(dest.origin) : { status: null, refusal: "unreachable" }]);
-  // A copy to another server is not this one's to show; while it runs, this one waits.
   const own = !state.destination || state.destination.origin === dest.origin;
   const cloud = peek.status;
-  // Measured as the copy will be: at the plan's largest disk only on the
-  // Cloud, when the Admin says the disk grows; otherwise today's free space.
   let disk = null;
-  if (dest.kind === "cloud") { try { disk = dest.disk(); } catch { /* today's free space */ } }
+  if (dest.kind === "cloud") { try { disk = dest.disk(); } catch {} }
   const fit = local && cloud ? moveFit({ localBytes: local.bytes, freeBytes: cloud.freeBytes, uploadReceived: cloud.uploadReceived, volumeBytes: cloud.volumeBytes, disk }) : null;
   const blocked = moveBlocked({ kind: dest.kind, refusal: peek.refusal, local, cloud, busyElsewhere: move.running() && !own });
-  // The card on an empty server, once: only when this computer has work to bring, and it can fit.
   const hasWork = Boolean(local && (local.bots > 1 || local.rooms > 0 || local.chats > 0));
   const view = own ? state : { phase: "idle" };
   const suggest = Boolean(onServerPage && !blocked && cloud?.empty && hasWork && fit?.fit !== "never" && view.phase === "idle" && !cloudMoveDismissed(dest.origin));
-  // Which machine each is decided `blocked`; the page needs no identifier of this computer.
   const shown = value => { if (!value) return null; const { environmentId: _, ...rest } = value; return rest; };
   return { ...view, local: shown(local), cloud: shown(cloud), fit, suggest, destination: { id: dest.id, name: dest.name, origin: dest.origin, kind: dest.kind }, blocked,
     ...(blocked === "busy_elsewhere" ? { busyWith: state.destination?.name } : {}) };
 }
 
-// ── Who asks, and where to: local Settings, and the server open in this window ──
-/** Where a copy goes, and how main proves the owner there (one grant per
- * destination): the Cloud through its Admin (a pairing window without a
- * session here, and the plan's disk); any other server with this window's
- * own owner session there. */
 function destinationFor(entry) {
   const homeOrigin = cloudAccount?.homeTarget()?.origin ?? null;
   if (entry.cloud || isCloudHomeEntry(entry, { homeOrigin })) {
@@ -3209,9 +2729,6 @@ function destinationFor(entry) {
   return { id: entry.id, name: entry.name, origin: entry.origin, kind: "server",
     grant: () => mintOwnerCode((...args) => session.defaultSession.fetch(...args), entry.origin) };
 }
-/** Who asked, and about which server: this computer's own page (it may name
- * a saved server's id, or "cloud"), or the server open in this window (it
- * names nothing). `localOnly`: this computer's own page only. */
 function moveSender(channel, event, id, { localOnly = false } = {}) {
   const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
   const local = senderIsLocal(event) && workspaceSenderAllowed(event, contents, environmentsState, rendererOrigin());
@@ -3222,7 +2739,6 @@ function moveSender(channel, event, id, { localOnly = false } = {}) {
   throw new Error(`${channel} is only available in this app's window`);
 }
 const named = dest => { if (!dest) throw new Error("Choose a server to copy this computer's bots and chats to."); return dest; };
-// Finished: show the server, with what was copied, in this window.
 const afterCloudMove = dest => async result => {
   if (result.phase !== "done") return result;
   try {
@@ -3233,12 +2749,6 @@ const afterCloudMove = dest => async result => {
   return result;
 };
 ipcMain.handle("cloud-move:state", (event, id) => { const asked = moveSender("cloud-move:state", event, id); return cloudMoveOverview(asked.dest, asked.remote); });
-// Everything a server says about itself (admin session, empty, version) is
-// its own word, so a server's own page cannot send this computer's work to
-// it. Only the Cloud this app verified through the Admin starts its copy from
-// its own page, and only while it is empty (requireEmpty). Any other server's
-// Copy opens this computer's Settings → Servers on that server's copy, where
-// the person starts it. Replacing work, and Swap back, stay there too.
 ipcMain.handle("cloud-move:start", (event, id) => {
   const asked = moveSender("cloud-move:start", event, id), dest = named(asked.dest);
   if (asked.remote) {
@@ -3249,7 +2759,6 @@ ipcMain.handle("cloud-move:start", (event, id) => {
   }
   return ensureCloudMove().move(dest, { requireEmpty: asked.remote }).then(afterCloudMove(dest));
 });
-// A server's page stops only a copy to itself.
 ipcMain.handle("cloud-move:cancel", (event) => {
   const asked = moveSender("cloud-move:cancel", event, undefined), move = ensureCloudMove();
   return asked.remote && move.state().destination?.origin !== asked.dest?.origin ? move.state() : move.cancel();
@@ -3263,39 +2772,21 @@ ipcMain.handle("cloud-move:restore-previous", (event, id) => {
   const dest = named(moveSender("cloud-move:restore-previous", event, id, { localOnly: true }).dest);
   return ensureCloudMove().restorePrevious(dest).then(afterCloudMove(dest));
 });
-/** The person's own Cloud, by the one rule (cloud-home.mjs myCloudOrigin):
- * its page in the main window gets the channels below, the microphone and
- * clipboard writes (appPermissionHandlers). While the sign-in is being checked or has ended it
- * is still the Cloud this account last verified, so its Settings says
- * "checking" or "sign in again on your computer", never an error, and a Live
- * call keeps the microphone. */
 function myCloud() {
   return myCloudOrigin({ account: cloudAccount, remembered: rememberedHome, remoteAccess: desktopRemoteAccess });
 }
-/** Which page in the main window asks: this computer's own ("local"), the
- * person's own Cloud's by the one rule above ("cloud"), or neither (null). */
 const cloudPageAsking = (event) => {
   const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
   if (senderIsLocal(event) && workspaceSenderAllowed(event, contents, environmentsState, rendererOrigin())) return "local";
   if (cloudPageSenderAllowed(event, { contents, homeOrigin: myCloud(), activeOrigin: activeEnvironment(environmentsState)?.origin })) return "cloud";
   return null;
 };
-/** Local Settings, and the verified Cloud page in the main window: the Cloud's own channels. */
 const cloudPageSender = (channel, handler) => (event) => {
   const asking = cloudPageAsking(event);
   if (!asking) throw new Error(`${channel} is only available in this app's window`);
   return handler(asking === "cloud");
 };
-// This app's updates: this computer's page and the person's own Cloud page
-// (the one rule its Settings → Plan and the microphone use), so someone who
-// stays on My Cloud still sees "Restart to update". Any other server's page
-// gets nothing.
 const updaterPageAllowed = event => cloudPageAsking(event) !== null || profilePageSender(event);
-// The preload asks once, as a page loads, whether to give it the updater at
-// all. Pages built before main answered My Cloud read the bridge alone as
-// "You're up to date", so it goes only to a page main answers, or will: while
-// the saved sign-in is still being restored at launch, the saved "My Cloud"
-// server's page. updaterPageAllowed still decides every update message.
 const updaterPageOffered = event => {
   if (updaterPageAllowed(event)) return true;
   if (desktopRemoteAccess || cloudSignInRestored) return false;
@@ -3305,15 +2796,10 @@ const updaterPageOffered = event => {
 ipcMain.on("update:offered", event => {
   try { event.returnValue = updaterPageOffered(event) === true; } catch { event.returnValue = false; }
 });
-// The Cloud's setup checklist: "Let your Cloud use this Mac" shows the lending
-// switch, as the menu-bar item's Lending settings… does. Nothing is lent here.
 ipcMain.handle("cloud-lending:open", cloudPageSender("cloud-lending:open", () => openLendingSettings()));
-// Settings on the person's own Cloud: the plan, read only (no account or
-// credential), Manage in the browser, and back to this computer.
 ipcMain.handle("cloud-plan:state", cloudPageSender("cloud-plan:state", () => cloudPlanSnapshot(cloudAccount?.state())));
 ipcMain.handle("cloud-plan:manage", cloudPageSender("cloud-plan:manage", async () => { await ensureCloudAccount().openDashboard(); }));
 ipcMain.handle("cloud-plan:local", cloudPageSender("cloud-plan:local", () => workspaceMenuAction(() => switchEnvironment(LOCAL_ID))));
-// ── end Copy this computer here ──
 
 const savedWorkspace = id => {
   const env = environmentsState.environments.find(entry => entry.id === id);
@@ -3334,7 +2820,6 @@ ipcMain.handle("sharing:revoke", localWorkspaceOnly("sharing:revoke", async (_ev
   await requireSharedComputers();
   return sharingController().revoke(savedWorkspace(id));
 }));
-// What that server's bots did here: the local log, never a server's claim.
 ipcMain.handle("sharing:activity", localWorkspaceOnly("sharing:activity", async (_event, id) => {
   await requireSharedComputers();
   return sharingController().activity(savedWorkspace(id).id, 50);
@@ -3357,10 +2842,6 @@ ipcMain.handle("sharing:save", localWorkspaceOnly("sharing:save", async (_event,
   return sharingController().save(env, { folders, terminal: input?.terminal === true, computer: input?.computer === true }, info);
 }));
 
-// "Let my Cloud use this Mac" (Settings → later.dog Cloud; docs/cloud-pro.md).
-// Everything is decided here from the verified Cloud sign-in: the renderer
-// names no server, account or origin. No confirmation dialog: the switch and
-// the scopes the person picks are the consent.
 async function lendingSnapshot() {
   const env = cloudLendingEnvironment();
   const connection = await cuaReady.catch(() => null);
@@ -3392,10 +2873,6 @@ ipcMain.handle("lending:stop", localWorkspaceOnly("lending:stop", async () => {
   return lendingSnapshot();
 }));
 
-// window.confirm() has no parent window, so window managers (notably tiling
-// ones on Linux) can't center it — it lands at a default screen origin
-// instead of over the app. Route renderer confirms through the main process
-// so dialog.showMessageBox can anchor it to mainWindow.
 ipcMain.handle("dialog:confirm", localWorkspaceOnly("dialog:confirm", async (_event, message) => {
   if (typeof message !== "string" || !message.trim() || message.length > 4096 || !mainWindow || mainWindow.isDestroyed()) return false;
   const { response } = await dialog.showMessageBox(mainWindow, {
@@ -3420,8 +2897,6 @@ ipcMain.handle("environments:add-from-link", localWorkspaceOnly("environments:ad
 }));
 ipcMain.handle("environments:forget", localWorkspaceOnly("environments:forget", (_event, id) => forgetEnvironment(typeof id === "string" ? id : "")));
 
-// A cloud page can ask for the native chooser, not choose a destination or
-// mutate the desktop's saved list. Only native menu clicks perform those acts.
 ipcMain.handle("workspaces:state", workspaceOnly(() => workspaceSummary(environmentsState)));
 let workspaceMenuOpen = false;
 ipcMain.handle("workspaces:menu", workspaceOnly(async () => {
@@ -3477,9 +2952,6 @@ async function saveWorkspaceCredential(name, value) {
   const secret = value.trim();
   const applyToHarness = async () => {
     if (app.isPackaged && !serverReady) throw new Error("The embedded bot server is unavailable");
-    // In development the server is a separately launched process, so it
-    // cannot receive credentials from Electron at boot. Keep its established
-    // local config path there; production always uses the encrypted store.
     const secretStorage = app.isPackaged ? "?secretStorage=external" : "";
     const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/config${secretStorage}`, {
       method: "PUT",
@@ -3495,9 +2967,6 @@ async function saveWorkspaceCredential(name, value) {
   };
   if (!app.isPackaged) return applyToHarness();
 
-  // Commit the encrypted value before the server makes it live. The shared
-  // state rolls credentials.bin back if validation/reload fails, while also
-  // keeping concurrent account and provider updates serialized.
   return updateSecureCredentialDocument(
     (credentials) => {
       if (secret) credentials[name] = secret;
@@ -3520,8 +2989,6 @@ ipcMain.handle("credential:set", localOnly("credential:set", (event, name, value
 ));
 
 ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mode", (event, botId, mode, options) => {
-  // Development uses a separately launched server, which is intentionally
-  // outside this trust path. Never degrade this grant to loopback HTTP.
   const proc = askingProfile(event) ? profiles.activeProcess() : serverProc;
   if (!app.isPackaged || !proc) {
     throw new Error("Full and Custom approval modes require the embedded desktop server");
@@ -3568,11 +3035,6 @@ setCuaStateListener((connection) => {
 });
 
 app.whenReady().then(async () => {
-  // Cached-before-the-fix attachment responses outlive `no-store`: entries
-  // stored under the old one-year immutable policy can replay to a second
-  // identity in this profile without the visibility gate re-running. The
-  // first launch of each new version empties the HTTP cache, before any
-  // window could serve one of those entries.
   await evictStartupCacheOnce({
     userData: app.getPath("userData"),
     currentVersion: app.getVersion(),
@@ -3587,7 +3049,6 @@ app.whenReady().then(async () => {
         onQuit: () => app.quit(),
       });
     } catch (error) {
-      // A missing tray must leave a working close/quit path.
       slog(`system tray unavailable: ${error?.message ?? error}`);
     }
   }
@@ -3607,9 +3068,6 @@ app.whenReady().then(async () => {
   });
   if (app.isPackaged) {
     try {
-      // Acquire before either plaintext credential migration reads or writes
-      // config.json. The parent retains ownership across utility-child port
-      // fallbacks and restarts for the entire desktop process lifetime.
       desktopDataDirLease = acquireDataDirLease(desktopDataDir(), {
         legacyDataDir: path.join(app.getPath("home"), ".laterdog-v0"),
       });
@@ -3624,16 +3082,10 @@ app.whenReady().then(async () => {
   }
   if (app.isPackaged) {
     app.setAsDefaultProtocolClient("laterdog");
-    // Chromium adds this capability below JavaScript, so renderer requests
-    // can mutate the local harness while a Full-access shell using curl
-    // cannot impersonate the person operating the desktop app.
     installDesktopMutationHeader();
   }
   if (process.platform === "darwin") app.dock.setIcon(APP_ICON);
   secureCredentials = await loadSecureCredentials();
-  // The AssemblyAI key only fed the removed Teach a skill recorder, and its
-  // set/clear handler went with it; drop the orphaned secret rather than
-  // keep a third-party key at rest with no way to remove it.
   if (secureCredentials && Object.hasOwn(secureCredentials, "assemblyAiApiKey") && !credentialStoreUnavailable) {
     try {
       const { assemblyAiApiKey: _removed, ...rest } = secureCredentials;
@@ -3647,9 +3099,6 @@ app.whenReady().then(async () => {
     await secureComposioConfig();
     await secureWorkspaceConfig();
   }
-  // Boot migrations above are deliberately sequential. From this point on,
-  // every account/API-key writer must use the shared serialized state.
-  // An unreadable store must not become a WRITE of an empty document.
   secureCredentialState = createSecureCredentialState(secureCredentials, saveSecureCredentials, {
     writable: !credentialStoreUnavailable,
   });
@@ -3657,10 +3106,6 @@ app.whenReady().then(async () => {
   if (app.isPackaged) await ensurePhoneSecretIdentity();
   desktopRemoteAccess = desktopCompanionAccess(secureCredentials);
   const hostedAccount = desktopRemoteAccess ? null : ensureCompanionAccountService();
-  // Display capture remains user-initiated. The renderer first sends a
-  // short-lived one-shot intent, then calls getDisplayMedia in the same click.
-  // The handler binds that request to the same frame/origin, rejects audio,
-  // and requires Electron's active user-gesture signal.
   if (process.platform === "darwin" || process.platform === "linux") {
     session.defaultSession.setDisplayMediaRequestHandler(
       (request, callback) => {
@@ -3711,9 +3156,6 @@ app.whenReady().then(async () => {
   registerCuaIpc();
   androidDevice.registerIpc(ipcMain);
   registerUpdaterIpc({ pageAllowed: updaterPageAllowed });
-  // Start the CUA daemon before the window so the harness can pick up the
-  // connection descriptor on first render. Never blocks window creation on
-  // failure — computer use degrades to "unavailable", the rest still works.
   cuaReady =
     !desktopRemoteAccess && (process.platform === "darwin" || process.platform === "linux" || process.platform === "win32")
       ? startCua().catch((e) => {
@@ -3746,34 +3188,18 @@ app.whenReady().then(async () => {
   }
   if (desktopShutdownStarted) return;
   if (app.isPackaged && !desktopRemoteAccess) void ensureManagedDesktop().start().then(() => companyBackupSchedule.start()).catch(() => {});
-  // Fresh local use never makes a Cloud request; start only restores an existing grant.
   if (app.isPackaged && !desktopRemoteAccess && configuredCloudOrigin()) {
     cloudAccountRestoring = true;
     cloudAccountStarted = ensureCloudAccount().start().catch(() => {}).finally(() => { cloudAccountRestoring = false; });
   }
   void cloudAccountStarted.then(() => { cloudSignInRestored = true; });
-  // The companion the user left on comes back without anyone finding the
-  // toggle again — one attempt, after the harness port is settled, with the
-  // exact options the IPC handler uses. A failure surfaces in companionState
-  // (the panel shows the error) rather than retrying; and it never delays
-  // the window.
   if (!desktopRemoteAccess && serverReady && companionEnabledAtRest()) {
-    // Wait until a saved organisation policy is known: it may turn remote access off.
     void (managedDesktop?.whenRestored() ?? Promise.resolve())
       .then(() => startDesktopCompanion({ waitForHosted: false, remember: false }))
       .catch(error => slog(`companion auto-start skipped: ${error?.message ?? error}`));
   }
   setLocalOrigin(rendererOrigin());
   setProfileOrigin(() => profiles?.activeOrigin() ?? null);
-  // Device permissions (microphone, notifications, clipboard) are for the
-  // local UI only; privileged capabilities (camera, geolocation, USB, MIDI,
-  // serial) stay off. Client mode's loopback relay is the local UI. The
-  // person's own Cloud, open in this window, also gets the microphone for a
-  // Live call and clipboard writes for its copy buttons (only those): it is
-  // theirs alone. No other server does. A call placed while the saved sign-in
-  // is still restoring waits for it. The active paired server, in this
-  // window's main frame, may also write the clipboard. Neither ever reads it;
-  // both are re-evaluated per request, so a server switch or sign-out withdraws it.
   appPermissions = appPermissionHandlers({
     rendererOrigin: localPageOrigin,
     mainContents: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
@@ -3784,34 +3210,17 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler(appPermissions.request);
   session.defaultSession.setPermissionCheckHandler(appPermissions.check);
   environmentsState = readEnvironments();
-  // Maintainer grants never start while computer sharing is off: no poll
-  // loop, no registration, no grant replay from disk. Lending to the person's
-  // own Cloud is gated by their Cloud sign-in instead, so its saved grant
-  // resumes once that sign-in is verified (cloudChanged on each Cloud state).
   void refreshSharedComputersAllowed().then((allowed) => {
     sharingController().start({ maintainer: allowed });
-    // A saved Cloud sign-in publishes its state as it restores; one that is
-    // not there publishes nothing, so decide once restoring has finished.
     void cloudAccountStarted.then(() => computerSharing?.cloudChanged());
   });
   let restoredOrganizationEntry = false;
   await workspaceMenuAction(async () => { restoredOrganizationEntry = await organizationEntry.restore(); });
   organizationEntryReady = true;
-  // A cold-start action owns its first navigation. Starting the default load
-  // first would let the action abort that unawaited navigation immediately.
   const deliveredOrganizationEntry = await deliverOrganizationEntry();
   const deliveredCloudEntry = await cloudEntry.ready();
   if (!restoredOrganizationEntry && !deliveredOrganizationEntry && !deliveredCloudEntry && (!mainWindow || mainWindow.isDestroyed())) createWindow();
-  // Reconcile incomplete setup and resume interrupted sign-out only after the
-  // local app is usable. This background network work never gates LAN pairing
-  // or the first window.
   if (hostedAccount) void hostedAccount.restore().catch(() => {});
-  // Registration is optional network work. Start it only after the local
-  // server and first window are usable, then update the server child over its
-  // private parent port so Connected Apps becomes available without restart.
-  // Registering while the store is unreadable would mint a SECOND installation
-  // identity for a user who already has one — the first thing they would
-  // notice is every connected app gone, permanently.
   if (credentialStoreUnavailable) {
     slog("skipping connected-apps registration: the credential store was unreadable this launch");
   }
@@ -3820,16 +3229,12 @@ app.whenReady().then(async () => {
       await ensureManagedComposioCredentials({
         brokerUrl: composioBrokerUrl(),
         credentials,
-        // The shared credential state performs the one atomic encrypted
-        // write after this registration has derived its complete document.
         saveCredentials: async () => {},
         log: slog,
       });
       return credentials;
     }).finally(syncManagedComposioCredentials);
   }
-  // in-app auto-update (packaged only) — checks GitHub releases and downloads
-  // by itself; only "Restart to update", the person's click, installs
   startUpdater();
   refreshApplicationMenu();
   app.on("activate", () => {
@@ -3838,28 +3243,15 @@ app.whenReady().then(async () => {
   });
 }).finally(() => allWindowsClosedQuit.settleStartup());
 
-// The startup splash is the only window while boot runs; its recovery
-// timers can destroy it mid-boot (issue #2028). An unconditional
-// last-window-closed quit would fire there, killing the app before the
-// server child forks — exactly the exit the recovery was meant to avoid.
 const allWindowsClosedQuit = createAllWindowsClosedQuit({
   app,
   allWindows: () => BrowserWindow.getAllWindows(),
 });
 
-// EMBEDDING.md lifecycle rule: defer the first quit until the embedded
-// daemon's async cleanup completes — it can't run after the host exits.
-// Cap the defer so a wedged daemon cannot keep the app alive forever.
 const CUA_STOP_TIMEOUT_MS = 2500;
 let cuaCleanedUp = false;
 let signalQuitRequested = false;
 
-// Package managers, desktop watchdogs, and terminal launchers commonly stop
-// Linux apps with SIGTERM/SIGINT. Convert the first signal into Electron's
-// normal quit path so the embedded server, Cua descriptor/socket, and private
-// AppImage stage receive the same bounded cleanup as a window close. A second
-// signal keeps Node's default force-quit behavior because these are `once`
-// listeners.
 const requestSignalQuit = () => {
   if (signalQuitRequested) return;
   signalQuitRequested = true;
@@ -3881,24 +3273,16 @@ app.on("before-quit", (e) => {
   lendingTray?.destroy();
   if (cuaCleanedUp) return;
   e.preventDefault();
-  // Cancel a scheduled recovery before yielding, and stop the owned child
-  // even if it has not passed its boot probe yet.
   const stoppingServer = serverSupervisor.shutdown();
-  // Release the sleep blocker synchronously; child shutdown is awaited below.
   syncCompanionKeepAwake(false, false);
   routineWake.stop();
   try {
     desktopCompanionRelay?.close?.();
   } catch {}
-  // a live dictation session runs its own helper child that holds the mic —
-  // stop it here so quitting never orphans a recording process
   if (nativeActions.appleSpeech) stopSpeech();
   const ownedHelperCleanup = Promise.race([
     Promise.all([
       stopCua().catch(() => {}),
-      // Both listeners reachable from outside the app are owned children.
-      // Shut the connector down first, then the sidecar, without changing the
-      // remembered toggle the next launch will restore.
       stopDesktopCompanion({ remember: false }).catch(() => {}),
     ]),
     new Promise((resolve) => setTimeout(resolve, CUA_STOP_TIMEOUT_MS).unref()),
@@ -3922,15 +3306,10 @@ function releaseDesktopDataDirLease() {
     desktopDataDirLease.release();
     desktopDataDirLease = null;
   } catch (error) {
-    // Never print the private child capability. Lease errors contain only the
-    // data-safety reason and, for contention, the owning process id.
     slog(`data-directory lease release failed: ${error?.message ?? error}`);
   }
 }
 
-// before-quit is deliberately too early: this app defers it while owned
-// helpers shut down. will-quit is the final Electron lifecycle boundary; the
-// process hook covers app.exit()/fatal exits that bypass it.
 app.on("will-quit", releaseDesktopDataDirLease);
 app.on("will-quit", () => desktopTray?.destroy());
 process.once("exit", releaseDesktopDataDirLease);

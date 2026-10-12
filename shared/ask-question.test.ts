@@ -20,7 +20,6 @@ import {
   type AskQuestion,
 } from "./ask-question";
 
-/** The shape Claude Code's AskUserQuestion actually sends. */
 const REAL_INPUT = {
   questions: [
     {
@@ -59,9 +58,6 @@ describe("parseAskQuestions", () => {
   });
 
   it("answers null for anything that is not a question payload", () => {
-    // Every one of these reaches us as a permission ask for some OTHER tool,
-    // and must keep the ordinary approval card rather than becoming a
-    // question nobody can allow.
     expect(parseAskQuestions({ command: "git push" })).toBeNull();
     expect(parseAskQuestions({ questions: "tea or coffee" })).toBeNull();
     expect(parseAskQuestions({ questions: [] })).toBeNull();
@@ -158,7 +154,6 @@ describe("questionChoices", () => {
       ],
     })!;
     expect(questionChoices(two)).toBeUndefined();
-    // …and none for multi-select, where one tap is not the whole answer
     const multi = parseAskQuestions({
       questions: [{ question: "Which stores?", multiSelect: true, options: [{ label: "A" }, { label: "B" }] }],
     })!;
@@ -197,7 +192,6 @@ describe("ASK_USER_TOOL_DEFINITION", () => {
     expect(schema.maxItems).toBe(MAX_QUESTIONS);
     expect(schema.minItems).toBe(1);
     expect(schema.items.properties.options.maxItems).toBe(MAX_OPTIONS);
-    // a question with no options is still answerable — free text
     expect(schema.items.properties.options.minItems).toBeUndefined();
   });
 });
@@ -222,9 +216,6 @@ describe("questionAnswersByQuestion", () => {
   })!;
 
   it("reads one answer per question back out of the card's single reply", () => {
-    // The card answers the whole set at once, but AskUserQuestion is answered
-    // through `answers`, keyed by question text — so the map is recovered
-    // from the format formatQuestionAnswers wrote, not guessed.
     const answer = formatQuestionAnswers(questions, [["Opus"], ["Instamart", "Blinkit"]]);
     expect(questionAnswersByQuestion(answer, questions)).toEqual({
       "Which model?": "Opus",
@@ -243,8 +234,6 @@ describe("questionAnswersByQuestion", () => {
   });
 
   it("takes a bare reply as the answer when exactly one question was asked", () => {
-    // the flat path: a phone answering a single-question card with one of the
-    // option labels the harness also sends
     expect(questionAnswersByQuestion("Opus", questions.slice(0, 1))).toEqual({ "Which model?": "Opus" });
   });
 

@@ -413,8 +413,6 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
   );
 }
 
-/** A provider whose app isn't on this computer yet: it is fetched from its
- * maker first (the server checks it), then the sign-in takes over. */
 function InstallFirst({ instance, onCancel }: { instance: InstanceInfo; onCancel: () => void }) {
   const { dispatch } = useStore();
   const [error, setError] = useState<string | null>(null);
@@ -510,7 +508,6 @@ export function AccountsPanel() {
         <div className="flex items-center gap-3 border-t border-hairline/40 px-4 py-3">
           <button type="button" onClick={() => setSheet({ step: "pick" })} className={pill}>{t("accounts.add")}</button>
         </div>
-        {/* switching to the next account means there is a next one */}
         {(signedInCount >= 2 || carryOn.on) && (
           <div className="flex items-center justify-between gap-3 border-t border-hairline/40 px-4 py-3">
             <div className="min-w-0">

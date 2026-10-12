@@ -1,12 +1,6 @@
-/** Post-redaction leak scan for golden fixtures. The redactor replaces
- * every piece of real content with placeholders; this module proves it.
- * Findings report the pattern category and where it matched, never the
- * matched content itself, so a leak report cannot echo private data. */
-
 export interface LeakFinding {
   category: string;
   occurrences: number;
-  /** Field path of the offending value inside the fixture, when known. */
   path?: string;
 }
 
@@ -22,7 +16,6 @@ const PATTERNS: Array<{ category: string; pattern: RegExp }> = [
   { category: "hex-blob", pattern: /\b[0-9a-fA-F]{16,}\b/ },
 ];
 
-/** Placeholders and harness vocabulary the scanner must not flag. */
 const SAFE_TOKENS = new Set(["coordinate_bots"]);
 
 function jsonPaths(value: unknown, prefix = "$"): Array<{ path: string; text: string }> {
@@ -34,7 +27,6 @@ function jsonPaths(value: unknown, prefix = "$"): Array<{ path: string; text: st
   return [];
 }
 
-/** Scans every string inside a parsed fixture for sensitive patterns. */
 export function scanStrings(value: unknown): LeakFinding[] {
   const findings = new Map<string, LeakFinding>();
   for (const { path, text } of jsonPaths(value)) {
@@ -50,8 +42,6 @@ export function scanStrings(value: unknown): LeakFinding[] {
   return [...findings.values()];
 }
 
-/** Scans the raw serialized fixture too, so patterns assembled across
- * neighboring tokens (or hidden in non-string fields) cannot slip by. */
 export function scanSerialized(json: string): LeakFinding[] {
   const findings = new Map<string, LeakFinding>();
   for (const { category, pattern } of PATTERNS) {
@@ -61,10 +51,6 @@ export function scanSerialized(json: string): LeakFinding[] {
   return [...findings.values()];
 }
 
-/** Collects free-text strings from the source export, then proves none of
- * them survive into the redacted fixture. Only strings long enough to be
- * identifying are checked; short words that may legitimately reappear
- * ("send", "the") would produce false positives. */
 export function survivorsOf(sourceTexts: string[], redactedJson: string): string[] {
   const redacted = redactedJson.toLowerCase();
   return sourceTexts

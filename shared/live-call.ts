@@ -1,11 +1,3 @@
-// Pure pieces of a Live (GPT-Live) call, kept out of the component so they
-// can be tested without WebRTC.
-//
-// With client delegation GPT-Live says *that* it wants help, never *what*:
-// `session.delegation.created` carries an id and a timeline offset, and the
-// request has to be rebuilt from the input transcript. That reconstruction,
-// and the shaping of the bot's answer into the 500-token appends GPT-Live
-// accepts, live here.
 
 export interface TranscriptSegment {
   text: string;
@@ -13,25 +5,17 @@ export interface TranscriptSegment {
   endMs: number;
 }
 
-/** Collects `session.input_transcript.delta` fragments on the session
- * timeline. Fragments are appended in delivery order, as the API asks. */
 export class LiveTranscript {
   private input: TranscriptSegment[] = [];
-  /** when the voice itself was speaking, on the same timeline */
   private output: Array<{ startMs: number; endMs: number }> = [];
   private cutoffMs = -1;
 
   addInput(text: string, startMs: number, endMs: number): void {
     if (!text) return;
     this.input.push({ text, startMs: Number.isFinite(startMs) ? startMs : 0, endMs: Number.isFinite(endMs) ? endMs : 0 });
-    // keep memory bounded on long calls: only the unconsumed tail matters
     if (this.input.length > 2_000) this.input = this.input.filter((segment) => segment.startMs > this.cutoffMs);
   }
 
-  /** A stretch of the voice's own speech (a `session.output_transcript.delta`
-   * with its timing). Input heard during it may be the voice itself, picked
-   * up again by the microphone of a phone on speaker. Deltas without timing
-   * are ignored. */
   addOutput(startMs: number, endMs: number): void {
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return;
     const last = this.output.at(-1);
@@ -40,16 +24,10 @@ export class LiveTranscript {
     if (this.output.length > 500) this.output.splice(0, this.output.length - 500);
   }
 
-  /** The words spoken since the previous request, up to a little past the
-   * delegation point (transcription can trail the delegation event, and the
-   * person may finish the sentence that triggered it). Consumes them, so the
-   * next request starts after this one. */
   takeRequest(offsetMs: number, graceMs = 1_500): string {
     return this.takeRequestParts(offsetMs, graceMs).text;
   }
 
-  /** takeRequest, plus the same words without those heard while the voice
-   * spoke (`withoutEcho`), for reading a spoken yes/no. Consumes all of them. */
   takeRequestParts(offsetMs: number, graceMs = 1_500): { text: string; withoutEcho: string } {
     const until = offsetMs + graceMs;
     const taken = this.input.filter((segment) => segment.startMs > this.cutoffMs && segment.startMs <= until);
@@ -61,9 +39,6 @@ export class LiveTranscript {
     };
   }
 
-  /** Everything heard since the last taken request, without consuming it —
-   * used to read a spoken yes/no while a permission question is open.
-   * `skipEcho` leaves out what was heard while the voice itself spoke. */
   pending(options: { skipEcho?: boolean } = {}): string {
     return joinFragments(this.input
       .filter((segment) => segment.startMs > this.cutoffMs && !(options.skipEcho && this.echoed(segment)))
@@ -74,34 +49,25 @@ export class LiveTranscript {
     return this.output.some((span) => segment.startMs < span.endMs && segment.endMs > span.startMs);
   }
 
-  /** Mark everything heard so far as handled (e.g. after a spoken decision). */
   consumeAll(): void {
     for (const segment of this.input) this.cutoffMs = Math.max(this.cutoffMs, segment.startMs);
   }
 }
 
-/** Transcript deltas are fragments of words, not words: glue them as sent. */
 export function joinFragments(fragments: string[]): string {
   return fragments.join("").replace(/\s+/g, " ").trim();
 }
 
-/** GPT-Live caps each append at 500 tokens. A 500 UTF-8 byte budget is
- * conservative even for emoji/CJK, unlike a prose-only character estimate.
- * Byte-level tokenization cannot produce more tokens than input bytes. */
 const APPEND_BYTE_LIMIT = 500;
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;
 
-/** Standard UTF-8 accounting; stop at a complete code point, not a surrogate. */
 function bytePrefix(text: string, budget: number): string {
   return new TextDecoder().decode(encoder.encode(text).subarray(0, budget), { stream: true });
 }
 const MAX_SPOKEN_CHUNKS = 3;
 export const FULL_ANSWER_IN_CHAT = "The full answer is in the chat.";
 
-/** Group speakable utterances (from /api/tts/prepare) into appends. Long
- * answers are cut at a sentence boundary with a pointer to the chat, because
- * a voice reading four minutes of a report is not a conversation. */
 export function commentaryChunks(utterances: string[]): string[] {
   const chunks: string[] = [];
   let current = "";
@@ -149,15 +115,11 @@ function splitLong(text: string): string[] {
   return out;
 }
 
-/** Keep appended content inside the per-append limit. */
 export function clampAppend(content: string): string {
   const text = content.replace(/\s+/g, " ").trim();
   return bytes(text) <= APPEND_BYTE_LIMIT ? text : `${bytePrefix(text, APPEND_BYTE_LIMIT - bytes("…")).replace(/\s+\S*$/, "")}…`;
 }
 
-/** GPT-Live voices from OpenAI's documentation (Managing GPT-Live sessions,
- * "Voice options", and the SDK's BuiltInVoice list), with the regional
- * notes the docs give for the additional ones. */
 export const LIVE_VOICE_OPTIONS: ReadonlyArray<{ id: string; label: string }> = [
   { id: "marin", label: "Marin (default)" },
   { id: "cedar", label: "Cedar" },

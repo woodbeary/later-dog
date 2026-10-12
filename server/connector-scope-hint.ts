@@ -1,17 +1,6 @@
-// A connected-app call refused for a missing OAuth permission (MOCA-273).
-//
-// Google answers 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT when the account's grant
-// lacks a scope the action needs, such as gmail.settings.basic for a filter.
-// Composio's default auth config for a toolkit never asks for that scope, so
-// reconnecting cannot fix it and a bot that only sees the 403 retries or
-// asks the person to reconnect. The fix is the person's own auth config in
-// their Composio project, which later.dog already prefers
-// (listCustomAuthConfigs). This appends that explanation to the tool result,
-// leaving the provider's own error untouched.
 
 const SCOPE_ERROR = /ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficient authentication scopes|insufficientPermissions/i;
 
-/** The Google scope a known tool needs, when the tool name says which. */
 function requiredScope(slug: string): string | null {
   if (!slug.startsWith("GMAIL_")) return null;
   if (/FORWARD|SEND_AS|DELEGATE/.test(slug)) return "https://www.googleapis.com/auth/gmail.settings.sharing";
@@ -26,7 +15,6 @@ function appName(slug: string): string {
   return toolkit.charAt(0) + toolkit.slice(1).toLowerCase();
 }
 
-/** The note a bot reads after its call was refused for a missing permission. */
 export function scopeHint(slugs: readonly string[]): string {
   const slug = slugs.find((candidate) => requiredScope(candidate)) ?? slugs[0] ?? "";
   const app = slug ? appName(slug) : "This app";
@@ -41,7 +29,6 @@ export function scopeHint(slugs: readonly string[]): string {
 
 type ToolResultFrame = { result?: { content?: unknown; isError?: unknown } };
 
-/** Adds the note to one JSON-RPC frame whose tool result is a scope refusal. */
 function annotateFrame(frame: unknown, slugs: readonly string[]): boolean {
   const result = (frame as ToolResultFrame | null)?.result;
   if (!result || !Array.isArray(result.content)) return false;
@@ -53,11 +40,6 @@ function annotateFrame(frame: unknown, slugs: readonly string[]): boolean {
   return true;
 }
 
-/**
- * The relayed MCP response, with the note added when a tool call came back
- * refused for a missing OAuth permission. Anything else, including a body it
- * cannot read, is returned byte for byte.
- */
 export function withScopeHint(bytes: Uint8Array, contentType: string, slugs: readonly string[]): Uint8Array {
   const text = new TextDecoder().decode(bytes);
   if (!SCOPE_ERROR.test(text)) return bytes;

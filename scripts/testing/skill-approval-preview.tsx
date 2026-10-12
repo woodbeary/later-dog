@@ -1,4 +1,3 @@
-// Real conversation and task controls, connected only to the disposable server.
 import { createRoot } from "react-dom/client";
 import { ChatView } from "../../src/components/ChatView";
 import { DesktopCapabilitiesProvider } from "../../src/components/DesktopCapabilities";

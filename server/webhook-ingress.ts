@@ -104,10 +104,7 @@ export function createWebhookIngressHandler(manager: WebhookManager, claimReques
       let secret = "";
       try {
         secret = (match[2] ? decodeURIComponent(match[2]) : "") || bearerSecret(req);
-      } catch {
-        // A malformed escape is not a secret this server issued.
-      }
-      // Reject bad capability URLs before buffering or parsing attacker input.
+      } catch {}
       if (!manager.authorize(match[1], secret)) {
         manager.recordUnauthorized(match[1], {
           contentType: header(req, "content-type"),
@@ -131,9 +128,6 @@ export function createWebhookIngressHandler(manager: WebhookManager, claimReques
       const parsedError = statusErrorSchema.safeParse(error);
       const status = parsedError.success ? parsedError.data.status ?? 500 : 500;
       const message = error instanceof Error ? error.message : String(error);
-      // Manager-level validation records its own rejection with the parsed
-      // payload. Receiver-level failures happen earlier, so record metadata
-      // here without buffering untrusted data a second time.
       if (status === 400 || status === 413) {
         manager.recordRejected(match[1], status, message, {
           contentType: header(req, "content-type"),
@@ -148,9 +142,6 @@ export function createWebhookIngressHandler(manager: WebhookManager, claimReques
   };
 }
 
-/** The base senders are told to use. Behind a proxy or tunnel the listening
- * address is unreachable from outside, so the operator supplies the public
- * one; a trailing slash is tolerated because every hook path adds its own. */
 export function advertisedWebhookBase(raw: string): string {
   let parsed: URL | undefined;
   try {

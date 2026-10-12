@@ -10,7 +10,6 @@ export type ToolIdentity =
 type ParsedToolScope = { ok: true; scope: ToolScope | undefined } | { ok: false; error: string };
 
 const SERVER_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
-// Selectors must never contain protocol control characters.
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARACTER = /[\x00-\x1f\x7f]/;
 const MAX_SELECTORS = 256;
@@ -38,7 +37,6 @@ function selectorIdentity(selector: string): ToolIdentity | undefined {
   }
 }
 
-/** Undefined inherits the existing catalog. A present invalid value never does. */
 export function parseToolScope(value: unknown): ParsedToolScope {
   if (value === undefined) return { ok: true, scope: undefined };
   const invalid = { ok: false, error: "Tool selection must contain only valid allow and deny lists." } as const;
@@ -52,7 +50,6 @@ export function parseToolScope(value: unknown): ParsedToolScope {
     if (!descriptor || !("value" in descriptor)) return invalid;
     const list: unknown = descriptor.value;
     if (!Array.isArray(list) || list.length > MAX_SELECTORS) return invalid;
-    // Array.from exposes holes as undefined instead of silently skipping them.
     if (!Array.from(list).every((entry: unknown) => typeof entry === "string" && selectorIdentity(entry))) return invalid;
     scope[key] = [...new Set(list as string[])];
   }
@@ -77,7 +74,6 @@ export function allowsTool(scope: unknown, tool: ToolIdentity): boolean {
   return parsed.ok && permits(parsed.scope, tool);
 }
 
-/** Whether an engine needs a native catalog contract, in addition to MCP gates. */
 export function narrowsNativeTools(value: unknown): boolean {
   const parsed = parseToolScope(value);
   if (!parsed.ok) return true;
@@ -86,7 +82,6 @@ export function narrowsNativeTools(value: unknown): boolean {
     || Boolean(scope.deny?.some((selector) => selector.startsWith("native:"))));
 }
 
-/** Without a catalog, asks whether this server could have a permitted tool. */
 export function canUseMcpServer(scope: unknown, server: string, names?: readonly string[]): boolean {
   const parsed = parseToolScope(scope);
   if (!parsed.ok || !SERVER_NAME.test(server)) return false;
@@ -102,7 +97,6 @@ export function canUseMcpServer(scope: unknown, server: string, names?: readonly
   });
 }
 
-/** Compare the selector partitions, including a tool/server outside all exact names. */
 export function toolScopeWidens(previous: unknown, next: unknown): boolean {
   const before = parseToolScope(previous);
   const after = parseToolScope(next);

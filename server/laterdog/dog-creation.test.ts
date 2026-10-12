@@ -53,7 +53,6 @@ describe("dogGreeting", () => {
   });
 });
 
-/** A store with one conversation the request came from and the new dog's chat. */
 function fakeStore(asked: Array<Partial<Message>>, failAppend = false) {
   const posted: Array<{ threadId: string; message: Partial<Message> }> = [];
   const patched: Array<{ botId: string; threadId: string; patch: object }> = [];

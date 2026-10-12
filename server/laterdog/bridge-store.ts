@@ -9,7 +9,6 @@ export const assistanceSchema = z.object({ deviceId: z.string().uuid(), root: z.
 export interface Device { id: string; label: string; roots: string[]; allowAssistance: boolean; lastSeen: string | null; revoked: boolean }
 export interface BridgeRequest extends z.infer<typeof assistanceSchema> {
   id: string; state: "queued" | "claimed" | "done" | "needs_attention"; createdAt: string; result?: unknown;
-  /** The dog whose token queued it (dog-access.ts); a dog reads only its own requests and unowned ones. */
   requestedBy?: string;
 }
 interface DeviceRow { id: string; label: string; roots: string; last_seen: string | null; revoked: number }

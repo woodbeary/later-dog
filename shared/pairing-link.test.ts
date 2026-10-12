@@ -12,9 +12,6 @@ describe("phonePairingLink", () => {
     return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
   };
 
-  /** Read one field the way the phones do: split the raw query, then
-   * percent-decode. `searchParams.get` would turn a stray "+" into a space
-   * and hide exactly the bug this guards. */
   const rawField = (link: string, name: string): string | undefined => {
     const query = link.slice(link.indexOf("?") + 1);
     const item = query.split("&").find((pair) => pair.startsWith(`${name}=`));
@@ -111,9 +108,6 @@ describe("phonePairingLink", () => {
         { url: "http://mac.local:8810/path", kind: "bonjour", priority: 300 },
         { url: "http://mac.local:0", kind: "bonjour", priority: 300 },
         { url: "http://mac.local:65536", kind: "bonjour", priority: 300 },
-        // An empty DNS label: a bare ".ts.net" fails both phones'
-        // validTailnetHost, and java.net.URI on Android reads no host at all
-        // from "a..ts.net" or "mac..local". Android then refuses the whole list.
         { url: "http://.ts.net:8810", kind: "tailnet", priority: 100 },
         { url: "http://a..ts.net:8810", kind: "tailnet", priority: 100 },
         { url: "http://mac..local:8810", kind: "bonjour", priority: 300 },
@@ -126,8 +120,6 @@ describe("phonePairingLink", () => {
   });
 
   it("drops unusable fallback hosts without breaking the link", () => {
-    // A bad candidate costs the phone one failed dial at most, and an empty
-    // list is a link that simply carries no fallbacks — pairing still works.
     const link = phonePairingLink({
       address: "mac.local",
       port: 8810,
@@ -143,14 +135,11 @@ describe("phonePairingLink", () => {
     expect(new URL(none!).searchParams.get("hosts")).toBeNull();
   });
 
-  // Oct 3: an Android phone showed "Miguel's+computer". URLSearchParams
-  // writes a space as "+", which is form encoding; the phones percent-decode.
   it("writes a space as %20, never +, so a phone shows the name it was given", () => {
     const link = phonePairingLink({ address: "192.168.1.34", port: 8810, code: "004209", token, name: "Miguel's computer" })!;
     expect(link).toContain("name=Miguel's%20computer");
     expect(link).not.toContain("+");
     expect(rawField(link, "name")).toBe("Miguel's computer");
-    // a real plus survives as %2B
     expect(rawField(phonePairingLink({ address: "mac.local", port: 8810, token, name: "C++ box" })!, "name")).toBe("C++ box");
   });
 
@@ -168,9 +157,6 @@ describe("phonePairingLink", () => {
     expect(phonePairingLink({ address: "mini.example", token })).toBeNull();
   });
 
-  // Both phones refuse an address with a path, query or fragment (Android
-  // Endpoint.kt normalizedUrl, iOS CompanionEndpoint), so the builder does too
-  // rather than print a QR the scanner calls "not a pairing code".
   it("writes an origin as its bare origin and refuses one with a path, query or fragment", () => {
     expect(rawField(phonePairingLink({ address: "https://Mini.Example:443/", token })!, "address")).toBe(
       "https://mini.example",

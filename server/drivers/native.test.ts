@@ -1,8 +1,3 @@
-// The native tee is the file people paste into bug reports, so the wiring
-// that keeps credentials out of it is tested at the writer — redact.test.ts
-// covers the masking function, this covers that appendNative actually calls it.
-// (server/testing/setup.ts points HOME at a throwaway dir, so NATIVE_DIR is
-// already isolated from the real fleet.)
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -35,7 +30,6 @@ describe("appendNative", () => {
 
     const log = readFileSync(join(NATIVE_DIR, "t-native.ndjson"), "utf8");
     expect(log).not.toContain("box_live_dontlogme");
-    // the shape a debugger needs is still there: which server, which var
     expect(log).toContain("session/new");
     expect(log).toContain("LATERDOG_BOX_TOKEN");
     expect(log).toContain("boat-7");
@@ -44,7 +38,6 @@ describe("appendNative", () => {
   it("writes the log private to the user", () => {
     appendNative("t-mode", { dir: "in", source: "acp", msg: { hello: "world" } });
     const mode = statSync(join(NATIVE_DIR, "t-mode.ndjson")).mode & 0o777;
-    // Windows does not implement POSIX modes; everywhere else, owner-only
     if (process.platform !== "win32") expect(mode).toBe(0o600);
   });
 

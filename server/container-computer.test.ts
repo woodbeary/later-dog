@@ -236,7 +236,6 @@ function readyInspect(overrides: Record<string, unknown> = {}) {
       },
       State: { Running: true },
       Image: "sha256:managed-image-id",
-      // Unprivileged, private IPC/cgroup namespaces, no devices.
       HostConfig: {
         Memory: 4 * 1024 * 1024 * 1024,
         MemorySwap: 4 * 1024 * 1024 * 1024,
@@ -383,7 +382,6 @@ describe("containerComputerStatus", () => {
       ["CAP_SETGID", "CAP_SETUID", "CAP_SYS_CHROOT"],
       ["CAP_SETGID", "CAP_SETUID", "CAP_SYS_CHROOT"],
     )).toBe(true);
-    // Existing two-capability containers must be recreated, not accepted as ready.
     expect(podmanSecurityIsHardened(
       config, ["CAP_SETGID", "CAP_SETUID"], ["CAP_SETGID", "CAP_SETUID"],
     )).toBe(false);
@@ -563,8 +561,6 @@ describe("containerComputerStatus", () => {
   });
 
   it("rejects a privileged or host-namespaced Local VM even with correct limits", async () => {
-    // pins the stricter shared hardening check: resource limits alone are
-    // not hardening — privilege and namespace escapes disqualify the VM too
     const base = JSON.parse(readyInspect())[0].HostConfig;
     for (const override of [
       { Privileged: true },
@@ -815,13 +811,10 @@ describe("Cua integration", () => {
 
   it("rejects a zero-byte OpenSSL base image before the wheel download needs curl", () => {
     const dockerfile = managedImageDockerfile();
-    // both multiarch triplets, both OpenSSL libraries
     expect(dockerfile).toContain('"/lib/$lib_triplet/libssl.so.3"');
     expect(dockerfile).toContain('"/lib/$lib_triplet/libcrypto.so.3"');
     expect(dockerfile).toContain("[ ! -s \"$ssl_lib\" ]");
     expect(dockerfile).toContain("is zero bytes, so curl cannot start");
-    // the gate runs in the same RUN as the fetch, ahead of it — a defective
-    // layer must be named before curl has any chance to fail confusingly
     const gate = dockerfile.indexOf('[ ! -s "$ssl_lib" ]');
     const fetch = dockerfile.indexOf("curl -fsSL");
     expect(gate).toBeGreaterThan(-1);
@@ -855,9 +848,6 @@ describe("Cua integration", () => {
     expect(fake.calls.some((call) => /xdotool|scrot|vnc/i.test(call))).toBe(false);
   });
 
-  // The live screen poller broadcasts this shape verbatim to every SSE
-  // client, and the phone renders nothing but those events: a data URL here
-  // would reach it as base64 that decodes to garbage.
   it("hands the screen poller raw base64 and a bare format, not a data URL", async () => {
     const png = validPng;
     const fake = runner({
@@ -1165,7 +1155,6 @@ describe("Auto's Local VM eligibility", () => {
   it("attaches a ready desktop or one whose prepared image can be recreated, and nothing else", () => {
     expect(autoLocalVmAttachable({ ...base, ready: true, container: "running" })).toBe(true);
     expect(autoLocalVmAttachable(base)).toBe(true);
-    // Never a first-time setup, an unverified stopped image, or a dead daemon
     expect(autoLocalVmAttachable({ ...base, image: false })).toBe(false);
     expect(autoLocalVmAttachable({ ...base, daemonUp: false })).toBe(false);
     expect(autoLocalVmAttachable({ ...base, container: "stopped" })).toBe(false);

@@ -1,4 +1,3 @@
-// Owns two disposable fake-engine workspaces; accepts no live URL or home.
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -12,8 +11,6 @@ import { escapeAttribute } from "../src/lib/composer-attachments.ts";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = "fixture-backup-password-only";
 
-/** Same temporary home and exact port, but a new process. The launcher's
- * close() still owns cleanup; stop this replacement before calling it. */
 async function restartFixture(fixture: VerificationServer): Promise<ChildProcess> {
   await waitForExit(fixture.child, { signal: "SIGTERM" });
   const dataDir = fixture.info.dataDir;
@@ -50,7 +47,7 @@ async function restartFixture(fixture: VerificationServer): Promise<ChildProcess
         const response = await fetch(`${fixture.info.url}/api/health`, { signal: AbortSignal.timeout(1_000) });
         const health = await response.json() as { app?: string; pid?: number };
         if (response.ok && health.app === "laterdog" && health.pid === child.pid) return child;
-      } catch { /* Only this owned child can satisfy the PID handshake. */ }
+      } catch {}
       if (Date.now() >= deadline) throw new Error(`Restored fixture did not start; see ${fixture.info.logPath}`);
       await new Promise((done) => setTimeout(done, 100));
     }
@@ -63,8 +60,6 @@ async function restartFixture(fixture: VerificationServer): Promise<ChildProcess
 async function launchBackupFixture(): Promise<VerificationServer> {
   const fixture = await launchVerificationServer({});
   try {
-    // The general fixture uses DATA_DIR as HOME. Backups intentionally reject
-    // auth homes among portable files, so keep this fixture's home excluded.
     const child = await restartFixture(fixture);
     return { ...fixture, child, info: { ...fixture.info, pid: child.pid! }, close: async () => {
       await waitForExit(child, { signal: "SIGTERM" });
@@ -105,8 +100,6 @@ export async function verifyWorkspaceBackup(report: (event: unknown) => void = (
     assert.equal((await api(source, "PATCH", `/api/bots/${bot.id}/profile`, { soul })).status, 200);
     const settings = await api(source, "PUT", "/api/config", { profile: { name: "Workspace backup fixture" } });
     assert.equal(settings.status, 200, JSON.stringify(settings.body));
-    // A synthetic saved key, not a provider sign-in/probe. Config API key
-    // saves deliberately contact the provider, so seed only this owned file.
     const configPath = join(source.info.dataDir, "config.json");
     const savedConfig = JSON.parse(readFileSync(configPath, "utf8"));
     savedConfig.tts = { ...savedConfig.tts, key: "fixture-voice-key" };
@@ -116,8 +109,6 @@ export async function verifyWorkspaceBackup(report: (event: unknown) => void = (
     destinationConfig.tts = { key: "destination-voice-key", provider: "elevenlabs", voice: "destination-voice" };
     writeFileSync(destinationConfigPath, JSON.stringify(destinationConfig), { mode: 0o600 });
 
-    // A reviewed skill and memory seed are written only into our fixture;
-    // the real server must list/enable and later restore the exact content.
     const skill = "---\nname: backup-check\ndescription: Verify restored fixture files.\n---\nWORKSPACE_SKILL_MARKER\n";
     const skillDir = join(source.info.dataDir, "workspaces", bot.id, "skills", "backup-check");
     const stateDir = join(source.info.dataDir, "skill-state", bot.id);

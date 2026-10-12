@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildArmScenario, DEFAULT_OUT, loadSkillBenches, parseSkillBenchArgs, runSkillBench, skillBenchSchema } from "./run-skill-bench.ts";
 
-// The bench is tested by a fixture skill with known outcomes: three
-// prompts where the with-skill arm must pass every assertion and the
-// without-skill arm must fail the skill-effect assertions while keeping
-// the control assertion green.
 describe("skill bench runner", () => {
   const benches = loadSkillBenches();
 
@@ -28,22 +24,14 @@ describe("skill bench runner", () => {
     const bench = benches.find((entry) => entry.id === "bench-triage-handoff")!;
     const report = await runSkillBench(bench);
 
-    // Every arm-run completed: a red without-skill arm is data, an error is not.
     expect(report.errors).toEqual([]);
     expect(report.prompts).toHaveLength(3);
 
-    // With the skill: the block rides the system prompt, the scripted
-    // follower dispatches, and every assertion holds.
     expect(report.summary.withSkill.passRate).toBe(1);
     expect(report.summary.withSkill.total).toBe(12);
 
-    // Without it: prompt delivery still holds (control) but no skill
-    // block, no dispatch, no target turn.
     expect(report.summary.withoutSkill.passRate).toBe(0.25);
 
-    // Deltas: per prompt, three discriminating assertions at +1 and one
-    // control at 0 — nine and three across the three prompts, each labeled
-    // with the prompt it belongs to.
     expect(report.assertions).toHaveLength(12);
     expect(report.assertions.filter((assertion) => assertion.delta === 1)).toHaveLength(9);
     expect(report.summary.flags.nonDiscriminating).toBe(3);
@@ -52,7 +40,6 @@ describe("skill bench runner", () => {
       new Set(bench.prompts.map((prompt) => prompt.id)),
     );
 
-    // Measurement surfaces exist; the skill block also costs prompt tokens.
     expect(report.summary.withSkill.durationMeanMs).toBeGreaterThan(0);
     expect(report.summary.withoutSkill.estimatedTokensMean).toBeGreaterThan(0);
     expect(report.summary.withSkill.estimatedTokensMean).toBeGreaterThan(report.summary.withoutSkill.estimatedTokensMean);

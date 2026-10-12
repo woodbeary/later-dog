@@ -49,10 +49,6 @@ const LEASE_MS = 60_000;
 const ENDPOINT_ACTION_WINDOW_MS = 60 * 60 * 1_000;
 const ENDPOINT_RECONCILE_LIMIT = 20;
 const ENDPOINT_DELETE_LIMIT = 30;
-// A cleanup can make at most ten external Cloudflare API calls when it must
-// rediscover both provider IDs. The per-run row count is configuration
-// (LATERDOG_CLEANUP_SWEEP_LIMIT, see config.ts); rows run at most five at a time so
-// they stay inside the Workers limit of six connections awaiting headers.
 const CLEANUP_CONCURRENCY = 5;
 const CLEANUP_BACKOFF_1_MS = 5 * 60 * 1_000;
 const CLEANUP_BACKOFF_2_MS = 15 * 60 * 1_000;
@@ -60,7 +56,6 @@ const CLEANUP_BACKOFF_3_MS = 60 * 60 * 1_000;
 const CLEANUP_BACKOFF_4_MS = 6 * 60 * 60 * 1_000;
 const CLEANUP_BACKOFF_MAX_MS = 24 * 60 * 60 * 1_000;
 const MANUAL_CLEANUP_THRESHOLD_MS = 24 * 60 * 60 * 1_000;
-/** Cloudflare blocks a rate-limited API token for up to five minutes. */
 const RATE_LIMIT_RETRY_AFTER_DEFAULT_SECONDS = 60;
 const RATE_LIMIT_RETRY_AFTER_MIN_SECONDS = 30;
 const RATE_LIMIT_RETRY_AFTER_MAX_SECONDS = 300;
@@ -175,14 +170,8 @@ async function claimEndpoint(
 ): Promise<ClaimedEndpoint | null> {
   const now = Date.now();
   const leaseOwner = crypto.randomUUID();
-  // An owner-requested deletion is final. An idle reclaim is not: a returning
-  // installation may take its row back by provisioning before the sweep has
-  // removed anything.
   const deletingGuard = nextStatus === "provisioning"
     ? "AND (status != 'deleting' OR reclaim_requested_at IS NOT NULL)"
-    // The sweep's claim: only a row still marked for deletion, or one whose
-    // installation was revoked or removed. A row its owner took back (by
-    // provisioning again) after the sweep chose it is left alone.
     : keepReclaim
       ? `AND (status = 'deleting' OR NOT EXISTS (
            SELECT 1 FROM installations i
@@ -354,9 +343,6 @@ async function failClaim(
   ).run();
 }
 
-/** Undo an idle reclaim whose tunnel came back. Resources that are still
- * intact return to 'ready'; if the DNS record was already removed the row
- * becomes a retryable 'error' that the next provisioning call repairs. */
 async function cancelReclaim(env: Env, claim: ClaimedEndpoint): Promise<void> {
   const result = await env.DB.prepare(
     `UPDATE installation_endpoints
@@ -376,8 +362,6 @@ async function cancelReclaim(env: Env, claim: ClaimedEndpoint): Promise<void> {
   if (result.meta.changes === 0) throw new EndpointOperationError("lease_lost");
 }
 
-/** Re-evaluated with fresh provider state before each destructive call of an
- * idle reclaim. A revoked or vanished owner no longer protects its tunnel. */
 async function reclaimStillAllowed(
   env: Env,
   config: ControlPlaneConfig,
@@ -404,10 +388,6 @@ function busyResponse(): Response {
   return new Response(response.body, { status: response.status, headers });
 }
 
-/** Cloudflare's API limit is shared by every request this Worker makes, and
- * a 429 can block it for minutes. Tell the desktop how long to wait instead
- * of the generic `endpoint_unavailable`: honor Cloudflare's own Retry-After
- * when it sent one, bounded so a retry is neither immediate nor indefinite. */
 function rateLimitedResponse(providerRetryAfterSeconds: number | null): Response {
   const seconds = Math.min(
     RATE_LIMIT_RETRY_AFTER_MAX_SECONDS,
@@ -422,8 +402,6 @@ function rateLimitedResponse(providerRetryAfterSeconds: number | null): Response
   return new Response(response.body, { status: response.status, headers });
 }
 
-/** The provider's tunnel or DNS record quota is exhausted. This is distinct
- * from `endpoint_unavailable` so the desktop can say so and retry later. */
 function capacityResponse(): Response {
   const response = errorResponse(503, "endpoint_capacity");
   const headers = new Headers(response.headers);
@@ -540,8 +518,6 @@ async function rollbackCreatedResources(
     && tunnelId
     && (!state.dnsMayReferenceTunnel || (state.createdDNSRecord && !dnsRecordId))
   ) {
-    // Re-fetch immediately before the destructive request. The stable name is
-    // our provider-side identity fence; a renamed/repurposed tunnel is retained.
     const tunnel = await verifiedTunnelForCleanup(env, claim, api, tunnelId);
     if (tunnel) {
       await renewClaim(env, claim);
@@ -589,9 +565,6 @@ async function reconcileClaim(
         tunnelId = tunnel.id;
         createdTunnel = true;
       } catch (createError) {
-        // A timeout/network failure can arrive after Cloudflare committed the
-        // POST. Reconcile by the stable opaque name instead of creating a
-        // duplicate tunnel on the next request.
         let created: CloudflareTunnel[];
         try {
           created = await withClaimLease(
@@ -679,9 +652,6 @@ async function reconcileClaim(
             dnsMayReferenceTunnel = false;
             throw writeError;
           }
-          // The write may have committed, but its response did not prove that
-          // this request created the record. Adopt and retain it on later
-          // failures instead of destructively guessing.
           dnsRecordId = reconciled.id;
         } catch (reconcileError) {
           if (reconcileError instanceof EndpointOperationError) throw reconcileError;
@@ -712,17 +682,13 @@ async function reconcileClaim(
       dnsRecordId = rolledBack.dnsRecordId;
       tunnelId = rolledBack.tunnelId;
     } catch (rollbackError) {
-      // A stale request must stop immediately: it no longer owns either the
-      // D1 generation or the provider resources that a successor may adopt.
       failure = rollbackError;
     }
     const operationCode = errorCode(failure);
     try {
       await updateClaimedResources(env, claim, tunnelId, dnsRecordId);
       await failClaim(env, claim, operationCode, false);
-    } catch {
-      // The original redacted failure is the useful client-facing result.
-    }
+    } catch {}
     throw new EndpointOperationError(operationCode, retryAfterSeconds(failure));
   }
 }
@@ -773,13 +739,8 @@ async function deleteClaim(
       }
     }
 
-    // Validate the complete resource set before the first delete. Persisted
-    // provider IDs are only hints: the hostname/CNAME and stable tunnel name
-    // must still agree, otherwise cleanup retains metadata for an operator.
     if (tunnelId) {
       const tunnel = await verifiedTunnelForCleanup(env, claim, api, tunnelId);
-      // An idle reclaim never removes anything from a tunnel that has
-      // reconnected, or whose installation checked in, since it was marked.
       if (idleReclaim && tunnel && !(await reclaimStillAllowed(env, config, claim, tunnel))) {
         await cancelReclaim(env, claim);
         return "cancelled";
@@ -794,8 +755,6 @@ async function deleteClaim(
 
     if (dnsRecordId) {
       if (dnsRecord) {
-        // Check again right before the first destructive call: the tunnel may
-        // have reconnected while the DNS record was being verified.
         if (idleReclaim && tunnelId) {
           const current = await verifiedTunnelForCleanup(env, claim, api, tunnelId);
           if (current && !(await reclaimStillAllowed(env, config, claim, current))) {
@@ -829,9 +788,7 @@ async function deleteClaim(
     try {
       await updateClaimedResources(env, claim, tunnelId, dnsRecordId);
       await failClaim(env, claim, operationCode, true);
-    } catch {
-      // Keep the original redacted error code.
-    }
+    } catch {}
     throw new EndpointOperationError(operationCode);
   }
 }
@@ -861,8 +818,6 @@ export async function provisionManagedEndpoint(
     config.cloudflare.companionHostSuffix,
   );
   if (row.tunnel_id === null && await capacityRejectionActive(env).catch(() => false)) {
-    // Cloudflare refused a new tunnel or DNS record moments ago. Answer
-    // locally instead of spending the shared API budget on a sure failure.
     console.log(JSON.stringify({
       message: "managed endpoint allocation deferred",
       requestId,
@@ -928,7 +883,6 @@ interface CleanupOutcome {
   result: DeleteOutcome | "failed" | "skipped";
 }
 
-/** One sweep step for one installation. Exported for the race test. */
 export async function cleanupEndpointRow(
   env: Env,
   config: ControlPlaneConfig,
@@ -954,8 +908,6 @@ export async function cleanupEndpointRow(
   }
 }
 
-/** Owner-initiated cleanup (installation revocation). It never honours an
- * idle-reclaim cancellation: revocation always removes the endpoint. */
 export async function cleanupEndpointForInstallation(
   env: Env,
   config: ControlPlaneConfig,
@@ -1062,8 +1014,6 @@ export async function sweepManagedEndpointCleanup(
         if (outcome.result === "deleted") summary.deleted += 1;
         else if (outcome.result === "cancelled") summary.cancelled += 1;
         else if (outcome.result === "failed") summary.failed += 1;
-        // The API limit is shared with every desktop's provisioning call.
-        // Stop starting new work this run once Cloudflare pushes back.
         if (outcome.errorCode === "cf_rate_limited") summary.rateLimited = true;
       } catch {
         summary.failed += 1;

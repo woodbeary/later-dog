@@ -177,7 +177,6 @@ describe("propose_profile", () => {
 });
 
 describe("memory_update", () => {
-  // The harness route, in process: the real updateMemory behind the tool.
   const harness = (botId: string): ToolCallContext["client"] => ({
     api: async () => ({}),
     apiResponse: async (_path, init) => {
@@ -191,7 +190,6 @@ describe("memory_update", () => {
     const bot = "bot-memory-full";
     writeMemoryFile(bot, Array.from({ length: MEMORY_MAX_LINES }, (_, i) => `- 2026-09-01 · old ${i}\n`).join(""));
     const ctx = context({ botId: bot, client: harness(bot) });
-    // refusals of another kind (a stale passage) do not close it either
     for (let i = 0; i < 4; i += 1) {
       const stale = await callTool("memory_update", { action: "remove", old_text: "no such passage" }, ctx);
       expect(stale).toMatchObject({ isError: true });
@@ -209,7 +207,6 @@ describe("memory_update", () => {
 
   it("names only the first few entries a write moved, each by its first line, and counts the rest", async () => {
     const bot = "bot-memory-grown";
-    // a file grown far past the budget by hand: one write moves hundreds
     const grown = Array.from({ length: 600 }, (_, i) => `- 2026-09-01 · old ${i}`);
     grown[0] = "- 2026-08-01 · Deploy command:\n  ```sh\n  railway up\n  ```";
     writeMemoryFile(bot, `${grown.join("\n")}\n`);

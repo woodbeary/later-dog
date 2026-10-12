@@ -1,4 +1,3 @@
-// Stage the Windows CUA executable and native SDK outside ASAR.
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
@@ -145,10 +144,6 @@ await build({
   outfile: bundle,
   logLevel: "silent",
 });
-// Same redirect as prepare-cua.mjs: the SDK resolves its native library
-// through @ubjs at runtime; patch the bundled resolver so
-// LATERDOG_CUA_SDK_LIBRARY (set by electron/cua.mjs to the staged DLL)
-// wins over the node_modules lookups that do not exist in the packaged app.
 const bundledSource = await readFile(bundle, "utf8");
 const resolverPattern = /function resolveLibPath\d*\(opts\) \{/g;
 const resolvers = bundledSource.match(resolverPattern) ?? [];

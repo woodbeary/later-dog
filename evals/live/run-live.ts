@@ -26,10 +26,6 @@ import {
   type LiveScenario,
   type LiveScenarioOutcome,
 } from "./types.ts";
-/** Tier 3, the opt-in runner. Everything that could touch a real model sits
- * behind the LATERDOG_EVAL_LIVE=1 gate: with the gate closed the entrypoint
- * prints one skip line and exits 0, so CI and local runs stay offline by
- * default no matter how the eval task is invoked. */
 
 const DEFAULT_OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "reports", "runs");
 const BASELINE_PATH = join(LIVE_BASELINES_DIR, "live-suite.json");
@@ -93,8 +89,6 @@ async function runJudge(
   let lastError = "";
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     await world.runStep({ kind: "send", bot: "judge", text: renderJudgePrompt(prompt.text, task, reply) }, ctx);
-    // State-based wait: wait for THIS send's turn to appear in the judge's
-    // thread-derived evidence, then read the reply it produced.
     await world.runStep({ kind: "waitForTurns", bot: "judge", count: attempt, timeoutMs: config.judgeTimeoutMs }, ctx);
     const snapshot = await world.snapshot(ctx);
     const judgeThreadId = snapshot.activeThreads["judge"];

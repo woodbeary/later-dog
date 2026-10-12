@@ -25,14 +25,10 @@ const task = z.object({
   key,
   title: z.string().max(2_000),
   createdAt: timestamp,
-  // Travels only when the first message already named this task, so a
-  // restore cannot re-arm one generated title on a row that used it.
   titleFromFirstMessage: z.literal(true).optional(),
   openedBy: z.object({ botId: key, name, at: timestamp, kind: z.enum(["pair", "work"]).optional() }).optional(),
   closedBy: z.object({ botId: key, name, at: timestamp }).optional(),
-  /** Only true travels. Absence is unpinned, including backups from before pins. */
   pinned: z.literal(true).optional(),
-  /** A conversation's own turn ceiling. Absence keeps the group default. */
   turnTimeoutMinutes: z.number().int().min(1).max(1_440).optional(),
   activeLeafId: key.nullable(),
   messages: z.array(message).max(100_000),
@@ -54,10 +50,6 @@ const schedule = z.discriminatedUnion("type", [
   z.object({ type: z.literal("daily"), time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7) }),
   z.object({ type: z.literal("interval"), everyMinutes: z.number().int().min(5).max(1440), anchorAt: z.number().int().min(0).max(8_640_000_000_000_000) }),
 ]);
-// A bot's memory travels with it, in the same plain markdown it lives in:
-// the person's accumulated corrections are part of who the bot is. The
-// name gates match the server's (one plain segment ending in .md; a day
-// for logs), so an import can never write outside the memory folder.
 const memoryText = z.string().max(2_000_000);
 const memory = z.object({
   file: memoryText,
@@ -65,18 +57,11 @@ const memory = z.object({
   logs: z.array(z.object({ name: z.string().regex(/^\d{4}-\d{2}-\d{2}\.md$/), text: memoryText })).max(10_000),
 });
 
-/** The private backup is the one portable format grants travel in, so the
- * shape is checked with the same patterns the store validates patches
- * against. Shareable exports never carry grants at all, and an import
- * always lands bots grant-less whatever the file says. */
 const connectorTools = z.record(
   z.string().regex(CONNECTOR_SLUG_PATTERN),
   z.object({ tools: z.union([z.literal("*"), z.array(z.string().regex(CONNECTOR_TOOL_NAME_PATTERN)).min(1).max(500)]) }),
 );
 
-/** A responder kind from a newer release restores as the room's first
- * member as lead (what a room without one does) instead of refusing the
- * whole backup. Malformed values still fail the schema. */
 function knownRoomResponder(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const group = value as { memberIds?: unknown; defaultResponder?: unknown };
@@ -97,7 +82,6 @@ const backupSchema = z.object({
     ...owner,
     title: z.string().max(2_000),
     description: z.string().max(200_000),
-    // Same UTF-8 limit as the profile editor (this schema also runs in the browser).
     soul: z.string().refine((value) => new TextEncoder().encode(value).byteLength <= 24_000, {
       error: "standing instructions must be at most 24000 bytes",
     }).optional(),
@@ -136,8 +120,6 @@ const backupSchema = z.object({
 export type TeamBackup = z.infer<typeof backupSchema>;
 export type BackupTask = z.infer<typeof task>;
 
-/** Validate the whole reference graph before an import can write anything.
- * All keys are file-local; none are ever used as destination record IDs. */
 export function parseTeamBackup(input: unknown): TeamBackup {
   const parsed = backupSchema.safeParse(input);
   if (!parsed.success) {
@@ -155,7 +137,6 @@ export function parseTeamBackup(input: unknown): TeamBackup {
   const chiefs = new Set<string>();
   for (const bot of backup.bots) {
     if (!bot.chiefOfStaff) continue;
-    // Persisted section identity is its exact trimmed display label.
     const section = bot.section?.trim() ?? "";
     if (chiefs.has(section) || bot.hidden) throw new Error("Invalid backup: a section must have at most one visible Chief of Staff");
     chiefs.add(section);
@@ -187,7 +168,6 @@ export function parseTeamBackup(input: unknown): TeamBackup {
       const messages = unique(task.messages.map((message) => message.id), "message key");
       const seen = new Set<string>();
       for (const message of task.messages) {
-        // Parents must precede children: rejects cycles and dangling branches.
         if (message.parentId !== null && !seen.has(message.parentId)) throw new Error("Invalid backup: invalid conversation branch");
         if (message.replyToId && !messages.has(message.replyToId)) throw new Error("Invalid backup: unknown reply");
         seen.add(message.id);

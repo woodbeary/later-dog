@@ -1,5 +1,3 @@
-// Real engine screens with synthetic statuses and a disposable app server.
-// No install/auth request can reach a provider or the user's configuration.
 import { fileURLToPath } from "node:url";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "vite";
@@ -54,7 +52,6 @@ try {
   ui = await createServer({
     root: fileURLToPath(new URL("..", import.meta.url)),
     cacheDir: fileURLToPath(new URL("../.laterdog-scratch/engine-preview-vite", import.meta.url)),
-    // Own the HTTP listener so Vite never installs a process-exit handler.
     server: { middlewareMode: { server: httpServer }, hmr: { server: httpServer }, proxy: { "/api": { target: fixture.info.url } } },
     plugins: [{ name: "isolated-engines", configureServer(server) {
       server.middlewares.use((req, res, next) => {
@@ -99,14 +96,10 @@ try {
   });
 } finally {
   const httpClosed = new Promise<void>((resolve) => {
-    // Closing an unstarted listener is harmless; active preview requests
-    // must not hold shutdown open. Vite closes its own upgraded HMR sockets.
     httpServer.close(() => resolve());
     httpServer.closeAllConnections();
   });
   try {
-    // Stop the app before waiting on Vite: unfinished import transforms can
-    // delay Vite shutdown, but its cache no longer lives in fixture data.
     await fixture?.close();
   } finally {
     try {

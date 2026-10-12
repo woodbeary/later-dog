@@ -20,21 +20,16 @@ const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await removeTempDir(directory); });
 const directory = () => { const value = mkdtempSync(join(tmpdir(), "laterdog-cloud-home-")); directories.push(value); return value; };
 
-// Shapes exactly as laterdog-cloud's provisioner writes them (cloud-machines.ts).
 const secret = "S".repeat(43);
 const machineId = "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93";
 const contract = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
   LATERDOG_CLOUD_ROLE: "home", LATERDOG_CLOUD_MACHINE_ID: machineId, LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
   LATERDOG_PUBLIC_URL: "https://laterdog-u-1a2b3c4d5e6f.fly.dev", LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, ...extra,
 });
-// A platform gateway's settings, as an Admin from before Cloud Pro dropped
-// included AI wrote them. A Cloud home ignores them.
 const token = `laterdog_cloudai_${"t".repeat(43)}`;
 const gatewayUrl = "https://cloud.example.test/api/cloud/gateway/g0123456789abcdef0123456789abcd";
 const withGateway = (extra: NodeJS.ProcessEnv = {}) => contract({ LATERDOG_HOSTED_MODEL_URL: gatewayUrl, LATERDOG_HOSTED_MODEL_TOKEN: token,
   LATERDOG_HOSTED_MODELS: JSON.stringify({ anthropic: ["claude-sonnet-5"], openai: ["gpt-5.6-sol"], openrouter: ["anthropic/claude-sonnet-5"] }), ...extra });
-
-// ── boot contract ──────────────────────────────────────────────────────────
 
 it("is off on every ordinary server and desktop", () => {
   expect(cloudHomeConfigured({})).toBe(false);
@@ -50,11 +45,9 @@ it("reads the Admin's contract", () => {
 });
 
 it("ignores a platform gateway's settings with one warning, whatever they hold, and never serves them", () => {
-  // Cloud Pro includes no AI: the person signs in with their own account or key.
   const all = cloudHomeConfiguration(withGateway())!;
   expect(Object.keys(all).sort()).toEqual(["adminOrigin", "bootstrapSecret", "machineId", "publicOrigin", "warnings"]);
   expect(all.warnings).toEqual(["ignoring LATERDOG_HOSTED_MODEL_URL, LATERDOG_HOSTED_MODEL_TOKEN, LATERDOG_HOSTED_MODELS: Cloud Pro includes no AI; people sign in with their own Claude or ChatGPT account, or an API key"]);
-  // Any one of them, valid or not, is ignored the same way instead of failing the machine.
   for (const stray of [{ LATERDOG_HOSTED_MODEL_TOKEN: token }, { LATERDOG_HOSTED_MODEL_TOKEN: "sk-ant-api03-platform-key" }, { LATERDOG_HOSTED_MODELS: "{not json" },
     { LATERDOG_HOSTED_MODEL_URL: "https://gateway.attacker.test/v1" }, { LATERDOG_HOSTED_MODELS: "" }]) {
     const config = cloudHomeConfiguration(contract(stray))!;
@@ -62,10 +55,8 @@ it("ignores a platform gateway's settings with one warning, whatever they hold, 
     const value = Object.values(stray)[0];
     if (value) expect(JSON.stringify(config)).not.toContain(value);
   }
-  // The exclusive workspace model policy stays off, so nothing routes to a gateway.
   expect(hostedModelPolicy(directory(), withGateway())).toBeNull();
   expect(hostedModelPolicy(directory(), contract({ LATERDOG_HOSTED_MODEL_TOKEN: `laterdog_workspace_${"t".repeat(43)}`, LATERDOG_HOSTED_MODELS: "{}" }))).toBeNull();
-  // Nothing the machine starts inherits them.
   expect(Object.keys(withoutIgnoredCloudKeys(withGateway())).filter((key) => (CLOUD_IGNORED_KEYS as readonly string[]).includes(key))).toEqual([]);
   expect(withoutIgnoredCloudKeys(withGateway())).toEqual(contract());
 });
@@ -96,8 +87,6 @@ it("never echoes a secret or token in its refusal", () => {
   }
 });
 
-// ── places ──────────────────────────────────────────────────────────────────
-
 it("offers the built-in browser and cloud computers, never this computer or a Local VM", () => {
   expect((["cloud", "vm", "local", "browser"] as const).filter(cloudHomeOffersPlace)).toEqual(["cloud", "browser"]);
   expect(cloudHomePlaceRefusal("cloud")).toBeUndefined();
@@ -110,12 +99,9 @@ it("refuses the places it never offers with what is true there, not a setup step
   expect(vm).toBe("Dogs on My Cloud can't use a Local VM. Set Works on to Auto or Cloud computer.");
   for (const text of [local, vm]) {
     expect(text).not.toMatch(/configure|Computer panel|install|set (?:it|one) up/i);
-    // A failed turn shows the first 160 characters of its error.
     expect(text.length).toBeLessThanOrEqual(160);
   }
 });
-
-// ── the Admin's signed pairing request ───────────────────────────────────────
 
 function fixture() {
   const root = directory();
@@ -145,7 +131,6 @@ it("opens one ordinary pairing window for a correctly signed request", () => {
 });
 
 it("matches the Admin's signature byte for byte", () => {
-  // printf 'v1\\n1800000000\\nnonce-fixture-0001\\nPOST\\n/api/cloud/pairing\\n<b64url sha256 of {}>' | openssl dgst -sha256 -hmac k -binary | base64url
   expect(cloudPairingSignature("k", "1800000000", "nonce-fixture-0001", "{}")).toBe("OlkaKFywjZ3VtoYxwTWpy025Itpl14gCeUrp8JYpX2o");
   expect(cloudPairingSignature("k", "1800000000", "nonce-fixture-0001", Buffer.from("{}"))).toBe("OlkaKFywjZ3VtoYxwTWpy025Itpl14gCeUrp8JYpX2o");
 });
@@ -191,7 +176,6 @@ it("refuses a replayed request for as long as its timestamp could be accepted", 
   expect(f.mint(request).status).toBe(200);
   expect(f.mint(request)).toEqual({ status: 401, body: { error: "replayed_request" } });
   expect(f.sessions.openPairings()).toHaveLength(1);
-  // The same nonce, freshly signed later, is still refused within the window.
   f.advance(CLOUD_PAIRING_NONCE_MS - 1);
   expect(f.mint(f.sign(undefined, { nonce: request.nonce }))).toEqual({ status: 401, body: { error: "replayed_request" } });
   expect(f.sessions.openPairings()).toHaveLength(0);
@@ -217,24 +201,19 @@ it("opens a browser sign-in only a browser redeems, by credential alone, for at 
   const granted = f.mint(f.sign(JSON.stringify({ label: "Web browser (Cloud page)", ttlSeconds: 120, purpose: "browser", owner: "ada@example.test" })));
   expect(f.mint(f.sign(JSON.stringify({ purpose: "browser", owner: "ada.o'neil+cloud@example-mail.test" }))).status).toBe(200);
   expect(granted.status).toBe(200);
-  // No code to type, and `purpose` said back so the Admin knows this machine made one.
   expect(Object.keys(granted.body).sort()).toEqual(["credential", "expiresAt", "purpose"]);
   expect(granted.body).toMatchObject({ credential: expect.stringMatching(/^laterdog_pair_[A-Za-z0-9_-]{43}$/), expiresAt: f.now() + 120_000, purpose: "browser" });
   const credential = granted.body.credential as string;
-  // The sign-in page can show whose Cloud this is before anything is redeemed.
   expect(f.sessions.previewBrowserSignIn(credential)).toEqual({ owner: "ada@example.test", expiresAt: f.now() + 120_000 });
-  // An app, or anything that is not a browser sign-in, cannot use it.
   expect(f.exchange(credential).ok).toBe(false);
   expect(f.exchange(credential, "198.51.100.4", true)).toMatchObject({ ok: true, session: { scopes: ["admin", "client"], owner: "ada@example.test" } });
   expect(f.sessions.previewBrowserSignIn(credential)).toBeNull();
   expect(f.exchange(credential, "198.51.100.5", true).ok).toBe(false);
-  // Capped at two minutes whatever is asked, and two minutes when nothing is.
   const long = f.mint(f.sign(JSON.stringify({ ttlSeconds: 600, purpose: "browser", owner: "ada@example.test" })));
   expect(long.body.expiresAt).toBe(f.now() + CLOUD_BROWSER_SIGN_IN_MAX_TTL_S * 1000);
   expect(f.mint(f.sign(JSON.stringify({ purpose: "browser", owner: "ada@example.test" }))).body.expiresAt).toBe(f.now() + CLOUD_BROWSER_SIGN_IN_MAX_TTL_S * 1000);
   f.advance(CLOUD_BROWSER_SIGN_IN_MAX_TTL_S * 1000);
   expect(f.exchange(long.body.credential as string, "198.51.100.4", true).ok).toBe(false);
-  // An ordinary window is never a browser sign-in.
   const ordinary = f.mint();
   expect(f.exchange(ordinary.body.credential as string, "198.51.100.4", true).ok).toBe(false);
   expect(f.exchange(ordinary.body.code as string).ok).toBe(true);
@@ -245,9 +224,7 @@ it("refuses a body that is not the expected JSON", () => {
   for (const body of ["[]", "not json", JSON.stringify({ label: "tab\there" }), JSON.stringify({ label: "x".repeat(81) }),
     JSON.stringify({ ttlSeconds: 0 }), JSON.stringify({ ttlSeconds: 1.5 }), JSON.stringify({ ttlSeconds: "300" }),
     JSON.stringify({ purpose: "app" }), JSON.stringify({ purpose: true }),
-    // A browser sign-in must name its owner, as one plain address.
     ...[undefined, "", "ada", "ada@", 7, "ada@example.test\u202Eevil", "ada@exa mple.test", "a\nb@example.test", `${"a".repeat(250)}@example.test`,
-      // Printable ASCII only, one @, no angle brackets: what the Admin's email schemas accept.
       "adé@example.test", "ada@exämple.test", "<ada@example.test", "ada@example.test>", "ada@team@example.test", "ada\t@example.test", "ada@example.test\u00a0"]
       .map((owner) => JSON.stringify({ purpose: "browser", owner })),
     JSON.stringify({ owner: "not an address" })]) {
@@ -256,13 +233,10 @@ it("refuses a body that is not the expected JSON", () => {
   expect(f.sessions.openPairings()).toHaveLength(0);
 });
 
-// ── the edge never makes a remote request the owner ─────────────────────────
-
 it("treats a request the edge forwards as remote, whatever Host it claims", () => {
   const sessions = new SessionRegistry({ file: join(directory(), "sessions.json") });
   const request = (headers: Record<string, string>) => ({ method: "GET", headers, socket: { remoteAddress: "127.0.0.1", remoteFamily: "IPv4" } }) as unknown as IncomingMessage;
   const url = new URL("http://localhost/api/bots");
-  // What Caddy sends upstream: the public Host plus X-Forwarded-*.
   for (const headers of [
     { host: "home-7f3k2.fly.dev", "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" },
     { host: "localhost:8799", "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" },
@@ -272,8 +246,6 @@ it("treats a request the edge forwards as remote, whatever Host it claims", () =
     expect(result.status).toBe(403);
   }
 });
-
-// ── volume and launcher ──────────────────────────────────────────────────────
 
 it("binds a fresh volume to its machine and refuses anyone else's data", () => {
   const home = directory();
@@ -297,7 +269,6 @@ it("gives the edge only its routing name and the server the contract, never a ga
     LATERDOG_PUBLIC_URL: "https://laterdog-u-1a2b3c4d5e6f.fly.dev", LATERDOG_WEBHOOK_PUBLIC_URL: "https://laterdog-u-1a2b3c4d5e6f.fly.dev", LATERDOG_CLOUD_SECRETS_FD: "3" });
   for (const key of CLOUD_IGNORED_KEYS) expect(server).not.toHaveProperty(key);
   expect(JSON.stringify(server)).not.toContain(token);
-  // The secrets go over the pipe, never in the server's environment.
   expect(secrets).toEqual({ LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, ...relay });
   for (const value of Object.values(secrets)) {
     expect(JSON.stringify(server)).not.toContain(value);
@@ -323,7 +294,6 @@ it("gives the server only an allow-listed environment: a secret added later, a t
     expect(server).not.toHaveProperty(name);
     expect(dropped).toContain(name);
   }
-  // A secret is never even named as dropped: it goes over the pipe.
   expect(dropped).not.toContain("LATERDOG_CLOUD_BOOTSTRAP_SECRET");
 });
 
@@ -336,15 +306,12 @@ it("the root supervisor runs and trusts only root's code, never the volume's or 
   expect(codeTrustProblem(files, "/data", image({ "/app/dist-server/cloud-home-start.js": { uid: 0, mode: 0o100666 } }))).toBe("/app/dist-server/cloud-home-start.js is writable by others than root");
   expect(codeTrustProblem(files, "/data", image({ "/app/dist-server": { uid: 1001, mode: 0o40755 } }))).toBe("/app/dist-server is not root's");
   expect(codeTrustProblem(files, "/data", image({ "/app": { uid: 0, mode: 0o40777 } }))).toBe("/app is writable by others than root");
-  // A sticky folder (/tmp) does not let anyone replace root's file in it.
   expect(codeTrustProblem(["/tmp/caddy"], "/data", image({ "/tmp": { uid: 0, mode: 0o41777 } }))).toBeNull();
   expect(codeTrustProblem([...files, "/data/.local/bin/caddy"], "/data", image())).toBe("/data/.local/bin/caddy is on the volume");
   expect(codeTrustProblem(files, "/data", () => { throw new Error("ENOENT"); })).toBe("/usr/local/bin/node cannot be checked");
 });
 
 it("builds a Cloud home image that refuses any code the root supervisor runs that is not root's", () => {
-  // The root supervisor's code is root's: dog owns only the volume. The
-  // image's last step refuses to build if anything there is not.
   const dockerfile = readFileSync(join(import.meta.dirname, "../Dockerfile"), "utf8");
   const image = dockerfile.slice(dockerfile.indexOf("FROM runtime AS cloud-home"), dockerfile.indexOf("FROM runtime AS server"));
   const check = image.indexOf('untrusted="$(find /app /usr/local/bin/caddy \\( ! -user root -o ! -type l -perm /022 \\) -print)"');
@@ -358,7 +325,6 @@ it("the Cloud launcher starts the server again only when it asks to after a rest
   expect(launcher).toContain("const policy = restartPolicy();");
   expect(launcher).toContain("if (!policy.again(code, stopping)) return false;");
   for (const code of [0, 1, null]) expect(restartPolicy().again(code)).toBe(false);
-  // Stopping for good (Fly asked, or the edge died), or restarting in a loop.
   expect(restartPolicy().again(RESTART_EXIT_CODE, true)).toBe(false);
   const policy = restartPolicy(() => 0);
   expect([1, 2, 3, 4, 5, 6].map(() => policy.again(RESTART_EXIT_CODE, false))).toEqual([true, true, true, true, true, false]);
@@ -368,29 +334,21 @@ it("records the first finished bot turn once, on a Cloud home only, and a moved 
   const now = new Date("2026-09-30T08:00:00.000Z");
   const turn = { cloudHome: true, recorded: undefined, ok: true, known: true, now };
   expect(firstCloudTurnPatch(turn)).toEqual({ onboarding: { firstTurnAt: "2026-09-30T08:00:00.000Z" } });
-  // Anywhere else, once recorded, a failed or stopped turn, or a thread that is
-  // no bot's conversation or room: nothing to write.
   expect(firstCloudTurnPatch({ ...turn, cloudHome: false })).toBeNull();
   expect(firstCloudTurnPatch({ ...turn, recorded: "2026-09-29T08:00:00.000Z" })).toBeNull();
   expect(firstCloudTurnPatch({ ...turn, ok: false })).toBeNull();
   expect(firstCloudTurnPatch({ ...turn, known: false })).toBeNull();
-  // Copy to My Cloud restores a Mac's settings onto the Cloud; the onboarding
-  // record is not among them, so the Cloud's own answer survives, and a Mac's
-  // turns never tick the Cloud's step.
   const mac = { language: "en", onboarding: { completedAt: "2026-09-01T00:00:00.000Z", version: 1, firstTurnAt: "2026-08-01T00:00:00.000Z" } };
   expect(restoredWorkspaceConfig(portableWorkspaceConfig(mac), { onboarding: { hintsSeen: ["cloud-setup-hidden"] } }).onboarding)
     .toEqual({ hintsSeen: ["cloud-setup-hidden"] });
   expect(restoredWorkspaceConfig(portableWorkspaceConfig(mac), {}).onboarding).toBeUndefined();
 });
 
-// The launcher only runs on Linux (the image); Windows passes descriptors differently.
 it.skipIf(process.platform === "win32")("hands the server its secrets over a pipe it reads once: never its environment, never a grandchild's", async () => {
   const dir = mkdtempSync(join(tmpdir(), "laterdog-cloud-secrets-"));
   try {
     const script = join(dir, "server.mjs");
     const out = join(dir, "out.json");
-    // What a server does at startup (takeCloudSecrets), then what an engine
-    // it starts could see: its own environment and its parent's starting one.
     writeFileSync(script, `
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -407,14 +365,11 @@ writeFileSync(${JSON.stringify(out)}, JSON.stringify({ secrets, env: process.env
     await new Promise((resolve) => child.once("exit", resolve));
     const seen = JSON.parse(readFileSync(out, "utf8"));
     expect(seen.secrets).toEqual({ LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, LATERDOG_CLOUD_BOAT_TOKEN: "box_laterdog_probe-token" });
-    // The probe works: it sees an ordinary variable…
     if (process.platform !== "win32") expect(seen.own).toContain("VISIBLE_PROBE=visible");
-    // …and no secret, in the server's own starting environment, its live one or its child's.
     for (const where of [seen.own, JSON.stringify(seen.env), seen.child]) {
       expect(where).not.toContain(secret);
       expect(where).not.toContain("box_laterdog_probe-token");
     }
-    // Nor does a child learn the pipe exists.
     expect(seen.child).not.toContain("LATERDOG_CLOUD_SECRETS_FD");
   } finally {
     await removeTempDir(dir);

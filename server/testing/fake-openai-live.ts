@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// A stand-in for OpenAI's GPT-Live API, for tests and the isolated fixture.
-// It speaks just enough HTTP and RFC 6455 WebSocket for the harness:
-// POST /v1/live/sessions and GET /v1/live/sessions/:id/attach. Nothing here
-// touches audio. Self-contained on purpose (node built-ins only).
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
@@ -10,7 +6,6 @@ import { pathToFileURL } from "node:url";
 
 export interface FakeLiveSession {
   id: string;
-  /** the API key the session was created with (its bearer) */
   key: string;
   body: Record<string, unknown>;
   commands: Array<Record<string, unknown>>;
@@ -32,11 +27,6 @@ export interface FakeOpenAiLive {
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-/** An SDP answer to `offer` that a real WebRTC client (browser, simulator,
- * emulator) accepts in setRemoteDescription, so it reaches its "live" state
- * against this fake. Media never connects: nothing listens on the one host
- * candidate. Audio answers with the offer's first codec, the data channel
- * with the offer's SCTP settings, anything else is rejected (port 0). */
 export function fakeAnswerSdp(offer: string): string {
   const lines = offer.split(/\r?\n/).filter(Boolean);
   const firstMedia = lines.findIndex((line) => line.startsWith("m="));
@@ -65,7 +55,6 @@ export function fakeAnswerSdp(offer: string): string {
       `a=ice-ufrag:${ufrag}`,
       `a=ice-pwd:${pwd}`,
       `a=fingerprint:sha-256 ${fingerprint}`,
-      // the offer is actpass (or passive); an active offer gets a passive answer
       `a=setup:${attr("setup:") === "a=setup:active" ? "passive" : "active"}`,
     ];
     const candidate = ["a=candidate:1 1 udp 2122260223 127.0.0.1 9 typ host", "a=end-of-candidates"];
@@ -107,7 +96,6 @@ function frame(opcode: number, payload: Buffer): Buffer {
   return Buffer.concat([head, payload]);
 }
 
-/** Pulls whole client frames (always masked) out of `buffer`. */
 function readFrames(buffer: Buffer): { frames: Array<{ opcode: number; payload: Buffer }>; rest: Buffer } {
   const frames: Array<{ opcode: number; payload: Buffer }> = [];
   let offset = 0;
@@ -157,7 +145,7 @@ export async function startFakeOpenAiLive(options: { port?: number; closeOnReque
         return;
       }
       let body: Record<string, unknown> = {};
-      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>; } catch { /* recorded as {} */ }
+      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>; } catch {}
       const session: FakeLiveSession = { id: `sess_fake_${++counter}`, key: bearer(req), body, commands: [], attached: false, closed: false };
       sessions.push(session);
       wake();
@@ -245,8 +233,6 @@ export async function startFakeOpenAiLive(options: { port?: number; closeOnReque
   };
 }
 
-// `node --experimental-strip-types server/testing/fake-openai-live.ts [port]`
-// prints the base URL for LATERDOG_OPENAI_LIVE_URL and runs until killed.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const fake = await startFakeOpenAiLive({ port: Number(process.argv[2]) || 0 });
   process.stdout.write(`${fake.url}\n`);

@@ -1,22 +1,4 @@
 #!/bin/bash
-# Run a released later.dog the way a new user meets it, sealed off from this
-# Mac's own later.dog. See "Installed app" in docs/verification/README.md.
-#
-#   scripts/sealed-installed-app.sh v0.3.17 [devtools-port]
-#
-# HOME alone does not isolate the app: Electron finds ~ and ~/Library through
-# Foundation, which ignores HOME and honours CFFIXED_USER_HOME. The sandbox
-# profile is the backstop, so the real later.dog data and sign-in stores can be
-# neither read nor written even if a path slips through.
-#
-# Stays attached like the fixture launcher: Ctrl-C (or the end of this script)
-# ends the free trial the copy holds, stops the app it started, unregisters its
-# copies from Launch Services and removes only its own temporary folder.
-#
-# A fresh copy claims a free trial by itself, as a new user's does, and that
-# counts against this network's trials. To leave the network's count alone,
-# point LATERDOG_TRIAL_GRANT_KEY_FILE at the computers service owner's key: the
-# script grants the copy a trial with it instead. The key is read, never printed.
 set -euo pipefail
 
 TAG="${1:?release tag, for example v0.3.17}"
@@ -29,7 +11,6 @@ ROOT=$(mktemp -d /tmp/laterdog-sealed.XXXXXX)
 SEALED="$ROOT/home"
 APP_PID=""
 
-# curl reads the bearer from a private file, so it never shows in a process list.
 bearer_header() {
   local header="$ROOT/header"
   (umask 077; printf 'Authorization: Bearer %s\n' "$(tr -d '\n' <"$1")" >"$header")
@@ -37,7 +18,6 @@ bearer_header() {
 }
 
 cleanup() {
-  # Every step runs even if one before it fails, so nothing is left behind.
   set +e +o pipefail
   if [ -s "$SEALED/.laterdog/computers-trial-key" ]; then
     header=$(bearer_header "$SEALED/.laterdog/computers-trial-key")
@@ -45,8 +25,6 @@ cleanup() {
     rm -f "$header"
   fi
   [ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null && wait "$APP_PID" 2>/dev/null || true
-  # The app registers itself (and its helper apps) with Launch Services, and
-  # claims laterdog:// links; leave all of that to the real app.
   find "$ROOT" -type d -name "*.app" 2>/dev/null | while IFS= read -r app; do
     "$LSREGISTER" -u "$app" 2>/dev/null || true
   done
@@ -56,7 +34,6 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# The packaged app always serves on 8799, so it would meet a running later.dog there.
 if lsof -nP -iTCP:8799 -sTCP:LISTEN >/dev/null 2>&1; then
   echo "something already serves on port 8799 (a running later.dog?); quit it first"
   exit 1
@@ -80,7 +57,6 @@ cd "$ROOT/dl"
 gh release download "$TAG" --repo "$REPO" \
   --pattern 'later.dog-macOS-arm64.zip' --pattern 'SHA256SUMS.txt' --pattern 'latest-mac.yml'
 shasum -a 256 -c SHA256SUMS.txt
-# The in-app updater checks the zip against latest-mac.yml's sha512 (quoted there).
 python3 -I - latest-mac.yml later.dog-macOS-arm64.zip <<'EOF'
 import base64, hashlib, re, sys
 manifest = open(sys.argv[1]).read()
@@ -91,15 +67,12 @@ if want != got:
 print("latest-mac.yml sha512 matches the zip")
 EOF
 
-# Gatekeeper's verdict on a copy marked as downloaded, as a new user's is.
 xattr -w com.apple.quarantine "0081;$(printf %x "$(date +%s)");Safari;" later.dog-macOS-arm64.zip
 ditto -x -k later.dog-macOS-arm64.zip "$ROOT/verify/"
 codesign --verify --deep --strict "$ROOT/verify/later.dog.app"
 spctl -a -vv -t exec "$ROOT/verify/later.dog.app"
 xcrun stapler validate "$ROOT/verify/later.dog.app"
 
-# Launch an unmarked copy: a marked first launch waits on the "downloaded from
-# the internet" prompt, which is the person's to answer, not this script's.
 ditto "$ROOT/verify/later.dog.app" "$ROOT/run/later.dog.app"
 xattr -cr "$ROOT/run/later.dog.app"
 
@@ -109,8 +82,6 @@ PROFILE="(version 1)(allow default)
   (subpath \"$REAL_HOME/Library/Application Support/later.dog\")
   (subpath \"$REAL_HOME/.claude\")
   (subpath \"$REAL_HOME/.codex\"))"
-# A dead supervisor address: a copy must never send a cloud task to a later.dog
-# supervisor that happens to be running on this Mac (port 9010).
 env -i HOME="$SEALED" CFFIXED_USER_HOME="$SEALED" LATERDOG_HOME="$SEALED/.laterdog" TMPDIR="$SEALED/tmp" \
   LATERDOG_SUPERVISOR_URL=http://127.0.0.1:9 LATERDOG_TOKEN=sealed-installed-check \
   PATH=/usr/bin:/bin:/usr/sbin:/sbin USER="$USER" LANG=en_US.UTF-8 \

@@ -1,8 +1,3 @@
-"""Read Firefox's about:support sandbox fields inside a disposable container.
-
-Uses the bundled Marionette server on guest loopback and Python's standard
-library only. No browser chrome/system access or published debug port.
-"""
 import json
 import os
 import socket

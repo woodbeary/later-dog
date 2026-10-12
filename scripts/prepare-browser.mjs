@@ -1,5 +1,3 @@
-// Download only reviewed vendor assets. Always extract anew from verified
-// archives: a previous/partial dist-native tree is never a trusted cache.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -47,7 +45,6 @@ function inside(root, value) {
   return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
-/** Preserve vendor symlinks, but never permit one to escape the bundle. */
 export function bundleInventory(directory) {
   const root = realpathSync(directory);
   const result = [];
@@ -84,7 +81,6 @@ export function verifyBundleInventory(directory, files) {
   if (!Array.isArray(files) || JSON.stringify(files) !== JSON.stringify(bundleInventory(directory))) throw new Error("Browser bundle inventory is incomplete or modified");
 }
 
-/** Called before signing; Developer ID signing necessarily changes Mach-O bytes. */
 export function verifyBrowserBundle(directory, target) {
   const spec = browserBundleSpec(target);
   const paths = browserBundlePaths(directory, target);
@@ -111,7 +107,6 @@ export async function releaseBytes(asset, cacheDirectory) {
       verifyAssetBytes(bytes, asset);
       return bytes;
     } catch {
-      // A cache entry that fails verification is a miss, never a dead end.
       rmSync(cached, { force: true });
     }
   }
@@ -128,8 +123,6 @@ export async function releaseBytes(asset, cacheDirectory) {
   verifyAssetBytes(bytes, asset);
   if (cached) {
     mkdirSync(cacheDirectory, { recursive: true });
-    // Publish the cache entry atomically: a partial write must never be
-    // mistaken for a complete archive.
     const temporary = join(cacheDirectory, `.${asset.asset}.${process.pid}.tmp`);
     try {
       writeFileSync(temporary, bytes);
@@ -143,8 +136,6 @@ export async function releaseBytes(asset, cacheDirectory) {
 }
 
 export function browserExtractionCommand(archive, directory, { platform = process.platform, systemRoot = process.env.SystemRoot ?? "C:\\Windows" } = {}) {
-  // Git Bash places GNU tar (no ZIP support) on PATH. Windows ships bsdtar;
-  // address that exact executable instead of whichever tar appears first.
   return platform === "win32"
     ? { file: win32.join(systemRoot, "System32", "tar.exe"), args: ["-xf", archive, "-C", directory] }
     : { file: "unzip", args: ["-q", archive, "-d", directory] };
@@ -181,7 +172,6 @@ export async function stageBrowserTarget(root, target, { cacheDirectory = proces
     for (const name of BROWSER_LICENSE_FILES) copyFileSync(join(sourceRoot, "third_party", "browser", name), join(paths.licenses, name));
     writeFileSync(paths.manifest, `${JSON.stringify({ ...spec, files: bundleInventory(stage) }, null, 2)}\n`);
     verifyBrowserBundle(stage, target);
-    // Keep the previous complete tree until the new one passes every check.
     const previous = join(scratch, "previous");
     if (existsSync(destination)) renameSync(destination, previous);
     try { renameSync(stage, destination); }

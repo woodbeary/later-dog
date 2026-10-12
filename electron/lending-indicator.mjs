@@ -1,7 +1,3 @@
-// The menu-bar (notification-area) sign that this computer is lent to the
-// person's later.dog Cloud. It exists only while lending is on, says when the Cloud
-// is using the computer right now, and has the one instant control: Stop
-// lending. Native menu text is English, like the app's other native menus.
 export function createLendingIndicator({ Tray, Menu, nativeImage, iconPath, onStop, onOpen }) {
   let tray = null;
   let shown = { lending: false, busy: false };
@@ -12,7 +8,6 @@ export function createLendingIndicator({ Tray, Menu, nativeImage, iconPath, onSt
     { label: "Lending settings…", click: () => onOpen() },
   ]);
   return {
-    /** `lending`: at least one Cloud grant is on; `busy`: an action runs now. */
     update({ lending, busy }) {
       const next = { lending: Boolean(lending), busy: Boolean(lending && busy) };
       if (next.lending === shown.lending && next.busy === shown.busy && (tray !== null) === next.lending) return;
@@ -23,7 +18,6 @@ export function createLendingIndicator({ Tray, Menu, nativeImage, iconPath, onSt
         tray.on("click", () => tray?.popUpContextMenu?.());
       }
       tray.setToolTip(next.busy ? "later.dog: My Cloud is using this computer" : "later.dog: lent to My Cloud");
-      // macOS shows the title beside the icon: visible while in use.
       tray.setTitle?.(next.busy ? "In use" : "");
       tray.setContextMenu(menu(next.busy));
     },

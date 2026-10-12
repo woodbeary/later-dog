@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, StoreProvider, type Bot } from "@/state/store";
 
 vi.mock("./DesktopCapabilities", () => ({
-  // capabilities still loading: a take-turns call cannot start yet
   useDesktopCapabilities: () => ({ capabilities: null, ready: false }),
 }));
 
@@ -73,7 +72,6 @@ describe("call modes", () => {
     void startLiveCall({ botId: bot.id, threadId: bot.threadId });
     const markup = render(createElement(CallButton, { bot }));
     expect(markup).toContain('aria-label="Hang up on Atlas"');
-    // a mode is picked before a call, not during one
     expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Call mode"/);
   });
 
@@ -118,8 +116,6 @@ describe("call modes", () => {
     expect(composer).toContain('aria-label="OpenAI API key for Live calls"');
     expect(composer).toContain("bottom-full");
     expect(render(createElement(CallButton, { bot: { ...bot, id: "juniper" } }))).not.toContain("OpenAI API key");
-    // Leaving the chat (or closing the prompt) drops it: it does not open
-    // again by itself on a later visit. Another chat leaving keeps it.
     dismissKeyPrompt("juniper");
     expect(render(createElement(CallButton, { bot }))).toContain("OpenAI API key");
     dismissKeyPrompt(bot.id);
@@ -128,12 +124,10 @@ describe("call modes", () => {
 
   it("leaves a Live call to the call bar and covers the chat only for Take turns", async () => {
     vi.stubGlobal("window", { laterdog: { speechStop: vi.fn(async () => {}) } });
-    // the microphone prompt never answers: the call stays "starting"
     configureLiveMedia({ getUserMedia: () => new Promise<MediaStream>(() => {}) });
     void startLiveCall({ botId: bot.id, threadId: bot.threadId });
     expect(render(createElement(CallOverlay, { bot }))).toBe("");
 
-    // a failed Live call's notice stays in the bar; a take-turns call still opens
     resetLiveMedia();
     configureLiveMedia({ getUserMedia: () => Promise.reject(new Error("no microphone")) });
     await startLiveCall({ botId: bot.id, threadId: bot.threadId });

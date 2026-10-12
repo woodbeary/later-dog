@@ -13,9 +13,6 @@ export interface CloudResourceIdentity {
   name: string;
 }
 
-/** An old Boat account may be detached only when it owns no local resources.
- * Token rotation is safe when the replacement credential proves access to
- * the exact same provider identities. */
 export function boatAccountResourceChangeError(
   current: CloudResourceIdentity[],
   replacement: CloudResourceIdentity[] | null,

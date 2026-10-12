@@ -11,10 +11,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
-// Auto rooms end to end: a real server and fake engine CLIs, with the
-// decision model pointed at a fake Jev-compatible endpoint on this machine
-// (decider.baseUrl). Nothing here reaches the real Jev API. The key reaches
-// the server only through its env, the way the desktop shell delivers it.
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
@@ -96,7 +92,6 @@ beforeAll(async () => {
   const titleFile = join(home, "title.txt");
   writeFileSync(titleFile, "Safari footer fix");
   writeFileSync(join(data, "config.json"), JSON.stringify({
-    // a room task's first message is titled by the engine of whoever answers it
     features: { llmThreadTitles: true },
     instances: {
       quick: {
@@ -133,9 +128,7 @@ beforeAll(async () => {
     if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}: ${output}`);
     try {
       if ((await fetch(`${base}/api/health`)).status === 200) break;
-    } catch {
-      // still starting
-    }
+    } catch {}
     if (Date.now() >= deadline) throw new Error(`server never became healthy: ${output}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -155,8 +148,6 @@ const roomState = async (roomId: string) => {
   return { room, messages: (room?.messages ?? []) as RoomMessage[] };
 };
 
-/** Send one plain message and wait for the round to settle; returns what the
- * bots said in it (the first text line of each speaker). */
 async function round(roomId: string, text: string): Promise<{ post: any; replies: RoomMessage[] }> {
   const before = new Set((await roomState(roomId)).messages.map((message) => message.id));
   const post = await api("POST", `/api/groups/${roomId}/messages`, { text });
@@ -209,8 +200,6 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
     const asked = routeRequests().length;
     const text = "The signup button overlaps the footer on Safari mobile.";
     const sent = api("POST", `/api/groups/${room.id}/messages`, { text });
-    // Jev has the question and is holding its answer: the send has already
-    // been answered and the message appended, synchronously, before it
     await expect.poll(() => routeRequests().length, { timeout: 5_000 }).toBe(asked + 1);
     const early = await Promise.race([sent, new Promise<"still waiting">((resolve) => setTimeout(() => resolve("still waiting"), 1_000))]);
     expect(early).not.toBe("still waiting");
@@ -227,7 +216,6 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
     expect([...new Set(replies.map((reply) => reply.from!.name))]).toEqual(["Theo"]);
     expect(replies[0]!.routedBy).toEqual({ provider: "jev", probability: 0.94 });
     expect(replies.slice(1).every((reply) => reply.routedBy === undefined)).toBe(true);
-    // the task title came from the chosen responder's engine, not the fallback's
     await expect.poll(() => existsSync(titleDump), { timeout: 10_000 }).toBe(true);
     expect(existsSync(fallbackTitleDump)).toBe(false);
 
@@ -300,7 +288,6 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
     const rejected = await api("PUT", "/api/config", { decider: { key: "tsk_bad" } });
     expect(rejected.status).toBe(400);
     expect((await api("GET", "/api/config")).body.decider).toMatchObject({ enabled: false });
-    // the desktop's path: the key goes to its encrypted store, config.json keeps an empty placeholder
     const saved = await api("PUT", "/api/config?secretStorage=external", { decider: { key: "tsk_new_valid_key" } });
     expect(saved.status).toBe(200);
     expect(saved.body.decider).toEqual({ provider: "jev", configured: true, enabled: true, jobs: { roomRouting: true } });

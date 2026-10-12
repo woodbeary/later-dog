@@ -1,7 +1,3 @@
-// "You have not set this up" and "I could not read your key" produce the same
-// empty screen today. They are opposite situations: the first is the truth,
-// the second is ignorance the UI must be told about so it can keep showing
-// what it already knew.
 import { describe, expect, it } from "vitest";
 
 import { connectorAvailability, connectorSetup } from "./composio.ts";
@@ -24,17 +20,10 @@ describe("connectorAvailability", () => {
   });
 
   it("prefers a working key over a store that failed earlier in the launch", () => {
-    // the key arrived some other way (env, self-hosted config): what the user
-    // can actually do matters more than how the shell felt about it
     expect(connectorAvailability(cfg({ composio: { apiKey: "ak_live" } }), "unavailable")).toBe("configured");
   });
 });
 
-// "Not set up yet" and "the service we rely on is down" are also opposite
-// situations. A source build or a fresh self-hosted server has no managed
-// service at all, so the honest answer is "add a key", not "restart and retry".
-// Only the installed desktop app registers with the managed service, so only
-// there does a missing service mean something went wrong.
 describe("connectorSetup", () => {
   it("is ready when a connection service is configured", () => {
     expect(connectorSetup(cfg({ composio: { apiKey: "ak_live" } }), false)).toBe("ready");
@@ -48,7 +37,6 @@ describe("connectorSetup", () => {
 
   it("reports the broker as unavailable only inside the installed desktop app, and only when its build names one", () => {
     expect(connectorSetup(cfg(), true, true)).toBe("service-unavailable");
-    // a desktop build with no broker is not an outage: there is nothing to wait for
     expect(connectorSetup(cfg(), true, false)).toBe("needs-setup");
     expect(connectorSetup(cfg(), false, true)).toBe("needs-setup");
   });

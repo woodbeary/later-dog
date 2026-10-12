@@ -63,8 +63,6 @@ it.each(["already busy", "became busy during approval"])(
         queued = await api("POST", "/api/internal/ask-bot", { toBotId: peer.id, message: requestText }, true);
         expect(await sourceCards()).toHaveLength(0);
       } else {
-        // Attach a rejection handler immediately: fixture teardown must not
-        // turn a failed assertion into an unhandled in-flight HTTP rejection.
         const pendingAsk = api("POST", "/api/internal/ask-bot", { toBotId: peer.id, message: requestText }, true)
           .then(value => ({ value }), error => ({ error }));
         await expect.poll(async () => (await sourceCards()).length, { timeout: 15_000 }).toBe(1);
@@ -79,8 +77,6 @@ it.each(["already busy", "became busy during approval"])(
       }
       expect(queued).toMatchObject({ busy: true, taskId: expect.any(String) });
       evidence.push({ scenario, queued, sourceThread, peerThread });
-      // This is the lost-wakeup boundary: merely storing a fresh queue item
-      // does not subscribe it to the target's next idle transition.
       await expect.poll(() => waiting(queued.taskId), { timeout: 5_000 }).toBe(true);
       expect(await peerRequests()).toHaveLength(0);
       expect((await sourceState()).busy).toBeFalsy();
@@ -100,7 +96,6 @@ it.each(["already busy", "became busy during approval"])(
       await expect.poll(async () => (await receipt(queued.taskId)).status, { timeout: 20_000 }).toBe("done");
       expect((await receipt(queued.taskId)).result).toContain(requestText);
       expect((await control("wait", "--bot", peer.id, "--task", peerThread)).status).toBe("settled");
-      // The gateway polls this receipt; the source bot's own engine never runs.
       expect((await control("wait", "--bot", source.id, "--task", sourceThread)).status).toBe("settled");
       expect((await messages(sourceThread)).filter(message => message.role === "bot" && message.turnId && !message.from)).toEqual([]);
       const requests = await peerRequests();

@@ -182,9 +182,6 @@ describe.skipIf(process.platform !== "linux")("Linux DEB upgrade hook", () => {
 
   it("reads numeric procfs sysctls without byte-at-a-time shell reads", () => {
     const { appRoot, systemRoot } = fixture();
-    // A harmless read-only stand-in with the same numeric procfs handler.
-    // Unlike an ordinary fixture file, procfs ends a subsequent read at EOF;
-    // dash's read builtin therefore exits 1 before seeing the newline.
     const procSysctl = "/proc/sys/kernel/core_uses_pid";
     expect(fs.readFileSync(procSysctl, "utf8").trim()).toMatch(/^[01]$/);
     const restriction = path.join(systemRoot, "apparmor_restrict_unprivileged_userns");
