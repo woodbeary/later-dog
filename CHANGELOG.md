@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.22 — 2026-10-12
+
+- **Messages you send mid-reply get answered.** On Kimi and Grok, something you send while a dog is still writing is answered in the same turn, instead of waiting until you write again.
+- **The dog's computer opens its browser straight away.** A new cloud computer no longer stops on a "Choose Preferred Application" window, so web tasks on the free models finish in seconds. (This one is on later.dog's side and is already live for every version.)
+
 ## 0.3.21 — 2026-10-12
 
 - **No more garbled replies from the free models.** When Kimi or Grok writes a step out as text instead of doing it, you no longer see that text: the dog is told once to do the step properly, and if it happens again it says so in one plain sentence.

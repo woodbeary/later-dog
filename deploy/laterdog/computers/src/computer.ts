@@ -9,6 +9,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Refusal } from "./auth";
 import { DESKTOP_LINK_TTL_SECONDS, signDesktopToken, verifyDesktopToken } from "./desktop-token";
+import { BROWSER_DEFAULT_SCRIPT } from "./browser-default";
 import { type Collected, collect, json, outputText, within } from "./http";
 import { type IdlePolicy, MINUTE, decideIdle, idlePolicy, inactivityTimeoutMs } from "./idle";
 import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size, commandEnv, redact } from "./inputs";
@@ -542,11 +543,22 @@ export class DogComputer extends DurableObject<Env> {
           const how = `${ready.snapshot ? "from snapshot" : "from image"}${withoutDesktop ? "; its desktop session never drew" : ""}`;
           console.log(`laterdog computers: ${ready.id} ready ${now - begun} ms after start (generation ${generation}, ${how})`);
           await this.publish();
+          await this.setBrowserDefault(ready.id);
           await this.scheduleWatch();
         }
         return;
       }
       await sleep(READY_POLL_MS);
+    }
+  }
+
+  /** XFCE's own browser choice (browser-default.ts). A failure leaves the computer as it was. */
+  private async setBrowserDefault(id: string): Promise<void> {
+    try {
+      const result = await this.run(["bash", "-c", BROWSER_DEFAULT_SCRIPT], { timeoutMs: 5_000, cap: 1024, user: DOG });
+      if (result.exitCode !== 0) console.warn(`laterdog computers: ${id} browser default not set (exit ${result.exitCode})`);
+    } catch (error) {
+      console.warn(`laterdog computers: ${id} browser default not set: ${describeError(error)}`);
     }
   }
 

@@ -23,11 +23,15 @@ RUN userdel --remove node \
 
 COPY --chown=dog:dog xfce/ /home/dog/.config/xfce4/xfconf/xfce-perchannel-xml/
 COPY mimeapps.list /etc/xdg/mimeapps.list
+# XFCE's own Web Browser launcher (the panel's browser button, exo-open) reads its preferred
+# browser from helpers.rc, not mimeapps.list; without it the first launch stops on a chooser.
+COPY --chown=dog:dog xfce-helpers/helpers.rc /home/dog/.config/xfce4/helpers.rc
+COPY --chown=dog:dog xfce-helpers/custom-WebBrowser.desktop /home/dog/.local/share/xfce4/helpers/custom-WebBrowser.desktop
 COPY chromium-flags /etc/chromium.d/laterdog
 COPY start-desktop.sh /usr/local/bin/laterdog-desktop
 RUN chmod 0755 /usr/local/bin/laterdog-desktop \
   && cp /etc/xdg/xfce4/panel/default.xml /home/dog/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml \
-  && chown -R dog:dog /home/dog/.config
+  && chown -R dog:dog /home/dog/.config /home/dog/.local
 
 # noVNC (websockify) is the only listener the Worker reaches; VNC itself stays on localhost.
 EXPOSE 6080

@@ -307,6 +307,27 @@ describe("optional built-in question compatibility", () => {
   });
 });
 
+describe("a message sent while the reply is being written", () => {
+  it("is answered in the same turn, not left for the next one", async () => {
+    let sendMidTurn: (() => Promise<unknown>) | undefined;
+    const f = await fixture(async (_body, response, round) => {
+      if (round === 1) {
+        await sendMidTurn?.();
+        answer(response, "A terrier named Bandit learned to code.");
+      } else answer(response, "Here it is again with Waffles the corgi.");
+    });
+    sendMidTurn = () => f.instance.adapter.steer!(f.threadId, "Make the dog a corgi named Waffles.");
+    await f.start({ approvalMode: "full" });
+    expect(await f.completed()).toMatchObject({ ok: true });
+    expect(f.requests).toHaveLength(2);
+    expect(f.requests[1].messages.at(-1)).toMatchObject({ role: "user", content: "Make the dog a corgi named Waffles." });
+    const replies = f.recorder.events
+      .filter((event) => event.type === "item.completed" && (event as { itemType?: string }).itemType === "assistant_text")
+      .map((event) => (event as { text?: string }).text);
+    expect(replies).toEqual(["A terrier named Bandit learned to code.", "Here it is again with Waffles the corgi."]);
+  });
+});
+
 describe("a tool call written out as text", () => {
   const leaked = 'End turn: status: success stop_reason: tool_pending checkpoint: { "blocks": [ { "block_type": "tool", "extra": { "name": "audit_write" } } ] }';
   const shown = (f: Awaited<ReturnType<typeof fixture>>) => f.recorder.events
