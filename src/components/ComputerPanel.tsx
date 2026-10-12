@@ -985,8 +985,7 @@ export function ComputerPanel({
       .finally(() => setPending(null));
   };
 
-  /** The person's own Start it now / Wake it now: the only way the panel
-   * starts a cloud computer. Choosing it or opening the panel never does. */
+  /** Taking the free cloud computer from the panel's offer starts it. */
   const [autoStartCloud, setAutoStartCloud] = useState(false);
   const takeFreeCloud = () => {
     setAutoStartCloud(true);
@@ -1102,6 +1101,20 @@ export function ComputerPanel({
     if (!autoStartCloud || pending !== null || profileBot.busy) return;
     if (phase !== "cloud-new" && phase !== "cloud-asleep") return;
     setAutoStartCloud(false);
+    startCloudComputer();
+  });
+
+  // Opening the dog's computer turns it on, the way the reference app does:
+  // a cloud computer that has not started yet starts, a sleeping one wakes.
+  // Once per open, only for someone who may start it, never mid-turn.
+  const openedStart = useRef(false);
+  useEffect(() => {
+    if (openedStart.current || window.laterdog?.remoteClient?.active === true) return;
+    if (phase !== "cloud-new" && phase !== "cloud-asleep") return;
+    // the same rule as the panel's own Start it now / Wake it now button
+    const action = cloudView.action?.id;
+    if ((action !== "start" && action !== "wake") || !panelOffers(action) || pending !== null) return;
+    openedStart.current = true;
     startCloudComputer();
   });
 

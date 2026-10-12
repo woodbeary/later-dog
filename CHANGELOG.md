@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.16 — 2026-10-12
+
+- **Open the computer and it turns on.** Opening a dog's computer starts it if it never started and wakes it if it's asleep, so you see its screen right away.
+- The + menu's apps entry reads **Connect apps**, like the Apps page.
+- **Keep going when an account runs out** shows once you have two accounts to switch between.
+
 ## 0.3.15 — 2026-10-12
 
 - **Model and effort the way Claude Code does them.** Beside the message field, the model button lists a few models by name, the current one checked and the others numbered (press 1-4), with More models for the rest. It shows every model you can use now: the free Kimi K2.6 and Grok 4.3, and the models of any account you've signed in. Effort is its own button: a Faster to Smarter slider with the recommended level marked.

@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-// Choosing Cloud computer, or opening the Computer panel, creates and wakes
-// nothing: the bot's first computer call starts its cloud computer. The
-// panel says so, and starting it now is the person's own button. A
-// conversation that select_computer moved to an existing cloud computer
-// still shows that computer's screen.
+// Opening a dog's Computer panel turns its cloud computer on, as in the
+// reference app: one that never started starts, a sleeping one wakes, once
+// per open and never while the dog is mid-turn. A conversation that
+// select_computer moved to an existing cloud computer still shows that
+// computer's screen.
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -112,25 +112,18 @@ afterEach(() => {
 });
 
 describe("Computer panel on Cloud computer", () => {
-  it("opening it before the bot has a cloud computer creates nothing and says when it starts", async () => {
+  it("opening it starts a cloud computer that never started, and shows its screen", async () => {
     await open(makeBot({ computer: "cloud" }));
-    expect(text()).toContain("Scout gets its own cloud computer the first time a task needs one. The first start takes about a minute.");
-    expect(button("Start it now")).toBeDefined();
-    expect(fixture.posts).toEqual([]);
+    await settle();
+    expect(fixture.posts.filter((path) => !path.endsWith("/screenshot"))).toEqual(["/api/bots/scout/computer/provision"]);
+    expect(document.querySelector("[data-live-screen]")).not.toBeNull();
   });
 
-  it("opening it while the cloud computer sleeps wakes nothing", async () => {
+  it("opening it wakes a sleeping cloud computer", async () => {
     fixture.boatState = "archived";
     await open(makeBot({ computer: "cloud" }));
-    expect(text()).toContain("Scout's cloud computer is asleep. It wakes in a few seconds when Scout needs it.");
-    expect(button("Wake it now")).toBeDefined();
-    expect(fixture.posts).toEqual([]);
-  });
-
-  it("choosing Cloud computer creates nothing by itself", async () => {
-    await open(makeBot({ computer: "cloud" }));
-    expect(button("Start it now")).toBeDefined();
-    expect(fixture.posts).toEqual([]);
+    await settle();
+    expect(fixture.posts.filter((path) => !path.endsWith("/screenshot"))).toEqual(["/api/bots/scout/computer/provision"]);
   });
 
   it("boots the cloud computer when a dog with none chosen opens its computer, like Grok Bot", async () => {
@@ -146,13 +139,12 @@ describe("Computer panel on Cloud computer", () => {
     expect(fixture.posts).toEqual([]);
   });
 
-  it("starts it only when the person presses Start it now", async () => {
+  it("starts it once per open, however often the panel draws", async () => {
     await open(makeBot({ computer: "cloud" }));
-    flushSync(() => button("Start it now")!.click());
+    await open(makeBot({ computer: "cloud" }));
     await settle();
     // One start, then the screen it shows (screenshots never wake anything).
     expect(fixture.posts.filter((path) => !path.endsWith("/screenshot"))).toEqual(["/api/bots/scout/computer/provision"]);
-    expect(document.querySelector("[data-live-screen]")).not.toBeNull();
   });
 
   it("says the same about a cloud computer this conversation was moved to, without a start button", async () => {
