@@ -2192,7 +2192,6 @@
   "computer.youHaveWheel": "You have the screen. {name} waits until you're done.",
   "computer.simple.useFullScreen": "Use “Full screen” to drive.",
   "computer.simple.useFullScreenVm": "Use “Full screen” to drive — the preview here is watch-only.",
-  "computer.handBack": "I'm done",
   "computer.onThisMac": "{name} works on this Mac.",
   "computer.needsYou": "{name} needs you.",
   "computer.needsYouOpen": "Open",
