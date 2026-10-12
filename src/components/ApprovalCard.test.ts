@@ -653,5 +653,6 @@ describe("the action an approval asks about", () => {
     expect(toolLabel("mcp__agents__select_computer")).toBe("use a computer");
     expect(toolLabel("agents_select_computer")).toBe("use a computer");
     expect(toolLabel("mcp__computer__computer_exec")).toBe("use the computer");
+    expect(toolLabel("computer_get_desktop_state")).toBe("use the computer");
   });
 });

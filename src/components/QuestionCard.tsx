@@ -237,7 +237,7 @@ export function QuestionCard({
                 onClick={() => choose(option.label)}
                 title={option.description}
                 className={cn(
-                  "flex w-full items-start gap-3 px-3 py-2 text-left",
+                  "flex w-full items-center gap-3 px-3 py-2 text-left",
                   index > 0 && "border-t border-hairline/40",
                   // `raised` is the same value as the card in the light
                   // skins; `raised-hover` is the one tone every skin
@@ -246,12 +246,7 @@ export function QuestionCard({
                 )}
               >
                 <Marker checked={picked} multi={Boolean(current.multiSelect)} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-medium text-ink">{option.label}</span>
-                  {option.description && (
-                    <span className="block truncate text-[12.5px] leading-snug text-ink-secondary">{option.description}</span>
-                  )}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{option.label}</span>
               </button>
             );
           })}
@@ -291,7 +286,7 @@ export function QuestionCard({
           <Check size={14} className="mt-0.5 shrink-0 text-success" />
           <span className="whitespace-pre-wrap break-words">{shownAnswer || t("question.status.answered")}</span>
         </div>
-      ) : (
+      ) : (questions.length > 1 || current.multiSelect || draft.other) && (
         <div className="mt-3 flex items-center justify-end gap-3">
           <span className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
             <MessageCircleQuestion size={14} className="text-accent" />
