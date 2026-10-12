@@ -143,6 +143,15 @@ const stoppedAfter = (count: string) =>
   `Stopped after ${count} without a final answer. The steps so far already ran, so ask only for what's left.`;
 
 const NUDGE_ANNOUNCED_ACTION = "You said what you would do next but called no tool. Do it now with your tools, or reply with your final answer if nothing is left to do.";
+const NUDGE_TOOL_CALL_AS_TEXT = "Your last reply wrote a tool call out as text, so nothing ran. Make the call with your tools, or reply with your final answer.";
+const TOOL_CALL_AS_TEXT = "The model wrote a step out as text instead of doing it, so nothing ran. Try again.";
+
+/** A reply that spells out a tool call instead of making one: a model's own
+ * call markup, or a serialized call block, leaked into the text. Nothing ran,
+ * and the text means nothing to a person, so it is never shown. */
+export function writesToolCallAsText(text: string): boolean {
+  return /<\|tool_calls?_(?:section_)?begin\|>|<\|tool_call_argument_begin\|>|"block_type"\s*:\s*"tool"|\bstop_reason:\s*tool_pending\b|^\s*functions\.[\w-]+:\d+/m.test(text);
+}
 
 /** A short reply that only announces a next step, with nothing to answer. */
 export function announcesAction(text: string): boolean {
@@ -655,6 +664,15 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           }
           // Reasoning on a tool-call round belongs to the protocol, not a final reply.
           const reply = completion.text.trim() ? completion.text : completion.toolCalls.length ? "" : completion.reasoning;
+          if (!completion.toolCalls.length && reply.trim() && writesToolCallAsText(reply)) {
+            abort.signal.throwIfAborted();
+            if (options.nudgeAnnouncedAction && !nudged && tools.definitions.length) {
+              nudged = true;
+              messages.push({ role: "assistant", content: completion.text }, { role: "user", content: NUDGE_TOOL_CALL_AS_TEXT });
+              continue;
+            }
+            throw new ChatProtocolError(TOOL_CALL_AS_TEXT);
+          }
           if (reply.trim()) emit({ ...base(turn.threadId, turnId), type: "item.completed", itemType: "assistant_text", text: safeText(reply) });
           abort.signal.throwIfAborted();
           if (!completion.toolCalls.length) {

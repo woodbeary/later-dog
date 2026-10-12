@@ -307,6 +307,35 @@ describe("optional built-in question compatibility", () => {
   });
 });
 
+describe("a tool call written out as text", () => {
+  const leaked = 'End turn: status: success stop_reason: tool_pending checkpoint: { "blocks": [ { "block_type": "tool", "extra": { "name": "audit_write" } } ] }';
+  const shown = (f: Awaited<ReturnType<typeof fixture>>) => f.recorder.events
+    .filter((event) => event.type === "item.completed" && (event as { itemType?: string }).itemType === "assistant_text")
+    .map((event) => (event as { text?: string }).text ?? "").join("\n");
+
+  it("is never shown: one nudge, then the real call runs and the turn finishes", async () => {
+    const f = await fixture((_body, response, round) => {
+      if (round === 1) answer(response, leaked);
+      else if (round === 2) sse(response, [chunk({ tool_calls: [toolCall()] }, "tool_calls")]);
+      else answer(response, "Done.");
+    }, "cerebras");
+    await f.start({ approvalMode: "full" });
+    expect(await f.completed()).toMatchObject({ ok: true });
+    expect(shown(f)).not.toMatch(/block_type|tool_pending/);
+    expect(f.effects()).toHaveLength(1);
+    expect(f.requests).toHaveLength(3);
+  });
+
+  it("ends the turn in plain words when it happens again after the nudge", async () => {
+    const f = await fixture((_body, response) => answer(response, leaked), "cerebras");
+    await f.start({ approvalMode: "full" });
+    expect(await f.completed()).toMatchObject({ ok: false });
+    expect(shown(f)).not.toMatch(/block_type|tool_pending/);
+    expect(f.recorder.events.some((event) => event.type === "runtime.error" && /wrote a step out as text/.test((event as { message?: string }).message ?? ""))).toBe(true);
+    expect(f.requests).toHaveLength(2);
+  });
+});
+
 describe("OpenAI-compatible computer images", () => {
   const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jBv0AAAAASUVORK5CYII=";
   it("runs the dog's own computer without a card when Off-leash, and still asks for a custom server", async () => {
