@@ -161,7 +161,8 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
       child.on("close", () => resolve());
       setTimeout(() => (child.kill("SIGKILL"), resolve()), 5_000).unref?.();
     });
-    rmSync(home, { recursive: true, force: true });
+    // The server's own children can still be writing for a moment after it exits.
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it("ends the dog's wait with the close note and hides the card", async () => {

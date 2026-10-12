@@ -87,7 +87,7 @@ posixOnly("choosing how a message reaches a working dog", () => {
       child.on("close", () => resolve());
       setTimeout(() => (child.kill("SIGKILL"), resolve()), 5_000).unref?.();
     });
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it("Queue keeps the words for their own turn, even on an engine that could steer them in", async () => {

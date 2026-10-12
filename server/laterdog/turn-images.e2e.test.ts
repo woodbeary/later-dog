@@ -88,7 +88,7 @@ describe.skipIf(process.platform === "win32")("images a dog takes mid-turn", () 
       child.on("close", () => resolve());
       setTimeout(() => (child.kill("SIGKILL"), resolve()), 5_000).unref?.();
     });
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it("shows the image while the turn is still running and keeps it where it was taken", async () => {

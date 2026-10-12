@@ -91,7 +91,7 @@ describe.skipIf(process.platform === "win32")("a picture sent while a dog works"
       child.on("close", () => resolve());
       setTimeout(() => (child.kill("SIGKILL"), resolve()), 5_000).unref?.();
     });
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it("steers the picture straight into the running turn", async () => {
