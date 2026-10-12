@@ -15,6 +15,7 @@ const fixture = vi.hoisted(() => ({
   posts: [] as string[],
   /** Looks at this conversation's computer (GET), each a relay call. */
   looks: 0,
+  dispatch: vi.fn(),
 }));
 vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   ...await importOriginal<typeof import("./DesktopCapabilities")>(),
@@ -76,7 +77,7 @@ const makeBot = (patch: Partial<Bot> = {}): Bot => ({
 let root: Root | null = null;
 const value = (): Parameters<typeof BotEditorStore>[0]["value"] => ({
   state: { ...initialState, instances: [engine], config: { box: { configured: true } } as AppState["config"] } as AppState,
-  dispatch: vi.fn(),
+  dispatch: fixture.dispatch,
   flushBotPatches: async () => null,
   refreshInstances: async () => {},
   refreshModels: async () => {},
@@ -126,11 +127,16 @@ describe("Computer panel on Cloud computer", () => {
     expect(fixture.posts).toEqual([]);
   });
 
-  it("choosing Cloud computer creates nothing either", async () => {
-    await open(makeBot());
+  it("choosing Cloud computer creates nothing by itself", async () => {
     await open(makeBot({ computer: "cloud" }));
     expect(button("Start it now")).toBeDefined();
     expect(fixture.posts).toEqual([]);
+  });
+
+  it("boots the cloud computer when a dog with none chosen opens its computer, like Grok Bot", async () => {
+    await open(makeBot());
+    await settle();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "scout", patch: { computer: "cloud" } });
   });
 
   it("while the bot only chats, says its cloud computer starts when a task needs it", async () => {

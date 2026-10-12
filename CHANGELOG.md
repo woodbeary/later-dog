@@ -3,6 +3,7 @@
 ## 0.3.12 — 2026-10-12
 
 - **Straight into a chat.** A new later.dog asks your name and lets you pick a dog, then opens its chat already running on later.dog AI. No AI or sign-in step: the free trial starts by itself, and Claude or ChatGPT sign-ins wait in Settings for when you want them.
+- **Open a dog's computer and it boots.** Clicking the computer button starts the dog's cloud computer and shows its screen, A dog you put on this Mac keeps it.
 - **Model and effort by the message field**, like other coding apps, instead of in the chat's header.
 - **A calmer sidebar.** The server switcher only appears when you're connected to another server, and the update icon sits at the bottom next to Apps.
 - **Accounts:** the drag handle to reorder them is always visible, and "Keep going when an account runs out" lives in Settings.
