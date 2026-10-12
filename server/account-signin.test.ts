@@ -59,7 +59,6 @@ describe("the exchange with the control plane", () => {
   it("is off with an empty allow-list and says so when the sign-in service is down", async () => {
     const off = createEmailSignIn({ allow: () => ({ admins: [], members: [] }) });
     expect(off.enabled()).toBe(false);
-    // an allow-list alone is not enough: no account service is built in
     const unconfigured = createEmailSignIn({ allow: { admins: ["a@b.test"], members: [] }, env: {} });
     expect(unconfigured.enabled()).toBe(false);
     expect(await unconfigured.start("a@b.test")).toMatchObject({ ok: false, status: 502, error: expect.stringContaining("LATERDOG_CONTROL_PLANE_URL") });

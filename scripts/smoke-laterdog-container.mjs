@@ -19,7 +19,7 @@ async function start() {
     try {
       const response = await fetch(`${origin}/v1/workspace`);
       if (response.status === 401) return origin;
-    } catch { /* Wait for the container HTTP listener. */ }
+    } catch {}
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error('Container did not start its authenticated supervisor');

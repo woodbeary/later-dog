@@ -1,5 +1,3 @@
-// attachments.ts: save + read-back, the mime allowlist, size ceiling, and
-// the name-lock that keeps the serving route inside the attachments dir.
 import {
   existsSync,
   mkdirSync,
@@ -37,8 +35,6 @@ afterEach(() => {
   vi.mocked(writeFileSync).mockReset().mockImplementation(realWriteFileSync);
 });
 
-// The module reads DATA_DIR at import time, so the env var must be set
-// before the import is evaluated.
 const DATA_ROOT = mkdtempSync(join(tmpdir(), "laterdog-attachments-"));
 process.env.LATERDOG_HOME = join(DATA_ROOT, "data");
 
@@ -63,10 +59,6 @@ const {
   validateAttachmentUploadId,
 } = await import("./attachments.ts");
 
-// The cache tracks committed bytes in memory; anything that mutates
-// ATTACHMENTS_DIR directly on disk (rmSync/truncateSync/writeFileSync, all
-// used below to force quota states without a real 512MiB file) must reset it
-// so the next quota check rescans instead of trusting stale counts.
 function resetDir() {
   rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
   __resetAttachmentAccountingForTests();
@@ -310,9 +302,6 @@ describe("aggregate attachment storage", () => {
     expect(() => saveImage(Buffer.from("y"), "image/png")).toThrow(/storage is full/);
     const old = new Date(Date.now() - ATTACHMENT_PARTIAL_MAX_AGE_MS - 1_000);
     utimesSync(orphan, old, old);
-    // Reservation checks no longer rescan the directory on every call (that
-    // was the PERF-03 hot loop); a stale partial is reclaimed by an explicit
-    // cleanup sweep, not automatically on the next quota check.
     expect(cleanupStaleAttachmentPartials()).toBe(1);
     expect(() => saveImage(Buffer.from("y"), "image/png")).not.toThrow();
     expect(existsSync(orphan)).toBe(false);
@@ -410,7 +399,6 @@ describe("aggregate attachment storage", () => {
         });
       }
       expect(() => saveImage(Buffer.from("x"), "image/png", UPLOAD_B)).toThrow("partial file is locked");
-      // This scan sees the linked file while its commit callback is pending.
       expect(() => saveImage(Buffer.from("y"), "image/png")).toThrow(/storage is full/);
     } finally {
       finishCommit();
@@ -422,10 +410,6 @@ describe("aggregate attachment storage", () => {
   });
 
   it("initializes correctly on a fresh process against a directory that already has files", () => {
-    // No saveImage/saveFile call has happened yet in this test, so the cache
-    // is still cold (__resetAttachmentAccountingForTests in the previous
-    // test's afterEach already guaranteed that) — this mirrors a process
-    // restart that finds attachments already on disk from a prior run.
     mkdirSync(ATTACHMENTS_DIR, { recursive: true });
     const preexisting = join(ATTACHMENTS_DIR, "11111111-1111-4111-8111-111111111111.png");
     writeFileSync(preexisting, "x");
@@ -449,8 +433,8 @@ describe("readAttachment name lock", () => {
     expect(readAttachment(".env")).toBeNull();
     expect(readAttachment("a/b.png")).toBeNull();
     expect(readAttachment("no-extension")).toBeNull();
-    expect(readAttachment("uuid.jpeg")).toBeNull(); // saved as .jpg
-    expect(readAttachment("note.wav")).toBeNull(); // only .mp3 audio is written
+    expect(readAttachment("uuid.jpeg")).toBeNull();
+    expect(readAttachment("note.wav")).toBeNull();
   });
 });
 
@@ -462,7 +446,6 @@ describe("parseAudioRange", () => {
     expect(parseAudioRange("bytes=500-999", SIZE)).toEqual({ kind: "range", start: 500, end: 999 });
     expect(parseAudioRange("bytes=400-", SIZE)).toEqual({ kind: "range", start: 400, end: 999 });
     expect(parseAudioRange("bytes=-100", SIZE)).toEqual({ kind: "range", start: 900, end: 999 });
-    // a suffix longer than the file is the whole file
     expect(parseAudioRange("bytes=-9999", SIZE)).toEqual({ kind: "range", start: 0, end: 999 });
   });
 
@@ -486,14 +469,11 @@ describe("parseAudioRange", () => {
     expect(parseAudioRange("bytes=99-0", SIZE)).toEqual({ kind: "none" });
     expect(parseAudioRange("bytes=0 - 99", SIZE)).toEqual({ kind: "none" });
     expect(parseAudioRange("chunks=0-99", SIZE)).toEqual({ kind: "none" });
-    // surrounding OWS is legal per RFC 9110 and common from proxies
     expect(parseAudioRange("  bytes=0-99  ", SIZE)).toEqual({ kind: "range", start: 0, end: 99 });
   });
 
   it("distinguishes an empty suffix from a zero suffix", () => {
-    // no bounds at all is malformed input: answer with the full 200 body
     expect(parseAudioRange("bytes=-", SIZE)).toEqual({ kind: "none" });
-    // a real zero-length suffix is valid but unsatisfiable, per RFC 9110
     expect(parseAudioRange("bytes=-0", SIZE)).toEqual({ kind: "unsatisfiable" });
   });
 });

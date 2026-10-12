@@ -3,8 +3,6 @@ import { captureOutsideHumanControl, type PrivateScreenFrame } from "./private-s
 export type ScreenCapture = () => Promise<{ png: string; format: string }>;
 type Surface = "browser" | "computer";
 
-/** One serialized preview source. A cached or in-flight desktop frame must
- * never become the browser's settled picture after the bot switches surfaces. */
 export function createScreenFrameSource(input: {
   captures: { computer?: ScreenCapture; browser?: ScreenCapture };
   control: () => { held: boolean; revision: number };
@@ -25,8 +23,6 @@ export function createScreenFrameSource(input: {
       return lastSurface === selectedSurface() ? last : null;
     },
     async capture(fresh = false): Promise<void> {
-      // Wait for the previous source before selecting the next one. A final
-      // capture bypasses the preview throttle, even if a poke just finished.
       while (current) await current;
       if (input.control().held) return;
       const surface = selectedSurface();
@@ -41,9 +37,7 @@ export function createScreenFrameSource(input: {
           last = frame;
           lastSurface = surface;
           input.onFrame(frame);
-        } catch {
-          // A sleeping or mid-command surface is retried by the next tick.
-        } finally {
+        } catch {} finally {
           lastAt = Date.now();
         }
       })();

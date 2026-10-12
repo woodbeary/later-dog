@@ -1,14 +1,9 @@
-// Landing on a message: after a search hit, scroll the row into view and
-// flash it. Rows are wrapped in `display: contents` (no box of their own),
-// so the wrapper carries data-mid and its last child — the bubble/chip,
-// after any day separator — is what gets scrolled and highlighted.
 import { useEffect } from "react";
 import { api, useStore, type Action, type AppState } from "@/state/store";
 import type { SearchHit } from "@/lib/search-hit";
 
 const FLASH_CLASSES = ["ring-2", "ring-accent/70", "rounded-2xl", "transition-shadow"];
 
-/** Select and prepare the exact conversation represented by a search hit. */
 export async function landOnSearchHit(
   hit: SearchHit,
   state: Pick<AppState, "bots" | "groups">,
@@ -78,7 +73,6 @@ export function useFocusMessage(threadId: string, ready: boolean) {
   const focus = state.focusMessage;
   useEffect(() => {
     if (!focus || focus.consumed || focus.threadId !== threadId || !ready) return;
-    // messages may land a tick after the task switch; try briefly
     let tries = 0;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -112,9 +106,6 @@ export function useFocusMessage(threadId: string, ready: boolean) {
           scroller.scrollTop += match.top + match.height / 2 - viewport.top - viewport.height / 2;
         });
       }
-      // Consume only after the target is mounted and the flash has begun.
-      // `consumed` is intentionally not an effect dependency, so this active
-      // flash survives the bookkeeping update while future remounts ignore it.
       dispatch({ type: "focusMessageConsumed", nonce: focus.nonce });
       flashTimer = setTimeout(() => target?.classList.remove(...FLASH_CLASSES), 1800);
     };

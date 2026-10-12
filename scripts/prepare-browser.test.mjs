@@ -75,8 +75,6 @@ describe("pinned desktop browser preparation", () => {
     await expect(releaseBytes(asset, root)).resolves.toEqual(bytes);
     expect(fetch).not.toHaveBeenCalled();
     writeFileSync(join(root, asset.asset), Buffer.alloc(bytes.length));
-    // Same-size tampering is a cache miss, never a dead end: the pinned
-    // download repairs the entry.
     await expect(releaseBytes(asset, root)).resolves.toEqual(bytes);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(readFileSync(join(root, asset.asset))).toEqual(bytes);
@@ -127,8 +125,6 @@ describe("pinned desktop browser preparation", () => {
     const spec = browserBundleSpec("linux-x64");
     writeFileSync(join(cache, spec.engine.asset), "bad");
     writeFileSync(join(cache, spec.chrome.asset), "bad");
-    // Invalid cache entries are deleted and re-downloaded; a download that
-    // also fails verification keeps the failure local to this run.
     vi.stubGlobal("fetch", vi.fn(async () => new Response("bad")));
     await expect(stageBrowserTarget(root, "linux-x64", { cacheDirectory: cache })).rejects.toThrow(/verification/);
     expect(readFileSync(join(destination, "existing"), "utf8")).toBe("previous complete bundle");

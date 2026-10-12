@@ -1,6 +1,3 @@
-// PATH augmentation contract (issues #8, #12): a CLI living in a
-// well-known install dir — or an nvm bin dir — must be findable even
-// when the process itself started with a bare GUI PATH.
 import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -32,7 +29,6 @@ describe("augmentedPath", () => {
     resetPathCacheForTests();
     const path = augmentedPath();
     const firstExisting = (process.env.PATH ?? "").split(delimiter).filter(Boolean)[0];
-    // LATERDOG_EXTRA_PATH is unset here, so the inherited PATH leads
     expect(path.split(delimiter)[0]).toBe(firstExisting);
   });
 
@@ -45,7 +41,6 @@ describe("augmentedPath", () => {
   });
 
   posixIt("includes nvm bin dirs from the home dir, newest node first", () => {
-    // setup.ts points homedir at a temp dir, so this is hermetic
     const nvm = join(homedir(), ".nvm", "versions", "node");
     mkdirSync(join(nvm, "v9.0.0", "bin"), { recursive: true });
     mkdirSync(join(nvm, "v24.2.0", "bin"), { recursive: true });
@@ -56,7 +51,6 @@ describe("augmentedPath", () => {
     const v9 = parts.indexOf(join(nvm, "v9.0.0", "bin"));
     expect(v24).toBeGreaterThan(-1);
     expect(v9).toBeGreaterThan(-1);
-    // numeric sort: v24 outranks v9 despite lexicographic order
     expect(v24).toBeLessThan(v9);
   });
 
@@ -79,7 +73,6 @@ describe("augmentedPath", () => {
       execFile(
         "laterdog-fake-cli",
         [],
-        // bare GUI-style PATH + our augmentation — the augmentation must win
         { env: { PATH: augmentedPath() } },
         (err, out) => (err ? reject(err) : resolve(out)),
       );
@@ -115,7 +108,6 @@ describe("augmentedPath", () => {
   });
 
   posixIt("keeps a sealed fixture off machine-wide install dirs and the login shell (#2035)", async () => {
-    // Real directories on this machine: Homebrew's codex lives in one of them.
     const machineDirs = ["/opt/homebrew/bin", "/usr/local/bin"].filter((dir) => existsSync(dir));
     const ownBin = join(homedir(), ".local", "bin");
     mkdirSync(ownBin, { recursive: true });
@@ -131,12 +123,10 @@ describe("augmentedPath", () => {
       else process.env[key] = saved[key];
     };
     try {
-      // A bare PATH, as the fixture has, so only discovery could add a dir.
       process.env.PATH = join(homedir(), "bare-path");
       process.env.SHELL = shell;
       delete process.env.VITEST;
 
-      // Control: unsealed, the product scans both. This is the leak.
       delete process.env.LATERDOG_TEST_SEALED_PATH;
       resetPathCacheForTests();
       expect(augmentedPath().split(delimiter)).toEqual(expect.arrayContaining(machineDirs));
@@ -147,9 +137,7 @@ describe("augmentedPath", () => {
       resetPathCacheForTests();
       const sealed = augmentedPath().split(delimiter);
       for (const dir of machineDirs) expect(sealed).not.toContain(dir);
-      // Its own home is still where a test plants a CLI for it to find.
       expect(sealed).toContain(ownBin);
-      // The unsealed probe above landed well inside this; the sealed one never starts.
       await new Promise((resolve) => setTimeout(resolve, 300));
       expect(existsSync(ran)).toBe(false);
       expect(augmentedPath().split(delimiter)).not.toContain(rcOnlyBin);
@@ -165,7 +153,6 @@ describe("augmentedPath", () => {
   it("skips known dirs that do not exist", () => {
     resetPathCacheForTests();
     const parts = augmentedPath().split(delimiter);
-    // temp home: .volta was never created, so it must not appear
     expect(parts).not.toContain(join(homedir(), ".volta", "bin"));
   });
 
@@ -203,10 +190,6 @@ describe("augmentedPath", () => {
     }
   });
 
-  // MOCA-272: later.dog installs Cursor from Settings with cursor.com's Windows
-  // script, which puts cursor-agent.* (and `agent` copies) in
-  // %LOCALAPPDATA%\cursor-agent and adds that to the user PATH — which a
-  // running app never sees. Simulated so it runs on every platform.
   it("finds Cursor installed after launch on Windows", () => {
     const realPlatform = process.platform;
     const previous = { LOCALAPPDATA: process.env.LOCALAPPDATA, PATHEXT: process.env.PATHEXT };
@@ -214,7 +197,6 @@ describe("augmentedPath", () => {
     try {
       Object.defineProperty(process, "platform", { value: "win32" });
       process.env.LOCALAPPDATA = localAppData;
-      // The simulated Windows platform still has the host's case-sensitive filesystem.
       process.env.PATHEXT = ".com;.exe;.bat;.cmd";
       const cursorDir = join(localAppData, "cursor-agent");
       mkdirSync(join(cursorDir, "versions", "2026.09.28-64d2043"), { recursive: true });
@@ -265,12 +247,8 @@ describe("userHome / harnessHome", () => {
   });
 });
 
-// Windows CLI resolution — spawn(cli) alone finds nothing on Windows (no
-// PATHEXT in libuv, no #!, and a .cmd throws outright since Node's
-// CVE-2024-27980 fix). Fixtures are the two real npm shim shapes.
 const winOnly = describe.skipIf(process.platform !== "win32");
 
-// the exact bytes npm writes for a CLI whose bin is a native binary
 const EXE_SHIM = `@ECHO off
 GOTO start
 :find_dp0
@@ -282,7 +260,6 @@ CALL :find_dp0
 "%dp0%\\node_modules\\pkg\\bin\\laterdogfake.exe"   %*
 `;
 
-// ...and for one whose bin is a node script (the "_prog" dance)
 const JS_SHIM = `@ECHO off
 GOTO start
 :find_dp0
@@ -302,9 +279,6 @@ IF EXIST "%dp0%\\node.exe" (
 endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\pkg\\bin\\laterdogfake.js" %*
 `;
 
-// ...and npm's own npm.cmd / npx.cmd, which Node's installer puts beside
-// node.exe with CRLF endings: the CLI entry sits in a variable, next to a
-// helper script
 const npmLauncher = (name: "npm" | "npx") => {
   const upper = name.toUpperCase();
   return `:: Created by npm, please don't edit manually.
@@ -354,8 +328,6 @@ winOnly("resolveCli (Windows)", () => {
   afterEach(async () => {
     delete process.env.LATERDOG_EXTRA_PATH;
     resetPathCacheForTests();
-    // These tests spawn the shims out of this directory; a just-exited one can
-    // still be holding it for a beat after the call returns.
     await removeTempDir(dir);
   });
 
@@ -462,9 +434,6 @@ describe("splitCliString", () => {
   });
 
   it("strips quotes from a lone quoted path — the spaced-path case", () => {
-    // a user quoting a path with spaces pastes ONE token; the quotes must
-    // not survive into the spawn, or every turn dies ENOENT on a filename
-    // that literally contains quote characters
     expect(splitCliString('"/opt/my tools/claude"')).toEqual(["/opt/my tools/claude"]);
   });
 });
@@ -486,7 +455,6 @@ describe("resolveCli with wrapper commands", () => {
   posixIt("keeps an EXISTING unquoted spaced path whole — what the candidates list emits", () => {
     const bin = join(homedir(), ".local", "bin");
     mkdirSync(bin, { recursive: true });
-    // simulate "/Applications/My Tools/claude": a real file at a spaced path
     const spacedDir = join(bin, "laterdog space dir");
     mkdirSync(spacedDir, { recursive: true });
     const spaced = join(spacedDir, "myclaude");
@@ -495,7 +463,6 @@ describe("resolveCli with wrapper commands", () => {
       command: spaced,
       args: ["--version"],
     });
-    // a NONEXISTENT spaced string still splits (wrapper interpretation)
     expect(resolveCli(join(spacedDir, "nope two words"), ["--version"])).toEqual({
       command: join(bin, "laterdog"),
       args: ["space", "dir/nope", "two", "words", "--version"],

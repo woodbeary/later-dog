@@ -1,32 +1,9 @@
-// The release's CI gate (release.yml, job `ci`): ship only a commit whose own
-// `CI` check (ci.yml's gate job) passed.
-//
-// Main keeps at most one CI run going and one waiting, and each merge
-// replaces the waiting one, so the release commit's own push run can be
-// skipped. When that happens (or no run exists), this starts CI on the commit
-// in its own lane: a `release-ci/v<version>` branch at the pinned commit,
-// whose concurrency group no merge on main can touch. The branch is deleted
-// at the end.
 import { pathToFileURL } from "node:url";
 
 const RELEASE_EVENTS = new Set(["push", "merge_group", "workflow_dispatch"]);
 export const POLL_MS = 60_000;
 export const MAX_WAIT_MS = 170 * 60_000;
 
-/**
- * @param {{
- *   api: {
- *     runsForCommit(sha: string): Promise<Array<{ id: number, event: string, status: string, head_branch: string, created_at: string }>>,
- *     gateConclusion(runId: number): Promise<string | null>,
- *     pointBranch(branch: string, sha: string): Promise<void>,
- *     dispatchCi(branch: string): Promise<void>,
- *     deleteBranch(branch: string): Promise<void>,
- *   },
- *   sha: string, version: string,
- *   sleep?: (ms: number) => Promise<void>, now?: () => number, log?: (line: string) => void, maxWaitMs?: number,
- * }} options
- * @returns {Promise<{ ok: true, runId: number } | { ok: false, reason: string }>}
- */
 export async function waitForReleaseCi({ api, sha, version, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, log = console.log, maxWaitMs = MAX_WAIT_MS }) {
   const lane = `release-ci/v${version}`;
   const started = now();
@@ -36,7 +13,6 @@ export async function waitForReleaseCi({ api, sha, version, sleep = (ms) => new 
       const runs = (await api.runsForCommit(sha))
         .filter((run) => RELEASE_EVENTS.has(run.event))
         .sort((a, b) => b.created_at.localeCompare(a.created_at));
-      // Any finished run of this exact commit whose gate passed is proof.
       for (const run of runs.filter((run) => run.status === "completed")) {
         if (await api.gateConclusion(run.id) === "success") {
           log(`CI passed on ${sha} (run ${run.id}).`);
@@ -51,8 +27,6 @@ export async function waitForReleaseCi({ api, sha, version, sleep = (ms) => new 
         }
         log(own ? `Release-lane CI run ${own.id} is ${own.status}; waiting.` : "Waiting for the release-lane CI run to appear.");
       } else {
-        // Red is red: a failed gate on this commit stops the release rather
-        // than being retried until it passes.
         for (const run of runs.filter((run) => run.status === "completed")) {
           const gate = await api.gateConclusion(run.id);
           if (gate === "failure") return { ok: false, reason: `The CI check on ${sha} failed: run ${run.id}` };
@@ -61,7 +35,6 @@ export async function waitForReleaseCi({ api, sha, version, sleep = (ms) => new 
         if (live) {
           log(`CI run ${live.id} on ${sha} is ${live.status}; waiting.`);
         } else {
-          // No run, or only cancelled/skipped ones (a newer merge replaced it).
           log(`No finished or running CI on ${sha}; starting it on ${lane}.`);
           await api.pointBranch(lane, sha);
           await api.dispatchCi(lane);
@@ -76,10 +49,6 @@ export async function waitForReleaseCi({ api, sha, version, sleep = (ms) => new 
   }
 }
 
-/** GitHub REST calls for the release job's GITHUB_TOKEN. A 5xx or a dropped
- * connection is GitHub having a moment, not a verdict: it is tried again
- * after each of `retryDelaysMs` before the release gives up. (v0.1.99's gate
- * died on one HTTP 500 from the CI dispatch.) */
 export function githubApi({ token, repository, apiUrl = "https://api.github.com", fetchImpl = fetch,
   retryDelaysMs = [5_000, 15_000, 45_000], sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   const call = async (method, path, body) => {
@@ -109,7 +78,6 @@ export function githubApi({ token, repository, apiUrl = "https://api.github.com"
       return (await call("GET", `/actions/workflows/ci.yml/runs?head_sha=${sha}&per_page=100`)).workflow_runs;
     },
     async gateConclusion(runId) {
-      // The jobs list is the latest attempt, so a re-run of failed jobs counts.
       const { jobs } = await call("GET", `/actions/runs/${runId}/jobs?per_page=100`);
       return jobs.find((job) => job.name === "CI")?.conclusion ?? null;
     },

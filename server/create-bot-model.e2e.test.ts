@@ -61,8 +61,6 @@ it("Chief creation uses the workspace default or a validated explicit model and 
     writeFileSync(gate, "finish");
     await expect.poll(async () => !(await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === chief.id).busy, { timeout: 20_000 }).toBe(true);
     await create("Expired authority", undefined, 401);
-    // Changing the config revokes old capabilities. A fresh authorized turn
-    // sees the new default; previously created bots keep their selected models.
     await api("PATCH", "/api/config", { defaultModelSelection: explicit });
     unlinkSync(gate);
     unlinkSync(fixture.fixtureDumpPath);

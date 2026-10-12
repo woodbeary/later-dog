@@ -28,7 +28,6 @@ test("branding refreshes with the granted organization and disappears on disconn
   await f.client.disconnect(); assert.equal(f.client.state().branding, undefined);
 });
 function fixture(t, { saved = null, handler, apply, write, now, appVersion, store } = {}) {
-  // A second client in the same test (a restart) shares the mocked clock.
   try { t.mock.timers.enable({ apis: ["setTimeout"] }); } catch (error) { if (error?.code !== "ERR_INVALID_STATE") throw error; }
   const applied = [], policies = [], identities = [], requests = [], opened = [], states = [], record = { value: saved };
   let writes = Promise.resolve();
@@ -115,7 +114,6 @@ test("temporary portal failures do not drop a previously valid Company snapshot 
   const appliedBefore = f.applied.length;
   await f.client.refresh();
   assert.equal(f.client.state().status, "unavailable"); assert.equal(f.client.connection().token, modelToken);
-  // A server process that restarted while offline has an empty overlay.
   assert.equal(f.applied.length, appliedBefore + 1); assert.equal(f.applied.at(-1).token, modelToken);
   assert(!JSON.stringify(f.states).includes(token));
   unavailable = false; await f.tick(60_000); assert.equal(f.client.state().status, "connected");
@@ -215,7 +213,7 @@ test("runtime clear failure still removes the saved credential and revokes the p
   assert.equal(f.record.value, null); assert.equal(f.client.connection(), null); assert.equal(state.status, "signed-out");
   assert.match(state.message, /did not confirm stopping/); assert(!state.message.includes(modelToken));
   assert.equal(f.requests.filter(row => row.options.method === "DELETE").length, 1);
-  await f.client.disconnect(); // The first attempt already fulfilled remote revocation.
+  await f.client.disconnect();
   assert.equal(f.requests.filter(row => row.options.method === "DELETE").length, 1);
 });
 test("failed durable removal preserves a cleanup target and blocks reconnect until retry succeeds", async t => {
@@ -291,7 +289,7 @@ test("secure record is encrypted, atomic, bounded and does not follow a symlink 
   unlocked = false; await assert.rejects(store.read(), /keychain/);
   await store.write(null); assert.equal(await store.read(), null);
   await assert.rejects(fs.stat(file), { code: "ENOENT" });
-  await store.write(null); // Missing records are already forgotten.
+  await store.write(null);
   unlocked = true; await store.write(saved); assert.deepEqual(await store.read(), saved);
   await Promise.all([store.write(saved), store.write(null)]); assert.equal(await store.read(), null);
   assert.deepEqual(await fs.readdir(root), []);
@@ -303,7 +301,6 @@ test("secure record is encrypted, atomic, bounded and does not follow a symlink 
   }
 });
 
-/** Electron 43's safeStorage shape over a one-byte key, counting finished reads. `lock.locked` stands in for a locked keychain. */
 function electron43Store(file, lock = { locked: false }, decrypt) {
   const store = createManagedDesktopStore({ file, encryption: { available: async () => !lock.locked,
     encrypt: async text => Buffer.from(text).map(byte => byte ^ 0x5a),
@@ -311,16 +308,13 @@ function electron43Store(file, lock = { locked: false }, decrypt) {
   const counted = { reads: 0, read: () => store.read().finally(() => { counted.reads++; }), write: value => store.write(value) };
   return counted;
 }
-// The fixture mocks setTimeout; real file reads finish on their own time.
 const until = async check => { const end = Date.now() + 5000; while (!check()) { if (Date.now() > end) assert.fail("did not happen"); await new Promise(resolve => setImmediate(resolve)); } };
 
 test("a saved company sign-in that can never be read is removed, and signing in again is the one next step", async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "laterdog-managed-unreadable-")); t.after(() => fs.rm(root, { recursive: true, force: true }));
   const file = path.join(root, "company-connection.bin");
   for (const decrypt of [
-    // This computer's key no longer opens it (Windows after a reinstall onto a new profile).
     async () => { throw new Error("Error while decrypting the ciphertext provided to safeStorage.decryptString."); },
-    // It opens to something that is not JSON, or to JSON that is not an enrollment.
     async () => ({ shouldReEncrypt: false, result: "not json" }),
     async () => ({ shouldReEncrypt: false, result: JSON.stringify({ token: "not-a-company-token" }) }),
   ]) {
@@ -341,7 +335,6 @@ test("a locked keychain never removes the saved company sign-in: it is read agai
   const f = fixture(t, { store, handler: (url, options) => url.endsWith("/api/desktop/session") && options.method !== "DELETE" ? Response.json(session(saved)) : null });
   const first = await f.client.start();
   assert.equal(first.status, "unavailable"); assert.equal(f.policies.length, 0);
-  // It reads again by itself, so the line asks for nothing: no restart, no keychain step.
   assert.equal(first.message, "The saved company sign-in can't be read right now. later.dog tries again every minute.");
   for (const delay of [15_000, 30_000, 60_000]) {
     const reads = store.reads;
@@ -396,7 +389,6 @@ test("renews on start with an Admin that advertises it, keeping the deviceId and
   assert.equal(renewals.length, 1);
   assert.deepEqual(body(renewals[0]), { platform: "linux", appVersion: "0.1.86" });
   assert.equal(renewals[0].options.headers.authorization, `Bearer ${token}`);
-  // Not again while plenty of time remains; again once fewer than seven days are left.
   await f.client.refresh();
   assert.equal(f.requests.filter(row => row.url.endsWith("/session/renew")).length, 1);
   clock += 24 * DAY; await f.client.refresh();
@@ -478,11 +470,9 @@ test("applies the organisation policy read-only, keeps it with the encrypted gra
   assert.equal("policy" in f.applied.at(-1), false, "the model grant never carries the policy");
   const report = f.requests.find(row => row.url.endsWith("/api/desktop/heartbeat"));
   assert.equal(body(report).policyVersion, 2, "Admin learns which policy is applied");
-  // A malformed policy keeps the last one rather than widening access.
   current = { ...policy(), computers: "all" }; await f.client.refresh();
   assert.equal(f.policies.at(-1).version, 2); assert.equal(f.client.policy().remoteAccess, false);
 
-  // Restart while the Admin is unreachable: the saved policy applies first.
   let appliedBeforeNetwork = null, offline = null;
   offline = fixture(t, { saved: f.record.value, handler: () => { appliedBeforeNetwork ??= structuredClone(offline.policies); throw new Error("offline"); } });
   await offline.client.start();
@@ -541,12 +531,10 @@ test("re-sends the saved policy before any network call when the runtime restart
   let release;
   const f = fixture(t, { saved: grant(), handler: (url, options) => url.endsWith("/api/desktop/session") && options.method !== "DELETE" ? Response.json({ ...session(grant()), policy: policy() }) : null });
   await f.client.start(); await settle();
-  // The runtime restarted and lost its overlay; the heartbeat is slow.
   const before = f.policies.length;
   const slow = fixture(t, { saved: f.record.value, handler: (url, options) => url.endsWith("/api/desktop/session") && options.method !== "DELETE" ? new Promise(resolve => { release = resolve; }) : null });
   const starting = slow.client.start(); await settle();
   assert.equal(slow.policies.at(-1).version, 2, "applied while the network call is still pending");
-  // A later refresh (the runtime's ready hook) also re-sends it first.
   const count = slow.policies.length;
   release(Response.json({ ...session(grant()), policy: policy() })); await starting;
   const refreshing = slow.client.refresh(); await settle();

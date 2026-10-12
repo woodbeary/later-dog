@@ -79,7 +79,6 @@ export async function withBoundedRequestBody(request: Request): Promise<Request>
 
   const headers = new Headers(request.headers);
   headers.delete("content-length");
-  // Mutating methods are the only path here; safe methods returned above.
   // oxlint-disable-next-line unicorn/no-invalid-fetch-options
   return new Request(request, { body: bytes.buffer, headers });
 }

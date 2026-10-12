@@ -1,6 +1,3 @@
-// Full server + built viewer + synthetic Docker/RFB, in disposable homes.
-// Build first, then run with explicit LATERDOG_AGENT_BROWSER_PATH and
-// AGENT_BROWSER_EXECUTABLE_PATH if reusing installed browser binaries.
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,8 +18,6 @@ const desktop = await fakeVnc();
 let fixture: VerificationServer | undefined;
 let browser: { binary: string; env: NodeJS.ProcessEnv } | undefined;
 try {
-  // This executable answers only read-only inspection. No command can reach
-  // the machine's real Docker installation, even during fixture startup.
   writeFileSync(join(bin, "docker"), `#!${process.execPath}
 let args = process.argv.slice(2);
 if (args[0] === "-H") args = args.slice(2);
@@ -52,7 +47,6 @@ else if (args[0] === 'ps') result = '';
 else process.exit(1);
 process.stdout.write(typeof result === 'string' ? result : JSON.stringify(result));
 `, { mode: 0o700 });
-  // Stand in for SSH with an owned loopback TCP forward. It cannot dial a VPS.
   writeFileSync(join(bin, "ssh"), `#!${process.execPath}
 const net = require('node:net');
 const fs = require('node:fs');
@@ -81,8 +75,6 @@ process.on('SIGTERM',()=>{fs.appendFileSync(log,'close ');process.exit(0)});
   const command = (...args: string[]) => agentBrowser(binary, env, args);
   const evaluate = async <T = unknown>(js: string) => (await command("eval", js)).result as T;
   await command("open", `${fixture.info.url}/desktop-viewer#target=local%2Fshared`);
-  // Pair through the actual HTTP endpoint in this disposable browser. The
-  // resulting cookie forces both status and upgrades through session auth.
   assert.equal(await evaluate(`(async () => (await fetch('/api/auth/pair', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:${JSON.stringify(pairing.code)},cookie:true,label:'Viewer fixture'})})).status)()`), 200);
   await command("wait", "--fn", "document.getElementById('retry') !== null");
   let nextConnection = desktop.nextConnection();
@@ -127,7 +119,6 @@ process.on('SIGTERM',()=>{fs.appendFileSync(log,'close ');process.exit(0)});
   await evaluate("document.getElementById('clipboard-text').select()");
   await command("press", "Backspace");
   assert.deepEqual(await nextClipboard, [""]);
-  // Editing this field syncs automatically; device clipboard permissions are never requested.
   await command("click", "#clipboard");
   assert.equal(await evaluate("document.getElementById('fit') === null"), true);
   const normalFit = "(() => { const r = document.getElementById('screen').getBoundingClientRect(), m = document.querySelector('main').getBoundingClientRect(); return r.width / m.width > .94 && r.width / m.width < .96 && r.height / m.height > .94 && r.height / m.height < .96; })()";
@@ -191,20 +182,16 @@ process.on('SIGTERM',()=>{fs.appendFileSync(log,'close ');process.exit(0)});
   assert.equal(await evaluate(matchingBackgrounds), true);
   const lightScreenshot = join(evidenceDir, `viewer-${process.pid}-light.png`);
   await command("screenshot", lightScreenshot);
-  // Match the shared skin rules for both enabled and disabled accent buttons.
   await evaluate("document.documentElement.dataset.skin = 'foundry'");
   await command("wait", "--fn", "getComputedStyle(document.getElementById('send')).color === 'rgb(176, 166, 150)'");
   await command("fill", "#text", "Foundry preview");
   await command("wait", "--fn", "getComputedStyle(document.getElementById('send')).color === 'rgb(28, 21, 12)'");
   const foundryScreenshot = join(evidenceDir, `viewer-${process.pid}-foundry.png`);
   await command("screenshot", foundryScreenshot);
-  // A short landscape viewport must keep both the dock and panel scrollable.
   await command("set", "viewport", "844", "390");
   assert.equal(await evaluate("document.documentElement.scrollHeight <= innerHeight && document.querySelector('section').getBoundingClientRect().height <= innerHeight"), true);
   assert.equal(await evaluate("(async () => { document.getElementById('keyboard').click(); await new Promise(requestAnimationFrame); const p = document.querySelector('section'); return !p || p.inert; })()"), true);
   await command("wait", "--fn", "!document.querySelector('section')");
-  // Reuse the app's reduced-motion path and verify that a closed panel leaves
-  // no focusable controls behind, including during its normal animated exit.
   await evaluate("document.documentElement.dataset.reducedMotion = 'true'");
   await command("click", "#keyboard");
   await command("click", "#keyboard");
@@ -213,8 +200,6 @@ process.on('SIGTERM',()=>{fs.appendFileSync(log,'close ');process.exit(0)});
   await command("click", "#retry");
   await nextConnection;
   await command("wait", "--fn", "document.getElementById('status').textContent === 'Desktop connected'");
-  // Leaving while the credentials request is in flight must abort it. A
-  // persisted-page restore must then establish a fresh connection.
   await evaluate(`(() => {
     const fetch = window.fetch;
     window.fetch = async (input, init) => {
@@ -234,13 +219,11 @@ process.on('SIGTERM',()=>{fs.appendFileSync(log,'close ');process.exit(0)});
   await evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}))");
   await nextConnection;
   await command("wait", "--fn", "document.getElementById('status').textContent === 'Desktop connected'");
-  // Exercise the real VPS join route, SSH process lifecycle and the same UI.
   await runControlLaterDog(["new-bot", "--name", "VPS fixture", "--url", fixture.info.url]);
   const { bots } = await api("GET", "/api/bots?messages=0");
   const vpsBot = bots.find((bot: { name: string }) => bot.name === "VPS fixture");
   await api("PATCH", "/api/config", { vps: { sshAlias: "viewer-fixture" } });
   await api("PATCH", `/api/bots/${vpsBot.id}`, { computer: "cloud", cloudBackend: "vps" });
-  // Two tabs opening at once share one join instead of the second being refused.
   const [joined] = await evaluate<{joinUrl:string}[]>(`Promise.all([0, 1].map(() => fetch('/api/bots/${vpsBot.id}/computer/join',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(async r=>{if(!r.ok)throw new Error(await r.text());return r.json()})))`);
   const viewer = new URL(joined.joinUrl, fixture.info.url);
   assert.equal(viewer.pathname, "/desktop-viewer");

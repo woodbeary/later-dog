@@ -1,9 +1,3 @@
-// later.dog's dog: a front-facing head per breed, drawn from data in ./dog-breeds.ts. A dog reads as a dog by the
-// things a person checks first — the ears, a pale muzzle with a big dark nose and a mouth line, eyes with a glint —
-// and as its breed by ear shape, head shape and markings. Every fill is a tone of the one colour the person picked
-// (dog-avatar.css), so any colour still gives the breed. Motion is CSS on a few groups (body, ears, eyes, nose,
-// tongue) chosen by the mood on the root; every mood has a still pose too, so a paused or reduced-motion dog still
-// reads as what it is doing.
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { DogState } from "@/lib/mascot";
 import { BREEDS, DOG_BREEDS, type BreedLook, type DogBreed, type Shape } from "./dog-breeds";
@@ -15,7 +9,6 @@ export function isDogBreed(id: string | null | undefined): id is DogBreed {
   return (DOG_BREEDS as readonly string[]).includes(id ?? "");
 }
 
-/** The ten things a dog can visibly be doing; every app state maps onto one. */
 export type DogMood = "rest" | "listen" | "think" | "work" | "search" | "alert" | "happy" | "sleep" | "sad" | "angry";
 const MOODS: Partial<Record<DogState, DogMood>> = {
   idle: "rest", humming: "rest", orbit: "rest",
@@ -51,7 +44,6 @@ export interface DogFaceProps {
   spinMs?: number;
 }
 
-/** The drawing alone, for a look given as data (the avatar, the breed picker, the motion library). */
 export function DogFace({ look, breed, color, mood = "rest", size = 44, title, gaze, paused = false, blinking = false, spinMs = 0 }: DogFaceProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const svg = useRef<SVGSVGElement>(null);
@@ -178,14 +170,11 @@ export interface BreedAvatarHandle {
 
 export interface BreedAvatarProps {
   breed: DogBreed;
-  /** The dog's colour; every marking is a tone of it. */
   color: string;
   state?: DogState;
   size?: number;
   title?: string | null;
-  /** Where the dog looks, each axis -1..1 (the pointer, or a caller's pin). */
   gaze?: { x?: number; y?: number };
-  /** Hold the mood's pose without looping. */
   paused?: boolean;
 }
 

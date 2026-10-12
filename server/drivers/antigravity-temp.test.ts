@@ -1,6 +1,3 @@
-// Antigravity's Windows unpack folders: where they go, and what may delete
-// them. Every test runs on every OS: Windows paths and process lookups are
-// injected, and the folders are real directories under a throwaway root.
 import {
   existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync,
 } from "node:fs";
@@ -21,8 +18,6 @@ import {
   unpackFolderOwnerPids,
 } from "./antigravity-temp.ts";
 
-// Runs just before the code under test renames (claims) a folder, so a test
-// can stage what another remover does in between. Unset: a plain rename.
 const beforeRename = vi.hoisted(() => ({ run: null as null | ((from: string) => void) }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>();
@@ -47,13 +42,9 @@ function tempRoot(label: string): string {
   return directory;
 }
 
-/** PyInstaller 6.22.1+ names: `_MEI` + 8 hex digits of the ID + counter. */
 const hexName = (pid: number, counter = 2) => `_MEI${pid.toString(16).padStart(8, "0")}${counter}`;
-/** Older names: `_MEI` + decimal ID + counter. */
 const decimalName = (pid: number, counter = 2) => `_MEI${pid}${counter}`;
 
-/** A fake unpack folder with a file inside, optionally with Antigravity's
- * marker files, and optionally dated in the past. */
 function unpackFolder(
   parent: string,
   name: string,
@@ -80,9 +71,7 @@ describe("Antigravity's temp folder", () => {
     expect(work).toBe(antigravityTempDir(dataDir, "work"));
     expect(dirname(work)).toBe(join(dataDir, "tmp", "agy"));
     expect(antigravityTempRoot(dataDir)).toBe(dirname(work));
-    // Short: the runtime unpacks files up to 120 characters deep.
     expect(work.slice(dataDir.length)).toMatch(/^[\\/]tmp[\\/]agy[\\/][0-9a-f]{12}$/u);
-    // Instance IDs that differ only in case stay apart on case-insensitive disks.
     expect(antigravityTempDir(dataDir, "Work")).not.toBe(work);
     expect(antigravityTempDir(dataDir, "personal")).not.toBe(work);
   });
@@ -112,7 +101,6 @@ describe("reading an unpack folder's process ID", () => {
 
   it("keeps every reading of an older decimal name, so a live owner is never missed", () => {
     expect(unpackFolderOwnerPids(decimalName(17348))).toEqual([17348, 1734, 173]);
-    // Eight digits read both ways.
     expect(unpackFolderOwnerPids(`_MEI${12345678}2`)).toEqual(expect.arrayContaining([0x12345678, 12345678, 1234567, 123456]));
   });
 
@@ -173,7 +161,6 @@ describe("the automatic sweep", () => {
     mkdirSync(antigravityTempDir(dataDir, "work"), { recursive: true });
     expect(await sweepAntigravityTemp("work", { dataDir, isAlive: () => false })).toBe(0);
     expect(existsSync(other)).toBe(true);
-    // The system temp folder is only ever cleaned when the person asks.
     expect(existsSync(system)).toBe(true);
   });
 
@@ -181,7 +168,6 @@ describe("the automatic sweep", () => {
     const dataDir = tempRoot("links");
     const outside = tempRoot("outside");
     const precious = unpackFolder(outside, hexName(0x2222));
-    // The instance folder itself is a link to somewhere else.
     mkdirSync(antigravityTempRoot(dataDir), { recursive: true });
     symlinkSync(outside, antigravityTempDir(dataDir, "work"), linkType);
     expect(await sweepAntigravityTemp("work", { dataDir, isAlive: () => false })).toBe(0);
@@ -218,9 +204,6 @@ describe("Free up space", () => {
 
   function fixture() {
     const dataDir = tempRoot("free");
-    // Resolved as the code resolves it, with the native call: macOS keeps
-    // temp behind a link, and Windows runners name it with an 8.3 short
-    // name (RUNNER~1) that only the native call expands.
     const systemTemp = realpathSync.native(tempRoot("free-system"));
     const alive = new Set([0x1111]);
     const folders = {
@@ -231,7 +214,6 @@ describe("Free up space", () => {
       claimed: unpackFolder(systemTemp, `.laterdog-removing-${hexName(0x5555)}-abcdef12`, { ageMs: OLD }),
       recent: unpackFolder(systemTemp, hexName(0x3333), { markers: "both", ageMs: 60_000 }),
       running: unpackFolder(systemTemp, hexName(0x1111), { markers: "both", ageMs: OLD }),
-      // Another PyInstaller app: only one of the two marker files.
       otherApp: unpackFolder(systemTemp, hexName(0x4444), { markers: "dll-only", ageMs: OLD }),
     };
     const options = { dataDir, systemTemp, platform: "win32" as const, isAlive: (pid: number) => alive.has(pid) };
@@ -245,9 +227,7 @@ describe("Free up space", () => {
       [folders.app, folders.leftover, folders.leftoverDecimal, folders.claimed].sort(),
     );
     expect(scan.complete).toBe(true);
-    // Payloads plus the two marker files in each system leftover.
     expect(scan.bytes).toBe(4_000 + 10_000 + 20_000 + 1_000 + 2 * ("licences".length + "dll".length));
-    // Looking deletes nothing.
     for (const path of Object.values(folders)) expect(existsSync(path)).toBe(true);
   });
 
@@ -273,15 +253,12 @@ describe("Free up space", () => {
   });
 
   it("does not call a folder another remover got to first still in use", async () => {
-    // The automatic sweep and "Free up space" can pick the same folder.
     const dataDir = tempRoot("race-listed");
     const listed = unpackFolder(antigravityTempDir(dataDir, "work"), hexName(0x2222));
-    // Gone between the listing and the claim.
     const isAlive = () => { rmSync(listed, { recursive: true, force: true }); return false; };
     expect(await removeAntigravityLeftovers({ dataDir, isAlive, platform: "linux" }))
       .toEqual({ removed: 0, remaining: 0, freedBytes: 0 });
 
-    // Claimed by the other remover between the last check and the rename.
     const racedDir = tempRoot("race-claimed");
     const raced = unpackFolder(antigravityTempDir(racedDir, "work"), hexName(0x2222));
     beforeRename.run = (from) => {
@@ -294,7 +271,6 @@ describe("Free up space", () => {
   it("still reports a folder it could not claim because it is in use", async () => {
     const dataDir = tempRoot("in-use");
     const busy = unpackFolder(antigravityTempDir(dataDir, "work"), hexName(0x2222));
-    // What Windows answers while the runtime still has its DLLs loaded.
     beforeRename.run = () => { throw Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" }); };
     expect(await removeAntigravityLeftovers({ dataDir, isAlive: () => false, platform: "linux" }))
       .toEqual({ removed: 0, remaining: 1, freedBytes: 0 });

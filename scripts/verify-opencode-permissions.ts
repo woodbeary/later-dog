@@ -1,5 +1,3 @@
-// Real OpenCode, disposable home, deterministic loopback model. No user data,
-// real credentials or external model requests are used.
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -82,8 +80,6 @@ try {
     console.log(JSON.stringify({approvalMode,readSucceeded,resumed:true}));
   }
 
-  // Use the real provider's ACP error path, then retry explicitly in the same
-  // conversation. No hidden replay: a failed turn must finish before recovery.
   failNextRequest = true;
   const failed = await instance.adapter.sendTurn({threadId:"fixture",text:"Read the receipt again.",cwd:workspace,model:"fixture/fixture",approvalMode:"full",resumeCursor});
   const failure = await recorder.until(e => e.turnId === failed.turnId && e.type === "turn.completed", 30000);

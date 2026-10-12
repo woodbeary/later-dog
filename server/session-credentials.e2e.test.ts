@@ -1,9 +1,3 @@
-// A thread's engine stays warm between turns. Each integration's credential
-// stays the same for as long as the same bot works the same thread with the
-// same grants, and the harness honours it only while one of that thread's
-// turns runs. End to end through the isolated launcher, the fake Claude CLI,
-// the fake ACP agent, (outside Windows) a stand-in browser engine and, for
-// Auto on macOS and Windows, a stand-in CUA driver for this computer.
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,9 +9,7 @@ import { waitForExit } from "./testing/cleanup.ts";
 
 const jsonl = (path: string) => existsSync(path)
   ? readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
-// The stand-in browser is a node script run through its shebang.
 const withBrowser = process.platform !== "win32";
-// Auto may land on this computer only on macOS and Windows.
 const itAutoThisComputer = process.platform === "linux" ? it.skip : it;
 
 async function fixture(test: (f: any) => Promise<void>, { thisComputer = false } = {}) {
@@ -30,7 +22,6 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
     const acpDump = join(dataDir, "acp-dump.json");
     const userData = join(dataDir, "user-data");
     const release = join(dataDir, "release");
-    // Every Claude turn runs until `release` exists; record what each launch mounted.
     const claude = join(dataDir, "claude.mjs");
     writeFileSync(claude, [
       "#!/usr/bin/env node",
@@ -46,7 +37,6 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
       "#!/usr/bin/env node",
       'if (process.argv[2] === "session" && process.argv[3] === "list") process.stdout.write(JSON.stringify({ success: true, data: { sessions: [] } }));',
     ].join("\n"), { mode: 0o700 });
-    // Add the ACP engine and the browser while the server is stopped.
     await waitForExit(session.child, { signal: "SIGTERM" });
     const configPath = join(dataDir, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
@@ -58,7 +48,6 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
     };
     writeFileSync(configPath, JSON.stringify(config));
     if (thisComputer) {
-      // What the desktop app publishes once its CUA driver is running.
       mkdirSync(userData, { recursive: true });
       writeFileSync(join(userData, "cua-connection.json"), JSON.stringify({
         mode: "embedded", status: "ready", socketPath: join(dataDir, "cua.sock"),
@@ -92,7 +81,6 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
     };
     const busy = async (bot: any, threadId: string) => (await api("GET", "/api/bots")).body.bots
       .find((entry: any) => entry.id === bot.id)?.tasks.find((task: any) => task.threadId === threadId)?.busy === true;
-    // A turn that finishes at once, or one held open until `finish`.
     const turn = async (bot: any, threadId: string, text: string) => {
       writeFileSync(release, "go");
       await cli("send", "--bot", bot.id, "--task", threadId, "--text", text);
@@ -107,7 +95,6 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
       writeFileSync(release, "go");
       expect((await cli("wait", "--bot", bot.id, "--task", threadId, "--timeout", "30")).status).toBe("settled");
     };
-    // What a mounted agents proxy can do with its credential right now.
     const agents = async (token: string) => (await api("GET", "/api/internal/agents", undefined, token)).status;
     const acpServers = () => (JSON.parse(readFileSync(`${acpDump}.mcp.json`, "utf8")) as Array<{ name: string }>).map((server) => server.name);
     await test({ dataDir, cli, api, turn, hold, finish, agents, launches: () => jsonl(launchesPath), rpc: () => jsonl(rpcPath), acpServers });
@@ -119,8 +106,6 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
 
 it("keeps a thread's Claude process and ACP session across turns, with agents mounted and no browser even when one is installed", () => fixture(async (f) => {
   const { bot } = await f.cli("new-bot", "--name", "Warm Claude");
-  // A first browser turn pins the conversation to the browser, which changes
-  // its prompt once; from then on nothing about the launch changes.
   await f.turn(bot, bot.activeTaskId, "First question.");
   await f.turn(bot, bot.activeTaskId, "Second question.");
   const warm = f.launches();
@@ -149,16 +134,13 @@ it("honours a thread's credential only while its turns run, and retires it on St
   await f.turn(bot, thread, "Warm up.");
   const token = f.launches().at(-1).token;
   expect(token).toMatch(/^[a-f0-9]{48}$/);
-  // Between turns nothing honours it.
   expect(await f.agents(token)).toBe(401);
-  // The next turn runs on the same credential, and only while it runs.
   await f.hold(bot, thread, "Next question.");
   expect(f.launches().at(-1).token).toBe(token);
   expect(await f.agents(token)).toBe(200);
   await f.finish(bot, thread);
   expect(await f.agents(token)).toBe(401);
 
-  // Stop retires it for good: the next turn gets a new one.
   await f.hold(bot, thread, "Something long.");
   expect(await f.agents(token)).toBe(200);
   expect((await f.api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: thread })).status).toBe(200);
@@ -172,7 +154,6 @@ it("honours a thread's credential only while its turns run, and retires it on St
   expect(await f.agents(restarted)).toBe(200);
   await f.finish(bot, thread);
 
-  // A lower approval level retires it too.
   expect((await f.api("PATCH", `/api/bots/${bot.id}/tasks/${thread}`, { approvalMode: "edits" })).status).toBe(200);
   await f.turn(bot, thread, "Edit freely.");
   const raised = f.launches().at(-1).token;
@@ -185,7 +166,6 @@ it("honours a thread's credential only while its turns run, and retires it on St
   expect(await f.agents(raised)).toBe(401);
   expect(await f.agents(lowered)).toBe(200);
 
-  // Deleting the bot mid-turn retires it.
   expect((await f.api("DELETE", `/api/bots/${bot.id}`)).status).toBe(200);
   expect(await f.agents(lowered)).toBe(401);
 }), 120_000);
@@ -195,7 +175,6 @@ itAutoThisComputer("keeps a thread's Claude process and ACP session across turns
   for (const text of ["First question.", "Second question.", "Third question.", "Fourth question."]) {
     await f.turn(bot, bot.activeTaskId, text);
   }
-  // Nothing touched the screen, so nothing pinned: one launch for all four.
   const launches = f.launches();
   expect(launches).toHaveLength(1);
   expect(launches[0].servers).toEqual(expect.arrayContaining(["agents", "computer"]));

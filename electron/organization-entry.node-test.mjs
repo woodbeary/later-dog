@@ -91,7 +91,6 @@ test("desktop relaunch accepts every platform once, guards its sender, and prese
 test("the shipped updater adapter explicitly omits only the fixed action and its reproducible patch fails closed", () => {
   const before = "      relaunch() {\n        this.app.relaunch();\n      }";
   const patched = patchOrganizationUpdater(before);
-  // Git may check the vendored bundle out with CRLF on Windows.
   const bundle = readFileSync(new URL("./vendor/electron-updater.cjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.ok(bundle.includes(patched));
   const calls = [];

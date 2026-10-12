@@ -2,7 +2,6 @@ import type { WireBot } from "./wire";
 import type { RoutineInput } from "./routines";
 import type { ToolScope } from "./tool-scope";
 
-/** Data shared by the default template and an individual creation draft. */
 export type BotDefaultsProfile = Partial<Pick<WireBot,
   "name" | "title" | "description" | "soul" | "notifications" | "avatarUrl" | "avatarCrop" |
   "mascotBody" | "color" | "voice" | "speakReplies" | "section" | "modelSelection" |

@@ -1,8 +1,3 @@
-// A small MCP client for servers later.dog does not start itself: the
-// current streamable HTTP transport and the older SSE one. The engines
-// speak to these servers natively; this client exists for the Test button
-// (prove the handshake, list the tools) and for anything else the harness
-// itself must ask a remote server. It never logs a header value.
 import type { RemoteMcpSpec } from "./contracts.ts";
 
 export type McpHttpFailure = "network" | "status" | "protocol";
@@ -10,7 +5,6 @@ export type McpHttpFailure = "network" | "status" | "protocol";
 export class McpHttpError extends Error {
   readonly kind: McpHttpFailure;
   readonly status: number | undefined;
-  /** The server's `WWW-Authenticate` challenge on a 401: where to sign in. */
   readonly wwwAuthenticate: string | undefined;
 
   constructor(kind: McpHttpFailure, message: string, status?: number, wwwAuthenticate?: string) {
@@ -22,22 +16,11 @@ export class McpHttpError extends Error {
   }
 }
 
-/** Bytes of one response (or one SSE stream) this client reads, for the
- * Test button and for the stdio proxy alike. Whop's official server answers
- * tools/list with 425 tools in 1.2 MB of JSON, its largest single tool alone
- * ~51 KB, so a 1 MB cap refused it outright. Still bounded: a server that
- * keeps talking cannot fill memory. */
 export const MAX_REMOTE_MCP_BYTES = 32 * 1024 * 1024;
 const PROTOCOL_VERSION = "2025-06-18";
 
-/** How long a URL server may take to initialize and list its tools, over
- * the internet: the Test button's budget, and a searched server's at a bot's
- * startup. Command servers start on this computer and keep 8 s. */
 export const REMOTE_MCP_STARTUP_MS = 30_000;
 
-/** The private environment record one remote-proxy mount reads its settings
- * from, when several mounts share one environment (Codex): only this name
- * reaches argv, never the address or a header value. */
 export const REMOTE_MCP_CONFIG_ENV = /^LATERDOG_REMOTE_MCP_CONFIG_[a-f0-9]{64}$/;
 
 interface JsonRpcMessage {
@@ -58,7 +41,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-/** Validate private proxy configuration without including secrets in errors. */
 export function remoteMcpSpec(value: unknown): RemoteMcpSpec | undefined {
   if (!isRecord(value) || (value.type !== "http" && value.type !== "sse") || typeof value.url !== "string") return;
   try {
@@ -89,7 +71,6 @@ function parseMessage(text: string): JsonRpcMessage | JsonRpcMessage[] | null {
   }
 }
 
-/** One SSE event: its type (default "message") and joined data lines. */
 interface SseEvent {
   event: string;
   data: string;
@@ -110,8 +91,6 @@ function parseSseBlock(block: string): SseEvent | null {
   return data.length ? { event, data: data.join("\n") } : null;
 }
 
-/** Read an event stream until the handler says stop, the server ends it,
- * or the signal fires. Bounded, so a chatty server cannot fill memory. */
 async function readSse(
   response: Response,
   signal: AbortSignal,
@@ -179,7 +158,6 @@ export class RemoteMcpClient {
   private protocolVersion: string | null = null;
   private nextId = 1;
   private closed = false;
-  /** Legacy SSE: one long GET stream carries every response. */
   private readonly pending = new Map<number, Pending>();
   private sseEndpoint: Promise<string> | null = null;
   private readonly sseAbort = new AbortController();
@@ -191,7 +169,6 @@ export class RemoteMcpClient {
     this.onNotification = options.onNotification;
   }
 
-  /** The MCP handshake: initialize, then the initialized notification. */
   async initialize(clientName: string, signal: AbortSignal): Promise<unknown> {
     const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
@@ -233,17 +210,13 @@ export class RemoteMcpClient {
     this.sseAbort.abort();
     for (const entry of this.pending.values()) entry.reject(new McpHttpError("network", "client closed"));
     this.pending.clear();
-    // Streamable HTTP: tell the server its session is over. Best effort —
-    // many servers answer 405 here, and a probe has nothing left to lose.
     if (this.sessionId && this.target.type !== "sse") {
       try {
         const headers = this.headers();
         headers.set("mcp-session-id", this.sessionId);
         const response = await this.fetchImpl(this.target.url, { method: "DELETE", headers, signal: AbortSignal.timeout(2_000) });
         drain(response);
-      } catch {
-        // the session lapses on its own
-      }
+      } catch {}
     }
   }
 
@@ -275,8 +248,6 @@ export class RemoteMcpClient {
     return response;
   }
 
-  // ── streamable HTTP: each request is one POST; the answer is JSON or a
-  //    short event stream that carries the response among server messages ──
   private async streamableRequest(id: number, frame: unknown, signal: AbortSignal): Promise<unknown> {
     const response = await this.post(this.target.url, frame, signal);
     const type = (response.headers.get("content-type") ?? "").toLowerCase();
@@ -306,8 +277,6 @@ export class RemoteMcpClient {
     throw new McpHttpError("protocol", "unexpected content type");
   }
 
-  // ── legacy SSE: a GET opens the stream, its first event names where to
-  //    POST, and every response comes back over the stream ──
   private openSseStream(signal: AbortSignal): Promise<string> {
     if (this.sseEndpoint) return this.sseEndpoint;
     this.sseEndpoint = new Promise<string>((resolveEndpoint, rejectEndpoint) => {
@@ -322,8 +291,6 @@ export class RemoteMcpClient {
       };
       const headers = this.headers();
       headers.set("accept", "text/event-stream");
-      // the caller's signal covers the opening; once open, the stream lives
-      // until close(), because later requests are answered on it
       const opening = AbortSignal.any([signal, this.sseAbort.signal]);
       this.fetchImpl(this.target.url, { method: "GET", headers, signal: opening })
         .then(async (response) => {
@@ -398,11 +365,6 @@ export class RemoteMcpClient {
     });
   }
 
-  /** Server messages that are not this client's responses: notifications
-   * go to the caller; a ping is answered, as every MCP party must; any other
-   * request (elicitation, sampling, roots…) is refused at once, since this
-   * client offers none of them. Left unanswered, a server waiting on one
-   * holds its own reply until the call times out. */
   private deliverNotifications(parsed: JsonRpcMessage | JsonRpcMessage[] | null): void {
     for (const message of Array.isArray(parsed) ? parsed : parsed ? [parsed] : []) {
       if (typeof message.method !== "string") continue;
@@ -419,8 +381,6 @@ export class RemoteMcpClient {
     try {
       if (this.target.type === "sse") await this.ssePost(frame, AbortSignal.timeout(10_000));
       else drain(await this.post(this.target.url, frame, AbortSignal.timeout(10_000)));
-    } catch {
-      // the server's own timeout ends what it was waiting for
-    }
+    } catch {}
   }
 }

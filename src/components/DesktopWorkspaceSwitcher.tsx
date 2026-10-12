@@ -3,26 +3,10 @@ import { ChevronDown, Cloud, Laptop } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 
-/** "· always on" after the server's name while the window shows a later.dog Cloud
- * home (config.cloudHome), so people know which computer they are on. */
 function AlwaysOn() {
   return <span className="font-normal text-ink-secondary"> · {t("cloudSetup.alwaysOn")}</span>;
 }
 
-/** `inline` is the small pill that shares the sidebar's top row with the
- * traffic lights and the header buttons: icon, short name, tiny chevron,
- * truncating to whatever width the row leaves it (and clipping, never
- * spilling onto the buttons, in the narrowest rows). Inside a `sidebar-top`
- * container narrower than 164px (the row's slot cannot fit its 140px cap
- * plus a 24px drag gap) it drops the name for icon + chevron; the title and
- * aria-label keep the full name. It brings no row padding of its own; the row
- * places it at the right beside the buttons and, being `relative`, anchors
- * its error note to the row's right end so the note stays inside the sidebar.
- *
- * The dropdown is native: a remote workspace cannot choose a destination
- * itself or read the other workspaces saved on this computer. Outside the
- * desktop app there is nothing to switch; a Cloud home still says what it is,
- * and whose it is when this browser signed in from the Cloud page (`owner`). */
 export function DesktopWorkspaceSwitcher({ compact = false, inline = false, cloudHome = false, owner = null }: { compact?: boolean; inline?: boolean; cloudHome?: boolean; owner?: string | null }) {
   const bridge = window.laterdog?.workspaces;
   const [current, setCurrent] = useState<{ local: boolean; name: string; origin?: string } | null>(null);
@@ -52,7 +36,6 @@ export function DesktopWorkspaceSwitcher({ compact = false, inline = false, clou
     </div>;
   }
   if (!cloudHome && current?.local !== false) return null;
-  // Main names the saved server; until it answers, a Cloud home is still My Cloud.
   const name = current?.name ?? (cloudHome ? t("cloudSetup.myCloud") : "Servers");
   const Icon = current?.local === false || (cloudHome && !current) ? Cloud : Laptop;
   const shown = cloudHome ? `${name} · ${t("cloudSetup.alwaysOn")}` : name;

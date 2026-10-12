@@ -1,9 +1,3 @@
-// How the proxy prepares a response body, against a stub harness.
-//
-// proxy.test.ts boots the real harness and is the right place for anything
-// about the seam between the two. This file is the opposite: a harness stub
-// that can be made to return exactly the pathological body a test needs,
-// which is the only way to reach the failure branches below.
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -13,8 +7,6 @@ import { scrub } from "../src/wire.ts";
 
 const TOKEN = "laterdog_test_token";
 
-/** Nested past any plausible stack, so `scrub`'s recursion gives out while
- * JSON.parse does not. The payload is what the scrubber is meant to remove. */
 const deeplyNested = (() => {
   let body = JSON.stringify({ resumeCursors: { agent: "cursor-value" } });
   for (let i = 0; i < 6_000; i++) body = `{"a":${body}}`;
@@ -29,7 +21,6 @@ let companionMarker = "";
 let companionDevice = "";
 let companionRange = "";
 let endpointCandidates: CompanionEndpoint[] = [];
-/** What the stub harness answers with next. Set per test. */
 let respond: (res: ServerResponse) => void = (res) => res.end();
 
 const listen = (server: Server): Promise<number> =>
@@ -38,7 +29,6 @@ const listen = (server: Server): Promise<number> =>
 const close = (server: Server | undefined): Promise<void> =>
   new Promise((resolve) => (server ? server.close(() => resolve()) : resolve()));
 
-/** A request as a paired device makes it. */
 const device = async (
   path = "/api/bots",
   method = "GET",
@@ -173,23 +163,12 @@ describe("preparing a harness response for a device", () => {
     expect(joinUrl).toContain("password=vm-secret");
     expect(joinUrl).not.toContain("127.0.0.1:45679");
 
-    // Without a control lease the address never reaches the device.
     const refused = await device("/api/bots/b1/local-computer/join", "POST");
     expect(refused.status).toBe(502);
     expect(refused.text).not.toContain("vm-secret");
   });
 
   it("never forwards a body it could not scrub", async () => {
-    // `scrub` recurses once per level, so a deeply nested body throws
-    // RangeError while JSON.parse handles it without complaint. That gap is
-    // the whole bug: parse-then-scrub under one try/catch treated the throw
-    // as "not JSON after all" and sent the untouched body on to the phone.
-    //
-    // How deep it takes is a property of the runtime's stack, not of this
-    // code, so the assertion is the invariant and not the branch: whatever
-    // comes back is never a success carrying the field the scrubber removes.
-    // On a stack deep enough to scrub this that is a clean 200; on one that
-    // throws it is a 502. The raw body is not among the outcomes.
     respond = (res) => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(deeplyNested);
@@ -201,9 +180,6 @@ describe("preparing a harness response for a device", () => {
   });
 
   it("answers 502 when scrubbing actually throws", async () => {
-    // The branch above, pinned only on a runtime that reaches it — checked
-    // here rather than assumed, so this reports "not exercised" instead of
-    // failing on a platform with a deeper stack.
     let scrubThrows = false;
     try {
       scrub(JSON.parse(deeplyNested));
@@ -211,7 +187,7 @@ describe("preparing a harness response for a device", () => {
       scrubThrows = true;
     }
     if (!scrubThrows) {
-      expect(scrubThrows).toBe(false); // documents the skip rather than passing silently
+      expect(scrubThrows).toBe(false);
       return;
     }
 
@@ -223,9 +199,6 @@ describe("preparing a harness response for a device", () => {
   });
 
   it("passes a body through untouched when it was never JSON", async () => {
-    // The tolerant half of the same branch, and the reason it cannot simply
-    // fail closed on everything: a content-type that lies is common enough,
-    // and there is nothing to redact in bytes we cannot read as an object.
     respond = (res) => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end("this is not JSON at all");

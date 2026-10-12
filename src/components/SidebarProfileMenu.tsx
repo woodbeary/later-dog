@@ -33,7 +33,6 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { FEEDBACK_URL, HELP_CENTER_URL, openExternalLink } from "@/lib/app-links";
 
-/** "Sam Reed" → "SR", "sam" → "S", "you@x.dev" → "Y", unset → "?" */
 export function profileInitials(profile?: { name?: string; email?: string }): string {
   const name = profile?.name?.trim();
   if (name) {
@@ -47,23 +46,15 @@ export function profileInitials(profile?: { name?: string; email?: string }): st
   return email ? email[0]!.toUpperCase() : "?";
 }
 
-/** The name shown on the row: the profile name, else the email, else "You". */
 export function profileLabel(profile?: { name?: string; email?: string }): string {
   return profile?.name?.trim() || profile?.email?.trim() || t("sidebar.profile.you");
 }
 
 export type UpdatePhase =
   | UpdaterState["status"]
-  /** a check came back with nothing — acknowledged for three seconds so the
-   * click is never silent */
   | "up-to-date"
-  /** a newer release on GitHub that this build cannot install: the person
-   * downloads it (ReleaseCheck.tsx) */
   | "available";
 
-/** One state machine for the update entry, kept pure so the label/verb pairs
- * can be tested without a bridge. `upToDate` is the 3s acknowledgement after
- * a check that found nothing — otherwise a check is silent. */
 export function updatePhase(state: UpdaterState | null, upToDate: boolean): UpdatePhase {
   const status = state?.status ?? "idle";
   if (status !== "idle") return status;
@@ -80,8 +71,6 @@ export function updateLabel(phase: UpdatePhase, state: UpdaterState | null): str
     case "preparing":
       return t("sidebar.update.preparing");
     case "downloaded":
-      // Named: on My Cloud's page it is this app that restarts, not the Cloud.
-      // An unknown version leaves a double space behind, in every language.
       return (
         state?.installMode === "handoff"
           ? t("sidebar.update.readyInstall", { app: brand().name, version: state?.version ?? "" })
@@ -109,10 +98,6 @@ export function updateLabel(phase: UpdatePhase, state: UpdaterState | null): str
   }
 }
 
-/** A phase that is mid-flight takes no further clicks. `pending` covers the
- * gap between the click and the bridge reporting the state it started: a
- * check and an install round-trip through main first, and without this the
- * row would sit there looking clickable. */
 export function updateBusy(phase: UpdatePhase, pending = false): boolean {
   return pending || phase === "checking" || phase === "downloading" || phase === "preparing" || phase === "installing";
 }
@@ -131,9 +116,6 @@ interface UpdateEntry {
   label: string;
 }
 
-/** The updater bridge exists only in the packaged app; in dev the entry is
- * absent rather than dead. The desktop app answers only this computer's page
- * and the person's own Cloud page, so until it does there is no entry. */
 export function useUpdateItem(): UpdateEntry | null {
   const state = useUpdaterState();
   const updater = window.laterdog?.updater;
@@ -141,11 +123,8 @@ export function useUpdateItem(): UpdateEntry | null {
   const [checkedAt, setCheckedAt] = useState(0);
   const status = state?.status ?? "idle";
 
-  // a check and an install both round-trip through main before the status
-  // changes — spin on the click itself, and let the new status clear it
   useEffect(() => setPending(false), [status]);
 
-  // a check that found nothing lands back on idle — acknowledge it for 3s
   const upToDate = Boolean(checkedAt) && (!state || state.status === "idle") && Date.now() - checkedAt < 3000;
   useEffect(() => {
     if (!upToDate) return;
@@ -153,7 +132,6 @@ export function useUpdateItem(): UpdateEntry | null {
     return () => clearTimeout(timer);
   }, [upToDate]);
 
-  // No update feed and checking switched off: there is nothing to check.
   if (!updater || !state || releaseChecksOff(state)) return null;
 
   const phase = updatePhase(state, upToDate);
@@ -168,8 +146,6 @@ export function useUpdateItem(): UpdateEntry | null {
       label,
       icon: <UpdateIcon phase={phase} pending={pending} />,
       disabled: updateBusy(phase, pending) || state?.retryable === false,
-      // progress is reported on the row itself, so the menu stays put; a
-      // download goes on in the browser
       keepOpen: !release,
       attention: phase === "downloaded" || phase === "error" || phase === "available",
       attentionTone: phase === "error" ? "danger" : "accent",
@@ -245,7 +221,6 @@ export function SidebarProfileMenu() {
       icon: <Keyboard size={18} />,
       trailing: <ShortcutHint id="shortcuts-cheat-sheet" />,
       onSelect: () => {
-        // The menu item unmounts; let the dialog restore the profile button.
         triggerRef.current?.closest("button")?.focus();
         dispatch({ type: "toggleShortcuts", open: true });
       },

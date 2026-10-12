@@ -1,4 +1,3 @@
-// Real HTTP server, disposable home, fake CLI; OAuth stops before its callback.
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -53,7 +52,6 @@ beforeAll(async () => {
   const port = await freePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   logPath = join(tmpdir(), `laterdog-chatgpt-api-${port}-${process.pid}.log`);
-  // Non-product instance names avoid adding unrelated native CLIs to this fixture.
   writeFileSync(join(home, "config.json"), JSON.stringify({ instances: {
     fixture: { driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") } },
     chatgpt: { driver: "codex", displayName: "ChatGPT plan", config: { authMode: "chatgpt-plan", cli: FAKE_CODEX } },

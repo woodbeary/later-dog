@@ -1,8 +1,5 @@
 export const DEFAULT_MAC_ARCHES = ["arm64", "x64"];
 
-/** Which darwin CUA trees to stage. electron-builder packages both arches
- *  unless the caller opts into a one-arch local stage. An empty override
- *  is never a silent no-op. */
 export function resolveCuaMacArches(env = process.env) {
   const raw = env.LATERDOG_CUA_ARCHES;
   if (raw === undefined) return [...DEFAULT_MAC_ARCHES];

@@ -62,9 +62,6 @@ try {
     if (mode !== 0o775) fail(`legacy fixture did not reproduce 0775 at ${directory}`);
   }
 
-  // apt configures the real artifact and resolves its declared desktop
-  // dependencies. Calling dpkg directly can leave the package unconfigured on
-  // the intentionally minimal runner before its post-install hook is tested.
   execFileSync("apt-get", ["install", "-y", "--no-install-recommends", candidate], {
     env: { ...process.env, DEBIAN_FRONTEND: "noninteractive" },
     stdio: "inherit",

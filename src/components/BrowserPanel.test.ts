@@ -9,7 +9,6 @@ const fixture = vi.hoisted(() => ({
   setters: [] as Array<ReturnType<typeof vi.fn>>,
   control: { held: false, controlling: false, owned: false },
   frame: null as { seq: number; data: string; viewerId: string; generation: number } | null,
-  // Initial values by useState call order, for state no other fixture covers.
   states: {} as Record<number, unknown>,
   queues: [] as Array<{ enqueue: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn>; drain: ReturnType<typeof vi.fn>;
     settle: ReturnType<typeof vi.fn>; size: ReturnType<typeof vi.fn>; stopped: ReturnType<typeof vi.fn> }>,
@@ -86,7 +85,6 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 const settle = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
-// An implicit take chains several promises before the action it unlocks.
 const settleAll = async () => { for (let turn = 0; turn < 50; turn++) await Promise.resolve(); };
 const sentTypes = () => vi.mocked(api).mock.calls.map(([, init]) => JSON.parse(String(init?.body)).type);
 beforeEach(() => {
@@ -223,8 +221,6 @@ describe("live browser connection lifecycle", () => {
 
   it("does not let an old source error discard the replacement viewer or input queue", () => {
     render();
-    // Replay the real connection effect's cleanup/setup, as on reconnect or
-    // StrictMode, while retaining the same component refs.
     const connect = fixture.effects[2]!;
     const firstCleanup = connect();
     const first = FixtureEventSource.instances[0]!;
@@ -313,7 +309,6 @@ describe("live browser connection lifecycle", () => {
     click(nodes, "Restart browser…"); await settle();
     click(nodes, "Reconnect view");
     fixture.setters.forEach((setter) => setter.mockClear());
-    // Complete the request before React has run reconnect's cleanup/setup.
     restart.resolve(); await settle();
     expect(fixture.setters[0]).not.toHaveBeenCalled();
     expect(fixture.setters[6]).not.toHaveBeenCalled();
@@ -342,7 +337,6 @@ describe("live browser connection lifecycle", () => {
     const cleanup = connect();
     FixtureEventSource.instances[0]!.emit("ready", { viewerId: "old-viewer" });
     const oldAction = deferred(); const currentAction = deferred();
-    // Each viewer's first toolbar action takes control by itself, then runs.
     vi.mocked(api).mockResolvedValueOnce({}).mockReturnValueOnce(oldAction.promise)
       .mockResolvedValueOnce({}).mockReturnValueOnce(currentAction.promise);
     click(nodes, "Back"); await settleAll();
@@ -424,8 +418,6 @@ describe("live browser control affordance", () => {
     expect(html).toContain("Restart browser…");
   });
 
-  // The status floats over the live view, so its words show at any panel width
-  // and it never takes a click from the page.
   const status = (html: string) => /<div role="status"([^>]*)>(.*?)<\/div><\/div><dialog/.exec(html)!;
 
   it("shows a status pill, not a control, over the page only while this viewer holds the browser", () => {
@@ -458,7 +450,7 @@ describe("live browser control affordance", () => {
     fixture.states = { 4: true };
     fixture.frame = { seq: 1, data: "fixture", viewerId: "current-viewer", generation: 1 };
     const controls = () => {
-      fixture.setters = []; // fixture.states index this render's useState calls
+      fixture.setters = [];
       const nodes = renderElements();
       const find = (label: string) => nodes.find((node) => node.props["aria-label"] === label)!;
       return { back: find("Back"), reload: find("Reload page"), newTab: find("New tab"), address: find("Browser address"),
@@ -468,7 +460,6 @@ describe("live browser control affordance", () => {
     expect([watching.back, watching.reload, watching.newTab].map((node) => node.props.disabled)).toEqual([false, false, false]);
     expect(watching.address.props.readOnly).toBe(false);
     expect(watching.viewport.props.driving).toBe(true);
-    // A pending take holds toolbar actions back, while page input still reaches the take.
     fixture.states = { 4: true, 11: "pending" };
     const taking = controls();
     expect([taking.back, taking.reload, taking.newTab].map((node) => node.props.disabled)).toEqual([true, true, true]);
@@ -498,9 +489,6 @@ describe("live browser control affordance", () => {
     expect(open.props.disabled).toBe(!ready);
     expect(submit.props.disabled).toBe(!ready);
     if (!ready) {
-      // A stale dialog stays open with its draft intact until the person
-      // closes it; submitting must never take control and insert into a
-      // field the bot could have changed while the dialog was open.
       const form = nodes.find((node) => node.type === "form" && elements(node).some((child) => child.type === "button" && child.props.children === "Type"))!;
       const field = { value: "private@example.test" };
       form.props.onSubmit!({ preventDefault: vi.fn(), currentTarget: { elements: { namedItem: () => field } } });
@@ -515,7 +503,6 @@ describe("live browser control affordance", () => {
     expect(fresh()).not.toMatch(/Another window is using this browser|Profiles unlock/);
     fixture.control = { held: true, controlling: false, owned: false };
     expect(fresh()).toContain("Another window is using this browser. Switch profiles once it’s done.");
-    // An idle hold of its own needs no line: opening the profiles hands it back.
     fixture.control = { held: true, controlling: true, owned: true };
     expect(fresh()).not.toMatch(/Another window is using this browser|Profiles unlock/);
     fixture.states = { 6: true };
@@ -668,9 +655,6 @@ describe("implicit browser control", () => {
   });
 });
 
-// MOCA-266: the expand button only ever entered full screen. On macOS that
-// takes the whole window into native full screen, where minimize is disabled,
-// and clicking the button again did nothing.
 describe("browser full screen", () => {
   const fullscreenDocument = () => {
     const listeners = new Map<string, () => void>();
@@ -707,7 +691,6 @@ describe("browser full screen", () => {
     const { doc, listeners } = fullscreenDocument();
     renderElements();
     const panel = panelElement();
-    // useState call order: takeStatus (11) sits just before fullscreen (12).
     const fullscreenSetter = fixture.setters[12]!;
     const cleanup = fixture.effects[3]!();
 

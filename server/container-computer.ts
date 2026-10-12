@@ -1,10 +1,3 @@
-// Cua-backed Local VM lifecycle and health checks.
-//
-// later.dog owns only the sandbox boundary: image preparation, container
-// lifecycle, resource limits, loopback viewer, and target-scoped lease in the
-// harness. Desktop automation itself is Cua Driver. Agents connect directly to
-// `cua-driver mcp` inside the container; this module never reimplements clicks,
-// typing, screenshots, accessibility, or window discovery.
 import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { lstatSync } from "node:fs";
@@ -28,14 +21,8 @@ export type CommandRunner = (
 
 export const CUA_DRIVER_VERSION = "0.20.0";
 export const BASE_IMAGE_REPOSITORY = "docker.io/trycua/xfce-cua";
-// Official multi-architecture Cua XFCE 0.1.0 manifest (amd64 + arm64).
 export const BASE_IMAGE_DIGEST = "sha256:274eb636f5cf3fc58f705916ee72b7a701270b3877369d08533a385c5325be9b";
 export const BASE_IMAGE = `${BASE_IMAGE_REPOSITORY}@${BASE_IMAGE_DIGEST}`;
-// This tag is built locally from the pinned Cua base. The explicit localhost
-// registry is required by Podman: it prepends localhost to unqualified build
-// tags, then may otherwise resolve the same name to Docker Hub when running it.
-// Image and container labels below remain the authoritative compatibility
-// check, not the mutable tag.
 export const IMAGE_REPOSITORY = "localhost/laterdog/cua-local-vm";
 export const IMAGE_LAYER_VERSION = "5";
 export const IMAGE_LAYER_LABEL = "com.laterdog.image-layer";
@@ -62,12 +49,9 @@ const MEMORY_BYTES = 4 * 1024 * 1024 * 1024;
 const PIDS_LIMIT = 512;
 
 export interface LocalVmTarget {
-  /** Stable, non-secret identity used for leases and caches. */
   key: string;
   containerName: string;
   workspaceDir: string;
-  /** The historical shared target keeps 6080 for compatibility. Per-bot
-   * targets let the runtime allocate a distinct ephemeral loopback port. */
   viewerPort: number | null;
   label: string;
 }
@@ -80,8 +64,6 @@ export const SHARED_LOCAL_VM_TARGET: LocalVmTarget = {
   label: "shared",
 };
 
-/** Derive filesystem/container identities from a digest, never from a bot's
- * display name or caller-controlled path fragment. */
 export function perBotLocalVmTarget(botId: string): LocalVmTarget {
   const digest = createHash("sha256").update(botId).digest("hex");
   const short = digest.slice(0, 16);
@@ -94,10 +76,6 @@ export function perBotLocalVmTarget(botId: string): LocalVmTarget {
   };
 }
 
-/** A pool-mode seat (issue #1654): one of N desktops shared by every
- * conversation, addressed by seat index. Identities stay disjoint from the
- * shared singleton and from per-bot digests, so discovery, labels, and lease
- * lanes never confuse the three modes. */
 export function poolLocalVmTarget(seat: number): LocalVmTarget {
   return {
     key: `pool:${seat}`,
@@ -108,7 +86,6 @@ export function poolLocalVmTarget(seat: number): LocalVmTarget {
   };
 }
 
-/** Only provisioning creates this durable directory; idle shutdown keeps it. */
 export function localVmWorkspaceExists(target: LocalVmTarget): boolean {
   try {
     return lstatSync(target.workspaceDir, { throwIfNoEntry: false })?.isDirectory() === true;
@@ -128,15 +105,6 @@ const LINUX_WHEELS = {
   },
 } as const;
 
-/** Reproducible, multi-architecture derivative of Cua's sandbox desktop.
- * Both Linux wheels are exact-version and SHA-256 verified. Supervisor owns
- * the daemon so it starts, restarts, and stops with the desktop container.
- *
- * The first RUN also rejects a defective base image before anything uses it:
- * some published ARM64 layers of upstream bases have shipped zero-byte
- * OpenSSL libraries, which surfaces later as a baffling "curl: error while
- * loading shared libraries … file too short" that reads as a network fault.
- * The gate names the actual problem at the step that can act on it. */
 export function managedImageDockerfile(): string {
   return `FROM ${BASE_IMAGE}
 USER root
@@ -260,15 +228,10 @@ export interface ContainerRuntimeStatus {
   daemonUp: boolean;
 }
 
-/** Inspect only the host runtime. Unlike a full Local VM status check, this
- * never opens a container, calls Cua, or reads a desktop screenshot. */
 export async function containerRuntimeStatus(
   runner: CommandRunner = sh,
   platform: NodeJS.Platform = process.platform,
 ): Promise<ContainerRuntimeStatus> {
-  // Podman is the supported Windows VM lane and owns the pinned managed image.
-  // Docker may also be installed and healthy on the same host, so the generic
-  // Docker-first order would silently select an empty, unrelated image store.
   const candidates: Runtime[] = platform === "win32"
     ? ["podman", "docker"]
     : RUNTIMES.filter((runtime) => runtime !== "container" || platform === "darwin");
@@ -315,9 +278,7 @@ export interface ContainerComputerStatus {
   persistence: "durable" | "unsafe" | "unknown";
   desktopReady: boolean;
   desktop_error: string | null;
-  /** Runtime timestamp used to match an idle-stop record, never an inferred cause. */
   stopped_at?: string | null;
-  /** A stopped desktop whose only problem is that it is stopped. */
   resumable: boolean;
   create_supported: boolean;
   ready: boolean;
@@ -366,8 +327,6 @@ function emptyStatus(platform: NodeJS.Platform, target: LocalVmTarget): Containe
   };
 }
 
-/** Recreate a missing desktop when its image and runtime are already prepared.
- * This also recovers desktops deleted by older versions' idle cleanup. */
 export function localVmRecreatableOnDemand(
   status: ContainerComputerStatus,
 ): status is ContainerComputerStatus & { runtime: Runtime } {
@@ -378,9 +337,6 @@ export function localVmRecreatableOnDemand(
     && status.create_supported;
 }
 
-/** Start only an existing, compatible desktop with the managed safety boundary.
- * Fails closed on fields left "unknown" by a partial inspect, which
- * `statusProblem` alone would let through. */
 export function localVmResumable(
   status: ContainerComputerStatus,
 ): status is ContainerComputerStatus & { runtime: Runtime } {
@@ -389,17 +345,12 @@ export function localVmResumable(
     && status.network === "loopback" && status.security === "hardened" && status.persistence === "durable";
 }
 
-/** What a turn may do on its own to bring this Local VM up, if anything. */
 export function localVmWakeAction(status: ContainerComputerStatus): "run" | "start" | null {
   if (localVmRecreatableOnDemand(status)) return "run";
   if (localVmResumable(status)) return "start";
   return null;
 }
 
-/** Whether Auto may attach this Local VM without a person choosing it: the
- * desktop is ready, a compatible stopped desktop can be started, or its image
- * is prepared and a missing container can be recreated. Anything else — no runtime, daemon down, image
- * never prepared, an unmanaged or unsafe container — stays the person's call. */
 export function autoLocalVmAttachable(status: ContainerComputerStatus): boolean {
   return status.ready === true || localVmWakeAction(status) !== null;
 }
@@ -420,7 +371,6 @@ function statusProblem(status: ContainerComputerStatus): string | null {
   return null;
 }
 
-/** Problems with an existing container that only a recreate fixes. */
 function existingContainerProblem(status: ContainerComputerStatus): string | null {
   if (!status.imageMatches) return "The existing Local VM uses an older desktop or Cua Driver; recreate it";
   if (!status.managed) return "The existing container was not created by later.dog; recreate it";
@@ -430,8 +380,6 @@ function existingContainerProblem(status: ContainerComputerStatus): string | nul
   return null;
 }
 
-/** Shared with the BYO-VPS backend (vps-computer.ts): both containers are
- * built from the same pinned derivative, so image compatibility is one rule. */
 export function imageLabelsMatch(labels: Record<string, string> | undefined): boolean {
   return (
     labels?.[MANAGED_LABEL] === "1" &&
@@ -441,9 +389,6 @@ export function imageLabelsMatch(labels: Record<string, string> | undefined): bo
   );
 }
 
-/** Ownership is intentionally independent of the current image/driver
- * versions. An older later.dog container must stay removable (and eligible
- * for idle cleanup), while imageMatches keeps readiness version-strict. */
 function containerOwnershipLabelsMatch(
   labels: Record<string, string> | undefined,
   target: LocalVmTarget,
@@ -477,9 +422,6 @@ function inspectedImage(stdout: string, runtime: Runtime): {
     }>;
   }>;
   const image = parsed[0];
-  // Apple container runs on Apple Silicon and puts image labels inside each
-  // platform variant. Never accept another platform's labels or guess between
-  // multiple matching variants. Docker/Podman keep their existing inspect paths.
   const variants = runtime === "container" && Array.isArray(image?.variants)
     ? image.variants.filter(variant => variant?.platform?.os === "linux" && variant.platform.architecture === "arm64")
     : [];
@@ -506,9 +448,6 @@ function viewerUrl(password: string | null, port: number | null): string {
   return `${base}#${fragment.toString()}`;
 }
 
-/** The one authoritative `exec … cua-driver` argv. Shared with the BYO-VPS
- * backend and both MCP bridge entry points so the identity, env, and
- * telemetry knobs can never drift between the Local VM and a VPS container. */
 export function cuaExecArgs(
   args: string[],
   options: { container?: string; interactive?: boolean } = {},
@@ -554,9 +493,7 @@ export async function containerComputerStatus(
     const image = inspectedImage(stdout, status.runtime);
     status.image = imageLabelsMatch(image.labels);
     status.image_id = image.id;
-  } catch {
-    // The prepared later.dog derivative has not been built yet.
-  }
+  } catch {}
 
   try {
     const { stdout } = await runner(status.runtime, ["inspect", target.containerName]);
@@ -639,9 +576,7 @@ export async function containerComputerStatus(
       ) ? "hardened" : "unsafe";
       status.viewer_url = viewerUrl(viewerPassword(detail?.Config?.Env), status.viewer_port);
     }
-  } catch {
-    // No container with this name.
-  }
+  } catch {}
 
   const canProbe = options.probeDesktop !== false &&
     status.container === "running" &&
@@ -693,9 +628,6 @@ export async function containerComputerStatus(
       }
       status.desktopReady = true;
     } catch (error) {
-      // An empty log means XFCE and the supervisor-owned Cua daemon are
-      // probably still starting. A real startup failure should be actionable
-      // in the panel instead of looking like an endless readiness wait.
       status.desktop_error = error instanceof Error ? error.message.slice(0, 320) : null;
       try {
         const errorLog = await runner(
@@ -706,9 +638,7 @@ export async function containerComputerStatus(
         status.desktop_error =
           errorLog.stdout.replace(/\s+/g, " ").trim().slice(0, 320) ||
           status.desktop_error;
-      } catch {
-        // The log may not exist during the first seconds of container boot.
-      }
+      } catch {}
     }
   }
 
@@ -770,8 +700,6 @@ function sameWorkspaceSource(
   return platform === "win32" ? actual.toLowerCase() === expected.toLowerCase() : actual === expected;
 }
 
-/** Podman Machine exposes a Windows bind source through its WSL mount path.
- * Accept only the exact drive/path translation; no parent or prefix match. */
 function samePodmanWindowsWorkspaceSource(source: string | undefined, expectedWorkspace: string): boolean {
   if (!source) return false;
   const match = expectedWorkspace.match(/^([A-Za-z]):[\\/](.+)$/);
@@ -816,7 +744,6 @@ function appleWorkspaceMountIsSafe(
   );
 }
 
-/** The Docker/Podman HostConfig surface the hardening check reads. */
 export interface DockerHardeningConfig {
   Memory?: number;
   MemorySwap?: number;
@@ -839,10 +766,6 @@ export interface DockerHardeningConfig {
   RestartPolicy?: { Name?: string; MaximumRetryCount?: number };
 }
 
-/** Shared isolation contract for Local VM and BYO-VPS containers. Resource
- * budgets are creation defaults, not an isolation requirement. Podman alone
- * needs chroot for Firefox's sandbox. Local VM starts stay controlled by
- * later.dog's idle policy; VPS restart policy belongs to the server operator. */
 export function dockerSecurityIsHardened(
   config: DockerHardeningConfig | undefined,
   options: { restartPolicy?: "no" | "unless-stopped" | "any"; podmanBrowserSandbox?: boolean } = {},
@@ -875,10 +798,6 @@ export function dockerSecurityIsHardened(
   );
 }
 
-/** Podman normalizes HostConfig capability and namespace fields when it
- * serializes inspect output. Validate its authoritative effective/bounding
- * sets, then normalize only those known representation differences through
- * the shared hardening contract with the Podman-only chroot exception. */
 export function podmanSecurityIsHardened(
   config: DockerHardeningConfig | undefined,
   effectiveCaps: string[] | undefined,
@@ -897,8 +816,6 @@ export function podmanSecurityIsHardened(
     CapAdd: effectiveCaps,
     PidMode: config.PidMode === "private" ? "" : config.PidMode,
     UTSMode: config.UTSMode === "private" ? "" : config.UTSMode,
-    // Rootless keep-id maps the workspace owner to the guest cua account.
-    // Do not accept arbitrary user namespace sharing or host namespaces.
     UsernsMode: config.UsernsMode === "private" || config.UsernsMode === "keep-id:uid=1000,gid=1000"
       ? "" : config.UsernsMode,
     CgroupnsMode: config.CgroupnsMode || "private",
@@ -915,8 +832,6 @@ export function containerRunArgs(
   }
   const common = ["run", "-d", "--name", target.containerName];
   if (runtime === "podman") {
-    // The supervisor starts as namespace-root then drops to cua (1000).
-    // Preserve the host workspace owner instead of :U chowning it to root.
     common.push("--userns", "keep-id:uid=1000,gid=1000", "--user", "0:0");
   }
   common.push(
@@ -934,7 +849,6 @@ export function containerRunArgs(
     `${TARGET_LABEL}=${target.label}`,
   );
   if (runtime === "container") {
-    // Apple container already places each Linux container in a lightweight VM.
     common.push(
       "--memory",
       "4g",
@@ -961,10 +875,6 @@ export function containerRunArgs(
       "2",
       "--pids-limit",
       String(PIDS_LIMIT),
-      // Pinned explicitly rather than trusting daemon defaults: the shared
-      // hardening check requires private IPC and cgroup namespaces, and a
-      // daemon configured with host-mode defaults would otherwise create a
-      // container its own acceptance check then rejects.
       "--ipc",
       "private",
       "--cgroupns",
@@ -979,8 +889,6 @@ export function containerRunArgs(
       "512m",
     );
   }
-  // Podman's default seccomp profile gates chroot on this capability.
-  // Firefox uses chroot inside its own namespace to establish its sandbox.
   if (runtime === "podman") common.push("--cap-add", "SYS_CHROOT");
   common.push(
     "--mount",
@@ -1070,8 +978,6 @@ export async function containerComputerAction(
   return containerComputerStatus(runner, platform, target);
 }
 
-/** Cheap capacity probe used by the per-bot pool. It deliberately checks an
- * exact derived container name rather than parsing a broad daemon listing. */
 export async function containerComputerExists(
   runtime: Runtime,
   target: LocalVmTarget,
@@ -1087,8 +993,6 @@ export async function containerComputerExists(
 
 export type ScreenshotCheck = { ok: boolean; mime: "image/png" | "image/jpeg" };
 
-/** Shared with the BYO-VPS backend: a truncated base64 transfer must never
- * become a "successful" preview frame on either transport. */
 export function wholeScreenshot(bytes: Buffer): ScreenshotCheck {
   if (bytes.length < 512) return { ok: false, mime: "image/png" };
   const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
@@ -1105,9 +1009,6 @@ export function wholeScreenshot(bytes: Buffer): ScreenshotCheck {
   };
 }
 
-/** The raw frame, in the shape the live screen poller broadcasts to every
- * client (server/index.ts). The web panel wants a data URL instead, so
- * containerComputerScreenshot below wraps this one. */
 export async function containerComputerFrame(
   runner: CommandRunner = sh,
   platform: NodeJS.Platform = process.platform,
@@ -1190,7 +1091,6 @@ const EXEC_DEFAULT_SECONDS = 60;
 const EXEC_MAX_SECONDS = 300;
 const EXEC_OUTPUT_LIMIT = 20_000;
 
-/** Keep the start and the end: a failure message is nearly always at the end. */
 export function clipExecOutput(text: string, limit = EXEC_OUTPUT_LIMIT): string {
   if (text.length <= limit) return text;
   const head = Math.floor(limit / 5);
@@ -1209,8 +1109,6 @@ const defaultExecRunner: ContainerExecRunner = async (command, args, options) =>
     return { stdout, stderr, code: 0 };
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; code?: unknown; killed?: boolean; message?: string };
-    // A non-zero exit still carries the output; anything else (runtime missing,
-    // client killed) is a real failure to run at all.
     if (typeof failure.code === "number") {
       return { stdout: failure.stdout ?? "", stderr: failure.stderr ?? "", code: failure.code };
     }
@@ -1218,10 +1116,6 @@ const defaultExecRunner: ContainerExecRunner = async (command, args, options) =>
   }
 };
 
-/** Run one shell command inside a Local VM as the desktop user, in its durable
- * workspace, and return the exit code and text output. Bots use this instead of
- * typing into a terminal window and reading screenshots. The limit is enforced
- * inside the container so a runaway process is really stopped. */
 export async function containerExec(
   target: LocalVmTarget,
   command: string,
@@ -1253,9 +1147,6 @@ export async function containerExec(
   return { exitCode: result.code, stdout: clipExecOutput(result.stdout), stderr: clipExecOutput(result.stderr), timedOut };
 }
 
-/** Spawn contract handed directly to agent runtimes. The tiny host wrapper
- * only preserves stdio through the container CLI; Cua Driver owns the MCP
- * protocol and every computer tool. */
 type ContainerMcpLaunch = {
   command: string;
   args: string[];
@@ -1270,8 +1161,6 @@ export function containerComputerMcp(
   return {
     command: process.execPath,
     args: [containerMcpPath, runtime, target.containerName, CUA_SOCKET],
-    // The control pair rides in env, not argv — argv is world-readable
-    // through `ps` for the life of the bridge.
     env: {
       ELECTRON_RUN_AS_NODE: "1",
       ...(control ? { LATERDOG_CONTROL_URL: control.url, LATERDOG_CONTROL_TOKEN: control.token } : {}),
@@ -1279,8 +1168,6 @@ export function containerComputerMcp(
   };
 }
 
-/** Commands shown as a transparent fallback. Normal setup builds the pinned
- * derivative through the API, so users do not need to author a Dockerfile. */
 export function setupCommands(
   runtime: Runtime | null,
   platform: NodeJS.Platform = process.platform,
@@ -1319,8 +1206,6 @@ export function setupCommands(
   return {
     install,
     runtimeStart,
-    // This is the inspectable base download. The normal Prepare button also
-    // builds the checksum-pinned 0.20.0 derivative automatically.
     pull: command(baseImagePullArgs(runtime)),
     run:
       runtime === "container" && target.key !== SHARED_LOCAL_VM_TARGET.key

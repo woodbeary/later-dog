@@ -43,9 +43,6 @@ export const LINUX_CUA_RELEASE = Object.freeze({
   maxExpandedBytes: 128 * MIB,
 });
 
-// Pin the complete upstream archive shape, even though later.dog extracts
-// only the two CLI runtime files. A release that silently grows a new native
-// payload must receive an explicit review and checksum update first.
 const ARCHIVE_MEMBERS = Object.freeze({
   "cua-driver": Object.freeze({
     kind: "file",
@@ -138,11 +135,6 @@ function safeArchivePath(name) {
   return name;
 }
 
-/**
- * Parse the pinned tarball without delegating extraction to a general-purpose
- * archive tool. Only regular files and directories from the reviewed manifest
- * are accepted; links, PAX/GNU extensions, devices and duplicate names fail.
- */
 export function parseLinuxCuaArchive(
   archiveBytes,
   release = LINUX_CUA_RELEASE,
@@ -475,10 +467,6 @@ export async function stageLinuxCua({
   if (!rootDirectory || !path.isAbsolute(rootDirectory)) {
     throw new Error("rootDirectory must be an absolute path");
   }
-  // Linux local control spawns this reviewed CLI directly and deliberately
-  // excludes the npm SDK's native .node/.so files. Do not couple the Linux
-  // release pin to @trycua/cua-driver, which serves the separate macOS SDK
-  // path and may advance independently.
 
   const stageDirectory = path.join(rootDirectory, "dist-native", "cua-linux-x64");
   const licenseDirectory = path.join(rootDirectory, "third_party", "cua-driver");
@@ -486,10 +474,7 @@ export async function stageLinuxCua({
     try {
       await validateStagedRuntime(stageDirectory, { licenseDirectory });
       return { stageDirectory, source: "existing-stage", manifest: releaseManifest() };
-    } catch {
-      // An invalid stage is never trusted. A verified cache may still satisfy
-      // an explicitly offline release build below.
-    }
+    } catch {}
   }
 
   const cachePath = path.join(

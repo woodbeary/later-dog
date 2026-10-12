@@ -2,9 +2,6 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ScenarioResult } from "../scorers/snapshot.ts";
 
-/** One JSON and one markdown report per run, plus nothing else: the reports
- * are the release-diffable artifact the behavior report is built from. */
-
 export function renderMarkdown(results: ScenarioResult[]): string {
   const lines: string[] = [
     "# Behavior eval report",

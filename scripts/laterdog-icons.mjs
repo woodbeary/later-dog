@@ -1,7 +1,3 @@
-// Renders later.dog's mark into every raster the app ships: the macOS .icns, the Windows .ico,
-// the Linux/Dock PNG and the Electron tray/splash image. `public/app-icon.svg` (inset, for the
-// OS) and `public/laterdog.svg` (full-bleed, for the favicon and in-app logo) are the sources;
-// nothing here is drawn by hand. Run with `pnpm laterdog:icons`.
 import { app, BrowserWindow } from "electron";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -12,7 +8,6 @@ mkdirSync(profile, { recursive: true, mode: 0o700 });
 app.setName("later.dog Icons");
 app.setPath("userData", profile);
 
-/** A Windows icon container holding PNG-compressed entries (supported since Vista); 256 is written as 0 per the format. */
 function ico(entries) {
   const header = Buffer.alloc(6); header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(entries.length, 4);
   const directory = Buffer.alloc(16 * entries.length); let offset = header.length + directory.length;
@@ -44,7 +39,6 @@ async function renderIcons() {
   }
   writeFileSync(resolve("build/icon.png"), image.toPNG());
   writeFileSync(resolve("build/icon.svg"), logo);
-  // Dock, window, splash screen and tray all read this one PNG (electron/main.mjs APP_ICON).
   writeFileSync(resolve("electron/resources/app-icon.png"), image.toPNG());
   writeFileSync(resolve("build/icon.ico"), ico([16, 24, 32, 48, 64, 128, 256].map((size) => ({ size, png: image.resize({ width: size, height: size }).toPNG() }))));
   if (process.platform === "darwin") execFileSync("iconutil", ["-c", "icns", dir, "-o", resolve("build/icon.icns")]);

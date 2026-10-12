@@ -12,7 +12,6 @@ type Room = { id: string; name: string; memberIds: string[]; section?: string; b
 type RpcReply = { result: { isError?: boolean; content: Array<{ text: string }> } };
 type Mounted = { command: string; args: string[]; env: Record<string, string> };
 
-// Not create_bot: in later.dog any bot creates a bot on request (server/laterdog/dog-creation.ts).
 const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "create_room", "manage_room", "retry_thread"];
 
 it("creates and manages an own-section room through the mounted Chief MCP proxy", async () => {
@@ -41,7 +40,6 @@ it("creates and manages an own-section room through the mounted Chief MCP proxy"
     }
     const [chief, peer, second, foreign] = bots;
     await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true });
-    // What one bot's turn mounts, then that agents proxy spawned the same way.
     const mount = async (bot: Bot, text: string): Promise<Mounted> => {
       rmSync(fixture.fixtureDumpPath, { force: true });
       await control(["send", "--bot", bot.id, "--text", text]);
@@ -77,7 +75,6 @@ it("creates and manages an own-section room through the mounted Chief MCP proxy"
     const toolNames = async (rpc: ReturnType<typeof connect>) =>
       (await rpc<{ tools: Array<{ name: string }> }>("tools/list")).tools.map((entry) => entry.name);
 
-    // An ordinary teammate's turn is not shown the tools only a Chief may use.
     const peerMount = await mount(peer, "Say hello.");
     expect(peerMount.env.LATERDOG_CHIEF_OF_STAFF).toBe("0");
     const peerTools = await toolNames(connect(peerMount));

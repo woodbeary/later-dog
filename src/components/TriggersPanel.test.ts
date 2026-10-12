@@ -5,8 +5,6 @@ import type { Bot } from "@/state/store";
 import type { WebhookTrigger } from "@/lib/webhooks";
 import { setLocale, t } from "@/lib/i18n";
 
-// The pop-up's own state, seeded by call order (effects never run under
-// server rendering): useWebhookActions owns 0–4, the builder 5–10.
 const fixture = vi.hoisted(() => ({
   api: vi.fn(),
   dispatch: vi.fn(),
@@ -178,7 +176,6 @@ describe("Triggers pop-up", () => {
     fixture.webhooks = [webhook("w1"), webhook("w2", { name: "Stripe" })];
     fixture.overrides.set(1, "w1:command");
     const { html } = render();
-    // Copy link, switch, copy command, rotate, edit and delete on both rows.
     expect(html.match(/ disabled=""/g)).toHaveLength(12);
   });
 

@@ -6,7 +6,6 @@ import {
   type PlaceFacts, type PlaceParams, type PlaceSource, type PlaceState,
 } from "./place-view.ts";
 
-/** Every param any line or action names, so a state always reads whole. */
 const PARAMS: PlaceParams = {
   bot: "Scout", engine: "Claude", model: "Llama", computer: "Team desk", hours: 50, month: "November",
   plan: "Pro", max: 2, holders: ["Ada", "Bo"], words: "Start the Boat plan to create sandboxes.", reason: "CUA Driver is not ready.",
@@ -26,7 +25,6 @@ describe("U1: one line and at most one action for every state", () => {
         const view = placeViewOf(state, PARAMS, { role, server: "my-cloud" });
         expect(view.short.trim(), state).not.toBe("");
         expect(view.line.trim(), state).not.toBe("");
-        // one message: no second paragraph, no placeholder left unfilled
         expect(view.line, state).not.toMatch(/\n|\{\w+\}/);
         expect(view.short, state).not.toMatch(/\{\w+\}/);
         if (view.action) expect(view.action.label, state).not.toMatch(/^$|\{\w+\}/);
@@ -42,7 +40,6 @@ describe("U1: one line and at most one action for every state", () => {
         expect(user, state).toEqual(admin);
         continue;
       }
-      // Starting a computer early is a shortcut: a User's own message starts it.
       if (admin.action.id === "start" || admin.action.id === "wake") {
         expect(user, state).toEqual({ ...admin, action: null });
         continue;
@@ -84,7 +81,6 @@ describe("U1: one line and at most one action for every state", () => {
       .toBe("Your Personal plan includes 1 cloud computer, and Ada has it.");
     expect(placeViewOf("cc-at-once", { plan: "Pro", max: 2, holders: ["Ada", "Bo"] }, admin).line)
       .toBe("Your Pro plan includes 2 cloud computers, and Ada and Bo have them.");
-    // A refusal known only by its code still reads whole.
     expect(placeViewOf("cc-at-once", { plan: "Pro", max: 2 }, admin).line).toBe("All the cloud computers your plan includes are in use.");
     expect(placeViewOf("cc-no-hours", {}, admin).line).toBe("This month's cloud computer hours are used up.");
     expect(placeViewOf("cc-unavailable", {}, admin)).toMatchObject({

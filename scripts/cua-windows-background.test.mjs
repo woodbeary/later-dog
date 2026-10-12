@@ -11,7 +11,7 @@ function image(signed = true) {
   bytes.writeUInt16LE(1, pe + 6);
   bytes.writeUInt16LE(240, pe + 20);
   bytes.writeUInt16LE(0x20b, optional);
-  bytes.writeUInt32LE(4096, optional + 16); // entry point
+  bytes.writeUInt32LE(4096, optional + 16);
   bytes.writeUInt16LE(3, optional + 68);
   bytes.writeUInt32LE(16, optional + 108);
   if (signed) {
@@ -38,7 +38,6 @@ describe("background CUA executable", () => {
       source.copy(normalized, start, start, start + length);
     }
     expect(normalized).toEqual(source.subarray(0, result.length));
-    // Independent 16-bit complement checksum, including an odd final byte.
     const words = Array.from({ length: Math.ceil(result.length / 2) }, (_, i) =>
       i * 2 >= optional + 64 && i * 2 < optional + 68 ? 0 :
         (result[i * 2] + (result[i * 2 + 1] ?? 0) * 256));

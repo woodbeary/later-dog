@@ -33,8 +33,6 @@ it.each([false, true])("adds a Boat account only for an opted-in Boat fixture, a
     const response = await fetch(`${fixture.info.url}/api/instances`);
     expect(response.ok).toBe(true);
     const { instances } = await response.json() as { instances: Array<{ instanceId: string; driverKind: string }> };
-    // Bots use a cloud computer as a tool on their own engine; no engine
-    // runs its turns on Boat.
     expect(instances.filter(instance => instance.driverKind === "boxAgent" || instance.instanceId === "computer")).toEqual([]);
     expect(config.instances).not.toHaveProperty("computer");
     if (withBoat) {
@@ -43,7 +41,6 @@ it.each([false, true])("adds a Boat account only for an opted-in Boat fixture, a
       expect(config).not.toHaveProperty("box");
       expect(calls).toEqual([]);
     }
-    // Merely advertising the opted-in backend must never provision a boat.
     expect(calls.every(call => call.startsWith("GET "))).toBe(true);
   } finally {
     await fixture?.close();

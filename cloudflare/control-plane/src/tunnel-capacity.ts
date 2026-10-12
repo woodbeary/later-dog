@@ -1,11 +1,3 @@
-// Provider capacity for managed companion endpoints: the idle-tunnel scan,
-// the usage alert, the /healthz detail, and the short provisioning gate used
-// while Cloudflare is rejecting new tunnels or DNS records.
-//
-// Nothing here deletes a provider resource. A reclaim only moves an idle
-// endpoint row to 'deleting'; the existing ownership-verified cleanup path
-// (endpoints.ts deleteClaim) does the deletion and re-checks the tunnel's
-// connection state immediately before each destructive call.
 import { CloudflareAPI, CloudflareAPIError, type CloudflareFetch } from "./cloudflare-api";
 import type { ControlPlaneConfig } from "./config";
 import type { JSONValue } from "./http";
@@ -17,28 +9,17 @@ import {
   type IdleReason,
 } from "./tunnel-activity";
 
-/** Cloudflare's tunnel quota (1045) and DNS record quota (81045). */
 const CAPACITY_ERROR_CODES: ReadonlySet<string> = new Set(["cf_api_1045", "cf_api_81045"]);
-/** After a quota rejection, new allocations are answered locally for this
- * long instead of spending shared API budget on a request that will fail. */
 export const CAPACITY_GATE_MS = 10 * 60 * 1_000;
 export const CAPACITY_RETRY_AFTER_SECONDS = 600;
 export const CAPACITY_ALERT_PERCENT = 90;
-/** One page per five-minute run. 100 tunnels keep the response far below the
- * client's 512 KiB bound even with the deprecated connections array filled. */
 export const TUNNEL_SCAN_PAGE_SIZE = 100;
-/** Bounded reclaim marks per run, so the cleanup queue cannot outgrow the
- * cleanup sweep by more than one run's worth. */
 export const RECLAIM_MARK_LIMIT = 20;
 const MAX_SCAN_PAGE = 1_000;
 const SNAPSHOT_STALE_MS = 30 * 60 * 1_000;
 const MANAGED_TUNNEL_NAME = /^laterdog-c-[0-9a-f]{32}$/;
-/** /healthz is the busiest public path, and its capacity detail is only a
- * report: allocation gating reads D1 directly. Each data center reuses one
- * read of the snapshot row for this long instead of a D1 round trip per probe. */
 const CAPACITY_HEALTH_CACHE_SECONDS = 120;
 const CAPACITY_HEALTH_CACHE = "healthz-capacity";
-// Never routed. Bump the version when CapacityRow changes: copies outlive deploys.
 const CAPACITY_HEALTH_CACHE_PATH = "/__internal/healthz-capacity-row/v1";
 
 interface CapacityRow {
@@ -58,9 +39,7 @@ interface ScanEndpointRow {
 
 export interface TunnelScanSummary {
   dnsRecordCount: number | null;
-  /** Idle tunnels that also passed every D1 guard (marked when mode is on). */
   eligible: number;
-  /** Tunnels the provider reports idle that belong to an endpoint row. */
   idle: Record<IdleReason, number>;
   managed: number;
   marked: number;
@@ -96,17 +75,12 @@ function capacityCacheKey(config: ControlPlaneConfig): string {
   return new URL(CAPACITY_HEALTH_CACHE_PATH, config.authBaseURL).toString();
 }
 
-/** Drops the cached row in this data center only; others keep theirs until it
- * expires. Cron runs land in an arbitrary data center, so this delete is
- * opportunistic: the cache TTL is the real staleness bound. Best effort, never
- * throws. */
 export async function forgetCachedCapacity(config: ControlPlaneConfig): Promise<void> {
   await caches.open(CAPACITY_HEALTH_CACHE)
     .then((cache) => cache.delete(capacityCacheKey(config)))
     .catch(() => false);
 }
 
-/** Any cache failure, or a zone without a cache, falls through to D1. */
 async function cachedCapacityRow(
   env: Env,
   config: ControlPlaneConfig,
@@ -126,7 +100,6 @@ async function cachedCapacityRow(
   return row;
 }
 
-/** True while a recent quota rejection should short-circuit new allocations. */
 export async function capacityRejectionActive(env: Env, now = Date.now()): Promise<boolean> {
   const row = await env.DB.prepare(
     `SELECT capacity_rejected_at FROM managed_endpoint_capacity WHERE id = 1`,
@@ -149,8 +122,6 @@ export async function recordCapacityRejection(
   await forgetCachedCapacity(config);
 }
 
-/** Called after cleanup freed provider resources: the next allocation may
- * succeed, so stop answering it locally. */
 export async function clearCapacityRejection(
   env: Env,
   config: ControlPlaneConfig,
@@ -164,10 +135,6 @@ export async function clearCapacityRejection(
   await forgetCachedCapacity(config);
 }
 
-// The D1 side of "has been seen recently" lives only here, so the same SQL
-// decides both the observe-mode count and the real mark, and a concurrent
-// reconcile, revocation, or installation check-in that lands between the
-// provider read and the write always wins.
 const RECLAIM_GUARD_SQL = `installation_id = ?
         AND tunnel_name = ?
         AND (tunnel_id IS NULL OR tunnel_id = ?)
@@ -236,7 +203,6 @@ function capacityAlert(
   limit: number,
 ): void {
   if (used === null || used * 100 < limit * CAPACITY_ALERT_PERCENT) return;
-  // A stable `alert` field gives Workers Logs a single filter for alerting.
   console.error(JSON.stringify({
     message: "managed endpoint capacity high",
     alert: "managed_endpoint_capacity",
@@ -250,11 +216,6 @@ function capacityAlert(
   }));
 }
 
-/**
- * One bounded step of the account-wide tunnel scan: a single provider page,
- * at most RECLAIM_MARK_LIMIT reclaim marks, one zone record count, and one
- * capacity snapshot. Successive runs walk the pages and wrap around.
- */
 export async function scanTunnelCapacity(
   env: Env,
   config: ControlPlaneConfig,
@@ -310,8 +271,6 @@ export async function scanTunnelCapacity(
   for (const tunnel of managed) {
     const row = rows.get(tunnel.name);
     if (!row) {
-      // No endpoint row claims this name, so ownership cannot be verified.
-      // Leave it for an operator rather than guessing.
       unmatched += 1;
       continue;
     }
@@ -396,7 +355,6 @@ function worstKnownStatus(statuses: CapacityStatus[]): CapacityStatus {
   return worst;
 }
 
-/** Counts and timestamps only: safe for the unauthenticated health check. */
 export async function capacityHealth(
   env: Env,
   config: ControlPlaneConfig,

@@ -1,7 +1,3 @@
-// The who-is-driving record. What these tests pin is the authority split:
-// the person's three moves (take, release, dismiss) all work, the bot's one
-// move (requestHelp) never grants anything, and a release settles the help
-// request in the same change the person made.
 import { describe, expect, it } from "vitest";
 
 import { ComputerControl, type ControlSnapshot } from "./computer-control.ts";

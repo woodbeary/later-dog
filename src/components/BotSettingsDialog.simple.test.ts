@@ -6,9 +6,6 @@ import type { Routine } from "@/lib/routines";
 import type { Bot, Message } from "@/state/store";
 import type { ManagedSkill } from "./bot-settings/SkillsSection";
 
-// Same hook-by-call-order harness as ModelPicker.simple.test.ts: component
-// state survives between renders, effects never run, and handlers are read
-// off the returned element tree.
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
@@ -155,7 +152,6 @@ describe("the dog editor's tabs", () => {
     const { html, nodes: tree } = dialog(makeBot());
     expect(html).toContain(">Details</button>");
     expect(html).toContain(">Library</button>");
-    // every dog has its own computer: no tab to choose where it works
     expect(html).not.toContain(">Computer</button>");
     expect(html).not.toContain("Where Scout works");
     expect(find({ nodes: tree }, "data-simple-tab", "details").props["aria-selected"]).toBe(true);

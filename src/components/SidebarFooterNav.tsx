@@ -45,7 +45,6 @@ function NavRow({
   );
 }
 
-/** Apps, as a round icon button at the end of the profile row. */
 export function SidebarAppsButton() {
   const { state, dispatch } = useStore();
   const label = t("sidebar.nav.apps");

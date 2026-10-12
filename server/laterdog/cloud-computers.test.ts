@@ -1,5 +1,3 @@
-// The computers client against a fake fetch: where its connection comes from, what each call sends, what crosses back,
-// and that the key never appears anywhere but the Authorization header.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

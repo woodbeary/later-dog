@@ -1,5 +1,3 @@
-// Real later.dog server and renderer; only the paid Boat provider is an owned local
-// HTTP stand-in. No guest commands execute and no real credentials are read.
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { resolve } from "node:path";
@@ -29,7 +27,6 @@ export async function launchTeamComputersPreview() {
       }
       if (request.headers.authorization !== "Bearer box_verification_fixture") return send({ message: "fixture authentication failed" }, 401);
       calls.push({ method, path });
-      // The provider list endpoint still answers with its historical "boxes" key.
       if (method === "GET" && path === "/boxes") return send({ ok: true, boxes: boats });
       if (method === "POST" && path === "/boxes") {
         if (refuseCreate) return send({ message: "Fixture account is rate-limited. Retry this computer." }, 429);
@@ -53,7 +50,6 @@ export async function launchTeamComputersPreview() {
         boat.state = match[2] === "stop" ? "archived" : "idle";
         return send({ ok: true, box: boat });
       }
-      // Unexpected deletion is deliberately refused and remains in receipts.
       return send({ message: "fixture does not implement this mutation" }, 405);
     })().catch((error) => {
       response.writeHead(500, { "content-type": "application/json" });

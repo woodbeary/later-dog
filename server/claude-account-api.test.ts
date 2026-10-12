@@ -1,4 +1,3 @@
-// Real HTTP boundary, disposable home/data, synthetic Claude accounts only.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -61,8 +60,6 @@ beforeAll(async () => {
   dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
   cli = join(home, "fixture-claude.mjs");
-  // The official-style auth probe stays synthetic; turns reuse the repository
-  // fake CLI. A per-account marker makes only that account hang until stopped.
   writeFileSync(cli, `#!/usr/bin/env node
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -82,8 +79,6 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
     instances: {
       ghost: { driver: "not-a-real-driver", displayName: "Preserved shadow" },
-      // The `claude` product fleet auto-adds these IDs unless configured.
-      // Pin shadows so this test never probes an installed provider CLI.
       ...Object.fromEntries(["cursor", "openaiCompat", "qwen", "hermes", "pi"].map(id => [id, { driver: "not-a-real-driver" }])),
       "broken-account": {
         driver: "claudeAgent", displayName: "Repairable shadow", config: { cli, configDir: "relative/saved-directory" },
@@ -117,7 +112,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
   const deadline = Date.now() + 20_000;
   for (;;) {
     if (child.exitCode !== null) throw new Error(`fixture exited: ${stderr}`);
-    try { if ((await api("GET", "/api/health")).body.pid === child.pid) break; } catch { /* Starting. */ }
+    try { if ((await api("GET", "/api/health")).body.pid === child.pid) break; } catch {}
     if (Date.now() > deadline) throw new Error(`fixture did not start: ${stderr}`);
     await new Promise(resolve => setTimeout(resolve, 100));
   }
@@ -170,7 +165,6 @@ describe("Claude account HTTP API", () => {
     expect(renamed.body.instances.find((row: any) => row.instanceId === first.id).displayName).toBe("Renamed work");
     expect(saved().instances[first.id].config.configDir).toBe(first.dir);
 
-    // later.dog token battery: the order may name only Claude accounts here
     const order = { claudeAgent: [first.id, "claude", second.id] };
     const battery = await api("PUT", "/api/config", { accountBattery: { enabled: false, order } });
     expect(battery.status, JSON.stringify(battery.body)).toBe(200);
@@ -183,7 +177,6 @@ describe("Claude account HTTP API", () => {
     writeFileSync(marker, "Keep the user's CLI account files");
     expect((await api("DELETE", `/api/instances/${first.id}`)).status).toBe(200);
     expect(saved().instances).not.toHaveProperty(first.id);
-    // ...and a removed account leaves it
     expect(saved().accountBattery).toEqual({ enabled: false, order: { claudeAgent: ["claude", second.id] } });
     expect((await api("GET", "/api/config")).body.accountBattery.order.claudeAgent).not.toContain(first.id);
     expect(saved().instances).toHaveProperty("ghost");

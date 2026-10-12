@@ -1,5 +1,3 @@
-// Types for companion-account-service.mjs as the headless server uses it
-// (server/tunnel.ts). Keep in step with the implementation.
 import type { ControlPlaneClient } from "./control-plane-client.mjs";
 
 export declare const DEFAULT_COMPANION_CONTROL_PLANE_URL: string;
@@ -36,7 +34,6 @@ export interface CompanionAccountService {
   retry(): Promise<CompanionAccountState>;
   signOut(): Promise<CompanionAccountState>;
   restore(): Promise<CompanionAccountState>;
-  /** Cancels background recovery timers (autoRecover only). */
   dispose(): void;
 }
 
@@ -63,6 +60,5 @@ export declare function createCompanionAccountService(options: {
   autoRetryMaxMs?: number;
   endpointCheckIntervalMs?: number;
   firstEndpointCheckMs?: number;
-  /** One line per failed setup step: code, HTTP status, request id, retry delay. */
   log?: (line: string) => void;
 }): CompanionAccountService;

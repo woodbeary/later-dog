@@ -1,4 +1,3 @@
-// Real renderer and routes in a disposable fake-engine workspace only.
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,8 +27,6 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   const ui = (verb: string, ...args: string[]) => runControlLaterDog(["ui", verb, "--ui", fixture.ui, ...args]) as Promise<Record<string, any>>;
   const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
   const click = (name: string) => ui("click", "--name", name);
-  // The shared harness lacks select/fill verbs. Drive native controls through
-  // DOM input/change events; all saves and reads still use the real renderer.
   const fill = (selector: string, value: string) => evaluate(`(() => { const field = document.querySelector(${JSON.stringify(selector)}); const prototype = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(prototype, 'value').set.call(field, ${JSON.stringify(value)}); field.dispatchEvent(new Event('input', { bubbles: true })); return field.value; })()`);
   const select = (label: string, value: string) => evaluate(`(() => { const field = document.querySelector('select[aria-label=${JSON.stringify(label)}]') ?? [...document.querySelectorAll('label')].find(label => label.firstElementChild?.textContent === ${JSON.stringify(label)})?.control; field.value = ${JSON.stringify(value)}; field.dispatchEvent(new Event('change', { bubbles: true })); return field.value; })()`);
   const routines = async (): Promise<Routine[]> => (await fetch(`${fixture.url}/api/routines`).then(response => response.json())).routines;
@@ -91,8 +88,6 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   await expect.poll(async () => (await routines()).find(routine => routine.id === monthly.id)?.schedule).toEqual({ type: "cron", expression: "0 9 29 2 *", timeZone: "UTC" });
   expect((await routines()).find(routine => routine.id === monthly.id)?.overlap).toBeUndefined();
 
-  // The API models a bot-created arbitrary schedule. Editing only its title
-  // must not collapse its ranges, weekdays, or non-local timezone to a preset.
   const customSchedule = { type: "cron", expression: "15 9-17/2 * * 1-5", timeZone: "America/New_York" };
   const response = await fetch(`${fixture.url}/api/routines`, { method: "POST", headers: { "content-type": "application/json", origin: fixture.url }, body: JSON.stringify({ name: "Business-hours report", prompt: "Use only the fixture.", botId: monthly.botId, enabled: false, runOn: "dog", schedule: customSchedule }) });
   expect(response.status).toBe(201);

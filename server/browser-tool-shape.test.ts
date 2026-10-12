@@ -24,9 +24,8 @@ describe("browser tool shaping", () => {
     expect(slim.tools[0].inputSchema.required).toEqual(["interactive"]);
     expect(slim.tools[0].inputSchema.additionalProperties).toBe(false);
     expect(slim.tools[1]).toEqual({ name: "agent_browser_close" });
-    // the fixture covers the whole set, so a new owned parameter cannot slip past this test
     for (const name of HARNESS_OWNED_BROWSER_PARAMS) expect(snapshotTool.inputSchema.properties).toHaveProperty(name);
-    expect(snapshotTool.inputSchema.properties).toHaveProperty("session"); // input untouched
+    expect(snapshotTool.inputSchema.properties).toHaveProperty("session");
   });
 
   it("drops harness-owned arguments from a call and leaves ordinary calls identical", () => {
@@ -34,8 +33,6 @@ describe("browser tool shaping", () => {
     expect(stripHarnessOwnedArguments(ordinary)).toBe(ordinary);
     expect(stripHarnessOwnedArguments({ name: "agent_browser_open", arguments: { url: "https://example.com", session: "other-bot", extraArgs: ["--remote-debugging-port=9222"], caCert: "/tmp/x.pem" } }))
       .toEqual({ name: "agent_browser_open", arguments: { url: "https://example.com" } });
-    // headed is harness-owned too: a call must not pin the daemon to a launch
-    // mode the host cannot satisfy (#1383)
     expect(stripHarnessOwnedArguments({ name: "agent_browser_open", arguments: { url: "https://example.com", headed: true } }))
       .toEqual({ name: "agent_browser_open", arguments: { url: "https://example.com" } });
     expect(stripHarnessOwnedArguments({ name: "agent_browser_close" })).toEqual({ name: "agent_browser_close" });
@@ -47,7 +44,6 @@ describe("browser tool shaping", () => {
     expect(shaped).not.toHaveProperty("structuredContent");
     expect(shaped.content).toEqual(small.content);
     expect(shaped.isError).toBe(false);
-    // an image-only result has no text form to fall back to, so its structured payload stays
     const imageOnly = { content: [{ type: "image", data: "AAAA", mimeType: "image/png" }], structuredContent: { ok: true } };
     expect(shapeBrowserToolResult(imageOnly)).toEqual(imageOnly);
     expect(shapeBrowserToolResult({ error: "x" })).toEqual({ error: "x" });

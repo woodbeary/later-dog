@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopPermissionChecklist } from "./desktop-permissions";
 
-// The hook under a counting useState and a captured useEffect, the way the
-// other hook recipes here run: no DOM, every effect run by hand.
 const fixture = vi.hoisted(() => ({
   values: [] as unknown[],
   index: 0,

@@ -1,6 +1,3 @@
-// The bus is the seam every client depends on: events must arrive
-// stamped with their instanceId, cross-driver leaks must be dropped, and
-// neither logging nor a broken listener may take down the stream.
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -161,10 +158,6 @@ describe("EventBus", () => {
   });
 });
 
-// A provider streams a reply as many small text deltas. The bus publishes
-// them merged, at most one per thread every 50 ms, so the log, the listeners
-// and every connected client handle a few frames per second instead of one
-// per token. Nothing else is delayed, and nothing changes order.
 describe("EventBus streamed text", () => {
   const delta = (text: string, over: Partial<RuntimeEvent> = {}): RuntimeEvent =>
     testEvent({ type: "content.delta", streamKind: "assistant_text", delta: text, turnId: "turn-1", ...over } as Partial<RuntimeEvent>);
@@ -254,7 +247,6 @@ describe("EventBus streamed text", () => {
     bus.detach("inst-1");
     expect(summary(seen)).toEqual(["thread-1:assistant_text:from the adapter", "thread-2:assistant_text:other engine"]);
 
-    // the server calls flush() as the process exits
     bus.publish(delta("last words", { threadId: "thread-3" }));
     bus.flush();
     expect(summary(seen).at(-1)).toBe("thread-3:assistant_text:last words");

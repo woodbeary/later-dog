@@ -1,5 +1,3 @@
-// Opens Settings' Add account sheet from anywhere: the limit row, the model
-// picker. With a kind, the sheet goes straight to that provider's sign-in.
 export type AddAccountKind = "claudeAgent" | "codex";
 
 const listeners = new Set<() => void>();

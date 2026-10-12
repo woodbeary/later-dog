@@ -1,7 +1,3 @@
-// The operator workspace's side of the fleet agent: one request over the
-// agent's Unix socket, JSON in and out. The socket's permissions are the
-// whole authorisation; this process can open it only because the operator
-// user was named at `fleet init`.
 import { existsSync } from "node:fs";
 import { request } from "node:http";
 
@@ -14,7 +10,6 @@ export function fleetSocketPath(env: NodeJS.ProcessEnv = process.env): string {
   return env.LATERDOG_FLEET_SOCKET?.trim() || "/run/laterdog/fleet.sock";
 }
 
-/** Whether this server can reach a fleet agent at all. */
 export function fleetAvailable(socketPath = fleetSocketPath()): boolean {
   return existsSync(socketPath);
 }

@@ -71,7 +71,7 @@ describe("Clack setup adapter", () => {
     const answer = fixture.io.choose("Choose a model", Array.from({ length: 50 }, (_, i) => `Model ${i + 1}: ${"long label ".repeat(6)}`));
     expect(fixture.text()).not.toContain("Model 8:");
     fixture.input.write("\u001b[A\r");
-    expect(await answer).toBe(49); // Clack wraps at the end of the option list.
+    expect(await answer).toBe(49);
     expect(stripVTControlCharacters(fixture.text())).toContain("Model 50:");
     expectClean(fixture);
   });

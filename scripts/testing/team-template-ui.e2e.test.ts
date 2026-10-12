@@ -49,8 +49,6 @@ describe("additive template imports in the real renderer", () => {
       { key: "researcher", name: "Lead finder", appearance: { color: "cyan" } },
       { key: "writer", name: "Outreach writer", appearance: { color: "purple" } },
     ] } };
-    // Only the public catalog download is simulated. Import, persistence,
-    // SSE and the entire React sidebar remain real and fixture-local.
     await evaluate(`(() => {
       window.templateFixture = ${JSON.stringify(manifest)};
       const originalFetch = window.fetch.bind(window);
@@ -71,7 +69,6 @@ describe("additive template imports in the real renderer", () => {
         await click("Load");
       } else {
         await click("Import");
-        // Exercise the file input's actual change handler, not the OS picker.
         await evaluate(`(() => { const input = document.querySelector('[role=dialog] input[type=file]'); const transfer = new DataTransfer(); transfer.items.add(new File([JSON.stringify(window.templateFixture)], 'sales.dogteam.json', { type: 'application/json' })); input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
       }
       await expect.poll(snapshot, { timeout: 10_000 }).toContain("Adds a new pack for Sales crew");

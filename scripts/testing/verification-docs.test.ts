@@ -1,6 +1,3 @@
-// Verification recipes are followed by hand, so nothing else notices when a
-// command, file, route or link they cite stops existing. This reads every
-// recipe under docs/verification and checks each citation against the tree.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +9,6 @@ const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const DOCS = join(ROOT, "docs", "verification");
 const recipes = readdirSync(DOCS).filter((name) => name.endsWith(".md")).sort();
 const text = (recipe: string) => readFileSync(join(DOCS, recipe), "utf8");
-// Paths inside external links belong to other repositories.
 const withoutUrls = (markdown: string) => markdown.replace(/https?:\/\/\S+/g, " ");
 const cited = (pattern: RegExp) => {
   const hits: string[] = [];
@@ -23,20 +19,14 @@ const cited = (pattern: RegExp) => {
 };
 const target = (hit: string) => hit.slice(hit.indexOf(": ") + 2);
 
-// The verbs `help` prints, minus the shell line under "isolated fixture".
 const helpVerbs = new Set([...HELP.matchAll(/^ {2}([a-z][\w-]*)(?= |$)/gm)].map((match) => match[1]!).filter((verb) => verb !== "node"));
 helpVerbs.add("help");
 
-// Routes are registered in server/index.ts and, for anything newer, in the
-// modules under server/routes (server/routes/README.md). Tests there quote
-// paths without registering them, so they do not count.
 const ROUTES_DIR = join(ROOT, "server", "routes");
 const routeModules = readdirSync(ROUTES_DIR).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts")).sort();
 const serverSource = [join(ROOT, "server", "index.ts"), ...routeModules.map((name) => join(ROUTES_DIR, name))]
   .map((file) => readFileSync(file, "utf8")).join("\n");
 const hooksSource = readFileSync(join(ROOT, "server", "webhook-ingress.ts"), "utf8");
-// server/index.ts matches routes two ways: `path === "/api/x"` and
-// `path.match(/^\/api\/x\/(a|b)$/)`. Collect the regex form too.
 const routePatterns = [...serverSource.matchAll(/\/(\^\\\/api\\\/(?:\[(?:[^\]\\]|\\.)*\]|[^/\\\n[]|\\.)*)\/[a-z]*/g)].map((match) => new RegExp(match[1]!));
 const PLACEHOLDER = /^(ID|:[\w-]+|<[^>]+>|\{[^}]+\})$/;
 
@@ -47,7 +37,6 @@ describe("docs/verification recipes cite things that exist", () => {
     const used = cited(/pnpm control:laterdog ([a-z][\w-]*)/g);
     expect(used.length).toBeGreaterThan(0);
     expect(used.filter((hit) => !helpVerbs.has(target(hit)))).toEqual([]);
-    // the launcher form may also name `launch`, which pnpm cannot run
     const direct = cited(/scripts\/control-laterdog\.ts ([a-z][\w-]*)/g);
     expect(direct.filter((hit) => target(hit) !== "launch" && !helpVerbs.has(target(hit)))).toEqual([]);
   });
@@ -73,7 +62,6 @@ describe("docs/verification recipes cite things that exist", () => {
       const segments = path.split("/").slice(1);
       const literal = segments.findIndex((segment) => PLACEHOLDER.test(segment));
       if (literal === -1) return source.includes(`"${path}"`) || routePatterns.some((pattern) => pattern.test(path));
-      // a placeholder path is known by its first two segments
       const prefix = `/${segments.slice(0, Math.min(2, literal)).join("/")}`;
       return source.includes(`"${prefix}`) || source.includes(`${prefix}/`)
         || routePatterns.some((pattern) => pattern.test(segments.map((segment) => PLACEHOLDER.test(segment) ? "x-1" : segment).join("/").replace(/^/, "/")));

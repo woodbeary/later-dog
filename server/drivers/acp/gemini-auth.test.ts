@@ -1,7 +1,3 @@
-// #28: the Gemini driver's credential detection after the 2026-06-18
-// consumer OAuth shutdown. The shared setup already points HOME at a
-// throwaway directory, so these tests write ~/.gemini/oauth_creds.json
-// there and assert what the exported check reports for each shape.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";

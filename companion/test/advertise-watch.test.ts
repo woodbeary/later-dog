@@ -1,8 +1,3 @@
-// The re-advertise contract. What matters is *when* the watcher moves — on a
-// change to the address set and never otherwise — because every advertise is
-// a socket rebind plus a network-wide announcement, and every missed one is a
-// phone holding stale A records. No sockets here: the watcher takes its
-// addresses and its two moves as functions, and these tests hand it fakes.
 import { describe, expect, it } from "vitest";
 
 import { createAddressWatcher, type AddressWatchOptions } from "../src/advertise-watch.ts";
@@ -37,8 +32,6 @@ describe("address watcher", () => {
   it("advertises when the network appears after startup", async () => {
     const { watcher, calls, logs, set } = rig([]);
     await watcher.check();
-    // The original bug was silence here: no addresses meant no advertise and
-    // no record of why. The first check must say so out loud.
     expect(calls).toEqual(["withdraw"]);
     expect(logs.join("\n")).toMatch(/no LAN addresses/);
 
@@ -76,7 +69,6 @@ describe("address watcher", () => {
     await watcher.check();
     set([]);
     await watcher.check();
-    // withdrawn, not left rotting in caches pointing at a dead address
     expect(calls).toEqual(["advertise 192.168.1.42", "withdraw"]);
     set(["192.168.1.42"]);
     await watcher.check();
@@ -92,8 +84,6 @@ describe("address watcher", () => {
     });
     await watcher.check();
     await watcher.check();
-    // Port 5353 busy is tied to this network state — one attempt per state,
-    // or the log repeats the same sentence every five seconds forever.
     expect(calls).toEqual(["advertise"]);
     expect(logs.join("\n")).toMatch(/could not advertise/);
     set(["10.0.0.7"]);
@@ -113,7 +103,6 @@ describe("address watcher", () => {
     });
     await watcher.check();
     expect(logs.join("\n")).toMatch(/label longer than 63 bytes/);
-    // a throw is not recorded as acted-on, so the same set is retried
     await watcher.check();
     expect(calls).toEqual(["advertise"]);
   });
@@ -132,7 +121,6 @@ describe("address watcher", () => {
       },
     });
     const first = watcher.check();
-    // lands while the first advertise is mid-rebind; must not fork a second
     const second = watcher.check();
     release();
     await Promise.all([first, second]);

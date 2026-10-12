@@ -108,13 +108,11 @@ describe("buildBotOverview", () => {
     });
     const overview = buildBotOverview(facts);
     expect(overview.does).toHaveLength(1);
-    // Prose, not the approval card's exact form: no anchor instant, no timezone name.
     expect(overview.does[0]).toMatch(/^Every 5 minutes: Triage Discord\./);
     expect(overview.does[0]).not.toContain("UTC");
     expect(overview.does[0]).not.toContain("anchored");
     expect(overview.does[0]).toContain("Last run completed at");
     expect(overview.does[0]).toContain("Next run");
-    // Won't-act-on-a-schedule should not appear since an enabled routine exists.
     expect(overview.wont).not.toContain("Won't act on a schedule.");
   });
 
@@ -132,7 +130,6 @@ describe("buildBotOverview", () => {
     });
     const overview = buildBotOverview(facts);
     expect(overview.does).toEqual(["Paused: Nightly Backup."]);
-    // A paused-only routine set still has no enabled routine.
     expect(overview.wont).toContain("Won't act on a schedule.");
   });
 
@@ -178,8 +175,6 @@ describe("buildBotOverview", () => {
   });
 
   it("states 'Has no connected apps.' when apps are off for the bot, even if the inventory is unverifiable", () => {
-    // Apps off is a definite negative that needs no inventory — saying
-    // "could not be checked" here would imply the bot might have apps.
     const facts = baseFacts({
       bot: { ...baseFacts().bot, composio: false, computer: "local" },
       engine: { composioMcp: true },
@@ -262,7 +257,6 @@ describe("soulLead", () => {
   it("cuts at 240 characters", () => {
     const long = "A".repeat(300);
     const result = soulLead(long);
-    // Cut at 240 characters, with an ellipsis so the card says it is a cut.
     expect(result).toBe(`${"A".repeat(240)}…`);
   });
 
@@ -310,12 +304,10 @@ describe("grantsSummary", () => {
       slack: { tools: "*" },
       gmail: { tools: ["GMAIL_SEND_EMAIL", "GMAIL_FETCH_EMAILS"] },
     });
-    // sorted by slug, so the order both clients render is deterministic
     expect(grants).toEqual([
       { slug: "gmail", level: "partial", toolCount: 2 },
       { slug: "slack", level: "all", toolCount: 0 },
     ]);
-    // {} is the explicit no-tools record: an empty list, not an absent one
     expect(grantsSummary({})).toEqual([]);
     expect(buildBotOverview(baseFacts({ bot: { ...baseFacts().bot, connectorTools: {} } })).grants).toEqual([]);
   });
@@ -336,7 +328,6 @@ describe("setupSteps", () => {
       ["folder", false],
       ["schedule", false],
     ]);
-    // no apps step: this bot's engine has no connected-apps tools
     expect(steps.find((step) => step.id === "apps")).toBeUndefined();
     expect(steps.every((step) => step.section)).toBe(true);
   });

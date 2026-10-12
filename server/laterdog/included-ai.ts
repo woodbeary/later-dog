@@ -4,10 +4,6 @@ import { savedTrial } from "./cloud-computers.ts";
 import { planOfferedNow } from "./cloud-trial.ts";
 import { trialAi } from "./included-trial.ts";
 
-// The free models later.dog powers, one account per provider so people pick
-// Kimi or Grok by name. Both run through the trial's relay, which routes by
-// the requested model. The Kimi instance keeps the original "laterdogAi" id
-// so existing dogs stay on it.
 export const INCLUDED_AI_DRIVER = "laterdogAi";
 export const INCLUDED_AI_INSTANCE = "laterdogAi";
 export const INCLUDED_GROK_DRIVER = "laterdogGrok";

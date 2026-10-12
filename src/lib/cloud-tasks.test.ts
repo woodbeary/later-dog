@@ -15,7 +15,6 @@ function summary(patch: Partial<CloudTaskSummary> = {}): CloudTaskSummary {
 
 const status = (patch: Partial<CloudTaskSummary>) => cloudTaskStatus({ summary: summary(patch) });
 
-/** Words a person should never have to read on a cloud task card. */
 const TECHNICAL = /\bPR\b|#\d|\bbranch|\bmerged?\b|\bcommit|\bdiff\b|\bgit\b|\bqueued\b|laterdog\/|owner\/repo/i;
 
 describe("cloud task status", () => {
@@ -43,7 +42,6 @@ describe("cloud task status", () => {
     expect(status({ state: "collecting" })).toMatchObject({ label: "Working", note: "Gathering the changes" });
     expect(status({ state: "publishing" })).toMatchObject({ label: "Working", note: "Putting the changes on GitHub" });
     expect(status({ state: "verifying" })).toMatchObject({ label: "Working", note: "Checking the changes" });
-    // a status read that failed and will be retried is not the person's business
     expect(status({ stage: "claude", blocker: "Reading job status on computer x exited 1" }).detail).toBeUndefined();
   });
 
@@ -87,7 +85,6 @@ describe("cloud task status", () => {
     expect(at({ stage: "done" })).toBeLessThan(at({ state: "collecting" }));
     expect(at({ state: "ready" })).toBe(1);
     expect(at({ state: "merged" })).toBe(1);
-    // a stopped run keeps the line where it got to; one that never started has none
     expect(at({ state: "needs_attention", stage: "setup" })).toBe(at({ stage: "setup" }));
     expect(at({ state: "cancelled" })).toBe(0);
     expect(cloudTaskStatus(undefined).progress).toBe(0);

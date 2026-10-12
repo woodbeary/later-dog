@@ -136,8 +136,6 @@ function fixture({
     calls.push({ args, options });
     const command = args[2];
     if (command === "image") {
-      // The real daemon phrases a clean absence this way; anything else is
-      // read as a transport failure, exactly like production.
       if (!state.image) throw new Error(`Error: No such image: ${VPS_IMAGE}`);
       return {
         stdout: JSON.stringify([{
@@ -209,8 +207,6 @@ function fixture({
       };
     }
     if (command === "exec") {
-      // only the pixel-carrying screenshot call fails; the status path's
-      // plain get_desktop_state readiness probe keeps answering
       if (screenshotCaptureFails && args.includes("--screenshot-out-file")) throw new Error("capture failed");
       if (args.includes("laterdog-preview")) return { stdout: screenshotValid ? screenshot.toString("base64") : "not-an-image", stderr: "" };
       if (args.includes("tail")) {
@@ -238,7 +234,6 @@ function fixture({
     if (command === "run") {
       state.container = true;
       state.running = true;
-      // a fresh container is created FROM the image ref in the run argv
       state.containerImageId = args.at(-1) ?? state.containerImageId;
       return { stdout: `${name}\n`, stderr: "" };
     }
@@ -301,7 +296,6 @@ describe("VPS computer", () => {
     expect(args).toContain("127.0.0.1:45678:172.17.0.5:6901");
     expect(args.at(-1)).toBe("production-vps");
     expect(args).toContain("ExitOnForwardFailure=yes");
-    // the app's shared-connection config rides along when the platform has one
     expect(vpsSshTunnelArgs("production-vps", 45678, "172.17.0.5", "/data/ssh/config").slice(0, 3)).toEqual(["-F", "/data/ssh/config", "-N"]);
     expect(vpsSshTunnelArgs("production-vps", 45678, "172.17.0.5", null)[0]).toBe("-N");
     expect(() => vpsSshTunnelArgs("production-vps", 80, "172.17.0.5")).toThrow(/port/);
@@ -324,8 +318,6 @@ describe("VPS computer", () => {
       ready: true,
       problem: null,
     });
-    // No standalone `docker info` round-trip: the image inspect doubles as
-    // the daemon probe, so a healthy status costs 2 docker calls + 4 execs.
     expect(fake.calls[0]?.args).toEqual(["-H", "ssh://production-vps", "image", "inspect", VPS_IMAGE]);
     expect(fake.calls.some(({ args }) => args[2] === "info")).toBe(false);
     const probes = fake.calls.filter(
@@ -338,9 +330,6 @@ describe("VPS computer", () => {
     expect(probes.every(({ args }) => !args.includes(fake.name))).toBe(true);
     expect(probes.every(({ args }) => args.includes(`DISPLAY=${DISPLAY}`))).toBe(true);
     expect(probes.every(({ args }) => args.includes("CUA_DRIVER_RS_TELEMETRY_ENABLED=0"))).toBe(true);
-    // The status poll must never transfer pixels: readiness is the driver
-    // answering get_desktop_state, and pixel validation belongs to the
-    // screenshot path alone.
     expect(fake.calls.some(({ args }) => args.includes("laterdog-preview"))).toBe(false);
     expect(fake.calls.some(({ args }) => args.includes("--screenshot-out-file"))).toBe(false);
   });
@@ -639,8 +628,6 @@ describe("VPS computer", () => {
     const fake = fixture();
     await vpsComputerScreenshot(CONFIG, BOT_ID, fake.runner);
     const transfer = fake.calls.find(({ args }) => args.includes("laterdog-preview"))!.args;
-    // Execute the exact in-container script, substituting only the local
-    // Pillow interpreter and a disposable input image. No Docker or SSH.
     const script = transfer[transfer.indexOf("-c") + 1].replace("/opt/venv/bin/python", "python3");
     const scratch = mkdtempSync(join(tmpdir(), "laterdog-vps-preview-image-"));
     try {
@@ -679,8 +666,6 @@ describe("VPS computer", () => {
     try {
       const path = join(scratch, "preview.png");
       writeFileSync(path, screenshot);
-      // A missing interpreter and a failed conversion must both preserve
-      // the previous PNG behavior, never return a partial JPEG plus a PNG.
       for (const interpreter of [join(scratch, "missing-python"), "false"]) {
         const script = originalScript.replace("/opt/venv/bin/python", interpreter);
         const encoded = execFileSync("sh", ["-c", script, "laterdog-preview", path], { encoding: "utf8" });
@@ -744,8 +729,6 @@ describe("VPS computer", () => {
         const timeoutMs = options?.timeoutMs ?? 120_000;
         calls.push({ args, timeoutMs });
         if (args.includes("laterdog-preview") || args.includes("rm")) {
-          // Match defaultRunner: time out, terminate, then wait its 6s kill
-          // grace before settling. Nothing races ahead of this outstanding work.
           await new Promise((resolve) => setTimeout(resolve, timeoutMs + 6_000));
           throw new Error("Docker-over-SSH command timed out");
         }
@@ -783,8 +766,6 @@ describe("VPS computer", () => {
       let entered!: () => void;
       const capturing = new Promise<void>((resolve) => { entered = resolve; });
       let captures = 0;
-      // Exercise the real defaultRunner/cache path, but replace only the
-      // child transport. No Docker or SSH process reaches a real provider.
       spawnMock.mockImplementation((_command: string, args: string[]) => {
         const child = Object.assign(new EventEmitter(), {
           stdin: new Writable({ write: (_chunk, _encoding, callback) => callback() }),
@@ -808,7 +789,7 @@ describe("VPS computer", () => {
       const frame = vpsComputerScreenshot(cfg, BOT_ID);
       await capturing;
       const status = vpsComputerStatus(cfg, BOT_ID);
-      await vi.advanceTimersByTimeAsync(12_000); // longer than the old 10s cache
+      await vi.advanceTimersByTimeAsync(12_000);
       expect(fake.calls.filter(({ args }) => args[2] === "image")).toHaveLength(1);
       release();
       await expect(frame).resolves.toMatchObject({ format: "png" });
@@ -816,7 +797,6 @@ describe("VPS computer", () => {
       await vpsComputerScreenshot(cfg, BOT_ID);
       expect(captures).toBe(2);
       expect(fake.calls.filter(({ args }) => args[2] === "image")).toHaveLength(1);
-      // A real lifecycle transition still invalidates this fresh cache.
       await vpsComputerAction("stop", cfg, BOT_ID);
       await expect(vpsComputerScreenshot(cfg, BOT_ID)).rejects.toThrow(/stopped|running/);
       expect(captures).toBe(2);
@@ -857,8 +837,6 @@ describe("VPS computer", () => {
     const cfg: AppConfig = { vps: { sshAlias: "slow-shared-status-vps" } };
     const fake = fixture();
     mockTransport(async (args, options) => {
-      // Every individual command is healthy, but the full inspection is
-      // longer than the preview's budget. No real Docker or SSH is started.
       await new Promise((resolve) => setTimeout(resolve, 9_000));
       return fake.runner(args, options);
     });
@@ -957,7 +935,6 @@ describe("VPS computer", () => {
     expect(status.ready).toBe(false);
     expect(status.problem).toMatch(/Docker over SSH failed while checking the VPS/);
 
-    // and provision must refuse to `docker run --name <existing>` into the fog
     await expect(vpsComputerAction("provision", CONFIG, BOT_ID, flaky)).rejects.toThrow(/Docker over SSH failed/);
     expect(fake.calls.some(({ args }) => args[2] === "run")).toBe(false);
 
@@ -1013,8 +990,6 @@ describe("VPS computer", () => {
   );
 
   it("removes a managed container even when its image is incompatible, then provisions fresh", async () => {
-    // an IMAGE_LAYER_VERSION bump leaves a running container that provision
-    // refuses to touch — remove is the in-app escape hatch
     const stale = fixture({ containerImageId: `sha256:${"c".repeat(64)}` });
     expect((await vpsComputerStatus(CONFIG, BOT_ID, stale.runner)).imageMatches).toBe(false);
     await expect(vpsComputerAction("provision", CONFIG, BOT_ID, stale.runner)).rejects.toThrow(/incompatible|unsafe/);
@@ -1068,8 +1043,6 @@ describe("VPS computer", () => {
       await vi.advanceTimersByTimeAsync(10_000);
       const status = await pending;
       expect(status.ready).toBe(true);
-      // the expensive end of the pipeline ran exactly once — every retry in
-      // between was the single `cua-driver status` predicate
       const desktopCalls = fake.calls.filter(({ args }) => args.includes("get_desktop_state"));
       expect(desktopCalls).toHaveLength(1);
       const healthCalls = fake.calls.filter(({ args }) => args.includes("health_report"));
@@ -1123,7 +1096,6 @@ describe("VPS computer", () => {
         return fake.runner(args, options);
       };
       const first = vpsComputerAction("provision", CONFIG, BOT_ID, slowRunner);
-      // let the first action reach its (gated) docker build
       await vi.advanceTimersByTimeAsync(0);
       const second = vpsComputerAction(action, CONFIG, BOT_ID, slowRunner);
       const rejection = expect(second).rejects.toThrow(/being prepared/);
@@ -1145,16 +1117,13 @@ describe("VPS computer", () => {
     expect(vpsStartsForTurn({ wants: "cloud" })).toBe(true);
     expect(vpsStartsForTurn({ wants: undefined })).toBe(false);
     expect(vpsStartsForTurn({ wants: undefined, autoStartVps: true })).toBe(true);
-    // a scheduled routine has nobody present to choose Cloud
     expect(vpsStartsForTurn({ wants: undefined, automationSource: "schedule" })).toBe(true);
     expect(vpsStartsForTurn({ wants: undefined, automationSource: "manual" })).toBe(true);
-    // another explicit destination is never the VPS
     expect(vpsStartsForTurn({ wants: "vm", automationSource: "schedule" })).toBe(false);
     expect(vpsStartsForTurn({ wants: "off", autoStartVps: true })).toBe(false);
   });
 });
 
-// A real loopback listener stands in for SSH; no host or remote daemon is used.
 describe("remote desktop tunnel ownership", () => {
   async function openFixture() {
     let server: Server | undefined;
@@ -1182,7 +1151,7 @@ describe("remote desktop tunnel ownership", () => {
       const first = connection.retain();
       const second = connection.retain();
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      first(); first(); // release is idempotent
+      first(); first();
       await vi.advanceTimersByTimeAsync(30_001);
       expect(child.killed).toBe(false);
       second();

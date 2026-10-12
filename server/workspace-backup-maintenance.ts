@@ -1,4 +1,3 @@
-/** A backup owns one quiet workspace. Never interrupt a turn to obtain it. */
 export class WorkspaceBackupMaintenance {
   active = false;
   pendingRestore = false;

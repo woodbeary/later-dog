@@ -1,4 +1,3 @@
-// Offline end-to-end Qwen selection, using the standard isolated later.dog launcher.
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -62,11 +61,6 @@ await import(${JSON.stringify(fake)});
     if (!rejects) assert(rpc.indexOf("session/set_config_option") < rpc.indexOf("session/prompt"));
     evidence.push({ name, model, wait, messages, calls, rpc });
   }
-  // Qwen acknowledges a live load without replacing its MCP configuration, so
-  // a changed bearer would need a fresh child. later.dog keeps the agents bearer
-  // while the grants are unchanged, so one child and its live session serve
-  // every turn. Real proxy calls prove authentication on each turn, and the
-  // bearer is refused once each turn settles.
   unlinkSync(blockSwitch);
   writeFileSync(useAgents, "1");
   writeFileSync(rpcAppend, "");

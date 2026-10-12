@@ -5,7 +5,6 @@ import { maskFromPolylines } from "./raster.ts";
 const FACE_BOX = 228.541;
 const SIZE = 256;
 
-/** A circle of radius r centred in the face box, as a dense polygon. */
 const circle = (r, steps = 512) => {
   const c = FACE_BOX / 2;
   const points = [];

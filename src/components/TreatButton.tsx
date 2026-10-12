@@ -1,5 +1,3 @@
-// "Give <name> a treat" — the bone in a dog's message actions. One tap: the dog in the header and sidebar celebrates,
-// a little "+1" pops from the button, and the count on its profile goes up. It changes nothing else.
 import { useState } from "react";
 import { Bone } from "lucide-react";
 import { t } from "@/lib/i18n";

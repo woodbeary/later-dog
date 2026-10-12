@@ -32,12 +32,7 @@ if (!enabled) console.log("skipping draft visibility UI: set LATERDOG_UI_E2E=1 t
     const before = await bots();
     await ui("press", "--keys", "Control+n");
     await expect.poll(snapshot).toContain("Who can see it");
-    // The dialog appears before its defaults request completes. Never click
-    // the disabled Create button while the fixture is still loading its draft.
     await expect.poll(async () => (await ui("eval", "--js", "[...document.querySelectorAll('[role=dialog] button')].find(button => button.textContent.trim() === 'Create dog')?.disabled")).result).toBe(false);
-    // Native select popups do not accept routed keys consistently in headless
-    // macOS. Exercise the real select's change handler without the OS popup;
-    // creation and its resulting audience still run through the real UI/API.
     const state = await ui("snapshot");
     const audience = Object.entries(state.refs as Record<string, { name: string; role: string }>).find(([, item]) => item.role === "combobox" && item.name === "Who can see it");
     expect(audience).toBeDefined();

@@ -1,4 +1,3 @@
-// Owned, disposable full-app preview. No real provider or user's application data.
 import { once } from 'node:events';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

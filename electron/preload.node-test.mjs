@@ -3,13 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createRequire } from "node:module";
 
-// preload.cjs is renderer-side CommonJS that destructures require("electron")
-// at load time. Node tests run without Electron, so satisfy that require from
-// the require cache before the bridge module is first loaded — the real
-// preload source still executes end to end, only the electron surface is fake.
 const require = createRequire(import.meta.url);
 
-const listeners = new Map(); // channel -> Set<handler>
+const listeners = new Map();
 const exposed = { name: null, api: null };
 const invocations = [];
 const fakeIpcRenderer = {
@@ -43,7 +39,6 @@ require.cache[electronEntry] = {
 };
 require("./preload.cjs");
 
-/** Simulate the main process emitting a channel to its subscribers. */
 const emit = (channel, ...args) => {
   for (const handler of listeners.get(channel) ?? []) handler({}, ...args);
 };
@@ -52,8 +47,6 @@ const subscriberCount = (channel) => listeners.get(channel)?.size ?? 0;
 test("exposes the full local-shell bridge on window.laterdog", () => {
   assert.equal(exposed.name, "laterdog");
   assert.equal(typeof exposed.api, "object");
-  // The settings channel is local-shell only, so it exists on the bridge
-  // exactly when the page is local (no --laterdog-local-origin in argv here).
   assert.equal(typeof exposed.api.onOpenAppSettings, "function");
 });
 
@@ -74,7 +67,6 @@ test("the permissions checklist forwards its three calls over the perm channels,
     ["perm:request", "screen"],
     ["perm:open-settings", "accessibility"],
   ]);
-  // This computer's grants are this page's business: the remote-safe subset never carries them.
   const source = readFileSync(new URL("./preload.cjs", import.meta.url), "utf8");
   const remoteSafe = source.match(/const REMOTE_SAFE = new Set\(\[([^\]]*)\]\)/)?.[1] ?? "";
   assert.ok(!remoteSafe.includes('"permissions"'), "permissions must stay local-only");
@@ -91,10 +83,6 @@ test("browser control forwards a separate per-device capability, not the cloud g
 });
 
 test("onOpenAppSettings subscribes to the exact app:open-settings channel, forwards every emit, and unsubscribes cleanly", () => {
-  // Channel contract: electron/main.mjs answers the Preferences… item with
-  // webContents.send("app:open-settings"). Listening on any other name would
-  // leave the shortcut inert while every menu-construction test still passes,
-  // so pin the literal on the receiving side too.
   const cbCalls = [];
   const unsubscribe = exposed.api.onOpenAppSettings(() => cbCalls.push(1));
   assert.equal(subscriberCount("app:open-settings"), 1);

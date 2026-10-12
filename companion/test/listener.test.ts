@@ -35,7 +35,6 @@ describe("searchPath", () => {
       expect(result).toBe(
         ["/my/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].join(delimiter),
       );
-      // The join character is the real check: ':' on POSIX, ';' on Windows.
       expect(result).toContain(delimiter);
     } finally {
       if (before === undefined) {

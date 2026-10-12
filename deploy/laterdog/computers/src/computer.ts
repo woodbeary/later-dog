@@ -1,10 +1,3 @@
-// One dog's computer: a Durable Object that owns one container (the desktop image, or the snapshot it last slept as).
-//
-// The Durable Object is the computer's single source of truth. It keeps one record in its SQLite storage (name, size,
-// state, boot generation, latest snapshot), starts and stops the container through ctx.container, runs commands with
-// exec(), proxies the viewer's WebSocket to noVNC, and uses its alarm for two jobs: waiting for a fresh boot to become
-// ready, then deciding when an idle computer should sleep (snapshot, then stop). It copies each change to the registry
-// so the list endpoint stays one call.
 
 import { DurableObject } from "cloudflare:workers";
 import type { Refusal } from "./auth";
@@ -28,7 +21,6 @@ export interface ComputerView {
   createdAt: string;
   lastActiveAt: string;
   snapshotAt?: string;
-  /** Why the computer is in the "error" state. */
   error?: string;
 }
 
@@ -48,14 +40,10 @@ interface ComputerRecord {
   state: State;
   createdAt: number;
   lastActiveAt: number;
-  /** Boot count. Desktop links are signed over it, so every wake retires the links issued before. */
   generation: number;
-  /** When the current boot started (for MAX_AWAKE_HOURS). */
   awakeSince?: number;
-  /** The latest snapshot handle; the Worker API cannot list snapshots, so this is the only record of it. */
   snapshot?: { id: string; size: number; name?: string };
   snapshotAt?: number;
-  /** The image this computer was first started from. Its snapshots only restore onto that image's filesystem. */
   image?: string;
   error?: string;
   registry?: string;
@@ -69,7 +57,6 @@ const RECORD = "computer";
 const DESKTOP_PORT = 6080;
 const DOG = "1000:1000";
 const DOG_HOME = "/home/dog";
-// exec() passes only these (and PATH) to a command; nothing from the image or start() is inherited.
 const DOG_ENV: Record<string, string> = {
   HOME: DOG_HOME,
   USER: "dog",
@@ -89,20 +76,14 @@ const EXEC_OUTPUT_CAP = 1024 * 1024;
 const ACTIVITY_WRITE_MS = 30_000;
 const BUDGET_GRACE_MS = 10 * MINUTE;
 
-// Readiness: the display answers xdotool and the VNC server behind websockify sends its RFB greeting (exit 3 when only
-// that much is up), then XFCE has drawn its panel and desktop (exit 0). The VNC server answers about a second before
-// XFCE draws, so without the second half a screenshot or click right after "running" hit a black screen.
 const READY_SCRIPT = [
   `xdotool getdisplaygeometry >/dev/null || exit 1`,
   `exec 3<>/dev/tcp/127.0.0.1/5900 && head -c 12 <&3 | grep -q '^RFB ' || exit 1`,
   `xdotool search --onlyvisible --class '^xfce4-panel$' >/dev/null && xdotool search --onlyvisible --class '^xfdesktop$' >/dev/null || exit 3`,
 ].join("\n");
-// A dog may change its own desktop session so the panel or desktop never appears; it still gets a usable computer.
 const DESKTOP_GRACE_MS = 30_000;
-// File transfer. The path arrives as $1, never inside the script text. Exit codes 44-48 are mapped to API errors.
 const READ_SCRIPT = `f=$1; [ -f "$f" ] || exit 44; size=$(stat -c %s -- "$f") || exit 1; [ "$size" -le ${FILE_MAX_BYTES} ] || exit 45; exec cat -- "$f"`;
 const WRITE_SCRIPT = `f=$1; [ ! -d "$f" ] || exit 48; mkdir -p -- "$(dirname -- "$f")" || exit 47; cat > "$f"`;
-// One JPEG of the whole screen with the pointer drawn in.
 const SCREENSHOT_SCRIPT = `f=$(mktemp --suffix=.jpg) || exit 1; trap 'rm -f "$f"' EXIT; scrot --overwrite --pointer --quality 75 "$f" >/dev/null && cat -- "$f"`;
 
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
@@ -126,20 +107,15 @@ function view(record: ComputerRecord): ComputerView {
 }
 
 function closeQuietly(socket: WebSocket, code: number, reason: string): void {
-  // Only 1000 and 3000-4999 may be sent; 1005/1006 describe a close that carried no code.
   const sendable = code === 1000 || (code >= 3000 && code <= 4999) ? code : 1000;
   try {
     socket.close(sendable, reason.slice(0, 120));
-  } catch {
-    // Already closed.
-  }
+  } catch {}
 }
 
 interface RunOptions {
   timeoutMs: number;
-  /** Bytes of stdout to keep. */
   cap: number;
-  /** uid:gid; omitted runs as root. */
   user?: string;
   cwd?: string;
   stdin?: ReadableStream;
@@ -156,13 +132,8 @@ interface RunResult {
 export class DogComputer extends DurableObject<Env> {
   private readonly policy = idlePolicy(this.env);
   private readonly trialIdle: IdlePolicy = { ...idlePolicy(this.env), idleSleepMs: trialPolicy(this.env).idleSleepMs };
-  /** Open viewer sockets (browser side) and the noVNC socket each one is paired with. */
   private readonly viewers = new Map<WebSocket, WebSocket>();
   private inFlight = 0;
-  /**
-   * True while remove() runs. Requests that interleave with it (a viewer asks for its link's status the moment remove()
-   * closes it) see no computer, and reconcile() does not mistake the deliberate stop for a crash.
-   */
   private deleting = false;
   private lifecycle: Promise<unknown> = Promise.resolve();
   private lastActivityWrite = 0;
@@ -170,8 +141,6 @@ export class DogComputer extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // A restarted Durable Object (after a deploy, for one) starts without the inactivity timeout; without it the platform
-    // stops the container soon after this object goes quiet, before the idle alarm could snapshot it.
     const container = ctx.container;
     if (container?.running) {
       const timeoutMs = inactivityTimeoutMs(this.policyFor(this.load()));
@@ -184,8 +153,6 @@ export class DogComputer extends DurableObject<Env> {
       });
     }
   }
-
-  // ---- API (called by the Worker over RPC) ----
 
   async init(input: { id: string; name: string; size: Size; registry?: string; trial?: string }): Promise<Result<ComputerView>> {
     return this.serially(async () => {
@@ -224,7 +191,6 @@ export class DogComputer extends DurableObject<Env> {
     return ok(view(record));
   }
 
-  /** Starts the computer from its latest snapshot (or the image, if it never slept). Returns at once with state "starting". */
   async wake(): Promise<Result<ComputerView>> {
     return this.serially(async () => {
       const record = this.load();
@@ -237,7 +203,6 @@ export class DogComputer extends DurableObject<Env> {
     });
   }
 
-  /** Snapshots the whole filesystem, then stops the container. A failed snapshot leaves it running and says so. */
   async sleep(reason: "request" | "idle" | "max_awake" | "budget" = "request"): Promise<Result<ComputerView>> {
     return this.serially(async () => {
       const record = this.load();
@@ -251,7 +216,6 @@ export class DogComputer extends DurableObject<Env> {
       this.closeViewers(4001, "The computer went to sleep.");
       await this.publish();
       if (container.running) {
-        // Push written data to disk so the snapshot holds what programs think they saved.
         await this.run(["sync"], { timeoutMs: 30_000, cap: 1024 }).catch(() => undefined);
         const started = Date.now();
         let snapshot: ContainerSnapshot;
@@ -261,7 +225,6 @@ export class DogComputer extends DurableObject<Env> {
           const restored = this.update((r) => {
             r.state = previous === "stopping" ? "running" : previous;
           })!;
-          // Keep the alarm going: a booting computer still needs its readiness check; an idle one tries again later.
           await this.ctx.storage.setAlarm(Date.now() + (restored.state === "starting" ? READY_POLL_MS : 5 * MINUTE));
           await this.publish();
           console.error(`laterdog computers: ${record.id} snapshot failed (${reason}): ${describeError(error)}`);
@@ -290,7 +253,6 @@ export class DogComputer extends DurableObject<Env> {
     });
   }
 
-  /** Destroys the container and forgets the computer. Its snapshot cannot be deleted through the API and expires in 30 days. */
   async remove(): Promise<Result<{ deleted: true }>> {
     return this.serially(async () => {
       const record = this.load();
@@ -360,7 +322,6 @@ export class DogComputer extends DurableObject<Env> {
     });
   }
 
-  /** A signed viewer link for the current boot, valid for two hours or until the computer sleeps. */
   async desktopLink(origin: string): Promise<Result<{ url: string; expiresAt: string }>> {
     const secret = this.env.DESKTOP_SIGNING_KEY;
     if (!secret) return fail(503, "not_configured", "The DESKTOP_SIGNING_KEY secret is not set on this Worker.");
@@ -370,8 +331,6 @@ export class DogComputer extends DurableObject<Env> {
       return ok({ url: `${origin}/desktop/${record.id}/${token}/`, expiresAt: iso(expiresAt * 1000) });
     });
   }
-
-  // ---- Viewer traffic (the Worker forwards /desktop/<id>/<token>/... here unchanged) ----
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -392,7 +351,6 @@ export class DogComputer extends DurableObject<Env> {
       return page(403, title, "Desktop links last two hours and end when the computer sleeps. Open the desktop again from later.dog.");
     }
     await this.reconcile();
-    // The computer may have been deleted while this request waited.
     const current = this.load();
     if (!current || this.deleting) return gone();
     const awake = current.state === "running" && this.ctx.container?.running === true;
@@ -420,21 +378,15 @@ export class DogComputer extends DurableObject<Env> {
       await upstream.body?.cancel();
       return new Response("Not found", { status: upstream.status === 404 ? 404 : 502 });
     }
-    // Only noVNC's .js modules are routed here (routes.ts), so the type is known; they never change within a boot.
     return new Response(upstream.body, {
       headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "private, max-age=3600", "x-content-type-options": "nosniff" },
     });
   }
 
-  /**
-   * Bridges the browser's WebSocket to websockify inside the container. Both ends terminate here (rather than passing the
-   * container's socket straight through) so this object knows when a viewer is open, which keeps the computer awake.
-   */
   private async openViewer(request: Request, url: URL): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected a WebSocket upgrade.", { status: 426, headers: { upgrade: "websocket" } });
     }
-    // Browsers send Origin on WebSocket requests: only this Worker's own viewer page may open one.
     const origin = request.headers.get("origin");
     if (origin !== null && origin !== url.origin) return new Response("Cross-origin viewers are refused.", { status: 403 });
     let upstream: WebSocket | null;
@@ -446,8 +398,6 @@ export class DogComputer extends DurableObject<Env> {
       return new Response("The desktop did not answer.", { status: 502 });
     }
     if (!upstream) return new Response("The desktop refused the connection.", { status: 502 });
-    // VNC is binary. Since compatibility date 2026-03-17 a Worker WebSocket delivers binary frames as Blobs unless told
-    // otherwise, and send(blob) forwards the text "[object Blob]", so both ends must ask for ArrayBuffers before accept().
     upstream.binaryType = "arraybuffer";
     upstream.accept();
     const pair = new WebSocketPair();
@@ -463,16 +413,12 @@ export class DogComputer extends DurableObject<Env> {
       this.noteViewerActivity();
       try {
         upstream.send(event.data);
-      } catch {
-        // The desktop side is closing.
-      }
+      } catch {}
     });
     upstream.addEventListener("message", (event) => {
       try {
         browser.send(event.data);
-      } catch {
-        // The viewer is closing.
-      }
+      } catch {}
     });
     browser.addEventListener("close", (event) => {
       closeQuietly(upstream, event.code, event.reason);
@@ -500,8 +446,6 @@ export class DogComputer extends DurableObject<Env> {
     }
     this.viewers.clear();
   }
-
-  // ---- Alarm: readiness after a boot, then the idle policy ----
 
   override async alarm(): Promise<void> {
     const record = this.load();
@@ -552,7 +496,6 @@ export class DogComputer extends DurableObject<Env> {
     }
   }
 
-  /** XFCE's own browser choice (browser-default.ts). A failure leaves the computer as it was. */
   private async setBrowserDefault(id: string): Promise<void> {
     try {
       const result = await this.run(["bash", "-c", BROWSER_DEFAULT_SCRIPT], { timeoutMs: 5_000, cap: 1024, user: DOG });
@@ -562,7 +505,6 @@ export class DogComputer extends DurableObject<Env> {
     }
   }
 
-  /** "desktop" once XFCE has drawn; "display" while only the display and the VNC server answer. */
   private async ready(): Promise<"desktop" | "display" | "none"> {
     const container = this.container();
     try {
@@ -584,7 +526,6 @@ export class DogComputer extends DurableObject<Env> {
       }
     });
     console.error(`laterdog computers: ${failed?.id} failed to boot: ${why}`);
-    // Do not leave a broken container running up a bill.
     if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
     await this.charge(true);
     await this.publish();
@@ -631,10 +572,6 @@ export class DogComputer extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(decision.sleep ? Date.now() : decision.checkAt);
   }
 
-  /**
-   * Notices a container that stopped behind the record's back (a host restart, the platform's inactivity timeout, the
-   * desktop's main process exiting). Returns true when it changed the record.
-   */
   private async reconcile(): Promise<boolean> {
     const record = this.load();
     if (!record || this.deleting || record.state !== "running" || this.ctx.container?.running) return false;
@@ -710,12 +647,9 @@ export class DogComputer extends DurableObject<Env> {
     });
   }
 
-  // ---- Helpers ----
-
   private async boot(): Promise<Result<void>> {
     const container = this.container();
     if (container.running) {
-      // A container the record no longer trusts (one that never became ready, say): start over cleanly.
       await container.destroy().catch((error) => console.error(`laterdog computers: clearing the old container failed: ${describeError(error)}`));
     }
     const budget = await this.budget();
@@ -772,7 +706,6 @@ export class DogComputer extends DurableObject<Env> {
     return ok(undefined);
   }
 
-  /** Runs an API operation that needs the desktop up, counting it as activity and as work in flight. */
   private async using<T>(work: (record: ComputerRecord) => Promise<Result<T>>): Promise<Result<T>> {
     const record = this.load();
     if (!record || this.deleting) return notFound();
@@ -798,11 +731,6 @@ export class DogComputer extends DurableObject<Env> {
     }
   }
 
-  /**
-   * Runs a command in the container under GNU timeout (which also kills what the command started), draining its output as
-   * it arrives. exec() itself has no timeout, so the process is only killed from here as a last resort and only while it
-   * still runs: the runtime faults if a finished process is signalled.
-   */
   private async run(argv: string[], options: RunOptions): Promise<RunResult> {
     const started = Date.now();
     const child = await this.container().exec(["timeout", "--kill-after=5", `${(options.timeoutMs / 1000).toFixed(3)}s`, ...argv], {
@@ -823,13 +751,10 @@ export class DogComputer extends DurableObject<Env> {
       if (!exited) {
         try {
           child.kill(9);
-        } catch {
-          // It finished in the meantime.
-        }
+        } catch {}
       }
       exitCode = (await within(exit, 5_000)) ?? -1;
     }
-    // A detached child that kept the pipes open is not waited for beyond a short grace period.
     const [out, err] = await Promise.all([stdout.settle(2_000), stderr.settle(2_000)]);
     return { exitCode, stdout: out, stderr: err, timedOut: (exitCode === 124 || exitCode === 137) && Date.now() - started >= options.timeoutMs };
   }
@@ -848,7 +773,6 @@ export class DogComputer extends DurableObject<Env> {
     this.ctx.storage.kv.put(RECORD, record);
   }
 
-  /** Read-modify-write with no await in between, so concurrent requests never overwrite each other's changes. */
   private update(mutate: (record: ComputerRecord) => void): ComputerRecord | undefined {
     const record = this.load();
     if (!record) return undefined;
@@ -865,19 +789,16 @@ export class DogComputer extends DurableObject<Env> {
     });
   }
 
-  /** Viewer traffic counts as activity; written at most every 30 seconds. */
   private noteViewerActivity(): void {
     if (Date.now() - this.lastActivityWrite >= ACTIVITY_WRITE_MS) this.markActive();
   }
 
-  /** Lifecycle changes (create, wake, sleep, delete) run one at a time. */
   private serially<T>(work: () => Promise<T>): Promise<T> {
     const next = this.lifecycle.then(work, work);
     this.lifecycle = next.catch(() => undefined);
     return next;
   }
 
-  /** Copies this computer's summary into the registry (best effort: the computer itself stays the source of truth). */
   private async publish(): Promise<void> {
     const record = this.load();
     if (!record) return;

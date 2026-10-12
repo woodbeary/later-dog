@@ -31,7 +31,6 @@ function render(props: Partial<Parameters<typeof PermissionChecklist>[0]>) {
   const all = nodes(tree);
   const row = (permission: string) => all.find((node) => node.props["data-permission"] === permission)!;
   const buttons = (permission: string) => nodes(row(permission).props.children).filter((node) => node.type === "button");
-  // the pill is its own component, so its words are read off the markup of that row
   const pill = (permission: string) => {
     const start = html.indexOf(`data-permission="${permission}"`);
     const next = html.indexOf("data-permission=", start + 1);
@@ -66,21 +65,17 @@ describe("the permissions checklist", () => {
     const rendered = render({ checklist: checklist({ microphone: "notDetermined", accessibility: "denied", screen: "denied" }) });
     const labels = (permission: string) => rendered.buttons(permission).map((node) => text(node.props.children));
     const button = (permission: string, label: string) => rendered.buttons(permission).find((node) => text(node.props.children) === label)!;
-    // the action already says the switch is off, so no status pill beside it
     expect(rendered.pill("microphone")).toBeUndefined();
     expect(labels("microphone")).toEqual(["Allow"]);
     button("microphone", "Allow").props.onClick!();
     expect(handlers.onRequest).toHaveBeenCalledWith("microphone");
 
-    // Accessibility's own prompt adds later.dog to the list and opens the pane: Enable alone
     expect(labels("accessibility")).toEqual(["Allow"]);
     button("accessibility", "Allow").props.onClick!();
     expect(handlers.onRequest).toHaveBeenCalledWith("accessibility");
     expect(rendered.html).toContain("Already on in System Settings? Until later.dog is signed, macOS ties the switch to each build");
 
-    // a denied Screen Recording is never re-prompted: System Settings, the cache note, and (in Settings) a relaunch
     expect(labels("screen").sort()).toEqual(["Open System Settings", "Relaunch later.dog"]);
-    // one note per row: the stale-build hint stands in for the relaunch sentence, the relaunch link follows it
     expect(rendered.html).not.toContain("macOS applies a new Screen Recording grant after later.dog reopens.");
     const asked = render({ checklist: checklist({ screen: "notDetermined" }) });
     expect(asked.html).toContain("macOS applies a new Screen Recording grant after later.dog reopens.");

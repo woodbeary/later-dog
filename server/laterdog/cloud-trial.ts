@@ -157,10 +157,6 @@ export function startTrial(options: TrialOptions): Promise<TrialStatus> {
 
 const startBody = z.object({ included: z.array(z.string().max(32)).max(16).optional() });
 
-/** A new installation's free trial, claimed by the app itself so its first
- * dog can answer at once. Nothing is saved unless the service accepts it, so
- * a refusal (one trial per network, today's trials taken) leaves the manual
- * Try free path exactly as it was. */
 export function autoStartTrial(options: TrialOptions): Promise<boolean> {
   return serial(async () => {
     if (savedTrial() || options.otherComputers()) return false;

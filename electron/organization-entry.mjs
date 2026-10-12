@@ -4,12 +4,9 @@ import { withoutDesktopCompanionAccess } from "./desktop-companion-client.mjs";
 export const ORGANIZATION_DEEP_LINK = "laterdog://organization";
 const RESTART_FIELD = "desktopOrganizationSettingsPending";
 
-// This is an action, not a router: never accept a destination or credential.
 export const isOrganizationDeepLink = value => value === ORGANIZATION_DEEP_LINK;
 export function takeOrganizationDeepLink(argv) {
   let found = false;
-  // Relaunch uses process.argv again. Consume only this one-shot action,
-  // leaving flags and unrelated protocol links untouched.
   for (let index = argv.length - 1; index >= 0; index--) {
     if (!isOrganizationDeepLink(argv[index])) continue;
     argv.splice(index, 1);
@@ -27,9 +24,6 @@ export function withoutOrganizationRestartIntent(credentials) {
   return next;
 }
 
-/** Main-process action shared by the native menu and the fixed protocol link.
- * Persistence/navigation are injected so the actual transition is testable
- * without opening a user's profile or signing in to a real organisation. */
 export function createOrganizationEntry({ readState, confirm, saveEnvironments, disconnectAndRemember, clearRestartIntent, openLocalSettings, relaunch }) {
   let pending = null;
   let restarting = false;
@@ -53,8 +47,6 @@ export function createOrganizationEntry({ readState, confirm, saveEnvironments, 
       if (!accepted) return false;
       if (identity(readState()) !== beforeIdentity) throw new Error("The selected server changed. Choose organization sign-in again.");
       if (companion) {
-        // Removing the companion credential and remembering the destination
-        // must be one durable write, before a restart can begin.
         await disconnectAndRemember(companion);
         restarting = true;
         relaunch();
@@ -76,8 +68,6 @@ export function createOrganizationEntry({ readState, confirm, saveEnvironments, 
       const state = readState();
       if (!state.restartIntent || state.remoteAccess) return false;
       await saveEnvironments(environments.withActive(state.environments, environments.LOCAL_ID));
-      // Document loading is not React readiness. Keep the intent until the
-      // local Organisation panel acknowledges its actual mount.
       await openLocalSettings();
       return true;
     },

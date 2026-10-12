@@ -7,17 +7,14 @@ import { SettingRow, Switch } from "./SettingsPrimitives";
 
 export type ReleaseOffer = NonNullable<UpdaterState["available"]>;
 
-/** The newer release to download, while the updater has nothing else going on. */
 export function releaseOffer(state: UpdaterState | null | undefined): ReleaseOffer | null {
   return state?.status === "idle" && state.available ? state.available : null;
 }
 
-/** The person switched checking off, so nothing here can look for a new version. */
 export function releaseChecksOff(state: UpdaterState | null | undefined): boolean {
   return state?.status === "idle" && state.releaseCheck === "off";
 }
 
-/** About's line under the version: the newer release, and its Download. */
 export function AboutReleaseLine() {
   const release = releaseOffer(useUpdaterState());
   if (!release) return null;
@@ -35,7 +32,6 @@ export function AboutReleaseLine() {
 export function ReleaseCheckRow() {
   const state = useUpdaterState();
   const bridge = window.laterdog?.releaseCheck;
-  // The switch moves on the click; the state main sends back settles it.
   const [saving, setSaving] = useState<boolean | null>(null);
   if (!state?.releaseCheck || !bridge) return null;
   const on = saving ?? state.releaseCheck === "on";

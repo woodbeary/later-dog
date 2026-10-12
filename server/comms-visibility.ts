@@ -1,32 +1,13 @@
-// Bot⇄bot comms visibility: channel creation, message mirroring, and
-// per-thread chips. Extracted from /api/internal/ask-bot so delegations
-// (delegate_bot) and any future peer flow reuse the same UX without a copy.
 
 import { sectionKey, type BotRecord, type GroupRecord, type Message, type Store } from "./store.ts";
 
-/** What a peer-exchange helper needs from the outside world:
- * the store (for persisted messages + groups) and the SSE broadcasters
- * so chat clients see the change without waiting for a refresh. */
 export interface CommsBus {
   store: Store;
-  /** SSE broadcast (kind: "message" envelope). */
   broadcast: (payload: Record<string, unknown>) => void;
-  /** Whether the bot can start one more direct thread right now. A bot runs
-   * several threads at once, so "busy" is not "full": a fresh-thread handoff
-   * asks this instead of the bot's busy flag. Absent (tests) = busy flag. */
   threadSlotFree?: (botId: string) => boolean;
-  /** Whether a turn can land in the bot's standing thread right now — the
-   * same admission startTurn applies to a direct thread: that thread free, a
-   * free capacity slot, and no live group turn. A classic delegation asks
-   * this instead of the whole-bot busy flag, which is true whenever ANY
-   * thread is working. Absent (tests) = busy flag. */
   canAdmitDirectTurn?: (botId: string, threadId: string) => boolean;
 }
 
-/** Find or create the channel for a peer exchange. When an originating
- * group is supplied and both bots are members, the exchange is mirrored
- * back into that group. Otherwise the pair's DM is used (creating it if
- * necessary) so 1:1-bot-thread delegations keep their historical fallback. */
 export function getOrCreateChannel(
   store: Store,
   from: BotRecord,
@@ -51,29 +32,12 @@ export function getOrCreateChannel(
   return store.createGroup(`${from.name} ⇄ ${target.name}`, [from.id, target.id], true, from.section);
 }
 
-/** Whether this mirror is worth a badge, and the group frame either way.
- *
- * A pair channel is the bots' own coordination: the person asked ONE bot,
- * and the hops behind its answer are that bot's work, not mail addressed to
- * them. Badging every hop turned the sidebar, the dock and the phone into a
- * running commentary on chatter nobody asked to watch. What is NOT withheld
- * is the record — the messages and chips above are already written, and the
- * frame still goes out so the channel keeps its place in every client's
- * list. Hidden bot-to-bot talk is where a prompt injection would propagate
- * unobserved; silence the alert, never the record. A shared room is the
- * other case: people are reading it, so it badges as it always has. */
 function markMirrored(bus: CommsBus, channel: GroupRecord, notify: boolean | undefined): void {
   const patch: Partial<Pick<GroupRecord, "unread">> = {};
   if (notify ?? !channel.dm) patch.unread = true;
   bus.store.patchGroup(channel.id, patch);
 }
 
-/** Mirror `from`'s outgoing message into the channel and drop chips into
- * both 1:1 threads linking to the channel. The chips are what make
- * bot-to-bot turns observable — those turns cost the user tokens, and a
- * hidden exchange is exactly the kind of mistake peer coordination is
- * supposed to avoid. `notify` decides only whether the channel also raises
- * a badge; it defaults to off for a bot⇄bot pair channel. */
 export function mirrorExchange(
   bus: CommsBus,
   from: BotRecord,
@@ -114,9 +78,6 @@ export function mirrorExchange(
   if (channel) markMirrored(bus, channel, notify);
 }
 
-/** Mirror `target`'s reply into the channel so the channel stays the
- * single authoritative record of the exchange. The 1:1 threads already
- * carry their own chips from `mirrorExchange`. */
 export function mirrorReply(
   bus: CommsBus,
   target: BotRecord,
@@ -134,11 +95,6 @@ export function mirrorReply(
   markMirrored(bus, channel, notify);
 }
 
-/** Mirror a terminal activity note into the channel — for async handoffs
- * whose terminal state is not a reply (turn failed, was stopped, or never
- * started). Prior art (A2A, MCP Tasks) is unanimous that every terminal
- * state of an async handoff should be visible where the human is looking,
- * and the channel is that place. */
 export function mirrorActivity(
   bus: CommsBus,
   from: BotRecord,

@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Run against an unpacked/signed app's Resources (macOS) or resources directory.
-// Nothing is installed or downloaded. All browser state belongs to this fixture.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -39,8 +37,6 @@ assert((await stat(join(paths.directory, spec.chrome.license))).size > 0, "Missi
 assert((await stat(join(paths.directory, spec.chrome.about))).size > 0, "Missing Chromium notice");
 const enginePath = paths.engine;
 const engineVersionExpected = spec.engine.version;
-// Signing changes Mach-O bytes. Source-archive digests are checked before signing;
-// this gate checks the final layout, versions, and real browser behavior instead.
 if (values["check-only"]) {
   console.log(JSON.stringify({ ok: true, target, check: "structure-only", browserExecuted: false }));
   process.exit(0);
@@ -48,9 +44,6 @@ if (values["check-only"]) {
 assert.equal(target, `${process.platform}-${process.arch}`, "A live smoke test must run on the target architecture; use --check-only for a structural cross-target check");
 assert(process.platform !== "linux" || process.getuid?.() !== 0, "Run this sandboxed browser test as an unprivileged user, never root");
 if (process.platform === "linux") {
-  // agent-browser v0.36.0 chrome.rs:1512 automatically adds --no-sandbox for
-  // root, CI, or container markers. We strip CI below; reject containers too
-  // so a passing test actually exercises the Ubuntu browser sandbox.
   for (const marker of ["/.dockerenv", "/run/.containerenv"]) {
     const present = await stat(marker).then(() => true, (error) => {
       if (error.code === "ENOENT") return false;
@@ -75,7 +68,6 @@ const env = {
   XDG_DATA_HOME: join(fixture, "data"), XDG_RUNTIME_DIR: join(fixture, "run"),
   TMPDIR: join(fixture, "tmp"), TMP: join(fixture, "tmp"), TEMP: join(fixture, "tmp"),
   LATERDOG_HOME: join(fixture, "laterdog"), LATERDOG_RESOURCES_PATH: resolve(values.resources),
-  // macOS's per-user temp directory is long; keep Unix socket paths <104 bytes.
   AGENT_BROWSER_SOCKET_DIR: join(fixture, "s"),
   AGENT_BROWSER_DEFAULT_TIMEOUT: "15000", LANG: "en_US.UTF-8", NO_COLOR: "1",
 };
@@ -86,8 +78,6 @@ for (const directory of new Set([fixtureHome, env.APPDATA, env.LOCALAPPDATA, env
   env.XDG_CACHE_HOME, env.XDG_DATA_HOME, env.XDG_RUNTIME_DIR, env.TMPDIR, env.LATERDOG_HOME, env.AGENT_BROWSER_SOCKET_DIR])) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
 }
-// Isolate even source-module initialization. No inherited account credentials,
-// agent-browser config, external CDP connection, profile, proxy, or launch flags.
 process.env = env;
 const children = new Set();
 const clients = [];
@@ -132,8 +122,6 @@ function mcp(integration) {
     pending.clear();
   };
   proc.on("error", rejectPending);
-  // Let close report the engine's stderr instead of an unhandled EPIPE
-  // hiding why the child refused to start.
   proc.stdin.on("error", (error) => { if (error.code !== "EPIPE") rejectPending(error); });
   proc.on("close", () => { lines.close(); rejectPending(new Error(`Browser MCP exited: ${errors}`)); });
   lines.on("line", (line) => {
@@ -176,23 +164,17 @@ async function failureDiagnostics() {
   for (const { integration, proc } of clients) {
     const session = integration.env.AGENT_BROWSER_SESSION;
     const sidecars = {};
-    // Only fixed metadata names in our own temporary socket directory. Never
-    // dump daemon config, encryption keys, browser profiles, or parent env.
     for (const extension of ["pid", "port", "version", "engine"]) {
       sidecars[extension] = await readFile(join(env.AGENT_BROWSER_SOCKET_DIR, `${session}.${extension}`), "utf8")
         .then((value) => value.trim().slice(0, 128), (error) => error.code === "ENOENT" ? null : error.code);
     }
     let daemonAlive = false;
     if (/^[1-9][0-9]*$/.test(sidecars.pid ?? "")) {
-      try { process.kill(Number(sidecars.pid), 0); daemonAlive = true; } catch { /* owned daemon already exited */ }
+      try { process.kill(Number(sidecars.pid), 0); daemonAlive = true; } catch {}
     }
     console.error(`[browser-smoke] ${JSON.stringify({ session, mcpPid: proc.pid, mcpExited: proc.exitCode ?? proc.signalCode, daemonAlive, sidecars })}`);
     if (!daemonAlive) continue;
     try {
-      // Failure evidence, not a fallback or prewarm: the MCP test still fails.
-      // Upstream Windows issue #1308/#1407 can leave MCP waiting on inherited
-      // pipe handles after navigation actually succeeded. A read-only command
-      // to the exact existing fixture session distinguishes those two cases.
       const response = JSON.parse(await run(integration.command, ["--json", "--no-webmcp", "get", "url"], { ...env, ...integration.env }, 8_000));
       console.error(`[browser-smoke] existing-session URL diagnostic ${JSON.stringify({ session, success: response.success, url: response.data?.url, error: response.error }).slice(0, 2_000)}`);
     } catch (error) {
@@ -271,8 +253,6 @@ try {
       encryptionKey: randomBytes(32).toString("hex"), persistent: false, env });
     assert.equal(resolve(integration.env.AGENT_BROWSER_EXECUTABLE_PATH ?? ""), resolve(paths.chrome), "MCP did not receive bundled Chromium");
     assert.equal(integration.env.AGENT_BROWSER_RESTORE_SAVE, "never");
-    // Use the production preparation path. Guest preparation creates only
-    // managed config; it must not prewarm a daemon and mask cold-start bugs.
     await prepareBrowserSessionState(integration.command, integration.env.AGENT_BROWSER_SESSION,
       { env: { ...env, ...integration.env }, persistent: false });
     await assert.rejects(readFile(join(env.AGENT_BROWSER_SOCKET_DIR, `${integration.env.AGENT_BROWSER_SESSION}.pid`)), { code: "ENOENT" });
@@ -295,12 +275,8 @@ try {
   assert.deepEqual((await beta.tool("agent_browser_eval", { script: storage })).data.result, { local: null, cookie: "" }, "Second bot inherited first bot's state");
   assert.deepEqual((await beta.tool("agent_browser_eval", { script: setStorage("beta") })).data.result, { local: "beta", cookie: "laterdog_smoke=beta" });
   assert.deepEqual((await alpha.tool("agent_browser_eval", { script: storage })).data.result, { local: "alpha", cookie: "laterdog_smoke=alpha" }, "First bot's state was overwritten by the second bot");
-  // Reopen through the SAME MCP process: warming a daemon before MCP would
-  // conceal the Windows inherited-pipe bug, which returns after a close.
   const previousDaemonPid = await ownedDaemonPid(alpha);
   await alpha.tool("agent_browser_close");
-  // Upstream acknowledges close before its delayed daemon shutdown. Wait for
-  // this exact owned process, otherwise reopen could race the old daemon.
   await waitForOwnedDaemonExit(previousDaemonPid);
   await alpha.tool("agent_browser_open", { url });
   assert.notEqual(await ownedDaemonPid(alpha), previousDaemonPid, "Reopen reused the closed daemon");

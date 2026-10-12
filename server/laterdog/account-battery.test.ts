@@ -9,7 +9,6 @@ import {
   type AccountBatteryConfig, type BatteryAccount, type Rest,
 } from "./account-battery.ts";
 
-// Wednesday 7 October 2026, 11:30 AM in Los Angeles.
 const NOW = Date.parse("2026-10-07T18:30:00Z");
 const HOUR = 3600_000;
 const at = (offset: number) => new Date(NOW + offset).toISOString();
@@ -141,16 +140,13 @@ describe("AccountBattery", () => {
     const off = new AccountBattery({ config: () => ({ ...ON, enabled: false }), now: () => NOW, planReset });
     off.markExhausted("claude", { kind: "weekly" });
     expect(planReset).toHaveBeenCalledOnce();
-    // a garbled or past reset is no reset
     expect(instance.markExhausted("claude", { resetsAt: at(-HOUR) }).estimated).toBe(true);
   });
 
   it("ends a rest when the account finishes a turn begun since, when its reset passes, or when it is removed", () => {
     const { instance, advance } = battery();
     instance.markExhausted("claude-b", { resetsAt: at(HOUR) });
-    // another conversation's turn, already running when the limit came in
     expect(instance.recovered("claude-b", NOW - 1_000)).toBe(false);
-    // a finished turn of unknown start ends only a guessed rest
     expect(instance.recovered("claude-b")).toBe(false);
     expect(instance.recovered("claude-b", NOW + 1_000)).toBe(true);
     expect(instance.recovered("claude-b", NOW + 1_000)).toBe(false);
@@ -206,7 +202,6 @@ describe("AccountBattery", () => {
     expect(instance.takeTurn("thread-1", "g1")).toBeUndefined();
     expect(instance.keptTurn("thread-1", "g1")).toBeUndefined();
     expect(ask()).toBeNull();
-    // a turn kept without a re-run (a backup run, a routine) never gets one
     instance.trackTurn("thread-2", { generation: "g3", instanceId: "claude-b" });
     expect(ask({ threadId: "thread-2", generation: "g3" })).toBeNull();
   });

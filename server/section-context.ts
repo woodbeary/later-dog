@@ -1,9 +1,3 @@
-// User-managed context shared by every bot in one sidebar section.
-//
-// This deliberately is not writable by agents. A bot's private MEMORY.md is
-// its own notebook; section context is the user's team brief. Keeping those
-// ownership boundaries separate avoids a compromised or mistaken bot
-// persisting instructions into every teammate's future turns.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
@@ -22,7 +16,6 @@ export interface SectionContextRecord {
 
 interface SectionContextFile {
   version: 1;
-  /** Named teams exist independently of their current bots or group chats. */
   sections: string[];
   contexts: Record<string, SectionContextRecord>;
 }
@@ -39,8 +32,6 @@ const sectionContextFileSchema = z.object({
 
 const emptyFile = (): SectionContextFile => ({ version: 1, sections: [], contexts: Object.create(null) });
 
-/** Section labels are identities everywhere else in the store: trim once,
- * and use the empty key for the unsectioned General team. */
 export function sectionContextKey(section?: string | null): string {
   return section?.trim() || "";
 }
@@ -56,9 +47,6 @@ function loadFile(forWrite = false): SectionContextFile {
     const candidate = sectionContextFileSchema.safeParse(input);
     if (!candidate.success) throw new Error("Invalid team instructions file");
     const contexts: Record<string, SectionContextRecord> = Object.create(null);
-    // Read own entries after validating the envelope: record parsers can omit
-    // labels such as __proto__, which are ordinary team names here. Validate
-    // each value again before putting it into the prototype-free dictionary.
     const entries = (input as { contexts: Record<string, unknown> }).contexts;
     for (const [key, value] of Object.entries(entries)) {
       const parsed = sectionContextRecordSchema.safeParse(value);
@@ -85,7 +73,6 @@ export function readSections(): string[] {
   return loadFile().sections;
 }
 
-/** Remember legacy labels and newly created teams without changing membership. */
 export function ensureSections(names: (string | undefined)[]): boolean {
   const data = loadFile(true);
   const sections = [...new Set([...data.sections, ...names.map(sectionContextKey).filter(Boolean)])];
@@ -94,7 +81,6 @@ export function ensureSections(names: (string | undefined)[]): boolean {
   return true;
 }
 
-/** The caller checks that no bots or group chats still use this identity. */
 export function changeEmptySection(name: string, nextName: string | null): void {
   const data = loadFile(true);
   const index = data.sections.indexOf(name);
@@ -109,9 +95,6 @@ export function changeEmptySection(name: string, nextName: string | null): void 
   delete data.contexts[name];
   if (nextName !== null && context) data.contexts[nextName] = context;
   saveFile(data);
-  // Every team rename and removal funnels through here, so the team's
-  // published package id and keys follow it (published-teams.ts). The team
-  // itself is already renamed; a failure here costs only key stability.
   try {
     renamePublishedTeam(name, nextName);
   } catch (error) {
@@ -124,8 +107,6 @@ export function readSectionContext(section?: string | null): SectionContextRecor
   return record ? { ...record } : null;
 }
 
-/** Empty text clears the brief. The route enforces the byte cap too, while
- * this lower-level check keeps future callers from bypassing it. */
 export function writeSectionContext(section: string | null | undefined, text: string, now = Date.now()): SectionContextRecord | null {
   if (Buffer.byteLength(text, "utf8") > SECTION_CONTEXT_MAX_BYTES) {
     throw new Error(`section context is capped at ${SECTION_CONTEXT_MAX_BYTES} bytes`);
@@ -142,9 +123,6 @@ export function writeSectionContext(section: string | null | undefined, text: st
   return data.contexts[key] ? { ...data.contexts[key] } : null;
 }
 
-/** A bounded, explicitly lower-priority reference block. It contains no file
- * path, so agents cannot discover or mutate the backing store through this
- * prompt. The user remains the only writer through the local API. */
 export function sectionContextSystemPrompt(section?: string | null): string {
   const record = readSectionContext(section);
   if (!record?.text.trim()) return "";

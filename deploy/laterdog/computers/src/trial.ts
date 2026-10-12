@@ -13,8 +13,6 @@ export interface TrialEnv {
   TRIAL_MINUTES?: string;
   TRIAL_DAYS?: string;
   TRIALS_PER_DAY?: string;
-  /** Free trials one network may start per window (an office, a campus, a
-   * phone hotspot share one address). */
   TRIALS_PER_NETWORK?: string;
   TRIAL_IDLE_SLEEP_MINUTES?: string;
   TRIAL_COUNTRIES?: string;

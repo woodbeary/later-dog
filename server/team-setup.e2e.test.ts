@@ -16,7 +16,6 @@ it("Clive reviews multi-provider teams once, continues after each decision, and 
       ...(fromApp ? { origin: fixture.info.url } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const result = await response.json() as any;
-    // Never record provider environment/capabilities. Keep actions and safe results.
     evidence.push({ method, path, body, authority: token ? "turn capability" : fromApp ? "app review" : "originless loopback", status: response.status, result });
     expect(response.status, JSON.stringify(result)).toBe(expected); return result;
   };
@@ -33,9 +32,6 @@ it("Clive reviews multi-provider teams once, continues after each decision, and 
     const chief = (await api("POST", "/api/bots", { name: "Clive", title: "Chief of Staff", section: "Operations", modelSelection: selection(claude) }, 201)).bot;
     await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true });
     const state = async () => (await api("GET", "/api/bots")).bots;
-    // The fixture pins its starter's name (control-laterdog.ts), but identity is
-    // still the honest comparison: "Quill" once collided with a randomly
-    // named starter and looked like a leaked planned bot (#1257).
     const initialBotIds = new Set((await state()).map((bot: any) => bot.id));
     const setupBots = async () => (await state()).filter((bot: any) => !initialBotIds.has(bot.id));
     let previousPid: number | undefined;
@@ -73,7 +69,6 @@ it("Clive reviews multi-provider teams once, continues after each decision, and 
       await control("interrupt", target, id, "--task", threadId);
       writeFileSync(gate, "finish");
       await control("wait", target, id, "--task", threadId, "--timeout", "15");
-      // Allow an erroneously queued provider handshake/reply to become visible.
       await new Promise((resolve) => setTimeout(resolve, 350));
       await api("POST", `/api/threads/${threadId}/respond`, { requestId, behavior: "deny" });
       const messages = (await api("GET", `/api/threads/${threadId}/messages`)).messages;
@@ -113,7 +108,6 @@ it("Clive reviews multi-provider teams once, continues after each decision, and 
     expect(card.teamSetupRequest.operations).toHaveLength(3);
     expect(card.subtitle).toContain("Authorize @Clive");
     expect(card.subtitle).toContain("Chief of Staff: No → Yes");
-    // Origin is forgeable by an active bot shell: it cannot self-grant teams.
     await api("POST", `/api/threads/${chief.threadId}/respond`, { requestId: proposed.requestId, behavior: "allow" }, 403);
     expect(await setupBots()).toHaveLength(0);
     await finish();
@@ -153,8 +147,6 @@ it("Clive reviews multi-provider teams once, continues after each decision, and 
     await finish(); await api("POST", `/api/threads/${chief.threadId}/respond`, { requestId: updated.requestId, behavior: "allow" }); await continueOnce(updated.requestId);
     const changed = (await state()).find((bot: any) => bot.id === engineer.id);
     expect(changed).toMatchObject({ section: "Growth", modelSelection: selection(claude), description: "Shared delivery specialist" });
-    // The existing thread stays, with its history; it has no model of its
-    // own, so it follows Patch onto Claude.
     expect(changed.tasks.find((task: any) => task.threadId === engineer.threadId))
       .toMatchObject({ modelSelection: selection(claude), followsBotModel: true });
 

@@ -13,9 +13,7 @@ const steps = (value: CloudSetupFacts) => cloudSetupItems(value).map((item) => `
 describe("cloudSetupStage", () => {
   it("is only for the owner's own session on a Cloud home", () => {
     expect(cloudSetupStage(facts())).toBe("shown");
-    // The desktop's own server and a self-hosted one say nothing of a Cloud home.
     expect(cloudSetupStage(facts({ viewer: { hosted: false, canSave: true } }))).toBe("none");
-    // A guest's paired phone can neither sign engines in nor save the record.
     expect(cloudSetupStage(facts({ viewer: { ...owner, canSave: false } }))).toBe("none");
     expect(cloudSetupStage(facts({ viewer: null }))).toBe("none");
   });
@@ -29,11 +27,9 @@ describe("cloudSetupStage", () => {
   it("goes away once an engine can run and a bot has finished a turn there, or once hidden", () => {
     const turned = record({ firstTurnAt: "2026-09-30T08:00:00.000Z" });
     expect(cloudSetupStage(facts({ engineReady: true, onboarding: turned }))).toBe("done");
-    // Either one alone is not enough.
     expect(cloudSetupStage(facts({ engineReady: true }))).toBe("shown");
     expect(cloudSetupStage(facts({ onboarding: turned }))).toBe("shown");
     expect(cloudSetupStage(facts({ onboarding: record({ hintsSeen: [CLOUD_SETUP_HIDDEN] }) }))).toBe("hidden");
-    // Another hint, such as a finished guided tour step, is not Hide setup.
     expect(cloudSetupStage(facts({ onboarding: record({ hintsSeen: ["tour.composer"] }) }))).toBe("shown");
   });
 });
@@ -50,19 +46,15 @@ describe("cloudSetupItems", () => {
   });
 
   it("bringing bots is listed only in the desktop app while main offers it, and is done after a move or skipped", () => {
-    // A browser has no bridge; main has not answered; main does not offer it
-    // (the Cloud is not empty, or this computer has nothing to bring).
     expect(steps(facts({ move: null }))).not.toContain("move:todo");
     expect(moveStatus({ phase: "idle", suggest: false }, record())).toBeNull();
     expect(steps(facts({ move: idle }))).toEqual(["engine:todo", "move:todo", "try:todo"]);
-    // Under way or stopped: it stays, with its progress or error.
     for (const phase of ["preparing", "uploading", "restarting", "failed"] as const) {
       expect(moveStatus({ phase, action: "move", suggest: false }, record())).toBe("todo");
     }
     expect(moveStatus({ phase: "done", action: "move", suggest: false }, record())).toBe("done");
     expect(moveStatus({ phase: "idle", suggest: false }, record({ hintsSeen: [CLOUD_SETUP_MOVE_SKIPPED] }))).toBe("skipped");
     expect(moveStatus({ phase: "idle", suggest: true }, record({ hintsSeen: [CLOUD_SETUP_MOVE_SKIPPED] }))).toBe("skipped");
-    // Swapping back to a previous Cloud is not bringing bots over.
     expect(moveStatus({ phase: "done", action: "restore", suggest: false }, record())).toBeNull();
     expect(moveStatus({ phase: "replacing", action: "restore", suggest: false }, record())).toBeNull();
   });

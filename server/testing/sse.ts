@@ -1,10 +1,5 @@
-// SSE reader for API tests: connect to /api/events, collect frames, and
-// await predicates instead of sleeping — same rule as recordEvents, one
-// layer up (HTTP frames rather than adapter events).
 export interface SseRecorder {
   frames: any[];
-  /** Resolves with the first frame matching `pred`, already-seen ones
-   * included. Rejects after `timeoutMs` with what did arrive. */
   until(pred: (frame: any) => boolean, timeoutMs?: number): Promise<any>;
   close(): void;
 }
@@ -47,7 +42,6 @@ export async function openSse(url: string, headers: Record<string, string> = {})
         }
         buffer += decoder.decode(value, { stream: true });
         let split: number;
-        // frames are separated by a blank line; keepalives are comments
         while ((split = buffer.indexOf("\n\n")) !== -1) {
           const chunk = buffer.slice(0, split);
           buffer = buffer.slice(split + 2);

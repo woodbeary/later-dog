@@ -1,7 +1,3 @@
-// Cloud Pro's included Boat computers, over HTTP against one stub that plays
-// both Boat (/boat) and the Admin's relay (/relay). The relay knows only the
-// Admin's account, so the person's own key must never reach it and the
-// included token must never reach Boat; the own key always wins.
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,11 +12,8 @@ const boxId = "bx_23456789";
 let api: Server;
 let base = "";
 let state = "ready";
-/** Whether an accepted resume wakes the computer at once. */
 let wakeOnResume = true;
-/** When set, every request is refused as an invalid credential. */
 let rejectCredentials = false;
-/** Replies to POST /resume in order; the last one repeats. A 2xx wakes the computer. */
 let resumeReplies: Array<{ status: number; body: unknown }> = [];
 const requests: Array<{ method: string; path: string; auth: string }> = [];
 let boat: typeof import("./boat.ts");
@@ -30,7 +23,6 @@ const underBoat = () => requests.filter((request) => request.path.startsWith("/b
 const underRelay = () => requests.filter((request) => request.path.startsWith("/relay/"));
 
 beforeAll(async () => {
-  // The legacy deterministic name findBoat still recognises (boat-lifecycle.test.ts).
   const hash = createHash("sha256").update(botId).digest("hex").slice(0, 6);
   const machineName = `laterdog-${botId.slice(0, 8).toLowerCase().replace(/[^a-z0-9]/g, "")}-${hash}`;
   api = createServer((req, res) => {
@@ -118,7 +110,6 @@ describe("included Boat computers", () => {
   });
 
   it("a cloud computer tool call with the included token still reaches only the relay", async () => {
-    // What cloud-computer-tools.ts runs for /api/internal/computer/mcp.
     await boat.runCommand({ box: { token: boat.boatAccount({})!.token } }, boxId, "true");
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({ path: `/relay/api/box/v1/boxes/${boxId}/commands`, auth: `Bearer ${INCLUDED}` });
@@ -169,7 +160,6 @@ describe("waking a sleeping computer", () => {
       { status: 503, body: { ok: false, code: "unavailable", message: "Boat is busy" } },
       { status: 202, body: { ok: true } },
     ];
-    // Own key here: this is everyone's wake path, not only Cloud Pro's.
     await expect(boat.readyBoat({ box: { token: "box_own" } }, botId)).resolves.toMatchObject({ id: boxId, state: "idle" });
     expect(requests.filter((request) => request.path.endsWith("/resume"))).toHaveLength(2);
   }, 15_000);
@@ -177,8 +167,6 @@ describe("waking a sleeping computer", () => {
   it("reports the last server error, not a bare timeout, when the wait runs out on it", async () => {
     state = "archived";
     resumeReplies = [{ status: 503, body: { ok: false, code: "unavailable", message: "Boat is busy" } }];
-    // One poll fits the budget (each request ends with it, so it must leave
-    // room for one read and one resume); the next would come after it.
     await expect(boat.readyBoat({ box: { token: "box_own" } }, botId, 2_000)).rejects.toThrow("waking the cloud computer failed: Boat is busy");
   });
 
@@ -189,12 +177,7 @@ describe("waking a sleeping computer", () => {
       { status: 503, body: { ok: false, code: "unavailable", message: "Boat is busy" } },
       { status: 202, body: { ok: true } },
     ];
-    // Two polls fit the budget: 503, then an accepted resume that is still
-    // waking, with room left for the second poll's requests, which end with
-    // the budget too.
     await expect(boat.readyBoat({ box: { token: "box_own" } }, botId, 4_000)).resolves.toBeNull();
-    // A third poll can start when a timer fires a hair before the deadline;
-    // what matters is that the 503 came first and was then forgotten.
     expect(requests.filter((request) => request.path.endsWith("/resume")).length).toBeGreaterThanOrEqual(2);
   }, 15_000);
 
@@ -202,7 +185,6 @@ describe("waking a sleeping computer", () => {
     state = "archived";
     resumeReplies = [{ status: 401, body: { ok: false, code: "unauthorized", message: "This cloud computer key is not valid." } }];
     await expect(boat.readyBoat({}, botId)).rejects.toThrow("The cloud computers included with your Cloud plan aren't available right now. Try again later.");
-    // The same refusal on the person's own key still points them at Settings.
     await expect(boat.readyBoat({ box: { token: "box_own" } }, botId)).rejects.toThrow(/paste a current token/);
   });
 });

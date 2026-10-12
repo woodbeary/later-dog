@@ -62,10 +62,6 @@ export interface BrowserCleanupIncomingMessage {
 
 type CleanupJournalWriter = (path: string, data: string, options: { mode?: number }) => void;
 
-/** Finish cleanup after the primary config mutation is already durable.
- * Journal/ACK failures are reported only after mandatory runtime effects run;
- * otherwise a failed bookkeeping write could leave a revoked feature's live
- * bearer or provider fleet active until restart. */
 export async function finalizeBrowserCleanupMutation<T>(options: {
   requests: readonly BrowserCleanupRequest[];
   referenceError?: unknown;
@@ -130,15 +126,6 @@ function validTarget(kind: BrowserCleanupKind, id: string, partitionId: string):
 }
 
 
-/**
- * Crash-safe handoff from the embedded server to Electron. A deletion is
- * journaled in the prepared phase before its durable config/store mutation.
- * The caller advances it to committed only after that mutation returns. Only
- * committed entries may be dispatched to Electron. A crash in the narrow
- * mutation-to-marker window therefore leaves a prepared entry which blocks
- * identifier reuse, but can never trigger a destructive wipe based on an
- * ambiguous or unreadable config/store snapshot.
- */
 export class BrowserCleanupCoordinator {
   readonly #file: string;
   readonly #send: (message: BrowserCleanupWireRequest) => boolean;
@@ -175,10 +162,6 @@ export class BrowserCleanupCoordinator {
       }
       for (const request of journal.data) this.#pending.set(request.requestId, request);
     } catch (caught) {
-      // A missing journal is the only empty state. Treat malformed JSON,
-      // invalid entries, permissions failures, directories, and I/O errors as
-      // unknown durable state: silently replacing any of them could resurrect
-      // a supposedly deleted login partition.
       if (missingFileErrorSchema.safeParse(caught).success) return;
       const error = caught instanceof Error ? caught : new Error(String(caught));
       this.#loadFailure = unavailableJournalError(error);
@@ -213,9 +196,6 @@ export class BrowserCleanupCoordinator {
     return request;
   }
 
-  /** Mark the primary config/store deletion durable. This marker is the only
-   * authority startup replay uses; in-memory loaders are deliberately not
-   * consulted because both currently recover parse failures as empty state. */
   commit(request: BrowserCleanupRequest): BrowserCleanupRequest {
     this.#assertHealthy();
     const current = this.#pending.get(request.requestId);
@@ -262,10 +242,6 @@ export class BrowserCleanupCoordinator {
       && (request.id === profileId || request.partitionId.toLowerCase() === foldedPartitionId));
   }
 
-  /** Profile references are secondary durable state. Before a committed wipe
-   * is replayed at boot, the server clears every bot that still names one of
-   * these canonical ids. Prepared entries are deliberately excluded because
-   * their primary config deletion may not have committed. */
   committedProfileIds(): string[] {
     this.#assertHealthy();
     return [...new Set(
@@ -276,8 +252,6 @@ export class BrowserCleanupCoordinator {
     )];
   }
 
-  /** Consume only this protocol's result. A late success still clears the
-   * durable journal even when the request's timeout already fired. */
   receive(message: BrowserCleanupIncomingMessage | undefined): boolean {
     if (message?.type !== "laterdog:browser-lifecycle-result") return false;
     const parsed = browserCleanupResultSchema.safeParse(message);
@@ -301,9 +275,6 @@ export class BrowserCleanupCoordinator {
     try {
       this.#save();
     } catch (error) {
-      // Repeating a successful wipe is safe. Keep the in-memory item when the
-      // acknowledgement itself could not be persisted, so a later retry or
-      // restart cannot accidentally treat stale credentials as erased.
       this.#pending.set(requestId, request);
       console.error("browser cleanup: could not persist acknowledgement", error);
       return false;

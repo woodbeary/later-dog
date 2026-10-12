@@ -1,6 +1,3 @@
-# A dog's cloud computer: a Debian desktop the dog drives (xdotool, scrot) and the person watches and takes over
-# (noVNC in later.dog's desktop viewer). `wrangler deploy` builds it for linux/amd64; the same file builds natively on
-# arm64 for a local smoke test (README.md).
 FROM node:24-trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 TZ=UTC NO_AT_BRIDGE=1
@@ -14,8 +11,6 @@ RUN apt-get update \
     xdotool scrot xclip xdg-utils \
   && rm -rf /var/lib/apt/lists/*
 
-# The dog's account: uid/gid 1000 (the base image's unused "node" user gives way), because the Worker's exec() names users
-# by number. Passwordless sudo, like any computer it owns. Commands from later.dog run as this user.
 RUN userdel --remove node \
   && useradd --uid 1000 --user-group --create-home --shell /bin/bash --groups sudo dog \
   && printf 'dog ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/dog && chmod 0440 /etc/sudoers.d/dog \
@@ -23,8 +18,6 @@ RUN userdel --remove node \
 
 COPY --chown=dog:dog xfce/ /home/dog/.config/xfce4/xfconf/xfce-perchannel-xml/
 COPY mimeapps.list /etc/xdg/mimeapps.list
-# XFCE's own Web Browser launcher (the panel's browser button, exo-open) reads its preferred
-# browser from helpers.rc, not mimeapps.list; without it the first launch stops on a chooser.
 COPY --chown=dog:dog xfce-helpers/helpers.rc /home/dog/.config/xfce4/helpers.rc
 COPY --chown=dog:dog xfce-helpers/custom-WebBrowser.desktop /home/dog/.local/share/xfce4/helpers/custom-WebBrowser.desktop
 COPY chromium-flags /etc/chromium.d/laterdog
@@ -33,6 +26,5 @@ RUN chmod 0755 /usr/local/bin/laterdog-desktop \
   && cp /etc/xdg/xfce4/panel/default.xml /home/dog/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml \
   && chown -R dog:dog /home/dog/.config /home/dog/.local
 
-# noVNC (websockify) is the only listener the Worker reaches; VNC itself stays on localhost.
 EXPOSE 6080
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/laterdog-desktop"]

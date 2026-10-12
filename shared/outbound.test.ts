@@ -69,8 +69,6 @@ describe("normalizeOutboundPolicy", () => {
 });
 
 describe("connectorCallsIn", () => {
-  // Composio's session exposes a handful of meta tools; the app tools run
-  // inside them. The gate has to see through the wrapper or it sees nothing.
   it("returns a direct app tool as itself", () => {
     expect(connectorCallsIn("GMAIL_SEND_EMAIL", { to: "a@b.c" })).toEqual([{ slug: "GMAIL_SEND_EMAIL", arguments: { to: "a@b.c" } }]);
   });

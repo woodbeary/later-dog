@@ -1,47 +1,24 @@
-// A tiny MCP server over HTTP for tests: streamable HTTP by default — the
-// answer as plain JSON or as a short event stream — or the older SSE
-// transport. It records the headers it saw so a test can prove a token
-// arrived, and can hold a request open so a probe's timeout is exercised.
 import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 
 export interface FakeHttpMcpOptions {
-  /** how tools/list answers: a JSON body, or an event stream carrying it */
   answer?: "json" | "event-stream";
-  /** serve the older SSE transport instead of streamable HTTP */
   transport?: "http" | "sse";
-  /** require this header on every request; anything else gets 401 */
   requireHeader?: { name: string; value: string };
-  /** accept a request only when this approves its Authorization header */
   acceptBearer?: (authorization: string | undefined) => boolean;
-  /** WWW-Authenticate value sent with a 401 */
   wwwAuthenticate?: string;
-  /** never answer tools/list (initialize still works) */
   silentTools?: boolean;
-  /** answer tools/list only after this many milliseconds, like a server
-   * listing tools for every business an account manages */
   toolsDelayMs?: number;
   description?: string;
   tools?: FakeHttpMcpTool[];
-  /** what tools/call answers (default: one "remote execution recorded" text) */
   callResult?: (params: unknown) => unknown;
-  /** answer each tools/call as an event stream that first says the tool
-   * list changed, as a server does after it adds or removes tools */
   listChangedOnCall?: boolean;
-  /** the server's own initialize instructions */
   instructions?: string;
-  /** answer tools/list in pages of this many tools, with nextCursor */
   pageSize?: number;
-  /** with pageSize: hand out the same cursor again and again */
   cursorLoop?: boolean;
-  /** during each tools/call, first send the client a request with this
-   * method (elicitation/create, sampling/createMessage…) and answer the call
-   * only after the client has replied to it */
   askOnCall?: string;
-  /** serve https:// with this key and certificate (testing/test-tls.ts) */
   tls?: { key: string; cert: string };
-  /** the loopback address to listen on (default 127.0.0.1; "::1" for IPv6) */
   host?: "127.0.0.1" | "::1";
 }
 
@@ -55,13 +32,9 @@ export interface FakeHttpMcp {
   url: string;
   seenHeaders: IncomingMessage["headers"][];
   calls: unknown[];
-  /** tools/list requests now waiting out `toolsDelayMs` */
   readonly delayedToolsLists: number;
-  /** tools/list requests answered so far */
   readonly toolsLists: number;
-  /** replace the catalog later tools/list requests answer with */
   setTools(tools: FakeHttpMcpTool[]): void;
-  /** the client's replies to requests this server sent it */
   replies: unknown[];
   close(): Promise<void>;
 }
@@ -142,14 +115,12 @@ export async function startFakeHttpMcp(options: FakeHttpMcpOptions = {}): Promis
         return;
       }
       const frame = JSON.parse((await readBody(req)) || "{}") as { id?: unknown; method?: unknown; params?: unknown };
-      // the client answering a request this server sent it
       if (frame.method === undefined && frame.id !== undefined) {
         replies.push(frame);
         replied?.();
         res.writeHead(202).end();
         return;
       }
-      // hold the request open: the client's own timeout has to end it
       if (frame.method === "tools/list" && options.silentTools) return;
       if (frame.method === "tools/list" && options.toolsDelayMs) {
         const delayed = new Promise((resolve) => setTimeout(resolve, options.toolsDelayMs));

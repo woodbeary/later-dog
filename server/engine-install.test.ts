@@ -7,11 +7,6 @@ import { augmentedPath, findCliCandidates, registerPathDir, resetPathCacheForTes
 import { removeTempDir } from "./testing/cleanup.ts";
 import * as procs from "./procs.ts";
 
-// A stand-in npm: records its arguments, honours --prefix, and behaves per
-// FAKE_NPM_MODE. Nothing reaches a registry or the network.
-// CommonJS on purpose: an extensionless shebang script parses as CJS, which
-// skips the ESM-detection reparse and lets the stubborn-mode trap below arm
-// itself before anything slower (requires, log writes) can delay boot.
 const FAKE_NPM = `#!/usr/bin/env node
 if (process.env.FAKE_NPM_MODE === 'stubborn') process.on('SIGTERM', () => {});
 const { appendFileSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
@@ -40,8 +35,6 @@ else {
 }
 `;
 
-/** Put the stand-in npm in `dir`: a shebang script, or on Windows the
- * `.cmd` shim npm itself would write, which spawnCli resolves to Node. */
 function writeFakeNpm(dir: string): void {
   if (process.platform === "win32") {
     writeFileSync(join(dir, "npm.js"), FAKE_NPM);
@@ -52,7 +45,6 @@ function writeFakeNpm(dir: string): void {
   chmodSync(join(dir, "npm"), 0o755);
 }
 
-/** A scratch data dir and a PATH holding only the stand-in npm. */
 function useFakeNpm() {
   const ctx = { scratch: "", binDir: "", base: "" };
   let originalPath: string | undefined;
@@ -123,10 +115,8 @@ describe.skipIf(process.platform === "win32")("installing with npm", () => {
     await installNpmEngine("fake-engine", { baseDir: ctx.base, cli: "fakebin", env: { ...process.env, XAI_API_KEY: "workspace-secret" } });
     expect(calls()).toHaveLength(1);
     expect(calls()[0]!.args).toEqual(["install", "-g", "--prefix", enginesPrefix(ctx.base), "--loglevel=error", "--include=optional", "--allow-scripts=fake-engine", "fake-engine@latest"]);
-    // The child reports its cwd resolved; macOS puts the temp dir under /private.
     expect(realpathSync(calls()[0]!.cwd)).toBe(realpathSync(enginesPrefix(ctx.base)));
     expect(calls()[0]!.secret).toBeNull();
-    // The freshly installed binary is what a bare name now resolves to.
     expect(realpathSync(findCliCandidates("fakebin")[0]!)).toBe(realpathSync(join(enginesBinDir(ctx.base), "fakebin")));
     expect(augmentedPath().split(delimiter)[0]).toBe(enginesBinDir(ctx.base));
   });
@@ -155,8 +145,6 @@ describe.skipIf(process.platform === "win32")("installing with npm", () => {
     process.env.FAKE_NPM_MODE = "stubborn";
     const stopped = vi.spyOn(procs, "killCliTree");
     try {
-      // Enough headroom for the fixture's Node boot under load, so TERM
-      // arrives after the trap above is armed and only KILL can finish it.
       await expect(installNpmEngine("fake-engine", { baseDir: ctx.base, timeoutMs: 5000 })).rejects.toThrow("took too long and was stopped");
       expect(stopped.mock.calls[0]![0].signalCode).toBe("SIGKILL");
     } finally {
@@ -180,8 +168,6 @@ describe.skipIf(process.platform === "win32")("installing with npm", () => {
   });
 
   it("says plainly when npm is missing", async () => {
-    // The PATH scan also looks in standard install locations, which a test
-    // cannot empty, so absence is injected at both call sites.
     expect(serverInstallFor({ command: { linux: "npm install -g fake-engine" } }, false)).toBeNull();
     mkdirSync(join(ctx.scratch, "empty"));
     await expect(installNpmEngine("fake-engine", { baseDir: ctx.base, path: join(ctx.scratch, "empty") })).rejects.toThrow("npm is not installed");

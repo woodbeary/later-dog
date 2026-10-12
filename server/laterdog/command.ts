@@ -25,7 +25,6 @@ export const runCommand: CommandRunner = (binary, args, options = {}) => new Pro
   child.stdin.end(options.input);
 });
 export function describeFailure(result: CommandResult, operation: string): string {
-  // The last few stderr lines are what an operator needs ("environment not found", "Not signed in"); bounded so a verbose CLI cannot flood the event log.
   const detail = result.stderr.trim().split("\n").filter(Boolean).slice(-3).join(" ").slice(0, 500);
   return `${operation} ${result.timedOut ? "timed out" : `failed (exit ${result.exitCode})`}${detail ? `: ${detail}` : ""}`;
 }
@@ -33,7 +32,6 @@ export function requireSuccess(result: CommandResult, operation: string): string
   if (result.exitCode !== 0 || result.timedOut) throw new Error(describeFailure(result, operation));
   return result.stdout.trim();
 }
-/** Like requireSuccess but keeps stdout byte-for-byte; a trimmed unified diff loses the trailing newline `git apply` requires. */
 export function requireOutput(result: CommandResult, operation: string): string {
   if (result.exitCode !== 0 || result.timedOut) throw new Error(describeFailure(result, operation));
   return result.stdout;

@@ -1,4 +1,3 @@
-// xAI TTS runs on the harness and reuses the existing workspace xAI key.
 import { z } from "zod";
 import type { Audio, Voice } from "./elevenlabs.ts";
 
@@ -31,7 +30,6 @@ async function request(path: string, init: RequestInit): Promise<Response> {
   }
   if (!response.ok) {
     await response.body?.cancel();
-    // Remote error bodies can echo credentials or request text.
     throw new Error(refusal(response.status));
   }
   return response;

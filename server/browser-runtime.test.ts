@@ -266,9 +266,6 @@ describe("server-owned browser MCP runtime", () => {
   });
   it("does not assume an MCP timeout stopped an accepted daemon action", async () => {
     const value = runtime({ requestTimeoutMs: 60 });
-    // Advance only the deliberately hung request's deadline. Real subprocess
-    // startup/stdio remain live, so a loaded runner cannot time out a healthy
-    // recovery echo merely because its 60 ms scheduling window elapsed.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       await expect(value.agentRpc("s", spec(), "tools/list", {})).resolves.toMatchObject({ initialized: true });
@@ -276,8 +273,6 @@ describe("server-owned browser MCP runtime", () => {
       const observed = expect(pending).rejects.toThrow(/timed out/);
       await vi.advanceTimersByTimeAsync(60);
       await observed;
-      // The real daemon detaches from its MCP parent. Transport exit is not
-      // proof that a navigation or submission stopped; do not replay it.
       await expect(value.agentRpc("s", spec(), "tools/call", { name: "echo" })).rejects.toThrow(/Restart/);
       await expect(value.take("s", "owner")).rejects.toThrow(/Restart/);
       await value.restart("s", "owner", async () => {});
@@ -286,30 +281,19 @@ describe("server-owned browser MCP runtime", () => {
       await value.take("s", "owner");
       expect(value.canControl("s", "owner")).toBe(true);
     } finally {
-      // Process-tree cleanup polls real child exits with timers of its own.
       vi.useRealTimers();
       await value.closeAll();
     }
   });
 
   it("surfaces an engine-reported JSON-RPC timeout instead of retrying it", async () => {
-    // Only a TransportError timeout may be retried: its timer already killed
-    // that child, so the next attempt starts a fresh transport. This engine
-    // answers "request timed out" over a live transport, which is the engine
-    // refusing rather than the plumbing failing; retrying would re-ask the
-    // same wedged engine for the whole window.
     const value = runtime();
-    // The fixture times out only the first rpc-timeout call and answers any
-    // repeat distinctly, so a retry would resolve instead of reject: the
-    // rejection below is proof the first timeout stayed the final outcome.
     const failure = value.agentRpc("s", spec(), "tools/call", { name: "rpc-timeout" });
     await expect(failure).rejects.toThrow(/request timed out/);
     await expect(failure).rejects.not.toBeInstanceOf(TransportError);
   });
 
   it("still refuses an agent after a human's own interrupted command, browser alive", async () => {
-    // The other half of the contract: this uncertainty is NOT self-resolving,
-    // because the browser is still running and may act again.
     const value = runtime();
     await value.agentRpc("s", spec(), "tools/list", {});
     await value.take("s", "owner");
@@ -339,8 +323,6 @@ describe("server-owned browser MCP runtime", () => {
     await value.agentRpc("s", spec(), "tools/list", {});
     await expect(value.agentRpc("s", spec(), "tools/call", { name: "crash" })).rejects.toThrow();
     await expect(value.agentRpc("s", spec(), "tools/call", { name: "echo" })).rejects.toThrow(/restart_browser/);
-    // A new turn lists tools without reaching the engine: the engine's tools
-    // from the last list, plus the one way out.
     const listed = await value.agentRpc("s", spec(), "tools/list", {}) as { tools: Array<{ name: string }> };
     expect(listed.tools.map((tool) => tool.name)).toEqual(["echo", "restart_browser"]);
     const check = vi.fn();
@@ -359,7 +341,6 @@ describe("server-owned browser MCP runtime", () => {
     await expect(value.agentRpc("s", spec(), "tools/call", { name: "crash" })).rejects.toThrow();
     await expect(value.agentRpc("s", spec(), "tools/call", { name: "restart_browser" })).rejects.toThrow(/could not be closed/);
     await expect(value.agentRpc("s", spec(), "tools/call", { name: "echo" })).rejects.toThrow(/Restart/);
-    // No agent-owned hold: the person's own Restart button still works.
     expect(value.heldBy("s")).toBeNull();
     await value.restart("s", "person", async () => {});
     await expect(value.agentRpc("s", spec(), "tools/call", { name: "echo" })).resolves.toBeTruthy();
@@ -445,10 +426,6 @@ describe("server-owned browser MCP runtime", () => {
   });
 
   it.each([false, true])("retires an idle MCP client without killing its browser descendant (ignores EOF: %s)", async (ignoresEof) => {
-    // Windows taskkill /T includes even a daemon with its own process group.
-    // This inert descendant models that ownership boundary on every platform.
-    // unref alone does not detach a Windows child from its parent's console.
-    // Keep the POSIX group shared so an accidental group kill still fails here.
     const fake = `
       const browser = require('node:child_process').spawn(process.execPath,
         ['-e', 'process.stdout.write("ready"); setInterval(() => {}, 1000)'],
@@ -481,7 +458,7 @@ describe("server-owned browser MCP runtime", () => {
       await vi.waitFor(() => expect(() => process.kill(first.transportPid, 0)).toThrow(), { timeout: 2_000, interval: 30 });
       expect(() => process.kill(first.browserPid, 0)).not.toThrow();
     } finally {
-      try { process.kill(first.browserPid, "SIGKILL"); } catch { /* fixture exited */ }
+      try { process.kill(first.browserPid, "SIGKILL"); } catch {}
     }
   });
 });

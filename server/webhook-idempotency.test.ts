@@ -55,7 +55,7 @@ it("retains delivery identities after run-history pruning, with a seven-day retr
   const h = harness();
   const first = h.manager.enqueueWebhook(input);
   const disk = JSON.parse(readFileSync(h.options.file, "utf8"));
-  disk.runs = []; // Run-log retention is independent of the retry guarantee.
+  disk.runs = [];
   writeFileSync(h.options.file, JSON.stringify(disk));
   let reloaded = new RoutineManager(h.options);
   expect(reloaded.enqueueWebhook(input)).toEqual({ id: first.id });
@@ -114,7 +114,7 @@ it("restores pruned run history when the webhook disk commit fails at the retent
   const before = manager.listRuns();
   const saved = join(h.dir, "saved-routines.json");
   renameSync(h.options.file, saved);
-  mkdirSync(h.options.file); // Fail the real atomic rename, after save() prunes.
+  mkdirSync(h.options.file);
   expect(() => manager.enqueueWebhook({ ...input, deliveryId: "next" })).toThrow();
   expect(manager.listRuns()).toEqual(before);
   expect(manager.webhookRunReceipt(input.webhookId, "next")).toBeNull();

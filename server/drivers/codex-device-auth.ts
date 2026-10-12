@@ -1,7 +1,3 @@
-// Codex's half of the in-app device-code sign-in (device-auth.ts): `codex
-// login --device-auth` for a ChatGPT account, with `codex login status` to
-// keep a working login and to confirm the new one, and `codex logout` for
-// Settings' sign-out.
 import { stripVTControlCharacters } from "node:util";
 import { deviceSignInPrompt } from "../../shared/device-sign-in.ts";
 import { DeviceAuthController, type DeviceAuthOptions, type DeviceSignIn } from "./device-auth.ts";

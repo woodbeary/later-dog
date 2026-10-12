@@ -70,8 +70,6 @@ async function seal(
 }
 
 describe("PhoneSecretBridge", () => {
-  // A fixed envelope pins the wire format (HPKE suite, info label and AAD layout): a change to any of them stops it
-  // opening, as it would stop every phone that seals with the old ones.
   it("opens a fixed envelope sealed with later.dog's labels", async () => {
     let bridge!: PhoneSecretBridge;
     const send = vi.fn((message: { requestId: string; value: string }) => {

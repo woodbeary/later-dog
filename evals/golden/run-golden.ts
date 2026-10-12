@@ -8,13 +8,6 @@ import { runScenario } from "../runners/run-scenario.ts";
 import { behaviorTrace, type BehaviorTrace } from "./trace/behavior-trace.ts";
 import { diffTrace } from "./trace/diff-trace.ts";
 
-/** Tier 2, step two: replay redacted golden-thread fixtures through the
- * mock provider (the same real-server, scripted-engine path as tier 1) and
- * assert the behavior trace is stable against the committed baseline. A
- * drift anywhere in tool sequence, argument-key shape, error outcomes,
- * handoff tree, send admission, or the overall outcome fails the run with
- * a readable delta; --update-baseline rewrites baselines on purpose. */
-
 const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)));
 export const GOLDEN_SCENARIOS_DIR = join(GOLDEN_DIR, "scenarios");
 export const GOLDEN_BASELINES_DIR = join(GOLDEN_DIR, "baselines");

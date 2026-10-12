@@ -22,7 +22,6 @@ import { BotSettingsDialog } from "./BotSettingsDialog";
 import { DesktopCapabilitiesProvider } from "./DesktopCapabilities";
 
 const bot = { id: "bot-1", name: "Maily", title: "", color: "green", messages: [] } as never as Bot;
-// The provider reads window.laterdog.platform on render, so each case sees its stub.
 const header = () => {
   const html = renderToStaticMarkup(createElement(DesktopCapabilitiesProvider, null, createElement(BotSettingsDialog, { bot })));
   return html.match(/<div class="([^"]*)"><span id="bot-settings-title"/)?.[1] ?? "";

@@ -22,12 +22,6 @@ const RETIRED: ReadonlyArray<readonly [string, RegExp, string]> = [
   ["T3", /\bT3\b/, "no other app's name"],
 ];
 
-// The pets are dogs, and English copy says so, with the plain meaning beside
-// the dog word: a skill a person teaches is a trick ("Tricks are skills you
-// teach a dog…"), New Bot is New dog, and the two approval levels are Heel
-// ("Checks with you before commands and file changes") and Off-leash ("Acts, then tells you").
-// Only en.json is checked: identifiers, model-facing prompts, file names such
-// as SKILL.md and other products' names keep their own words.
 const RETIRED_EN: ReadonlyArray<readonly [string, RegExp, string]> = [
   ["Skills", /\bSkills\b/, "Tricks"],
   ["New Bot", /\bNew [Bb]ot\b/, "New dog"],
@@ -35,16 +29,13 @@ const RETIRED_EN: ReadonlyArray<readonly [string, RegExp, string]> = [
   ["Decide for me", /\bDecide for me\b/i, "Off-leash"],
 ];
 
-/** The dog words a piece of English copy is missing. */
 function retiredDogWordsIn(text: string): string[] {
   return RETIRED_EN.filter(([, pattern]) => pattern.test(text)).map(([word, , use]) => `"${word}" (say ${use})`);
 }
 
-/** "Boat" inside these phrases names the provider of a person's own key. */
 const OWN_KEY = /Boat (?:API key|account|key|token|plan|provider|credentials|setup|is not configured|is not connected|is a paid service)|boat\.dev|\b(?:Connect|Configure) Boat\b/g;
 const BOAT = /\bBoats?\b/;
 
-/** What a piece of copy still says that the vocabulary retired. */
 function retiredIn(text: string, boat: RegExp = BOAT): string[] {
   const found = RETIRED.filter(([, pattern]) => pattern.test(text)).map(([word, , use]) => `"${word}" (say ${use})`);
   if (boat.test(text.replace(OWN_KEY, ""))) found.push(`"Boat" (say cloud computer; Boat only names a person's own key)`);
@@ -56,12 +47,9 @@ const EN_ALLOWED: Record<string, string> = {};
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SCANNED = ["src", "server", "electron", "shared"];
-// Test fixtures and generated output are not copy anyone reads.
 const SKIPPED_DIRS = new Set(["node_modules", "resources", "testing", "dist"]);
 const isSource = (name: string) => /\.(?:ts|tsx|mjs|cjs|js)$/.test(name) && !/\.test\.|\.node-test\.|\.d\.ts$/.test(name);
 
-/** Hard-coded strings that keep a retired word on purpose. A file with no
- * snippet keeps it everywhere; otherwise only literals containing a snippet. */
 const ALLOWED: ReadonlyArray<{ file: string; snippet?: string; why: string }> = [
   { file: "server/boat-create-idempotency.ts", snippet: "unnamed Boat", why: "own-key repair: boat.dev's own name for a machine" },
 ];
@@ -75,8 +63,6 @@ function* sources(dir: string): Generator<string> {
   }
 }
 
-/** Every string a source file could show: literals, template text and JSX
- * text, never comments or identifiers. */
 function literals(path: string): Array<{ line: number; text: string }> {
   const kind = path.endsWith(".tsx") ? ts.ScriptKind.TSX : /\.(?:mjs|cjs|js)$/.test(path) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
   const file = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, false, kind);
@@ -91,7 +77,6 @@ function literals(path: string): Array<{ line: number; text: string }> {
   return found;
 }
 
-/** Every hard-coded string that says a retired word, before the allow-list. */
 function hardcodedFindings(): Array<{ file: string; line: number; text: string; what: string[] }> {
   const found: Array<{ file: string; line: number; text: string; what: string[] }> = [];
   for (const top of SCANNED) {
@@ -113,13 +98,10 @@ describe("one name per thing", () => {
   it("English copy uses later.dog, later.dog Cloud, My Cloud, Cloud computer, This computer and Plan page", () => {
     const offending = Object.entries(en as Record<string, string>)
       .filter(([key]) => !PENDING_KEY_PREFIXES.some((prefix) => key.startsWith(prefix)) && !Object.hasOwn(EN_ALLOWED, key))
-      // English keys are UI copy, so lower-case "boat" counts too.
       .flatMap(([key, value]) => retiredIn(value, /\bboats?\b/i).map((what) => `${key}: ${what}`));
     expect(offending).toEqual([]);
   });
 
-  // Everyday copy calls them dogs. "Agent" stays only where it names the
-  // engine software (local models, engine setup) or SSH's own agent.
   it("English copy says dog, not agent, outside engine and SSH screens", () => {
     const technical = new Set(["model.localHint", "model.localSoon", "engineSetup.injectDesc", "keys.vps.descBefore"]);
     const offending = Object.entries(en as Record<string, string>)
@@ -160,7 +142,6 @@ describe("one name per thing", () => {
       .filter((finding) => !ALLOWED.some((entry) => allows(entry, finding)))
       .flatMap(({ file, line, text, what }) => what.map((one) => `${file}:${line}: ${one}: ${JSON.stringify(text.trim().slice(0, 120))}`));
     expect(offending).toEqual([]);
-    // An entry that no longer matches anything has outlived its reason.
     const stale = ALLOWED.filter((entry) => !findings.some((finding) => allows(entry, finding)))
       .map((entry) => `${entry.file}${entry.snippet ? ` (${entry.snippet})` : ""}`);
     expect(stale).toEqual([]);
@@ -171,7 +152,6 @@ describe("one name per thing", () => {
   it("copy that points at a control names it exactly as the control is labelled", () => {
     const e = en as Record<string, string>;
     const source = (file: string) => readFileSync(join(ROOT, file), "utf8");
-    // The menus' own names for the two places: the Server menu and the sidebar switcher.
     const myCloud = /CLOUD_HOME_NAME = "([^"]+)"/.exec(source("electron/cloud-home.mjs"))?.[1];
     const thisComputer = /id: "workspace-local", label: "([^"]+)"/.exec(source("electron/environments.cjs"))?.[1];
     const serverMenuLocal = /\{ label: "([^"]+)", type: "radio", checked: !active/.exec(source("electron/menu.mjs"))?.[1];

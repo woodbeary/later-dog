@@ -12,7 +12,6 @@ import { KEY_CHECK_QUESTION, KEY_CHECK_STATE, RELAY_MAX_STATE_BYTES, relayAccept
 import { ROOM_ROUTING_STATE_KEYS, roomRoutingRequest } from "./room-routing.ts";
 import type { DeciderJob, DeciderSeam } from "./types.ts";
 
-// No test here reaches the real API: every call goes through a mocked fetch.
 const KEY = "tsk_unit_secret_key_0123456789abcdef";
 const ON: AppConfig = { decider: { enabled: true, key: KEY, jobs: { roomRouting: true } } };
 const OPTIONS = { maya: "Maya, Product Designer bot.", theo: "Theo, Frontend Engineer bot." };
@@ -171,7 +170,6 @@ describe("failures come back as reasons", () => {
     [503, "overloaded"],
     [529, "overloaded"],
   ])("HTTP %i → %s", async (status, reason) => {
-    // an error body that echoes the key must never surface anywhere
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(`bad key ${KEY}`, { status }));
     const result = await decider(ON, fetchImpl).choose("roomRouting", STATE, QUESTION);
     expect(result).toMatchObject({ ok: false, reason, status });
@@ -193,7 +191,6 @@ describe("failures come back as reasons", () => {
     const result = await decider(ON, fetchImpl).choose("roomRouting", STATE, QUESTION, { timeoutMs: 80 });
     expect(result).toMatchObject({ ok: false, reason: "timeout" });
     expect(Date.now() - started).toBeLessThan(1_000);
-    // the request itself was aborted, not left running
     expect(fetchImpl.mock.calls[0]![1]?.signal?.aborted).toBe(true);
   });
 
@@ -237,7 +234,6 @@ describe("the decision log", () => {
     const d = decider(ON, fetchImpl, dataDir);
     await d.choose("roomRouting", STATE, QUESTION);
     await d.choose("roomRouting", STATE, QUESTION);
-    // a gated call is not a decision and is not logged
     await decider({ decider: { enabled: false, key: KEY } }, fetchImpl, dataDir).choose("roomRouting", STATE, QUESTION);
     await flushDeciderLog(dataDir);
 
@@ -275,7 +271,6 @@ describe("the key check", () => {
 describe("settings rules", () => {
   it("saving a key switches the decider and its room job on", () => {
     expect(deciderSavePatch({ key: " tsk_new " }, undefined)).toEqual({ ok: true, patch: { key: "tsk_new", enabled: true, jobs: { roomRouting: true } } });
-    // even when the room job had been switched off by hand before
     expect(deciderSavePatch({ key: "tsk_new" }, { enabled: false, jobs: { roomRouting: false } }))
       .toMatchObject({ ok: true, patch: { enabled: true, jobs: { roomRouting: true } } });
   });
@@ -302,15 +297,12 @@ describe("settings rules", () => {
 });
 
 describe("Cloud Pro's included decisions", () => {
-  // What the Admin sets on a Cloud home (docs/cloud-pro.md): a Jev base URL,
-  // whose one relay route is <LATERDOG_CLOUD_DECIDER_URL>/v1/systemone.
   const RELAY = "https://cloud.example.test/api/cloud/services/decider";
   const INCLUDED = "laterdog_decide_unit_included_token_0123456789";
   const cloudPro = () => {
     vi.stubEnv("LATERDOG_CLOUD_DECIDER_URL", RELAY);
     vi.stubEnv("LATERDOG_CLOUD_DECIDER_TOKEN", INCLUDED);
   };
-  // The app's real room request: the only one the relay takes besides the key check.
   const ROOM = roomRoutingRequest({
     room: "Launch", humans: ["Sam"],
     members: [{ id: "maya", name: "Maya", title: "Product Designer" }, { id: "theo", name: "Theo", title: "Frontend Engineer" }],
@@ -329,7 +321,6 @@ describe("Cloud Pro's included decisions", () => {
   it("with no own key, decides through exactly <LATERDOG_CLOUD_DECIDER_URL>/v1/systemone, on by default", async () => {
     cloudPro();
     const fetchImpl = theo();
-    // a base URL set for own keys never carries the included token
     for (const config of [{}, { decider: { baseUrl: "http://127.0.0.1:9" } }] as AppConfig[]) {
       expect(deciderReady(config, "roomRouting")).toBe(true);
       await expect(route(decider(config, fetchImpl))).resolves.toMatchObject({ ok: true, answers: { choice: "theo" } });
@@ -410,23 +401,19 @@ describe("Cloud Pro's included decisions", () => {
     const fetchImpl = theo();
     const huge = "x".repeat(RELAY_MAX_STATE_BYTES);
     const refused: Array<[string, unknown, Record<string, unknown>]> = [
-      // another question, or more than one
       ["other instructions", ROOM.state, { answer: { type: "choice", instructions: "Which bot?", options: ROOM.question.options } }],
       ["a second question", ROOM.state, { answer: { type: "choice", ...ROOM.question }, extra: { type: "yesno", instructions: "And?" } }],
       ["another question id", ROOM.state, { pick: { type: "choice", ...ROOM.question } }],
       ["a yes/no in the room seam", ROOM.state, { answer: { type: "yesno", instructions: ROOM.question.instructions } }],
-      // another state
       ["an extra state key", { ...ROOM.state, files: ["~/.ssh/id_ed25519"] }, { answer: { type: "choice", ...ROOM.question } }],
       ["a missing state key", { room: "Launch", new_message: ROOM.state.new_message }, { answer: { type: "choice", ...ROOM.question } }],
       ["text as state", "the navbar overlaps", { answer: { type: "choice", ...ROOM.question } }],
-      // over the relay's caps
       ["a state over 24,000 bytes", { ...ROOM.state, new_message: { from: "Sam", text: huge } }, { answer: { type: "choice", ...ROOM.question } }],
       ["a body over 64 KiB", ROOM.state, { answer: { type: "choice", instructions: ROOM.question.instructions, options: Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`bot${i}`, "y".repeat(400)])) } }],
     ];
     for (const [name, state, questions] of refused) {
       const result = await decider({}, fetchImpl).ask("roomRouting", state, questions as never);
       expect(result, name).toEqual({ ok: false, reason: "misconfigured" });
-      // the same request with an own key is the person's own business
       await decider(ON, fetchImpl).ask("roomRouting", state, questions as never);
     }
     expect(fetchImpl.mock.calls.every(([url, init]) =>
@@ -437,7 +424,6 @@ describe("Cloud Pro's included decisions", () => {
   it("a job the relay does not take uses only an own key", async () => {
     cloudPro();
     const fetchImpl = theo();
-    // any job added after room routing, until the relay accepts it
     const later = "toolSelection" as DeciderJob;
     expect(deciderReady({}, later)).toBe(false);
     await expect(decider({}, fetchImpl).choose(later, STATE, QUESTION)).resolves.toEqual({ ok: false, reason: "no_key" });
@@ -457,11 +443,9 @@ describe("Cloud Pro's included decisions", () => {
     });
     expect(Object.keys(busy.state).every((key) => (ROOM_ROUTING_STATE_KEYS as readonly string[]).includes(key))).toBe(true);
     expect(relayAccepts("roomRouting", busy.state, { answer: { type: "choice", ...busy.question } })).toBe(true);
-    // the key check's fixed request, and nothing else in its seam
     expect(relayAccepts("keyCheck", KEY_CHECK_STATE, { answer: { type: "yesno", instructions: KEY_CHECK_QUESTION } })).toBe(true);
     expect(relayAccepts("keyCheck", { purpose: "other" }, { answer: { type: "yesno", instructions: KEY_CHECK_QUESTION } })).toBe(false);
     expect(relayAccepts("keyCheck", KEY_CHECK_STATE, { answer: { type: "yesno", instructions: "Is it?" } })).toBe(false);
-    // nothing from any other seam, even in room routing's exact shape
     expect(relayAccepts("toolSelection" as DeciderSeam, ROOM.state, { answer: { type: "choice", ...ROOM.question } })).toBe(false);
   });
 
@@ -495,9 +479,7 @@ describe("Cloud Pro's included decisions", () => {
     expect(deciderSavePatch({ key: "" }, { enabled: true, key: KEY }, true)).toEqual({ ok: true, patch: { key: "" } });
     expect(deciderSavePatch({ enabled: true }, {}, true)).toEqual({ ok: true, patch: { enabled: true } });
     expect(deciderSavePatch({ enabled: false }, {}, true)).toEqual({ ok: true, patch: { enabled: false } });
-    // saving an own key still turns it and the room job on
     expect(deciderSavePatch({ key: "tsk_new" }, { enabled: false }, true)).toEqual({ ok: true, patch: { key: "tsk_new", enabled: true, jobs: { roomRouting: true } } });
-    // without Cloud Pro, as before
     expect(deciderSavePatch({ key: "" }, { enabled: true, key: KEY }, false)).toEqual({ ok: true, patch: { key: "", enabled: false } });
     expect(deciderSavePatch({ enabled: true }, {}, false)).toMatchObject({ ok: false });
   });

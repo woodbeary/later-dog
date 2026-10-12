@@ -80,8 +80,6 @@ describe("profile list compare-and-swap", () => {
     const currentBot = (await call("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === botId);
     expect(currentBot.browserProfile).toBe("work");
 
-    // A reviewed, current deletion clears assignments on the server, not by
-    // optimistic renderer edits. The fixture has no engine or saved logins.
     const removed = await call("PATCH", "/api/config", { browserProfiles: [original[1]], expectedBrowserProfiles: renamed });
     expect(removed.status).toBe(200);
     expect(removed.body.browserProfiles).toEqual([original[1]]);

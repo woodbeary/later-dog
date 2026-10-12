@@ -1,32 +1,15 @@
-/**
- * Keyboard shortcuts catalog and platform-specific key resolution.
- * Provides structured shortcut groups for navigation, chat, and workspace management.
- */
-
-/** Single keyboard shortcut entry with descriptions and platform-specific keys. */
 export interface ShortcutItem {
-  /** Stable identifier for the shortcut. */
   id: string;
-  /** Human-readable explanation of what the shortcut does. */
   description: string;
-  /** Keys displayed on macOS (e.g. ["⌘", "K"]). */
   macKeys: string[];
-  /** Keys displayed on Windows and Linux (e.g. ["Ctrl", "K"]). */
   winKeys: string[];
 }
 
-/** Group of related shortcuts displayed under a section heading. */
 export interface ShortcutGroup {
-  /** Category display name (e.g. "Navigation"). */
   category: string;
-  /** List of shortcuts belonging to this group. */
   items: ShortcutItem[];
 }
 
-/**
- * Complete catalog of keyboard shortcuts available in later.dog,
- * organized logically into categories for quick reference.
- */
 export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
   {
     category: "Navigation",
@@ -134,7 +117,6 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
   },
 ];
 
-/** Help chords must not interrupt editing, composition, or another dialog. */
 export function shouldOpenKeyboardShortcuts(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || event.isComposing || event.altKey) return false;
   const helpKey = event.key === "?" && !event.metaKey && !event.ctrlKey;
@@ -146,10 +128,6 @@ export function shouldOpenKeyboardShortcuts(event: KeyboardEvent): boolean {
   ));
 }
 
-/**
- * Detect whether the current host platform is macOS.
- * Checks Electron's window.laterdog bridge first, falling back to navigator.userAgent.
- */
 export function isMacPlatform(): boolean {
   if (typeof window !== "undefined" && window.laterdog?.platform) {
     return window.laterdog.platform === "darwin";
@@ -160,9 +138,6 @@ export function isMacPlatform(): boolean {
   return true;
 }
 
-/**
- * Resolve the appropriate key representation for a shortcut item based on the host OS.
- */
 export function shortcutKeysForPlatform(
   item: ShortcutItem,
   isMac: boolean = isMacPlatform(),
@@ -170,9 +145,6 @@ export function shortcutKeysForPlatform(
   return isMac ? item.macKeys : item.winKeys;
 }
 
-/**
- * Filter shortcut groups by query matching item descriptions or keys.
- */
 export function filterShortcutGroups(
   groups: readonly ShortcutGroup[],
   query: string,

@@ -112,8 +112,6 @@ it("keeps the selected API model for direct, group and scheduled Boat turns and 
     }, { timeout: 15_000 }).not.toBe("");
     await expect.poll(() => readiness.entered).toBe(true);
     const destination = ["--bot", bot.id, "--task", routineThread];
-    // A published execution owns its task before network readiness finishes.
-    // Otherwise wait reports a completed turn while setup is still in flight.
     const preparing = (await api("GET", "/api/bots")).bots.find((item: any) => item.id === bot.id)
       .tasks.find((task: any) => task.threadId === routineThread);
     expect(preparing).toMatchObject({ busy: true, activity: "working" });
@@ -131,8 +129,6 @@ it("keeps the selected API model for direct, group and scheduled Boat turns and 
     expect(requests.slice(beforeRoutine).every(request => request.model === "chosen-vision-model")).toBe(true);
     expect(nativePrompts).toBe(0);
     expect(commands.some(command => command.includes(".model.jpg"))).toBe(true);
-    // Stop during readiness must revoke this generation before any late
-    // network response can provision a computer or dispatch the model.
     const cancelledReadiness = pauseBoatReads();
     const beforeCancel = requests.length;
     const { run: cancelled } = await api("POST", `/api/routines/${routine.id}/run`, {});
@@ -150,8 +146,6 @@ it("keeps the selected API model for direct, group and scheduled Boat turns and 
     expect(requests).toHaveLength(beforeCancel);
     const cancelledMessages = await api("GET", `/api/threads/${cancelledThread}/messages?limit=30`);
     expect(cancelledMessages.messages.some((message: any) => message.card?.requestId)).toBe(false);
-    // Readiness is checked again at dispatch, after the routine was created.
-    // An available native Boat runner must not mask the selected engine's missing key.
     const expectBlockedRun = async (reason: RegExp) => {
       const before = requests.length;
       const { run: blocked } = await api("POST", `/api/routines/${routine.id}/run`, {});

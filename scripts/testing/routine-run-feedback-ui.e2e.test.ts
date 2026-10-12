@@ -25,7 +25,6 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   await click("Tools"); await click("Automations"); await click("List");
   await expect.poll(() => evaluate('!!document.querySelector(\'article[aria-label="Feedback fixture"] button\')')).toBe(true);
   await evaluate('document.querySelector(\'article[aria-label="Feedback fixture"] button\').click()');
-  // Delay only this fixture's run POST; two queued clicks must still send once.
   await evaluate(`window.fixtureFetch = window.fetch; window.runPosts = 0; window.fetch = async (...args) => { if (String(args[0]).endsWith('/${routine.id}/run')) { window.runPosts++; await new Promise(resolve => window.releaseRun = resolve); } return window.fixtureFetch(...args); }; const button = [...document.querySelectorAll('[role=dialog] button')].find(b => b.textContent.trim() === 'Run now'); button.click(); button.click();`);
   const dialog = () => evaluate('document.querySelector("[role=dialog]")?.innerText ?? ""');
   await expect.poll(dialog).toContain("Starting…");
@@ -36,7 +35,6 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   const { runs } = await fetch(`${fixture!.url}/api/routines`).then(r => r.json());
   expect(runs.filter((run: any) => run.routineId === routine.id)).toHaveLength(1);
   expect(await dialog()).toContain("hello from fake claude");
-  // A newer run of the same routine must not replace the run we started here.
   const changed = await fetch(`${fixture!.url}/api/routines/${routine.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: "A different competing run." }) });
   expect(changed.ok).toBe(true);
   const competing = await fetch(`${fixture!.url}/api/routines/${routine.id}/run`, { method: "POST" });
@@ -48,7 +46,6 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   }, { timeout: 30_000 }).toBe("completed");
   expect(await dialog()).toContain("Reply with the fixture response.");
   expect(await dialog()).not.toContain("A different competing run.");
-  // An unsuccessful new attempt must show its error, not the previous success.
   await evaluate(`window.fetch = (...args) => String(args[0]).endsWith('/${routine.id}/run') ? Promise.resolve(new Response(JSON.stringify({error:'Fixture run rejected'}), {status:409, headers:{'Content-Type':'application/json'}})) : window.fixtureFetch(...args)`);
   await click("Run now");
   await expect.poll(dialog).toContain("Fixture run rejected");

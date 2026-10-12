@@ -208,19 +208,15 @@ describe("authenticated browser viewer relay", () => {
   it("resets a daemon stuck on a failed launch so reconnecting starts a fresh session (#1383)", async () => {
     const openS = () => live.open({ botId: "a", session: "s", owner: "a", isCurrent: () => true,
       res: new ResponseFixture() as unknown as ServerResponse, spec: { command: "/engine", env: { AGENT_BROWSER_SESSION: "s" } } });
-    // A daemon that kept a headed launch config fails the same way forever;
-    // the failure is reported retryable and the session is discarded.
     execute.mockRejectedValueOnce(Object.assign(new Error("Command failed"), {
       stderr: "Chrome exited early (exit code: 1) without writing DevToolsActivePort\nMissing X server or $DISPLAY",
     }));
     await expect(openS()).rejects.toThrow("Reconnect to retry");
     expect(nativeClose).toHaveBeenCalledTimes(1);
     expect(nativeClose).toHaveBeenCalledWith("/engine", expect.objectContaining({ AGENT_BROWSER_SESSION: "s" }));
-    // The same recognition applies when the engine answers success:false JSON.
     execute.mockResolvedValueOnce({ stdout: JSON.stringify({ success: false, error: "Chrome exited before providing DevTools URL" }), stderr: "" });
     await expect(openS()).rejects.toThrow("Reconnect to retry");
     expect(nativeClose).toHaveBeenCalledTimes(2);
-    // A non-launch failure keeps the install guidance and leaves the session alone.
     execute.mockRejectedValueOnce(Object.assign(new Error("spawn /engine ENOENT"), { stderr: "" }));
     await expect(openS()).rejects.toThrow("browser engine is installed");
     expect(nativeClose).toHaveBeenCalledTimes(2);
@@ -233,8 +229,6 @@ describe("authenticated browser viewer relay", () => {
     execute.mockRejectedValueOnce(Object.assign(new Error("Command failed"), { stderr: "Missing X server or $DISPLAY" }));
     await expect(openS()).rejects.toThrow("Reconnect to retry");
     expect(nativeClose).toHaveBeenCalledTimes(1);
-    // While teardown is still polling, a reconnect must not issue another
-    // command or start a second reset against the same daemon.
     const reconnecting = openS();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(execute).toHaveBeenCalledTimes(1);
@@ -253,8 +247,6 @@ describe("authenticated browser viewer relay", () => {
     execute.mockRejectedValueOnce(Object.assign(new Error("Command failed"), { stderr: "Missing X server or $DISPLAY" }));
     await expect(openS()).rejects.toThrow("Reconnect to retry");
     const reconnecting = openS();
-    // The daemon outlived the first close; the probe fails the same way and
-    // schedules another reset instead of reporting a healthy session.
     execute.mockRejectedValueOnce(Object.assign(new Error("Command failed"), { stderr: "Missing X server or $DISPLAY" }));
     nativeClose.mockResolvedValueOnce(true);
     finishReset(false);
@@ -337,7 +329,7 @@ describe("authenticated browser viewer relay", () => {
     await a.action({ type: "ack", seq: 1 });
     a.socket.receive({ ...frame, seq: 2 });
     a.socket.receive({ ...frame, seq: 3 });
-    await a.action({ type: "ack", seq: 2 }); // Not delivered, so cannot acknowledge it.
+    await a.action({ type: "ack", seq: 2 });
     expect(a.res.events("frame").map((event) => event.seq)).toEqual([1]);
     expect(a.socket.messages).toEqual([{ type: "ack", seq: 1 }]);
     a.res.backpressure = false; a.res.emit("drain");
@@ -360,7 +352,7 @@ describe("authenticated browser viewer relay", () => {
     expect(JSON.parse(nativeInput.mock.calls[0]?.[1].body)).toEqual({ action: "input_keyboard", type: "keyDown", key: "a", text: "a" });
     expect(a.socket.messages).toHaveLength(0);
     a.socket.close(); expect(held.has("profile-a")).toBe(false);
-    expect(execute).toHaveBeenCalledTimes(2); // No close command: logins/browser survive viewers.
+    expect(execute).toHaveBeenCalledTimes(2);
   });
   it("withholds login frames/tabs/URLs from other views, advances their upstream ACK and restores the newest frame on release", async () => {
     const a = await open(); const b = await open({ botId: "bot-b" });
@@ -613,7 +605,6 @@ describe("opening a view while the bot holds the browser", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     await opening;
     expect(res.id).toBeTruthy();
-    // Nothing but waiting reaches the view before it is ready.
     expect(types(res).slice(0, 3)).toEqual(["waiting", "waiting", "ready"]);
     expect(execute).toHaveBeenCalledTimes(3);
     expect(execute.mock.calls[0]?.[2]).toMatchObject({ timeout: 10_000, killSignal: "SIGKILL" });

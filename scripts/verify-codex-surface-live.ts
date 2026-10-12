@@ -1,6 +1,3 @@
-// Opt-in real-model acceptance. No personal chats, skills, browser profiles,
-// or provider configuration are loaded. Only the explicitly supplied Codex
-// sign-in is copied into the disposable home; cleanup removes that copy.
 import { chmodSync, copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { launchVerificationServer } from "./control-laterdog.ts";

@@ -1,10 +1,6 @@
 import type { Assertion } from "../types.ts";
 import type { WorldSnapshot } from "./snapshot.ts";
 
-/** Pure scorers: each assertion is evaluated against the world snapshot
- * the runner collected after the scenario steps finished. The snapshot is
- * frozen evidence; no scorer touches a server. */
-
 export interface AssertionResult {
   assertion: Assertion;
   pass: boolean;
@@ -15,8 +11,6 @@ const deepEqual = (left: unknown, right: unknown): boolean => JSON.stringify(lef
 
 const fmt = (value: unknown): string => JSON.stringify(value, null, 2);
 
-/** Only a leading Claude update wrapped around captured raw user input is
- * an instruction surface. User copies and unproven inputs fail closed. */
 function volatileInstructions(prompt: string, messages: WorldSnapshot["threads"][string]): string {
   try {
     const envelope = JSON.parse(prompt) as { type?: string; message?: { role?: string; content?: unknown } };
@@ -66,8 +60,6 @@ function score(assertion: Assertion, world: WorldSnapshot): { pass: boolean; det
         arguments: world.resolve(call.arguments),
         errored: call.expectError,
       }));
-      // errored is only pinned when the fixture says expectError; otherwise
-      // the comparison is on tool name and arguments alone.
       const mismatches = expected.flatMap((want, index) => {
         const got = calls[index];
         if (got === undefined) return ["missing call #" + (index + 1)];

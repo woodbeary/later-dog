@@ -43,8 +43,6 @@ export async function sendOTPEmail(
   try {
     await sender.send(buildOTPEmail(from, input));
   } catch {
-    // Authentication responses stay enumeration-safe. Do not log the address,
-    // code, provider error, message object, or any other credential material.
     console.error(JSON.stringify({ message: "transactional email send failed", requestId }));
   }
 }

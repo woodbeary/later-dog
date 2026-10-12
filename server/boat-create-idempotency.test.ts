@@ -90,7 +90,6 @@ describe("Boat create idempotency", () => {
           }
 
           if (scenario === "lost-response" && createCount === 1) {
-            // The provider accepted the create, but the response disappeared.
             req.socket.destroy();
             return;
           }
@@ -152,8 +151,6 @@ describe("Boat create idempotency", () => {
   });
 
   afterEach(() => {
-    // Every create asks for an empty guest: the bot's own engine drives the
-    // desktop from here, so no AI sign-in or key is ever sent to the Boat.
     for (const body of createBodies) expect(body).toEqual({ ttlSeconds: 8 * 60 * 60, noEnv: true });
   });
 
@@ -161,7 +158,6 @@ describe("Boat create idempotency", () => {
     scenario = "lost-response";
     vi.resetModules();
     const { provisionBoat } = await import("./boat.ts");
-    // Keys this later.dog holds stay here; the Boat gets none of them.
     const held = { OPENAI_API_KEY: process.env.OPENAI_API_KEY, CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN };
     process.env.OPENAI_API_KEY = "sk-openai-held-here";
     process.env.CLAUDE_CODE_OAUTH_TOKEN = "claude-oauth-held-here";
@@ -361,8 +357,6 @@ describe("Boat create idempotency", () => {
       expect(await workerLine(first, "first journal worker")).toBe("ready");
       expect(await workerLine(second, "second journal worker")).toBe("ready");
 
-      // Both long-lived processes loaded the empty journal before either
-      // mutation. The old in-memory cache deterministically minted two keys.
       first.child.stdin.end("begin\n");
       second.child.stdin.end("begin\n");
       const [firstResult, secondResult] = await Promise.all([
@@ -447,7 +441,6 @@ describe("Boat create idempotency", () => {
       token: lockToken,
       createdAt: Date.now(),
     }));
-    // This is the marker format shipped before successor elections existed.
     writeFileSync(`${lockPath}.reap-${lockToken}`, `${exitedReaperPid}\n`);
 
     const source = `

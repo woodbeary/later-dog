@@ -5,19 +5,12 @@ import type { PlanProviderRow } from "../plan-usage.ts";
 import type { ModelSelection } from "../../shared/wire.ts";
 import { resetInstant } from "./usage-limit.ts";
 
-/** Engines whose driver reports a reached usage limit (runtime.error.quota). */
 export const BATTERY_DRIVERS: readonly string[] = ["claudeAgent", "codex"];
 
-/** How long an account rests when nothing says when its limit resets: the
- * length of Claude's session window. */
 export const DEFAULT_REST_MS = 5 * 60 * 60 * 1000;
-/** Conversations remembered as switched away from an account. */
 const MAX_AWAY = 500;
-/** Turns remembered for a possible re-run (one per conversation). */
 const MAX_TURNS = 2_000;
 
-/** The prompt a backup account gets when the failed attempt already used a
- * tool: the request again could repeat work that has happened. */
 export const CONTINUE_AFTER_SWITCH =
   "[later.dog: the account this conversation was running on reached its usage limit partway through your last turn, " +
   "so it continues on another account. Anything that turn already did (files written, commands run) is still in place, " +
@@ -34,53 +27,35 @@ export const MAX_BATTERY_RERUNS = 8;
 
 export interface AccountBatteryConfig {
   enabled: boolean;
-  /** Per engine (driver kind): account instance ids, favourite first. */
   order: Record<string, string[]>;
 }
 
-/** One account as the battery sees it, from the registry's last read. */
 export interface BatteryAccount {
   instanceId: string;
   driverKind: string;
   displayName?: string;
   enabled: boolean;
-  /** Whether the battery may use it at all: a personal subscription login of
-   * an engine in BATTERY_DRIVERS — not an API key, router or company engine. */
   eligible: boolean;
-  /** Unknown until the engine has been read once; as for a thread's own
-   * engine, only what is known stops a pick. */
   signedIn?: boolean;
-  /** The provider login behind the account. Two accounts signed in to one
-   * login share one limit, so they rest together. */
   email?: string;
-  /** Model ids its catalog lists. */
   models: readonly string[];
 }
 
 export interface Rest {
-  /** ISO time the limit resets. */
   until: string;
-  /** session, weekly, opus, sonnet… when the provider said which limit. */
   kind?: string;
-  /** No reset time was reported or found: `until` is an estimate. */
   estimated?: boolean;
-  /** When the limit was reported. */
   since: string;
 }
 
-/** What a runtime error says about a reached limit. */
 export interface Quota {
   resetsAt?: string;
   kind?: string;
 }
 
 export interface BatteryTurn {
-  /** The dispatch generation that owns the conversation. */
   generation: string;
-  /** The account it was dispatched on. */
   instanceId: string;
-  /** The person's message it answers; a re-run is dropped once a newer one
-   * arrives. */
   requestMessageId?: string;
   rerun?: (continuation: string | null) => Promise<unknown>;
 }
@@ -94,10 +69,7 @@ export interface BatteryRerun {
 
 export interface BatteryStatus {
   enabled: boolean;
-  /** The order turns use: the saved one, then any account added since. */
   order: Record<string, string[]>;
-  /** Accounts resting now; `sharedWith` names the account whose limit it
-   * shares (the same login). */
   resting: Record<string, Rest & { sharedWith?: string }>;
 }
 
@@ -126,8 +98,6 @@ function readState(file: string | undefined): BatteryState {
   }
 }
 
-/** The order turns use, per engine: the saved order (accounts that are
- * still eligible), then every eligible account it does not name yet. */
 export function batteryOrder(config: AccountBatteryConfig | undefined, accounts: readonly BatteryAccount[]): Record<string, string[]> {
   const order: Record<string, string[]> = {};
   for (const driver of BATTERY_DRIVERS) {
@@ -138,8 +108,6 @@ export function batteryOrder(config: AccountBatteryConfig | undefined, accounts:
   return order;
 }
 
-/** Whether a rest keeps an account from `model` now. A model-scoped limit
- * (Opus, Sonnet) only stops that family; without a model, any rest counts. */
 export function restApplies(rest: Rest | undefined, model: string | undefined, now: number): boolean {
   if (!rest || !(Date.parse(rest.until) > now)) return false;
   if (model === undefined) return true;
@@ -151,8 +119,6 @@ export function restApplies(rest: Rest | undefined, model: string | undefined, n
 const sameLogin = (a: BatteryAccount, b: BatteryAccount) =>
   Boolean(a.email && b.email && a.email.trim().toLowerCase() === b.email.trim().toLowerCase());
 
-/** The rest keeping `account` from `model`: its own, or that of another
- * account signed in to the same login. */
 export function activeRest(
   account: BatteryAccount,
   model: string | undefined,
@@ -198,8 +164,6 @@ export function pickAccount(input: PickInput): BatteryAccount | undefined {
   return undefined;
 }
 
-/** `selection` with the account the battery picks; the same object when it
- * picks none or the one already named. */
 export function routeSelection(input: Parameters<typeof pickAccount>[0]): ModelSelection {
   const account = pickAccount(input);
   return !account || account.instanceId === input.selection.instanceId
@@ -207,8 +171,6 @@ export function routeSelection(input: Parameters<typeof pickAccount>[0]): ModelS
     : { ...input.selection, instanceId: account.instanceId };
 }
 
-/** A saved battery setting, checked against the accounts there are: only
- * engines whose limits are reported, only their eligible accounts, each once. */
 export function checkBatteryConfig(
   config: AccountBatteryConfig,
   accounts: readonly BatteryAccount[],
@@ -223,7 +185,6 @@ export function checkBatteryConfig(
   return { ok: true, config: { enabled: config.enabled, order } };
 }
 
-/** The setting without a removed account, or undefined when it never named it. */
 export function withoutAccount(config: AccountBatteryConfig | undefined, instanceId: string): AccountBatteryConfig | undefined {
   if (!config || !Object.values(config.order ?? {}).some((ids) => ids.includes(instanceId))) return undefined;
   return {
@@ -232,8 +193,6 @@ export function withoutAccount(config: AccountBatteryConfig | undefined, instanc
   };
 }
 
-/** When the Usage page's reading of an account says its limit resets: the
- * window the error named, else the latest-resetting window that is full. */
 export function planResetAt(row: PlanProviderRow | undefined, kind: string | undefined, now: number): string | undefined {
   if (!row?.ok) return undefined;
   const windows = [
@@ -269,11 +228,6 @@ function resetParts(until: string, now: number, timeZone?: string): { day?: stri
   return { day: plain(new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric" }).format(at)), time };
 }
 
-/** The row a switch notice takes the place of: the failed-turn row (the
- * usage limit) that the request's attempt on the last account left, after
- * the request message. A limit the battery already handled is not something
- * to fix, so it reads as one calm notice instead of an error plus a notice.
- * Null when the request message is gone or no failed row follows it. */
 export function limitRowToReplace<M extends { id: string; role: string; kind: string; tool?: { name?: string; ok?: boolean } }>(
   path: readonly M[], requestMessageId: string | undefined,
 ): M | null {
@@ -296,7 +250,6 @@ export function switchNotice(input: { to: string; from: string; rest?: Rest; now
   return `Switched to ${to} — ${from} is out of usage${known ? ` until ${resetLabel(known, now, timeZone)}` : " for now"}.`;
 }
 
-/** The status line a conversation gets when it is back on that account. */
 export function backNotice(name: string): string {
   return `Back on ${name}.`;
 }
@@ -306,13 +259,9 @@ export function carryOnNotice(name: string): string {
 }
 
 export interface AccountBatteryOptions {
-  /** The saved setting (config.json `accountBattery`), read at each use. */
   config: () => AccountBatteryConfig | undefined;
-  /** Where rests and switched conversations persist; memory only without. */
   file?: string;
   now?: () => number;
-  /** Ask the provider when an account's limit resets, for an error that did
-   * not say. Best effort: the estimate stands if it fails. */
   planReset?: (instanceId: string, kind: string | undefined) => Promise<string | undefined>;
   onChange?: () => void;
 }
@@ -321,8 +270,6 @@ export class AccountBattery {
   private state: BatteryState;
   private readonly turns = new Map<string, BatteryTurn>();
   private readonly now: () => number;
-  // A plain field: the server runs this file with Node's type stripping,
-  // which has no parameter properties.
   private readonly options: AccountBatteryOptions;
 
   constructor(options: AccountBatteryOptions) {
@@ -368,8 +315,6 @@ export class AccountBattery {
     return to.instanceId;
   }
 
-  /** An account reported its usage limit: it rests until the reported reset,
-   * else what the provider's usage reading says, else DEFAULT_REST_MS. */
   markExhausted(instanceId: string, quota: Quota = {}): Rest {
     const now = this.now();
     const reset = resetInstant(quota.resetsAt, now);
@@ -382,7 +327,6 @@ export class AccountBattery {
     };
     this.state.resting[instanceId] = rest;
     this.save();
-    // Asking the provider is the battery's business, so only while it is on.
     if (!reset && this.enabled && this.options.planReset) void this.refine(instanceId, rest);
     return rest;
   }
@@ -390,20 +334,13 @@ export class AccountBattery {
   private async refine(instanceId: string, rest: Rest): Promise<void> {
     try {
       const found = resetInstant(await this.options.planReset!(instanceId, rest.kind), this.now());
-      // A newer report, or a turn that proved the account works, wins.
       if (!found || this.state.resting[instanceId] !== rest) return;
       const { estimated: _estimated, ...known } = rest;
       this.state.resting[instanceId] = { ...known, until: found };
       this.save();
-    } catch {
-      // The estimate stands.
-    }
+    } catch {}
   }
 
-  /** A turn on this account finished well: its rest is over, if that turn
-   * began after the limit was reported. One already running then (another
-   * conversation's) proves nothing, so without its start only an estimated
-   * rest ends here; a reported one ends at its reset. */
   recovered(instanceId: string, startedAt?: number): boolean {
     const rest = this.state.resting[instanceId];
     if (!rest) return false;
@@ -413,7 +350,6 @@ export class AccountBattery {
     return true;
   }
 
-  /** The account was removed. */
   forget(instanceId: string): void {
     let changed = Boolean(this.state.resting[instanceId]);
     delete this.state.resting[instanceId];
@@ -426,7 +362,6 @@ export class AccountBattery {
     if (changed) this.save();
   }
 
-  /** The rest an account is on now, its own or its login's. */
   restOf(account: BatteryAccount, accounts: readonly BatteryAccount[], model?: string): (Rest & { sharedWith?: string }) | undefined {
     return activeRest(account, model, accounts, this.state.resting, this.now());
   }
@@ -468,9 +403,6 @@ export class AccountBattery {
     if (this.turns.size > MAX_TURNS) this.turns.delete(this.turns.keys().next().value!);
   }
 
-  /** Whether the turn that just ended should run once more on the next
-   * account: it ran out of usage, may run again, and an account other than
-   * the one it ran on can take the conversation's selection now. */
   nextAccount(input: {
     threadId: string;
     generation: string | undefined;
@@ -499,16 +431,12 @@ export class AccountBattery {
     return turn && turn.generation === generation ? turn : undefined;
   }
 
-  /** This conversation moved off `from` because it ran out of usage. */
   noteSwitch(threadId: string, from: string): void {
-    // The account it first left is the one to come back to.
     if (this.state.away[threadId]) return;
     this.state.away[threadId] = { from, at: new Date(this.now()).toISOString() };
     this.save();
   }
 
-  /** True once when a conversation that moved off `instanceId` runs on it
-   * again: the moment to say it is back. */
   takeBack(threadId: string, instanceId: string): boolean {
     if (this.state.away[threadId]?.from !== instanceId) return false;
     delete this.state.away[threadId];

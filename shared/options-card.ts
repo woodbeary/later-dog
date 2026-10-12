@@ -1,7 +1,5 @@
-/** The one bot allowed to create passive choice cards for the Watcher flow. */
 export const WATCHER_OPTIONS_CARD_BOT_ID = "f08dd8e3-f942-4eb4-8783-df32b26b88a4";
 
-/** Keep agent-authored cards small enough to remain useful on desktop and mobile. */
 export const OPTIONS_CARD_LIMITS = {
   title: 120,
   subtitle: 1_000,
@@ -32,7 +30,6 @@ function boundedText(value: unknown, field: string, maximum: number): string | {
   return text;
 }
 
-/** Normalize untrusted model input before it is persisted into a native card. */
 export function parseOptionsCardInput(value: unknown): ParsedOptionsCardInput {
   if (!record(value)) return { ok: false, error: "create_options_card needs an object." };
 

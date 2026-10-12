@@ -65,7 +65,6 @@ type Computer = { id: string; name: string; section: string | null; state: strin
     await expect.poll(snapshot).toContain('complementary "Pack computers"');
     expect((await receipts()).calls.every((call: { method: string }) => call.method === "GET")).toBe(true);
     await click("Close computers");
-    // Native <summary> appears in AX but agent-browser does not assign a ref.
     await evaluate("document.querySelector('summary[aria-label=\"Add to pack map\"]').focus(); true");
     await ui("press", "--keys", "Enter");
     await click("Cloud computer");
@@ -127,8 +126,6 @@ type Computer = { id: string; name: string; section: string | null; state: strin
     await expect.poll(snapshot).toContain("Unassign Engineering desktop from Engineering before moving");
     expect((await record(machine.id))?.section).toBe("Engineering");
 
-    // Exercise the native select's change handler; popup keyboard behavior
-    // varies by OS, while confirmation still uses real accessible controls.
     const selectTeam = async (value: string) => {
       await expect.poll(() => evaluate(`document.getElementById('computer-team-${machine.id}')?.disabled`)).toBe(false);
       await expect.poll(() => evaluate(`[...document.getElementById('computer-team-${machine.id}').options].some(option => option.value === ${JSON.stringify(value)})`)).toBe(true);
@@ -146,7 +143,6 @@ type Computer = { id: string; name: string; section: string | null; state: strin
     expect((await api("GET", "/api/bots?messages=10")).bots).toEqual(before);
     expect(JSON.parse(readFileSync(join(fixture.dataDir, "team-computers.json"), "utf8")).computers)
       .toContainEqual(expect.objectContaining({ id: machine.id, section: "Research", name: machine.name }));
-    // Wait for each destination before operating controls from the next view.
     await click("Close computers");
     await expect.poll(snapshot, { timeout: 10_000 }).not.toContain('complementary "Pack computers"');
     await click("Open chat with Ben");
@@ -180,7 +176,6 @@ type Computer = { id: string; name: string; section: string | null; state: strin
     expect(retry).toBeDefined();
     expect(retry.section).toBeNull();
     await provider("POST", "/__fixture", { refuseCreate: false });
-    // Reusing the still-open creation form retries the durable request ID.
     await click("Create cloud computer");
     await expect.poll(async () => (await record(retry.id))?.state, { timeout: 30_000 }).toBe("idle");
     expect(await computers()).toHaveLength(2);
@@ -192,7 +187,7 @@ type Computer = { id: string; name: string; section: string | null; state: strin
   } finally {
     try {
       if (info) {
-        try { evidence.finalUi = await runControlLaterDog(["ui", "snapshot", "--ui", info.ui]); } catch { /* keep original failure */ }
+        try { evidence.finalUi = await runControlLaterDog(["ui", "snapshot", "--ui", info.ui]); } catch {}
         const path = `${info.logPath}.team-computers.json`;
         writeFileSync(path, JSON.stringify({ fixture: info, ...evidence }, null, 2), { mode: 0o600 });
         console.info(JSON.stringify({ evidence: path }));

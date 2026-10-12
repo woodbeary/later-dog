@@ -66,7 +66,6 @@ export interface PhoneDevice {
   createdAt: number;
   lastSeenAt: number;
   cloudDesktopAccess: boolean;
-  /** Absent on older sidecars means no browser access. */
   browserControlAccess?: boolean;
 }
 
@@ -85,10 +84,6 @@ export interface CompanionState {
   endpoints?: CompanionEndpoint[];
   secretPublicKey?: string;
   discovery?: { advertising: boolean; name: string };
-  /** The Windows adapter the Wi-Fi QR's address is on ("Wi-Fi"), present
-   * while a pairing window is open and Windows has that network down as
-   * Public, where its firewall drops a phone's connection
-   * (companion/src/windows-network.ts). */
   publicNetwork?: string;
   error?: string;
 }
@@ -107,8 +102,6 @@ export type CompanionBridge = {
 
 type AccountBridge = NonNullable<NonNullable<Window["laterdog"]>["companionAccount"]>;
 type StateBridge<T> = { state: () => Promise<T> };
-// functions, not constants: a message resolved at import time would keep the
-// language the app booted in
 const directPairingUnavailable = () => t("phone.error.directUnavailable");
 const protectedPairingUnavailable = () => t("phone.error.protectedUnavailable");
 
@@ -124,11 +117,9 @@ interface PhonePairingRequest {
 }
 
 export const companionBridge = (): CompanionBridge | null =>
-  // SAFETY: the preload owns this narrow bridge; browser builds are guarded by the optional lookup.
   (globalThis as { laterdog?: { companion?: CompanionBridge } }).laterdog?.companion ?? null;
 
 export const companionAccountBridge = (): AccountBridge | null =>
-  // SAFETY: Electron exposes only these account operations and never sends credentials to the renderer.
   (globalThis as { laterdog?: { companionAccount?: AccountBridge } }).laterdog?.companionAccount ?? null;
 
 export const loadCompanionBridgeState = async (
@@ -149,9 +140,6 @@ export interface CompanionStateMutationEpoch {
   current: number;
 }
 
-/** Polls capture the epoch before reading. A mutation advances it both before
- * and after the IPC call, invalidating snapshots taken before or during that
- * mutation while leaving the independently loaded account result usable. */
 export const mutateCompanionBridgeState = async <State,>(
   epoch: CompanionStateMutationEpoch,
   mutate: () => Promise<State>,
@@ -205,7 +193,6 @@ export interface PhoneSetupController {
   secondsLeft: number;
   address: string | undefined;
   pairingPort: number;
-  /** What to type on the phone: `https://host` for hosted, `host:port` otherwise. */
   addressText: string | undefined;
   hostedReady: boolean;
   localFallback: boolean;
@@ -937,8 +924,6 @@ export function PhoneSetupFlowView({
   variant: "settings" | "onboarding";
   onSkip?: () => void;
   onComplete?: () => void;
-  /** The host already shows a title for this step (the welcome tour does),
-   * so the intro drops its own icon and heading and keeps the detail. */
   compactHeader?: boolean;
 }) {
   const c = controller;
@@ -1243,7 +1228,6 @@ export function PhoneSetupFlowView({
       {!c.pairingExpired && manualCodeMode === "details" && c.state?.pairing && (
         <p className="mt-3 text-[11.5px] text-ink-secondary">{t("phone.code.expiresIn", { seconds: c.secondsLeft })}</p>
       )}
-      {/* Only the Wi-Fi QR is dialed on this network; a hosted QR connects outward. */}
       {!c.pairingExpired && c.localFallback && c.state?.publicNetwork && (
         <p role="note" className="mt-3 w-full max-w-[390px] rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-left text-[12px] leading-relaxed text-warning">
           {t("phone.code.publicNetwork", { network: c.state.publicNetwork })}

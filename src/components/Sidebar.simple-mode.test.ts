@@ -31,9 +31,7 @@ const bot: Bot = {
   ],
 };
 const densities: SidebarDensity[] = ["comfortable", "compact", "icons"];
-// the memoized row's own function, called directly to inspect its tree
 const botRow = (BotListItem as MemoExoticComponent<(props: BotRowProps) => ReactNode>).type;
-// what the sidebar hands a bot row for the fixture's store state
 const rowProps = (density: SidebarDensity, candidate: Bot = bot, query = "") =>
   botRowProps({ ...initialState, ...fixture.state }, fixture.dispatch, candidate, { density, quiet: false, query, onMenu: vi.fn() });
 
@@ -88,7 +86,6 @@ describe("bot-first sidebar", () => {
       const row = findElement(tree, "data-sidebar-bot-row", bot.id)!;
       row.props.onClick!({ type: "click", target: {} } as MouseEvent);
       expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "select", id: bot.id });
-      // Selection reuses bot.threadId; it must not create or switch a task.
       expect(bot.threadId).toBe("last-selected");
       for (const key of ["Enter", " "]) {
         fixture.dispatch.mockClear();
@@ -164,12 +161,10 @@ describe("bot-first sidebar", () => {
     fixture.state.selectedId = group.id;
     const markup = renderToStaticMarkup(createElement(GroupListItem, { group, density: "comfortable", onMenu: vi.fn() }));
     expect(markup).toContain('data-sidebar-thread-row="group-thread"');
-    // New thread is an icon on the room row, disabled while the room works
     expect(markup).toContain('aria-label="New thread"');
     expect(markup).toContain('aria-label="Collapse Planning threads"');
     const working = renderToStaticMarkup(createElement(GroupListItem, { group: { ...group, working: true }, density: "comfortable", onMenu: vi.fn() }));
     expect(working).toMatch(/<button type="button" disabled="" aria-label="New thread"/);
-    // a room with one thread is that thread: no disclosure, no duplicate row
     const single = renderToStaticMarkup(createElement(GroupListItem, { group: { ...group, tasks: [group.tasks![0]] }, density: "comfortable", onMenu: vi.fn() }));
     expect(single).not.toContain("Planning threads");
     expect(single).not.toContain('data-sidebar-thread-row=');

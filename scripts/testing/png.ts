@@ -1,12 +1,8 @@
-// Reads the 8-bit, non-interlaced PNGs our fixtures keep: truecolour with or
-// without alpha. Enough to paint a captured desktop into a synthetic
-// framebuffer without pulling in an image library.
 import { inflateSync } from "node:zlib";
 
 export interface DecodedPng {
   width: number;
   height: number;
-  /** RGB at (x, y); alpha is dropped. */
   pixel: (x: number, y: number) => [number, number, number];
 }
 

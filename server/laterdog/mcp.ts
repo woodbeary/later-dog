@@ -32,7 +32,6 @@ const tools = [
 export const MCP_TOOLS = tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: z.toJSONSchema(tool.schema),
   annotations: { readOnlyHint: tool.method === "GET", destructiveHint: tool.name === "merge_cloud_job", openWorldHint: tool.method !== "GET" } }));
 
-/** `credential` is the admin token as a string, or a dog's derived token with its bot ID; by default, whatever this process was started with. */
 export async function callTool(name: string, args: unknown, origin = supervisorOrigin(), credential: string | SupervisorCredential = mcpCredential()): Promise<unknown> {
   const tool = tools.find((candidate) => candidate.name === name); if (!tool) throw new Error("Unknown later.dog tool");
   const contextual = name === "delegate_cloud_job" && args && typeof args === "object"

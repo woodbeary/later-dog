@@ -9,8 +9,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Turn a natural spoken address into the room's existing mention syntax.
- * Apple dictation commonly returns “Atlas, …” rather than “@Atlas …”. */
 export function routeSpokenGroupMessage(text: string, members: Bot[]): SpokenGroupMessage {
   const trimmed = text.trim();
   if (!trimmed) return { text: "", addressed: false };

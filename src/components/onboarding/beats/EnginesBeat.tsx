@@ -103,8 +103,6 @@ export function AccountRow({ id, account, report }: { id: OnboardingAccountId; a
         await finish(instanceId);
         return;
       }
-      // Claude on this machine finishes in the browser by itself; a pasted
-      // code only where the browser can't hand it back
       const callback = id === "claude" ? claudeCallbackLink(auth.callbackUrl) : null;
       const link = callback ?? (id === "claude" ? claudeSignInLink(auth.authorizationUrl) : chatgptPlanLink(auth.authorizationUrl));
       if (auth.phase !== "waiting" || !auth.flowId || !link) {

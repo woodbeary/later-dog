@@ -1,18 +1,3 @@
-// Live eval of room routing against the real decision model, on the bench's
-// labelled room messages (fixtures/room-routing.json). It spends real money
-// (about $0.002 a run: 53 calls of ~700 input tokens at $0.042/M), so it runs
-// only when asked:
-//
-//   LATERDOG_JEV_LIVE_EVAL=1 LATERDOG_JEV_API_KEY=… npx vitest run server/decider/room-routing.eval.test.ts --reporter=default
-//
-// (--reporter=default keeps the printed summary visible where vitest would
-// otherwise pick a quieter reporter, such as under a coding agent.)
-//
-// CI never sets the flag, so the suite is skipped there. It routes through the
-// same request builder and threshold the server uses. The option set is the
-// production one (members + __everyone__, no "nobody"), so messages labelled
-// "nobody" are reported, not scored: an Auto room has no silent answer and
-// they end with the lead, as a lead-mode room does today.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -48,7 +33,6 @@ describe.skipIf(!LIVE)("room routing, live", () => {
         room: room.name, humans: room.humans, members: room.members, recent: item.recent ?? [],
         message: { from: item.from ?? "Sam", text: item.message },
       };
-      // The production budget is 1.5 s; this measures the answer rather than cutting it.
       const route = await decideRoomResponder(recorded, input, { timeoutMs: 10_000 });
       rows.push({ id: item.id, set: item.set, gold: item.gold, route, answer });
     }

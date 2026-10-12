@@ -88,7 +88,6 @@ describe("Cerebras provider", () => {
     vi.stubGlobal("fetch", vi.fn(async (url, init) => {
       if (String(url).endsWith("/models")) return Response.json({ data: [] });
       bodies.push(JSON.parse(String(init?.body)));
-      // A model that keeps announcing is nudged once, never looped.
       const text = bodies.length === 1 || requests === 2 ? first : "unreachable";
       return new Response(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: text }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
         { headers: { "content-type": "text/event-stream" } });

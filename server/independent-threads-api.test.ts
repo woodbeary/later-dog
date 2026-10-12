@@ -1,5 +1,3 @@
-// Real harness + its isolated fake-engine launcher. Gates are per model so
-// two tasks on one bot stay in flight until this test completes or stops each.
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
@@ -41,7 +39,6 @@ describe("independent bot tasks through the isolated control surface", () => {
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     const result = { status: response.status, body: await response.json() as any };
-    // Record the exercised authorization boundary, never the bearer itself.
     evidence.push({ authority: "captured provider capability", method, path, body, result });
     return result;
   };
@@ -104,8 +101,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     await control(["send", "--bot", peer.id, "--text", "Hold this review until I approve the check."]);
     const answers = await permission(models[1], "mailbox-approval");
     await expect.poll(async () => (await botState(peer.id)).activity).toBe("waiting-on-you");
-    // A spare slot must not hide the approval hold. Capacity 1 would queue
-    // this for a different reason.
     expect((await api("PATCH", "/api/config", { threads: { maxConcurrentPerBot: 3 } })).status).toBe(200);
     await control(["send", "--bot", chief.id, "--text", "Ask the reviewer to check the release notes, then return the result here."]);
     const token = (await dump(models[0])).mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN;
@@ -119,8 +114,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     });
     expect(queued.status).toBe(200);
     const requestId = queued.body.receipts[0].requestId;
-    // The receipt is the sender's honest answer at send time: this peer is
-    // queued behind its open approval card, so nothing has been delivered.
     expect(queued.body.receipts).toEqual([{
       botId: peer.id,
       botName: "Mailbox Peer",
@@ -134,9 +127,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     const peerThread = handoff().threadId;
     expect(peerThread).not.toBe(peer.activeTaskId);
     expect(queued.body.receipts[0].threadId).toBe(peerThread);
-    // The open approval keeps fresh work queued across a tick, spare slot or
-    // not. Ending the source turn does not release it. #1589 admits a spare
-    // slot only beside a sibling that is running, not beside this card.
     writeFileSync(modelFile(models[0], "gate"), "finish");
     await expect.poll(async () => {
       const current = (await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === chief.id);
@@ -246,7 +236,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     expect((await internal(token, "POST", "/api/internal/memory", { action: "append", text: "A unique saved fact." })).status).toBe(200);
     for (const text of ["", " \n\t "]) {
       expect((await internal(token, "POST", "/api/internal/memory", { action: "replace", oldText: "unique saved fact", text })).status).toBe(400);
-      // the append landed as one dated entry naming the thread it came from
       expect((await api("GET", `/api/bots/${botId}/memory`)).body.text).toBe(`- ${memoryDate()} · from chat "${"t".repeat(60)}…" · A unique saved fact.\n`);
     }
     const project = join(session.info.dataDir, "task-workspaces", botId, threadId, "result.txt");
@@ -295,7 +284,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     const background = await paired("GET", `/api/threads/${threadB}/messages?limit=50`);
     expect(background.body.messages.some((message: any) => message.card?.requestId === "phone-approval-b" && !message.card.answered)).toBe(true);
 
-    // A stale island's immutable A target must never authorize B's request.
     const stale = await paired("POST", `/api/threads/${threadA}/respond`, { requestId: "phone-approval-b", behavior: "allow" });
     expect(stale.body.outcome).toBe("unavailable");
     expect(answersA).toEqual([]);
@@ -322,8 +310,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     const second = await tool("create_task", { target_type: "bot", target_id: botId, title: "Independent B" });
     const taskB = second.task.taskId;
     await control(["set-model", "--bot", botId, "--task", taskB, "--instance", "claude", "--model", models[1]]);
-    // Loosening approval from an originless agent request stays forbidden;
-    // this settings action models the trusted app's same-origin request.
     expect((await api("PATCH", `/api/bots/${botId}/tasks/${taskB}`, { approvalMode: "auto" })).status).toBe(409);
     expect((await api("PATCH", `/api/bots/${botId}/tasks/${taskB}`, { approvalMode: "auto" }, true)).status).toBe(200);
     await control(["send", "--bot", botId, "--task", taskB, "--text", "ONLY_B"]);
@@ -387,8 +373,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     expect((await api("POST", `/api/bots/${botId}/messages/${userA.id}/edit`, { threadId: taskB, text: "wrong task" })).status).toBe(404);
     expect((await api("POST", `/api/bots/${botId}/active-branch`, { threadId: taskB, messageId: userA.id })).status).toBe(404);
 
-    // Changing the profile model moves the selected idle task (A, which
-    // follows the bot) and never the independently configured sibling.
     await tool("switch_task", { target_type: "bot", target_id: botId, task_id: taskA });
     const legacyModel = models.at(-1)!;
     expect((await api("PATCH", `/api/bots/${botId}`, { modelSelection: { instanceId: "claude", model: legacyModel } })).status).toBe(200);
@@ -412,16 +396,12 @@ describe("independent bot tasks through the isolated control surface", () => {
     const run = (await api("GET", "/api/routines")).body.runs.find((item: any) => item.id === launched.body.run.id);
     expect(run.threadId).not.toBe(selectedThread);
     expect((await botState(botId)).tasks.find((task: any) => task.taskId === run.threadId)?.busy).toBe(true);
-    // An offline profile default is supported; it must not become the
-    // cancellation target for an already-running task on Claude.
     expect((await api("PATCH", `/api/bots/${botId}`, {
       modelSelection: { instanceId: "offline-fixture", model: "offline-model" },
     })).status).toBe(200);
     expect((await api("POST", `/api/routine-runs/${run.id}/cancel`)).status).toBe(200);
     await expect.poll(async () => (await botState(botId)).tasks.find((task: any) => task.taskId === run.threadId)?.busy,
       { timeout: 10_000 }).toBe(false);
-    // The cancel reached Claude, which ran the turn; the run's thread, with no
-    // model of its own, now follows the bot's new default like the rest.
     const final = await botState(botId);
     expect(final.tasks.find((task: any) => task.taskId === run.threadId)?.modelSelection.instanceId).toBe("offline-fixture");
     expect(final.tasks.find((task: any) => task.taskId === selectedThread)?.modelSelection.instanceId).toBe("offline-fixture");
@@ -440,8 +420,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     await dump(models[0]);
     const selection = { instanceId: "claude", model: models[1] };
     expect((await api("PATCH", `/api/bots/${botId}/tasks/${threadId}`, { modelSelection: selection })).status).toBe(200);
-    // The selected task already has B, but the Group still owns default A:
-    // a no-op relative to the task is not a no-op relative to the Group.
     expect((await api("PATCH", `/api/bots/${botId}/model`, selection)).status).toBe(409);
     expect((await api("PATCH", `/api/bots/${botId}`, { modelSelection: selection })).status).toBe(409);
     expect((await api("PATCH", `/api/bots/${botId}/tasks/${threadId}`, { modelSelection: selection, updateBotDefault: true })).status).toBe(409);
@@ -468,9 +446,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     const taskB = second.task.taskId;
     await control(["set-model", "--bot", botId, "--task", taskB, "--instance", "claude", "--model", models[1]]);
     await control(["send", "--bot", botId, "--task", taskB, "--text", "PROJECT_B_PARALLEL"]);
-    // Like two Claude Code sessions open in one repo: the second engine starts
-    // in the same folder while the first still works there. The per-turn
-    // snapshot queues per folder on its own (server/checkpoints.ts).
     expect((await dump(models[1])).env.LATERDOG_FIXTURE_CWD).toBe(realpathSync(cwd));
     const both = await botState(botId);
     expect(both.tasks.find((task: any) => task.taskId === taskA)?.busy).toBe(true);
@@ -482,8 +457,6 @@ describe("independent bot tasks through the isolated control surface", () => {
   }, 45_000);
 
   it.skipIf(process.platform !== "darwin")("claims the shared computer only on first use and keeps a sibling stop from releasing it", async () => {
-    // The fake provider only receives this inert descriptor; no UI driver is
-    // launched and the descriptor lives inside the fixture's disposable home.
     const descriptorDir = join(session.info.dataDir, "Library", "Application Support", "later.dog");
     mkdirSync(descriptorDir, { recursive: true });
     writeFileSync(join(descriptorDir, "cua-connection.json"), JSON.stringify({
@@ -507,8 +480,6 @@ describe("independent bot tasks through the isolated control surface", () => {
       expect(url.origin).toBe(session.info.url);
       return internal(env.LATERDOG_CONTROL_TOKEN, "GET", `${url.pathname}${url.search}`);
     };
-    // B acquires first although A started first: mounting the tool did not
-    // lock the shared computer. A receives an actionable hold, not authority.
     expect((await gate(launchedB)).body.held).toBe(false);
     expect((await gate(launchedA)).body).toMatchObject({ held: true, blockedReason: expect.stringContaining("Another thread") });
     await control(["interrupt", "--bot", botId, "--task", taskA]);
@@ -544,9 +515,6 @@ describe("independent bot tasks through the isolated control surface", () => {
     await control(["set-model", "--bot", botId, "--task", attendedTask, "--instance", "claude", "--model", models[1]]);
     await control(["send", "--bot", botId, "--task", attendedTask, "--text", "ATTENDED_ONLY"]);
     const attendedLaunch = await dump(models[1]);
-    // Approval levels are the provider's own modes, passed through: a turn a
-    // webhook started runs in the bot's level like any other, and a request
-    // Claude's reviewer leaves for a person is carded, not answered.
     expect(unattendedLaunch.argv[unattendedLaunch.argv.indexOf("--permission-mode") + 1]).toBe("auto");
     expect(attendedLaunch.argv[attendedLaunch.argv.indexOf("--permission-mode") + 1]).toBe("auto");
 

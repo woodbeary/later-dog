@@ -29,7 +29,6 @@ it('finds a hosted supervisor through the saved connection file, with the enviro
    writeFileSync(join(dir,'supervisor.json'),JSON.stringify({url:'https://supervisor.example.test/',tokenFile}));
    expect(supervisorConnection()).toEqual({origin:'https://supervisor.example.test',tokenFile,source:'file'});
    expect(supervisorOrigin()).toBe('https://supervisor.example.test');expect(desktopSupervisorToken()).toBe('t'.repeat(43));
-   // A hosted connection whose token file is gone must not fall back to minting a local token that would only 401.
    writeFileSync(join(dir,'supervisor.json'),JSON.stringify({url:'https://supervisor.example.test',tokenFile:join(dir,'missing')}));
    expect(()=>desktopSupervisorToken()).toThrow(/does not exist/);
    writeFileSync(join(dir,'supervisor.json'),JSON.stringify({url:'http://supervisor.example.test',tokenFile}));

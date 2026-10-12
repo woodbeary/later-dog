@@ -71,7 +71,6 @@ describe("record size", () => {
     expect(handedStateUsable(state, "s", order)).toBe(true);
     const over = recordHanded(state, order, received.slice(200));
     expect(handedStateUsable(over, "s", order)).toBe(false);
-    // the gap is never declared received
     expect(unseenIds(order, { ...over, session: "s" })).toContain("m1");
   });
 });
@@ -83,7 +82,6 @@ describe("sessionStart", () => {
     expect(start).toEqual({ omitted: "m5", sent: ["m6", "m7", "m8", "m9"] });
     const state = recordHanded({ session: "new", omitted: start.omitted, ids: [] }, order, start.sent);
     expect(state).toEqual({ session: "new", omitted: "m5", through: "m9", ids: [] });
-    // older history is neither offered nor received
     expect(unseenIds(order, state)).toEqual([]);
     expect(unseenIds([...order, "m10"], state)).toEqual(["m10"]);
   });
@@ -152,7 +150,6 @@ describe("renderUnseen", () => {
   });
 });
 
-// The acceptance fold, driven by runtime events against an in-memory store.
 describe("Handoffs", () => {
   const setup = (order: string[], record?: HandedState) => {
     const records = new Map<string, HandedState>(record ? [["claude", record]] : []);
@@ -208,7 +205,6 @@ describe("Handoffs", () => {
     expect(f.records.get("claude")).toEqual({ ids: [] });
     f.event(output);
     expect(f.records.get("claude")).toEqual({ session: "new", config: "c", omitted: "m4", through: "m7", ids: ["m9"] });
-    // m8 was only in the unseen block, which a rebuild does not carry
     expect(unseenIds(order, f.records.get("claude")!)).toEqual(["m8"]);
   });
 
@@ -227,7 +223,6 @@ describe("Handoffs", () => {
     f.start({ resumeCursor: "s", carried: ["m3"], own: ["m3"] });
     f.event(output);
     f.handoffs.steered("t", f.handoffs.current("t"), "claude", "m4");
-    // output of the model call already running, then a crash before the next call
     f.event(output);
     f.event({ type: "turn.completed", ok: false, stopReason: "exit_before_result" });
     expect(unseenIds(order, f.records.get("claude")!)).toEqual(["m4", "m5"]);
@@ -244,7 +239,6 @@ describe("Handoffs", () => {
   it("takes the handoff of a turn decided again at dispatch, not the one it planned", () => {
     const order = ids(5);
     const f = setup(order, { session: "s", config: "c", through: "m2", ids: [] });
-    // planned: resume `s` with the unseen m3; decided again at dispatch: replay
     f.start({ resumeCursor: "s", placed: ["m3"], carried: ["m4"] });
     f.handoffs.dispatching("t", "claim", {
       resumeCursor: undefined, config: "c2", placed: [], carried: ["m4"],
@@ -266,7 +260,6 @@ describe("Handoffs", () => {
     f.event(output);
     f.event({ type: "turn.completed", ok: true });
     expect(f.records.get("claude")).toEqual({ session: "s", config: "c", effort: "high", through: "m1", ids: [] });
-    // a turn that sends none leaves the thread on its last level
     f.start({ resumeCursor: "s", effort: null, carried: ["m2"] });
     f.event(output);
     f.event({ type: "turn.completed", ok: true });
@@ -274,7 +267,6 @@ describe("Handoffs", () => {
   });
 
   it("does not credit a steer written before a replacement session to that session", () => {
-    // m6 = the turn's message, m7 = the steer, stored after the rebuild was built
     const order = ids(8);
     const f = setup(order, { session: "old", through: "m5", ids: [] });
     f.start({ resumeCursor: "old", carried: ["m6"], own: ["m6"], recovery: sessionStart(order.slice(0, 7), ["m0", "m1", "m2", "m3", "m4", "m5"], ["m6"]) });
@@ -316,7 +308,6 @@ describe("Handoffs", () => {
     f.event({ ...output, providerInstanceId: "codex" });
     f.event({ ...output, turnId: "other" });
     expect(f.records.get("claude")).toEqual({ session: "s", through: "m1", ids: [] });
-    // the stale steer is not this turn's: Stop does not withdraw it
     f.handoffs.stoppedByPerson("t");
     f.event(output);
     f.event({ type: "turn.completed", ok: false, stopReason: "interrupted" });
@@ -324,10 +315,6 @@ describe("Handoffs", () => {
   });
 });
 
-// A seeded model of the record algebra (not of the drivers): messages arrive
-// between and during turns, turns render what is unseen, and only accepted
-// turns add what they placed. Whatever the interleaving, every message is
-// placed exactly once and results are never deferred.
 describe("randomized record sequences", () => {
   function prng(seed: number) {
     let state = seed >>> 0;
@@ -364,7 +351,6 @@ describe("randomized record sequences", () => {
         if (deferred) expect(block).toContain(`(${deferred} older unseen message`);
         for (const m of unseen) if (m.keep) expect(placed).toContain(m.id);
         for (const m of messages) expect(block.split(`<${m.id}>`).length - 1).toBe(placed.includes(m.id) ? 1 : 0);
-        // arrivals while the turn is in flight are not part of its handoff
         for (let i = Math.floor(random() * 3); i > 0; i--) append();
         if (random() >= 0.75) continue;
         for (const id of placed) received.set(id, (received.get(id) ?? 0) + 1);

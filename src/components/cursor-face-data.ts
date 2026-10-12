@@ -1,28 +1,11 @@
-/**
- * The mascot's face tables — 25 expressions x 2 eye rings x 48 points, a mouth
- * per expression, and the face-space constants every coordinate is expressed in.
- *
- * Split out of CursorAvatar.tsx so `scripts/gen-mascot-bodies.ts` can import it
- * from plain Node: the renderer is JSX and `--experimental-strip-types` cannot
- * load it, but the generator needs exactly these numbers to solve where a face
- * fits inside a new silhouette. The phone already draws this line in the same
- * place (DogFaceData.swift vs DogAvatar.swift).
- */
-
-/** The face box every coordinate in this file is expressed in. */
 export const FACE_BOX = 228.541
 
-/** Face-space centre the expressions are normalised around. */
 export const FACE_CENTRE: [number, number] = [120, 122.5]
 
-/** How far pointer gaze may pull the eyes, in face-space units. */
 export const GAZE_TRAVEL = { x: 13.2, y: 8.4 }
-
-/* ------------------------------------------------------------- expressions */
 
 export type Ring = [number, number][]
 
-/** 25 expressions × 2 eyes × 48 points, as "x,y x,y…|x,y x,y…". */
 const ENCODED: string[] = [
   "130.36,45.98 132.71,46.19 134.98,46.81 137.11,47.83 138.97,49.28 140.47,51.09 141.68,53.12 142.73,55.23 143.76,57.36 144.78,59.49 145.79,61.62 146.79,63.76 147.76,65.91 148.71,68.07 149.63,70.25 150.52,72.43 151.37,74.63 151.99,76.91 152.1,79.26 151.64,81.57 150.59,83.68 149.04,85.45 147.1,86.78 144.9,87.62 142.56,87.93 140.22,87.71 137.98,86.99 135.93,85.82 134.17,84.24 132.78,82.34 131.69,80.25 130.77,78.08 129.87,75.89 128.94,73.72 128,71.56 127.03,69.4 126.05,67.26 125.05,65.12 124.03,62.99 122.93,60.9 121.87,58.79 121.03,56.59 120.72,54.26 121.1,51.93 122.15,49.83 123.75,48.1 125.76,46.89 128.01,46.19|176.61,37.08 178.72,37.59 180.7,38.48 182.52,39.65 184.2,41.03 185.71,42.59 187.03,44.31 188.2,46.14 189.26,48.03 190.27,49.96 191.26,51.89 192.23,53.84 193.16,55.8 194.05,57.78 194.92,59.77 195.74,61.78 196.53,63.8 197.27,65.84 197.97,67.9 198.47,70.01 198.63,72.18 198.4,74.33 197.58,76.33 195.95,77.72 193.83,78.08 191.71,77.65 189.76,76.69 188.03,75.38 186.53,73.82 185.28,72.05 184.25,70.13 183.4,68.14 182.63,66.11 181.87,64.07 181.07,62.05 180.25,60.04 179.39,58.05 178.49,56.07 177.57,54.1 176.61,52.15 175.62,50.22 174.59,48.31 173.53,46.41 172.54,44.48 171.86,42.42 171.76,40.26 172.62,38.3 174.45,37.19",
   "86.14,124.79 89.16,124.92 92.06,125.76 94.68,127.27 96.86,129.36 98.48,131.92 99.51,134.76 100.12,137.73 100.56,140.72 101.01,143.72 101.52,146.71 102.06,149.69 102.62,152.67 103.2,155.64 103.81,158.61 104.44,161.57 105.11,164.52 105.81,167.47 106.49,170.42 106.72,173.44 106.01,176.37 104.37,178.9 102.03,180.81 99.26,181.99 96.27,182.46 93.25,182.25 90.34,181.43 87.65,180.04 85.32,178.11 83.51,175.7 82.37,172.9 81.66,169.96 80.98,167 80.32,164.05 79.69,161.08 79.08,158.12 78.5,155.14 77.94,152.16 77.4,149.18 76.89,146.2 76.4,143.21 75.93,140.21 75.56,137.21 75.7,134.19 76.6,131.3 78.22,128.76 80.47,126.74 83.18,125.4|147.23,112.87 150.24,113.13 153.07,114.19 155.53,115.94 157.46,118.26 158.73,121.01 159.53,123.93 160.21,126.88 160.88,129.84 161.52,132.8 162.15,135.76 162.74,138.73 163.32,141.71 163.87,144.69 164.39,147.67 164.9,150.66 165.39,153.65 165.8,156.65 165.76,159.67 164.98,162.59 163.56,165.26 161.61,167.58 159.23,169.45 156.52,170.77 153.57,171.46 150.55,171.4 147.67,170.52 145.19,168.79 143.45,166.33 142.57,163.44 142.08,160.45 141.61,157.46 141.11,154.47 140.59,151.48 140.04,148.5 139.47,145.53 138.87,142.56 138.25,139.59 137.6,136.63 136.94,133.68 136.25,130.72 135.59,127.77 135.47,124.75 136.07,121.78 137.34,119.04 139.19,116.65 141.53,114.74 144.26,113.44",
@@ -71,29 +54,18 @@ const ringCentre = (ring: Ring): [number, number] => {
   return [x / ring.length, y / ring.length]
 }
 
-/**
- * Each expression's look-direction: the eye-pair centroid relative to face centre.
- * Split out so the resting face can look straight ahead.
- */
 export const GAZE: [number, number][] = RAW.map(ex => {
   const a = ringCentre(ex[0])
   const b = ringCentre(ex[1])
   return [(a[0] + b[0]) / 2 - FACE_CENTRE[0], (a[1] + b[1]) / 2 - FACE_CENTRE[1]]
 })
 
-/** Expressions with their look-direction removed — every one looks straight ahead. */
 export const EXPRESSIONS: Ring[][] = RAW.map((ex, i) =>
   ex.map(ring => ring.map((p): [number, number] => [p[0] - GAZE[i][0], p[1] - GAZE[i][1]]))
 )
 
 export const EXPRESSION_COUNT = EXPRESSIONS.length
 
-/**
- * One mouth per expression: [halfWidth, curve, gap, skew].
- *   curve  + bows the middle down => smile (U);  - => frown
- *   gap    clearance below the lowest eye edge
- *   skew   extra tilt in degrees on top of the eye-pair tilt, for smirks
- */
 export const MOUTHS: number[][] = [
   [14,3,20,0],
   [13,1,20,0],
@@ -122,14 +94,8 @@ export const MOUTHS: number[][] = [
   [11,6,20,0],
 ]
 
-/** Mouth thickness, in face-space units. */
 export const MOUTH_STROKE = 7.5
 
-/**
- * The mouth hangs off the eyes: centred under the pair, tilted with them, and pushed clear
- * of whichever eye is tallest. It stays coherent for free as the eyes move, so only four
- * numbers per expression have to be authored.
- */
 export function mouthFrame(rings: Ring[], spec: number[]) {
   const c0 = ringCentre(rings[0])
   const c1 = ringCentre(rings[1])

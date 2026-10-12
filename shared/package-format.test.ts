@@ -61,7 +61,6 @@ describe("package fixtures", () => {
         return "error" in result ? { error: result.error } : { dropped: result.dropped };
       })(),
     };
-    // A deliberate format change regenerates manifest.json from these values.
     expect(actual, JSON.stringify(actual)).toEqual(expected);
   });
 
@@ -120,8 +119,6 @@ describe("package v2 reader", () => {
   it("accepts exactly 4 MiB of canonical bytes and refuses one byte more", () => {
     const probe = parsePackageDocument(fixture("library-only.v2.json"));
     const entries = probe.package.skills!.entries;
-    // Seventeen near-limit skills (each under the 256 KiB SKILL.md cap),
-    // then top the last one up to land on the cap exactly.
     const body = Math.floor((PACKAGE_MAX_BYTES - packageBytes(probe)) / 17) - 200;
     for (let i = 0; i < 17; i += 1) {
       entries.push({ name: `padding-${i}`, description: "Padding.", instructions: `---\nname: padding-${i}\ndescription: Padding.\n---\n${"a".repeat(body)}` });
@@ -163,7 +160,6 @@ describe("package v2 reader", () => {
     expect(parsePackageDocument(library).package.agents).toEqual([]);
     expect(refusal({ ...library, package: { ...library.package, team: { name: "Team" } } }).message).toContain("without bots cannot have a team");
     expect(refusal({ ...library, package: { ...library.package, skills: undefined, presets: undefined } }).message).toContain("at least one skill or preset");
-    // Unlike v1, an unreferenced skill is allowed: it is offered, not installed.
     expect(parsePackageDocument(fixture("full-team.v2.json")).package.skills?.entries.map((skill) => skill.name)).toContain("objection-handling");
   });
 });
@@ -192,7 +188,6 @@ describe("secrets inside text", () => {
     const second = redactPackageSecrets(first.document);
     expect(second.redacted).toEqual([]);
     expect(second.document).toEqual(first.document);
-    // The original is untouched; the redacted copy still validates.
     expect(document.package.summary).toContain("abcdefgh12345678");
     expect(() => parsePackageDocument(first.document)).not.toThrow();
   });
@@ -201,8 +196,6 @@ describe("secrets inside text", () => {
     const document = parsePackageDocument(fixture("full-team.v2.json"));
     const picture = document.package.agents[0]!.appearance.avatar!.data;
     expect(redactPackageSecrets(document).document.package.agents[0]!.appearance.avatar!.data).toBe(picture);
-    // The marker is longer than the 8-character secret it replaces, so a
-    // description at the 1024-character limit no longer fits afterwards.
     const skill = document.package.skills!.entries[0]!;
     const description = `${"x".repeat(1_005)} token=abcdefgh`;
     skill.instructions = skill.instructions.replace(`description: ${skill.description}`, `description: ${description}`);

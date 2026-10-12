@@ -1,8 +1,3 @@
-/**
- * Credentials an agent may ask the person to provide through an inline
- * card. The id is the entire authority surface: agents never choose a
- * config path, label, URL, or arbitrary field name.
- */
 export const CREDENTIAL_TARGETS = {
   xaiApiKey: {
     label: "xAI API key",
@@ -78,9 +73,6 @@ export function credentialIsConfigured(config: CredentialConfig, id: CredentialT
   }
 }
 
-/** A still-pending credential card for this target — the set a newer
- * request supersedes. Provided, dismissed, and already-superseded cards
- * keep their settled state untouched. */
 export function isPendingCredentialRequest(
   message: {
     kind?: unknown;

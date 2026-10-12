@@ -1,7 +1,3 @@
-// A room: several bots + you in one shared thread. The sidebar and call view
-// carry the personality; avatars inside the room stay still so a busy group
-// does not become a wall of competing motion. Plain messages go to the room's
-// default responder; @mentions override that routing.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { activeLocale, t } from "@/lib/i18n";
 import { ArrowDown, Check, ChevronDown, ChevronRight, Folder, FolderOpen, Loader2, MessageSquareReply, Pin, PinOff, Plus, Search, X } from "lucide-react";
@@ -75,15 +71,6 @@ import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
 import { dayLabel, localDay } from "@/lib/transcript-derivations";
 
-/** One finished tool step in a room. Same pill the 1:1 chat uses, minus the
- * status glyph — a room reads as a conversation, not a build log. A chip
- * that links somewhere ("Posted in #Standup", a bot⇄bot exchange) opens it,
- * as it would in a 1:1 — a receipt the person cannot follow is only half a
- * receipt. When the linked channel IS this room (an ask made from here is
- * mirrored back into it) there is nowhere to go, so it stays a plain,
- * visible pill. A member's failed turn is not a step at all: it is the row a
- * 1:1 chat shows for the same failure, sign-in card and all, for the engine
- * that member ran on. */
 export function RoomToolChip({ message, roomId }: { message: Message; roomId?: string }) {
   const { state, dispatch } = useStore();
   const tool = message.tool;
@@ -133,7 +120,6 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
   );
 }
 
-/** 16px profile avatar + name, shown once per sender cluster. */
 function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: string }) {
   return (
     <div className="mt-1 flex items-center gap-1.5 pl-0.5">
@@ -150,7 +136,6 @@ function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: st
   );
 }
 
-/** Pin toggle for one room message — one pin per room, patchGroup path. */
 function PinToggle({ group, message }: { group: Group; message: Message }) {
   const { dispatch } = useStore();
   if (window.laterdog?.remoteClient?.active) return null;
@@ -183,11 +168,8 @@ export const Transcript = memo(function Transcript({
 }: {
   group: Group;
   members: Bot[];
-  /** Invalidate the memoized transcript when only the language changes. */
   locale: string;
-  /** The windowed suffix of group.messages — the boundary lives in GroupView. */
   messages: Message[];
-  /** Full room transcript, used to resolve quoted messages outside the mounted window. */
   transcript: Message[];
   emergingId?: string | null;
   onReply: (message: Message) => void;
@@ -195,8 +177,6 @@ export const Transcript = memo(function Transcript({
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
-  // Several bots working at once turn a room into a wall of chips; fold the
-  // finished ones the same way a 1:1 chat does.
   const items = useMemo(() => groupActivityRuns(messages.filter(message =>
     message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), [messages, showToolCalls]);
   const newestMessageId = messages.at(-1)?.id;
@@ -251,12 +231,6 @@ export const Transcript = memo(function Transcript({
           ? { botId: routineOwner.id, threadId: routineExecutionThreadId }
           : undefined;
         const row =
-          // a member can hit a permission ask mid-turn; without this the
-          // card never rendered here and the bot waited out its timeout.
-          // `tool` distinguishes a permission from a QUESTION — a question
-          // only accepts an "answer", so routing it to the approval box
-          // would offer an Allow the broker rejects. A structured ask is
-          // one of those questions, and answers in its own card.
           m.kind === "secret" && m.secret && m.from?.botId ? (
             <SecretRequestCard botId={m.from.botId} threadId={group.threadId} message={m} />
           ) : m.kind === "connector" && m.connector && m.from?.botId ? (
@@ -270,9 +244,6 @@ export const Transcript = memo(function Transcript({
               <ApprovalCard bot={memberOf(m.from?.botId)} message={m} threadId={group.threadId} />
             </div>
           ) : m.kind === "options" && m.card && m.from?.botId ? (
-            // a QUESTION from a member. Without this branch the card fell
-            // through to null: invisible on screen, and the asking bot sat
-            // there until its 15-minute timeout answered for you
             <div className="flex justify-start">
               <OptionCard botId={m.from.botId} threadId={group.threadId} groupId={group.id} message={m} />
             </div>
@@ -444,7 +415,6 @@ export function DefaultResponderSelect({ group, members }: { group: Group; membe
     let next: GroupDefaultResponder;
     if (nextValue === "everyone") next = { kind: "everyone" };
     else if (nextValue === "mentions") next = { kind: "mentions" };
-    // The lead a room had stays on as Auto's fallback.
     else if (nextValue === "auto") next = responder.kind === "member" ? { kind: "auto", fallbackBotId: responder.botId } : { kind: "auto" };
     else next = { kind: "member", botId: nextValue.slice("member:".length) };
     dispatch({ type: "patchGroup", groupId: group.id, patch: { defaultResponder: next } });
@@ -480,13 +450,6 @@ export function DefaultResponderSelect({ group, members }: { group: Group; membe
   );
 }
 
-/** The room's shared desk: where every member's shell and file tools run,
- * overriding each bot's own folder for room turns. The room pins its own
- * copy on its first turn (the server does the pinning — engines key their
- * sessions to the folder a thread starts in, so a folder must not move
- * under a room that already worked somewhere). The PATCH is made directly
- * rather than through patchGroup: the server validates the path and a
- * rejected folder must not stick in local state. */
 function RoomWorkingFolder({ group }: { group: Group }) {
   const { capabilities } = useDesktopCapabilities();
   const home = capabilities.host.homeDir;
@@ -494,7 +457,7 @@ function RoomWorkingFolder({ group }: { group: Group }) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const canPick = Boolean(window.laterdog?.pickFolder);
-  const pinned = group.pinnedCwd; // undefined = not yet, null = each bot's own, string = folder
+  const pinned = group.pinnedCwd;
   const locked = pinned !== undefined;
   const shownCwd = locked ? (pinned ?? undefined) : group.cwd;
 
@@ -547,7 +510,6 @@ function RoomWorkingFolder({ group }: { group: Group }) {
           className="mt-3 flex items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            // an emptied field clears the folder — the server wants null
             void save((draft ?? group.cwd ?? "").trim() || null);
           }}
         >
@@ -567,9 +529,6 @@ function RoomWorkingFolder({ group }: { group: Group }) {
   );
 }
 
-/** The folder this room's turns run in — the pinned folder once a turn ran,
- * else the room folder a first turn would pin. Always present so the desk
- * is settable before any folder exists; quiet (icon only) until then. */
 function RoomWorkingFolderChip({ group, onToggle }: { group: Group; onToggle: () => void }) {
   const folder = group.pinnedCwd === undefined ? group.cwd : (group.pinnedCwd ?? undefined);
   if (!folder) {
@@ -613,12 +572,10 @@ function setupResponderMode(responder: GroupDefaultResponder): RoomResponderMode
 
 function roomNeedsSetup(group: Group): boolean {
   if (group.dm || group.messages.length > 0) return false;
-  // SAFETY: setup fields are additive server metadata; the existing Group shape remains valid when absent.
   const marker = group as Group & RoomSetupFields;
   const hasSetupMarker =
     Object.prototype.hasOwnProperty.call(marker, "setupCompletedAt") ||
     Object.prototype.hasOwnProperty.call(marker, "setupSkippedAt");
-  // Legacy empty rooms omit both keys and remain immediately usable.
   if (!hasSetupMarker) return false;
   if (
     marker.setupPending === false ||
@@ -670,7 +627,6 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
   const responder = (): GroupDefaultResponder => {
     if (behavior === "everyone") return { kind: "everyone" };
     if (behavior === "mentions") return { kind: "mentions" };
-    // The lead picked above stays on as Auto's fallback.
     if (behavior === "auto") return members.some((member) => member.id === leadId) ? { kind: "auto", fallbackBotId: leadId } : { kind: "auto" };
     return members.some((member) => member.id === leadId)
       ? { kind: "member", botId: leadId }
@@ -986,8 +942,6 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
 export function GroupView({ group }: { group: Group }) {
   const { state, dispatch } = useStore();
   const remoteClient = window.laterdog?.remoteClient?.active === true;
-  // Same Windows caption handling as ChatView: drag on the header, shift the
-  // right-hand controls below the renderer-drawn caption buttons.
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
@@ -1022,12 +976,9 @@ export function GroupView({ group }: { group: Group }) {
   const speaker = members.find((b) => b.id === group.busyBotId);
   const setupPending = !remoteClient && roomNeedsSetup(group);
 
-  // Mascot stays while a member works; the finished reply pops in above it.
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
   const activityLabel = liveActivityLabel(lastGroupMessage);
-  // A member busy elsewhere takes its turn when free; until then the room
-  // works with no speaker, and the presence row names who it is waiting on.
   const awaited = members.find(
     (b) => b.id === awaitedMemberId(group.working, group.busyBotId, lastGroupMessage),
   );
@@ -1085,7 +1036,6 @@ export function GroupView({ group }: { group: Group }) {
   const presenceSpeaker =
     speaker ?? awaited ?? members.find((member) => member.id === popping?.botId) ?? members[0];
 
-  // Only a tail of the room mounts; working dots above stay on the FULL list.
   const {
     scrollRef,
     transcriptRef,
@@ -1109,7 +1059,6 @@ export function GroupView({ group }: { group: Group }) {
   });
 
   useEffect(() => setBulletinDraft(group.bulletin), [group.id, group.bulletin]);
-  // an open folder editor belongs to the room it was opened in
   useEffect(() => setFolderOpen(false), [group.id]);
   useEffect(() => setMembersOpen(false), [group.id]);
   const saveBulletin = () => {
@@ -1119,10 +1068,6 @@ export function GroupView({ group }: { group: Group }) {
     }
   };
 
-  // Static profile avatars: one per member, a ring + dot on whoever is
-  // working. A member actively driving a computer/browser session for this
-  // room gets the place icon instead of the plain dot, matching the 1:1
-  // composer's PlaceChip live indicator.
   const memberDogs = members.map((b) => {
     const busy = group.busyBotId === b.id;
     const task = b.tasks?.find((candidate) => candidate.threadId === group.threadId);
@@ -1161,30 +1106,15 @@ export function GroupView({ group }: { group: Group }) {
       {membersOpen && !remoteClient && !group.dm && (
         <ManageMembersPanel group={group} onClose={closeMembers} triggerRef={membersTriggerRef} />
       )}
-      {/* As in ChatView: the transcript scrolls on under the header and its
-          banners, which are liquid glass tinted with the room's background. */}
       <GlassScrollFrame className="flex-1 [--glass-tint:var(--color-app)]">
-      {/* Above anything raised inside the transcript (the room set-up card
-          is z-20 so its menus clear the composer), below the GroupCallOverlay (z-30). */}
       <GlassBar edge="top" className="z-[25]">
-      {/* Header: static member avatars; a ring + dot marks the working bot. */}
       <div
         style={headerDragStyle}
         className={cn(
-          // @container so the header can wrap in a narrow column. A container
-          // query never matches the container itself, so the row that has to
-          // wrap is the child below, not this element.
           "@container/roomhead px-5 py-3",
-          // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
         )}
       >
-        {/* The control row cannot shrink below its content, so in a narrow
-            column (a phone, or the sidebar open in a small window) the room
-            name truncated to nothing and the thread picker slid under the
-            controls. Narrow, the header wraps like the 1:1 chat header: name
-            line on top, controls underneath on the right. The room's controls
-            do not fold to icons, so it wraps below 48rem rather than 30rem. */}
         <div data-roomhead-row className="flex items-center justify-between @max-3xl/roomhead:flex-wrap @max-3xl/roomhead:gap-y-1">
         <div data-roomhead-identity className="flex min-w-0 items-center gap-2 @max-3xl/roomhead:basis-full" style={headerNoDragStyle}>
           <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
@@ -1193,8 +1123,6 @@ export function GroupView({ group }: { group: Group }) {
         <div
           data-roomhead-controls
           className="flex items-center gap-1.5 @max-3xl/roomhead:ml-auto @max-3xl/roomhead:flex-wrap @max-3xl/roomhead:justify-end"
-          // The caption buttons sit over the header's right end; drop this
-          // control row 16px (visual only) below the 26px overlay.
           style={controlsShiftStyle}
         >
           <button
@@ -1223,8 +1151,6 @@ export function GroupView({ group }: { group: Group }) {
           {group.dm || remoteClient ? (
             memberDogs
           ) : (
-            // The roster lives where you already look to see who is in the
-            // room; a dashed + says the row is editable without shouting.
             <button
               ref={membersTriggerRef}
               type="button"
@@ -1249,7 +1175,6 @@ export function GroupView({ group }: { group: Group }) {
 
       {findOpen && <ChatFindBar threadId={group.threadId} onClose={() => setFindOpen(false)} />}
 
-      {/* An Auto room answers like lead mode while the decision model is off: say so, once. */}
       {!setupPending && !group.dm && !remoteClient && state.config && group.defaultResponder.kind === "auto" && !jevRoomRoutingOn(state.config) && (
         <div className="w-full px-5">
           <p data-testid="room-jev-off" className="mb-1 px-2 text-[12px] text-ink-secondary">
@@ -1258,7 +1183,6 @@ export function GroupView({ group }: { group: Group }) {
         </div>
       )}
 
-      {/* Bulletin: one pinned line; click to edit */}
       {!setupPending && <div className="w-full px-5">
         {bulletinOpen ? (
           <div className="mb-1 rounded-lg border border-hairline/40 bg-panel p-2">
@@ -1294,7 +1218,6 @@ export function GroupView({ group }: { group: Group }) {
         )}
       </div>}
 
-      {/* Working folder card — the chip in the header toggles it */}
       {!setupPending && folderOpen && !group.dm && (
         <div className="w-full px-5">
           <div className="mb-1">
@@ -1303,7 +1226,6 @@ export function GroupView({ group }: { group: Group }) {
         </div>
       )}
 
-      {/* Pinned message banner — resolves against the room's full transcript */}
       {(() => {
         const pinned = group.messages.find((m) => m.id === group.pinnedMessageId && m.kind === "text");
         const text = pinned ? citationPreviewText(pinned.text ?? "").replace(/\s+/g, " ").trim() : "";
@@ -1350,7 +1272,6 @@ export function GroupView({ group }: { group: Group }) {
           className="glass-scroller-content flex w-full flex-col gap-3"
           style={{ paddingBottom: composerDock.pad }}
           role="log"
-          // off, as in ChatView: TranscriptAnnouncer speaks once per reply
           aria-live="off"
           aria-label={t("room.aria", { name: group.name })}
         >
@@ -1417,7 +1338,6 @@ export function GroupView({ group }: { group: Group }) {
           {(speaker || presenceVisible) && (
             <TurnPresence
               avatar={
-                // the speaker's real profile image when it has one, as in ChatView
                 <BotAvatar
                   bot={presenceSpeaker ?? { color: "yellow" }}
                   state={toolInFlight && !awaited ? "working" : "thinking"}

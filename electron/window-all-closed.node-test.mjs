@@ -22,8 +22,6 @@ test("an empty window set during startup does not quit", () => {
 
 test("a drain that fired during startup still quits once startup settles", () => {
   const { app, quit, emit } = harness();
-  // The splash fallback destroyed the only window mid-boot (issue #2028):
-  // the event already ran and was gated, and it will not fire again.
   emit("window-all-closed");
   quit.settleStartup();
   assert.equal(app.quitCalls.length, 1);
@@ -50,10 +48,8 @@ test("macOS never quits on the window drain, before or after startup", () => {
 test("a boot drained mid-startup recovers into the main window instead of exiting (#2028)", () => {
   const windows = [];
   const { app, quit, emit } = harness({ windows });
-  // The splash fallback destroyed the only window; boot is still running.
   emit("window-all-closed");
   assert.equal(app.quitCalls.length, 0);
-  // Boot went on to create the main window, so settling keeps the app up.
   windows.push({});
   quit.settleStartup();
   assert.equal(app.quitCalls.length, 0);

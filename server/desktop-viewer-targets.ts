@@ -4,7 +4,6 @@ import { desktopViewerUrl, type DesktopTarget } from "./routes/desktop-viewer.ts
 
 export const viewerTargetId = (target: { key: string }) => `local/${target.key.replace(":", "-")}`;
 
-/** Native owner windows keep the existing direct viewer and cookie isolation. */
 export function localVmViewerStatus<T extends { target_key: string; viewer_url: string }>(status: T, auth: RequestAuth): T {
   return auth.kind === "loopback" ? status : {
     ...status,

@@ -1,15 +1,3 @@
-// `laterdog serve --domain dog.example.com`: HTTPS on your own domain
-// with nothing to configure. The server downloads a pinned Caddy once into
-// the data dir (the same way it fetches cloudflared and the browser engine),
-// writes the Caddyfile the Docker stack ships, and runs Caddy as its child:
-// Caddy gets and renews the certificate from Let's Encrypt and forwards to
-// the loopback server with the real Host and the forwarded headers the
-// server's remote-session rules expect. The loopback bind never changes.
-//
-// What the operator still owns: a DNS record for the domain pointing at this
-// machine, and ports 80 and 443 reachable. Binding those ports needs a
-// privilege on Linux; `serve` says exactly which command grants it to the
-// downloaded binary when Caddy reports the refusal.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -18,7 +6,6 @@ import { delimiter, join, resolve } from "node:path";
 
 export const CADDY_VERSION = "2.11.4";
 
-/** Release assets by platform-arch, with the sha512 from the release's checksums file. */
 export const CADDY_ASSETS: Readonly<Record<string, { name: string; sha512: string }>> = Object.freeze({
   "linux-x64": { name: `caddy_${CADDY_VERSION}_linux_amd64.tar.gz`, sha512: "8220d1f013b6f27510247b2360c9e0ca9f018feebd82515f07635318b34ff9777ccc8fd0b6e6f2486ce3a33fe389fbb7db12d05baa474f4587509fb4f5ebf1c9" },
   "linux-arm64": { name: `caddy_${CADDY_VERSION}_linux_arm64.tar.gz`, sha512: "d5a7c423853c24a799765e0e8210d5c7c22a8f56ed37a3cae2fb9f58be138853c02b4efd6b59d576e6d8c7c0d30b9c1592deeaa6a536ff69bcca23b8c1ea709c" },
@@ -36,7 +23,6 @@ export function pinnedCaddyPath(dataDir: string, platform: NodeJS.Platform = pro
   return join(dataDir, "caddy", `${CADDY_VERSION}-${caddyTarget(platform, arch)}`, platform === "win32" ? "caddy.exe" : "caddy");
 }
 
-/** LATERDOG_CADDY_PATH, then the pinned download, then a `caddy` on PATH. */
 export function resolveCaddyBinary(options: { dataDir: string; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; arch?: string; exists?: (p: string) => boolean } ): string | null {
   const env = options.env ?? process.env;
   const exists = options.exists ?? existsSync;
@@ -55,14 +41,12 @@ export function resolveCaddyBinary(options: { dataDir: string; env?: NodeJS.Proc
   return null;
 }
 
-/** Download the pinned release once, verify its digest, extract the binary. */
 export async function ensureCaddy(options: {
   dataDir: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   arch?: string;
   fetchImpl?: typeof fetch;
-  /** Tests pin their own asset and URL; production resolves the release table. */
   asset?: { name: string; sha512: string; url?: string };
   log?: (line: string) => void;
 }): Promise<string> {
@@ -107,8 +91,6 @@ export async function ensureCaddy(options: {
   return destination;
 }
 
-/** The Docker stack's Caddyfile with this server's ports; certificates and
- * state live under the data dir so they survive restarts and upgrades. */
 export function caddyfileFor(input: { domain: string; appPort: number; webhookPort: number }): string {
   return [
     "# Written by laterdog serve --domain. Edit the command, not this file.",
@@ -144,7 +126,6 @@ export interface RunningCaddy {
   stop(): Promise<void>;
 }
 
-/** Whether a Caddy exit was the ports refusing to bind (a privilege problem, not a config one). */
 export function portPermissionRefused(output: string): boolean {
   return /permission denied|bind: operation not permitted|EACCES/i.test(output) && /:80|:443|listen/i.test(output);
 }
@@ -155,8 +136,6 @@ export function portPermissionHint(binary: string): string {
     : "Caddy may not bind ports 80 and 443 as this user. Run the server as an administrator, or put your own HTTPS proxy in front.";
 }
 
-/** Run Caddy as a child with the Caddyfile for this domain. Resolves once
- * Caddy has stayed up for a moment; rejects with its output if it exits first. */
 export async function startCaddy(options: {
   binary: string;
   dataDir: string;
@@ -182,7 +161,6 @@ export async function startCaddy(options: {
     if (output.length < 16_384) output += text;
     for (const line of text.split(/\r?\n/)) {
       if (!line.trim()) continue;
-      // Caddy logs JSON; surface warnings and errors, keep the rest quiet.
       if (/"level":"(warn|error)"/.test(line) || /^\S+\s+(WARN|ERROR)/.test(line) || !line.startsWith("{")) options.log?.(`caddy: ${line.slice(0, 400)}`);
     }
   };
@@ -209,7 +187,6 @@ export async function startCaddy(options: {
   };
 }
 
-/** `--domain` takes a bare hostname; the same shape Settings → Custom domain accepts. */
 export function normalizeDomainOption(raw: string): string | { error: string } {
   const value = raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "");
   const label = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;

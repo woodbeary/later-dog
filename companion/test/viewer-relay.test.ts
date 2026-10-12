@@ -47,7 +47,6 @@ describe("VPS companion viewer relay", () => {
 
   it("binds a Local VM viewer to its control lease and closes it once that lease lets go", async () => {
     const vmJoin = { joinUrl: "http://127.0.0.1:45679/vnc.html#password=vm-secret" };
-    // No lease, or nothing to check it with: never handed out.
     expect(() => new CompanionViewerRelay().rewriteJoinResponse(
       "/api/bots/bot-1/local-computer/join", vmJoin, "device-1", "phone-lease-0123456789",
     )).toThrow(/control lease/);
@@ -80,14 +79,12 @@ describe("VPS companion viewer relay", () => {
       };
       relay.handleHttp({ url: path, method: "POST", headers: {} } as never, res as never, device);
     });
-    // POST is refused by method, but only after the session is found (404 otherwise).
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(asked[0]).toBe("device-1/bot-1/phone-lease-0123456789");
     expect(relay.isViewerPath(viewerPath)).toBe(true);
 
     owned = false;
     await new Promise((resolve) => setTimeout(resolve, 40));
-    // The session is gone: even a well-formed request for it is not found.
     expect(await status(viewerPath)).toBe(404);
   });
 
@@ -178,8 +175,6 @@ describe("VPS companion viewer relay", () => {
     viewer.on("upgrade", (_req, socket) => {
       sockets.push(socket);
       handshakeStarted?.();
-      // Deliberately leave the handshake unanswered until the device is
-      // removed. A late 101 must never resurrect this session.
     });
     servers.push(viewer);
     const viewerPort = await listen(viewer);

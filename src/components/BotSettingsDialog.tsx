@@ -42,15 +42,12 @@ const rowInputCls = "mt-1 w-full bg-transparent text-[14px] text-ink placeholder
 const pillCls = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
 const itemTextCls = "min-w-0 flex-1";
 
-/** A link or GitHub owner/repo to install a trick from, rather than words describing one. */
 export function looksLikeSkillSource(text: string): boolean {
   return /^(https?:\/\/|github\.com\/|github:)\S+$/i.test(text) || /^[\w.-]+\/[\w.-]+(?:\/\S*)?$/.test(text);
 }
 
 export function BotSettingsDialog({ bot, overlay = false }: {
   bot: Bot;
-  /** Float over the chat instead of taking a column: the inspector or
-   * computer panel is open too and the window cannot seat both (App). */
   overlay?: boolean;
 }) {
   const { state, dispatch } = useStore();
@@ -58,8 +55,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const derived = useBotSettingsDerived(bot);
   const { patch, approvalMode, engine, trustedModesAvailable } = derived;
   const dialogRef = useRef<HTMLElement | null>(null);
-  // Windows draws its caption buttons over the top-right corner, where this
-  // panel's close button sits; drop the header below them.
   const { padClass } = useCaptionChrome();
   const tab = state.botSettingsExpandAccordion ? tabForSection(state.botSettingsSection) : "details";
   const skills = useManagedSkills(bot);
@@ -87,8 +82,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const importSkill = async () => {
     const trimmed = source.trim();
     if (!trimmed || importing) return;
-    // a plain description is taught in chat: the dog writes the trick itself
-    // (Learn a new trick: …); only a link or owner/repo is fetched and installed here
     if (!looksLikeSkillSource(trimmed)) {
       dispatch({ type: "send", botId: bot.id, threadId: bot.threadId, text: `${TEACH_TRICK_LINE} ${trimmed}` });
       setSource("");
@@ -155,13 +148,8 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         aria-labelledby="bot-settings-title"
         tabIndex={-1}
         className={cn(
-          // focus() lands here when the panel opens; the global :focus-visible
-          // ring would frame the whole sheet, so it is off for the container.
           "animate-panel-in absolute inset-0 z-40 flex h-full min-w-0 flex-col border-l border-hairline/40 bg-panel outline-none focus-visible:outline-none",
           overlay
-            // Below md every panel already covers the window; from md up
-            // this one hugs the right edge over the chat, shadowed so it
-            // reads as a sheet on top of the panel that stays beneath it.
             ? "md:inset-auto md:right-0 md:top-0 md:bottom-0 md:w-[min(420px,42vw)] md:shadow-2xl"
             : "md:static md:z-auto md:w-[min(420px,42vw)] md:shrink-0",
         )}

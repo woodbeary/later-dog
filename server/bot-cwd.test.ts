@@ -20,8 +20,6 @@ describe("validateBotCwd", () => {
   });
 
   it("expands a leading ~ to the home folder", () => {
-    // compare against homedir() itself: a Windows home like C:\Users\RUNNER~1
-    // legitimately contains "~", so "no ~ in the output" is not a valid check
     expect(validateBotCwd("~")).toEqual({ ok: true, cwd: resolve(homedir()) });
   });
 

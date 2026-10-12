@@ -34,10 +34,6 @@ async function normalizedRecipient(request: Request): Promise<string | null> {
   }
 }
 
-/**
- * Returns Better Auth's generic success response only when the recipient limit
- * is exhausted. Invalid requests keep flowing to Better Auth for validation.
- */
 export async function limitedOTPResponse(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (request.method !== "POST" || url.pathname !== OTP_SEND_PATH) return null;
@@ -48,8 +44,6 @@ export async function limitedOTPResponse(request: Request, env: Env): Promise<Re
   const now = Date.now();
   const windowCutoff = now - RECIPIENT_WINDOW_MS;
   const key = await recipientKey(email, env.BETTER_AUTH_SECRET);
-  // The limit and its retention sweep share one D1 batch: one round trip and
-  // one transaction. The sweep never removes a row this request just wrote.
   const [result] = await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO otp_recipient_rate_limits

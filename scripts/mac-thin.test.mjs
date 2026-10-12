@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isMachO, writeThinMachO } from "./mac-thin.mjs";
 
-// Real Mach-O fixtures: /usr/bin binaries are arm64e, not arm64, so compile.
 const canBuildMachO = process.platform === "darwin" && fs.existsSync("/usr/bin/lipo") &&
   spawnSync("cc", ["--version"]).status === 0;
 

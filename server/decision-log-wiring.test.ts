@@ -1,15 +1,3 @@
-// The decision log is only as good as its wiring: every row is written at
-// the request.opened fold or in answerRequest, and both of those keep
-// working (cards keep appearing, approvals keep flowing) even when the
-// logging silently rots away. So, in the style of unattended.test.ts,
-// these run the real server against the fake ACP CLI and assert the ROWS,
-// not the behavior the rows describe:
-//
-//   1. a rule-matched auto-approval writes a row naming the rule
-//   2. a card and the human's answer write two rows (allow and deny)
-//   3. an unattended block writes its row — the audit row that says "this
-//      would have auto-approved, and only the block stood in the way"
-//   4. GET /api/decisions pages newest-last with ?limit=
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,7 +27,6 @@ const api = async (method: string, path: string, body?: unknown): Promise<{ stat
   return { status: res.status, body: await res.json() };
 };
 
-/** Newest matching decision row, or null when none shows up in time. */
 async function waitForDecision(pred: (r: DecisionRow) => boolean, ms = 30_000): Promise<DecisionRow | null> {
   const deadline = Date.now() + ms;
   for (;;) {
@@ -52,8 +39,6 @@ async function waitForDecision(pred: (r: DecisionRow) => boolean, ms = 30_000): 
   }
 }
 
-/** A live permission card on a bot's transcript (via /api/bots — the same
- * poll unattended.test.ts uses, since a bot's card lives on its thread). */
 async function waitForBotCard(botId: string, ms = 30_000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -69,8 +54,6 @@ async function waitForBotCard(botId: string, ms = 30_000) {
   return null;
 }
 
-/** A live permission card on a THREAD — webhook turns run in detached
- * tasks, so their cards never appear on the bot's open conversation. */
 async function waitForThreadCard(threadId: string, ms = 30_000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -84,7 +67,6 @@ async function waitForThreadCard(threadId: string, ms = 30_000) {
   return null;
 }
 
-/** The detached task a webhook delivery created. */
 async function waitForRunThread(runId: string, ms = 20_000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -96,9 +78,6 @@ async function waitForRunThread(runId: string, ms = 20_000) {
   return null;
 }
 
-/** A bot whose fake engine asks permission to run `echo hi` (the ACP core
- * folds that to tool "shell", summary "echo hi" — so the always-allow key
- * is "shell:echo"). */
 async function makePermissionBot(patch: Record<string, unknown>) {
   const created = await api("POST", "/api/bots");
   expect(created.status).toBe(201);
@@ -149,9 +128,7 @@ posixOnly("authorization decisions are logged", () => {
     for (;;) {
       try {
         if ((await fetch(`${BASE}/api/health`)).ok) break;
-      } catch {
-        /* not up yet */
-      }
+      } catch {}
       if (Date.now() > deadline) throw new Error(`server never came up. stderr:\n${stderr}`);
       await new Promise((r) => setTimeout(r, 150));
     }
@@ -165,8 +142,6 @@ posixOnly("authorization decisions are logged", () => {
   it(
     "an Auto bot's card is logged as the provider's own request",
     async () => {
-      // Auto passes the provider's mode through; a request that still
-      // reaches the harness is the reviewer's to leave, and the row says so.
       const bot = await makePermissionBot({ name: "Granted", autoApprove: true });
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it" })).status).toBe(202);
 
@@ -238,9 +213,6 @@ posixOnly("authorization decisions are logged", () => {
   it(
     "a question card carries its questions and logs the row without an origin",
     async () => {
-      // the same fake ACP CLI in question mode: the request is an ask, not a
-      // permission, so the card must arrive structured and the row must say
-      // a person owes the answer. A tool-call ask has no origin to record.
       const created = await api("POST", "/api/bots");
       expect(created.status).toBe(201);
       const patched = await api("PATCH", `/api/bots/${created.body.bot.id}`, {
@@ -253,9 +225,6 @@ posixOnly("authorization decisions are logged", () => {
 
       const card = await waitForBotCard(bot.id);
       expect(card, "no question card ever appeared").not.toBeNull();
-      // a question, not a permission: no tool on the card, the choices as
-      // options. (The structured questionRequest payload itself arrives with
-      // the ACP normalization change, which stacks independently of this one.)
       expect(card.card.tool).toBeUndefined();
       expect(card.card.options).toContain("Blue");
       expect(card.card.questionRequest?.origin).toBeUndefined();
@@ -276,8 +245,6 @@ posixOnly("authorization decisions are logged", () => {
   it(
     "a webhook turn's card is logged as unattended, in the bot's own mode",
     async () => {
-      // A webhook turn runs in the mode the bot has, like any other; the
-      // row only records that nobody was at the keyboard when it asked.
       const bot = await makePermissionBot({ name: "Nightshift", autoApprove: true });
 
       const hook = await api("POST", "/api/webhooks", {
@@ -321,8 +288,6 @@ posixOnly("authorization decisions are logged", () => {
 
   it("GET /api/decisions.csv exports a date range, one line per row, from the month files", async () => {
     const all = (await api("GET", "/api/decisions")).body.decisions as DecisionRow[];
-    // Span the UTC days the rows were written on, not "today": a run that
-    // crosses midnight UTC writes rows on two days (and maybe two month files).
     const days = all.map((row) => row.at.slice(0, 10)).sort();
     const from = days[0];
     const to = days.at(-1);
@@ -333,7 +298,6 @@ posixOnly("authorization decisions are logged", () => {
     const lines = (await res.text()).trim().split("\n");
     expect(lines[0]).toBe("time,decision,source,bot,tool,summary,rule,unattended,answered_by,thread,request");
     expect(lines).toHaveLength(all.length + 1);
-    // the owner answered the cards above from loopback
     expect(lines.some((line) => line.includes(",user-approved,user,") && line.includes(",This computer,"))).toBe(true);
     expect((await fetch(`${BASE}/api/decisions.csv?from=2026-13-01`)).status).toBe(400);
     expect((await fetch(`${BASE}/api/decisions.csv?from=2025-01-01&to=2026-09-01`)).status).toBe(400);

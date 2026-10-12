@@ -339,7 +339,6 @@ export function TeamMapPage() {
             }}>
               <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => setTeamEditor({})}><Users size={14} />{t("team.create")}</button>
               <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[12px] hover:bg-control" onClick={() => { setComputersOpen(true); setCreateComputerRequest((value) => value + 1); }}><Box size={14} />Cloud computer</button>
-              {/* A later.dog Cloud home has no Local VM (shared/cloud-home.ts). */}
             </div>
           </details>
         </div>}

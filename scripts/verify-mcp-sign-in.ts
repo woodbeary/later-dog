@@ -1,4 +1,3 @@
-// Real MCP panel + server + fake OAuth provider, only in a disposable workspace.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -37,8 +36,6 @@ try {
         const body = await response.json();
         if (response.ok) {
           authorizationUrl = body.auth.authorizationUrl;
-          // The in-process provider uses HTTP; the renderer only opens HTTPS.
-          // Stand in for its public login page, without weakening that check.
           body.auth.authorizationUrl = "https://oauth.example.test/authorize";
         }
         res.writeHead(response.status, { "content-type": "application/json" }).end(JSON.stringify(body));
@@ -70,13 +67,11 @@ try {
   assert.equal(await evaluate(`(async () => (await fetch('/api/auth/pair', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:${JSON.stringify(pairing.code)},cookie:true,label:'MCP sign-in fixture'})})).status)()`), 200);
   await command("reload");
   await command("wait", "--fn", "[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Sign in')");
-  // Simulate a blocked popup; the explicit reopen and paste UI must still work.
   await evaluate("window.open = () => null");
   const evidence = resolve(process.env.LATERDOG_UI_EVIDENCE_DIR ?? ".laterdog-scratch/mcp-oauth-evidence");
   mkdirSync(evidence, { recursive: true });
   await command("screenshot", join(evidence, "before.png"), "--full");
   await clickButton("Sign in");
-  // A remote browser with no https address to return to: the paste box is shown up front.
   await command("wait", "--fn", "document.body.textContent.includes('After you approve, your browser shows a page that can') && document.getElementById('mcp-callback-documents') !== null");
   await command("screenshot", join(evidence, "waiting.png"), "--full");
   await command("fill", "#mcp-callback-documents", "http://127.0.0.1:1/wrong?code=wrong&state=wrong");
@@ -91,8 +86,6 @@ try {
   assert.equal(await evaluate("document.querySelector('button[aria-busy=true]').disabled"), true);
   assert.equal(await evaluate("document.getElementById('mcp-callback-documents').value"), callbackUrl);
   await command("screenshot", join(evidence, "authenticating.png"), "--full");
-  // Cancel while the completion request is held, then retry before that old
-  // request settles. The new form must not inherit the old busy state.
   await clickButton("Cancel");
   await clickButton("Sign in");
   await command("wait", "--fn", "document.body.textContent.includes('After you approve, your browser shows a page that can') && document.getElementById('mcp-callback-documents') !== null");
@@ -106,7 +99,6 @@ try {
   await clickButton("Test");
   await command("wait", "--fn", "document.body.textContent.includes('read_notes')");
   await command("screenshot", join(evidence, "signed-in.png"), "--full");
-  // Revoke the initiating browser while another attempt waits.
   await clickButton("Sign out");
   await clickButton("Test");
   await command("wait", "--fn", "[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Sign in')");

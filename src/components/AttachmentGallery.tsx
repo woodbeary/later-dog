@@ -1,6 +1,3 @@
-// A compact message-level gallery. Image pixels keep the existing attachment
-// path validation; local files and videos only load after an explicit action
-// through the server's exact-message file authorization.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { ChevronDown, ChevronUp, Download, Film, LoaderCircle, Music, Play, X } from "lucide-react";
@@ -21,7 +18,6 @@ import {
 } from "./AttachmentPreview";
 
 export interface GalleryFile extends TranscriptFileAttachment {
-  /** The file came from a rendered Markdown link rather than a user upload. */
   linked?: boolean;
 }
 
@@ -33,16 +29,11 @@ type MarkdownNode = {
 };
 
 function fileIdentity(path: string): string {
-  // This is only presentation deduplication, never an authorization check.
-  // localFilePath has already decoded file:// once, including literal #/?
-  // characters in filenames. Only raw Markdown paths have suffixes to strip.
   if (/^file:\/\//i.test(path)) return localFilePath(path) ?? path;
   try { return decodeURIComponent(path.split(/[?#]/, 1)[0]!); }
   catch { return path; }
 }
 
-/** Real Markdown links only: prose, examples, images, and remote URLs don't
- * turn into host file cards. The server independently validates every click. */
 export function collectMessageFiles(text: string, existingPaths: readonly string[] = []): GalleryFile[] {
   const tree: MarkdownNode = fromMarkdown(text, { mdastExtensions: [windowsPathDestinations] });
   const definitions = new Map<string, string>();
@@ -53,7 +44,6 @@ export function collectMessageFiles(text: string, existingPaths: readonly string
     if (node.type === "definition" && node.identifier && node.url && !definitions.has(node.identifier)) {
       definitions.set(node.identifier, node.url);
     } else if (node.type === "link" || node.type === "linkReference") {
-      // Linked images already have a thumbnail in the Markdown renderer.
       if (!node.children?.some((child) => child.type === "image" || child.type === "imageReference")) links.push(node);
     }
     if (node.children) pending.push(...[...node.children].reverse());
@@ -66,8 +56,6 @@ export function collectMessageFiles(text: string, existingPaths: readonly string
     const identity = fileIdentity(href);
     if (seen.has(identity)) return [];
     seen.add(identity);
-    // Send the authored spelling, not the decoded display path: the server
-    // owns the one decode at its authorization/file-opening boundary.
     return [{ path: href, name: safeDownloadFilename(attachmentBasename(identity)), linked: true }];
   });
 }
@@ -83,9 +71,6 @@ export function isAudioAttachment(path: string): boolean {
 type MessageAttachmentEntry = { path: string; kind?: string; name?: string };
 const NO_GENERATED_ATTACHMENTS: readonly MessageAttachmentEntry[] = [];
 
-/** A bot message's stored attachments as the gallery wants them: image paths,
- * plus documents, audio and video attached with attach_file as private files
- * (authorized by the message itself, like a user's own upload). */
 export function splitMessageAttachments(attachments: readonly MessageAttachmentEntry[] = NO_GENERATED_ATTACHMENTS): { images: string[]; files: GalleryFile[] } {
   const images: string[] = [];
   const files: GalleryFile[] = [];
@@ -96,8 +81,6 @@ export function splitMessageAttachments(attachments: readonly MessageAttachmentE
   return { images, files };
 }
 
-/** Group/room rows can share the gallery without parsing every old message
- * on unrelated state updates. Preserve the message's original attachment array. */
 export function MessageAttachmentGallery({ text, attachments = NO_GENERATED_ATTACHMENTS, message, eager, className }: {
   text: string;
   attachments?: readonly MessageAttachmentEntry[];
@@ -113,8 +96,6 @@ export function MessageAttachmentGallery({ text, attachments = NO_GENERATED_ATTA
   return <AttachmentGallery images={attached.images} files={files} message={message} eager={eager} className={className} />;
 }
 
-/** A server-provided MIME is required as well as the filename hint. Old
- * servers can still download a video but never turn arbitrary bytes into UI. */
 export async function loadMessageVideo(
   file: GalleryFile,
   message: MessageAttachmentContext,
@@ -131,7 +112,6 @@ export async function loadMessageVideo(
     await response.body?.cancel();
     throw new Error(t("attach.fileTooLarge"));
   }
-  // Keep this bounded even if a reverse proxy omits Content-Length.
   const reader = response.body?.getReader();
   if (!reader) throw new Error(t("attach.videoUnavailable"));
   const chunks: Uint8Array<ArrayBuffer>[] = [];
@@ -188,7 +168,6 @@ function VideoAttachment({ file, message }: { file: GalleryFile; message: Messag
     setLoading(false);
     setPreview(null);
     setError("");
-    // The button is hidden while the preview is mounted.
     requestAnimationFrame(() => playButton.current?.focus());
   };
 
@@ -236,8 +215,6 @@ function VideoAttachment({ file, message }: { file: GalleryFile; message: Messag
 
 const AUDIO_MIMES = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav", "audio/x-wav", "audio/wave", "audio/ogg", "audio/opus", "audio/flac", "audio/x-flac"];
 
-/** Same rule as video: the server must say it is audio, and the read is bounded
- * even when a proxy drops Content-Length. */
 export async function loadMessageAudio(
   file: GalleryFile,
   message: MessageAttachmentContext,
@@ -274,7 +251,6 @@ export async function loadMessageAudio(
   return new Blob(chunks, { type: mime });
 }
 
-/** A clip is a name and a play button; the bytes load, and play, on that click. */
 function AudioAttachment({ file, message }: { file: GalleryFile; message: MessageAttachmentContext }) {
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

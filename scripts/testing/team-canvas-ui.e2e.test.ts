@@ -156,8 +156,6 @@ type BotRecord = {
     expect(await evaluate("[...document.querySelectorAll('[data-team-key] article span')].some(span => span.textContent.trim() === 'Ready')")).toBe(false);
     expect(await evaluate("document.querySelectorAll('[data-team-canvas] [aria-label^=\"Computer for \"]').length")).toBe(0);
 
-    // The full-app fixture has no Boat credentials. The explicit + entry
-    // explains paid creation, but cannot allocate anything until connected.
     const beforeComputers = await api("GET", "/api/team-computers");
     expect(beforeComputers.configured).toBe(false);
     await evaluate("document.querySelector('summary[aria-label=\"Add to pack map\"]').focus(); true");
@@ -200,8 +198,6 @@ type BotRecord = {
     expect(await evaluate("Boolean(document.querySelector('[data-team-canvas]'))")).toBe(true);
     await click("Close settings");
 
-    // Membership changes go through the real dialog and server. A failed
-    // mixed-Chief move must preserve every selected bot's original team.
     await manage("Delivery");
     await click("Move dogs to Delivery");
     await click("Ben", "checkbox");
@@ -224,8 +220,6 @@ type BotRecord = {
     await expect.poll(focused).toBe("Manage Engineering pack");
     await evaluate("document.querySelectorAll('[data-team-key] details').forEach(details => { details.open = false; }); true");
 
-    // General has an empty persisted section key. Its menu, picker and Save
-    // are keyboard accessible, and closing the dialog restores its summary.
     await evaluate(`document.querySelector(${JSON.stringify(`${teamSelector("")} summary`)}).focus(); true`);
     await ui("press", "--keys", "Enter");
     await tabTo("Move dogs to General");
@@ -273,9 +267,6 @@ type BotRecord = {
     expect(await messages(ben.id)).toEqual(transcript);
     await click("Fit packs to view");
 
-    // Same-team ordering is personal presentation, not a membership write.
-    // Verify both pointer placement and the keyboard alternative, then retain
-    // a non-default order through the later full page reload.
     const beforeReorder = await bots();
     const originalOrder = await cardOrder("Delivery") as string[];
     expect(originalOrder.toSorted()).toEqual([ben.id, dana.id].sort());
@@ -350,8 +341,6 @@ type BotRecord = {
     for (const skin of ["midnight", "daylight"]) {
       await evaluate(`import('/src/lib/skins.ts').then(({ applySkin }) => { applySkin(${JSON.stringify(skin)}); return document.documentElement.dataset.skin; })`);
       await evaluate("document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))))");
-      // Read the theme's target color without inheriting a card transition,
-      // then wait for the real card to reach it before taking evidence.
       const cardColor = await evaluate(`(() => {
         const probe = document.createElement('div');
         probe.style.cssText = 'display:none;background-color:var(--color-card)';
@@ -374,7 +363,7 @@ type BotRecord = {
         try {
           receipts.failureSnapshot = await runControlLaterDog(["ui", "snapshot", "--ui", info.ui]);
           receipts.failureScreenshot = await runControlLaterDog(["ui", "screenshot", "--ui", info.ui, "--out", `${info.logPath}.team-canvas-failure.png`]);
-        } catch { /* Preserve the original failure when the browser has stopped. */ }
+        } catch {}
       }
       const evidence = `${info.logPath}.team-canvas.json`;
       writeFileSync(evidence, JSON.stringify({ fixture: info, ...receipts }, null, 2));

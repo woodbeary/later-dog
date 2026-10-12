@@ -1,4 +1,3 @@
-// Who hears about a broken run, how often, and in what words.
 import { describe, expect, it } from "vitest";
 
 import { chiefForBot, INCIDENT_HARD_LIMIT, INCIDENT_RETRY_LIMIT, IncidentLedger, incidentChip, incidentText, type Incident } from "./incidents.ts";
@@ -15,7 +14,6 @@ const bots = [
 describe("chiefForBot", () => {
   it("picks the Chief of the bot's own section first, then a Chief allowed to coordinate it", () => {
     expect(chiefForBot(bots, bots[1]!)?.id).toBe("clive");
-    // Research's own Chief is hidden; Maya may coordinate Research
     expect(chiefForBot(bots, bots[2]!)?.id).toBe("maya");
   });
   it("gives a Chief no Chief, and a section with none goes to the person", () => {
@@ -34,7 +32,6 @@ describe("IncidentLedger", () => {
     expect(seen.map((entry) => entry.mayRetry)).toEqual([true, true, false, false, false, false]);
     expect(seen.map((entry) => entry.muted)).toEqual([false, false, false, false, false, true]);
     expect(INCIDENT_RETRY_LIMIT).toBe(2);
-    // another thread is its own count; an hour later the first is fresh again
     expect(ledger.note("t2")).toEqual({ count: 1, mayRetry: true, muted: false });
     now += 61 * 60_000;
     expect(ledger.note("t1")).toEqual({ count: 1, mayRetry: true, muted: false });

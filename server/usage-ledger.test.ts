@@ -53,7 +53,6 @@ describe("usage ledger files", () => {
     const rows = readUsage(dataDir, { from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-10-31T23:59:59Z") });
     expect(rows.map((r) => r.botId)).toEqual(["b1", "b2", "b3"]);
     expect(rows[1]!.costUsd).toBeNull();
-    // a cost is labelled with where it came from; an unpriced row has no label
     expect(rows[0]!.costSource).toBe("reported");
     expect(rows[1]).not.toHaveProperty("costSource");
   });
@@ -159,9 +158,7 @@ describe("usage summaries", () => {
   it("prices groups from the operator's list and adds a billable column to the CSV only then", () => {
     const prices = { default: { inputPerMillion: 1000, outputPerMillion: 2000 }, "codex/gpt-5": { inputPerMillion: 0, outputPerMillion: 0 } };
     const priced = summarizeUsage(rows, "bot", prices);
-    // Scout: one claude turn of 1200 in (900 cached at the input rate) / 300 out, one of 100 / 50
     expect(priced.groups[0]!.billableUsd).toBeCloseTo((1200 * 1000 + 300 * 2000) / 1e6 + (100 * 1000 + 50 * 2000) / 1e6, 9);
-    // Clerk: one gpt-5 turn priced at zero, one claude turn at the default
     expect(priced.groups[1]!.billableUsd).toBeCloseTo((1200 * 1000 + 300 * 2000) / 1e6, 9);
     expect(priced.total.billableUsd).toBeCloseTo(priced.groups[0]!.billableUsd! + priced.groups[1]!.billableUsd!, 9);
     expect(summarizeUsage(rows, "bot").total.billableUsd).toBeNull();
@@ -193,7 +190,7 @@ describe("usage summaries", () => {
 
   it("keeps estimates apart from reported cost, and reads rows written before estimates existed as reported", () => {
     const estimated = { ...rows[1]!, costUsd: 0.2, costSource: "estimated" as const };
-    const legacy = { ...rows[0]! }; // costUsd 0.012, no costSource
+    const legacy = { ...rows[0]! };
     const summary = summarizeUsage([legacy, estimated, rows[2]!], "bot");
     expect(summary.total.costUsd).toBeCloseTo(0.712, 9);
     expect(summary.total.estimatedUsd).toBeCloseTo(0.2, 9);
@@ -201,7 +198,6 @@ describe("usage summaries", () => {
     const clerk = summary.groups.find((g) => g.label === "Clerk")!;
     expect(clerk).toMatchObject({ costUsd: 0.2, estimatedUsd: 0.2 });
     expect(summary.groups.find((g) => g.label === "Scout")!.estimatedUsd).toBeNull();
-    // an unpriced row is still counted as unpriced, never as a $0 estimate
     expect(summarizeUsage([rows[1]!], "bot").total).toMatchObject({ costUsd: null, estimatedUsd: null, unpriced: 1 });
   });
 });

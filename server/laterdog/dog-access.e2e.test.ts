@@ -19,7 +19,6 @@ interface McpLaunch { command: string; args: string[]; env: Record<string, strin
 it('starts a real conversation’s laterdog MCP server with that dog’s own token, never the admin token, and the token is scoped',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'laterdog-dog-e2e-')); const home=mkdtempSync(join(tmpdir(),'laterdog-dog-home-'));
   const store=new WorkspaceStore(join(dir,'state.sqlite'));
-  // A synthetic provider: nothing is submitted anywhere, and the supervisor never ticks.
   const supervisor=new Supervisor(store,{dataDir:dir,profiles:[{id:'default',label:'Fixture'}],concurrency:4,publishingHost:'local',
     adapter:()=>({capabilities:CODEX_CLOUD_CAPABILITIES,submit:async()=>{ throw new Error('fixture: no submission'); },inspect:async()=>'running' as const,collect:async()=>'',list:async()=>({tasks:[]})})});
   const token='fixture-admin-token-'.repeat(3); const server=createSupervisorServer(supervisor,token); server.listen(0,'127.0.0.1'); await once(server,'listening');
@@ -34,7 +33,6 @@ it('starts a real conversation’s laterdog MCP server with that dog’s own tok
       const result=await response.json(); expect(response.ok,JSON.stringify(result)).toBe(true); return result;
     };
     const bot=(await api('/api/bots') as {bots:{id:string;threadId:string}[]}).bots[0];
-    // The desktop's own Workspace proxy keeps the admin token.
     await api('/api/laterdog/repositories',{slug:'fixture/repo',environmentId:'synthetic-cloud',generation:'unqualified'});
     const otherDogs=supervisor.create({requestKey:randomUUID(),repository:'fixture/repo',title:'Another dog',brief:'Not yours',writeScopes:['docs'],botId:'another-dog'});
     await api(`/api/bots/${bot.id}/messages`,{text:'Check on the cloud jobs.'});
@@ -43,16 +41,13 @@ it('starts a real conversation’s laterdog MCP server with that dog’s own tok
       if (!parsed.mcpConfig?.mcpServers?.laterdog) throw new Error('The fake engine has not received a laterdog MCP server yet');
       return parsed as {mcpConfig:{mcpServers:{laterdog:McpLaunch}}};
     },{timeout:30_000,interval:200});
-    // The harness mounts each MCP server behind its gate (server/mcp-gate.ts), which carries the upstream launch privately.
     const mounted=dump.mcpConfig.mcpServers.laterdog;
     const upstream=mounted.env.LATERDOG_GATE_UPSTREAM ? JSON.parse(mounted.env.LATERDOG_GATE_UPSTREAM) as McpLaunch : mounted;
     expect(upstream.args.at(-1)).toMatch(/server\/laterdog\/mcp\.ts$/);
     expect(upstream.env).toEqual({LATERDOG_SUPERVISOR_URL:origin,LATERDOG_TOKEN:dogToken(token,bot.id),LATERDOG_BOT_ID:bot.id,LATERDOG_CONVERSATION_ID:bot.threadId});
-    // Not in the engine's argv, its environment, its prompt or any MCP server's configuration.
     const holding=(value:unknown,path:string):string[]=>typeof value==='string' ? (value.includes(token) ? [path] : [])
       : value && typeof value==='object' ? Object.entries(value).flatMap(([key,child])=>holding(child,`${path}.${key}`)) : [];
     expect(holding(dump,'engine')).toEqual([]);
-    // Start it as the engine does, gate included, in an empty home with no token file to fall back on.
     mcp=spawn(mounted.command,mounted.args,{env:{PATH:process.env.PATH,HOME:home,...mounted.env},stdio:['pipe','pipe','pipe']});
     mcp.stderr!.on('data',(chunk)=>{ stderr+=String(chunk); });
     const waiting=new Map<number,(message:{result:ToolResult})=>void>(); let next=0;

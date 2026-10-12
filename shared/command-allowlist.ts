@@ -1,4 +1,3 @@
-/** An exact command in one engine instance and working directory. */
 export interface CommandAllowlistCandidate {
   command: string;
   cwd: string;

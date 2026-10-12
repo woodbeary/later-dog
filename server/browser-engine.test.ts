@@ -181,8 +181,6 @@ describe("deleting one browser session's saved logins", () => {
     expect(readFileSync(join(directory, "other-other.json"), "utf8")).toBe("keep");
   });
 
-  // Dotted ids are legitimate browserSessionId output; only path-shaped,
-  // glob-shaped, empty, and over-long names stay invalid.
   it.each(["", "../personal", "work/client", "work*", "x".repeat(97)])("rejects invalid session %j before invoking a process", async (session) => {
     const { options } = fixture();
     expect(await clearBrowserSessionState("fixture-browser", session, options)).toBe(false);
@@ -349,7 +347,6 @@ describe("finding the browser engine", () => {
     files.add(bundle.licenses);
     files.delete(bundle.manifest);
     expect(resolveAgentBrowserBinary(options)).toBeNull();
-    // A deliberately configured external runtime remains an explicit override.
     const external = join(tmpdir(), "external-engine");
     files.add(external);
     expect(resolveAgentBrowserBinary({ ...options, env: { ...env, LATERDOG_AGENT_BROWSER_PATH: external } })).toBe(external);
@@ -374,7 +371,6 @@ describe("finding the browser engine", () => {
     expect(spec.env).not.toHaveProperty("LATERDOG_RESOURCES_PATH");
     const override = agentBrowserIntegration({ binaryPath: bundle.engine, session: "isolated", encryptionKey: "key", env: { ...env, AGENT_BROWSER_EXECUTABLE_PATH: "/explicit/chrome" }, ...host });
     expect(override.env.AGENT_BROWSER_EXECUTABLE_PATH).toBe("/explicit/chrome");
-    // A spawn would fail because the fixture engine is not executable.
     await expect(ensureChrome(bundle.engine, { env, ...host })).resolves.toBeUndefined();
   });
 
@@ -399,7 +395,6 @@ describe("finding the browser engine", () => {
     expect(resolveAgentBrowserBinary({ dataDir, env, exists })).toBe(pinned);
     files.add(override);
     expect(resolveAgentBrowserBinary({ dataDir, env: { ...env, LATERDOG_AGENT_BROWSER_PATH: override }, exists })).toBe(override);
-    // an override that does not exist is an error, not a silent fallback
     expect(resolveAgentBrowserBinary({ dataDir, env: { ...env, LATERDOG_AGENT_BROWSER_PATH: join(dataDir, "missing", name) }, exists })).toBeNull();
     expect(browserEngineStatus({ dataDir, env, exists })).toMatchObject({ kind: "ready", binaryPath: pinned, version: agentBrowserReleaseVersion(resolveAgentBrowserReleaseAsset()) });
   });
@@ -494,17 +489,13 @@ describe("what a bot gets", () => {
   });
 
   it("forwards AGENT_BROWSER_CDP only when the caller passes attachCdpUrl explicitly, never from the ambient process environment", () => {
-    // Unset: byte-identical to every other call in this file that omits attachCdpUrl.
     const withoutAttach = agentBrowserIntegration({ binaryPath: "/x/agent-browser", session: "bot-1", encryptionKey: "session-key", env: { PATH: "/usr/bin" } });
     expect(withoutAttach.env).not.toHaveProperty("AGENT_BROWSER_CDP");
-    // Ambient process env must not leak in either: the source env passed here plays
-    // the same role vi.stubEnv plays in server/browser-live.test.ts's guarantee test.
     const ambientAttempt = agentBrowserIntegration({
       binaryPath: "/x/agent-browser", session: "bot-1", encryptionKey: "session-key",
       env: { PATH: "/usr/bin", AGENT_BROWSER_CDP: "https://unrelated-browser.invalid" },
     });
     expect(ambientAttempt.env).not.toHaveProperty("AGENT_BROWSER_CDP");
-    // Set: only the explicit, caller-supplied config value reaches the curated env.
     const attached = agentBrowserIntegration({
       binaryPath: "/x/agent-browser", session: "bot-1", encryptionKey: "session-key",
       env: { PATH: "/usr/bin" }, attachCdpUrl: "http://127.0.0.1:9333",
@@ -519,8 +510,6 @@ describe("what a bot gets", () => {
     expect(spec.args).toEqual(["mcp", "--tools", "core", "--no-webmcp"]);
     expect(spec.env).toMatchObject({ AGENT_BROWSER_SESSION: "bot-1", AGENT_BROWSER_RESTORE: browserRestoreKey("bot-1"), AGENT_BROWSER_RESTORE_SAVE: "auto", AGENT_BROWSER_HEADLESS: "1", AGENT_BROWSER_HEADED: "0", PATH: "/usr/bin" });
     expect(spec.env.AGENT_BROWSER_ENCRYPTION_KEY).toBe("k".repeat(64));
-    // The headless:false opt-out survives on a headed-capable platform; on a
-    // displayless Linux host it is overridden (covered below).
     expect(agentBrowserIntegration({ binaryPath: "/x", session: "s", encryptionKey: "k", headless: false, platform: "darwin" }).env.AGENT_BROWSER_HEADLESS).toBeUndefined();
   });
 
@@ -528,7 +517,6 @@ describe("what a bot gets", () => {
     const linux = { binaryPath: "/x/agent-browser", session: "s", encryptionKey: "k", platform: "linux" as const, env: { PATH: "/usr/bin" } };
     expect(agentBrowserIntegration(linux).env).toMatchObject({ AGENT_BROWSER_HEADLESS: "1", AGENT_BROWSER_HEADED: "0" });
     expect(agentBrowserIntegration({ ...linux, headless: false }).env).toMatchObject({ AGENT_BROWSER_HEADLESS: "1", AGENT_BROWSER_HEADED: "0" });
-    // a display keeps the caller's choice, as does a non-Linux host
     expect(agentBrowserIntegration({ ...linux, headless: false, env: { PATH: "/usr/bin", DISPLAY: ":0" } }).env.AGENT_BROWSER_HEADED).toBeUndefined();
     expect(agentBrowserIntegration({ ...linux, headless: false, env: { PATH: "/usr/bin", WAYLAND_DISPLAY: "wayland-0" } }).env.AGENT_BROWSER_HEADED).toBeUndefined();
     expect(agentBrowserIntegration({ ...linux, platform: "darwin", headless: false }).env.AGENT_BROWSER_HEADED).toBeUndefined();
@@ -557,7 +545,6 @@ describe("what a bot gets", () => {
     expect(key).toMatch(/^[0-9a-f]{64}$/u);
     expect(browserEngineEncryptionKey(dataDir)).toBe(key);
     if (posix) expect(statSync(join(dataDir, "browser-engine-key")).mode & 0o777).toBe(0o600);
-    // a corrupted key file is replaced, never reused
     writeFileSync(join(dataDir, "browser-engine-key"), "garbage\n");
     const fresh = browserEngineEncryptionKey(dataDir);
     expect(fresh).toMatch(/^[0-9a-f]{64}$/u);
@@ -568,8 +555,6 @@ describe("what a bot gets", () => {
 
 
 describe("agentBrowserFrame", () => {
-  /** Use a real Node child on every OS, not an unlaunchable Windows shebang.
-   * Only the executable is substituted; arguments, env and file IO are real. */
   async function fakeBinary(body: string): Promise<string> {
     const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
     vi.mocked(spawn).mockImplementationOnce((_binary, args, options) => {
@@ -581,7 +566,6 @@ describe("agentBrowserFrame", () => {
   }
 
   it("returns the picture the browser wrote, base64 encoded", async () => {
-    // `screenshot <path>` is argument 2; the CLI writes the file there.
     const binaryPath = await fakeBinary('require("node:fs").writeFileSync(process.argv[2], "PNGDATA")');
     const frame = await agentBrowserFrame({ binaryPath, env: { AGENT_BROWSER_SESSION: "bot-1" } });
     expect(frame.format).toBe("png");

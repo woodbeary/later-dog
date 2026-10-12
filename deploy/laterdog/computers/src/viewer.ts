@@ -1,7 +1,3 @@
-// The desktop viewer later.dog links to: one full-window page that shows the computer's screen through noVNC.
-// It is served at /desktop/<id>/<token>/ and loads noVNC's RFB module by relative URL, so the module (proxied from the
-// container's own noVNC files) and the WebSocket both stay under the same signed path. The person can use the mouse and
-// keyboard as soon as the screen appears.
 
 export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -12,7 +8,6 @@ export function newNonce(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** Headers for the viewer page and its error pages: same-origin scripts only, nothing cached, the token never leaked. */
 export function pageHeaders(requestUrl: URL, nonce: string): Record<string, string> {
   const socketOrigin = `${requestUrl.protocol === "https:" ? "wss:" : "ws:"}//${requestUrl.host}`;
   return {

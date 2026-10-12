@@ -19,8 +19,6 @@ function child(): ChildProcess {
   }) as unknown as ChildProcess;
 }
 
-// This unit suite models Windows events on every host; the real Windows
-// driver/CLI-stop fixtures in CI independently exercise actual processes.
 beforeEach(() => vi.stubGlobal("process", { ...process, platform: "win32" }));
 afterEach(() => { mocks.execFile.mockReset(); vi.unstubAllGlobals(); });
 

@@ -15,7 +15,6 @@ describe("paired thread targets through an isolated HTTP fixture", () => {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const result = { status: response.status, body: await response.json() as any };
-    // Pairing credentials belong to this fixture, but never to its evidence.
     evidence.push(path.startsWith("/api/auth/") ? { method, path, status: result.status } : { method, path, body, result });
     return result;
   };
@@ -71,7 +70,6 @@ describe("paired thread targets through an isolated HTTP fixture", () => {
       expect(result.status, `${method} ${suffix}`).toBe(409);
       expect(result.body.error).toMatch(/Update the later\.dog app on this device.*choose a thread/);
     }
-    // The native sidecar's existing marker only narrows local behavior.
     const legacyPhone = await api("POST", `/api/bots/${bot.id}/read`, undefined, { "x-laterdog-companion": "1", "x-laterdog-companion-device": "fixture-phone" });
     expect(legacyPhone.status).toBe(409);
     expect((await page(threadA)).messages).toEqual(beforeA.messages);
@@ -102,7 +100,6 @@ describe("paired thread targets through an isolated HTTP fixture", () => {
     expect(missingGrant.status).toBe(409);
     expect(missingGrant.body.error).toMatch(/not on a pending approval/);
     expect((await paired("DELETE", `/api/bots/${bot.id}/queue/not-a-queued-message`, { threadId: threadA })).status).toBe(404);
-    // Local desktop/API compatibility remains intentionally selected-thread based.
     expect((await api("POST", `/api/bots/${bot.id}/read`)).status).toBe(200);
     expect((await api("PATCH", `/api/bots/${bot.id}/model`, selection(models[0]))).status).toBe(200);
   }, 60_000);

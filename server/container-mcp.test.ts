@@ -13,8 +13,6 @@ afterEach(async () => {
   await Promise.all(temporary.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-// The fake Docker executable below is a POSIX shell script. The production
-// bridge remains portable; only this byte-for-byte process fixture is gated.
 const posixOnly = describe.skipIf(process.platform === "win32");
 
 posixOnly("Local VM Cua MCP bridge", () => {

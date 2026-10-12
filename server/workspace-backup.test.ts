@@ -83,8 +83,6 @@ describe("encrypted full workspace backups", () => {
   it("round-trips WAL conversations, binary files, drafts and IDs; preserves destination identity and connections", async () => {
     const source = directory();
     const db = fixture(source);
-    // Production closes its sole live message handle after draining writes,
-    // while the maintenance gate is held. No server mutation can reopen it.
     db.close();
     try {
       json(join(source, "team-computers.json"), { version: 1, environmentId: "source-environment", computers: [{ id: "source-computer", name: "Source desktop", section: "Design" }] });
@@ -133,7 +131,6 @@ describe("encrypted full workspace backups", () => {
       expect(readJson(join(target, "config.json"))).toEqual({ ...connections, language: "ja" });
       expect(readFileSync(join(target, "task-workspaces", "bot", "thread", "binary.bin"))).toEqual(Buffer.alloc(2 * 1024 * 1024, 0xa5));
       expect(readJson(join(target, "sessions.json"))).toEqual({ identity: "target-session" });
-      // A Cloud home's record of its owner is this machine's: never carried, kept in place.
       expect(readJson(join(target, "cloud-owner.json"))).toEqual({ identity: "target-owner-record" });
       expect(readJson(join(target, "team-computers.json"))).toEqual(targetComputers);
       expect(readFileSync(join(target, "environment-id"), "utf8")).toBe("target-environment");
@@ -141,7 +138,6 @@ describe("encrypted full workspace backups", () => {
       expect(existsSync(join(target, "messages.db-wal"))).toBe(false);
       expect(readFileSync(join(result.safetyCopyPath!, "data", "messages.db-wal"), "utf8")).toBe("old database WAL must not enter the new DB");
       expect(existsSync(join(target, "tools"))).toBe(false);
-      // this machine's decision-model log stays on this machine
       expect(existsSync(join(target, "decider-log"))).toBe(false);
       expect(readJson(join(result.safetyCopyPath!, "data", "bots.json"))).toEqual([{ id: "old" }]);
       const restoredDb = new DatabaseSync(join(target, "messages.db"), { readOnly: true });
@@ -251,7 +247,6 @@ describe("encrypted full workspace backups", () => {
     expect(readFileSync(join(target, "attachments", "user-note.txt"), "utf8")).toBe("A user-pasted secret is not silently redacted.");
     expect(readJson(join(target, "config.json"))).toEqual({ xai: { key: "DESTINATION_SAVED_SECRET", url: "https://destination.example" }, language: "ja" });
     expect(readJson(join(target, "webhooks.json")).webhooks[0]).toMatchObject({ secretHash: "b".repeat(64), enabled: false, verificationPending: false });
-    // Export is read-only: the original login stores and webhook hash remain.
     for (const path of authPaths) expect(readFileSync(join(source, path), "utf8")).toBe("SOURCE_SAVED_SECRET");
     expect(readJson(join(source, "webhooks.json")).webhooks[0].secretHash).toBe("a".repeat(64));
   });
@@ -296,10 +291,8 @@ describe("encrypted full workspace backups", () => {
   it("leaves the destination's session open-marker in place, so a crash before a restore still ends account sign-ins", async () => {
     const source = directory(), target = directory();
     json(join(source, "bots.json"), [{ id: "bot" }]);
-    // The source is running: its marker exists, and is never exported.
     writeFileSync(join(source, "sessions.json.open"), "Session registry is open.\n");
     const exported = await createWorkspaceBackup(source, { password: PASSWORD });
-    // The destination crashed with an account session saved.
     const sessions = new SessionRegistry({ file: join(target, "sessions.json") });
     sessions.issue({ label: "Member", scopes: ["client"], userId: "user-1" });
     expect(existsSync(join(target, "sessions.json.open"))).toBe(true);
@@ -467,8 +460,6 @@ describe("encrypted full workspace backups", () => {
     expect(exported.summary.warnings.some((warning) => warning.includes("1 managed skill"))).toBe(true);
   });
 
-  // A client's export failed on task-workspaces/<bot>/<thread>/node_modules, a
-  // link an agent made to another checkout's install.
   it("leaves out node_modules and links in conversation work folders, and says so", async () => {
     const root = directory();
     const outside = directory();
@@ -491,7 +482,6 @@ describe("encrypted full workspace backups", () => {
     expect(existsSync(join(data, "task-workspaces", "bot", "thread", "node_modules"))).toBe(false);
     expect(existsSync(join(data, "task-workspaces", "bot", "thread", "linked-secret"))).toBe(false);
     expect(existsSync(join(data, "workspaces", "bot", "project", "node_modules"))).toBe(false);
-    // Outside a work folder, a link out of the workspace still stops the export.
     symlinkSync(join(outside, "secret"), join(root, "workspaces", "bot", "external"));
     await expect(createWorkspaceBackup(root, { password: PASSWORD })).rejects.toThrow(/outside the workspace/);
   });

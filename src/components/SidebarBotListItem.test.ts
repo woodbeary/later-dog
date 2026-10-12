@@ -50,11 +50,9 @@ describe("BotListItem", () => {
   });
 
   it("shows the thread toggle only once there is a list to open", () => {
-    // one thread is the bot itself: no disclosure, no duplicate row
     expect(renderRow(bot())).not.toContain("Expand Atlas threads");
     expect(renderRow(bot())).not.toContain('data-sidebar-thread-row=');
     expect(renderRow(bot(twoThreads()))).toContain("Expand Atlas threads");
-    // a folder is a list too, even with one thread in it
     expect(renderRow(bot({ projects: [{ id: "p1", name: "Research" }] }))).toContain("Expand Atlas threads");
   });
 
@@ -67,8 +65,6 @@ describe("BotListItem", () => {
     expect(toggle).not.toContain("hover:bg-");
   });
 
-  // Phase 0 writes a digest row after every turn, so the last row of an idle
-  // chat is now a receipt; the preview must still be the reply a person reads.
   it("previews the last reply, not the digest receipt that follows it", () => {
     const markup = renderRow(bot({
       messages: [
@@ -81,8 +77,6 @@ describe("BotListItem", () => {
     expect(markup).not.toContain("[digest]");
   });
 
-  // A failed turn's row is stored as "error: …"; the preview reads like the
-  // chat row (src/lib/failed-turn.ts), not like a log line.
   it("previews a failed turn without its error marker", () => {
     const markup = renderRow(bot({
       messages: [
@@ -113,9 +107,6 @@ describe("BotListItem", () => {
     expect(markup).toContain("rename *draft* to final");
   });
 
-  // A turn can end on the approval card itself: Stop while it is open, or a
-  // provider that settles the ask without writing more. The card then reads
-  // Allowed or Denied, and the row must say the same, not "Approval needed".
   describe("an approval card that ends the chat", () => {
     const approval = (card: Partial<NonNullable<Bot["messages"][number]["card"]>>): Bot => bot({
       messages: [
@@ -162,7 +153,6 @@ describe("BotListItem", () => {
   it("shows the Chief of Staff label on its own line under the name", () => {
     const withTitle = renderRow(bot({ chiefOfStaff: true, title: "Developer" }));
     expect(withTitle).toContain("Chief of Staff</span>");
-    // the label sits after the name line, never inside it
     expect(withTitle.indexOf("Chief of Staff</span>")).toBeGreaterThan(withTitle.indexOf(">Atlas<"));
 
     const withoutTitle = renderRow(bot({ chiefOfStaff: true }));
@@ -172,20 +162,13 @@ describe("BotListItem", () => {
     expect(renderRow(bot())).not.toContain("Chief of Staff");
   });
 
-  // matches the title line's own class list (see Sidebar.tsx) — used to
-  // assert the marker element itself is present or absent, since checking
-  // for the title text alone can pass by accident when there's no title.
   const titleLine = /<div class="truncate text-\[11px\][^"]*">([^<]*)<\/div>/;
 
   it("shows the bot's title on its own line above the name, not a badge beside it", () => {
-    // #866 / #871: a badge next to the name always had to fight the name for
-    // width — a long name crushed the badge, and a long title crushed a long
-    // name right back. Its own line above the name never competes with it.
     const markup = renderRow(bot({ title: "Developer" }));
 
     expect(titleLine.exec(markup)?.[1]).toBe("Developer");
     expect(markup.indexOf(">Developer<")).toBeLessThan(markup.indexOf(">Atlas<"));
-    // the rename hint is unrelated to the bot's title
     expect(markup).toContain('title="Double-click to rename"');
 
     expect(titleLine.test(renderRow(bot()))).toBe(false);
@@ -193,10 +176,6 @@ describe("BotListItem", () => {
   });
 
   it("keeps the title line's own truncate class instead of a shared-line width cap", () => {
-    // renderToStaticMarkup keeps the full text regardless of CSS, so this
-    // can't observe an actual ellipsis — it asserts the title line still
-    // carries `truncate` (so a too-long title clips on its own line) and,
-    // unlike the #871 badge, never a max-width cap shared with the name.
     const longTitle = "Meta-Agent — opensource team maintainer";
     const markup = renderRow(bot({ name: "Team Maintainer", title: longTitle }));
 
@@ -222,20 +201,16 @@ describe("BotListItem", () => {
     expect(renderRow(bot())).not.toContain('data-testid="live-call-badge"');
 
     vi.stubGlobal("window", { laterdog: { speechStop: vi.fn(async () => {}) } });
-    // the microphone prompt never answers: the call stays "starting"
     configureLiveMedia({ getUserMedia: () => new Promise<MediaStream>(() => {}) });
     void startLiveCall({ botId: "atlas", threadId: "thread-atlas" });
 
     const markup = renderRow(bot());
     expect(markup).toContain('data-testid="live-call-badge"');
     expect(markup).toContain('aria-label="On a Live call"');
-    // in the name line, after the name
     expect(markup.indexOf('data-testid="live-call-badge"')).toBeGreaterThan(markup.indexOf(">Atlas<"));
     expect(renderRow(bot({ id: "other" }))).not.toContain('data-testid="live-call-badge"');
     expect(renderRow(bot(), true)).toContain('data-testid="live-call-badge"');
 
-    // icons-only rows have no name line: the badge sits on the avatar and
-    // the row's accessible name says it
     const icons = renderRow(bot(), false, "icons");
     expect(icons).toContain('data-testid="live-call-badge"');
     expect(icons).toContain('aria-label="Atlas · On a Live call"');
@@ -347,7 +322,6 @@ describe("bot deletion feedback", () => {
       expect(markup).not.toContain("Chief of Staff</span>");
       expect(markup).not.toContain("Created notes.txt with three lines.");
       expect(markup).toContain(">Atlas<");
-      // the crown stays, beside the name, with its label for assistive tech
       expect(markup).toContain('data-testid="chief-crown"');
       expect(markup).toContain('aria-label="Chief of Staff"');
     });

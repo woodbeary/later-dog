@@ -1,5 +1,3 @@
-// Real official Grok CLI with a synthetic provider, disposable HOME and MCP.
-// A contract probe, not a local-model benchmark or a sandbox claim.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -99,7 +97,6 @@ try {
   assert.equal(readFileSync(receipt, "utf8"), "read_notes\n");
   const emptyMail = await turn("empty", { allow: [] }, selected.cursor);
   assert(emptyMail.requests.every((payload) => (payload.tools ?? []).length === 0));
-  // A model's strict harness may otherwise replace the inline ACP profile.
   const strictConfig = config.replace(/(\[model\.omlx-fixture\][^[]*)/, '$1agent_type="codex"\n');
   assert.notEqual(strictConfig, config, "Fixture model configuration must be found");
   writeFileSync(configPath, `${strictConfig}\n[models]\ndefault="omlx-fixture"\n`);

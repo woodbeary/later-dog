@@ -11,10 +11,6 @@ import {
   type PackageDocumentV1,
 } from "../shared/package-format.ts";
 
-// The package file format (v1 and v2) lives in shared/package-format.ts: one
-// validation gate for the server, the renderer and Admin. This module keeps
-// the v1 names the v1 exporter and its Markdown playbook are written in, and
-// re-exports the v2 reader so server code has one place to import from.
 export {
   canonicalJson,
   downgradeToV1,
@@ -44,10 +40,6 @@ export function isBotPackage(value: unknown): boolean {
   return isPackageDocument(value);
 }
 
-/** Parse and cross-reference one complete v1 package. Unknown fields are
- * stripped; ids, grants, credentials, paths, model selections, and runtime
- * state therefore cannot ride through the package boundary. v2 documents
- * go through parsePackageDocument instead. */
 export function parseBotPackage(value: JsonValue | ParsedBotPackage): ParsedBotPackage {
   return parsePackageV1(value);
 }
@@ -69,9 +61,6 @@ function intervalScheduleText(
   return restrictions.length ? `${cadence}; ${restrictions.join("; ")}` : cadence;
 }
 
-/** Render the public artifact. The frontmatter enables deterministic imports;
- * the body is deliberately complete enough for any Chief-of-Staff agent to
- * run without later.dog or another proprietary parser. */
 export function renderBotPackageMarkdown(document: ParsedBotPackage): string {
   const pkg = parseBotPackage(document).package;
   const frontmatter = stringifyYaml({ botmrr: BOTMRR_MARKDOWN_VERSION, ...pkg }, { lineWidth: 0 }).trim();

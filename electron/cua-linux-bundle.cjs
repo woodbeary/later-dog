@@ -31,8 +31,6 @@ function processReferencesDirectory(directory, {
   try {
     processes = fileSystem.readdirSync(procRoot);
   } catch {
-    // If process discovery is unavailable, retain the candidate. Cleanup is
-    // optional; deleting a stage that might still be in use is not.
     return true;
   }
   for (const processName of processes) {
@@ -131,10 +129,7 @@ function reapStaleAppImageCuaBundles({
     try {
       fileSystem.rmSync(directory, { recursive: true, force: false });
       removed.push(directory);
-    } catch {
-      // A concurrent process may have replaced or started using the stage.
-      // Retaining it is always safer than broadening cleanup.
-    }
+    } catch {}
   }
   return removed;
 }

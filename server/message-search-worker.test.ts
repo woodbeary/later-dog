@@ -58,7 +58,6 @@ it("opens read-only, fails safely, and never creates a missing database", async 
 });
 
 it("bounds a stuck worker's lifetime and rejects all waiting requests", async () => {
-  // A fresh worker cannot import/open SQLite before this short deadline.
   const worker = new MessageSearchWorker(join(DATA_DIR, "messages.db"), 1);
   try {
     const results = await Promise.allSettled([worker.search("hello", 40), worker.search("hello", 40)]);

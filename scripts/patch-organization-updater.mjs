@@ -1,6 +1,3 @@
-// Electron's default relaunch reuses native launch arguments, not the JS argv
-// from which main consumed the fixed, one-shot organisation action. Keep the
-// updater's adapter explicit too; its Deb/Rpm/Pacman paths share this method.
 export function patchOrganizationUpdater(source) {
   const before = "      relaunch() {\n        this.app.relaunch();\n      }";
   const count = source.split(before).length - 1;

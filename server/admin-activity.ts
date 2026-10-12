@@ -1,20 +1,3 @@
-// The admin activity log: who changed what on this server — settings,
-// people, sessions, webhooks, MCP servers, engines, bots, budgets and bot
-// visibility — written beside the decision log and kept as long.
-//
-// One file per UTC month under <data>/admin-activity/YYYY-MM.ndjson, 0600,
-// pruned by the decision log's retention window (decision-log.ts
-// `decisions.retentionDays` / LATERDOG_DECISION_RETENTION_DAYS), so one setting
-// keeps both. Each row names who acted (a signed-in session, the owner on
-// this machine, a local service, or the command line), what changed (the
-// setting paths), and the values before and after — redacted: a value under
-// a key that names a credential, and every value in a headers or environment
-// map, is written as "[hidden]", and every other string goes through the
-// same content redaction the decision log uses. Nothing here is sent
-// anywhere; the organisation's cloud Admin keeps its own log.
-//
-// Fire-and-forget, like the decision log: a full disk must not undo a
-// setting that already took effect.
 import { readdirSync, readFileSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -26,19 +9,14 @@ import { csvCell, monthKey } from "./usage-ledger.ts";
 export const ADMIN_ACTIVITY_CATEGORIES = ["config", "people", "session", "webhook", "mcp", "engine", "bot", "budget", "visibility"] as const;
 export type AdminActivityCategory = typeof ADMIN_ACTIVITY_CATEGORIES[number];
 
-/** Who acted: as on a decision row, plus the command line. */
 export type AdminActor = DecisionActor | { kind: "cli" };
 
 export interface AdminActionRow {
   at: string;
   category: AdminActivityCategory;
-  /** `<thing>.<verb>`: config.update, people.update, bot.create, bot.update,
-   * bot.delete, visibility.update, webhook.create, session.revoke, … */
   action: string;
   target?: { kind: string; id?: string; name?: string };
-  /** The setting paths or fields that changed. Never their secret values. */
   changed?: string[];
-  /** Redacted values of the changed paths, keyed by path. */
   before?: Record<string, unknown>;
   after?: Record<string, unknown>;
   actor: AdminActor;
@@ -64,7 +42,6 @@ async function writeRow(dataDir: string, row: AdminActionRow): Promise<void> {
   }
 }
 
-/** Append one row. Its values are redacted here, at the moment of writing. */
 export function appendAdminAction(dataDir: string, row: Omit<AdminActionRow, "at"> & { at?: string }): void {
   const record: AdminActionRow = {
     ...row,
@@ -73,64 +50,43 @@ export function appendAdminAction(dataDir: string, row: Omit<AdminActionRow, "at
     ...(row.after ? { after: auditValues(row.after) } : {}),
   };
   const previous = writeQueues.get(dataDir) ?? Promise.resolve();
-  const queued = previous.then(() => writeRow(dataDir, record)).catch(() => {
-    /* an audit log must never take down the change it records */
-  });
+  const queued = previous.then(() => writeRow(dataDir, record)).catch(() => {});
   writeQueues.set(dataDir, queued);
   void queued.finally(() => {
     if (writeQueues.get(dataDir) === queued) writeQueues.delete(dataDir);
   });
 }
 
-/** Delete the months the retention window no longer covers. Never throws.
- * Writing prunes too; the server also runs this on a timer for quiet days. */
 export function pruneAdminActivity(dataDir: string, days = boundRetentionDays(), now = new Date()): Promise<string[]> {
   return pruneMonthFiles(join(dataDir, DIR), days, now);
 }
 
-/** Test/shutdown seam: wait for every queued row to reach disk. */
 export async function flushAdminActivity(dataDir: string): Promise<void> {
   await writeQueues.get(dataDir);
 }
 
-// ── redaction ───────────────────────────────────────────────────────────
-
-/** Name parts that mark a credential (case-insensitive substring), as in
- * redact.ts, plus `key` standing alone or as a suffix (apiKey, xai_key). */
 const SECRET_PARTS = ["token", "secret", "password", "passwd", "passphrase", "credential", "authorization", "cookie", "bearer", "apikey", "api_key"];
-/** Maps whose every value may be a credential: keep the names, hide values. */
 const OPAQUE_MAP = /^(?:headers|env|environment)$/i;
 const MAX_VALUE_CHARS = 2_000;
 const HIDDEN = "[hidden]";
 
 function isSecretName(name: string): boolean {
   const lower = name.toLowerCase();
-  // Counts, not credentials: maxTokens, contextTokens.
   if (lower.endsWith("tokens")) return false;
   if (SECRET_PARTS.some((part) => lower.includes(part))) return true;
   return /(?:^|[_.-])keys?$/.test(lower) || /[a-z]Keys?$/.test(name);
 }
 
-/** A command-line flag or URL parameter that names a credential:
- * `--api-key`, `--token=…`, `?key=`, `&access_token=`, `?sig=`. */
 function isSecretParameter(name: string): boolean {
-  // `-k` is the usual short form of --key (curl-style CLIs and many MCP servers).
   if (name === "-k" || name === "-K") return true;
   const bare = name.replace(/^-+/, "");
   return isSecretName(bare) || /^(?:auth|sig|signature|pass|pwd|code)$/i.test(bare);
 }
 
-/** A path segment that looks like a key rather than a name: it holds a run
- * of 16 or more letters and digits, mixed (Zapier-style `/s/<key>/sse`, a
- * Slack hook's last part) — a readable slug like `getting-started-2024` or a
- * UUID does not. */
 function keyLikeSegment(segment: string): boolean {
   return (segment.match(/[A-Za-z0-9]{16,}/g) ?? []).some((run) => /\d/.test(run) && /[A-Za-z]/.test(run));
 }
 
-/** In a URL: credentials before the host (`user:pass@`, or a bare token
- * `TOKEN@`), key-like path segments, and query or fragment values whose
- * names mark a credential. */
 function maskUrlSecrets(text: string): string {
   return text.replace(/\b([a-z][\w+.-]*:\/\/)([^\s/?#]*)([^\s?#]*)([^\s]*)/gi, (_all, scheme: string, authority: string, path: string, rest: string) => {
     const at = authority.lastIndexOf("@");
@@ -141,7 +97,6 @@ function maskUrlSecrets(text: string): string {
   });
 }
 
-/** An argument list: the value after a credential flag, or after its `=`. */
 function maskArgs(items: readonly unknown[]): unknown[] {
   return items.map((item, index) => {
     const previous = items[index - 1];
@@ -167,8 +122,6 @@ function scrub(value: unknown, depth: number, hideAll: boolean): unknown {
   return out;
 }
 
-/** A path's last segment decides, too: `anthropic.key` is a key. A value
- * too large to be useful in an audit row is summarised, not stored. */
 export function auditValues(values: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [path, value] of Object.entries(values)) {
@@ -184,20 +137,15 @@ export function auditValues(values: Record<string, unknown>): Record<string, unk
   return out;
 }
 
-// ── diffs ───────────────────────────────────────────────────────────────
-
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Key-order-insensitive JSON, for comparing two readings of one setting. */
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
   if (isPlainObject(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
   return JSON.stringify(value) ?? "undefined";
 }
 
-/** Dot paths (up to `depth` segments) whose values differ. A section that
- * appears or disappears is followed into, so a new key reads as the key. */
 export function changedPaths(before: unknown, after: unknown, depth = 3, prefix = ""): string[] {
   if (stable(before) === stable(after)) return [];
   if (before === undefined && isPlainObject(after)) before = {};
@@ -221,7 +169,6 @@ export function valueAt(source: unknown, path: string): unknown {
 const pick = (source: unknown, paths: readonly string[]) =>
   Object.fromEntries(paths.map((path) => [path, valueAt(source, path) ?? null]));
 
-/** Which log category a top-level config.json key belongs to. */
 const CONFIG_CATEGORY: Record<string, AdminActivityCategory> = {
   signIn: "people",
   budgets: "budget",
@@ -235,8 +182,6 @@ const CONFIG_CATEGORY: Record<string, AdminActivityCategory> = {
   defaultModelSelection: "engine",
 };
 
-/** The rows one change to config.json makes: one per category it touched,
- * each naming the paths that changed and their redacted values. */
 export function configChangeRows(before: unknown, after: unknown): Array<Omit<AdminActionRow, "at" | "actor">> {
   const paths = changedPaths(isPlainObject(before) ? before : {}, isPlainObject(after) ? after : {});
   const byCategory = new Map<AdminActivityCategory, string[]>();
@@ -254,8 +199,6 @@ export function configChangeRows(before: unknown, after: unknown): Array<Omit<Ad
   }));
 }
 
-/** The fields of a bot an audit follows: what it may do, where, and who may
- * see it. Display fields (colour, unread, pins) are not audited. */
 export const BOT_AUDIT_FIELDS = [
   "approvalMode", "autoApprove", "alwaysAllow", "peers", "approvePeerComms", "computer", "cloudBackend", "autoStartVps",
   "cwd", "composio", "browser", "browserProfile", "mcpServers", "chiefOfStaff", "managedSections", "section",
@@ -264,14 +207,10 @@ export const BOT_AUDIT_FIELDS = [
 
 export function botAuditSnapshot(bot: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
   if (!bot) return null;
-  // "everyone" and no field are one audience.
   const present = (field: string) => bot[field] !== undefined && !(field === "visibility" && bot[field] === "everyone");
   return Object.fromEntries(BOT_AUDIT_FIELDS.filter(present).map((field) => [field, structuredClone(bot[field])]));
 }
 
-/** A bot's audited fields that changed: a `visibility.update` row when its
- * audience changed, a `bot.update` row for everything else. `only` limits
- * the comparison to the fields a request named. */
 export function botChangeRows(
   target: { id: string; name?: string },
   before: Record<string, unknown> | null,
@@ -283,7 +222,6 @@ export function botChangeRows(
   const rows: Array<Omit<AdminActionRow, "at" | "actor">> = [];
   const bot = { kind: "bot", id: target.id, ...(target.name ? { name: target.name } : {}) };
   if (changed.includes("visibility")) {
-    // An absent audience is the default: everyone.
     const audience = (value: unknown) => value ?? "everyone";
     rows.push({
       category: "visibility", action: "visibility.update", target: bot, changed: ["visibility"],
@@ -295,27 +233,20 @@ export function botChangeRows(
   return rows;
 }
 
-// ── when to record ──────────────────────────────────────────────────────
-
 export interface SignInLists {
   admins: readonly string[];
   members: readonly string[];
 }
 
-/** An email sign-in list that lets more than one person in: any member, a
- * second admin, or a whole @domain. */
 export function sharedSignIn(lists: SignInLists): boolean {
   return lists.members.length > 0 || lists.admins.length > 1 || [...lists.admins, ...lists.members].some((entry) => entry.trim().startsWith("@"));
 }
 
-/** The sign-in lists in a config.json reading. */
 export function signInListsOf(config: unknown): SignInLists {
   const signIn = isPlainObject(config) && isPlainObject(config.signIn) ? config.signIn : {};
   const list = (value: unknown) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []);
   return { admins: list(signIn.admins), members: list(signIn.members) };
 }
-
-// ── reading ─────────────────────────────────────────────────────────────
 
 const isRow = (value: unknown): value is AdminActionRow =>
   isPlainObject(value) &&
@@ -337,14 +268,11 @@ function readRows(path: string): AdminActionRow[] {
     try {
       const value: unknown = JSON.parse(line);
       if (isRow(value)) rows.push(value);
-    } catch {
-      /* a line torn mid-write */
-    }
+    } catch {}
   }
   return rows;
 }
 
-/** Every row inside the range, oldest first. */
 export function readAdminActivityRange(dataDir: string, range: { from: Date; to: Date }): AdminActionRow[] {
   let months: string[] = [];
   try {
@@ -368,16 +296,11 @@ export function readAdminActivityRange(dataDir: string, range: { from: Date; to:
   return rows;
 }
 
-// ── the Activity view: admin actions and approvals together ─────────────
-
 export function adminActorLabel(actor: AdminActor | undefined): string {
   if (actor?.kind === "cli") return "Command line";
   return actorLabel(actor as DecisionActor | undefined);
 }
 
-/** `all`: admin actions and every card a person answered. `approvals`: the
- * answers alone. `decisions`: every decision row, automatic ones included.
- * A category: that kind of admin action. */
 export type ActivityWhat = "all" | "approvals" | "decisions" | AdminActivityCategory;
 
 export function parseActivityWhat(value: string | null): ActivityWhat | null {
@@ -411,8 +334,6 @@ export type ActivityEntry =
       after?: Record<string, unknown>;
     };
 
-/** Both logs as one list, newest first, narrowed by who (a case-insensitive
- * part of the name, email or label shown) and what. */
 export function activityEntries(
   decisions: readonly DecisionRow[],
   actions: readonly AdminActionRow[],
@@ -458,8 +379,6 @@ export function activityEntries(
   return matched.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 }
 
-/** One line per entry. Cells go through the usage CSV's formula
- * neutralising; values were redacted when the rows were written. */
 export function activityCsv(entries: readonly ActivityEntry[]): string {
   const header = ["time", "type", "who", "what", "action", "target", "changed", "before", "after", "bot", "tool", "summary", "thread"];
   const lines = [header.join(",")];

@@ -1,15 +1,4 @@
-// What each breed looks like, as data DogAvatar draws (src/components/DogAvatar.tsx). Every look is a front-facing
-// head in a 100-unit box, symmetric about x = 50: only the left ear and left eye are given, the right ones mirror.
-//
-// Colour is the person's choice, so a breed must read from its shapes and markings in any colour. Every fill is a
-// tone of the dog's one colour (`fur`), never a fixed breed colour: a husky's mask is `white` over `fur`, a shepherd's
-// saddle is `deep`, a beagle's ears are `shade`. Only the eyes, nose and mouth are a fixed ink, and the tongue pink.
-//
-// Layers, bottom to top: `back` (behind everything) → ears when they hang behind the head → `head` → `markings`
-// (clipped to the head) → `muzzle` (not clipped, so a long snout can drop below the jaw) → `front` (topknots, cheek
-// fluff) → ears when `ears.front` → `details` (lines) → eyes → nose → mouth → tongue.
 
-/** The tones a shape can take, all derived from the dog's colour (see dog-avatar.css). */
 export type Tone = "fur" | "shade" | "dark" | "deep" | "light" | "white" | "inner" | "ink";
 export interface Shape {
   d: string;
@@ -20,12 +9,10 @@ export interface Line {
   tone: Tone;
   width: number;
 }
-/** How an ear moves: floppy ears swing from the crown, upright ears pivot at their base, fold and puff ears nod. */
 export type EarKind = "floppy" | "upright" | "puff" | "fold";
 
 export interface BreedLook {
   name: string;
-  /** The skull and face, in `fur`. */
   head: string;
   markings?: Shape[];
   muzzle?: Shape[];
@@ -34,26 +21,18 @@ export interface BreedLook {
   details?: Line[];
   ears: {
     kind: EarKind;
-    /** The left ear's pivot for its poses, in viewBox units. */
     hinge: [number, number];
-    /** The left ear, bottom layer first; the right ear is its mirror image. */
     shapes: Shape[];
-    /** Draw the ears over the face (floppy ears that frame it, a pug's folded ears) instead of behind the head. */
     front?: boolean;
   };
-  /** The left eye's centre and radii; `iris` gives a coloured ring (a husky's blue). */
   eyes: { x: number; y: number; rx: number; ry: number; iris?: string };
-  /** The nose's centre and size. */
   nose: { y: number; w: number; h: number };
-  /** Where the mouth's two curves end (`y`) and how far each reaches from the centre (`w`). */
   mouth: { y: number; w: number };
 }
 
 export const DOG_BREEDS = ["dog", "beagle", "shepherd", "corgi", "husky", "pug", "poodle", "chihuahua"] as const;
 export type DogBreed = (typeof DOG_BREEDS)[number];
 
-// A golden retriever: broad soft skull, ears set at the temples that fold over and hang to the jaw, an even golden
-// coat and a broad pale muzzle.
 const retriever: BreedLook = {
   name: "Retriever",
   head: "M50 19C63 19 73 24 78 33C82 40 83 49 82 57C81 66 76 74 68 79C63 83 57 85 50 85C43 85 37 83 32 79C24 74 19 66 18 57C17 49 18 40 22 33C27 24 37 19 50 19Z",
@@ -73,7 +52,6 @@ const retriever: BreedLook = {
   mouth: { y: 73, w: 7.5 },
 };
 
-// A beagle: long low-set ears that hang past the jaw, a white blaze from the forehead that opens into a white muzzle.
 const beagle: BreedLook = {
   name: "Beagle",
   head: "M50 20C62 20 71 25 75.5 34C79.5 42 80 51 79 59C78 68 73 76 66 80.5C61 83.5 56 85 50 85C44 85 39 83.5 34 80.5C27 76 22 68 21 59C20 51 20.5 42 24.5 34C29 25 38 20 50 20Z",
@@ -96,9 +74,6 @@ const beagle: BreedLook = {
   mouth: { y: 73.5, w: 7 },
 };
 
-// A German Shepherd: tall, wide-based ears that stand up and a little out, a wedge-shaped head with a long muzzle,
-// and the black-and-tan pattern: a black cap with a slim wing towards each eye and a point down the forehead into a
-// black muzzle, tan brows above the eyes and tan cheeks. The muzzle is a shade lighter than the cap so the nose reads.
 const shepherd: BreedLook = {
   name: "Shepherd",
   head: "M50 25.5C62 25.5 72.5 29 77.5 36.5C81 42 81 50 79.5 57C78 64.5 73.5 71 68 77C63.5 82 57.5 88 50 88C42.5 88 36.5 82 32 77C26.5 71 22 64.5 20.5 57C19 50 19 42 22.5 36.5C27.5 29 38 25.5 50 25.5Z",
@@ -121,9 +96,6 @@ const shepherd: BreedLook = {
   mouth: { y: 78, w: 7.5 },
 };
 
-// A Siberian Husky: thick triangular ears set high and close, white inside; a white mask (spectacles that run out
-// towards the ears, cheeks, muzzle) under a cap that comes to a widow's peak between the eyes, a goggle line from the
-// hood to each eye's outer corner, white spots above the eyes, and pale blue eyes.
 const husky: BreedLook = {
   name: "Husky",
   head: "M50 24C61 24 70.5 28 75.5 35.5C80 42 81 50 80.5 58C80 66 76 73 70 78C65 82 58 86.5 50 86.5C42 86.5 35 82 30 78C24 73 20 66 19.5 58C19 50 20 42 24.5 35.5C29.5 28 39 24 50 24Z",
@@ -145,9 +117,6 @@ const husky: BreedLook = {
   mouth: { y: 75, w: 7 },
 };
 
-// A Pembroke Welsh Corgi: very large upright ears with rounded tips, standing tall and a little outward; a fox-like
-// face widest at the cheeks that narrows to the muzzle; a narrow white blaze up the forehead that opens into a white
-// muzzle and chin, with the coat colour running down the outer cheeks to the jaw.
 const corgi: BreedLook = {
   name: "Corgi",
   head: "M50 28C63 28 73.5 31.5 79 39C84.5 46.5 87 54 86 61C85 68 79.5 76 71 82C64.5 86.5 57.5 90 50 90C42.5 90 35.5 86.5 29 82C20.5 76 15 68 14 61C13 54 15.5 46.5 21 39C26.5 31.5 37 28 50 28Z",
@@ -167,8 +136,6 @@ const corgi: BreedLook = {
   mouth: { y: 78.5, w: 8 },
 };
 
-// A Chihuahua: an apple-dome head, small next to its enormous ears, which are set at the sides of the dome and flare
-// out about 40 degrees; big round wide-set eyes; a short, small, slightly pointed pale muzzle with a small nose.
 const chihuahua: BreedLook = {
   name: "Chihuahua",
   head: "M50 30.5C65.5 30.5 78.5 41.5 78.5 56.5C78.5 66 74 74 67 79.5C62 83.5 56.5 86 50 86C43.5 86 38 83.5 33 79.5C26 74 21.5 66 21.5 56.5C21.5 41.5 34.5 30.5 50 30.5Z",
@@ -188,8 +155,6 @@ const chihuahua: BreedLook = {
   mouth: { y: 78.5, w: 6.5 },
 };
 
-// A pug: a wide, squarish head; a short flat face under a black mask that rises between the big round eyes and
-// cups them, with jowls; wrinkles on the brow and a roll over the small nose; small folded button ears at the corners.
 const pug: BreedLook = {
   name: "Pug",
   head: "M50 20.5C37.5 20.5 27 22.5 21 28C15.5 33 13.5 41.5 13.5 51C13.5 61 16 70 21.5 76.5C27 82.5 37.5 85.5 50 85.5C62.5 85.5 73 82.5 78.5 76.5C84 70 86.5 61 86.5 51C86.5 41.5 84.5 33 79 28C73 22.5 62.5 20.5 50 20.5Z",
@@ -215,8 +180,6 @@ const pug: BreedLook = {
   mouth: { y: 67, w: 8.5 },
 };
 
-// A show poodle: a round pom-pom topknot of curls on the crown, long ears hanging beside the face as clouds of
-// curls, and between them a smooth, narrow clipped face with a long muzzle, the nose at its end, and small almond eyes.
 const poodle: BreedLook = {
   name: "Poodle",
   head: "M50 30C39.5 30 32 35 31 43.5C30 51.5 32.5 58 36 64C38.5 68.5 39.5 75 40 80C40.5 85 44.5 87.5 50 87.5C55.5 87.5 59.5 85 60 80C60.5 75 61.5 68.5 64 64C67.5 58 70 51.5 69 43.5C68 35 60.5 30 50 30Z",

@@ -8,7 +8,6 @@ const IMAGE_BYTES = 20 * 1024 * 1024;
 const MIME = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 export const CHAT_IMAGE_BUDGET = 32 * 1024 * 1024;
 
-/** Bound retained base64 before JSON serialization or another model call. */
 export function chatImageBudget() {
   let used = 0;
   return (parts: string | ChatContentPart[] | null) => {
@@ -61,8 +60,6 @@ export function chatToolImages(callId: string, images?: ChatImagePart[]): ChatCo
   return images?.length ? [{ type: "text", text: `${SCREENSHOT_LABEL} ${callId}:` }, ...images] : [];
 }
 
-/** A turn sends only its newest round of tool screenshots: a Retina screen is
- * several megabytes, and every earlier one would ride along on each request. */
 export function retireScreenshots(messages: Array<{ role: string; content?: unknown }>): void {
   for (const message of messages) {
     if (message.role !== "user" || !Array.isArray(message.content)) continue;

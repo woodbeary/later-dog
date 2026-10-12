@@ -1,8 +1,3 @@
-/** Routine wire shapes — the routine and run records as they ride the REST
- * snapshot and the `routine` / `routine.run` live frames. Moved verbatim
- * from the client's hand-maintained mirrors (src/lib/routines.ts) so the
- * frame union and every client consumer share one home; the client file
- * re-exports these under the same names. */
 import type { RoutineCronSchedule } from "./routine-schedule.ts";
 
 export interface RoutineIntervalWindow {
@@ -18,11 +13,8 @@ export type RoutineSchedule =
     type: "interval";
     everyMinutes: number;
     anchorAt: number;
-    /** Local weekdays (Sunday = 0). Missing means every day. */
     weekdays?: number[];
-    /** Local wall-clock window. Missing means all day. */
     window?: RoutineIntervalWindow;
-    /** Inclusive epoch-millisecond cutoff. Missing means never. */
     endsAt?: number;
   };
 
@@ -32,11 +24,8 @@ export type RoutineScheduleInput =
     type: "interval";
     everyMinutes: number;
     anchorAt: number;
-    /** `null` explicitly restores the every-day default on updates. */
     weekdays?: number[] | null;
-    /** `null` explicitly restores the all-day default on updates. */
     window?: RoutineIntervalWindow | null;
-    /** `null` explicitly removes an existing end date on updates. */
     endsAt?: number | null;
   };
 
@@ -71,17 +60,12 @@ export type RoutineRunStatus =
   | "cancelled"
   | "missed";
 
-/** The statuses both failure indicators count: a run that went wrong and has
- * not been acknowledged. One home so the sidebar dot, the errors pill, the
- * logs filter and the bulk-seen sweep cannot drift apart. */
 export const ROUTINE_PROBLEM_STATUSES: readonly RoutineRunStatus[] = ["failed", "missed"];
 
 export function isRoutineProblemRun(run: { status: RoutineRunStatus }): boolean {
   return ROUTINE_PROBLEM_STATUSES.includes(run.status);
 }
 
-/** The logs view's status filter: every run, the composite problem set the
- * indicators count, or one exact status. */
 export type RoutineRunStatusFilter = "all" | "problems" | RoutineRunStatus;
 
 export interface Routine {
@@ -95,10 +79,8 @@ export interface Routine {
   enabled: boolean;
   schedule: RoutineSchedule;
   durationMinutes: number;
-  /** Optional wall-clock safety limit. Missing means the run is unlimited. */
   timeoutMinutes?: number;
   overlap?: "skip" | "queue";
-  /** Each run starts with the previous run's report. */
   continuity?: boolean;
   skippedRuns?: number;
   lastSkippedAt?: number;
@@ -130,7 +112,6 @@ export interface RoutineRun {
   triggerSource?: RoutineRunTrigger;
   webhookId?: string;
   deliveryId?: string;
-  /** Room task created for a team-goal run. */
   executionThreadId?: string;
   sourceThreadId?: string;
   resultsThreadId?: string;
@@ -139,7 +120,6 @@ export interface RoutineRun {
   finishedAt?: number;
   output?: string;
   error?: string;
-  /** Concise, redacted question or approval reason while status is waiting. */
   attention?: string;
   cost?: number | null;
   denials?: string[];
@@ -157,12 +137,9 @@ export interface RoutineInput {
   enabled?: boolean;
   schedule: RoutineScheduleInput;
   durationMinutes?: number;
-  /** `null` explicitly removes the limit; omission preserves it on updates. */
   timeoutMinutes?: number | null;
   overlap?: "skip" | "queue";
-  /** Each run starts with the previous run's report. */
   continuity?: boolean;
   attachments?: RoutineContextAttachment[];
-  /** Omission preserves routing; null resets it to the bot's main thread. */
   resultsThreadId?: string | null;
 }

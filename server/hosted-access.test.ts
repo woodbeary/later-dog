@@ -1,9 +1,3 @@
-// Owned full server, disposable data. A deployment configured for hosted
-// access whose optional access layer is missing must fail closed: no hosted
-// sign-in, no legacy pairing or email credentials, no shared Full policy,
-// while the local owner keeps access. later.dog ships no such layer, so what
-// needs a loaded one (portal sessions, revocation, readiness attestation) is
-// not exercised here; server/enterprise.test.ts covers the hook point itself.
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
@@ -35,7 +29,7 @@ function call(path: string, options: { method?: string; token?: string; local?: 
       ...(options.body === undefined ? {} : { "content-type": "application/json" }),
     } }, (res) => {
       let raw = ""; res.on("data", (chunk) => raw += chunk);
-      res.on("end", () => { let body: unknown = raw; try { body = JSON.parse(raw); } catch { /* static HTML */ }
+      res.on("end", () => { let body: unknown = raw; try { body = JSON.parse(raw); } catch {}
         resolve({ status: res.statusCode!, body }); });
     });
     req.on("error", reject); req.end(options.body === undefined ? undefined : JSON.stringify(options.body));
@@ -54,7 +48,6 @@ async function policyBot() {
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   return policyBotId = created.body.bot.id as string;
 }
-/** Guarded Full access is offered; the shared workspace Full policy is not. */
 async function policyHealth() {
   const health = await call("/api/health", { local: true });
   expect(health.status).toBe(200);
@@ -87,18 +80,15 @@ beforeAll(async () => {
     ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
     HOME: home, USERPROFILE: home, LATERDOG_SERVER_PORT: String(PORT), LATERDOG_WEBHOOK_PORT: String(PORT + 1),
     LATERDOG_STATIC_DIR: join(home, "static"), LATERDOG_BROWSER_CONNECTION: join(home, "browser-connection.json"),
-    // A complete portal-managed configuration with a key, naming a layer
-    // folder that does not exist.
     LATERDOG_ENTERPRISE_DIR: join(home, "absent-layer"), LATERDOG_LICENSE_KEY: "fixture-only",
     LATERDOG_ADMIN_URL: "https://admin.example.test", LATERDOG_ADMIN_WORKSPACE: "acme", LATERDOG_PUBLIC_URL: `https://${HOST}`,
     LATERDOG_ADMIN_MEMBERSHIP: "portal", LATERDOG_SHARED_WORKSPACE_FULL_ACCESS: "1",
-    // The fixture is driven over loopback, so it keeps the owner explicitly.
     LATERDOG_LOOPBACK_TRUST: "owner",
   }, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout?.on("data", (chunk) => log += chunk); child.stderr?.on("data", (chunk) => log += chunk);
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
-    try { if ((await call("/api/health", { local: true })).status === 200) return; } catch { /* starting */ }
+    try { if ((await call("/api/health", { local: true })).status === 200) return; } catch {}
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`Owned hosted fixture failed to start:\n${log}`);

@@ -8,13 +8,6 @@ import { removeTempDir, waitForExit } from "../../server/testing/cleanup.ts";
 import { freePortBlock } from "../../server/testing/ports.ts";
 import type { LiveInstance } from "./types.ts";
 
-/** Boots the REAL harness server for the live tier: no fake engine, no
- * scripted room plan. The one engine instance comes from the developer's
- * opt-in configuration and lands in the data dir's config.json exactly the
- * way a user-configured instance would, so live smoke runs exercise the
- * product's real model path. Everything else stays hermetic: owned temp
- * data dir, loopback ports, only explicitly allowlisted environment. */
-
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 export interface LiveServerSession {
@@ -56,8 +49,6 @@ export async function spawnLiveServer(
   }, null, 2));
   const logPath = join(dataDir, "live-server.log");
   const childEnv = verificationServerEnvironment(parentEnv, dataDir, port);
-  // Only explicitly named variables (plus PATH, so configured CLIs resolve)
-  // cross from the developer's shell into the live fixture.
   for (const name of ["PATH", ...passEnvNames]) {
     const value = parentEnv[name];
     if (value !== undefined) childEnv[name] = value;
@@ -81,9 +72,7 @@ export async function spawnLiveServer(
       const response = await fetch(url + "/api/health", { signal: AbortSignal.timeout(1_000) });
       const body = response.ok ? await response.json() as { app?: string } : null;
       if (body?.app === "laterdog") break;
-    } catch {
-      // still starting
-    }
+    } catch {}
     if (Date.now() >= deadline) {
       await waitForExit(child, { signal: "SIGTERM" });
       await removeTempDir(dataDir);

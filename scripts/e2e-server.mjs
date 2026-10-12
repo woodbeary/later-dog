@@ -1,16 +1,3 @@
-// End-to-end check of a running later.dog harness server — the exact
-// flows the app drives, over the same HTTP API. No deps; Node 22+.
-//
-//   node scripts/e2e-server.mjs [--port 8799] [--with-boat]
-//
-// Covered: server up + SSE hello, instance snapshots, a claude turn with a
-// streamed reply, the permission broker (allow AND deny), interrupt, a
-// codex turn, and — with --with-boat + LATERDOG_E2E_BOX_TOKEN — boat provisioning,
-// a Claude turn that uses the boat as its cloud computer, and a panel
-// screenshot. Boat computers are put to sleep at the end. Test bots are
-// deleted unless --keep-bots.
-//
-// Exits non-zero on the first hard failure; soft notes print as "skip".
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -28,7 +15,6 @@ const tag = Date.now().toString(36).slice(-6);
 const marker = (s) => `laterdog-e2e-${s}-${tag}`;
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// throw (not exit) so main's finally still deletes the test bots
 const fail = (msg) => {
   throw new Error(msg);
 };
@@ -43,7 +29,6 @@ async function api(path, init) {
   return body;
 }
 
-/** Poll fn until it returns truthy or the budget runs out. */
 async function until(what, fn, budgetMs, stepMs = 2000) {
   const t0 = Date.now();
   for (;;) {
@@ -67,9 +52,6 @@ async function waitTurnDone(botId, budgetMs) {
   );
 }
 
-/** Poll until a live permission/question card appears OR the turn settles
- * without one (the CLI's safe-command classifier auto-allows sometimes —
- * variance, not a broker failure; only a silent stall is a failure). */
 async function waitAskOrSettle(botId, budgetMs) {
   const t0 = Date.now();
   for (;;) {
@@ -111,12 +93,10 @@ async function expectReply(bot, want, budgetMs) {
 async function main() {
   log(`e2e against ${BASE} (box: ${WITH_BOAT ? "yes" : "no"})`);
 
-  // ── server up ──
   const { bots } = await api("/api/bots").catch((e) => fail(`server not up at ${BASE} — ${e.message}`));
   if (!Array.isArray(bots)) fail("/api/bots did not return a bots array");
   log("  ✓ server up,", bots.length, "bots");
 
-  // ── SSE hello ──
   const ctrl = new AbortController();
   const sse = await fetch(`${BASE}/api/events`, { signal: ctrl.signal });
   const reader = sse.body.getReader();
@@ -128,7 +108,6 @@ async function main() {
   if (!hello.includes('"hello"')) fail("SSE stream did not open with a hello frame");
   log("  ✓ SSE stream opens with hello");
 
-  // ── instances ──
   const { instances } = await api("/api/instances");
   const byKind = {};
   for (const i of instances) byKind[i.driverKind] = i;
@@ -136,15 +115,11 @@ async function main() {
 
   const created = [];
   try {
-    // ── claude: plain turn ──
     if (byKind.claudeAgent?.snapshot.state === "available") {
       const bot = await makeBot("E2E Claude", "claude", byKind.claudeAgent.models.default);
       created.push(bot.id);
       await expectReply(bot, marker("claude"), 180_000);
 
-      // permission broker: allow (curl usually trips the CLI's permission
-      // layer; its safe-command classifier occasionally auto-allows —
-      // soft-pass then, but a silent stall is a hard failure)
       await send(bot.id, `Run exactly one shell command: curl -sS https://example.com -o laterdog_${tag}_allow.html — then tell me the first word of the downloaded file.`);
       const allowTry = await waitAskOrSettle(bot.id, 180_000);
       if (allowTry.ask) {
@@ -163,8 +138,6 @@ async function main() {
         log("  note: CLI auto-allowed the command (classifier variance) — allow leg soft-passed");
       }
 
-      // permission broker: deny — a fresh bot, because an allow above is
-      // remembered by the resumed CLI session (no second ask otherwise)
       const denyBot = await makeBot("E2E Claude Deny", "claude", byKind.claudeAgent.models.default);
       created.push(denyBot.id);
       await send(denyBot.id, `Run the shell command "curl -sS https://example.org -o laterdog_${tag}_deny.html" — nothing else.`);
@@ -180,7 +153,6 @@ async function main() {
         log("  note: no ask on the deny leg either (auto-allowed) — soft-passed");
       }
 
-      // interrupt
       await send(bot.id, "Count from 1 to 200, one number per message line, no commentary.");
       await sleep(6000);
       await api(`/api/bots/${bot.id}/interrupt`, { method: "POST" });
@@ -190,11 +162,7 @@ async function main() {
       log("  skip: claude CLI not available");
     }
 
-    // ── codex: plain turn ──
     if (byKind.codex?.snapshot.state === "available") {
-      // the catalog targets the newest CLI; older installs reject newer
-      // model ids ("requires a newer version of Codex") — walk the catalog
-      // until one answers
       let answered = false;
       for (const optn of byKind.codex.models.options) {
         const bot = await makeBot(`E2E Codex ${optn.id}`, "codex", optn.id);
@@ -215,7 +183,6 @@ async function main() {
       log("  skip: codex CLI not available");
     }
 
-    // ── box: cloud computer ──
     if (WITH_BOAT) {
       if (!BOX_TOKEN) fail("--with-boat needs LATERDOG_E2E_BOX_TOKEN");
       await api("/api/config", { method: "PUT", body: JSON.stringify({ box: { token: BOX_TOKEN } }) });
@@ -223,16 +190,13 @@ async function main() {
       if (!cfg.box?.configured) fail("box token saved but /api/config still says unconfigured");
       log("  ✓ box token configured, providers hot-reloaded");
 
-      // Works on: Cloud — the bot keeps its own engine and uses the boat as
-      // its cloud computer (provisioned on first use). No engine runs a turn
-      // on Boat's own agent.
       if (byKind.claudeAgent?.snapshot.state !== "available") fail("--with-boat needs the claude CLI");
       const boatBot = await makeBot("E2E Cloud computer", "claude", byKind.claudeAgent.models.default);
       created.push(boatBot.id);
       await api(`/api/bots/${boatBot.id}`, { method: "PATCH", body: JSON.stringify({ computer: "cloud" }) });
       const want = marker("box");
       await send(boatBot.id, `Take one screenshot of your cloud computer, then say exactly: ${want}`);
-      const settled = await waitTurnDone(boatBot.id, 600_000); // first provision can take minutes
+      const settled = await waitTurnDone(boatBot.id, 600_000);
       if (!settled.messages.some((m) => m.role === "bot" && m.kind === "text" && m.text?.includes(want))) {
         const last = [...settled.messages].reverse().find((m) => m.role === "bot" && m.kind === "text");
         fail(`cloud computer turn settled without the marker (${(last?.text ?? "?").slice(0, 90)})`);
@@ -247,7 +211,6 @@ async function main() {
 
     }
   } catch (e) {
-    // keep the bots (and their native/event NDJSON logs) for postmortem
     console.error(`\nFAIL: ${e.message} — ${created.length} test bot(s) kept for postmortem (delete via /api/bots/:id)`);
     process.exit(1);
   }

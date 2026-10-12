@@ -12,9 +12,6 @@ const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 const folder = () => { const dir = mkdtempSync(join(tmpdir(), "laterdog-cloud-owner-")); dirs.push(dir); return dir; };
 
-/** A v0.1.91 Cloud home's data as it stands at a boot: sessions, thread
- * openers (a file), routines with their writers and fingerprints, and who
- * wrote which lines and answered which cards. */
 interface World {
   dir: string;
   sessions: { id: string; scopes: string[] }[];
@@ -23,11 +20,8 @@ interface World {
   routines: string[];
   senders: string[];
   answerers: string[];
-  /** A routine a bot proposed, who allowed its card, and the instructions it showed. */
   approvals: Array<[string, string, string]>;
-  /** What each routine runs as it stands (index.ts approvalShape). */
   shapes: Record<string, string>;
-  /** The conversation each routine reports into. */
   results: Record<string, string>;
   paused: string[];
   unpinned: string[];
@@ -35,20 +29,14 @@ interface World {
 function world(): World {
   const dir = folder();
   writeFileSync(join(dir, "thread-starters.json"), JSON.stringify({
-    // The owner's desktop opened two, their phone (unpaired since) one, a
-    // guest still paired one, a guest unpaired before the upgrade one.
     desk: key("desktop"), room: key("desktop"), phone: key("phone"), guest: key("guest"), former: key("former"),
   }));
   return {
     dir,
     sessions: [{ id: "desktop", scopes: ["admin", "client"] }, { id: "guest", scopes: ["client"] }],
-    // v0.1.91 had no writer map: none recorded. One of the owner's routines
-    // carries #2023's fingerprint.
     writers: {},
     fingerprinted: ["owners"],
     routines: ["owners", "template", "guests"],
-    // The phone only ever wrote a line (in the desktop's room); the former
-    // guest wrote in the owner's conversation; the phone answered a card.
     senders: [key("desktop"), key("phone"), key("former"), key("guest")],
     answerers: [key("phone")],
     approvals: [],
@@ -96,16 +84,11 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
     expect(w.sessions.map((session) => session.id)).toEqual(["desktop"]);
     expect(log[0]).toBe("cloud home: revoked 1 session that was not the owner's own device");
     expect(log.join("\n")).not.toContain("guest");
-    // Adopted (who opened, level, folder): every earlier key but the revoked guest's.
     expect([...settled.adopted].sort()).toEqual([key("desktop"), key("former"), key("phone")].sort());
-    // Proven (lending, memory): a device still paired, and one that answered a card.
     expect([...settled.proven].sort()).toEqual([key("desktop"), key("phone")].sort());
     expect(settled.proven.has(key("former"))).toBe(false);
-    // Openers: proven → the owner's key; the revoked guest's → nobody's; the rest kept.
     expect(starters(w)).toEqual({ desk: OWNER, room: OWNER, phone: OWNER, guest: NOBODY, former: key("former") });
-    // Routines: the fingerprinted one is the owner's, every other nobody's.
     expect(w.writers).toEqual({ owners: OWNER, template: NOBODY, guests: NOBODY });
-    // Later starts only revoke: settled stays settled.
     w.sessions.push({ id: "late", scopes: ["client"] });
     w.routines.push("new");
     const again = settleCloudOwnership(options(w));
@@ -115,8 +98,6 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
   });
 
   it("a crash at any step never makes a revoked session's key the owner's, and the next start finishes the job", () => {
-    // Every step the settlement takes, and the state on disk and in the
-    // stores right before it: a crash there.
     const steps: string[] = [];
     const first = world();
     const snapshots: Array<{ step: string; state: World }> = [];
@@ -139,8 +120,6 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
       expect(settled.proven.has(key("phone")), step).toBe(true);
       expect(state.writers, step).toEqual({ owners: OWNER, template: NOBODY, guests: NOBODY });
     }
-    // Two guests, the second revoke failing to save (finding 7): the first
-    // guest's key is recorded, so the next start never adopts it.
     const w = world();
     w.sessions.push({ id: "second", scopes: ["client"] });
     let revokes = 0;
@@ -157,7 +136,7 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
     mkdirSync(join(w.dir, "cloud-owner.json"));
     const log: string[] = [];
     const settled = settleCloudOwnership(options(w, undefined, {}, log));
-    expect(w.sessions).toHaveLength(2); // inert anyway: sessions.requireAdmin
+    expect(w.sessions).toHaveLength(2);
     expect(settled.adopted.size + settled.proven.size).toBe(0);
     expect(starters(w).former).toBe(key("former"));
     expect(log.join("\n")).toContain("unreadable");
@@ -166,7 +145,6 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
   it("a restore applied here is the owner's: its routines are theirs unless nobody's or a revoked key's, and a crash mid-way finishes at the next start", () => {
     const w = world();
     settleCloudOwnership(options(w));
-    // The restore brings other data: routines without writers, and keys.
     writeFileSync(join(w.dir, "thread-starters.json"), JSON.stringify({ moved: key("mac"), old: key("guest") }));
     w.routines = ["moved", "nobodys", "revoked"];
     w.writers = { nobodys: NOBODY, revoked: key("guest") };
@@ -175,9 +153,9 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
     let crashed = false;
     try {
       settleCloudOwnership(options(w, (step) => { if (step === "routine") { crashed = true; throw new Error("killed"); } }, { restoredNow: "restore-1" }));
-    } catch { /* the crash */ }
+    } catch {}
     expect(crashed).toBe(true);
-    const settled = settleCloudOwnership(options(w)); // no restoredNow: the record remembers
+    const settled = settleCloudOwnership(options(w));
     expect(settled.adopted.has(key("mac"))).toBe(true);
     expect(settled.adopted.has(key("guest"))).toBe(false);
     expect(starters(w)).toEqual({ moved: key("mac"), old: NOBODY });
@@ -194,7 +172,6 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
         expect(settled.adopted.size).toBe(0);
         expect(starters(w).desk).toBe(key("desktop"));
       } else {
-        // Another machine's record is ignored: this one settles its own.
         expect(settled.adopted.has(key("desktop"))).toBe(true);
         expect(JSON.parse(readFileSync(join(w.dir, "cloud-owner.json"), "utf8")).machineId).toBe(MACHINE);
       }
@@ -221,9 +198,7 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
     const w = world();
     w.routines = ["byPhone", "byFormer", "byNobody", "rewritten"];
     const shown = "[\"Check the site.\",\"bot\"]";
-    // The phone answered cards (proven); the former guest only wrote lines (adopted).
     w.approvals = [["byPhone", key("phone"), shown], ["byFormer", key("former"), shown], ["rewritten", key("phone"), shown]];
-    // On v0.1.91 anyone could change a routine (its instructions, bot, an attachment), unrecorded.
     w.shapes = { byPhone: shown, byFormer: shown, rewritten: "[\"Check the site.\",\"another-bot\"]" };
     settleCloudOwnership(options(w));
     expect(w.writers).toEqual({ byPhone: OWNER, byFormer: NOBODY, byNobody: NOBODY, rewritten: NOBODY });
@@ -232,7 +207,6 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
   it("a restore is proof only for routines reporting into a conversation that names nobody yet or the owner", () => {
     const w = world();
     settleCloudOwnership(options(w));
-    // A backup from before: the former guest (adopted, unproven) opened one results conversation.
     writeFileSync(join(w.dir, "thread-starters.json"), JSON.stringify({ friends: key("former"), desks: key("desktop") }));
     w.routines = ["unnamed", "desks", "friends"];
     w.writers = {};
@@ -245,11 +219,8 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
   it("a restore whose start ended before it was recorded is settled at the next; an old one at the very first start is not", () => {
     const w = world();
     settleCloudOwnership(options(w, undefined, { lastRestore: "long-ago" }));
-    // The old restore was the first settlement's data: its routines needed proof.
     expect(w.writers).toEqual({ owners: OWNER, template: NOBODY, guests: NOBODY });
     expect(JSON.parse(readFileSync(join(w.dir, "cloud-owner.json"), "utf8")).settledRestore).toBe("long-ago");
-    // A new restore is applied, and that start ends before the settlement
-    // runs: the next start only knows it as the last restore on record.
     w.routines = ["moved"];
     w.writers = {};
     w.fingerprinted = [];
@@ -257,7 +228,6 @@ describe("a Cloud home is personal: settling who its owner was (server/cloud-own
     settleCloudOwnership(next);
     expect(w.writers).toEqual({ moved: OWNER });
     expect(JSON.parse(readFileSync(join(w.dir, "cloud-owner.json"), "utf8")).settledRestore).toBe("restore-2");
-    // …and only once.
     w.writers = { moved: NOBODY };
     settleCloudOwnership(options(w, undefined, { lastRestore: "restore-2" }));
     expect(w.writers).toEqual({ moved: NOBODY });

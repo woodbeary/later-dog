@@ -1,8 +1,3 @@
-// The bot folder contract: SOUL.md is a mirror of the record, written by
-// the server, never read to build a prompt. A file that no longer matches
-// the record's hash is reported as drift with its text; a missing file is
-// simply re-created. The prompt block is empty for an empty soul.
-// Test isolation is provided by server/testing/setup.ts's per-file throwaway HOME.
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +17,6 @@ const {
 
 describe("bot folder", () => {
   it("lives under DATA_DIR/bots/<id>", () => {
-    // DATA_DIR is computed from homedir() during config.ts import
     const DATA_DIR = join(homedir(), ".laterdog");
     expect(BOTS_DIR).toBe(join(DATA_DIR, "bots"));
     expect(botFolder("b1")).toBe(join(BOTS_DIR, "b1"));

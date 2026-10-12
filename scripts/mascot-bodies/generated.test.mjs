@@ -10,26 +10,14 @@ import { fieldFromMask } from "./sdf.ts";
 import { buildClouds, report } from "./solve.ts";
 import { MASCOT_BODIES, MASCOT_BODY_IDS } from "../../shared/mascot-bodies.ts";
 
-// fileURLToPath, not `.pathname`: on Windows the latter yields "/C:/…" with a
-// leading slash, which is not a usable cwd — spawnSync then fails ENOENT.
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
-// Guards the TypeScript catalog the desktop and web apps use. The generator writes
-// the native catalogs only when given their paths (`--swift`, `--kotlin`).
 const TS_PATH = "../../shared/mascot-bodies.ts";
 
-// Normalised to LF. .gitattributes pins both catalogs to LF so this should be a
-// no-op, but a clone whose git config disagrees would otherwise fail this guard
-// over line endings — which git owns — rather than over generated content, which
-// is what the guard is actually for.
 const read = (p) =>
   readFileSync(new URL(p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const write = (p, contents) => writeFileSync(new URL(p, import.meta.url), contents);
 
-/**
- * Line-level diff summary: which line numbers differ, and what changed there. Bounded
- * to a handful of lines so the failure message stays readable against a ~100KB file.
- */
 function describeDrift(label, before, after) {
   if (before === after) return null;
   const beforeLines = before.split("\n");
@@ -52,8 +40,6 @@ describe("generated catalogs", () => {
     };
 
     try {
-      // process.execPath, not "node": runs the same interpreter as the test and does
-      // not depend on `node` being resolvable on PATH.
       execFileSync(process.execPath, ["--experimental-strip-types", "scripts/gen-mascot-bodies.ts"], {
         cwd: root,
         stdio: "pipe",
@@ -71,10 +57,6 @@ describe("generated catalogs", () => {
       ts: read(TS_PATH),
     };
 
-    // The generator just rewrote both tracked files in place. Whether this assertion
-    // passes or fails, restore the checked-in bytes so a failing run never leaves the
-    // working tree silently modified — the developer sees the diff below, not a
-    // dirty `git status` they have to go discover on their own.
     write(TS_PATH, before.ts);
 
     const drifts = [
@@ -94,7 +76,6 @@ describe("generated catalogs", () => {
 });
 
 describe("every baked anchor", () => {
-  /** The four extreme pointer aims the generator solves against. */
   const AIMS = [
     { x: -1, y: -1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: 1, y: 1 },
   ];

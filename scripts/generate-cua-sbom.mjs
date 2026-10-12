@@ -1,8 +1,3 @@
-// Maintainer tool: merge cargo-about's root-scoped views of the two shipped
-// executables into deterministic notices, a license report, and a CycloneDX
-// inventory. Raw workspace-wide `cargo metadata` must not be used here: its
-// feature-unified resolve graph includes dependencies enabled only by other
-// workspace members.
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";

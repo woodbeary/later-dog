@@ -1,28 +1,4 @@
 #!/bin/bash
-# Check that an older later.dog release updates itself in place to the newest
-# one, sealed off from this Mac's own later.dog like sealed-installed-app.sh.
-#
-#   scripts/sealed-update-check.sh v0.3.21 [devtools-port]
-#
-# The older copy starts in a temporary home and finds, downloads and stages the
-# newest release by itself. The script then quits it the way a person quits,
-# without "Restart to update", so Squirrel installs on quit and relaunches
-# nothing, and starts the updated copy on the same temporary home. A relaunch
-# would come from Launch Services, outside the temporary home and on the real
-# later.dog data, so the script reads the installer's request first and stops if
-# it asks for one. Never click "Restart to update" in these copies.
-#
-# There is no sandbox-exec profile here: macOS refuses to submit the installer's
-# launchd job from inside one. CFFIXED_USER_HOME keeps the app in the temporary
-# home, and the end of the run reports any file that changed in the real
-# later.dog folders.
-#
-# Both copies can be driven through the printed devtools port. To set something
-# up before the quit (a first dog, a chat to find again), point
-# LATERDOG_UPDATE_QUIT_AFTER at a file path: the script waits for that file to
-# exist before quitting. LATERDOG_TRIAL_GRANT_KEY_FILE works as it does for
-# sealed-installed-app.sh. Ctrl-C ends the trial, stops the copy, removes a
-# leftover installer job and the temporary folder.
 set -euo pipefail
 
 OLD="${1:?older release tag, for example v0.3.21}"
@@ -37,7 +13,6 @@ SEALED="$ROOT/home"
 APP="$ROOT/run/later.dog.app"
 APP_PID=""
 touch "$ROOT/started"
-# The cleanup reports here even when a redirected command is what failed.
 exec 3>&1 4>&2
 
 bearer_header() {
@@ -72,7 +47,6 @@ if lsof -nP -iTCP:8799 -sTCP:LISTEN >/dev/null 2>&1; then
   echo "something already serves on port 8799 (a running later.dog?); quit it first"
   exit 1
 fi
-# The label is the same for the real app's installer; leave a real update alone.
 if launchctl list "$JOB" >/dev/null 2>&1; then
   echo "a $JOB job already exists (the real later.dog may be updating); try again later"
   exit 1
@@ -103,7 +77,6 @@ NEW_VERSION=$(gh release view --repo "$REPO" --json tagName -q .tagName | sed 's
 [ "$OLD_VERSION" != "$NEW_VERSION" ] || { echo "$OLD is already the newest release"; exit 1; }
 
 launch() {
-  # A dead supervisor address, as in sealed-installed-app.sh.
   env -i HOME="$SEALED" CFFIXED_USER_HOME="$SEALED" LATERDOG_HOME="$SEALED/.laterdog" TMPDIR="$SEALED/tmp" \
     LATERDOG_SUPERVISOR_URL=http://127.0.0.1:9 LATERDOG_TOKEN=sealed-installed-check \
     PATH=/usr/bin:/bin:/usr/sbin:/sbin USER="$USER" LANG=en_US.UTF-8 \
@@ -116,8 +89,6 @@ launch() {
   curl -sf "http://127.0.0.1:$PORT/json/version" >/dev/null || { echo "the app did not come up; log: $ROOT/app.log"; exit 1; }
   [ -d "$SEALED/Library/Application Support/later.dog" ] || { echo "the app did not use the sealed profile; stopping it"; exit 1; }
 }
-# The dogs, chats and settings, without the lock, log and scratch files the app
-# replaces on every start.
 data_files() {
   (cd "$SEALED/.laterdog" && find . -type f 2>/dev/null) \
     | grep -vE '^\./tmp/|/logs?/|\.(lock|pid|sock|tmp|log)$|-(journal|wal|shm)$' | sort || true

@@ -1,6 +1,4 @@
 // @vitest-environment happy-dom
-// A long voice note must survive a recognition error: the Mac keeps the
-// recording, and Try again turns it into text in the box.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

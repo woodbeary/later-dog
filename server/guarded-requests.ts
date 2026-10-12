@@ -13,7 +13,6 @@ export function assertRequestTarget(
       current.activeTurnId !== expected.expectedTurnId || current.executionId !== expected.expectedExecutionId) throw requestConflict();
 }
 
-/** Never infer ownership from timestamps or the latest assistant text. */
 export function guardedRequestPath(messages: Message[], activeLeafId: string | null, sendId: string): Message[] {
   const sources = messages.filter(message => message.sendId === sendId);
   const source = sources[0];
@@ -35,14 +34,11 @@ export function guardedRequestPath(messages: Message[], activeLeafId: string | n
     id = message.parentId ?? null;
   }
   if (path[0]?.id !== source.id || path.slice(1).some(message => message.role === "user")) throw requestConflict();
-  // An abandoned sibling can hold a detached result or approval. A caller
-  // must never receive it as the answer to the current branch.
   const ancestors = new Set(path.map(message => message.id));
   if (messages.some(message => message.parentId && ancestors.has(message.parentId) && !seen.has(message.id))) throw requestConflict();
   return path;
 }
 
-/** Used only for an explicit control-plane card, never the latest user. */
 export function requestSourceForCard(messages: Message[], messageId: string): string | undefined {
   const byId = new Map(messages.map(message => [message.id, message]));
   const seen = new Set<string>();

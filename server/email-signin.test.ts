@@ -1,6 +1,3 @@
-// End to end: a hosted server with a sign-in allow-list lets a remote browser
-// sign in with an emailed code from the control plane (stubbed here) and
-// ends up with the same cookie session a pairing code would give.
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
@@ -29,7 +26,6 @@ interface Reply {
   body: any;
 }
 
-/** A remote browser: a foreign Host and a forwarded address, like a proxy or tunnel hands us. */
 function call(path: string, init: { method?: string; body?: unknown; headers?: Record<string, string>; from?: string } = {}): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const payload = init.body === undefined ? undefined : JSON.stringify(init.body);
@@ -54,9 +50,7 @@ function call(path: string, init: { method?: string; body?: unknown; headers?: R
           let body: unknown = raw;
           try {
             body = JSON.parse(raw);
-          } catch {
-            /* not json */
-          }
+          } catch {}
           resolve({ status: res.statusCode ?? 0, headers: res.headers, body });
         });
       },
@@ -123,9 +117,7 @@ beforeAll(async () => {
     try {
       const res = await fetch(`http://127.0.0.1:${PORT}/api/health`);
       if (res.ok) return;
-    } catch {
-      /* not up yet */
-    }
+    } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`server did not start:\n${stderr}`);
@@ -181,9 +173,7 @@ describe("sign in with your email on a hosted server", () => {
     const me = await call("/api/auth/session", { headers: { cookie, origin: `https://${HOST}` } });
     expect(me.status).toBe(200);
     expect(me.body).toMatchObject({ kind: "session", email: "her@example.test", scopes: ["admin", "client"], via: "cookie" });
-    // only a hosted team workspace says so; the web UI's first run reads it
     expect(me.body).not.toHaveProperty("hosted");
-    // admin scope: settings are hers to change
     const config = await call("/api/config", { method: "PUT", body: { language: "en" }, headers: { cookie, origin: `https://${HOST}` } });
     expect(config.status).toBe(200);
     const listed = await call("/api/auth/sessions", { headers: { cookie, origin: `https://${HOST}` } });
@@ -206,7 +196,6 @@ describe("sign in with your email on a hosted server", () => {
     const colleague = await call("/api/auth/email/verify", { body: { email: "anyone@agentada.test", code: stub.otp } });
     expect(colleague.status).toBe(200);
     expect(colleague.body.session.scopes).toEqual(["admin", "client"]);
-    // no label and no browser user agent in this test client: the generic fallback
     expect(colleague.body.session.label).toBe("Unnamed device");
   });
 
@@ -218,7 +207,6 @@ describe("sign in with your email on a hosted server", () => {
       if (last === 429) break;
     }
     expect(last).toBe(429);
-    // the lockout is per source: someone else still gets in
     const other = await call("/api/auth/email/verify", { body: { email: "her@example.test", code: stub.otp }, from: "198.51.100.43" });
     expect(other.status).toBe(200);
   });
@@ -267,7 +255,6 @@ describe("sign in with your email on a hosted server", () => {
     const configPath = join(home, ".laterdog", "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     try {
-      // The fleet agent and CLI update this file outside the running server.
       writeFileSync(configPath, JSON.stringify({ ...config, signIn: { ...config.signIn, members: [] } }));
       await expect(stream.until(() => false, 2_000)).rejects.toThrow("SSE stream closed");
       expect((await call("/api/bots", { headers: { cookie } })).status).toBe(401);

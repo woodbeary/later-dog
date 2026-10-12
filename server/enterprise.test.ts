@@ -8,7 +8,6 @@ import { SessionRegistry } from "./sessions.ts";
 
 const dirs: string[] = [];
 
-/** A stand-in enterprise layer: the folder shape core looks for, with the given register(). */
 function fakeLayer(registerSource: string, file = "index.ts"): string {
   const dir = mkdtempSync(join(tmpdir(), "laterdog-enterprise-"));
   mkdirSync(join(dir, "server"));
@@ -110,25 +109,21 @@ describe("enterprise hook point", () => {
     }`);
     await loadEnterpriseLayer({ dir, licenseKey: "k" });
     const at = (iso: string) => new Date(iso).getTime();
-    // far from expiry: the day count is there, the warning is not
     const quiet = editionStatus(at("2026-11-01T00:00:00Z"));
     expect(quiet).toMatchObject({ edition: "enterprise", expiresInDays: 61 });
     expect(quiet.notice).toBeUndefined();
     expect(licenseWarning(quiet)).toBeNull();
-    // inside the warning window
     const soon = editionStatus(at("2026-12-02T00:00:00Z"));
     expect(soon).toMatchObject({ edition: "enterprise", expiresInDays: 30 });
     expect(licenseWarning(soon)).toBe("LATERDOG_LICENSE_KEY expires on 2027-01-01 (in 30 days); renew it before then to keep enterprise features");
     expect(licenseWarning(editionStatus(at("2026-12-31T12:00:00Z")))).toContain("(in 1 day)");
     expect(entitled("sso", at("2026-12-31T23:59:59Z"))).toBe(true);
-    // expired, in grace: still enterprise, still entitled, and it says so
     const grace = editionStatus(at("2027-01-03T00:00:00Z"));
     expect(grace).toMatchObject({ edition: "enterprise", features: ["sso"], expiresInDays: -2, graceEndsAt: "2027-01-08" });
     expect(grace.notice).toBe("LATERDOG_LICENSE_KEY expired on 2027-01-01; enterprise features keep working until 2027-01-08 while it is renewed");
     expect(licenseWarning(grace)).toContain("keep working until 2027-01-08");
     expect(entitled("sso", at("2027-01-01T00:00:00Z"))).toBe(true);
     expect(entitled("sso", at("2027-01-07T23:59:59Z"))).toBe(true);
-    // grace over
     const after = at("2027-01-08T00:00:00Z");
     expect(entitled("sso", after)).toBe(false);
     const lapsed = editionStatus(after);
@@ -136,7 +131,6 @@ describe("enterprise hook point", () => {
     expect(lapsed.expiresInDays).toBeUndefined();
     expect(lapsed.notice).toMatch(/expired on 2027-01-01; renew it/);
     expect(licenseWarning(lapsed)).toBeNull();
-    // members see what is entitled, not the countdown, grace date or notice
     expect(editionForMembers(grace)).toEqual({ edition: "enterprise", customer: "Acme", features: ["sso"], expiresAt: "2027-01-01" });
     expect(editionForMembers(lapsed)).toEqual({ edition: "oss", features: [] });
   });
@@ -160,16 +154,12 @@ describe("enterprise hook point", () => {
     };
     expect(enterpriseLayerDirs({}, serverRoot)).toEqual([join(root, "enterprise"), join(serverRoot, "enterprise")]);
     expect(enterpriseLayerDirs({ LATERDOG_ENTERPRISE_DIR: "/opt/layer" }, serverRoot)).toEqual(["/opt/layer"]);
-    // nothing anywhere: the notice names every place it looked
     const none = await loadEnterpriseLayer({ env: {}, serverRoot, licenseKey: "k" });
     expect(none.notice).toBe(`LATERDOG_LICENSE_KEY is set but no enterprise layer exists at ${join(root, "enterprise")} or ${join(serverRoot, "enterprise")}`);
-    // the image: only dist-server/enterprise exists
     layer(join(serverRoot, "enterprise"), "Inside");
     expect(await loadEnterpriseLayer({ env: {}, serverRoot, licenseKey: "k" })).toMatchObject({ edition: "enterprise", customer: "Inside" });
-    // a checkout or the npm package: the sibling wins
     layer(join(root, "enterprise"), "Sibling");
     expect(await loadEnterpriseLayer({ env: {}, serverRoot, licenseKey: "k" })).toMatchObject({ customer: "Sibling" });
-    // an explicit directory is the only place looked at
     const explicit = join(root, "elsewhere");
     expect((await loadEnterpriseLayer({ env: { LATERDOG_ENTERPRISE_DIR: explicit }, serverRoot, licenseKey: "k" })).notice)
       .toBe(`LATERDOG_LICENSE_KEY is set but no enterprise layer exists at ${explicit}`);

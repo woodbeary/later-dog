@@ -7,8 +7,6 @@ import { BaseWorld, type WorldContext } from "./base-world.ts";
 import { waitUntil } from "./api.ts";
 import { installLibrarySkill } from "../../server/skill-library.ts";
 
-/** The coordination world: the real server plus the scripted engine, exactly
- * the proven e2e recipe (launchVerificationServer with room scripting). * Ordinary chat, coordinate_bots handoffs, and routines run end to end. */
 export class CoordinationWorld extends BaseWorld {
   private session: VerificationServer | undefined;
   private dataDir = "";
@@ -21,9 +19,6 @@ export class CoordinationWorld extends BaseWorld {
     this.dataDir = this.session.info.dataDir;
     this.planPath = join(this.dataDir, "room-plan.json");
     await this.initBase(this.session.info.url, this.planPath + ".evidence.jsonl", join(this.dataDir, "eval-gates"));
-    // Create every bot first, then patch: a Chief's managedSections can only
-    // name a team that already exists, and teams materialize when a member is
-    // created with --section (the same order the e2e fixtures use).
     for (const bot of scenario.bots) {
       const argv = ["new-bot", "--name", bot.name];
       if (bot.section !== undefined) argv.push("--section", bot.section);
@@ -42,8 +37,6 @@ export class CoordinationWorld extends BaseWorld {
       }
     }
     this.writePlan(scenario);
-    // Library fixtures install straight into the server's data dir, approved:
-    // the eval drives assignment visibility, not the review flow.
     for (const skill of scenario.librarySkills) {
       const installed = installLibrarySkill({
         name: skill.name,

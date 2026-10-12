@@ -1,4 +1,3 @@
-/** Full, encrypted workspace snapshots are distinct from additive team copies. */
 export interface WorkspaceBackupSummary {
   format: "laterdog.workspace-backup";
   version: 1;

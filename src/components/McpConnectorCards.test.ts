@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BRAND_MARKS } from "@/lib/brand-icons";
 import { MCP_CONNECTORS, type McpConnector, type McpServerRow } from "@/lib/mcp-connectors";
 
-// Hook state by call order, kept between renders, the way the neighbouring
-// panel tests seed it: effects never run under server rendering.
 const fixture = vi.hoisted(() => ({
   values: [] as unknown[],
   index: 0,
@@ -53,7 +51,6 @@ vi.mock("@/lib/app-links", () => ({ openExternalLink: fixture.open }));
 import { AddServerToBots } from "./AddServerToBots";
 import { McpConnectorCards } from "./McpConnectorCards";
 
-// state slots, in the order McpConnectorCards declares them
 const SERVERS = 0;
 const ERRORS = 3;
 
@@ -128,19 +125,16 @@ describe("connector rows", () => {
     fixture.values[SERVERS] = [];
     const { html, tile } = render();
     expect(html).not.toContain("<img");
-    // rows of their own on the pop-up's surface, two columns when there is room
     expect(html).toContain('data-connector-list="true" class="mb-4 grid grid-cols-1 gap-x-8 @3xl:grid-cols-2"');
     expect(html).not.toContain("glass-card");
     const linear = tile("linear");
     expect(linear.html).toContain(">Linear<");
     expect(linear.html).toContain("Find, create and update Linear issues, projects and comments.");
-    // the bundled mark, silent beside the name it would repeat
     expect(linear.html).toContain('data-brand-icon="linear" aria-hidden="true"');
     expect(linear.html).toContain(`<path d="${BRAND_MARKS.linear.path}"></path>`);
     expect(linear.html).not.toContain('role="img"');
     expect(linear.html).toContain('href="https://linear.app/docs/mcp" target="_blank" rel="noopener noreferrer" aria-label="Learn more about Linear"');
     expect(linear.html).not.toContain("use this one");
-    // limitations stay visible on the row: the older transport, the provider's own
     expect(tile("webflow").html).toContain("ChatGPT and Codex dogs can&#x27;t use this one.");
     expect(tile("webflow").html).not.toMatch(/SSE|MCP/);
     expect(tile("intercom").html).toContain("For Intercom accounts hosted in the US.");
@@ -157,7 +151,6 @@ describe("connector rows", () => {
     fixture.values[ERRORS] = { sentry: "Sign-in was not approved." };
     const { html, tile } = render();
 
-    // added by hand under another name: already connected, and leading the grid
     const linear = tile("linear");
     expect(linear.html).toContain("Connected");
     expect(linear.button("Disconnect Linear")).toBeDefined();
@@ -240,7 +233,6 @@ describe("Connect", () => {
     ]);
     expect(fixture.open).toHaveBeenCalledWith(WAITING.authorizationUrl);
 
-    // waiting on the browser: Cancel, reopen, and paste-back from another computer
     let card = render().tile("sentry");
     expect(card.html).toContain("Finish signing in in your browser…");
     expect(card.button("Cancel signing in to Sentry")).toBeDefined();

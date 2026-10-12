@@ -1,20 +1,3 @@
-// A pass-through MCP server that keeps one tool result from eating a
-// conversation.
-//
-// The provider CLI mounts this instead of the bot's real MCP server. Every
-// JSON-RPC frame is relayed in both directions. With a tool selection, discovery
-// is filtered and excluded calls are rejected before upstream execution.
-// An oversized `tools/call` result is cut to a budget (mcp-trim.ts), the
-// untrimmed text is written to a file, and the model is told in the result
-// where that file is so it can read or grep the rest with its ordinary tools.
-//
-// Why here and not in the driver: on every vendor-CLI engine the tool call and
-// its result never pass through the harness at all. The CLI runs the server
-// itself and appends the raw answer to the session it owns. Standing between
-// the two processes is the only place the harness can see, or shrink, what a
-// tool puts into the model's context.
-//
-// stdout is the MCP transport. Never log there.
 import { spawn } from "node:child_process";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -28,8 +11,6 @@ import { killCliTree } from "./procs.ts";
 
 type Json = Record<string, unknown>;
 
-/** Codex imports env variables from one shared app-server environment. Each
- * mount names its own private record; only the variable name reaches argv. */
 function gateEnvironment(): NodeJS.ProcessEnv {
   if (process.argv.length === 2) return process.env;
   try {
@@ -44,27 +25,14 @@ function gateEnvironment(): NodeJS.ProcessEnv {
     process.stderr.write("mcp-gate: invalid private configuration\n"); process.exit(1);
   }
 }
-/** The gate's own settings never reach the upstream server's environment. */
 const GATE_ENV_KEYS = ["LATERDOG_GATE_NAME", "LATERDOG_GATE_SPILL_DIR", "LATERDOG_GATE_BUDGET", "LATERDOG_GATE_UPSTREAM", "LATERDOG_GATE_SPILL_HINT", "LATERDOG_GATE_TOOL_SCOPE", "LATERDOG_GATE_DIRECTORY"];
 const gateEnv = gateEnvironment();
 const NAME = gateEnv.LATERDOG_GATE_NAME || "mcp";
 const SPILL_DIR = gateEnv.LATERDOG_GATE_SPILL_DIR || "";
 const rawBudget = Number(gateEnv.LATERDOG_GATE_BUDGET);
 const BUDGET = Number.isFinite(rawBudget) && rawBudget >= 0 ? rawBudget : DEFAULT_RESULT_BUDGET;
-/** Spilled results older than this are swept at startup: they exist for the
- * turn that produced them, not forever. */
 const SPILL_MAX_AGE_MS = 24 * 60 * 60_000;
-/** Whether the model is told where the untrimmed result was saved. Off by
- * default: offering the path measured WORSE than no trimming, because the
- * model reads the file back in. See TrimInput.spillHint. */
 const SPILL_HINT = gateEnv.LATERDOG_GATE_SPILL_HINT === "1";
-/** The upstream is the remote proxy with its tool directory on
- * (mcp-directory.ts). Its search_tools and describe_tool only read a catalog
- * the proxy has already narrowed to this selection, so they pass, untrimmed:
- * the directory bounds them itself, and a schema cut short is no schema.
- * call_tool is checked, and trimmed, as the tool it runs; one naming no tool
- * runs nothing and is answered by the directory. The proxy guarantees those
- * three names mean nothing else. */
 const DIRECTORY = gateEnv.LATERDOG_GATE_DIRECTORY === "1";
 
 function fail(message: string): never {
@@ -116,8 +84,6 @@ function upstreamSpec(): Upstream {
   return spec;
 }
 
-/** Delete spilled results older than SPILL_MAX_AGE_MS. Best effort: a sweep
- * that fails must never stop the bot's tools from working. */
 function sweepSpill(dir: string): void {
   let entries: string[];
   try {
@@ -130,17 +96,12 @@ function sweepSpill(dir: string): void {
     try {
       const path = join(dir, entry);
       if (statSync(path).mtimeMs < cutoff) rmSync(path, { force: true });
-    } catch {
-      /* another gate may be sweeping the same directory */
-    }
+    } catch {}
   }
 }
 
 let spilled = 0;
 
-/** Save the untrimmed text and return its path, or undefined when there is
- * nowhere to put it — the trim still happens, the model is just told the rest
- * was discarded rather than where to find it. */
 function spill(tool: string, text: string): string | undefined {
   if (!SPILL_DIR) return undefined;
   const safeTool = tool.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 60) || "tool";
@@ -155,16 +116,11 @@ function spill(tool: string, text: string): string | undefined {
   }
 }
 
-/** Rewrite one `tools/call` result in place. Returns true when anything was
- * actually trimmed, so the caller can report it on stderr. */
 function trimCallResult(result: Json, tool: string): boolean {
   if (BUDGET === 0) return false;
   const content = result.content;
   if (!Array.isArray(content)) return false;
 
-  // The text blocks are what a provider puts in the model's context, and a
-  // server that answers with several is answering with one payload split up,
-  // so they share the budget rather than each getting it.
   const textBlocks = content.filter(
     (block): block is Json & { text: string } =>
       Boolean(block) && typeof block === "object" && (block as Json).type === "text" && typeof (block as Json).text === "string",
@@ -182,10 +138,6 @@ function trimCallResult(result: Json, tool: string): boolean {
     trimmed = true;
   }
 
-  // A tool that also answers with structuredContent would otherwise hand the
-  // provider a second, full copy of everything just cut. Trim it the same way
-  // — structurally only, so it stays valid against the tool's output schema —
-  // and leave it untouched when it cannot be cut without mangling it.
   if (trimmed && result.structuredContent && typeof result.structuredContent === "object") {
     const structured = trimStructured(result.structuredContent, BUDGET);
     if (structured) result.structuredContent = structured.value as Json;
@@ -193,7 +145,6 @@ function trimCallResult(result: Json, tool: string): boolean {
   return trimmed;
 }
 
-// Validate before starting a process: corrupt policy must never become pass-through.
 const scope = toolScope();
 const spec = upstreamSpec();
 if (SPILL_DIR) sweepSpill(SPILL_DIR);
@@ -201,24 +152,14 @@ if (SPILL_DIR) sweepSpill(SPILL_DIR);
 const childEnv: NodeJS.ProcessEnv = { ...process.env, ...spec.env };
 for (const key of Object.keys(childEnv)) if (key.startsWith("LATERDOG_GATE_")) delete childEnv[key];
 
-// The CLI used to spawn this server itself, on every platform, so the gate
-// has to spawn it exactly as well. On Windows CreateProcess cannot exec an
-// npm .cmd shim or a node-shebang script, which is what `npx -y mcp-remote`
-// is — resolveCliSpawn rewrites it to the real executable without a shell, so
-// quoting-sensitive JSON argv survives. A shell here would re-interpret the
-// server's own arguments.
 const resolved = resolveCliSpawn(spec.command, spec.args ?? []);
 const child = spawn(resolved.command, resolved.args, {
   stdio: ["pipe", "pipe", "pipe"],
   env: childEnv,
   shell: false,
-  // a console app spawned from the desktop shell flashes a window otherwise
   ...(process.platform === "win32" ? { windowsHide: true } : {}),
 });
 
-// The gate owns this process. If the gate is killed rather than closed —
-// the CLI reaping its MCP servers at the end of a turn — the real server
-// must not be left behind, and on Windows only taskkill /T reaps a tree.
 let reaping = false;
 const reapChild = () => {
   if (reaping) return;
@@ -243,15 +184,11 @@ child.stderr.pipe(process.stderr);
 
 type Pending = { kind: "call"; tool: string; trim: boolean } | { kind: "list" | "other" };
 
-/** The upstream tool one call runs: its own name or call_tool's target, or
- * undefined when the directory answers the call itself. */
 function callTarget(name: string, args: unknown): string | undefined {
   return DIRECTORY ? directoryCallTarget(name, args) : name;
 }
-/** JSON-RPC string and numeric IDs are separate, even when their text is equal. */
 const pending = new Map<string, Pending>();
 
-// client -> server: verbatim, but remember which ids are tool calls
 createInterface({ input: process.stdin }).on("line", (line) => {
   let message: Json | undefined;
   if (line.trim()) {
@@ -292,7 +229,6 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 });
 process.stdin.on("end", () => child.stdin.end());
 
-// server -> client: the one direction that gets rewritten
 createInterface({ input: child.stdout }).on("line", (line) => {
   if (!line.trim()) return;
   let message: Json | undefined;
@@ -300,8 +236,6 @@ createInterface({ input: child.stdout }).on("line", (line) => {
     const parsed: unknown = JSON.parse(line);
     if (isRecord(parsed)) message = parsed;
   } catch {
-    // Not JSON the gate understands. Relay it exactly as it came: a frame the
-    // gate cannot read is still the upstream server's answer to give.
     if (scope) fail("unreadable upstream frame on a restricted connection");
   }
   if (!message || (scope && message.jsonrpc !== "2.0")) {
@@ -329,8 +263,6 @@ createInterface({ input: child.stdout }).on("line", (line) => {
         process.stderr.write(`mcp-gate(${NAME}): trimmed ${request.tool} to ${BUDGET} chars\n`);
       }
     } catch (error) {
-      // A result the trimmer chokes on is relayed whole. Costing context is
-      // recoverable; dropping a tool answer is not.
       process.stderr.write(`mcp-gate(${NAME}): could not trim ${request.tool}: ${String(error)}\n`);
       process.stdout.write(`${line}\n`);
       return;

@@ -1,5 +1,3 @@
-// Live, non-destructive Cua sandbox smoke: official MCP handshake, tool
-// discovery, desktop capture, and one pointer move inside an existing test VM.
 import { spawn } from "node:child_process";
 
 const runtime = process.env.LATERDOG_CUA_RUNTIME || "docker";

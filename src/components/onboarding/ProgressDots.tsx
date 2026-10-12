@@ -1,8 +1,3 @@
-// Step dots for the welcome flow and the reel: a row of round dots and one
-// ink pill that glides to the current slot on `transform`, so nothing
-// changes width and the dots stay perfectly round. With `onSelect` the dots
-// become tabs (the reel lets you jump to a scene); without it they are
-// decoration and hidden from assistive tech.
 import { cn } from "@/lib/cn";
 
 const SLOT = 16;
@@ -28,7 +23,6 @@ export function ProgressDots({
       aria-label={interactive ? label : undefined}
       aria-hidden={interactive ? undefined : true}
     >
-      {/* the pill: one element, moved on transform only */}
       <span
         className="pointer-events-none absolute left-0 top-1/2 h-1.5 rounded-full bg-ink transition-transform duration-(--motion-enter) ease-(--ease-out-soft)"
         style={{ width: SLOT, transform: `translate(${index * (SLOT + GAP)}px, -50%)` }}

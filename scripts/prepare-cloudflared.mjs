@@ -1,10 +1,3 @@
-// Stage a pinned Cloudflare Tunnel connector for every desktop architecture
-// electron-builder will package on this host. Pass --current for development
-// or self-hosting to stage only the platform and architecture running this
-// script. The release asset is verified before extraction and the executable
-// is verified again on every reuse.
-// Nothing is installed globally and cloudflared's own updater stays disabled;
-// later.dog updates this dependency with an ordinary reviewed app release.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -58,7 +51,6 @@ export const CLOUDFLARED_ASSETS = Object.freeze({
 });
 
 export function targetsForHost(platform) {
-  // Desktop package targets only. Self-hosted installs use --current instead.
   if (platform === "darwin") return ["darwin-arm64", "darwin-x64"];
   if (platform === "linux") return ["linux-x64"];
   if (platform === "win32") return ["win32-x64"];
@@ -89,7 +81,6 @@ export function parsePrepareCloudflaredArgs(args = []) {
     if (argument === "--current" && !options.current) {
       options.current = true;
     } else if (argument === "--root" && !options.root && typeof next === "string" && next !== "") {
-      // `laterdog serve --tunnel` stages into its data dir, not a checkout.
       options.root = next;
       index += 1;
     } else {
@@ -113,15 +104,9 @@ export function verifySha256(value, expected, label = "cloudflared asset") {
 
 const executableName = (target) => (target.startsWith("win32-") ? "cloudflared.exe" : "cloudflared");
 
-/** Identify the exact desktop target from the executable header without
- * invoking untrusted bytes. cloudflared's release checksums are verified
- * before this helper is used, but keeping architecture validation separate
- * prevents a correctly checksummed asset from being staged into the wrong
- * electron-builder resource directory. */
 export function executableTarget(value) {
   const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
 
-  // 64-bit little-endian Mach-O. CPU types include ABI64 (0x01000000).
   if (bytes.length >= 8 && bytes.readUInt32LE(0) === 0xfeedfacf) {
     const cpu = bytes.readUInt32LE(4);
     if (cpu === 0x0100000c) return "darwin-arm64";
@@ -129,7 +114,6 @@ export function executableTarget(value) {
     throw new Error(`unsupported cloudflared Mach-O CPU type 0x${cpu.toString(16)}`);
   }
 
-  // ELF64, little-endian: AMD64 (EM_X86_64 = 62) or ARM64 (EM_AARCH64 = 183).
   if (
     bytes.length >= 20 &&
     bytes.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) &&
@@ -141,7 +125,6 @@ export function executableTarget(value) {
     if (machine === 183) return "linux-arm64";
   }
 
-  // PE32+ AMD64. e_lfanew points from the DOS header to PE\0\0.
   if (bytes.length >= 0x40 && bytes[0] === 0x4d && bytes[1] === 0x5a) {
     const pe = bytes.readUInt32LE(0x3c);
     if (
@@ -182,13 +165,7 @@ function targetRunsOnHost(target, platform = process.platform, arch = process.ar
 }
 
 function executableHasPinnedVersion(binary, target) {
-  // A dual-architecture macOS package is prepared in one invocation. Do not
-  // assume Rosetta is installed or attempt to execute the other architecture;
-  // its executable bytes are still pinned and its Mach-O header is checked.
   if (!targetRunsOnHost(target)) return true;
-  // The first run of a freshly copied executable waits for macOS to scan it
-  // (XProtect / syspolicyd), which on a busy machine took longer than ten
-  // seconds and failed local packaging; the version check itself is unchanged.
   const result = spawnSync(binary, ["version"], {
     encoding: "utf8",
     windowsHide: true,
@@ -220,7 +197,6 @@ function extractionFailure(result) {
   return result.error?.message ?? String(result.stderr || result.stdout || `exit status ${result.status}`).trim();
 }
 
-/** Retry transient download failures; callers still verify the pinned digest. */
 export async function releaseBytes(asset) {
   const cacheDirectory = process.env.LATERDOG_CLOUDFLARED_ARCHIVE_DIR;
   const cached = cacheDirectory ? join(cacheDirectory, asset.name) : "";
@@ -237,8 +213,6 @@ export async function releaseBytes(asset) {
       failure = new Error(`could not download ${asset.name}: HTTP ${response.status}`);
       if (!retryableStatuses.has(response.status)) throw failure;
     } catch (error) {
-      // Node fetch reports network/body failures as TypeError; each attempt
-      // has its own timeout, including reading the complete response body.
       if (!(error instanceof TypeError) && !["TimeoutError", "AbortError"].includes(error?.name)) throw error;
       failure = error;
     }
@@ -294,8 +268,6 @@ async function stageTarget(root, target) {
     const stagedBinary = join(stagedDirectory, executableName(target));
     copyFileSync(candidate, stagedBinary);
     if (!target.startsWith("win32-")) {
-      // copyFile preserves the source mode on Unix in current Node, but make
-      // the executable contract explicit instead of depending on that detail.
       chmodSync(stagedBinary, 0o755);
     }
     writeFileSync(
@@ -307,8 +279,6 @@ async function stageTarget(root, target) {
     renameSync(stagedDirectory, finalDirectory);
     console.log(`staged cloudflared ${CLOUDFLARED_VERSION} for ${target}`);
   } finally {
-    // Windows Defender can briefly retain the executable after the version
-    // probe exits. Node retries EPERM for recursive removals when asked.
     rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 }

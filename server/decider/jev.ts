@@ -1,13 +1,3 @@
-// TypeSafe Jev over its HTTP API: POST {base}/v1/systemone with a Bearer
-// key and { state, model, questions }. Questions use `instructions` +
-// `criteria` (the older question/options shape is refused with a 422).
-// Answers come back as { answers: { id: { choice, probabilities } |
-// { score, probabilities } | { noul } }, usage: { input_tokens } }.
-//
-// Every answer is checked before anyone acts on it: a choice must be one of
-// the offered keys and the most likely one, every probability a number in
-// [0, 1]. Anything else is `malformed`, and the caller keeps today's rule.
-// Error bodies are never read into a message: they can echo the request.
 import type {
   BackendRequest, BackendResult, ChoiceAnswer, DeciderAnswer, DeciderBackend, DeciderQuestion, ScoreAnswer, YesNoAnswer,
 } from "./types.ts";
@@ -19,9 +9,6 @@ export const JEV_MAX_OPTIONS = 255;
 export const JEV_MIN_LEVELS = 2;
 export const JEV_MAX_LEVELS = 10;
 
-/** The endpoint for a base URL, or null when the key must not be sent there:
- * https anywhere, plain http only to this machine (a local Jev-compatible
- * server or a test double). */
 export function jevEndpoint(baseUrl?: string | null): URL | null {
   const root = (baseUrl?.trim() || JEV_DEFAULT_BASE_URL).replace(/\/+$/, "");
   let url: URL;
@@ -35,7 +22,6 @@ export function jevEndpoint(baseUrl?: string | null): URL | null {
   return url.protocol === "http:" && isLoopback(url.hostname) ? url : null;
 }
 
-/** Questions within the API's limits: 2–255 options, 2–10 levels. */
 export function questionsFit(questions: Record<string, DeciderQuestion>): boolean {
   const entries = Object.entries(questions);
   if (!entries.length) return false;
@@ -75,7 +61,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const isProbability = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
-/** Jev rounds to two places, so a map can sum to 0.98 or 1.02. */
 const SUM_TOLERANCE = 0.1;
 const EPSILON = 1e-9;
 
@@ -96,8 +81,6 @@ function parseChoice(raw: Record<string, unknown>, question: Extract<DeciderQues
   if (pTop === undefined) return null;
   const others = Object.entries(probabilities).filter(([key]) => key !== choice).map(([, value]) => value);
   const runnerUp = others.length ? Math.max(...others) : 0;
-  // Ties break to the first key on the vendor side; a choice that is not
-  // the most likely option means the answer is not what it claims to be.
   if (runnerUp > pTop + EPSILON) return null;
   return { type: "choice", choice, pTop, margin: pTop - runnerUp, probabilities };
 }
@@ -125,7 +108,6 @@ function parseYesNo(raw: Record<string, unknown>): YesNoAnswer | null {
 
 const WIRE_TYPE = { choice: "choice", score: "score", yesno: "noul" } as const;
 
-/** Strictly decode one response body against the questions that were asked. */
 export function parseJevResponse(
   body: unknown,
   questions: Record<string, DeciderQuestion>,
@@ -165,11 +147,9 @@ async function decide(request: BackendRequest): Promise<BackendResult> {
       headers: { authorization: `Bearer ${request.key}`, "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify(jevRequestBody(request.state, request.questions)),
       signal: request.signal,
-      // Never replay the key to wherever a redirect points.
       redirect: "error",
     });
   } catch {
-    // The caller tells a timeout or a Stop from a dead network by its own signals.
     return { ok: false, reason: "unreachable" };
   }
   if (!response.ok) {

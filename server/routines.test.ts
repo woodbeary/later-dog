@@ -315,17 +315,14 @@ describe("cron routines use the existing persistent scheduler", () => {
     const h = harness(start);
     expect(h.manager.wakeHold()).toEqual({ hold: false });
     const routine = h.manager.create(input());
-    // a month away: nothing to hold for
     expect(h.manager.wakeHold()).toEqual({ hold: false });
     h.setNow(routine.nextRunAt! - 61 * 60_000);
     expect(h.manager.wakeHold()).toEqual({ hold: false });
     h.setNow(routine.nextRunAt! - 59 * 60_000);
     expect(h.manager.wakeHold()).toEqual({ hold: true, reason: "due", at: routine.nextRunAt });
-    // a paused routine asks for nothing
     h.manager.update(routine.id, { enabled: false });
     expect(h.manager.wakeHold()).toEqual({ hold: false });
     h.manager.update(routine.id, { enabled: true });
-    // once the run is going, the hold is for the run, not the clock
     h.setNow(h.manager.listRoutines()[0].nextRunAt!);
     await h.manager.tick(); await h.manager.tick();
     expect(h.manager.listRuns()[0]).toMatchObject({ status: "running" });
@@ -376,7 +373,6 @@ describe("cron routines use the existing persistent scheduler", () => {
     const queued = h.manager.listRuns()[0];
     expect(queued).toMatchObject({ status: "queued", deferredAt: routine.nextRunAt });
     expect(h.changed.at(-1)).toMatchObject({ id: queued!.id, deferredAt: routine.nextRunAt });
-    // The stamp is durable: a restart neither loses the wait nor re-notices.
     expect(new RoutineManager(h.options).listRuns()[0]?.deferredAt).toBe(routine.nextRunAt);
     h.setNow(routine.nextRunAt! + 29 * 60_000); await h.manager.tick();
     expect(h.deferred).toHaveLength(0);
@@ -402,7 +398,6 @@ describe("cron routines use the existing persistent scheduler", () => {
     expect(h.deferred).toHaveLength(0);
     expect(h.started).toHaveLength(1);
     expect(h.manager.listRuns()[0]?.status).toBe("running");
-    // A run that dispatches on its first tick is never stamped at all.
     const clean = harness(start);
     const prompt = clean.manager.create(input({ ...monthly, expression: "* * * * *" }));
     clean.setNow(prompt.nextRunAt!); await clean.manager.tick();
@@ -544,7 +539,6 @@ describe("persistent routine results destinations", () => {
       h.options.onRunChanged = (run) => { h.changed.push(run); observe({ kind: "routine.run", run }); };
       const runRequest = request("run_now", destination === "trusted" ? "trusted-source" : "invoking-source");
 
-      // Fail the real atomic rename, after the resolver allocates a task.
       rmSync(h.options.file!);
       mkdirSync(h.options.file!);
       if (trigger === "manual") expect(() => h.manager.runNow(routine.id, runRequest)).toThrow();
@@ -572,13 +566,9 @@ describe("persistent routine results destinations", () => {
       expect(run).toMatchObject({ status: trigger === "missed" ? "missed" : "queued" });
       expect(run?.resultsThreadId).toBe(allocated ? "results-2" : destination === "chosen" ? "chosen" : undefined);
       expect(h.created()).toBe(allocated ? 2 : 0);
-      // A scheduled retry lands behind the still-busy bot, so the queued
-      // receipt publishes once for creation and once for its deferral stamp.
       expect(h.changed).toHaveLength(trigger === "schedule" ? 2 : 1);
       if (trigger === "schedule") expect(h.changed.at(-1)).toMatchObject({ id: run!.id, deferredAt: due });
       expect(h.failed).toHaveLength(trigger === "missed" ? 1 : 0);
-      // Both broadcast events and transcript lifecycle callbacks must see
-      // their matching destination and receipt in the already-saved file.
       expect(observations.length).toBeGreaterThan(0);
       for (const { payload, persisted: saved } of observations) {
         const value = payload.kind === "routine" ? payload.routine : payload.run;
@@ -999,7 +989,6 @@ describe("RoutineManager", () => {
         timeoutMinutes: 15,
       },
     ]);
-    // Reload recovery truthfully marks an in-process run as interrupted.
     expect(reloaded.listRuns()[0]!.error).toContain("restarted");
     expect(failureWasPersistedBeforeCallback).toBe(true);
     expect(h.failed).toMatchObject([
@@ -1294,8 +1283,6 @@ describe("RoutineManager", () => {
   it("rolls back an uncommitted confirmation when the atomic file write fails", () => {
     const h = harness();
     const file = h.options.file!;
-    // A directory at the destination makes the final atomic rename fail
-    // after the temporary file has been written.
     mkdirSync(file);
     const request = {
       requestId: "request-create-write-failure",
@@ -1705,9 +1692,6 @@ describe("RoutineManager", () => {
       summary: "Approve the write",
     });
 
-    // Seed terminal history directly so this capacity regression does not do
-    // two thousand quadratic fixture writes. The final enqueue still crosses
-    // the real manager save/retention path that used to evict index zero.
     const internal = h.manager as unknown as { runs: RoutineRun[] };
     const base = internal.runs.find((run) => run.id === waiting.id)!;
     for (let index = 0; index < 1_999; index += 1) {
@@ -2370,8 +2354,6 @@ describe("RoutineManager", () => {
       const run = h.manager.listRuns()[0]!;
 
       const finished = h.manager.finishGoalRun(run.id, status, `${status} detail`);
-      // the team stopped to ask — that is a run waiting on a person, and the
-      // one outcome that must never be filed as a quiet completion
       expect(finished).toMatchObject({ status: "waiting", goalStatus: status, attention: `${status} detail` });
       expect(finished?.finishedAt).toBeUndefined();
       expect(h.failed).toEqual([]);
@@ -2397,8 +2379,6 @@ describe("RoutineManager", () => {
         status: "waiting", goalStatus: status, attention: `${status} detail`,
       });
 
-      // Authority stays with the goal lifecycle, not generic provider
-      // events; a goal-owned transition can still settle the same receipt.
       expect(h.manager.finishGoalRun(run.id, "completed", "Goal-owned completion")).toMatchObject({
         status: "completed", goalStatus: "completed", output: "Goal-owned completion", attention: undefined,
       });
@@ -2612,7 +2592,7 @@ describe("RoutineManager", () => {
       schedule: { type: "once", at: new Date(2026, 7, 17, 8, 4).getTime() },
     });
 
-    await h.manager.tick(); // the long-past once routine is recorded as missed
+    await h.manager.tick();
     h.setNow(broken.nextRunAt!);
     await h.manager.tick();
     h.manager.handleRuntimeEvent({
@@ -2756,7 +2736,6 @@ describe("RoutineManager", () => {
 });
 
 describe("routine continuity", () => {
-  /** Drive one interval run to completion and return the prompt it was sent. */
   async function runOnce(
     h: ReturnType<typeof harness>,
     routineId: string,
@@ -2833,7 +2812,6 @@ describe("routine continuity", () => {
     });
 
     await runOnce(h, routine.id, anchorAt, "Feed healthy at 09:00.");
-    // A run that finishes with no report must not blank out the carried one.
     await runOnce(h, routine.id, anchorAt + 60 * 60_000);
     const third = await runOnce(h, routine.id, anchorAt + 120 * 60_000);
 
@@ -2871,9 +2849,6 @@ describe("routine continuity", () => {
     });
     await runOnce(h, routine.id, anchorAt, "Audit complete.");
 
-    // This version caps `output` on the way in, so an oversized report can only
-    // arrive from a file some other version wrote. It must still not run away
-    // with the prompt.
     const file = h.options.file!;
     const disk = JSON.parse(readFileSync(file, "utf8"));
     disk.runs[0].output = "x".repeat(5_000);

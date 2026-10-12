@@ -1,14 +1,6 @@
-// Saved servers ("environments") for the desktop app, pure and testable.
-//
-// Local is the server this app spawns; a remote environment is a server the
-// user paired with. The app switches by loading that server's own UI, so an
-// environment is just {id, name, origin}. The session credential is the
-// HttpOnly cookie the /pair page set for that origin, held by Chromium's
-// cookie jar, never by this file.
 const LOCAL_ID = "local";
 const MAX_NAME = 60;
 
-/** `https://host[:port]` — a bare origin, no path, no credentials. */
 function normalizeOrigin(input) {
   if (typeof input !== "string") return null;
   let url;
@@ -22,9 +14,6 @@ function normalizeOrigin(input) {
   return url.origin;
 }
 
-/** Turn what the server printed — `https://host/pair#code=XXXX-XXXX-XXXX`,
- * or just an origin — into where to go. The code stays in the hash, so the
- * page consumes it and it never reaches a server log. */
 function parsePairingLink(input) {
   const origin = normalizeOrigin(input);
   if (!origin) return null;
@@ -34,11 +23,10 @@ function parsePairingLink(input) {
   } catch {
     return null;
   }
-  // A code travels in the hash only: a query string reaches server logs.
   if (url.searchParams.has("code")) return null;
   const code = /(?:^|[#&])code=([^&]+)/.exec(url.hash)?.[1] ?? null;
   const isPairPage = url.pathname === "/pair" || url.pathname === "/pair/";
-  if (code && !isPairPage) return null; // a code belongs on /pair; anything else is not a pairing link
+  if (code && !isPairPage) return null;
   try {
     return { origin, code: code ? decodeURIComponent(code) : null, url: code ? `${origin}/pair#code=${code}` : origin };
   } catch {
@@ -46,8 +34,6 @@ function parsePairingLink(input) {
   }
 }
 
-/** The desktop connection form accepts a hostname, HTTPS address or pairing
- * link. Keep codes out of queries/history and refuse unrelated URL paths. */
 function parseHostedWorkspaceLink(input) {
   if (typeof input !== "string") return null;
   const text = input.trim();
@@ -66,21 +52,17 @@ function parseHostedWorkspaceLink(input) {
   }
 }
 
-/** Remote renderers learn only their current workspace, not the local list. */
 function workspaceSummary(state) {
   const active = activeEnvironment(state);
   return active ? { local: false, name: active.name, origin: active.origin } : { local: true, name: "This computer" };
 }
 
-/** Native identity must not depend on a hosted renderer's version/title. */
 function workspaceWindowTitle(state, companion) {
   if (companion) return `later.dog — Connected to: ${companion.serverName} (${new URL(companion.endpoint).host})`;
   const active = activeEnvironment(state);
   return active ? `later.dog — Hosted: ${active.name} (${new URL(active.origin).host})` : "later.dog";
 }
 
-/** Renderer navigation stays in the selected workspace. Switching is a main
- * process action; a cloud page must not navigate itself onto the local bridge. */
 function workspaceNavigationAllowed(url, state, localOrigin) {
   try {
     return new URL(url).origin === (activeEnvironment(state)?.origin ?? localOrigin);
@@ -89,8 +71,6 @@ function workspaceNavigationAllowed(url, state, localOrigin) {
   }
 }
 
-/** Only the main window's main frame may request this deliberately small
- * shell surface. Being embedded in a saved server grants no host authority. */
 function workspaceSenderAllowed(event, contents, state, localOrigin) {
   if (!contents || event?.sender !== contents || event?.senderFrame !== contents.mainFrame) return false;
   try {
@@ -100,7 +80,6 @@ function workspaceSenderAllowed(event, contents, state, localOrigin) {
   }
 }
 
-/** Native menu choices, never renderer-supplied destinations or callbacks. */
 function workspaceMenuTemplate(state, { onSwitch, onAddFromClipboard, onForget }) {
   const active = activeEnvironment(state);
   return [
@@ -128,8 +107,6 @@ function nameFromOrigin(origin) {
   }
 }
 
-/** Parse the persisted file. Unknown or damaged content yields the empty
- * state rather than an error: losing a saved list costs a re-pair, not the app. */
 function parseEnvironments(raw) {
   let value;
   try {
@@ -156,7 +133,6 @@ function serializeEnvironments(state) {
   return JSON.stringify({ version: 1, environments: state.environments, activeId: state.activeId }, null, 2) + "\n";
 }
 
-/** Add or update by origin (re-pairing the same server keeps one entry). */
 function withEnvironment(state, input, makeId) {
   const origin = normalizeOrigin(input?.origin);
   if (!origin) return state;
@@ -185,7 +161,6 @@ function activeEnvironment(state) {
   return state.environments.find((e) => e.id === state.activeId) ?? null;
 }
 
-/** Origins the main window may navigate to: Local plus every saved server. */
 function allowedOrigins(state, localOrigin) {
   return new Set([localOrigin, ...state.environments.map((e) => e.origin)]);
 }

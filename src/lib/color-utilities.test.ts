@@ -1,8 +1,3 @@
-// Tailwind only generates a colour utility for a `--color-*` token declared in
-// the stylesheet's `@theme` block. A class naming any other token — a
-// plausible `border-line` or `bg-surface` — compiles to nothing, with no
-// warning anywhere, and the element quietly falls back to currentColor
-// borders and a see-through fill. That failure is silent, so it gets a test.
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
@@ -14,15 +9,8 @@ const css = readFileSync(join(src, "styles.css"), "utf8");
 const theme = css.match(/@theme\s*\{([^}]*)\}/)?.[1] ?? "";
 const defined = new Set([...theme.matchAll(/--color-([\w-]+)\s*:/g)].map(([, name]) => name));
 
-// Only names that read like the app's own tokens are checked, so Tailwind's
-// built-in palette (`text-white`, `bg-red-500`, `text-center`) never trips it.
-// The families come from the theme itself, plus two names that are not
-// tokens but were used as if they were.
 const families = new Set([...[...defined].map((name) => name.split("-")[0]), "line", "surface"]);
 
-// Declared outside `@theme` on purpose, so no utility exists for them. Every
-// use sits on a `bg-accent` / `bg-danger` fill, and the matching rule at the
-// bottom of styles.css is what actually paints that ink.
 const inkCarriedByFill: Record<string, RegExp> = {
   "accent-ink": /\.bg-accent\s*\{\s*color:\s*var\(--color-accent-ink\)/,
   "danger-ink": /\.bg-danger\s*\{\s*color:\s*var\(--color-danger-ink\)/,

@@ -17,7 +17,6 @@ export interface SupervisorOptions {
   profiles: Profile[];
   concurrency: number;
   publishingHost: "local" | "remote";
-  /** Minimum spacing between provider status polls per running job; 0 polls on every tick (fixtures). Production config defaults to 30 s. */
   pollIntervalMs?: number;
   adapter?: (profile: Profile) => ExecutionAdapter;
   publisher?: GitHubPublisher;
@@ -26,7 +25,6 @@ export interface SupervisorOptions {
   workspaceTokenFile?: string;
 }
 
-/** A correction's own title, which becomes its commit message on the PR: "Correct: " and the brief's first sentence. */
 export function correctionTitle(brief: string): string {
   const first = brief.trim().split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? "";
   const line = first.length > 120 ? `${first.slice(0, 119).trimEnd()}…` : first;
@@ -65,7 +63,6 @@ export class Supervisor {
     const adapter = this.adapters.get(request.profileId); if (!adapter) throw new Error("Unknown account profile");
     return this.store.create(request, adapter.capabilities.id as BackendId);
   }
-  /** A repair run against the parent's PR. `writeScopes` replaces the parent's paths when the evidence puts the fix elsewhere. */
   correction(id: string, brief: string, requestKey: string, writeScopes?: string[]): Job {
     const parent = this.store.job(id);
     if (parent.state === "merged" || parent.state === "cancelled") throw new Error("Create a new implementation job after the parent PR has shipped or been cancelled");
@@ -82,8 +79,6 @@ export class Supervisor {
       writeScopes: [".laterdog-review.json"], dependencies: [id], profileId: profileId ?? parent.profileId, kind: "review", parentId: id, conversationId: parent.conversationId, botId: parent.botId });
   }
   snapshot(): WorkspaceSnapshot {
-    // Jobs come newest first; a PR's jobs (its implementation and any corrections) are grouped, and the newest one's head
-    // is the PR's current head. Verification is recorded on the implementation job, so any job of the PR can carry it.
     const jobs = this.store.jobs(); const prs = new Map<string, Job[]>();
     for (const job of jobs) if (job.prUrl) prs.set(job.prUrl, [...(prs.get(job.prUrl) ?? []), job]);
     return { jobs, repositories: this.store.repositories(), profiles: this.options.profiles.map(({ id, label }) => ({ id, label })),
@@ -95,7 +90,6 @@ export class Supervisor {
         needsAttention: jobs.filter((j) => j.state === "needs_attention" || j.state === "submission_unknown").length,
         repairs: jobs.filter((j) => j.kind === "repair").length } };
   }
-  /** One row per configured backend (deduplicated across profiles), then the backends that exist as design only, each with its truthful limitation. */
   private backends(): WorkspaceSnapshot["backends"] {
     const configured = new Map<string, WorkspaceSnapshot["backends"][number]>();
     for (const adapter of this.adapters.values()) configured.set(adapter.capabilities.id, adapter.capabilities);
@@ -114,10 +108,7 @@ export class Supervisor {
     const adapter = this.adapters.get(id); if (!adapter) throw new Error("Unknown account profile");
     return adapter.doctor ? { ...await adapter.doctor(), allowance: null, environmentCompatibility: "Requires a complete round trip for the configured environment" } : { limitation: "This adapter cannot inspect authentication or allowances" };
   }
-  /** GitHub access as publishing will use it on this host; a hosted supervisor without `GH_TOKEN` cannot open pull requests. */
-  /** GitHub access as publishing will use it on this host, plus any device sign-in in progress. */
   async inspectGitHub() { return { ...await this.publisher.access(), signIn: this.githubLogin.status() }; }
-  /** Starts GitHub's device flow on this host; the operator enters the returned code at github.com/login/device. */
   loginGitHub() { return this.githubLogin.start(); }
   async listProfileTasks(id: string): Promise<unknown> {
     const adapter = this.adapters.get(id); if (!adapter) throw new Error("Unknown account profile"); return adapter.list();
@@ -142,14 +133,12 @@ export class Supervisor {
     const job = this.store.job(id);
     if (["queued","ready","needs_attention"].includes(job.state)) return this.store.update(id, { state: "cancelled" }, "cancelled");
     if (job.state === "submission_unknown") {
-      // An uncertain submission holds an execution slot forever unless an operator confirms no provider task exists for it.
       if (!acknowledgeUnknown) throw new Error("This submission is uncertain: investigate with the provider task list, reconcile if a task exists, or cancel with acknowledgeUnknown after confirming none does");
       return this.store.update(id, { state: "cancelled", cancelRequested: true }, "cancelled", "Operator confirmed no provider task exists for this uncertain submission; execution slot released");
     }
     if (job.state === "merged" || job.state === "cancelled") return job;
     return this.store.update(id, { cancelRequested: true }, "cancel_requested", "Native cloud cancellation is unavailable; the provider task may still be running");
   }
-  /** Keeps a task's progress log as an artifact before its computer goes away; a log that cannot be read is only a loss of history. */
   private async keepActivity(job: Job): Promise<void> {
     const adapter = this.adapters.get(job.profileId);
     if (!adapter?.transcript || !job.taskId) return;
@@ -242,20 +231,17 @@ export class Supervisor {
           if (state === "MERGED") { this.store.update(job.id,{ state: "merged", headSha, ...(headSha !== job.headSha ? { verification: undefined, review: undefined } : {}) },"merged","Observed the merge on GitHub"); continue; }
           if (state === "CLOSED") { const blocker = "The PR was closed on GitHub; decide whether to start new work"; if (job.blocker !== blocker) this.store.update(job.id,{ state: "needs_attention", blocker },"publication_blocked"); continue; }
           if (headSha !== job.headSha) this.store.update(job.id,{ headSha, verification: undefined, review: undefined },"evidence_invalidated","PR head changed; previous verdicts no longer apply");
-        } catch { /* An unavailable GitHub connection cannot replace a recorded verdict. Merge checks the live head again. */ }
+        } catch {}
         finally { this.inFlight.delete(job.id); }
       }
     }
     const pollInterval = this.options.pollIntervalMs ?? 0;
     for (const job of this.store.jobs().filter((j) => j.state === "running")) {
       if (this.inFlight.has(job.id)) continue;
-      // later.dog Cloud reads its own computers, so its progress can be read often; other providers keep the configured pace.
       const interval = job.backend === "laterdog-cloud" ? Math.min(pollInterval, 10_000) : pollInterval;
       if (interval > 0 && Date.now() - (this.lastPolled.get(job.id) ?? 0) < interval) continue;
       this.lastPolled.set(job.id, Date.now());
       this.inFlight.add(job.id);
-      // A failed status read is the provider not answering yet: the task keeps its identity and is read again. Only a failure
-      // while collecting (a diff that cannot be retrieved, a review manifest that does not hold) stops the job.
       let collecting = false;
       try {
         const adapter = this.adapter(job);
@@ -279,7 +265,6 @@ export class Supervisor {
       } catch (error) {
         const blocker = message(error);
         if (collecting) this.store.update(job.id, { state: "needs_attention", blocker }, "collection_blocked");
-        // The same transient error on every poll would flood the event log and the outbox; record it once until it changes.
         else if (this.store.job(job.id).blocker !== blocker) this.store.update(job.id, { blocker }, "poll_failed", "Task identity retained; no duplicate submission");
       } finally { this.inFlight.delete(job.id); }
     }
@@ -295,13 +280,11 @@ export class Supervisor {
         this.store.update(job.id, { state: "preparing", blocker: undefined }, "preparing");
         const access = await this.adapter(job).doctor?.();
         if (access && !access.authenticated) {
-          // Plain words for the card and the dog; the setup detail goes to the log.
           if (job.backend === "laterdog-cloud") console.warn("[cloud tasks] later.dog Cloud needs CLAUDE_CODE_OAUTH_TOKEN and the computers service (COMPUTERS binding, or LATERDOG_COMPUTERS_URL with LATERDOG_COMPUTERS_KEY) on this supervisor");
           throw new Error(job.backend === "laterdog-cloud"
             ? "Cloud tasks aren't set up on this later.dog yet, so this one can't start. The dog can do it here in the chat instead."
             : "Cloud tasks here run on Codex Cloud, which needs your ChatGPT account. Sign in to ChatGPT in Settings, then try again.");
         }
-        // Resolve the backend's environment before pinning an input ref so a misconfigured repository blocks preparation, not submission.
         const repository = this.store.repository(job.repository);
         const environment = repository.environments[job.backend] ?? (job.backend === "codex-cloud" ? repository.environmentId : job.backend === "laterdog-cloud" ? "auto" : "");
         if (!environment) throw new Error(`${repository.slug} isn't connected to ${job.backend === "codex-cloud" ? "Codex Cloud" : "cloud tasks"} yet. Connect it there, then try again.`);
@@ -325,12 +308,10 @@ export class Supervisor {
     }
     if (this.options.workspaceUrl) await deliverOutbox(this.store,this.options.workspaceUrl,this.options.workspaceTokenFile);
   }
-  /** The profile a delegation uses when it names none: the first later.dog Cloud profile, else the configured default. */
   preferredProfile(): string {
     for (const [id, adapter] of this.adapters) if (adapter.capabilities.id === "laterdog-cloud") return id;
     return "default";
   }
-  /** Compact job views for the desktop's cloud task cards: the named jobs, or one dog's newest. */
   summaries(query: { ids?: string[]; botId?: string; limit?: number }): CloudTaskSummary[] {
     const jobs = this.store.jobs();
     if (query.ids) {
@@ -339,7 +320,6 @@ export class Supervisor {
     }
     return jobs.filter((job) => !query.botId || job.botId === query.botId).slice(0, query.limit ?? 20).map(cloudTaskSummary);
   }
-  /** Progress steps after a byte offset: from the kept log once a task has one, else live from the task's own computer. */
   async activity(id: string, after: number): Promise<CloudTaskActivityPage> {
     if (!Number.isSafeInteger(after) || after < 0) throw Object.assign(new Error("after must be a byte offset"), { status: 400 });
     const job = this.store.job(id);
@@ -367,7 +347,6 @@ export class Supervisor {
     if (job.state !== "running") throw Object.assign(new Error("A task's computer is only kept while it runs, so there is no screen to watch now."), { status: 409 });
     return adapter.screen(job.taskId);
   }
-  /** Cancel, and for a backend that can stop a running task for real, stop it: later.dog Cloud deletes the task's computer. */
   async stopJob(id: string, acknowledgeUnknown = false): Promise<Job> {
     const job = this.store.job(id);
     const adapter = this.adapters.get(job.profileId);
@@ -378,7 +357,6 @@ export class Supervisor {
     if (this.inFlight.has(id)) return this.store.job(id);
     return this.store.update(id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");
   }
-  /** later.dog Cloud needs no setup per repository: the first job that names one connects it, starting from its default branch. */
   async ensureRepository(request: unknown): Promise<void> {
     const parsed = createJobSchema.safeParse(request);
     if (!parsed.success || this.store.hasRepository(parsed.data.repository)) return;

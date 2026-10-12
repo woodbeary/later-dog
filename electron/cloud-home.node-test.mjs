@@ -18,7 +18,6 @@ test("the Admin's cloud summary becomes one plain machine state", () => {
   assert.deepEqual(parseCloudSummary({ state: "payment_problem", origin, pairingAvailable: false }), { status: "payment-problem", origin });
   assert.deepEqual(parseCloudSummary({ state: "stopped", origin: null, pairingAvailable: false }), { status: "stopped" });
   assert.deepEqual(parseCloudSummary({ state: "failed", origin, pairingAvailable: false }), { status: "failed", origin });
-  // Cloud Pro includes no AI: an allowance an older Admin still sends changes nothing.
   assert.deepEqual(parseCloudSummary({ state: "ready", origin, pairingAvailable: true, allowance: { includedUsd: 25, usedUsd: 25.4, resetsAt: NOW + 86_400_000 } }),
     { status: "ready", origin });
 });
@@ -28,7 +27,6 @@ test("a malformed summary is no machine at all", () => {
     { state: "ready", origin: "http://laterdog-u-1a2b3c4d5e6f.fly.dev" }, { state: "ready", origin: `${origin}/pair` },
     { state: "ready", origin: "https://user:pw@laterdog-u-1a2b3c4d5e6f.fly.dev" }, { state: "ready", origin: "https://localhost" },
     { state: "stopped", origin: "javascript:alert(1)" }, { state: "toString", origin }, { state: "__proto__", origin },
-    // an included-AI state from before Cloud Pro dropped included AI
     { state: "allowance_used", origin }]) {
     assert.equal(parseCloudSummary(input), null, JSON.stringify(input));
   }
@@ -58,11 +56,9 @@ test("connecting uses the pairing page with the code in the hash, or the machine
   assert.equal(cloudHomeConnectUrl({ origin, grant: { origin, code, expiresAt: NOW } }, NOW), origin);
   assert.equal(cloudHomeConnectUrl({ origin, grant: { origin: "https://other.fly.dev", code, expiresAt: NOW + 1 } }, NOW), origin);
   assert.equal(cloudHomeConnectUrl({ origin, grant: null }, NOW), origin);
-  // Use your Cloud on your phone: the one fixed request, before the hash, which keeps the code.
   assert.equal(cloudHomeConnectUrl({ origin, grant: { origin, code, expiresAt: NOW + 1 } }, NOW, "phone"), `${origin}/pair?desktop-settings=phone#code=${code}`);
   assert.equal(cloudHomeConnectUrl({ origin, grant: null }, NOW, "phone"), `${origin}/?desktop-settings=phone`);
   assert.equal(cloudHomeConnectUrl({ origin, grant: null }, NOW, "evil"), origin);
-  // The link the existing Connect-to-a-server flow accepts.
   assert.deepEqual(environments.parseHostedWorkspaceLink(`${origin}/pair#code=${code}`), { origin, code, url: `${origin}/pair#code=${code}` });
 });
 
@@ -72,7 +68,7 @@ async function admin(t) {
     entitlement: { plan: "pro", status: "active", expiresAt: NOW + 30 * 86_400_000, version: 3 } };
   const identity = () => ({ cloudContractVersion: 1, expiresAt: f.now + 86_400_000, device: { id: "fixture-device" }, account: { id: "fixture-account", email: "person@example.test" } });
   const server = createServer(async (req, res) => {
-    for await (const _chunk of req) { /* drain */ }
+    for await (const _chunk of req) {}
     f.requests.push(`${req.method} ${req.url} ${req.headers.authorization === `Bearer ${accessToken}` ? "token" : "anonymous"}`);
     const send = (status, data) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(data)); };
     if (req.url === "/api/cloud/desktop/authorize") return send(201, { cloudContractVersion: 1, deviceCode: "A".repeat(43), userCode: "ABCDE-FGHJK",
@@ -192,12 +188,10 @@ test("main lists the machine from verified states only, and connects without a d
   assert.deepEqual(navigated, [`${origin}/pair#code=${code}`]);
   assert.equal(context.environmentsState.activeId, "cloud-home-id");
   assert.equal(minted, 1);
-  // Already signed in there: switch without minting another code.
   signedIn = true;
   await context.connectCloudHome();
   assert.deepEqual(navigated.at(-1), origin);
   assert.equal(minted, 1);
-  // Use your Cloud on your phone lands on its phone pairing, signed in or not.
   await context.connectCloudHome("phone");
   assert.deepEqual(navigated.at(-1), `${origin}/?desktop-settings=phone`);
   signedIn = false;
@@ -215,7 +209,6 @@ test("setup progress, a failed setup's next try and the disk are read when the A
   assert.deepEqual(parseCloudSummary({ state: "setting_up", setup: { step: "starting", slow: true } }), { status: "provisioning", setup: { step: "starting", slow: true } });
   assert.deepEqual(parseCloudSummary({ state: "setting_up", setup: { step: "checking", slow: "yes" } }), { status: "provisioning", setup: { step: "checking" } });
   for (const setup of [{ step: "booting" }, { step: "constructor" }, "storage", null, []]) assert.deepEqual(parseCloudSummary({ state: "setting_up", setup }), { status: "provisioning" });
-  // Steps only while setting up; a retry time only when failed.
   assert.deepEqual(parseCloudSummary({ state: "ready", origin, setup: { step: "storage" }, retryAt: NOW }), { status: "ready", origin });
   assert.deepEqual(parseCloudSummary({ state: "failed", retryAt: NOW + 60_000 }), { status: "failed", retryAt: NOW + 60_000 });
   assert.deepEqual(parseCloudSummary({ state: "failed", retryAt: "soon" }), { status: "failed" });
@@ -231,10 +224,8 @@ test("a payment being linked is read on its own, and only in its two known state
 
 test("a plan's disk is only what the Admin says; without its word a move is measured against today's free space", () => {
   const GB = 1024 ** 3, paid = tier => ({ status: "connected", entitlement: { plan: "pro", ...(tier ? { tier } : {}), status: "active", expiresAt: NOW + 1, version: 1 } });
-  // Today's Admin sends no disk: no plan is assumed to grow (Pro's disk is fixed unless the Admin is set to let it grow).
   for (const tier of ["personal", "pro", undefined, "max", "team"]) assert.equal(cloudPlanDisk({ ...paid(tier), machine: { status: "ready", origin } }), null);
   assert.deepEqual(cloudPlanDisk({ ...paid("pro"), machine: { status: "ready", origin, disk: { gb: 10, maxGb: 50 } } }), { volumeBytes: 10 * GB, maxBytes: 50 * GB });
-  // The top plan is marked, so nobody on it is pointed at a larger one.
   assert.deepEqual(cloudPlanDisk({ ...paid("max"), machine: { status: "ready", origin, disk: { gb: 30, maxGb: 80 } } }), { volumeBytes: 30 * GB, maxBytes: 80 * GB, largest: true });
   for (const state of [null, { status: "signed-out" }, { status: "unavailable", lastPlan: { tier: "max", active: true } },
     { status: "connected", entitlement: { plan: "free", status: "inactive", expiresAt: null, version: 0 }, machine: { status: "ready", origin, disk: { gb: 10, maxGb: 10 } } }]) assert.equal(cloudPlanDisk(state), null);
@@ -249,8 +240,6 @@ test("the Cloud's address is remembered through a failed check for the same acco
   known = rememberedCloudHome(known, { status: "reauth-required", account });
   assert.deepEqual(known, { accountId: "a1", origin });
   assert.equal(rememberedCloudHome(known, { status: "connected", account: { id: "a2", email: "other@example.test" } }), null);
-  // A check that names the machine without its address (stopped) keeps it;
-  // one that names no machine for this account forgets it.
   assert.deepEqual(rememberedCloudHome(known, { status: "connected", account, machine: { status: "stopped" } }), { accountId: "a1", origin });
   assert.equal(rememberedCloudHome(known, { status: "connected", account }), null);
   assert.equal(rememberedCloudHome(known, { status: "signed-out" }), null);
@@ -278,10 +267,8 @@ test("the Server menu opens My Cloud through the Cloud's own connection, never a
   vm.runInContext(`${source.slice(start, end)}; this.switchEnvironment = switchEnvironment; this.remember = value => { rememberedHome = value; };`, context);
   await context.switchEnvironment("cloud");
   assert.deepEqual(calls, ["connect"]);
-  // Another server opens as before.
   calls.length = 0; await context.switchEnvironment("vps");
   assert.deepEqual(calls, ["active:vps", `navigate:${other.origin}`]);
-  // later.dog Cloud cannot be asked (a check failed, the sign-in ended): known by its remembered address.
   context.environmentsState = { environments: [entry, other], activeId: environments.LOCAL_ID };
   context.cloudAccount = { homeTarget: () => null }; context.remember({ accountId: "a1", origin });
   connect = async () => { calls.push("connect"); throw new Error("Your Cloud is not ready to connect yet."); };
@@ -289,7 +276,6 @@ test("the Server menu opens My Cloud through the Cloud's own connection, never a
   assert.deepEqual(calls, ["connect", "settings"], "not signed in there: Settings → later.dog Cloud says what to do next");
   signedIn = true; calls.length = 0; await context.switchEnvironment("cloud");
   assert.deepEqual(calls, ["connect", "active:cloud", `navigate:${origin}`], "signed in there already: it opens as any server does");
-  // Without a Cloud sign-in on this computer, a saved entry is just a server.
   context.cloudAccount = null; context.environmentsState = { environments: [entry, other], activeId: environments.LOCAL_ID };
   calls.length = 0; await context.switchEnvironment("cloud");
   assert.deepEqual(calls, ["active:cloud", `navigate:${origin}`]);

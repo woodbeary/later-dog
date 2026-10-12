@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { DESKTOP_PERMISSIONS, permissionChecklist, permissionStatus, requestPermission } from "./mac-permissions.mjs";
 
-/** A fake systemPreferences/desktopCapturer pair that records every call. */
 function macHost(state = {}) {
   const calls = [];
   const tcc = { microphone: "not-determined", screen: "not-determined", accessibility: false, ...state };
@@ -50,13 +49,11 @@ test("macOS TCC words map onto the checklist's four statuses", () => {
 test("the checklist reads each grant live and never prompts", () => {
   const { host, calls } = macHost({ microphone: "granted", screen: "denied", accessibility: true });
   assert.deepEqual(permissionChecklist(host), { microphone: "granted", accessibility: "granted", screen: "denied" });
-  // Accessibility is read with prompt=false: a status read must not pop a dialog.
   assert.deepEqual(calls, [
     ["getMediaAccessStatus", "microphone"],
     ["isTrustedAccessibilityClient", false],
     ["getMediaAccessStatus", "screen"],
   ]);
-  // An app macOS never asked about reads as denied: AXIsProcessTrusted has no third answer.
   assert.equal(permissionChecklist(macHost({ accessibility: false }).host).accessibility, "denied");
 });
 
@@ -66,7 +63,6 @@ test("anywhere but macOS there is nothing to ask for", async () => {
     assert.deepEqual(permissionChecklist({ platform, systemPreferences: {} }), unavailable);
     assert.deepEqual(await requestPermission("screen", { platform }), unavailable);
   }
-  // A macOS build whose Electron lacks a surface fails closed, not thrown.
   assert.deepEqual(permissionChecklist({ platform: "darwin", systemPreferences: {} }),
     { microphone: "unavailable", accessibility: "unavailable", screen: "unavailable" });
 });
@@ -80,7 +76,6 @@ test("a request shows that grant's real prompt and answers with the whole checkl
   await requestPermission("accessibility", accessibility.host);
   assert.deepEqual(accessibility.calls[0], ["isTrustedAccessibilityClient", true]);
 
-  // Screen Recording's only prompt is a real capture: one 1×1 thumbnail, discarded.
   const screen = macHost();
   assert.deepEqual(await requestPermission("screen", screen.host), { microphone: "notDetermined", accessibility: "denied", screen: "granted" });
   assert.deepEqual(screen.calls[0], ["getSources", { types: ["screen"], thumbnailSize: { width: 1, height: 1 } }]);
@@ -106,7 +101,6 @@ test("the app wires the checklist to local-only channels and the same privacy pa
   assert.match(main, /import \{ cuaStartsAfterGrant \} from "\.\/cua-grant\.mjs";/);
   assert.match(main, /ipcMain\.handle\("perm:checklist", localOnly\("perm:checklist", \(\) => startCuaWhenGranted\(permissionChecklist\(macPermissionHost\(\)\)\)\)\);/);
   assert.match(main, /ipcMain\.handle\("perm:request", localOnly\("perm:request", async \(_event, permission\) => startCuaWhenGranted\(await requestPermission\(permission, macPermissionHost\(\)\)\)\)\);/);
-  // The bridge names grants "microphone"; the pane map knows that name.
   assert.match(main, /microphone: "Privacy_Microphone",/);
   assert.match(main, /accessibility: "Privacy_Accessibility",/);
   assert.match(main, /screen: "Privacy_ScreenCapture",/);

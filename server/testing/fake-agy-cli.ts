@@ -1,17 +1,4 @@
 #!/usr/bin/env node
-// Fake of the Antigravity `agy` CLI's print-mode stdio surface, for driver
-// tests of drivers/antigravity.ts. On `--version` it prints a version; in
-// stream-json input mode it reads one user event from stdin, then emits a
-// canned NDJSON turn: init → tool
-// step (ACTIVE then DONE) → agent_response step with usage → result with
-// status SUCCESS. Deterministic, no network.
-//
-//   FAKE_AGY_MODE=ask-peer
-//     reads later.dog's temporary `laterdog-agents` entry from agy's
-//     global MCP config, calls list_bots then ask_bot, and returns the peer's
-//     real reply. This pins the Antigravity/Gemini comms path end to end.
-//
-// Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -44,7 +31,6 @@ function agentsMcpEntry(): McpEntry | null {
   }
 }
 
-/** Minimal MCP stdio client matching the real config shape used by agy. */
 function driveMcp(
   entry: McpEntry,
   calls: Array<{ name: string; args: (previous: string) => object }>,
@@ -56,7 +42,7 @@ function driveMcp(
       stdio: ["pipe", "pipe", "inherit"],
     });
     let settled = false;
-    let step = -1; // -1 = initialize in flight
+    let step = -1;
     let last = "";
 
     const finish = (error?: Error) => {
@@ -175,7 +161,6 @@ if (streamInput) {
         : undefined;
   } catch {}
 } else {
-  // Retained for tests of old callers; production prompt paths use stdin.
   const printIdx = Math.max(argv.indexOf("--print"), argv.indexOf("-p"));
   prompt = printIdx !== -1 ? argv[printIdx + 1] : undefined;
 }

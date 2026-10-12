@@ -1,6 +1,3 @@
-// The reel's scenes, all drawn in code: no recordings to ship, and every
-// skin and locale gets the same picture. REEL is the order they play in;
-// each scene reports its own mascot cues and its own end.
 import type { ComponentType } from "react";
 import { AgentChat } from "./AgentChat";
 import { Automations } from "./Automations";
@@ -21,8 +18,6 @@ const SCENES: Record<string, ComponentType<SceneProps>> = {
   terminal: Terminal,
 };
 
-/** Scene ids in playing order. later.dog publishes no npm launcher (the terminal scene types `npx laterdog`, upstream's
- * package) and no phone app, so that scene stays out of its reel. */
 export const REEL = ["agents", "hands", "setup", "channels", "automations"] as const;
 
 export function sceneFor(id: string): ComponentType<SceneProps> | null {

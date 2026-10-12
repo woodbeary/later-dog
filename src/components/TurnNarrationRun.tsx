@@ -1,6 +1,3 @@
-// A settled turn's intermediate assistant messages. Providers such as Grok
-// narrate before tools; the messages stay available without looking like six
-// separate final answers after the turn is done.
 import { useEffect, useState } from "react";
 import { Check, ChevronRight } from "lucide-react";
 

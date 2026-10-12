@@ -18,13 +18,11 @@ export class GitHubPublisher {
   private async git(dir: string, args: string[]) {
     return requireSuccess(await this.run("git", ["-c", "core.hooksPath=/dev/null", ...args], { cwd: dir, timeoutMs: 120_000 }), "Git operation");
   }
-  /** Whether gh can act on GitHub from this host the way publishing will use it: `GH_TOKEN` when set, else gh's stored login. The credential itself is never read. */
   async access(): Promise<GitHubAccess> {
     const source: GitHubAccess["source"] = process.env.GH_TOKEN ? "GH_TOKEN" : "gh-login";
     try {
       const result = await this.run("gh", ["api", "user", "--jq", ".login"], { timeoutMs: 30_000 });
       const login = result.stdout.trim();
-      // gh's own advice ("run gh auth login") is about the machine it runs on; on a hosted supervisor the fix is the secret.
       if (result.exitCode !== 0 || !login) {
         return { authenticated: false, source, detail: `No GitHub credential where the supervisor runs. Connect GitHub from the Workspace (or run pnpm laterdog:github) and authorize the code at github.com/login/device. ${describeFailure(result, "gh")}` };
       }
@@ -33,7 +31,6 @@ export class GitHubPublisher {
       return { authenticated: false, source, detail: error instanceof Error ? error.message : String(error) };
     }
   }
-  /** The branch a new job starts from when nobody configured one: the repository's own default branch. */
   async defaultBranch(slug: string): Promise<string> {
     const result = await this.gh(["api", `repos/${slug}`, "--jq", ".default_branch"]);
     const branch = result.stdout.trim();
@@ -63,7 +60,6 @@ export class GitHubPublisher {
   async publish(job: Job, repo: Repository, patch: string, summary?: string): Promise<PublishedResult> {
     if (!repo.publish) throw new Error("PR publication is not enabled for this repository");
     if (!job.baseSha || !job.sourceRef) throw new Error("Job has no pinned starting commit");
-    // git apply rejects a diff without its final newline as corrupt; artifacts collected before that was fixed lack it.
     if (patch.trim() && !patch.endsWith("\n")) patch = `${patch}\n`;
     const dir = join(this.root, job.id);
     mkdirSync(this.root, { recursive: true, mode: 0o700 });
@@ -74,7 +70,6 @@ export class GitHubPublisher {
         if (await this.git(dir, ["rev-parse", "FETCH_HEAD"]) !== job.baseSha) throw new Error("Cloud input ref no longer matches the recorded starting commit");
         await this.git(dir, ["checkout", "-b", job.outputBranch, job.baseSha]);
       } catch (error) {
-        // A half-built checkout would block every retry with "unstaged changes" or a missing branch; only a completed checkout is worth keeping.
         rmSync(dir, { recursive: true, force: true });
         throw error;
       }
@@ -130,7 +125,6 @@ export class GitHubPublisher {
     let verdict: Verification["verdict"] = "blocked";
     const checks = JSON.parse(requireSuccess(await this.gh(["api", `repos/${repo.slug}/commits/${headSha}/check-runs?per_page=100`]), "Read check runs")) as { total_count?: number; check_runs: { name: string; status: string; conclusion: string | null; html_url: string }[] };
     const statuses = JSON.parse(requireSuccess(await this.gh(["api", `repos/${repo.slug}/commits/${headSha}/status?per_page=100`]), "Read commit statuses")) as { total_count?: number; statuses: { context: string; state: string; target_url: string }[] };
-    // Both APIs can truncate; incomplete evidence never qualifies a commit.
     const incomplete = (checks.total_count ?? checks.check_runs.length) > checks.check_runs.length || (statuses.total_count ?? statuses.statuses.length) > statuses.statuses.length;
     const latestStatuses = [...new Map(statuses.statuses.slice().reverse().map((status) => [status.context,status])).values()];
     const results: { command: string[]; exitCode: number; output: string }[] = [];

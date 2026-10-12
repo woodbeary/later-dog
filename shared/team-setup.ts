@@ -5,7 +5,6 @@ export interface TeamSetupFields {
   title?: string;
   description?: string;
   soul?: string;
-  /** Create only: the folder the new bot's tools work in. "" = private workspace. */
   cwd?: string;
   section?: string;
   modelSelection?: ModelSelection;
@@ -27,7 +26,6 @@ export interface TeamSetupResult {
   error?: string;
 }
 
-/** The complete, reviewed operation. It never accepts executable permissions. */
 export interface TeamSetupRequest {
   version: 1;
   requestId: string;

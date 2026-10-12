@@ -17,8 +17,6 @@ const PASSWORD = "fixture-only backup password";
 const SUMMARY = { format: "laterdog.workspace-backup", version: 1, id: UPLOAD_ID, bytes: 4096, bots: 1, conversations: 2, messages: 3 };
 const partEtag = partNumber => `"${partNumber.toString(16).padStart(32, "0")}"`;
 
-// These are synthetic opaque container bytes, not a real encrypted workspace.
-// The real encryption and replacement workflow is tested by the server fixture.
 function archiveChunk(offset, length) {
   const chunk = Buffer.alloc(length, 0xa5);
   if (offset < MAGIC.length) MAGIC.copy(chunk, 0, offset, Math.min(MAGIC.length, offset + length));
@@ -502,7 +500,6 @@ for (const [stage, limit] of [["upload", 4096], ["preview", 2 * 1024 * 1024]]) {
       },
     });
     await assert.rejects(f.restore(), { code: "invalid_response" });
-    // Stream adapters may prefetch a chunk, but cannot consume the entire body.
     assert(readBytes < totalBytes);
     assert.equal(cancelled, true);
     if (stage === "upload") assert(!f.localCalls.some(call => call.route.endsWith("/preview")));

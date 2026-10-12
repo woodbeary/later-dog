@@ -102,7 +102,6 @@ describe("login and logout against the control plane", () => {
     expect([...stub.installations.values()][0]).toMatchObject({ platform: platformName() });
     if (posix) expect(statSync(join(dir, TUNNEL_CREDENTIALS_FILE)).mode & 0o777).toBe(0o600);
 
-    // status mentions the address without touching the network
     const status = fakeIo([]);
     await runStatus(options(dir, { command: "status" }), status.io);
     expect(status.out.join("\n")).toContain(`public address: ${stub.endpointUrl}`);
@@ -123,7 +122,6 @@ describe("login and logout against the control plane", () => {
     const restarts: ManagedTunnelAccess[] = [];
     const running: RunningTunnel = {
       address: stub.endpointUrl,
-      // The connector checked its route once and still says ready.
       state: () => ({ status: "ready", ready: true }),
       started: Promise.resolve({ status: "ready", ready: true }),
       restart: async (access) => {
@@ -154,13 +152,11 @@ describe("login and logout against the control plane", () => {
       for (const callback of due) callback();
     };
     try {
-      // serve starts the tunnel, then hands it to the service.
       serving = running;
       await account.service.restore();
       expect(stub.calls.filter((call) => call === "GET /v1/installations/self/endpoint")).toHaveLength(1);
       expect(restarts).toEqual([]);
 
-      // Weeks offline with the process alive; the control plane reclaimed the tunnel.
       const replacement = stub.reclaim();
       clock += 30 * 24 * 60 * 60_000;
       fire();
@@ -168,7 +164,6 @@ describe("login and logout against the control plane", () => {
       expect(tunnelAccess(openTunnelCredentials(dir).read())).toEqual({ endpoint: stub.endpointUrl, token: replacement });
       expect(stub.calls.filter((call) => call === "POST /api/auth/email-otp/send-verification-otp")).toHaveLength(1);
 
-      // Once serve stops, nothing is checked any more.
       serving = null;
       account.service.dispose();
       expect(pending.size).toBe(0);
@@ -201,7 +196,6 @@ describe("where the pieces are", () => {
     } finally {
       void removeTempDir(bundled);
     }
-    // a checkout: the source files
     expect(guardianEntry()).toMatch(/managed-companion-guardian-main\.mjs$/);
   });
 
@@ -239,7 +233,6 @@ describe.skipIf(!posix)("startTunnel: guardian, gateway and connector, verified 
       binaryPath: fake,
       guardian: guardian ?? "",
       env: { ...process.env, LATERDOG_TUNNEL_ORIGIN_PORT: String(originPort) },
-      // the public address does not exist here; verify through the gateway instead
       fetchImpl: (input, init) => fetch(String(input).replace(endpoint, `http://127.0.0.1:${originPort}`), init),
       onState: (state) => states.push(state.status),
     });
@@ -249,7 +242,6 @@ describe.skipIf(!posix)("startTunnel: guardian, gateway and connector, verified 
       const viaGateway: any = await (await fetch(`http://127.0.0.1:${originPort}/api/health`)).json();
       expect(viaGateway.app).toBe("laterdog");
       expect(viaGateway.peer).toBeNull();
-      // the connector is spawned right after the gateway binds; its shell writes the pid a moment later
       const connectorPidOtherThan = async (previous: number) => {
         let pid = 0;
         for (let tries = 0; tries < 50 && (!pid || pid === previous); tries += 1) {
@@ -260,10 +252,8 @@ describe.skipIf(!posix)("startTunnel: guardian, gateway and connector, verified 
       };
       const firstPid = await connectorPidOtherThan(0);
       expect(firstPid).toBeGreaterThan(0);
-      // An unchanged token leaves the running connector alone ...
       expect((await tunnel.restart({ endpoint, token: `connector-${"t".repeat(60)}` })).status).toBe("ready");
       expect(Number(readFileSync(pidFile, "utf8").trim())).toBe(firstPid);
-      // ... and a re-provisioned one (idle reclaim recovery) replaces it.
       expect((await tunnel.restart({ endpoint, token: `connector-${"u".repeat(60)}` })).status).toBe("ready");
       const connectorPid = await connectorPidOtherThan(firstPid);
       expect(connectorPid).toBeGreaterThan(0);

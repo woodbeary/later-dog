@@ -1,48 +1,3 @@
-/**
- * Bakes the mascot body catalog into `shared/mascot-bodies.ts`.
- *
- * Run with `pnpm gen:bodies`. Everything downstream of this script — the picker, the
- * renderer, the persisted bot profile — reads the emitted module and never re-derives
- * geometry at runtime, because solving a face placement costs tens of millions of
- * distance samples and the answer never changes between runs.
- *
- * The pipeline, per body:
- *
- *   flatten            outline path data -> polylines
- *   boundsOf           the drawn extent, NOT the advisory `viewBox`
- *   fitTransform       that extent -> the mascot's face box
- *   applyFit           polylines in face space
- *   maskFromPolylines  a filled binary mask
- *   fieldFromMask      a signed distance field
- *   maxScaleAt         where the face goes and how big it can be
- *
- * Two things make the result honest rather than merely plausible:
- *
- * 1. Four aims. The avatar renders faces `forward`, which cancels each expression's
- *    authored gaze and hands the pointer its full travel — so the eyes can be pulled to
- *    any corner. Each body is solved against all four extreme aims at once and keeps the
- *    WORST of them. A single centred solve yields a face that clips the moment the mouse
- *    moves. Solving the aims separately and keeping the smallest answer is not enough
- *    either: each aim's best anchor is somewhere else, and a face has exactly one anchor.
- *    So the four aims' point clouds are pooled into a single constraint set, and the
- *    solver looks for one placement that satisfies all of them together.
- *
- * 2. One shared size. The smallest scale in the catalog is applied to every body, and
- *    each body's anchor is then re-solved at that fixed size. Roomier bodies get more
- *    margin rather than a bigger face, which is what makes the ten read as one character
- *    wearing different bodies instead of ten unrelated mascots.
- *
- * The run fails, loudly and with a non-zero exit, if any expression would clip at any
- * body's final anchor at any aim. That assertion is the feature's correctness guarantee:
- * if it fires, an outline or the face data is wrong. Fix the geometry, never the check.
- *
- * The output is deterministic — no clock, no environment, no unordered iteration — so a
- * fresh run reproduces the checked-in file byte for byte.
- *
- * Plain TypeScript only: this is loaded by `node --experimental-strip-types`, so nothing
- * beyond type annotations the stripper can erase.
- */
-
 import { writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
@@ -53,18 +8,11 @@ import { maskFromPolylines } from "./mascot-bodies/raster.ts"
 import { fieldFromMask, largestInscribedCircle, type Sdf } from "./mascot-bodies/sdf.ts"
 import { buildClouds, maxScaleAt, report } from "./mascot-bodies/solve.ts"
 
-/** The id the catalog falls back to: later.dog's own body, the one a new bot wears. */
 const DEFAULT_ID = "dog"
-/** The body whose face size sets the floor: the default dog's, so no body's face is smaller than the one most bots wear. */
 const FLOOR_ID = DEFAULT_ID
 
-/**
- * `Avatar.tsx` renders every expression facing forward, which zeroes the authored gaze
- * offsets. The pointer supplies all of the eye travel instead, via `aim`.
- */
 const LOOK_AROUND = 0
 
-/** The four corners of the pointer's travel. The face must survive all of them. */
 const AIMS = [
   { x: -1, y: -1 },
   { x: 1, y: -1 },
@@ -72,7 +20,6 @@ const AIMS = [
   { x: 1, y: 1 },
 ] as const
 
-/** Mask resolution. 256 puts a pixel at ~0.9 face-space units. */
 const RASTER_SIZE = 256
 
 interface Anchor {
@@ -81,71 +28,30 @@ interface Anchor {
   scale: number
 }
 
-/**
- * `fitTransform`'s full result — the SVG transform string the web renderer parses, plus
- * its numeric components. iOS has no SVG transform parser: it builds a `CGAffineTransform`
- * straight from `scale`/`tx`/`ty`, which is the whole reason `fitTransform` returns both.
- */
 type Fit = ReturnType<typeof fitTransform>
 
 interface Solved {
   def: BodyDef
   fit: Fit
   sdf: Sdf
-  /** Tight bounds of the outline in its own path space, before the fit. */
   extent: Bounds
-  /** The largest face this body can hold at one anchor that survives all four aims. */
   scale: number
-  /** That anchor, used to seed the re-solve once the catalog's shared scale is known. */
   seed: Anchor
 }
 
-/* ------------------------------------------------------------------- solving */
-
-/** The four aims' point clouds, built once and reused across every anchor candidate. */
 const CLOUD_SETS = AIMS.map(aim => buildClouds(LOOK_AROUND, MOUTH_STROKE, aim))
 
-/**
- * Every expression at every aim, pooled into one constraint set.
- *
- * It is tempting to solve each aim on its own and keep the smallest of the four answers.
- * That is wrong, and quietly so. Each aim's best anchor sits somewhere different, so the
- * per-aim minimum is only an UPPER BOUND on what a real placement can deliver — it promises
- * a face size that no single anchor achieves. A face has exactly one anchor and cannot move
- * it when the pointer moves, so the four aims are constraints on the same placement and
- * have to be satisfied together. Pooling them is what makes the solved size honest; solved
- * separately, the shipped cursor reads as 0.892 against artwork that has always been 0.74.
- */
 const ALL_CLOUDS = CLOUD_SETS.flat()
 
-/** The scale cap. 1.0 reproduces the proportions the expressions were drawn at. */
 const CAP = 1
 
-/** Runs one body through the whole geometry pipeline and solves it against all four aims. */
 function solveBody(def: BodyDef): Solved {
-  // `def.viewBox` is advisory and deliberately wrong for two bodies; bounds always come
-  // from the flattened outline.
   const polylines = flatten(def.d)
   const extent = boundsOf(polylines)
   const fit = fitTransform(extent)
   const mask = maskFromPolylines(applyFit(polylines, fit), RASTER_SIZE)
   const sdf = fieldFromMask(mask, RASTER_SIZE)
 
-  // Seed at the largest inscribed circle, then sweep outward: a slightly worse-centred
-  // anchor often holds a bigger face, because the widest part of a body is rarely where
-  // its roundest part is.
-  //
-  // Coarse to fine, and deliberately WITHOUT an early `if (!improved) break`. Each level
-  // sweeps its ring exactly once and then halves the step regardless of outcome — it never
-  // repeats at one step until failure, so a ring that improves nothing does not mean the
-  // neighbourhood at that scale is exhausted, only that these particular offsets missed.
-  // Breaking on that assumption silently truncates the search: a ring's failure says nothing
-  // about the next, finer ring, which probes an entirely different set of points. The cursor
-  // is exactly that case — its coarsest ring improves nothing, so an early break would report
-  // the seed's own capacity and never look further in. Since the tightest body sets the clamp
-  // for the whole catalog, one truncated search shrinks every mascot — this cost a real 5%
-  // face-size regression once. Halving the step and running every level regardless is cheap,
-  // and the clipping assertion downstream is what makes searching harder safe.
   const circle = largestInscribedCircle(sdf)
   let best: Anchor = {
     x: circle.x,
@@ -166,8 +72,6 @@ function solveBody(def: BodyDef): Solved {
     step /= 2
   }
 
-  // Rounding for a tidy export can nudge a marginal expression back over the edge, so
-  // round first and then walk the scale down until the rounded numbers are honestly clean.
   const seed: Anchor = {
     x: round(best.x, 2),
     y: round(best.y, 2),
@@ -180,7 +84,6 @@ function solveBody(def: BodyDef): Solved {
   return { def, fit, sdf, extent, scale: seed.scale, seed }
 }
 
-/** Worst clearance across every expression at every aim. Negative means something clips. */
 function clearanceAt(sdf: Sdf, anchor: Anchor): number {
   let worst = Infinity
   for (const clouds of CLOUD_SETS) {
@@ -190,21 +93,12 @@ function clearanceAt(sdf: Sdf, anchor: Anchor): number {
   return worst
 }
 
-/** Which expressions clip, per aim, at a placement. Empty arrays mean the placement is clean. */
 function clippingAt(sdf: Sdf, anchor: Anchor): number[][] {
   return CLOUD_SETS.map(clouds => report(clouds, sdf, anchor).clipping)
 }
 
 const round = (n: number, places: number) => Number(n.toFixed(places))
 
-/**
- * Re-solves a body's anchor with the scale held at the catalog's shared size.
- *
- * A coarse-to-fine sweep: evaluate a grid around the current best, keep the best
- * clearance, halve the step, repeat. Candidates are rounded to the precision they will be
- * emitted at before they are scored, so the winning anchor is one that was actually
- * measured — rounding afterwards could quietly nudge a marginal expression over the edge.
- */
 function anchorAt(sdf: Sdf, seed: Anchor, scale: number): Anchor {
   const circle = largestInscribedCircle(sdf)
   const candidates: Anchor[] = [
@@ -243,8 +137,6 @@ function anchorAt(sdf: Sdf, seed: Anchor, scale: number): Anchor {
   return best
 }
 
-/* ------------------------------------------------------------------ emitting */
-
 const quote = (s: string) => JSON.stringify(s)
 
 interface Baked {
@@ -254,21 +146,8 @@ interface Baked {
   d: string
   anchor: Anchor
   clearance: number
-  /**
-   * Tight bounds of the fitted outline in the face box, measured on the flattened curve.
-   * Only the Kotlin catalog carries them: Android's native path bounds are the cubic
-   * control hull, which is wider than the drawn shape, and the gradient's corners have to
-   * sit on the shape — the desktop reads `getBBox()` and iOS `boundingBoxOfPath`, both tight.
-   */
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
-  /**
-   * The same tight bounds in the outline's own path space, before the fit. The web
-   * catalog carries these so the renderer can pin the body's gradient to the outline in
-   * user space: a part drawn over the body (the dog's ears) then takes the exact shading
-   * of the body underneath it instead of a gradient of its own.
-   */
   extent: Bounds
-  /** `BodyDef.decorations`, carried through verbatim. */
   decorations?: string
 }
 
@@ -291,29 +170,8 @@ function emit(bodies: Baked[]): string {
     )
     .join("\n")
 
-  return `/**
- * The mascot bodies a bot can wear.
- *
- * GENERATED FILE — do not hand-edit. Run \`pnpm gen:bodies\` to rebuild it from
- * \`scripts/gen-mascot-bodies.ts\`, which solves each face placement against the real
- * expression geometry and verifies that nothing clips.
- *
- * Every body carries the same face at the same size: the generator clamps the whole
- * catalog to the smallest face any one body can hold, so the mascot reads as one
- * character in different bodies rather than ten different mascots. Roomier bodies simply
- * end up with more margin around the face.
- *
- * The fields match \`CursorSilhouette\` exactly, so a body can be handed to the renderer
- * with no adapter in between.
- *
- * A body may also carry \`decorations\`: parts drawn over the outline in the same gradient
- * (the dog's two ears), each with a stable class that \`src/styles.css\` moves with the
- * mascot's state. They are web-only — the native catalogs draw the outline alone.
- */
+  return `import { z } from "zod";
 
-import { z } from "zod";
-
-/** Every selectable body id, in the order the picker shows them. */
 export const MASCOT_BODY_IDS = [${ids}] as const;
 
 export type MascotBodyId = (typeof MASCOT_BODY_IDS)[number];
@@ -322,51 +180,27 @@ export const mascotBodySchema = z.enum(MASCOT_BODY_IDS);
 
 export interface MascotBody {
   id: MascotBodyId;
-  /** Human-readable name, used for the picker and the accessible label. */
   name: string;
-  /** Transform mapping the outline into the face box. */
   fit: string;
-  /** Body markup. \`{{GRADIENT}}\` is replaced with the bot's own gradient. */
   body: string;
-  /** The same outline without a fill, used as the clip region. */
   clip: string;
-  /**
-   * Tight bounds of the outline in its own path space. The renderer pins the body's
-   * gradient to this box in user space, so a decoration drawn over the body takes the
-   * body's shading exactly.
-   */
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
-  /**
-   * Parts drawn over the body in the same gradient, in the same path space as \`body\`,
-   * with \`{{GRADIENT}}\` replaced the same way. Absent for a plain outline.
-   */
   decorations?: string;
-  /** Where the face sits inside the body, in face-space units. */
   anchor: { x: number; y: number; scale: number };
 }
 
-/** The shipped mascot, and the fallback for any unrecognised value. */
 export const DEFAULT_MASCOT_BODY: MascotBodyId = ${quote(DEFAULT_ID)};
 
 export const MASCOT_BODIES: Record<MascotBodyId, MascotBody> = {
 ${entries}
 };
 
-/** Runtime-safe read of an untrusted persisted or streamed body id. */
 export function botMascotBody(value: unknown): MascotBodyId {
   return mascotBodySchema.safeParse(value).data ?? DEFAULT_MASCOT_BODY;
 }
 `
 }
 
-/* -------------------------------------------------------------- emitting (iOS) */
-
-/**
- * Wraps space-separated path tokens onto lines no wider than `width`, breaking only at
- * whitespace — never inside a token — matching how `DogSilhouette.path` in
- * `ios/App/DogAvatar.swift` is already formatted. That parser treats newlines as plain
- * separators, so wrapping changes nothing about how the path reads.
- */
 function wrapPathTokens(d: string, width = 100): string {
   const tokens = d.trim().split(/\s+/)
   const lines: string[] = []
@@ -383,7 +217,6 @@ function wrapPathTokens(d: string, width = 100): string {
   return lines.join("\n")
 }
 
-/** Prefixes every line of `text` with `spaces` worth of indentation. */
 function indent(text: string, spaces: number): string {
   const pad = " ".repeat(spaces)
   return text
@@ -392,18 +225,8 @@ function indent(text: string, spaces: number): string {
     .join("\n")
 }
 
-/** Swift string literal, close enough to JSON escaping for the plain ASCII names and ids here. */
 const swiftQuote = (s: string) => JSON.stringify(s)
 
-/**
- * Emits the same solved catalog as a Swift source file for `CompanionCore`.
- *
- * CoreGraphics types only (`CGFloat`) and no `import SwiftUI`: `CompanionCore` is
- * deliberately view-free (see the header comment in `ios/Package.swift`), and a later
- * task wraps this data in `SwiftUI.Path` on the app side. The fit is emitted as numbers
- * — `scale`/`tx`/`ty` — rather than the SVG transform string the web takes, because Swift
- * has no SVG transform parser and builds a `CGAffineTransform` straight from the numbers.
- */
 function emitSwift(bodies: Baked[]): string {
   const order = bodies.map(s => swiftQuote(s.id)).join(", ")
 
@@ -472,19 +295,8 @@ ${entries}
 `
 }
 
-/* ----------------------------------------------------------- emitting (Android) */
-
-/** A Kotlin `Float` literal. JS prints integers bare and small values in exponent form; both are valid with an `f` suffix. */
 const kotlinFloat = (n: number) => `${n}f`
 
-/**
- * Emits the same solved catalog as a Kotlin source file for the Android app.
- *
- * Plain Kotlin, no Compose: the data is parsed into a `Path` by `DogSilhouette`, which
- * is also where the per-body cache lives. Like the Swift, the fit is numbers rather than
- * the SVG transform string. Unlike the Swift, each body also carries its tight bounds —
- * see `Baked.bounds` for why Android cannot measure them from the path it draws.
- */
 function emitKotlin(bodies: Baked[]): string {
   const order = bodies.map(s => quote(s.id)).join(", ")
 
@@ -568,8 +380,6 @@ ${entries}
 `
 }
 
-/* ---------------------------------------------------------------------- main */
-
 function main(): void {
   const solved = BODY_DEFS.map(solveBody)
 
@@ -646,8 +456,6 @@ function main(): void {
   writeFileSync(out, emit(baked))
   console.log(`wrote ${out}`)
 
-  // The native catalogs are written only when asked for: `--swift <file>` and/or
-  // `--kotlin <file>`.
   for (const [flag, emitNative] of [["--swift", emitSwift], ["--kotlin", emitKotlin]] as const) {
     const at = process.argv.indexOf(flag)
     if (at === -1) continue

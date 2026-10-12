@@ -1,6 +1,4 @@
 #!/usr/bin/env -S node --experimental-strip-types
-// Thin, agent-friendly CLI over the same guarded MCP operations exposed to
-// external clients. It deliberately owns no second API client or wait loop.
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, mkdirSync, mkdtempSync, openSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,12 +12,8 @@ import { removeTempDir, waitForExit } from "../server/testing/cleanup.ts";
 import { freePortBlock } from "../server/testing/ports.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-/** Deterministic name for the seeded starter bot of a verification fixture,
- * deliberately outside the server/names.ts pool so no suite can plan a bot
- * that collides with the starter (#1257). */
 export const FIXTURE_STARTER_BOT_NAME = "Fixture Starter";
 const FAKE_CLI = join(ROOT, "server", "testing", "fake-claude-cli.ts");
-// `ui` verbs never discover anything: each takes the handle its launch printed.
 const MUTATING = new Set([
   "new-bot", "new-channel", "send", "send-channel", "interrupt", "set-model", "edit",
   "ui click", "ui type", "ui press", "ui flag", "ui eval",
@@ -89,7 +83,6 @@ const commonOptions = {
   url: { type: "string" },
 } satisfies ParseArgsOptionsConfig;
 
-/** Strict flag parsing for one command; `ui` verbs parse their tail the same way. */
 export function parse(
   command: string,
   args: string[],
@@ -153,7 +146,6 @@ function dryRun(command: string, values: Record<string, unknown>, tool: string, 
   return values["dry-run"] === true ? { ok: true, dryRun: true, command, tool, arguments: args } : null;
 }
 
-/** Map friendly CLI commands onto the already-tested MCP tool boundary. */
 export async function runControlLaterDog(
   argv: string[],
   dependencies: ControlLaterDogDependencies = {},
@@ -161,7 +153,6 @@ export async function runControlLaterDog(
   const [command = "help", ...args] = argv;
   if (command === "help" || command === "--help" || command === "-h") return HELP;
   if (command === "launch") throw new ControlLaterDogError("launch is available only from the executable CLI");
-  // The first positional after `ui` is the verb; its tail is parsed strictly per verb.
   if (command === "ui") return runControlLaterDogUi(args);
 
   const env = dependencies.env ?? process.env;
@@ -253,11 +244,6 @@ export async function runControlLaterDog(
   }
 
   if (command === "edit") {
-    // The rewind a person performs in the composer: edit an earlier user
-    // message, fork the thread there, and answer again. It is the only
-    // mapped way to make the harness REBUILD a thread rather than resume
-    // the provider's session, which is what a replay path needs to be
-    // observable from the control surface at all.
     const values = parse(command, args, {
       bot: { type: "string" }, message: { type: "string" }, text: { type: "string" },
       task: { type: "string" }, "dry-run": { type: "boolean", default: false },
@@ -329,10 +315,6 @@ export interface VerificationServer {
   close(): Promise<void>;
 }
 
-/** The environment of a verification server child: a temporary home in
- * `dataDir`, the fake engine's knobs from `parentEnv`, node on PATH, and
- * nothing else from the parent shell or this machine's installed CLIs. A
- * test that restarts its own fixture server on the same data uses this too. */
 export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, dataDir: string, port: number): NodeJS.ProcessEnv {
   const childEnv: NodeJS.ProcessEnv = {};
   const platformKeys = new Set(["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ"]);
@@ -356,46 +338,24 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
     LATERDOG_HOME: dataDir,
     LATERDOG_SERVER_PORT: String(port),
     LATERDOG_WEBHOOK_PORT: String(port + 1),
-    // The fixture's default CLI behaviour; a caller that sets
-    // FAKE_CLAUDE_MODE explicitly overrides it below to drive the CLI's
-    // failure paths (exit-early, dead-session, hang...) through the real
-    // server. Nothing else from the parent shell reaches the fixture.
     FAKE_CLAUDE_MODE: parentEnv.FAKE_CLAUDE_MODE || "happy",
     FAKE_CLAUDE_DUMP: join(dataDir, "fake-claude-dump.json"),
-    // Keep the environment hermetic while allowing POSIX to resolve the
-    // fake CLI's `#!/usr/bin/env node` shebang. Windows resolves that same
-    // fixture through spawnCli without a shell.
     PATH: dirname(process.execPath),
-    // ...and keep engine discovery to that PATH and this home. Without it the
-    // server also scans /opt/homebrew/bin, /usr/local/bin and the login
-    // shell's PATH, so a developer's own `codex` (or any engine CLI) becomes
-    // an "available" engine that CI never has (#2035).
     LATERDOG_TEST_SEALED_PATH: "1",
     LATERDOG_TRIAL_API: parentEnv.LATERDOG_TRIAL_API || "off",
   });
-  // The fake engine's own knobs (mode, replies, tool calls) are the one thing
-  // a caller may script into the child: FAKE_CLAUDE_* crosses, nothing else.
   for (const [key, value] of Object.entries(parentEnv)) {
-    // FAKE_CLAUDE_DUMP stays the launcher's: assertions read fixtureDumpPath.
     if (key.startsWith("FAKE_CLAUDE_") && key !== "FAKE_CLAUDE_DUMP" && value) childEnv[key] = value;
   }
-  // A test's key for relaying an organization library into the fixture
-  // (POST /api/testing/org-library); the route does not exist without it.
   if (parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY) childEnv.LATERDOG_TEST_ORG_LIBRARY_KEY = parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY;
-  // Live calls against server/testing/fake-openai-live.ts only: a loopback
-  // URL, and a key that only ever reaches that fake.
   const liveUrl = parentEnv.LATERDOG_OPENAI_LIVE_URL?.trim() ?? "";
   if (/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(liveUrl)) {
     childEnv.LATERDOG_OPENAI_LIVE_URL = liveUrl;
     if (parentEnv.LATERDOG_OPENAI_LIVE_KEY) childEnv.LATERDOG_OPENAI_LIVE_KEY = parentEnv.LATERDOG_OPENAI_LIVE_KEY;
   }
-  // Voice-note e2e fault injection: arms the one-shot audio-append failure
-  // prelude inside the fixture server (see fail-audio-append-once.mjs).
   if (parentEnv.LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE) {
     childEnv.LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE = parentEnv.LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE;
   }
-  // Desktop mode: the server runs as the desktop app runs it, and the owner
-  // capability the app would hand it is this one (see desktop-parent.mjs).
   if (parentEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN) {
     childEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN = parentEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN;
     childEnv.LATERDOG_DESKTOP_PARENT = "1";
@@ -403,19 +363,14 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
   return childEnv;
 }
 
-/** Start one foreground-owned, fake-engine server with no access to user data. */
 export async function launchVerificationServer(
   parentEnv: NodeJS.ProcessEnv = process.env,
   signal?: AbortSignal,
   localVm?: { binDir: string; host: string; sshKey: string; staticDir: string },
   browser?: { binaryPath: string; executablePath: string },
-  /** A stand-in enterprise layer (the folder shape core loads) and the key
-   * it should accept, so a recipe can prove entitled behaviour offline. */
   enterprise?: { dir: string; licenseKey: string },
   room?: { scripted: boolean },
-  /** Optional repository-owned fake providers for multi-engine setup checks. */
   extraProviders: Array<"codex"> = [],
-  /** Programmatic tests only: an owned loopback Boat provider, never a live account. */
   boatFixtureApi?: string,
   laterdogFixture?: { origin: string; token: string; wakeupPullMs?: number },
 ): Promise<VerificationServer> {
@@ -436,8 +391,6 @@ export async function launchVerificationServer(
   const port = await freePortBlock([0, 1]);
   if (signal?.aborted) throw new ControlLaterDogError("verification launch cancelled");
   const url = `http://127.0.0.1:${port}`;
-  // Native browser daemons use UNIX sockets; a macOS temp home can exceed
-  // their path limit. This is still an owned, randomly named fixture only.
   const dataDir = mkdtempSync(join(browser && process.platform !== "win32" ? "/tmp" : tmpdir(), "laterdog-verify-data-"));
   const fixtureTemp = join(dataDir, "tmp");
   const fixtureDumpPath = join(dataDir, "fake-claude-dump.json");
@@ -462,8 +415,6 @@ export async function launchVerificationServer(
 
   const log = openSync(logPath, "a", 0o600);
   const childEnv = verificationServerEnvironment(parentEnv, dataDir, port);
-  // Opt-in live Local VM fixture: keep the temporary home and fake engine,
-  // granting only the explicitly selected machine connection and static UI.
   if (localVm) Object.assign(childEnv, {
     LATERDOG_EXTRA_PATH: [localVm.binDir, ...(process.platform === "win32" ? [join(childEnv.SYSTEMROOT || "C:\\Windows", "System32")] : [])].join(delimiter),
     CONTAINER_HOST: localVm.host,
@@ -477,7 +428,6 @@ export async function launchVerificationServer(
   });
   if (boatFixtureApi) childEnv.LATERDOG_BOX_API = boatFixtureApi;
   if (laterdogFixture) Object.assign(childEnv,{ LATERDOG_SUPERVISOR_URL: laterdogFixture.origin, LATERDOG_TOKEN: laterdogFixture.token,
-    // the fixture's own pull pace, so a test sees a wake-up arrive in seconds (0 turns pulling off)
     ...(laterdogFixture.wakeupPullMs === undefined ? {} : { LATERDOG_WAKEUP_PULL_MS: String(laterdogFixture.wakeupPullMs) }) });
   const serverArgs = ["--experimental-strip-types"];
   if (childEnv.LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE === "1") {
@@ -508,9 +458,7 @@ export async function launchVerificationServer(
         });
         const body = response.ok ? await response.json() as { app?: string } : null;
         if (body?.app === "laterdog") break;
-      } catch {
-        // The server is still starting.
-      }
+      } catch {}
       if (Date.now() >= deadline) throw new Error(`verification server did not become ready; see ${logPath}`);
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
@@ -520,15 +468,7 @@ export async function launchVerificationServer(
     throw error;
   }
 
-  // The first-run seed gives the starter a random friendly name from
-  // server/names.ts, and that pool shares names with bots e2e suites plan
-  // ("Quill" among them). A name-based assertion then reports the starter as
-  // a phantom leaked bot and flakes (#1257). Pin the name so fixture state is
-  // deterministic for every suite built on this launcher; identity remains
-  // the honest comparison in tests either way.
   try {
-    // Seeding is part of launch, not a one-second health probe. First-run
-    // filesystem work can exceed a second on Windows; keep the launch deadline.
     const timeout = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
     const list = await fetch(`${url}/api/bots`, {
       headers: { origin: url },
@@ -574,7 +514,6 @@ export function controlResultSucceeded(command: string, result: unknown): boolea
   return true;
 }
 
-/** pnpm swallows Ctrl-C; a launcher that owns processes must get the signal itself. */
 function requireForegroundTerminal(command: string): void {
   if (process.env.npm_lifecycle_event === "control:laterdog") {
     throw new ControlLaterDogError(

@@ -1,16 +1,3 @@
-/**
- * Where does the face go, and how big can it be?
- *
- * Constraint: every point of every expression — eye outlines and mouth curve — must sit
- * inside the silhouette with a little clearance. The face is placed by an anchor and a
- * uniform scale, so the search space is only three numbers.
- *
- * This module supplies the pieces: `buildClouds` precomputes each expression's points once
- * (which is what makes a few hundred thousand tests cheap), `maxScaleAt` binary-searches
- * the largest face that fits at one anchor, and `report` says which expressions clip at a
- * given placement. The search that drives them is `scripts/gen-mascot-bodies.ts`.
- */
-
 import {
   EXPRESSIONS,
   FACE_CENTRE,
@@ -22,16 +9,10 @@ import {
 } from "../../src/components/cursor-face-data.ts"
 import { sampleSdf, type Sdf } from "./sdf.ts"
 
-/** Required clearance from the silhouette edge, in face-space units. */
 const PAD = 2
 
-/**
- * One expression's points in face space, relative to FACE_CENTRE.
- * `need` is the clearance that point requires — the mouth is a stroked line, so its samples
- * need half the stroke on top of the base padding.
- */
 interface Cloud {
-  points: Float32Array // x, y interleaved
+  points: Float32Array
   need: Float32Array
 }
 
@@ -40,11 +21,6 @@ export interface Aim {
   y: number
 }
 
-/**
- * Builds the point cloud per expression. `lookAround` and `aim` must match what the
- * engine renders, or the clipping report will disagree with what people can plainly see:
- * aiming the eyes at an edge moves every face point toward it.
- */
 export function buildClouds(
   lookAround: number,
   mouthStroke = MOUTH_STROKE,
@@ -67,7 +43,6 @@ export function buildClouds(
       }
     }
 
-    // Sample the mouth curve; it is stroked, so it needs extra room.
     const spec = MOUTHS[k]
     const frame = mouthFrame(rings, spec)
     const ca = Math.cos(frame.angle)
@@ -88,7 +63,6 @@ export function buildClouds(
   })
 }
 
-/** Worst clearance for one expression at a placement. Stops early once it fails. */
 function clearanceOf(cloud: Cloud, sdf: Sdf, ax: number, ay: number, scale: number): number {
   let worst = Infinity
   const pts = cloud.points
@@ -114,7 +88,6 @@ function worstAcross(clouds: Cloud[], sdf: Sdf, ax: number, ay: number, scale: n
   return worst
 }
 
-/** Largest scale that still fits at this anchor, or 0 if even a tiny face won't. */
 export function maxScaleAt(clouds: Cloud[], sdf: Sdf, ax: number, ay: number, cap: number): number {
   if (worstAcross(clouds, sdf, ax, ay, 0.02) < 0) return 0
   let lo = 0.02
@@ -128,7 +101,6 @@ export function maxScaleAt(clouds: Cloud[], sdf: Sdf, ax: number, ay: number, ca
   return lo
 }
 
-/** Which expressions clip at a given placement, and by how much. Used by the live UI. */
 export function report(
   clouds: Cloud[],
   sdf: Sdf,

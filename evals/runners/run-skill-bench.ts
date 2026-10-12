@@ -13,12 +13,6 @@ import {
 import { scoreSkillBench } from "../scorers/skill-bench.ts";
 import { runScenario } from "./run-scenario.ts";
 
-/** The skill bench (alpha): runs one fixture skill's test prompts twice
- * each — with the skill installed as a user skill and without it — through
- * the same scripted-provider machinery as tier 1, then scores the contrast.
- * It evaluates the harness seam (skill selection, prompt delivery) against
- * scripted follower behavior; real models are out of scope. */
-
 const BENCHES_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "skill-bench", "fixtures");
 export const DEFAULT_OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "reports", "runs");
 
@@ -27,21 +21,12 @@ export const skillBenchSchema = z.object({
   title: z.string(),
   behavior: z.string(),
   skill: fixtureSkillSchema,
-  /** The bot the skill is tested on. Chief/section fields follow the
-   * scenario bot schema so dispatch-bearing skills work out of the box. */
   subject: scenarioBotSchema.omit({ turns: true }),
-  /** Bots the with-skill arm may dispatch to; they replay their scripted
-   * turns only when something actually dispatches to them. */
   targets: z.array(scenarioBotSchema).default([]),
-  /** A fixture must measure something: at least one prompt, at least one
-   * assertion per prompt, and unique prompt ids — duplicate ids would
-   * fold two prompts' runs into one scored bucket, and empty arrays
-   * would let a run that checked nothing report success. */
   prompts: z.array(
     z.object({
       id: z.string(),
       text: z.string(),
-      /** Checked against BOTH arms' frozen evidence; the delta is the point. */
       assertions: z.array(assertionSchema).min(1),
       withSkill: z.object({ turns: z.array(scriptedTurnSchema) }),
       withoutSkill: z.object({ turns: z.array(scriptedTurnSchema) }),
@@ -104,10 +89,6 @@ export interface SkillBenchPromptResult {
   }>;
 }
 
-/** The alpha report: pass rates per arm, time and token estimates with
- * spread, the per-assertion delta table, and the two flags a fixture
- * author needs before trusting a contrast (non-discriminating assertions,
- * high-variance verdicts). */
 export interface SkillBenchReport {
   fixtureId: string;
   title: string;
@@ -131,9 +112,6 @@ export function loadSkillBenches(): SkillBenchFixture[] {
     .map((name) => skillBenchSchema.parse(JSON.parse(readFileSync(join(BENCHES_DIR, name), "utf8"))));
 }
 
-/** Target keys this prompt's with-arm actually dispatches to: the scripted
- * steps' coordinate_bots calls name their targets as "@key" in bot_ids, so
- * the bench waits only where the prompt's own script sends work. */
 function dispatchedTargetKeys(prompt: SkillBenchFixture["prompts"][number]): Set<string> {
   const ids = prompt.withSkill.turns.flatMap((turn) => turn.steps ?? []).flatMap((step) => {
     const value = step.arguments.bot_ids;
@@ -158,17 +136,9 @@ export function buildArmScenario(
     gates: [],
     bots: [{ ...bench.subject, turns }, ...bench.targets],
     steps: [
-      // Only the with-arm installs the skill; that difference is the whole
-      // treatment under test.
       ...(arm === "with" ? [{ kind: "installSkill", skill: bench.skill }] : []),
       { kind: "send", bot: bench.subject.key, text: prompt.text },
       { kind: "waitForTurns", bot: bench.subject.key, count: turns.length, timeoutMs: 20_000 },
-      // Targets only turn when this prompt's with-arm actually dispatched
-      // to them. The scripted steps carry the dispatches as coordinate_bots
-      // bot_ids ("@key"), so the waits follow the prompt's own script
-      // rather than assuming every configured target turns — a with-arm
-      // that correctly dispatches to nobody proceeds straight to its
-      // assertions instead of timing out.
       ...(arm === "with"
         ? bench.targets
             .filter((target) => target.turns.length > 0 && dispatchedKeys.has(target.key))
@@ -189,8 +159,6 @@ export async function runSkillBench(bench: SkillBenchFixture, replicates = bench
       }
     }
   }
-  // Score the fixture the override produced: with --replicates the report
-  // must publish the count that ran, not the fixture's default.
   return scoreSkillBench({ ...bench, replicates }, runs);
 }
 
@@ -254,10 +222,6 @@ export function writeSkillBenchReport(outDir: string, report: SkillBenchReport, 
   return { json, markdown };
 }
 
-/** Parsed CLI state for the bench runner. Kept pure so the validation
- * contract — every flag consumes a non-flag value, unknown options and
- * positional arguments are rejected, and --replicates must be a positive
- * integer — is testable without spawning the runner. */
 export interface SkillBenchCliOptions {
   wanted: Set<string>;
   replicates: number | undefined;
@@ -274,8 +238,6 @@ export function parseSkillBenchArgs(args: string[]): ParsedSkillBenchArgs {
     const flag = args[index]!;
     if (flag === "--fixture" || flag === "--replicates" || flag === "--out") {
       const value = args[index + 1];
-      // A trailing flag is a missing operand, not a value: consuming it
-      // would silently reroute the run (e.g. --out --fixture my-bench).
       if (value === undefined || value.startsWith("--")) {
         return { ok: false, error: flag + " requires a value" };
       }
@@ -285,8 +247,6 @@ export function parseSkillBenchArgs(args: string[]): ParsedSkillBenchArgs {
       index += 1;
       continue;
     }
-    // A typo like --replicate must fail loudly, never fall back to the
-    // fixture defaults and report a run the user did not ask for.
     if (flag.startsWith("--")) return { ok: false, error: "unknown option " + flag };
     return { ok: false, error: "unexpected argument " + flag };
   }
@@ -331,8 +291,6 @@ async function main(): Promise<number> {
     console.log("  report: " + written.markdown);
     errors += report.errors.length;
   }
-  // A failing without-skill arm is expected data, not a bench error; only
-  // runs that could not complete fail the command.
   return errors === 0 ? 0 : 1;
 }
 

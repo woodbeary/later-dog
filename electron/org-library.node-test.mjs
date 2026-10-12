@@ -9,15 +9,10 @@ import {
 } from "./org-library.mjs";
 import { createManagedDesktopClient, createManagedDesktopRelay } from "./managed-desktop.mjs";
 
-// Everything here is synthetic: a fake Admin (fetch or fetchBytes), a fake
-// runtime (the relay) and a throwaway data folder. No Electron, no keychain,
-// no network, no user data. Shapes follow contract 60 §5 and Admin's
-// feat/package-registry routes.
 const origin = "https://company.example.test";
 const DEVICE = "11111111-1111-4111-8111-111111111111", ORG = "22222222-2222-4222-8222-222222222222", PUBLISHER = "33333333-3333-4333-8333-333333333333";
 const TEAM = "44444444-4444-4444-8444-444444444444", SKILLS = "55555555-5555-4555-8555-555555555555", OFF = "66666666-6666-4666-8666-666666666666", NEWER = "77777777-7777-4777-8777-777777777777";
 const identity = (extra = {}) => ({ portalOrigin: origin, organizationId: ORG, deviceId: DEVICE, expiresAt: Date.now() + 86400_000, ...extra });
-// Release bytes as Admin serves them: the canonical document, here the committed fixture.
 const teamBytes = readFileSync(new URL("../shared/package-fixtures/full-team.v2.json", import.meta.url));
 const skillBytes = readFileSync(new URL("../shared/package-fixtures/library-only.v2.json", import.meta.url));
 const release = (bytes, extra = {}) => ({ version: "1.3.0", sha256: sha256Hex(bytes), sizeBytes: bytes.byteLength, formatVersion: 2, publishedAt: 1_758_000_000_000, notes: "First release.\nAdds the deal desk.", ...extra });
@@ -28,17 +23,14 @@ const catalogOf = (packages, extra = {}) => ({ format: "laterdog.org-library", v
 const standard = (extra = {}) => catalogOf([
   entry(TEAM),
   entry(SKILLS, { ref: "acme/refund-skills", name: "Refund skills", kind: "library", release: release(skillBytes, { version: "2.0.0" }) }),
-  // Switched off by this organization, and a format this app cannot read: listed, never fetched.
   entry(OFF, { ref: "acme/old-desk", mode: "off", release: release(Buffer.from("off release bytes")) }),
   entry(NEWER, { ref: "acme/next-desk", release: release(Buffer.from("a version 3 document"), { formatVersion: 3 }) }),
 ], extra);
 const bytesOf = value => Buffer.from(JSON.stringify(value));
 const flush = async () => { for (let index = 0; index < 20; index++) await new Promise(resolve => setImmediate(resolve)); };
-// Windows has no POSIX file modes (stat reports 0o666); the 0600 checks run on macOS and Linux.
 const mode = async file => process.platform === "win32" ? 0o600 : (await fs.stat(file)).mode & 0o777;
 const exists = file => fs.access(file).then(() => true, () => false);
 
-/** A fake Admin behind fetchBytes, a fake runtime behind relay, and a clock. */
 async function fixture(t, { catalog = standard(), relayOk = true } = {}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "laterdog-org-library-"));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
@@ -48,7 +40,6 @@ async function fixture(t, { catalog = standard(), relayOk = true } = {}) {
     catalogBytes: bytesOf(catalog), blobs: new Map([[sha256Hex(teamBytes), teamBytes], [sha256Hex(skillBytes), skillBytes]]),
     reports: [], reportFails: false, blobStatus: null, hold: null,
   };
-  /** The next request for `route` (or, for "record", the next save of a catalog record) waits until release(); `reached` resolves once it is in flight. */
   f.holdNext = route => {
     let release, arrived;
     const gate = new Promise(resolve => { release = resolve; }), reached = new Promise(resolve => { arrived = resolve; });
@@ -106,7 +97,6 @@ test("the catalog parser ignores unknown fields, drops a bad entry, and keeps Of
   assert.equal("mirror" in parsed.packages[0].release, false);
   assert.equal(parsed.packages[0].release.notes, "First release.\nAdds the deal desk.", "release notes keep their newlines");
   assert.equal(parsed.packages[2].release.formatVersion, 3);
-  // Text, bytes and the object all parse the same.
   assert.deepEqual(parseOrgLibraryCatalog(bytesOf(standard())), parseOrgLibraryCatalog(JSON.stringify(standard())));
   assert.deepEqual(parseOrgLibraryCatalog(bytesOf(standard())), parseOrgLibraryCatalog(standard()));
   assert.equal(parseOrgLibraryCatalog(catalogOf([entry(TEAM, { release: null })])).packages[0].release, null, "every release withdrawn");
@@ -121,7 +111,6 @@ test("an entry with a control character, a non-string disguised as one or a bad 
     entry(TEAM, { ref: "Acme/Sales" }), entry(TEAM, { contents: { ...entry(TEAM).contents, botNames: Array(13).fill("Bot") } }),
   ];
   for (const item of bad) assert.deepEqual(parseOrgLibraryCatalog(catalogOf([item, entry(SKILLS)])).packages.map(row => row.packageId), [SKILLS], JSON.stringify(item).slice(0, 120));
-  // A repeated package keeps its first entry.
   assert.equal(parseOrgLibraryCatalog(catalogOf([entry(TEAM), entry(TEAM, { name: "Second" })])).packages.length, 1);
 });
 
@@ -175,7 +164,6 @@ test("a moved pointer fetches the catalog and its release bytes, verifies and sa
   assert.deepEqual(library, { adminOrigin: origin, organizationId: ORG, organizationName: "Beta Clinic", digest: f.digest() });
   assert.deepEqual(catalog, parseOrgLibraryCatalog(f.catalogBytes));
   assert.equal(JSON.stringify(f.relayed).includes("omd_"), false, "no device token reaches the runtime");
-  // Same pointer: nothing to fetch, nothing to relay again.
   f.requests.length = 0;
   await f.sync();
   assert.deepEqual(f.requests, []);
@@ -197,7 +185,6 @@ test("release bytes that do not match the catalog are never written and are retr
   await f.sync();
   assert.equal(f.fetched("/api/desktop/library/blobs").length, 1);
   assert.deepEqual(await fs.readFile(f.blobFile(teamBytes)), teamBytes);
-  // A cached file that no longer matches is replaced after the next new catalog.
   await fs.writeFile(f.blobFile(teamBytes), Buffer.alloc(teamBytes.byteLength, 32));
   const digest = f.setCatalog(standard({ libraryVersion: 2 }));
   await f.sync({ version: 2, digest });
@@ -264,14 +251,12 @@ test("restore relays the saved catalog before any request, only for the same enr
   assert.deepEqual(restored.requests, [], "no network call");
   assert.equal(restored.relayed.length, 1);
   assert.equal(restored.relayed[0].digest, saved.digest);
-  // Tampered bytes (one digit of the organization name), another device, another organization, an expired sign-in.
   const tampered = Buffer.from(bytes.toString("utf8").replace("Beta Clinic", "Beta Clinix"));
   for (const options of [{ bytes: tampered }, { identity: identity({ deviceId: "99999999-9999-4999-8999-999999999999" }) }, { record: { organizationId: PUBLISHER } },
     { identity: identity({ expiresAt: Date.now() - 1 }) }, { record: { portalOrigin: "https://other.example.test" } }]) {
     const f = await restart(options);
     assert.deepEqual(f.relayed, [], JSON.stringify(Object.keys(options)));
   }
-  // A restored catalog with the same pointer is not fetched again; a missing blob is.
   await fs.rm(path.join(restored.dataDir, "blobs"), { recursive: true, force: true });
   await restored.sync({ version: 1, digest: saved.digest });
   assert.deepEqual(restored.fetched("/api/desktop/library/").length, 2);
@@ -292,7 +277,6 @@ test("sign-out, expiry or revocation hides the shelf and forgets the catalog, it
   assert.equal(await exists(f.blobFile(teamBytes)), false);
   assert.equal(await exists(runtimeState), true, "the runtime's own record of what it installed stays");
   assert.equal(await exists(foreign), true, "only files this channel wrote are removed");
-  // A sync after sign-out starts again from nothing.
   f.requests.length = 0;
   await f.sync();
   assert.equal(f.requests.filter(request => request.route === "/api/desktop/library").length, 1);
@@ -316,7 +300,6 @@ test("a sign-out during a catalog or release download, or while its record is sa
     const syncing = f.library.synchronized({ identity: identity(), capable: true, pointer, generation: 7 });
     await held.reached;
     const relayedBefore = f.relayed.length, writesBefore = f.record.writes.length - (route === "record" ? 1 : 0);
-    // Signed out while that download or save is in flight; it completes afterwards, then the runtime restarts.
     const cleared = f.library.clear();
     held.release();
     await Promise.all([syncing, cleared]); await f.library.idle();
@@ -374,7 +357,6 @@ test("a restarted runtime gets the catalog again; one that did not acknowledge i
   await f.library.idle();
   assert.equal(f.relayed.length, 4);
   assert.equal(f.relayed[3].digest, f.digest());
-  // A restarted runtime that refuses too is logged again, once.
   f.relayOk = false;
   await f.library.runtimeReady(); await f.library.idle();
   await f.sync();
@@ -392,10 +374,8 @@ test("install reports: 5 s debounce, only the newest snapshot, once per start, a
   assert.deepEqual(f.reports, [], "debounced");
   await f.advance(1);
   assert.deepEqual(f.reports, [{ libraryVersion: 1, digest: f.digest(), appVersion: "0.1.90", packages: [installed()] }], "one post, the newest snapshot");
-  // Not again on a regular check: the start report has been sent.
   await f.sync(); await f.advance(10_000);
   assert.equal(f.reports.length, 1);
-  // A failed post is retried on the next check (not by time alone), still with only the newest snapshot.
   f.reportFails = true;
   f.library.receive(state([installed("removed", { reason: "removed_locally" })]));
   await f.advance(5_000);
@@ -453,15 +433,12 @@ test("cached release bytes the catalog stopped naming are removed 7 days later",
   assert.equal(await exists(f.blobFile(skillBytes)), true, "the one still named stays");
 });
 
-// ── With the real managed-desktop client ───────────────────────────────
-
 function desktop(t, { capability = 1, pointer = true, catalog = standard(), sessionExtra = {}, configFails = 0 } = {}) {
   try { t.mock.timers.enable({ apis: ["setTimeout"] }); } catch (error) { if (error?.code !== "ERR_INVALID_STATE") throw error; }
   const token = `omd_${"a".repeat(43)}`, modelToken = `omg_${"c".repeat(43)}`;
   const saved = { portalOrigin: origin, token, deviceId: DEVICE, organizationId: ORG, email: "person@example.test", expiresAt: Date.now() + 86400_000 };
   const f = { clock: Date.now(), order: [], requests: [], messages: [], catalogBytes: bytesOf(catalog), blobs: new Map([[sha256Hex(teamBytes), teamBytes], [sha256Hex(skillBytes), skillBytes]]), record: { value: saved }, revoked: false };
   const relay = createManagedDesktopRelay({ timeoutMs: 15_000 });
-  // The fake runtime: acknowledges at once, as server/org-library.ts must, and records the message.
   const proc = { postMessage: message => { f.messages.push(message); f.order.push(`relay ${message.library ? "catalog" : "null"}`); queueMicrotask(() => relay.receive(proc, { type: "laterdog:managed-desktop-result", requestId: message.requestId, ok: true })); } };
   f.fetch = async (url, options) => {
     const route = url.slice(origin.length);
@@ -516,14 +493,12 @@ test("end to end with the managed-desktop client: capability, pointer, catalog, 
   assert.equal(sent.length, 1);
   assert.equal(sent[0].library.digest, sha256Hex(f.catalogBytes));
   assert.equal(sent[0].library.catalog.packages.length, 4);
-  // The runtime's snapshot becomes one report, 5 s later.
   f.library.receive({ type: "laterdog:managed-library-state", digest: sent[0].library.digest, packages: [{ packageId: TEAM, release: "1.3.0", sha256: sha256Hex(teamBytes), state: "installed" }] });
   t.mock.timers.tick(5_000); await f.settle();
   assert.deepEqual(f.reports, [{ libraryVersion: 1, digest: sent[0].library.digest, appVersion: "0.1.90", packages: [{ packageId: TEAM, release: "1.3.0", sha256: sha256Hex(teamBytes), state: "installed" }] }]);
   const report = f.requests.find(request => request.route === "/api/desktop/library/report");
   assert.equal(report.options.method, "POST");
   assert.equal(report.options.headers["content-type"], "application/json");
-  // Revocation: the runtime is told library: null and the saved catalog goes.
   f.revoked = true;
   await f.client.refresh(); await f.settle();
   assert.equal(f.client.state().status, "reauth-required");
@@ -598,7 +573,6 @@ test("fetchLibraryBytes: fixed routes, the current connection, and caps of 4 MiB
   await assert.rejects(f.client.fetchLibraryBytes("/api/desktop/library/report", 1024, { body: { pad: "x".repeat(64 * 1024) } }), /report is too large/);
   const missing = await f.client.fetchLibraryBytes(`/api/desktop/library/blobs/${"0".repeat(64)}`, 1024).catch(error => error);
   assert.equal(missing.status, 404);
-  // The session keeps its own 512 KiB cap.
   const big = await desktop(t, { sessionExtra: { padding: "x".repeat(512 * 1024) } });
   await big.client.start(); await big.settle();
   assert.equal(big.client.state().status, "unavailable");

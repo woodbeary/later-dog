@@ -8,8 +8,6 @@ export function folderUnreadThreadIds(bot: FolderBot, projectId: string): string
     .map((task) => task.threadId);
 }
 
-/** Reading changes only unread state; never navigate to, answer, or dismiss a
- * conversation. Keep each confirmed response in order, including partial success. */
 export async function markFolderRead(
   bot: FolderBot,
   projectId: string,

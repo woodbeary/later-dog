@@ -13,8 +13,6 @@ describe("liveCardKind", () => {
     expect(liveCardKind(card({ requestId: "r1" }))).toBe("question");
   });
   it("sends a default-model proposal to the screen, though it names a tool", () => {
-    // propose_model cards carry update_model; a spoken yes must never reach
-    // them as an approval
     expect(liveCardKind(card({ requestId: "r1", tool: "update_model", modelRequest: {} as OptionCardData["modelRequest"] }))).toBe("review");
     expect(liveDecisionRefusal(card({ requestId: "r1", tool: "update_model", modelRequest: {} as OptionCardData["modelRequest"] })))
       .toBe("This request is reviewed on screen.");

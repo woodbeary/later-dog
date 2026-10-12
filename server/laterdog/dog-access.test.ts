@@ -16,13 +16,11 @@ import type { GitHubDeviceLogin } from './github-login.ts';
 import { DOG_HEADER, dogMcpEnvironment, dogToken, mcpCredential } from './dog-access.ts';
 import { dogToken as workerDogToken } from '../../deploy/laterdog/cloudflare/src/dog-token.ts';
 
-// One plain sentence a dog can repeat to its person.
 const REFUSAL = /^This dog's access does not include [^\n]+\.$/;
 const resources: { server: Server; supervisor: Supervisor; store: WorkspaceStore; dir: string }[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); for (const r of resources.splice(0)) { r.supervisor.stop(); await r.supervisor.drain(); await new Promise<void>((resolve) => r.server.close(() => resolve())); r.store.close(); rmSync(r.dir,{ recursive:true,force:true }); } });
 async function fixture() {
   const dir=mkdtempSync(join(tmpdir(),'laterdog-dog-')); const store=new WorkspaceStore(join(dir,'workspace.sqlite'));
-  // Synthetic provider and GitHub boundaries: no codex, gh or git process is ever started, and no network is reached.
   const adapter={ capabilities:CODEX_CLOUD_CAPABILITIES, submit:vi.fn(), inspect:vi.fn(), collect:vi.fn(), list:vi.fn(async()=>({tasks:[]})),
     doctor:vi.fn(async()=>({version:'fixture',authenticated:true,cloudCommands:'fixture'})), login:vi.fn(async()=>({started:true,instructions:'fixture login',startedAt:new Date().toISOString()})) } satisfies ExecutionAdapter;
   const publisher=new GitHubPublisher(join(dir,'checkouts'),async()=>{ throw new Error('fixture: no command may run'); });
@@ -48,10 +46,8 @@ const brief=()=>({requestKey:randomUUID(),repository:'fixture/repo',title:'Scope
 it('lets a dog delegate, inspect and act on its own job through the real MCP → HTTP → SQLite boundary',async()=>{
   const f=await fixture(); const a=f.dog('dog-a');
   const request=brief(); const job=await callTool('delegate_cloud_job',request,f.origin,a.credential) as Job;
-  // The supervisor assigns ownership from the token; the request named no bot.
   expect(f.store.job(job.id).botId).toBe('dog-a'); expect((await callTool('delegate_cloud_job',request,f.origin,a.credential) as Job).id).toBe(job.id); expect(f.store.jobs()).toHaveLength(1);
   expect(await callTool('inspect_cloud_job',{jobId:job.id},f.origin,a.credential)).toMatchObject({job:{id:job.id,botId:'dog-a'}});
-  // Allowed through the gate; the supervisor's own preconditions answer.
   await expect(callTool('collect_cloud_diff',{jobId:job.id},f.origin,a.credential)).rejects.toThrow(/No collected diff/);
   await expect(callTool('publish_cloud_job',{jobId:job.id},f.origin,a.credential)).rejects.toThrow(/remote supervisor/);
   await expect(callTool('correct_cloud_job',{jobId:job.id,requestKey:randomUUID(),brief:'Repair it'},f.origin,a.credential)).rejects.toThrow(/Publish the result branch/);
@@ -60,7 +56,6 @@ it('lets a dog delegate, inspect and act on its own job through the real MCP →
   expect(await callTool('inspect_provider_access',{profileId:'default'},f.origin,a.credential)).toMatchObject({authenticated:true});
   expect(await callTool('list_provider_tasks',{profileId:'default'},f.origin,a.credential)).toEqual({tasks:[]});
   expect(await callTool('cancel_cloud_job',{jobId:job.id},f.origin,a.credential)).toMatchObject({id:job.id,state:'cancelled'});
-  // The workspace and local assistance show this dog's work and unowned work, never another dog's.
   const unowned=f.job(); const other=f.job({botId:'dog-b'});
   const workspace=await callTool('laterdog_workspace',{},f.origin,a.credential) as {jobs:Job[];repositories:unknown[]};
   expect(workspace.jobs.map((j)=>j.id).sort()).toEqual([job.id,unowned.id].sort()); expect(workspace.repositories).toHaveLength(1);
@@ -91,12 +86,10 @@ it('refuses a dog repositories, logins, verification policy, GitHub, device pair
   await refused('POST','/bridge/pairing',{roots:['/']},/pairing/); await refused('DELETE',`/bridge/devices/${device.deviceId}`,undefined,/revoking/);
   await refused('POST','/bridge/poll',{},/paired device/); expect((await f.admin('GET','/bridge/devices')).body.devices).toMatchObject([{id:device.deviceId,revoked:false}]);
   await refused('GET','/whatever'); await refused('POST','/workspace',{});
-  // Another dog's job is invisible; a job nobody owns can be read but not changed.
   await refused('GET',`/jobs/${other.id}`,undefined,/another dog/); await refused('GET',`/jobs/${other.id}/patch`,undefined,/another dog/);
   await refused('POST',`/jobs/${other.id}/action`,{action:'cancel'},/another dog/); expect(f.store.job(other.id).state).toBe('queued');
   expect((await a.send('GET',`/jobs/${unowned.id}`)).status).toBe(200);
   await refused('POST',`/jobs/${unowned.id}/action`,{action:'cancel'},/did not delegate/); expect(f.store.job(unowned.id).state).toBe('queued');
-  // Delegation cannot borrow another dog's identity, branch or pull request.
   const jobs=f.store.jobs().length;
   await refused('POST','/jobs',{...brief(),botId:'dog-b'},/another dog/);
   await refused('POST','/jobs',{...brief(),kind:'repair',parentId:other.id},/another dog/);
@@ -105,7 +98,6 @@ it('refuses a dog repositories, logins, verification policy, GitHub, device pair
   expect(f.store.jobs()).toHaveLength(jobs);
   await refused('POST','/observations',{requestKey:randomUUID(),jobId:other.id,kind:'regression',summary:'Blame',source:'fixture'},/another dog/);
   await refused('POST','/observations',{requestKey:randomUUID(),jobId:unowned.id,kind:'regression',summary:'Blame',source:'fixture'},/did not delegate/);
-  // Through the MCP tool the model sees the same sentence.
   await expect(callTool('configure_verification_recipe',{repository:'fixture/repo',behavioralChecks:['always-green'],verification:[]},f.origin,a.credential)).rejects.toThrow(REFUSAL);
   await expect(callTool('merge_cloud_job',{jobId:other.id},f.origin,a.credential)).rejects.toThrow(REFUSAL);
   expect(f.store.job(own.id).botId).toBe('dog-a');
@@ -139,7 +131,6 @@ it('keeps the admin token on every route, including other dogs’ jobs',async()=
   expect((await f.admin('DELETE',`/bridge/devices/${device.deviceId}`)).status).toBe(200);
   expect((await f.admin('GET',`/jobs/${dogJob.id}`)).status).toBe(200);
   expect((await f.admin('POST',`/jobs/${dogJob.id}/action`,{action:'cancel'})).body).toMatchObject({state:'cancelled'});
-  // The admin MCP path (no bot ID) is unchanged: its jobs carry no owner unless the request names one.
   const job=await callTool('delegate_cloud_job',brief(),f.origin,f.token) as Job; expect(f.store.job(job.id).botId).toBeUndefined();
   expect((await f.admin('GET','/workspace')).body.jobs).toHaveLength(2);
 });
@@ -154,10 +145,8 @@ it('derives one dog token on the desktop, the supervisor and the Cloudflare Work
   expect(env).toEqual({LATERDOG_SUPERVISOR_URL:'https://supervisor.example.test',LATERDOG_TOKEN:token,LATERDOG_BOT_ID:bot,LATERDOG_CONVERSATION_ID:'thread-1'});
   expect(JSON.stringify(env)).not.toContain(admin);
   expect(mcpCredential(env)).toEqual({token,botId:bot});
-  // A dog's MCP server without its token fails plainly instead of reading the admin token from a file.
   const dir=mkdtempSync(join(tmpdir(),'laterdog-dog-credential-')); const tokenFile=join(dir,'access-token'); writeFileSync(tokenFile,admin);
   try { expect(()=>mcpCredential({LATERDOG_BOT_ID:bot,LATERDOG_TOKEN_FILE:tokenFile,LATERDOG_DATA_DIR:dir})).toThrow(/no later\.dog token/); }
   finally { rmSync(dir,{recursive:true,force:true}); }
-  // Without a bot ID it is the operator's server, presenting the admin token it is configured with (here LATERDOG_TOKEN).
   expect(mcpCredential({})).toEqual({token:admin});
 });

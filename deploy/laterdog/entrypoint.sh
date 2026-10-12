@@ -1,11 +1,4 @@
 #!/bin/sh
-# later.dog supervisor container entrypoint.
-#
-# Without LATERDOG_STATE_URL this behaves exactly like `node laterdog/main.js` (Compose, the CI smoke test). With it (Cloudflare
-# Containers, whose disk is wiped on every restart) the supervisor's durable state is restored from that HTTP store on boot and
-# backed up whenever it changes, on a timer and on SIGTERM. The store is the Worker's `state.r2` virtual host, so the container
-# never holds R2 credentials. The Codex login (auth.json) and the GitHub login (gh hosts.yml) are encrypted with LATERDOG_BACKUP_KEY
-# before they leave the container.
 set -u
 
 STATE_URL="${LATERDOG_STATE_URL:-}"
@@ -68,7 +61,6 @@ restore() {
   fi
 }
 
-# Upload each piece of state only when its content hash changed since this shell last uploaded it.
 backup() {
   [ -n "$STATE_URL" ] || return 0
   [ "$RESTORE_FAILED" = 0 ] || return 0
@@ -103,7 +95,6 @@ backup() {
 
 restore
 
-# gh authenticates its own `gh repo clone`; the publisher's plain `git fetch`/`git push` need a credential helper too.
 if [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ] || gh auth status >/dev/null 2>&1; then
   gh auth setup-git >/dev/null 2>&1 || log "gh auth setup-git failed; git push may lack credentials"
 fi
@@ -120,7 +111,6 @@ shutdown() {
   log "shutting down"
   [ -n "$LOOP_PID" ] && kill "$LOOP_PID" 2>/dev/null
   kill -TERM "$NODE_PID" 2>/dev/null
-  # Give the supervisor a bounded time to drain, then force it: a lingering process would keep the whole instance alive.
   n=0
   while kill -0 "$NODE_PID" 2>/dev/null && [ "$n" -lt 20 ]; do sleep 1; n=$((n + 1)); done
   kill -KILL "$NODE_PID" 2>/dev/null

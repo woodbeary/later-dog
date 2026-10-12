@@ -1,5 +1,3 @@
-// Optional native protocol smoke: requires a Codex binary, no credentials.
-// Synthetic model responses verify request shape, not model quality or token cost.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';

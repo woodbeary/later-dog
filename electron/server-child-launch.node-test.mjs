@@ -29,8 +29,6 @@ test("a server tree without the bootstrap forks index.js with no cache, as befor
 });
 
 test("no cache where the app's path changes every launch: AppImage and App Translocation", () => {
-  // Node keys cache entries by full path, so these would never hit and would
-  // add a new entry on every launch.
   const appImage = serverChildLaunch({
     resourcesPath: "/tmp/.mount_OpenMaXk3f9a/resources",
     userData: "/home/someone/.config/later.dog",
@@ -57,8 +55,6 @@ test("main forks what the helper picks and hands only the server the cache direc
   assert.doesNotMatch(body, /path\.join\(process\.resourcesPath, "server", "index\.js"\)/);
 });
 
-// A staged copy of the bootstrap beside a stand-in index.js, run on this
-// Node. The stand-in reports what the server would see.
 function stage(t, indexSource = REPORTING_INDEX) {
   const dir = mkdtempSync(path.join(tmpdir(), "laterdog-server-entry-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -68,8 +64,6 @@ function stage(t, indexSource = REPORTING_INDEX) {
   return dir;
 }
 
-// Runs the bootstrap's after-start timer right away instead of in 10 s, and
-// stays alive long enough for it to finish.
 const REPORTING_INDEX = `
 import module from "node:module";
 import { execFileSync } from "node:child_process";
@@ -226,8 +220,6 @@ test("nothing is pruned when Node keeps its cache somewhere else", (t) => {
   mkdirSync(stale);
   const old = new Date(Date.now() - 3 * DAY_MS);
   utimesSync(stale, old, old);
-  // NODE_COMPILE_CACHE from the launching environment wins: Node reports
-  // ALREADY_ENABLED and the bootstrap leaves its directory alone.
   const result = runEntry(dir, cacheRoot, { NODE_COMPILE_CACHE: path.join(dir, "elsewhere") });
   assert.equal(result.status, 0, result.stderr);
   assert.ok(existsSync(stale));

@@ -1,9 +1,3 @@
-// The approval box: what the bot wants to do, and three ways to answer.
-//
-// Deliberately not the lettered A/B/C list the onboarding card uses — an
-// approval is a decision about one concrete action, so it shows the tool
-// and the actual command/path in monospace, and the choices carry their
-// own behavior instead of being matched by their label text.
 import { useState } from "react";
 import { Check, ChevronRight, ShieldCheck, Undo2, X } from "lucide-react";
 import { api, ApiError, type Bot, type Message, type OptionCardData } from "@/state/store";
@@ -59,9 +53,6 @@ const PROFILE_FIELD_LABEL: Record<ProfileRequestField, LocaleKey> = {
   speakReplies: "approval.applied.field.speakReplies",
 };
 
-/** What a settled approval card says happened, or undefined while it is
- * still open. The card's own status line and the sidebar row both read this,
- * so a chat that ends on the card never says one thing in each place. */
 export function approvalCardOutcome(card: OptionCardData): string | undefined {
   if (card.expired === true) return t("approval.status.expired");
   if (!card.answered) return undefined;
@@ -80,13 +71,8 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
   return t("approval.status.allowed");
 }
 
-/** The tool's own name is noise to a human: mcp__dog__computer_batch is
- * "computer batch", Bash is "run a command", LINEAR_CREATE_LINEAR_COMMENT
- * is "create linear comment". */
 export function toolLabel(tool?: string, where?: "local-computer"): string {
   if (!tool) return t("approval.tool.takeAction");
-  // later.dog's own tools reach a chat engine as agents_<name>: the server
-  // name is not part of what the dog wants to do
   const bare = tool.replace(/^mcp__[^_]+__/, "").replace(/^agents_/, "").replace(/_/g, " ");
   const nice: ToolLabels = {
     Bash: "approval.tool.runCommand",
@@ -102,13 +88,6 @@ export function toolLabel(tool?: string, where?: "local-computer"): string {
     skill_manage: "approval.tool.saveTrick",
     skills_list: "approval.tool.checkTricks",
     update_profile: "approval.tool.updateProfile",
-    // An ACP driver can know the protocol's toolCall kind but not the
-    // tool's name, and sends the kind as the card's tool
-    // (server/drivers/acp/core.ts). Kinds are not verb phrases —
-    // "wants to other" reads as broken — so map every kind it can send
-    // to a real phrase. "shell" is its name for execute; "tool" is its
-    // fallback when an agent sends no kind at all — an unclassified call,
-    // so it reads differently from "other", the agent's own generic kind.
     shell: "approval.tool.runCommand",
     edit: "approval.tool.editFile",
     read: "approval.tool.readFile",
@@ -125,7 +104,6 @@ export function toolLabel(tool?: string, where?: "local-computer"): string {
   if (phrase) return phrase;
   const service = toolService(tool);
   if (service) return t("approval.tool.useService", { service });
-  // whose computer: the person's own Mac, or the dog's own (cloud) computer
   if (usesComputer(tool)) return t(where === "local-computer" ? "approval.tool.useThisMac" : "approval.tool.useItsComputer");
   const words = bare.trim().split(/\s+/);
   return !tool.startsWith("mcp__") && words.length >= 2 && words.length <= 3 && words.every((word) => /^[a-z]+$/i.test(word))
@@ -133,8 +111,6 @@ export function toolLabel(tool?: string, where?: "local-computer"): string {
     : t("approval.tool.takeAction");
 }
 
-/** When a routine runs, in the plain words the receipt line uses. Never a
- * raw cron expression: a schedule without a plain name says nothing. */
 function plainWhen(schedule: RoutineRequestSchedule): string {
   if (schedule.type === "once") {
     return new Date(schedule.at).toDateString() === new Date().toDateString()
@@ -149,8 +125,6 @@ function plainWhen(schedule: RoutineRequestSchedule): string {
   return scheduleLabel(schedule);
 }
 
-/** The one line a change that applied without a person reads as, and
- * whether its Undo can work (the card kept what Undo needs). */
 export function appliedChange(card: OptionCardData, name: string): { line: string; canUndo: boolean } | undefined {
   const routine = card.routineRequest;
   if (routine) {
@@ -197,8 +171,6 @@ export function appliedChange(card: OptionCardData, name: string): { line: strin
   return undefined;
 }
 
-/** A change the bot made without a person, as one plain line with Undo
- * instead of the approval box. The full card text stays one click away. */
 function AppliedChangeLine({
   card,
   name,
@@ -272,23 +244,18 @@ export function ApprovalCard({
   message,
   threadId,
 }: {
-  /** who is asking, for the "Name wants to …" line */
   bot?: Pick<Bot, "name">;
   message: Message;
-  /** the conversation the card is in, for Undo on a change that applied
-   * without a person */
   threadId?: string;
 }) {
   const card = message.card;
   if (!card) return null;
-  // A change that applied without a person reads as one line with Undo.
   const applied = card.autoApplied === true && card.answered === "allow" && !card.held
     ? appliedChange(card, bot?.name ?? t("approval.someone"))
     : undefined;
   if (applied) return <AppliedChangeLine card={card} name={bot?.name ?? t("approval.someone")} threadId={threadId} summary={applied} />;
   const settled = card.answered;
   const expired = card.expired === true;
-  // decided by voice on a Live call rather than tapped
   const byVoice = card.answeredBy?.via === "call" ? <span className="text-ink-tertiary">· {t("approval.status.byVoice")}</span> : null;
   const isRoutineRequest = Boolean(card.routineRequest);
   const isSkillRequest = Boolean(card.skillRequest);
@@ -298,8 +265,6 @@ export function ApprovalCard({
   const skillAction = card.skillRequest?.action;
   const heldNote = tFromServer(card.heldCode, card.held);
   const outcome = approvalCardOutcome(card);
-  // A held outbound action reads as what it sends and where, the way the
-  // phones show it, not as the slug the bot happened to call.
   const outbound = outboundSummary(card);
   const displayTool = isRoutineRequest
     ? routineAction === "create" ? "schedule_routine" : "manage_routine"
@@ -308,10 +273,6 @@ export function ApprovalCard({
     : isProfileRequest
       ? "update_profile"
     : card.tool;
-  // A cross-bot profile card is shown in the PROPOSER's thread, so
-  // "wants to update its profile" (fine for a bot editing itself) would
-  // silently claim the proposer's own profile is changing. Name the actual
-  // target whenever it differs from the proposer.
   const profileHeader = isProfileRequest && card.profileRequest
     ? card.profileRequest.targetBotId === card.profileRequest.botId
       ? t("approval.card.profileWantsToOwn", { name: bot?.name ?? t("approval.someone") })
@@ -369,8 +330,6 @@ export function ApprovalCard({
         </div>
       )}
 
-      {/* The decision lives in the composer (one place to answer, and it
-          can't be scrolled past); here we only record what happened. */}
       <div className="mt-3 flex items-center gap-1.5 text-[13px] text-ink-secondary">
         {outcome ? (
           <>

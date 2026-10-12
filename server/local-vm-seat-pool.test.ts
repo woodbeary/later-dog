@@ -3,9 +3,6 @@ import { describe, expect, it } from "vitest";
 import { LocalVmLeasePool } from "./local-vm-lease.ts";
 import { LocalVmSeatPool } from "./local-vm-seat-pool.ts";
 
-/** Wires the seat chooser to per-seat leases exactly as server/index.ts
- * does, with the virtual clock feeding both the affinity TTL and the lease
- * lookups so expiry behavior is deterministic. */
 function harness(seatCount: () => number) {
   const now = { value: 1_000 };
   const leases = new LocalVmLeasePool(100);
@@ -15,13 +12,11 @@ function harness(seatCount: () => number) {
   const claim = (threadId: string, botId: string) => {
     const seat = seats.assign(threadId, holderOf);
     const granted = leases.forTarget("pool:" + seat).claim(threadId, botId, busy, now.value);
-    // Mirror server/index.ts: only a won lease renews pool affinity.
     if (granted) seats.touch(threadId);
     return { seat, granted };
   };
   const release = (seat: number, threadId: string) => {
     leases.forTarget("pool:" + seat).release(threadId);
-    // Mirror server/index.ts settlement: renew with the seat the turn ran on.
     seats.renew(threadId, seat);
   };
   return { now, seats, leases, busy, claim, release, holderOf };
@@ -41,8 +36,6 @@ describe("LocalVmSeatPool", () => {
     expect(third.granted).toBe(false);
     expect([first.seat, second.seat]).toContain(third.seat);
 
-    // Capacity returns when the soonest lease lapses; the waiting thread
-    // keeps addressing the same seat and its claim then succeeds.
     release(first.seat, "thread-a");
     const retried = claim("thread-c", "bot-c");
     expect(retried.seat).toBe(third.seat);
@@ -65,9 +58,6 @@ describe("LocalVmSeatPool", () => {
     const { now, claim, release } = harness(() => 2);
 
     const first = claim("thread-a", "bot-a");
-    // A turn that outlasts the TTL: touch() alone would find the entry
-    // expired and drop it, but the conversation ran on that desktop for
-    // the whole turn, so settlement renews with the seat it used.
     now.value += 30 * 60_000 + 1;
     release(first.seat, "thread-a");
 
@@ -92,8 +82,6 @@ describe("LocalVmSeatPool", () => {
 
     const first = claim("thread-a", "bot-a");
     release(first.seat, "thread-a");
-    // A stranger takes the seat's lease with no recorded affinity, as can
-    // happen across a server restart that lost the affinity table.
     expect(leases.forTarget("pool:" + first.seat).claim("thread-x", "bot-x", busy, now.value)).toBe(true);
 
     const again = claim("thread-a", "bot-a");
@@ -106,19 +94,12 @@ describe("LocalVmSeatPool", () => {
 
     const first = claim("thread-a", "bot-a");
     release(first.seat, "thread-a");
-    // A stranger takes the seat's lease, as can happen after a restart
-    // lost the affinity table.
     expect(leases.forTarget("pool:" + first.seat).claim("thread-x", "bot-x", busy, now.value)).toBe(true);
 
-    // Failed retries never win the lease, so they never renew the affinity
-    // TTL: once it lapses the thread migrates to the free seat instead of
-    // waiting without limit while other seats sit idle.
     const held = claim("thread-a", "bot-a");
     expect(held.seat).toBe(first.seat);
     expect(held.granted).toBe(false);
     now.value += 30 * 60_000 + 1;
-    // The stranger's own turns keep its lease alive; thread-a's failed
-    // retries renewed nothing, so its affinity lapsed.
     expect(leases.forTarget("pool:" + first.seat).claim("thread-x", "bot-x", busy, now.value)).toBe(true);
     const migrated = claim("thread-a", "bot-a");
     expect(migrated.seat).not.toBe(first.seat);
@@ -189,7 +170,6 @@ describe("LocalVmSeatPool", () => {
     now.value += 30 * 60_000 - 1;
     expect(seats.candidate("thread-a", holderOf)).toBe(first.seat);
     now.value += 2;
-    // The candidate read did not renew the TTL a won claim would have.
     expect(seats.affinitySeat("thread-a")).toBeNull();
   });
 });

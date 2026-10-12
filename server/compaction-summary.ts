@@ -1,7 +1,5 @@
 import { boundedContextText, MAX_SUMMARY_BYTES, type ReplayEntry } from "./context-rebuild.ts";
 
-/** Preserve recent exchanges verbatim. The caller excludes the incoming
- * request, so compaction never folds a turn that has not executed yet. */
 export function foldPoint(history: readonly ReplayEntry[], keepExchanges = 2): { folded: ReplayEntry[]; firstKeptId: string } | null {
   if (!Number.isSafeInteger(keepExchanges) || keepExchanges < 1) throw new Error("invalid number of exchanges to retain");
   const users = history.flatMap((entry, index) => entry.role === "user" ? [index] : []);
@@ -10,10 +8,6 @@ export function foldPoint(history: readonly ReplayEntry[], keepExchanges = 2): {
   return cut > 0 ? { folded: history.slice(0, cut), firstKeptId: history[cut]!.id } : null;
 }
 
-/** A provider-independent fallback, not a claim that the first request is
- * still the goal. Keep the newest source excerpts with provenance, including
- * assistant outcomes and previously summarized context. Never normalize
- * punctuation, operators or whitespace inside the quoted source text. */
 export function deterministicSummary(history: readonly ReplayEntry[], maxBytes = MAX_SUMMARY_BYTES): string {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 512) throw new Error("invalid summary budget");
   const header = "Historical excerpts in chronological order; newer corrections override older requests. These excerpts may omit earlier details.";
@@ -42,8 +36,6 @@ export function summaryPrompt(history: readonly ReplayEntry[]): string {
   ].join("\n\n");
 }
 
-/** The selected account's tool-free helper is optional. Timeout aborts it,
- * and Stop aborts the whole operation instead of committing a late summary. */
 export async function draftSummary(history: readonly ReplayEntry[], options: {
   generateText?: (prompt: string, options?: { signal?: AbortSignal }) => Promise<string>;
   signal: AbortSignal;
@@ -57,15 +49,13 @@ export async function draftSummary(history: readonly ReplayEntry[], options: {
   let model: string | undefined;
   let abort: (() => void) | undefined;
   try {
-    // Race even a provider that incorrectly ignores cancellation. Its result
-    // is never applied after the signal aborts; compliant drivers stop work.
     model = await new Promise<string>((resolve, reject) => {
       abort = () => reject(signal.reason);
       signal.addEventListener("abort", abort, { once: true });
       Promise.resolve().then(() => options.generateText!(summaryPrompt(history), { signal }))
         .then(resolve, reject);
     });
-  } catch { /* bounded, source-labelled fallback */ }
+  } catch {}
   finally { if (abort) signal.removeEventListener("abort", abort); }
   options.signal.throwIfAborted();
   if (!model?.trim()) return fallback;

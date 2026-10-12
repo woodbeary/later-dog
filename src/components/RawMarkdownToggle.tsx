@@ -2,17 +2,12 @@ import { Code, Eye } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 
-/** Props for the {@link RawToggleAction} component. */
 export interface RawToggleActionProps {
-  /** Whether raw markdown mode is currently active. */
   active: boolean;
-  /** Callback fired when the toggle button is clicked. */
   onToggle: () => void;
-  /** Optional custom CSS class name. */
   className?: string;
 }
 
-/** Switch one bot message between rendered markdown and its original source. */
 export function RawToggleAction({ active, onToggle, className }: RawToggleActionProps) {
   const label = t(active ? "chat.action.viewFormatted" : "chat.action.viewSource");
   return (
@@ -35,15 +30,11 @@ export function RawToggleAction({ active, onToggle, className }: RawToggleAction
   );
 }
 
-/** Props for the {@link RawMarkdownView} component. */
 export interface RawMarkdownViewProps {
-  /** The raw markdown or plain text content. */
   text: string;
-  /** Optional custom CSS class name. */
   className?: string;
 }
 
-/** React escapes the source; long messages remain selectable and keyboard-scrollable. */
 export function RawMarkdownView({ text, className }: RawMarkdownViewProps) {
   return (
     <pre

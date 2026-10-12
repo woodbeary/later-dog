@@ -1,6 +1,5 @@
 import { ECDH } from "node:crypto";
 
-/** Accept only a canonical, on-curve uncompressed P-256 public point. */
 export function normalizedPhoneSecretPublicKey(encoded: string): string | null {
   if (!/^[A-Za-z0-9_-]{87}$/.test(encoded)) return null;
   try {

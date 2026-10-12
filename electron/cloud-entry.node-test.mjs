@@ -132,7 +132,7 @@ test("main takes the link from launch arguments, open-url and a second instance"
 });
 
 test("startup delivers a pending Cloud link before default navigation", () => {
-  const startup = between("  let restoredOrganizationEntry = false;", "  // Reconcile incomplete setup");
+  const startup = between("  let restoredOrganizationEntry = false;", "  if (hostedAccount) void hostedAccount.restore()");
   const delivered = startup.indexOf("const deliveredCloudEntry = await cloudEntry.ready();");
   assert.ok(delivered > startup.indexOf("await deliverOrganizationEntry()"));
   assert.ok(delivered < startup.indexOf("createWindow()"));
@@ -145,13 +145,11 @@ test("the Cloud entry checks the owned server, waits for the saved sign-in, and 
   const guard = entry.indexOf("if (!serverReady) throw new Error(");
   const restored = entry.indexOf("await cloudAccountRestored();");
   assert.ok(guard !== -1 && restored > guard);
-  // The same capped wait the microphone uses while the saved sign-in restores.
   assert.match(between("function cloudAccountRestored()", "\n}\n"), /Promise\.race\(\[cloudAccountStarted, new Promise\(resolve => setTimeout\(resolve, 5_000\)/);
   for (const action of ["createWindow(", "persistEnvironments(", "win.webContents.send(", "win.loadURL("]) {
     assert.ok(entry.indexOf(action) > restored, `${action} must follow the server guard and the restore`);
   }
   assert.ok(entry.indexOf("if (desktopRemoteAccess) throw") < guard, "companion client mode is not changed by the link");
-  // Owner rule: no app-side approval prompt, and nothing but the fixed action reaches the page.
   assert.doesNotMatch(entry, /dialog\.|confirm/);
   assert.deepEqual([...entry.matchAll(/webContents\.send\(([^)]*)\)/g)].map(match => match[1]), ['"app:open-settings", "cloud"']);
   assert.deepEqual([...entry.matchAll(/loadURL\((.*)\);/g)].map(match => match[1]), ["`${rendererOrigin()}/?desktop-settings=cloud`"]);

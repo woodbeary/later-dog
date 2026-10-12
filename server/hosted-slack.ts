@@ -1,7 +1,5 @@
 import { hostedWorkspaceConfiguration } from "./enterprise.ts";
 
-/** The hosted Admin owns Slack installation and authorization. This link
- * carries identifiers only; opening it never grants access to that service. */
 export function hostedSlackManagement(
   botId: string,
   runtimeReady: boolean,

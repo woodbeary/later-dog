@@ -4,10 +4,6 @@ import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { goldenExportSchema, redactThread } from "./redact-thread.ts";
 
-/** Turns one real thread export into one synthetic golden fixture. The
- * export is read from a file the developer controls (never a live store);
- * the redacted fixture is written only after the leak scans pass. */
-
 const USAGE = "usage: node --experimental-strip-types evals/golden/redact/redact-cli.ts --input export.json --out evals/golden/scenarios/<id>.json";
 
 function argument(args: string[], name: string): string | undefined {

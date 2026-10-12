@@ -5,9 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { ClaudeLoginController, claudeLoginCode, claudeLoginPrompt, claudeSignInLink } from "./claude-login-auth.ts";
 
-// A stand-in for the Claude CLI: prints what `claude auth login` prints,
-// waits for the pasted code on stdin, and answers `auth status --json`. It
-// never touches the network or any real credential.
 const FAKE = `#!/usr/bin/env node
 import { appendFileSync, existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -132,13 +129,11 @@ describe("Claude server-owned sign-in", () => {
     const controller = create("success", { onAuthenticated: async () => { refreshed++; } });
     const start = await controller.start();
     expect(start).toMatchObject({ phase: "waiting", authorizationUrl: "https://claude.com/cai/oauth/authorize?code=true&client_id=fixture&state=abc" });
-    // the page the CLI opened, caught instead of opened, hands the sign-in back by itself
     if (process.platform !== "win32") {
       expect(start.callbackUrl).toBe("https://claude.com/cai/oauth/authorize?code=true&client_id=fixture&redirect_uri=http%3A%2F%2Flocalhost%3A53584%2Fcallback&state=abc");
     }
     expect(start.userCode).toBeUndefined();
     expect(start.flowId).toMatch(/^[0-9a-f-]{36}$/);
-    // a second click while waiting returns the same link, no second process
     expect((await controller.start()).flowId).toBe(start.flowId);
     await controller.complete(start.flowId!, " GOODCODE#abc\n");
     expect(await controller.get(start.flowId!)).toEqual({ phase: "succeeded", flowId: start.flowId, authorizationUrl: null, expiresAt: null });
@@ -185,7 +180,6 @@ describe("Claude server-owned sign-in", () => {
     it("refuses to pull a sign-in away while a browser is completing it", async () => {
       const controller = create("no-url", { startupTimeoutMs: 5000 });
       const starting = controller.start();
-      // The start rejects once cancelled below; listen before that happens.
       const startRejected = expect(starting).rejects.toThrow("cancelled");
       await expect.poll(() => {
         try {
@@ -272,15 +266,12 @@ describe("Claude server-owned sign-in", () => {
   });
 
   it("never shows a link that is not Anthropic's, and times out instead", async () => {
-    // Startup timeout must land before the 3s link lifetime so the rejection
-    // names the missing safe link, not an expired one.
     const controller = create("evil", { startupTimeoutMs: 1000 });
     await expect(controller.start()).rejects.toThrow(/did not show a sign-in link/);
   });
 
   it("times out when the CLI prints no link, and cancel kills the process", async () => {
     const controller = create("no-url", { startupTimeoutMs: 20_000 });
-    // the rejection lands during cancel(); the expectation must already be listening
     const started = expect(controller.start()).rejects.toThrow(/cancelled/);
     await expect.poll(() => { try { return readFileSync(join(home, "pid"), "utf8").length > 0; } catch { return false; } }).toBe(true);
     const pid = Number(readFileSync(join(home, "pid"), "utf8"));

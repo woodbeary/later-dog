@@ -52,9 +52,6 @@ async function canonicalAuthResponse(response: Response): Promise<Response> {
   if (response.status >= 500) return errorResponse(500, "internal_error");
   if (response.status < 400 || response.status > 499) return response;
 
-  // Better Auth error bodies are dependency-owned and may contain prose or
-  // change shape between releases (its rate limiter currently returns only a
-  // `message`). Publish only later.dog's stable, lowercase error contract.
   const payload: unknown = await response.json().catch(() => null);
   const parsed = betterAuthErrorSchema.safeParse(payload);
   const dependencyCode = parsed.success ? parsed.data.code : "";
@@ -78,12 +75,6 @@ async function route(
     if (limited) return limited;
     const auth = createAuth(env, ctx, config, requestId);
     const response = await auth.handler(request);
-    // Better Auth's inline expired-code cleanup is off (see auth.ts), so
-    // sign-in sweeps after responding. It skips 429 and 5xx responses. Other
-    // 4xx responses still sweep, including validation errors that never
-    // reached Better Auth's cleanup; its per-IP sign-in limit bounds them. The
-    // other email-otp routes that check a code no longer sweep; sign-in runs
-    // often enough to keep the table bounded.
     if (
       request.method === "POST"
       && url.pathname === SIGN_IN_OTP_PATH
@@ -170,9 +161,6 @@ export function createWorker(cloudflareFetch: CloudflareFetch = fetch) {
         } catch {
           return secureResponse(errorResponse(503, "misconfigured"), request, null, requestId);
         }
-        // `ok` keeps meaning "this Worker is correctly configured"; desktops
-        // gate hosted sign-in on it. Provider capacity is reported beside it
-        // so a full quota never hides sign-in, recovery, or local pairing.
         const capacity = await capacityHealth(env, healthConfig, ctx).catch(() => null);
         return secureResponse(json({
           ok: true,
@@ -217,9 +205,6 @@ export function createWorker(cloudflareFetch: CloudflareFetch = fetch) {
           }));
           return;
         }
-        // The scan only marks idle rows; the sweep below performs every
-        // deletion through the ownership-verified path. A failed scan must
-        // never block cleanup that is already queued.
         try {
           await scanTunnelCapacity(env, config, cloudflareFetch, requestId);
         } catch {

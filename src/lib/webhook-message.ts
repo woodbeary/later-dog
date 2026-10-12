@@ -3,9 +3,6 @@ export interface WebhookMessageView {
   payload?: string;
 }
 
-/** Convert the model-safe webhook prompt into the smaller view shown in chat.
- * The stored message stays untouched, preserving the trust boundary for model
- * context and follow-up turns. */
 export function webhookMessageView(text: string): WebhookMessageView | null {
   const eventStart = text.indexOf("[UNTRUSTED WEBHOOK EVENT DATA]\n");
   if (eventStart < 0) return null;

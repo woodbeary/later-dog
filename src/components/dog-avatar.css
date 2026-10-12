@@ -1,9 +1,3 @@
-/* later.dog's dog (DogAvatar.tsx, looks in dog-breeds.ts). Every fill is a tone of the one colour the person picked,
-   so a breed reads from its shapes and markings in any colour. Poses use the individual `rotate` / `translate` /
-   `scale` properties with a transition, so a state change eases into place and a still dog still reads its state;
-   loops use `transform` keyframes on separate groups. Durations and easings come from the app's motion tokens
-   (docs/laterdog/motion.md). */
-
 .ld-dog {
   overflow: visible;
   --ld-ease: var(--ease-out-soft, cubic-bezier(0.22, 1, 0.36, 1));
@@ -43,7 +37,6 @@
 .ld-dog-glint { fill: #fff; }
 .ld-dog-muzzle { translate: calc(var(--gx, 0) * 1.6px) 0; transition: translate var(--ld-base) var(--ld-ease); }
 
-/* ---------- body: the whole dog bobs, tilts, hops and wags from its chin ---------- */
 .ld-dog-body {
   transform-box: view-box;
   transform-origin: 50px 84px;
@@ -89,7 +82,6 @@
 }
 @keyframes ld-dog-spin { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(200deg) scale(0.92); } 100% { transform: rotate(360deg) scale(1); } }
 
-/* ---------- ears: a pose per mood (eased), a loop on top for rest, work and play ---------- */
 .ld-dog-ear-pose, .ld-dog-ear-loop { transform-box: view-box; }
 .ld-dog-ear-pose { transition: rotate var(--ld-enter) var(--ld-ease), translate var(--ld-enter) var(--ld-ease); }
 
@@ -123,7 +115,6 @@
 }
 @keyframes ld-dog-flop { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(calc(var(--ear-flick) * 0.7)); } }
 
-/* ---------- eyes, brows, nose, mouth: the face follows the gaze a little; the nose and mouth a little more ---------- */
 .ld-dog-gaze {
   translate: calc(var(--gx, 0) * 2.4px) calc(var(--gy, 0) * 1.8px);
   transition: translate var(--ld-base) var(--ld-ease);
@@ -172,13 +163,11 @@
 }
 .ld-dog[data-mood="happy"] .ld-dog-tongue { opacity: 1; translate: 0 0; }
 
-/* A paused dog holds its pose; reduced motion keeps every pose and drops every loop. */
 .ld-dog[data-paused], .ld-dog[data-paused] * { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .ld-dog, .ld-dog * { animation: none !important; transition-duration: 0.01ms !important; }
 }
 
-/* The "+1" that pops from a treat button (TreatButton.tsx). */
 .treat-pop { translate: -50% 0; animation: ld-treat-pop 0.9s var(--ease-out-soft, ease-out) forwards; }
 @keyframes ld-treat-pop {
   0% { opacity: 0; transform: translateY(2px) scale(0.8); }

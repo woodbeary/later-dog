@@ -1,7 +1,3 @@
-// electron-updater 6.8.9 resolves the Mac download when its local HTTP response
-// finishes, before Squirrel validates/extracts the ZIP. Wait for native ready
-// instead, and never arm a future quit from a premature Restart request.
-// Exact, single-site replacements deliberately fail closed on upstream changes.
 export function patchMacUpdater(source) {
   function replace(before, after) {
     const count = source.split(before).length - 1;

@@ -1,4 +1,3 @@
-// Actual browser + actual BrowserPanel, always in a disposable fixture HOME.
 import { readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -35,7 +34,6 @@ try {
   } else await parkUntilSignal();
 } finally {
   await ui?.close();
-  // close --all is scoped to this fixture's HOME, never the operator's.
   await promisify(execFile)(binaryPath, ["close", "--all"], { env: { HOME: fixture.info.dataDir, USERPROFILE: fixture.info.dataDir, PATH: process.env.PATH }, timeout: 15_000 }).catch(() => {});
   await fixture.close();
 }

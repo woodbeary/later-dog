@@ -42,7 +42,6 @@ describe("idle tunnel classification", () => {
       expect(reason({ status, created_at: ago(90), conns_active_at: ago(60) })).toBeNull();
       expect(reason({ status, created_at: ago(90), conns_inactive_at: ago(60) })).toBeNull();
     }
-    // A live connection beats a stale "down" or "inactive" label.
     expect(reason({
       status: "down",
       created_at: ago(90),
@@ -50,14 +49,12 @@ describe("idle tunnel classification", () => {
       connections: [{ colo_name: "DFW" }],
     })).toBeNull();
     expect(reason({ status: "inactive", created_at: ago(90), connections: [{}] })).toBeNull();
-    // Reconnected after it last went down.
     expect(reason({
       status: "down",
       created_at: ago(90),
       conns_active_at: ago(1),
       conns_inactive_at: ago(30),
     })).toBeNull();
-    // "Never ran" contradicted by an activation time.
     expect(reason({ status: "inactive", created_at: ago(90), conns_active_at: ago(30) })).toBeNull();
   });
 
@@ -67,7 +64,6 @@ describe("idle tunnel classification", () => {
     expect(reason({ status: "paused", created_at: ago(90), conns_inactive_at: ago(90) })).toBeNull();
     expect(reason({ status: "down", created_at: ago(90), conns_inactive_at: "yesterday-ish" })).toBeNull();
     expect(reason({ status: "inactive", created_at: "not-a-date" })).toBeNull();
-    // A timestamp in the future is never "long enough ago".
     expect(reason({ status: "inactive", created_at: new Date(NOW + DAY_MS).toISOString() })).toBeNull();
   });
 });

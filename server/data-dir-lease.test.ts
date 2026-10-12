@@ -59,9 +59,6 @@ describe("later.dog data-directory lease", () => {
     const lease = acquireDataDirLease(dir);
     const stored = JSON.parse(readFileSync(join(dir, "laterdog-server.lease"), "utf8"));
 
-    // boot/uptime identify which boot wrote the record, so a pid recycled
-    // across a restart cannot be mistaken for a live owner. boot is null on
-    // platforms that expose no boot id, so it is checked separately.
     const { boot, ...rest } = stored;
     expect(rest).toEqual({
       version: 1,

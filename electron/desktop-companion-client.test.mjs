@@ -29,8 +29,6 @@ const access = {
   serverName: "Office computer",
 };
 
-// The managed HTTPS form exists only under a domain the build names; these
-// fixtures name one so the managed cases below have something to accept.
 beforeEach(() => {
   vi.stubEnv("LATERDOG_MANAGED_COMPANION_DOMAIN", "later.dog");
 });
@@ -41,7 +39,6 @@ describe("managed companion domain", () => {
     expect(managedCompanionDomain({ LATERDOG_MANAGED_COMPANION_DOMAIN: " .Companions.Example.test " })).toBe("companions.example.test");
     expect(managedCompanionDomain({ LATERDOG_MANAGED_COMPANION_DOMAIN: "legacy.example" })).toBe("legacy.example");
     expect(managedCompanionDomain({ LATERDOG_MANAGED_COMPANION_DOMAIN: "https://not-a-domain" })).toBe("");
-    // no domain: a managed-looking HTTPS address is rejected, Tailscale still works
     expect(normalizeDesktopCompanionEndpoint("https://c-opaque.later.dog", "")).toBe("");
     expect(normalizeDesktopCompanionEndpoint("host.example-tailnet.ts.net", "")).toBe("http://host.example-tailnet.ts.net:8810");
   });

@@ -54,7 +54,6 @@ describe("when a catalog is searched", () => {
     expect(directoryCallTarget(SEARCH_TOOL, { query: "x" })).toBeUndefined();
     expect(directoryCallTarget(DESCRIBE_TOOL, { name: "payments_list" })).toBeUndefined();
     expect(directoryCallTarget(CALL_TOOL, { name: "payments_list", arguments: {} })).toBe("payments_list");
-    // naming no tool runs nothing: the directory answers it
     expect(directoryCallTarget(CALL_TOOL, { arguments: {} })).toBeUndefined();
     expect(directoryCallTarget(CALL_TOOL, { name: " " })).toBeUndefined();
     expect(directoryCallTarget("payments_list", {})).toBe("payments_list");
@@ -73,13 +72,11 @@ describe("BM25 ranking", () => {
 
   it("drops the words a request is phrased with, and keeps words in any script", () => {
     expect(terms("Which payments failed this month? How much revenue is there?")).toEqual(["payment", "fail", "month", stem("revenue")]);
-    // Unicode letters and digits are words; only ASCII ones are stemmed
     expect(terms("Список платежей · 支払い 一覧 · facturaciónMensual")).toEqual(["список", "платежей", "支払い", "一覧", "facturación", "mensual"]);
   });
 
   it("keeps words whole that carry combining marks, and normalizes what looks alike", () => {
     expect(terms("भुगतान सूची")).toEqual(["भुगतान", "सूची"]);
-    // one Thai word, in its normalized form (NFKC splits SARA AM in two)
     expect(terms("การชำระเงิน")).toEqual(["การชำระเงิน".normalize("NFKC")]);
     expect(terms("cafe\u0301 menu")).toEqual(["café", "menu"]);
     expect(terms("ｐａｙｍｅｎｔｓ")).toEqual(["payment"]);
@@ -102,7 +99,6 @@ describe("BM25 ranking", () => {
     const found = await bm25Ranker("list payments", catalog, 8);
     expect(found[0].name).toBe("payments_list");
     expect(found.map((entry) => entry.name)).toContain("payments_list_refunded");
-    // a tool that only mentions both words in passing ranks below them
     expect(found.findIndex((entry) => entry.name === "stats_get")).toBe(-1);
   });
 
@@ -121,29 +117,24 @@ describe("BM25 ranking", () => {
   });
 
   it("puts the tools of an area a request names above tools that only mention it", async () => {
-    // "payment" is everywhere, so the word alone says little; the area does
     const tools = [
       tool("payments_summary", "Summarizes."),
       tool("ledgers_payment", "Gets the ledger entry of a payment, with the payment's amount and the payment's date."),
       ...Array.from({ length: 20 }, (_, index) => tool(`area${index}_get`, `Gets item ${index} and its payment.`)),
     ];
     expect((await bm25Ranker("payments", tools, 3))[0].name).toBe("payments_summary");
-    // an area of several words counts by how much of it the request names
     const areas = [tool("promo-codes_list", "Lists them."), tool("promo-banners_list", "Lists them."), tool("codes_list", "Lists them.")];
     expect((await bm25Ranker("promo codes", areas, 3))[0].name).toBe("promo-codes_list");
   });
 
   it("lifts listing tools a little when the request asks what there is", async () => {
     const tools = [tool("members_list", "Lists members."), tool("members_ban", "Bans a member."), tool("notes_get", "Gets a note.")];
-    // the same words without asking: a tie, ordered by name
     expect((await bm25Ranker("members", tools, 3)).map((entry) => entry.name)).toEqual(["members_ban", "members_list"]);
     for (const query of ["which members", "who are the members", "show members", "newest members", "all members"]) {
       expect((await bm25Ranker(query, tools, 3))[0].name).toBe("members_list");
     }
-    // a description starting "Lists" counts as listing too
     const described = [tool("members_roster", "Lists the members of a company."), tool("members_ban", "Bans a member.")];
     expect((await bm25Ranker("which members", described, 2))[0].name).toBe("members_roster");
-    // and a verb the request names still wins
     expect((await bm25Ranker("which member should I ban", tools, 3))[0].name).toBe("members_ban");
   });
 
@@ -151,7 +142,6 @@ describe("BM25 ranking", () => {
     const said = tool("widgets_report", "Reports revenue for widgets.");
     const offered = tool("gizmos_get", "Gets one gizmo.", { type: "object", properties: { metric: { type: "string", enum: ["revenue", "units"] } } });
     expect((await bm25Ranker("revenue", [offered, said], 8)).map((entry) => entry.name)).toEqual(["widgets_report", "gizmos_get"]);
-    // a long schema dilutes only its own words, never a match in the name
     const long = tool("payments_list", "Lists payments.", { type: "object", properties: Object.fromEntries(Array.from({ length: 60 }, (_, index) => [`field_${index}`, { type: "string", description: "A filter." }])) });
     const short = tool("payments_archive", "Archives payments so they leave lists.");
     expect((await bm25Ranker("list payments", [short, long], 8))[0].name).toBe("payments_list");
@@ -182,7 +172,6 @@ describe("ranking a catalog that puts its meaning in parameters", () => {
 
   it("finds payments_list for failed payments, though it never says failed, and nothing for the question's own words", async () => {
     expect(await rank("which payments failed this month", 3)).toContain("payments_list");
-    // "which" is a stop word, so the tool that "says which account it uses" stays out
     expect(await rank("which payments failed this month", 20)).not.toContain("connection_status");
   });
 
@@ -193,7 +182,6 @@ describe("ranking a catalog that puts its meaning in parameters", () => {
   it("keeps a verb the request names ahead of everything else", async () => {
     expect((await rank("cancel a membership"))[0]).toBe("memberships_cancel");
     expect(await rank("create a promo code", 2)).toContain("promo-codes_create");
-    // even beside words that ask what there is
     expect((await rank("show me how to cancel a membership"))[0]).toBe("memberships_cancel");
     expect((await rank("which promo code should I delete"))[0]).toBe("promo-codes_delete");
   });
@@ -257,7 +245,6 @@ describe("the directory's three tools", () => {
       readOnly: true,
     });
     expect((await matches(directory, { query: "delete payments" }))[0]).toMatchObject({ name: "payments_delete", destructive: true });
-    // every tool of the area, then the one that only mentions payments
     const payments = (await matches(directory, { query: "payments", limit: 500 })).map((entry) => entry.name);
     expect(payments).toHaveLength(9);
     expect(payments.at(-1)).toBe("stats_get");
@@ -335,14 +322,11 @@ describe("the directory's three tools", () => {
 describe("describe_tool on a huge schema", () => {
   const bytes = (value: string) => Buffer.byteLength(value);
   const groups = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"];
-  /** About 51 KB, like Whop's largest tool: nested objects whose fields
-   * carry long descriptions, examples and defaults. */
   const described = () => {
     const leaf = (index: number) => ({ type: "string", description: `Filter ${index}: ${"narrows the results to matching records. ".repeat(5)}`, examples: ["first example", "second example"], default: "first example" });
     const group = (name: string) => ({ type: "object", description: `${name} filters.`, properties: Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`${name}_${index}`, leaf(index)])) });
     return { type: "object", required: ["company_id"], properties: { company_id: { type: "string", description: "The company." }, ...Object.fromEntries(groups.map((name) => [name, group(name)])) } };
   };
-  /** Too big even without a single description: hundreds of enum fields. */
   const structural = (perGroup: number) => {
     const leaf = { type: "string", enum: ["one", "two", "three", "four", "five", "six"] };
     const group = (name: string) => ({ type: "object", properties: Object.fromEntries(Array.from({ length: perGroup }, (_, index) => [`${name}_${index}`, leaf])) });
@@ -363,7 +347,6 @@ describe("describe_tool on a huge schema", () => {
     expect(bytes(text(answer))).toBeLessThanOrEqual(DESCRIBE_BYTES);
     const parsed = JSON.parse(text(answer));
     expect(parsed.compacted).toMatch(/nested fields were left out/);
-    // the schema's real shape survives; the top level keeps its words
     expect(parsed.inputSchema.required).toEqual(["company_id"]);
     expect(parsed.inputSchema.properties.company_id.description).toBe("The company.");
     expect(parsed.inputSchema.properties.alpha.description).toBe("alpha filters.");
@@ -392,7 +375,6 @@ describe("schemas that keep their fields in $defs", () => {
     Cursor: { type: "object", properties: { after: { type: "string" } } },
     Tree: { type: "object", properties: { label: { type: "string", enum: ["leaf"] }, children: { type: "array", items: { $ref: "#/$defs/Tree" } } } },
   };
-  /** The shape Pydantic and FastMCP write. */
   const pydantic = {
     type: "object",
     properties: {
@@ -407,7 +389,6 @@ describe("schemas that keep their fields in $defs", () => {
     expect(schemaText(pydantic)).toBe("params status failed paid created_after cursor after");
     expect(schemaText({ type: "object", properties: { root: { $ref: "#/$defs/Tree" } }, $defs: defs }).match(/leaf/g)).toHaveLength(1);
     expect(schemaText({ $ref: "#" })).toBe("");
-    // only references into the same schema
     expect(schemaText({ type: "object", properties: { x: { $ref: "https://example.test/remote.json" } } })).toBe("x");
     expect(schemaText({ type: "object", definitions: { Old: { enum: ["legacy"] } }, properties: { x: { $ref: "#/definitions/Old" } } })).toBe("x legacy");
   });
@@ -429,7 +410,6 @@ describe("schemas that keep their fields in $defs", () => {
       $defs: { Filters: { type: "object", properties: filters }, Tree: defs.Tree } };
     const parsed = JSON.parse(text(new ToolDirectory([tool("orders_search", "Searches orders.", big)]).describe({ name: "orders_search" })));
     expect(parsed.compacted).toMatch(/too large to show whole/);
-    // a definition that holds itself is walked once along each path
     expect(parsed.fields.slice(0, 4)).toEqual([
       { path: "tree", type: "object" },
       { path: "tree.label", type: '"leaf"' },
@@ -437,7 +417,6 @@ describe("schemas that keep their fields in $defs", () => {
       { path: "params", type: "object", required: true },
     ]);
     expect(parsed.fields[4]).toEqual({ path: "params.filter_0", type: '"one" | "two" | "three" | "four" | "five" | "six"' });
-    // a schema whose root is itself a reference
     const rooted = { $ref: "#/$defs/Root", $defs: { Root: { type: "object", properties: filters, required: ["filter_0"] } } };
     const outlined = JSON.parse(text(new ToolDirectory([tool("orders_filter", "Filters orders.", rooted)]).describe({ name: "orders_filter" })));
     expect(outlined.fields[0]).toEqual({ path: "filter_0", type: '"one" | "two" | "three" | "four" | "five" | "six"', required: true });

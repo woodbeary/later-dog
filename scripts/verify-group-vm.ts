@@ -29,8 +29,6 @@ async function api(path: string, body?: unknown, method = body === undefined ? "
   const timeout = AbortSignal.timeout(120_000);
   const response = await fetch(fixture.info.url + path, {
     method, headers: { "content-type": "application/json" },
-    // Finish an in-flight mutation before cleanup; aborting HTTP does not
-    // cancel the server-side container creation.
     signal: cleanup || method !== "GET" ? timeout : AbortSignal.any([controller.signal, timeout]),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
@@ -58,7 +56,6 @@ try {
   groupId = group.id;
   async function turn(id: string) {
     await api(`/api/groups/${group.id}`, { defaultResponder: { kind: "member", botId: id } }, "PATCH");
-    // A stale dump must never count as proof of this dispatch.
     rmSync(fixture.fixtureDumpPath, { force: true });
     await api(`/api/groups/${group.id}/messages`, { mode: "goal", text: "Reply once for isolated GUI routing verification." });
     const wait = await runControlLaterDog(["wait", "--channel", group.id, "--timeout", "60", "--url", fixture.info.url]) as { status: string };
@@ -74,7 +71,6 @@ try {
     assert.equal(typeof target, "string");
     assert(computer.args.includes(target), "MCP must target exactly the speaking bot GUI container");
     assert(String(dump.systemPrompt).includes("computer"), "Goal must include computer instructions");
-    // Settled capabilities must already be revoked, including the final speaker.
     const gate = await fetch(computer.env.LATERDOG_CONTROL_URL, {
       headers: { authorization: `Bearer ${computer.env.LATERDOG_CONTROL_TOKEN}` }, signal: AbortSignal.timeout(5_000),
     });
@@ -91,7 +87,6 @@ try {
 } finally {
   if (groupId) await api(`/api/groups/${groupId}/interrupt`, {}, "POST", true).catch(e => errors.push(e));
   for (const id of ids) {
-    // Stop before removing: an interrupted acceptance run may still own a lease.
     await api(`/api/bots/${id}/interrupt`, {}, "POST", true).catch(e => errors.push(e));
     await api(`/api/bots/${id}/local-computer/remove`, {}, "POST", true).catch(e => errors.push(e));
   }

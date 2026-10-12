@@ -52,8 +52,6 @@ describe("channel queue", () => {
     expect(run).toHaveBeenLastCalledWith(expect.objectContaining({
       groupId: "group-a",
       threadId: "thread-a",
-      // M2: the drain hands the run the leading coalesced group; a chat
-      // item never merges with the goal item behind it
       items: [expect.objectContaining({ text: "first follow-up", mode: "chat" })],
     }));
     expect(_queuedChannelCount("thread-a")).toBe(1);
@@ -70,7 +68,7 @@ describe("channel queue", () => {
   it("hands the drain who sent a queued message, through a restart too", () => {
     queueChannelMessage("group-sender", "thread-sender", "from the paired person", { sender: { name: "Priya" } });
     queueChannelMessage("group-sender", "thread-sender", "from the owner");
-    restoreChannelMessages(); // a restart reads the name back from the durable row
+    restoreChannelMessages();
 
     const run = vi.fn();
     drainChannelMessages(() => false, run);
@@ -121,16 +119,12 @@ describe("channel queue", () => {
     const head = queueChannelMessage("group-c", "thread-c", "steer me");
     queueChannelMessage("group-c", "thread-c", "behind the head");
 
-    // A hold for words that are not this queue's, or another room's queue,
-    // changes nothing.
     expect(holdChannelQueue("group-c", "thread-c", "unknown")).toBeNull();
     expect(holdChannelQueue("group-other", "thread-c", head.id)).toBeNull();
     expect(_queuedChannelCount("thread-c")).toBe(2);
 
     const held = holdChannelQueue("group-c", "thread-c", head.id);
     expect(held?.items.map((item) => item.id)).toEqual([head.id, expect.any(String)]);
-    // The entry left the map: a drain firing while the adapter is still
-    // thinking can never double-dispatch the held words.
     expect(_queuedChannelCount("thread-c")).toBe(0);
     const run = vi.fn();
     drainChannelMessages(() => false, run);
@@ -138,7 +132,6 @@ describe("channel queue", () => {
 
     restoreHeldChannelQueue(held!);
     expect(_queuedChannelCount("thread-c")).toBe(2);
-    // Leave the shared map clean for the tests that follow.
     for (const item of held!.items) cancelChannelMessage("group-c", item.id);
     expect(_queuedChannelCount("thread-c")).toBe(0);
   });
@@ -147,13 +140,10 @@ describe("channel queue", () => {
     const head = queueChannelMessage("group-f", "thread-f", "the head must stay");
     const later = queueChannelMessage("group-f", "thread-f", "named by the request");
 
-    // The steer path settles the head group; a hold granted for a later id
-    // would steer and delete the head's words instead. Nothing may move.
     expect(holdChannelQueue("group-f", "thread-f", later.id)).toBeNull();
     expect(_queuedChannelCount("thread-f")).toBe(2);
     const run = vi.fn();
     drainChannelMessages(() => false, run);
-    // M2: same-sender contiguous items drain as ONE coalesced group
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       items: [
         expect.objectContaining({ id: head.id, text: "the head must stay" }),
@@ -167,7 +157,6 @@ describe("channel queue", () => {
   it("restores a refused steer behind words that queued while the hold was open", () => {
     const first = queueChannelMessage("group-d", "thread-d", "refused head");
     const held = holdChannelQueue("group-d", "thread-d", first.id)!;
-    // The room kept accepting sends while the steer was in flight.
     const late = queueChannelMessage("group-d", "thread-d", "arrived during the hold", {
       sendId: "send_late_123456",
     });
@@ -176,8 +165,6 @@ describe("channel queue", () => {
     const run = vi.fn();
     drainChannelMessages(() => false, run);
     expect(run).toHaveBeenCalledTimes(1);
-    // M2: the words that queued during the hold are the same sender inside
-    // the window, so the restored head drains as one coalesced item with them
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       items: [
         expect.objectContaining({ id: first.id }),
@@ -194,8 +181,6 @@ describe("channel queue", () => {
     const held = holdChannelQueue("group-h", "thread-h", head.id)!;
     expect(_queuedChannelCount("thread-h")).toBe(0);
 
-    // The steer route resolves the reply target while the queue is lifted;
-    // a target that drifted out of the transcript must put the words back.
     expect(() =>
       resolveHeldReplyTarget(held, () => {
         throw new Error("the message being replied to is no longer available");
@@ -210,14 +195,10 @@ describe("channel queue", () => {
 
   it("settles only the steered head and re-queues the tail for the room drain", () => {
     const head = queueChannelMessage("group-e", "thread-e", "folded into the running turn");
-    // a different sender: M2 steers the head GROUP, so the tail must not be
-    // part of it to still test the requeue
     const tail = queueChannelMessage("group-e", "thread-e", "still waits its own turn", { sender: { name: "Priya" } });
     const held = holdChannelQueue("group-e", "thread-e", head.id)!;
 
     settleHeldChannelQueueHead(held);
-    // The steered words are gone for good: a restart or drain must not
-    // replay them as a fresh follow-up.
     const run = vi.fn();
     drainChannelMessages(() => false, run);
     expect(run).toHaveBeenCalledTimes(1);

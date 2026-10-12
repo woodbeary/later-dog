@@ -1,16 +1,5 @@
-// One-click bug-report bundle: app facts, a safe config summary and the
-// server/updater log tails, formatted for pasting into a public issue. Formatting and
-// bounded log reads live here so redaction and path safety stay unit-testable
-// without Electron; main.mjs owns the dialog plumbing. Safety is layered: the
-// collector never reads secret fields at all (only the server's booleans-only config status),
-// and everything that does get in is scrubbed again here before it lands on
-// disk — so a future collector mistake still cannot leak a credential.
-//
 import fs from "node:fs";
 
-// CREDENTIAL_ENV_NAMES mirrors WORKSPACE_CREDENTIAL_ENV (server/config.ts).
-// Duplicated because the desktop shell cannot import TypeScript; a test
-// asserts the two lists never drift apart.
 export const CREDENTIAL_ENV_NAMES = [
   "XAI_API_KEY",
   "MISTRAL_API_KEY",
@@ -38,14 +27,10 @@ export const CREDENTIAL_ENV_NAMES = [
   "LATERDOG_CLOUD_BOAT_TOKEN",
   "LATERDOG_CLOUD_VOICE_TOKEN",
   "LATERDOG_CLOUD_DECIDER_TOKEN",
-  // Browser capability files and app-owned state paths are private even
-  // though they are not traditional API credentials.
   "LATERDOG_BROWSER_CONNECTION",
   "LATERDOG_USER_DATA",
 ];
 
-// Credential-shaped tokens (server/redact.ts parity): unmistakable formats
-// are masked wherever they appear, keyed or not.
 const CREDENTIAL_TOKEN_FORMATS = [
   /\bsk-[A-Za-z0-9_-]{16,}/g,
   /\bxai-[A-Za-z0-9]{16,}/g,
@@ -69,15 +54,10 @@ const PEM_BLOCK =
 const mask = (value) => `«redacted ${value.length} chars»`;
 const unquote = (value) => value.replace(/^["']|["']$/g, "");
 
-// Shared value grammar; String.raw keeps \s and \] intact when the pattern
-// is embedded into the dynamically built env-name regexes below.
 const VALUE_PART = String.raw`("[^"]*"|'[^']*'|[^\s"',;)\]}]+)`;
 
 export function redactSecretsInLine(line) {
   let out = String(line ?? "");
-  // Updater HTTP errors include signed redirect URLs. Keep the host/path for
-  // diagnosis, but never export userinfo or any query/fragment, even when a
-  // provider gives its capability an unfamiliar or percent-encoded name.
   out = out.replace(/\bhttps?:\/\/[^\s"'<>]+/gi, (url) => {
     const query = url.search(/[?#]/);
     const address = query < 0 ? url : url.slice(0, query);
@@ -102,8 +82,6 @@ export function redactSecretsInLine(line) {
   return out;
 }
 
-/** Decode a bounded log buffer without exporting the partial first line that
- * may begin before the read boundary. */
 export function decodeLogTail(buffer, truncated = false) {
   if (!Buffer.isBuffer(buffer)) return { tail: "", bytes: 0 };
   let complete = buffer;
@@ -114,9 +92,6 @@ export function decodeLogTail(buffer, truncated = false) {
   return { tail: complete.toString("utf8"), bytes: complete.length };
 }
 
-/** Read a bounded regular-file tail without following a replaced log-path
- * symlink into unrelated user data. The pre/post-open identity check closes
- * the Windows gap where O_NOFOLLOW is unavailable; POSIX uses both. */
 export function readSafeLogTail(logPath, maxBytes = 256 * 1024, platform = process.platform) {
   let handle = null;
   try {
@@ -142,12 +117,6 @@ export function readSafeLogTail(logPath, maxBytes = 256 * 1024, platform = proce
   }
 }
 
-// Desktop crash records are written synchronously from Electron's main
-// process, including from uncaughtExceptionMonitor where an async stream may
-// never flush. Keep them deliberately metadata-only: no URL, title, error
-// message, command line or absolute path can reach the public diagnostics
-// export. Main-process failures retain only their origin and standard error
-// class, enough to distinguish a genuine fatal path without exposing content.
 const PROCESS_GONE_REASONS = new Set([
   "abnormal-exit",
   "clean-exit",
@@ -194,9 +163,6 @@ function safeErrorName(error) {
   }
 }
 
-/** Build one privacy-safe line for desktop-crashes.log. Unknown event shapes
- * are dropped rather than serialised, so new Electron fields cannot leak by
- * accident. clean-exit is normal lifecycle noise and is not a crash record. */
 export function formatDesktopCrashRecord(event = {}) {
   try {
     if (event.kind === "renderer") {
@@ -215,16 +181,10 @@ export function formatDesktopCrashRecord(event = {}) {
       const origin = known(event.origin, MAIN_FAILURE_ORIGINS, "uncaughtException");
       return `event=main-process-failure origin=${origin} error=${safeErrorName(event.error)}`;
     }
-  } catch {
-    // Crash reporting must be safer than the failure it is trying to record.
-  }
+  } catch {}
   return null;
 }
 
-/** Register Electron/Node crash observers without changing their lifecycle.
- * Dependencies are injected so the exact event wiring stays unit-testable
- * without importing Electron. The returned disposer is primarily for tests;
- * production keeps these observers for the lifetime of the app. */
 export function installDesktopCrashListeners({
   appTarget,
   processTarget,
@@ -264,11 +224,6 @@ export function installDesktopCrashListeners({
 
 const APP_INFO_KEYS = ["version", "platform", "arch", "electron", "node", "packaged", "uptimeSeconds"];
 
-// A config summary entry is publishable only when it carries no credential:
-// Only booleans and finite numbers pass. Strings can contain names, paths,
-// account identifiers, or other personal data even when the field name is
-// not credential-shaped, so they never reach the file. Everything else
-// (objects beyond flattening, arrays, nulls) is dropped too.
 const isFiniteNumber = (value) => Number.isFinite(value) && Object.prototype.toString.call(value) === "[object Number]";
 
 function summaryAllows(value) {

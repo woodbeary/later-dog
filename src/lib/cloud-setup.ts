@@ -1,9 +1,7 @@
 import type { CloudMoveState } from "../../electron/cloud-move.mjs";
 import { hintSeen, type OnboardingStatus, type WelcomeViewer } from "@/lib/onboarding";
 
-/** "Hide setup", in the Cloud's own onboarding record (server config). */
 export const CLOUD_SETUP_HIDDEN = "cloud-setup-hidden";
-/** "Not now" on the move, from the checklist. */
 export const CLOUD_SETUP_MOVE_SKIPPED = "cloud-setup-move-skipped";
 
 export type CloudSetupStep = "engine" | "move" | "try";
@@ -13,21 +11,12 @@ export interface CloudSetupItem { id: CloudSetupStep; status: CloudSetupStatus }
 export interface CloudSetupFacts {
   viewer: WelcomeViewer | null;
   connected: boolean;
-  /** The Cloud has answered /api/instances (an empty list means not yet). */
   enginesKnown: boolean;
-  /** Some engine on the Cloud can run a bot. */
   engineReady: boolean;
-  /** The Cloud's onboarding record; undefined until its config arrives. */
   onboarding: OnboardingStatus | undefined;
-  /** Move to Cloud as this desktop app's main process reports it. Null in a
-   * browser (no bridge) and until main has answered. */
   move: { phase: CloudMoveState["phase"]; action?: CloudMoveState["action"]; suggest: boolean } | null;
 }
 
-/** Where the checklist stands. "none": not a Cloud home, or a session that
- * cannot sign engines in or save the record (a guest's paired phone).
- * "waiting": the Cloud has not answered yet, so nothing flashes on a guess.
- * "done": an engine can run and a bot has finished a turn there. */
 export function cloudSetupStage(facts: Omit<CloudSetupFacts, "move">): "none" | "waiting" | "hidden" | "done" | "shown" {
   if (!facts.viewer?.cloudHome || !facts.viewer.canSave) return "none";
   if (!facts.connected || !facts.enginesKnown || !facts.onboarding) return "waiting";
@@ -36,12 +25,8 @@ export function cloudSetupStage(facts: Omit<CloudSetupFacts, "move">): "none" | 
   return "shown";
 }
 
-// A move started or stopped here stays in view, with its progress or error.
 const UNDER_WAY = new Set<CloudMoveState["phase"]>(["preparing", "growing", "exporting", "uploading", "checking", "replacing", "restarting", "failed"]);
 
-/** Bringing this computer's bots: offered only while main suggests it (the
- * desktop app, an empty Cloud, a computer with work to bring). Done after a
- * move; skipped once the person says Not now here. Null when not listed. */
 export function moveStatus(move: CloudSetupFacts["move"], onboarding: OnboardingStatus | undefined): CloudSetupStatus | null {
   if (!move) return null;
   if (move.action !== "restore" && move.phase === "done") return "done";
@@ -50,7 +35,6 @@ export function moveStatus(move: CloudSetupFacts["move"], onboarding: Onboarding
   return move.suggest ? "todo" : null;
 }
 
-/** The steps, in order. Signing in is the one that is required. */
 export function cloudSetupItems(facts: CloudSetupFacts): CloudSetupItem[] {
   const items: CloudSetupItem[] = [{ id: "engine", status: facts.engineReady ? "done" : "todo" }];
   const move = moveStatus(facts.move, facts.onboarding);

@@ -84,10 +84,6 @@ function NameRow() {
   );
 }
 
-/** This app's updates, which download by themselves. Shown once the desktop
- * app answers: on this computer's page and the person's own Cloud page, never
- * on another server's, where its buttons would do nothing. "Ready" names the
- * app: on My Cloud's Settings it is this app that restarts, not the Cloud. */
 export function UpdatesRow() {
   const s = useUpdaterState();
   const updater = window.laterdog?.updater;
@@ -115,7 +111,6 @@ export function UpdatesRow() {
                 : s.status === "error"
                   ? t("settings.updates.failed", { message: s.message ?? t("settings.updates.unknownError") })
                   : t("settings.updates.latest");
-  // No update feed: a newer release to download, or checking switched off.
   const release = releaseOffer(s);
   const checksOff = releaseChecksOff(s);
   const label = release
@@ -173,9 +168,6 @@ function AnalyticsRow() {
 
 function LanguageRow() {
   const { state } = useStore();
-  // Saved on this device only: anyone can switch, including a chat-only
-  // teammate, and nobody changes another person's screen. The server's
-  // language is the default until this device picks one.
   const current = effectiveLanguage(useLanguageChoice(), state.config?.language);
 
   return (
@@ -288,9 +280,6 @@ function GeneralPage({ mac }: { mac: boolean }) {
   );
 }
 
-/** Every model of the accounts signed in now, as Cursor lists them: a search
- * and one quiet row per model with a small switch. Only models switched on
- * show in a chat's model menu. Two accounts of one kind name their account. */
 function ModelsPage() {
   const { state } = useStore();
   const hidden = useHiddenModels();
@@ -388,7 +377,6 @@ export function SettingsModal() {
     dialog?.focus();
 
     const onKey = (event: KeyboardEvent) => {
-      // A child editor owns Escape and its focus trap, including while saving.
       if (event.defaultPrevented || (dialog && [...dialog.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')]
         .some(child => child.getClientRects().length))) return;
       if (event.key === "Escape") {
@@ -437,8 +425,6 @@ export function SettingsModal() {
       style={glassPopupFrameStyle()}
       onMouseDown={(e) => e.target === e.currentTarget && dispatch({ type: "toggleAppSettings", open: false })}
     >
-      {/* A sibling, not the parent: a backdrop-filter on an ancestor would
-          stop the pop-up's own glass from seeing the app behind it. */}
       <div aria-hidden="true" className="glass-scrim pointer-events-none absolute inset-0" />
       <div
         ref={dialogRef}

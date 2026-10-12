@@ -1,5 +1,3 @@
-// Exact app-owned browser state that belongs in an encrypted full backup.
-// Never include cookies, authentication tokens, connection caches or unknown keys.
 export const WORKSPACE_BACKUP_CLIENT_KEYS = [
   "laterdog-drafts",
   "laterdog-draft-attachments",

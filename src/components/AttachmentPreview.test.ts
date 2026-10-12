@@ -172,7 +172,6 @@ describe("Show in folder for a file outside the workspace", () => {
     try {
       expect(render("/Users/dog/_draft/ollama-gen.js")).toContain("Show in folder");
       expect(render("C:\\Users\\Dog\\_draft\\ollama-gen.js")).toContain("Show in folder");
-      // main refuses these, so the person gets the path to look for instead
       for (const filePath of ["_draft/ollama-gen.js", "\\\\server\\share\\ollama-gen.js"]) {
         expect(render(filePath)).not.toContain("Show in folder");
         expect(render(filePath)).toContain(`>${filePath}</code>`);

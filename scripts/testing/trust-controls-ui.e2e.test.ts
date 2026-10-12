@@ -1,4 +1,3 @@
-// Real renderer, disposable fake engine and browser profile only.
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";

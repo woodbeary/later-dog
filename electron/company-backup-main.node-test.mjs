@@ -8,11 +8,6 @@ import environments from "./environments.cjs";
 import { randomUUID } from "node:crypto";
 import { createCompanyBackupSchedule } from "./company-backup-schedule.mjs";
 
-// Exercise the production main-process functions and IPC registrations without
-// importing Electron main (which would start the app). All IO, connection state,
-// and transfer results are synthetic; these tests do not prove archive transport,
-// OS keychain storage, or a renderer workflow.
-// Windows checkouts can have CRLF line endings; the source checks below match "\n".
 const mainSource = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 function section(start, end) {
   const from = mainSource.indexOf(start);
@@ -61,7 +56,6 @@ function fixture() {
       return store;
     },
     createManagedDesktopClient: options => { f.onState = options.onState; f.clientOptions = options; return client; },
-    // The organization library is wired beside company access; a recording stub.
     createOrgLibrary: options => { f.libraryOptions = options; return f.library; },
     managedDesktopRelay: { sendLibrary: async (proc, library) => { f.librarySent.push({ proc, library }); } },
     createCompanyBackupSchedule: options => {
@@ -114,7 +108,6 @@ test("ensureManagedDesktop gives the organization library its own record, the fi
 });
 
 test("main hands the library a restarted runtime, the runtime's own messages and the quit", () => {
-  // Outside ensureManagedDesktop(), so checked in the source like the recovery-window rule in server-supervisor.node-test.mjs.
   assert.match(section("onReady(proc) {", "routineWake.start();"), /\n\s*orgLibrary\?\.runtimeReady\(\);\n/);
   const messages = section('proc.on("message", (message) => {', 'proc.once("spawn"');
   assert.match(messages, /if \(!serverSupervisor\.isCurrent\(proc\)\) return;/, "a replaced runtime's messages are dropped first");

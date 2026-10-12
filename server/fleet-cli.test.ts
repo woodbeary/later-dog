@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import { markProvisioningFailed, runFleetCommand, type FleetDeps, type FleetInput } from "./fleet-cli.ts";
 import { emptyRegistry, fenceRules, MANAGED_OPENROUTER, type FleetWorkspace } from "./fleet.ts";
 
-// A machine that records what the CLI would do to it. Nothing here touches
-// the real filesystem, systemd, nftables or Caddy.
 function machine(options: { root?: boolean; files?: Record<string, string>; failing?: string[] } = {}) {
   const files = new Map(Object.entries(options.files ?? {}));
   const calls: string[] = [];

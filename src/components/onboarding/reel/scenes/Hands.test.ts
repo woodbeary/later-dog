@@ -2,7 +2,6 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-// Hold the scene on one phase; the timers that advance it never run here.
 const scene = vi.hoisted(() => ({ phase: "chat" }));
 vi.mock("react", async (original) => ({
   ...(await original<typeof import("react")>()),
@@ -19,8 +18,6 @@ function render(phase: string): string {
 }
 
 describe("Hands scene", () => {
-  // Someone clicking through the reel lands on the panel's first second.
-  // A spinner and "Starting…" there read as a broken demo, not a bot at work.
   it("shows the booking page, not a loading screen, from the moment the panel is in", () => {
     for (const phase of ["panel", "awake", "moving", "clicked", "done", "reply"]) {
       const html = render(phase);

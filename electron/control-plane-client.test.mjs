@@ -123,9 +123,6 @@ describe("control-plane desktop client", () => {
 
   it("identifies native Better Auth mutations with the trusted control-plane origin", async () => {
     const fetchImpl = vi.fn(async (_url, init) => {
-      // Undici adds Fetch Metadata after our request wrapper hands off the
-      // init object. Model Better Auth 1.7's form-CSRF decision here: a
-      // browser-shaped request without a trusted Origin is forbidden.
       const wireHeaders = new Headers(init.headers);
       wireHeaders.set("sec-fetch-mode", "cors");
       if (wireHeaders.has("sec-fetch-mode") && wireHeaders.get("origin") !== "https://accounts.later.dog") {

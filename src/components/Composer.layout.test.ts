@@ -110,7 +110,6 @@ describe("the message box", () => {
     expect(tools.querySelector("button[aria-label='Attach a file']")).toBeNull();
     expect(before(tools, editor())).toBe(true);
     expect(before(editor(), actions)).toBe(true);
-    // permissions live in the + menu, not as their own button
     expect(row().querySelector("button[aria-label$=' for Claude']")).toBeNull();
   });
 

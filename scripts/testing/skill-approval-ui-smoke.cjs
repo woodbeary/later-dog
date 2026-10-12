@@ -49,14 +49,12 @@ module.exports = async function verifySkillApprovalUi({ root, home, url, api, un
     for (const window of windows) await until(async () => !await pending(window));
     assert.equal((await readBot()).messages.find(message => message.id === first.id).card.answered, "deny");
 
-    // A missing stage must also remain dismissible; no reviewed code is run.
     await stage();
     await until(() => pending(windows[0]));
     writeFileSync(join(home, "skill-state", bot.id, "staged.json"), JSON.stringify({ writes: {} }));
     await click(windows[0], "Deny");
     for (const window of windows) await until(async () => !await pending(window));
 
-    // Reusing the name proves Deny did not leave an invisible reservation.
     const deletedCard = await stage();
     for (const window of windows) await until(() => pending(window));
     await click(windows[0], "All threads");
@@ -67,7 +65,6 @@ module.exports = async function verifySkillApprovalUi({ root, home, url, api, un
       remove.click(); return true;
     })()`);
     await until(async () => !(await readBot()).tasks.some(task => task.threadId === pendingTask.threadId));
-    // The second client receives only SSE, not the DELETE response.
     for (const window of windows) {
       await until(async () => (await state(window)).threadId === savedThreadId && !await pending(window));
       await until(async () => (await state(window)).messageIds.includes(keptMessageIds.at(-1)));

@@ -1,9 +1,3 @@
-// Shown instead of a chat when nothing on this machine can run a bot.
-//
-// The alternative — which is what used to happen — is a chat that looks
-// completely functional until the first message, then fails with a raw spawn
-// error. Every engine unavailable is a setup state, not an error state, so it
-// gets a screen that says what to do rather than a bot that can't answer.
 import { Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useStore } from "@/state/store";

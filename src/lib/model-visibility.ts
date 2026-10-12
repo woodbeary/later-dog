@@ -1,6 +1,3 @@
-// Which models show in a chat's model menu, as in Cursor: every model of a
-// signed-in account is on until the person turns it off in Settings, Models.
-// Remembered on this device.
 import { useSyncExternalStore } from "react";
 
 export const HIDDEN_MODELS_KEY = "laterdog.hiddenModels.v1";
@@ -29,9 +26,7 @@ export function setModelShown(instanceId: string, model: string, shown: boolean)
   hidden = next;
   try {
     globalThis.localStorage?.setItem(HIDDEN_MODELS_KEY, JSON.stringify([...next]));
-  } catch {
-    // Private windows may refuse storage; the choice still holds this session.
-  }
+  } catch {}
   for (const fn of Array.from(watchers)) fn();
 }
 

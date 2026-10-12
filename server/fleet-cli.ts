@@ -1,8 +1,3 @@
-// `laterdog fleet`: many client workspaces on one Linux server. The plans
-// come from fleet.ts; this runs them as root with fixed argument lists, or
-// prints them for an operator to paste into a root shell, and never builds
-// a shell command from user input. The fleet agent (fleet-agent.ts) reuses
-// the same planner and executor over a Unix socket.
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
 import { posix } from "node:path";
@@ -37,12 +32,10 @@ export interface FleetInput {
   action: "init" | "create" | "list" | "users" | "providers" | "suspend" | "resume" | "delete" | "upgrade";
   slug?: string;
   domain?: string;
-  /** The operator's Unix user: the one workspace allowed to talk to the fleet agent. */
   operator?: string;
   admins: string[];
   members: string[];
   brandFile?: string;
-  /** Brand JSON given directly (the agent), instead of a file (the CLI). */
   brandJson?: string;
   anthropicKeyFile?: string;
   anthropicKey?: string;
@@ -61,10 +54,8 @@ export interface FleetInput {
   userAction?: "add" | "remove";
   email?: string;
   chatOnly?: boolean;
-  /** This CLI's own entry and node, for the template unit. */
   node: string;
   script: string;
-  /** Filesystem root for the layout; "/" outside tests. */
   root?: string;
 }
 
@@ -75,7 +66,6 @@ export interface FleetIo {
 
 export interface FleetUsageTotals { turns: number; costUsd: number | null; billableUsd: null }
 
-/** Everything that touches the machine, so tests can run the CLI dry. */
 export interface FleetDeps {
   isRoot(): boolean;
   run(argv: string[]): Promise<{ code: number | null; output: string }>;
@@ -89,9 +79,6 @@ export interface FleetDeps {
   health(url: string, timeoutMs: number): Promise<boolean>;
 }
 
-// Tenant-controlled ancestors can be renamed between any two filesystem calls.
-// The boundary is dropping ALL root authority before I/O, not a preceding lstat.
-// The checks additionally reject visible symlinks, shared inodes and special files.
 const TENANT_IO = String.raw`
 const fs = require("node:fs");
 const path = require("node:path");
@@ -197,7 +184,6 @@ function tenantIo(owner: string, file: string, action: "read" | "write" | "mkdir
   try {
     return JSON.parse(execFileSync(process.execPath, ["--eval", TENANT_IO], { ...options, maxBuffer: action === "usage" ? 8192 : 32 * 1024 * 1024, input: JSON.stringify({ uid, gid, home, file, action, content, mode }) })) as string | null | FleetUsageTotals;
   } catch {
-    // Do not repeat helper stderr: tenant-controlled file contents may be secret.
     throw new Error(`could not ${action} workspace file as ${owner}: check ownership, links, file size and permissions`);
   }
 }
@@ -229,7 +215,6 @@ export function defaultFleetDeps(): FleetDeps {
     writeText: (path, content, mode, owner) => {
       if (owner) { tenantIo(owner, path, "write", content, mode); return; }
       writeFileAtomic(path, content, { mode });
-      // Persist the rename before the next external step (notably useradd).
       const directory = openSync(posix.dirname(path), "r");
       try { fsyncSync(directory); } finally { closeSync(directory); }
     },
@@ -245,9 +230,7 @@ export function defaultFleetDeps(): FleetDeps {
         try {
           const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
           if (response.ok) return true;
-        } catch {
-          /* not up yet */
-        }
+        } catch {}
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
       return false;
@@ -257,8 +240,6 @@ export function defaultFleetDeps(): FleetDeps {
 
 const HEALTH_TIMEOUT_MS = 60_000;
 
-/** Run a plan as root. Stops at the first failed step, naming it and showing
- * only the tool's last lines, never a secret from the plan. */
 export async function executePlan(steps: FleetStep[], deps: FleetDeps, io: FleetIo): Promise<number> {
   for (const step of steps) {
     switch (step.kind) {
@@ -303,8 +284,6 @@ export function loadRegistry(layout: FleetLayout, deps: FleetDeps): FleetRegistr
   return parseRegistry(text);
 }
 
-/** The steps an action means on this machine. Throws on anything invalid
- * before a single step runs; `list` has no steps and is answered directly. */
 export function planFleetAction(input: FleetInput, deps: FleetDeps): FleetStep[] {
   const layout = fleetLayout(input.root ?? "/");
   switch (input.action) {
@@ -317,7 +296,6 @@ export function planFleetAction(input: FleetInput, deps: FleetDeps): FleetStep[]
       const kept = existing !== null ? parseRegistry(existing) : undefined;
       const plan = initPlan({ domain: input.domain, node: input.node, script: input.script, operator: input.operator ?? kept?.operator, layout });
       if (kept) {
-        // Reinitializing templates must not erase reservations or open sibling ports.
         const registry = { ...kept, ...plan.registry, workspaces: kept.workspaces, nextPort: kept.nextPort };
         return plan.steps.flatMap((step): FleetStep[] => {
           if (step.kind === "write" && step.path === layout.registryFile) return [{ ...step, content: `${JSON.stringify(registry, null, 2)}\n` }];
@@ -412,7 +390,6 @@ export function planFleetAction(input: FleetInput, deps: FleetDeps): FleetStep[]
   }
 }
 
-/** Preserve the reservation and any account checkpoint after a failed create. */
 export function markProvisioningFailed(input: FleetInput, deps: FleetDeps): void {
   if (input.action !== "create" || !input.slug) return;
   const layout = fleetLayout(input.root ?? "/");

@@ -50,8 +50,6 @@ function render(x = 990, y = 795) {
     onMoveToSection: vi.fn(), onNewFolder: vi.fn(),
   }));
 }
-/** Run this render's layout effects in order, as React does after a commit.
- * The menu's pop motion registers one ahead of placement; both must run. */
 function layoutEffects() {
   const cleanups = fixture.effects.map((effect) => effect());
   return () => cleanups.forEach((cleanup) => cleanup?.());

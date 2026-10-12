@@ -1,7 +1,5 @@
 import { reviewedSkillSha256, type SkillRequestCardData } from "../../shared/skill-request";
 
-/** Render learned instructions as inert plain text. The approval hash binds
- * this exact preview to the staged file the server will promote. */
 export function SkillRequestPreview({ request }: { request: SkillRequestCardData }) {
   const reviewedSha256 = reviewedSkillSha256(request);
   if (!reviewedSha256) {

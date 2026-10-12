@@ -1,5 +1,3 @@
-// Where "is Claude signed in?" is answered. These tests inject the CLI
-// runner, so they never read or mutate the developer's real credentials.
 import { describe, expect, it } from "vitest";
 
 import { claudeAuthFailure, claudeSignedIn, claudeVersionTooOld } from "./claude.ts";
@@ -41,7 +39,6 @@ describe("claudeAuthFailure", () => {
   const LOGIN_TEXT = "Not logged in \u00b7 Please run /login";
 
   it("reads the signed-out turn the CLI actually sends", () => {
-    // captured from claude 2.1.263 run with an empty CLAUDE_CONFIG_DIR
     expect(claudeAuthFailure({ error: "authentication_failed", is_api_error_message: true }, LOGIN_TEXT)).toBe(true);
   });
 
@@ -51,8 +48,6 @@ describe("claudeAuthFailure", () => {
   });
 
   it("leaves a model's own words alone", () => {
-    // the flag is the gate: a reply that merely discusses logging in is a
-    // reply, and must keep rendering as one
     expect(claudeAuthFailure({}, LOGIN_TEXT)).toBe(false);
     expect(claudeAuthFailure({}, "You are not logged in to npm; run npm login.")).toBe(false);
   });
@@ -63,7 +58,6 @@ describe("claudeAuthFailure", () => {
 });
 
 describe("claudeVersionTooOld", () => {
-  // the text the CLI relays when the API refuses a model newer than it
   const TOO_OLD = "API Error: 400 Claude Code 2.1.268 does not support this model; version 2.1.280 or newer is required. Run 'claude update', or update the Claude desktop app, then try again.";
 
   it("reads the api-error frame for a model this install is too old for", () => {

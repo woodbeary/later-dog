@@ -1,9 +1,3 @@
-// The decision log's own mechanics: what a row looks like on disk, that
-// credential-shaped content never reaches the file, that the file stays
-// private, that month files are kept for the retention window (and older
-// servers' single file is still read), that a person's answer names who
-// gave it, and the CSV export. The WIRING — which decisions get written at
-// all — is pinned separately in decision-log-wiring.test.ts.
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,9 +56,6 @@ describe("appendDecision / readDecisions", () => {
   });
 
   it("keeps credential-shaped content out of the written row", async () => {
-    // Both shapes redact.ts guards against: a known key prefix, and a
-    // KEY=value pair with a secret-shaped name. The summary is whatever
-    // the agent typed — this is exactly how a key ends up in a log.
     const secret = "sk-live-abcdefghijklmnop1234";
     appendDecision(dir, row({ summary: `export STRIPE_API_KEY=${secret}` }));
     await flushDecisionLog(dir);
@@ -96,9 +87,7 @@ describe("appendDecision / readDecisions", () => {
     appendDecision(dir, row({ requestId: "new-1" }));
     await flushDecisionLog(dir);
     expect(readDecisions(dir, 10).map((r) => r.requestId)).toEqual(["old-1", "old-2", "new-1"]);
-    // the newest page is read from the newest month file backwards
     expect(readDecisions(dir, 1).map((r) => r.requestId)).toEqual(["new-1"]);
-    // the legacy files are read, never written
     expect(readFileSync(join(dir, "decisions.ndjson"), "utf8")).toBe(legacy("old-2"));
   });
 
@@ -110,12 +99,10 @@ describe("appendDecision / readDecisions", () => {
     const oldTime = new Date("2026-01-20T00:00:00Z");
     utimesSync(join(dir, "decisions.ndjson"), oldTime, oldTime);
     writeFileSync(join(dir, "decisions", "notes.txt"), "not ours");
-    // 30 days before 2026-03-31 is 2026-03-01: January and February have ended by then, March has not.
     const removed = await pruneDecisions(dir, 30, new Date("2026-03-31T00:00:00Z"));
     expect(removed.sort()).toEqual(["2026-01.ndjson", "2026-02.ndjson", "decisions.ndjson"]);
     expect(existsSync(month("2026-03"))).toBe(true);
     expect(existsSync(join(dir, "decisions", "notes.txt"))).toBe(true);
-    // one day earlier February's last day is still inside the window
     writeFileSync(month("2026-02"), "");
     expect(await pruneDecisions(dir, 30, new Date("2026-03-30T00:00:00Z"))).toEqual([]);
   });
@@ -143,8 +130,6 @@ describe("appendDecision / readDecisions", () => {
     expect(rows.find((r) => r.requestId === "outside")?.actor).toBeUndefined();
   });
 
-  // A card decided by voice on a Live call says so, on the row and in the
-  // export: "yes" heard on a call is a weaker signal than a tap.
   it("marks a person's decision made by voice on a Live call", async () => {
     await withDecisionActor({ kind: "loopback" }, async () => {
       appendDecision(dir, row({ requestId: "spoken", decision: "user-approved", source: "user" }));

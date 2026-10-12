@@ -82,17 +82,12 @@ describe("new bot default model selection", () => {
     expect(selectDefaultModelSelection([])).toEqual({ instanceId: "", model: "" });
   });
 
-  // One rule for every server, enrolled or not: an engine that can run a turn
-  // now wins (Claude first), then any available one. A bot moved off a
-  // removed engine gets exactly this choice too (computer-engine-removal.ts).
   it("prefers an engine that can run a turn now over a signed-out Claude", () => {
     const signedOut = { ...claude, snapshot: { state: "available", authenticated: false } satisfies ProviderSnapshot };
     expect(selectDefaultModelSelection([signedOut, codex])).toEqual({ instanceId: "codex", model: "codex-default" });
     expect(selectDefaultModelSelection([codex, signedOut])).toEqual({ instanceId: "codex", model: "codex-default" });
-    // Nothing can run yet: the first available engine, Claude first.
     const codexOut = { ...codex, snapshot: { state: "available", authenticated: false } satisfies ProviderSnapshot };
     expect(selectDefaultModelSelection([codexOut, signedOut])).toEqual({ instanceId: "claude", model: "claude-default" });
-    // A custom endpoint brings its own credential, so its sign-in does not count.
     const custom = { ...codexOut, instanceId: "router", access: "custom" as const };
     expect(selectDefaultModelSelection([signedOut, custom])).toEqual({ instanceId: "router", model: "codex-default" });
   });
@@ -111,7 +106,6 @@ describe("new bot default model selection while enrolled in an organisation", ()
   it("picks a Company model that can run over an installed but signed-out personal Claude", () => {
     expect(selectDefaultModelSelection([signedOut, companyClaude], undefined, { company }))
       .toEqual({ instanceId: "company.fixture.anthropic", model: "company-claude" });
-    // Claude first among Company models, whatever order they are listed in.
     expect(selectDefaultModelSelection([signedOut, companyRouter, companyClaude], undefined, { company }))
       .toEqual({ instanceId: "company.fixture.anthropic", model: "company-claude" });
     expect(selectDefaultModelSelection([signedOut, companyRouter], undefined, { company }))
@@ -140,26 +134,20 @@ describe("new bot default model selection while enrolled in an organisation", ()
   });
 
   it("never picks an engine the organisation's policy refuses", () => {
-    // companyModelsOnly: every personal instance is refused.
     const companyOnly = (instance: { instanceId: string }) => company(instance.instanceId) ? undefined : "Fixture Company allows only company models on this computer.";
     expect(selectDefaultModelSelection([claude, codex, companyRouter], undefined, { company, refusal: companyOnly }))
       .toEqual({ instanceId: "company.fixture.openrouter", model: "company/router" });
     expect(selectDefaultModelSelection([claude, codex], undefined, { company, refusal: companyOnly }))
       .toEqual({ instanceId: "", model: "" });
-    // An allow-list without Claude skips Claude, personal or Company.
     const noClaude = (instance: { driverKind: string }) => instance.driverKind === "claudeAgent" ? "Fixture Company does not allow the Claude engine on this computer." : undefined;
     expect(selectDefaultModelSelection([claude, companyClaude, companyRouter], undefined, { company, refusal: noClaude }))
       .toEqual({ instanceId: "company.fixture.openrouter", model: "company/router" });
-    // A saved choice the organisation refuses sends new bots to setup, never elsewhere.
     expect(selectDefaultModelSelection([claude, companyRouter], { instanceId: "claude", model: "claude-default" }, { company, refusal: companyOnly }))
       .toEqual({ instanceId: "", model: "" });
   });
 });
 
-// The server's own wiring, not a copy: run index.ts's actual defaultSelection
-// and policyModelRefusal against a synthetic registry, enrolment and policy.
 describe("new bot default model selection wiring in index.ts", () => {
-  // Windows checkouts may use CRLF; match on normalised line endings.
   const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const extract = (signature: string) => {
     const start = source.indexOf(`\n${signature}`), end = source.indexOf("\n}\n", start);
@@ -188,7 +176,6 @@ describe("new bot default model selection wiring in index.ts", () => {
   }
 
   it("passes the enrolment into the choice, and is the plain choice without one", async () => {
-    // Not enrolled, the Company id is an ordinary engine that can run.
     const notEnrolled = server([signedOut, companyClaude]);
     await expect(notEnrolled.defaultSelection()).resolves.toEqual({ instanceId: "company.fixture.anthropic", model: "company-claude" });
     const nothingReady = server([signedOut]);

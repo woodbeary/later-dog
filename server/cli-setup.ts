@@ -1,5 +1,3 @@
-// Guided setup stays outside server/index: no server, store, or bot is started
-// until the user has saved a connection and explicitly starts the application.
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -38,7 +36,6 @@ async function inspect(id: string, entry: InstanceConfig): Promise<Inspection> {
   }
 }
 
-/** Native CLIs own their OAuth flow; no tokens pass through our prompts. */
 export async function runSetupCli(cli: string, args: string[], environment: Record<string, string> = {}): Promise<void> {
   const env: NodeJS.ProcessEnv = { ...process.env, ...environment, PATH: augmentedPath() };
   stripWorkspaceCredentialEnv(env);
@@ -64,8 +61,6 @@ function assertDataDir(dataDir: string): void {
   if (resolve(dataDir) !== resolve(DATA_DIR)) throw new Error("Setup data directory mismatch. Restart the CLI with --data-dir.");
 }
 
-// loadConfig deliberately tolerates broken files at server boot. An onboarding
-// write must instead refuse a broken existing file, never replace its contents.
 function checkStoredConfig(dataDir: string): void {
   try {
     parseStoredConfig(JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8")));
@@ -197,8 +192,6 @@ export async function runSetup(
       const native = pick < 2 ? NATIVE[pick] : NATIVE.find((n) => n.driver === prior?.[1].driver);
       try {
         if (native) {
-          // Reuse native provider settings, including custom CLI paths. If a user
-          // repurposed the familiar ID, do not overwrite their connection.
           id = prior?.[0] ?? native.id;
           if (!prior && runtime[id] && runtime[id]!.driver !== native.driver) id = `${native.id}-${randomUUID().slice(0, 8)}`;
           entry = { ...(cfg.instances?.[id] ?? { driver: native.driver }), enabled: true };
@@ -257,8 +250,6 @@ export async function runSetup(
           if (routingProvider) await deps.verify(url, key, model, routingProvider);
           else await deps.verify(url, key, model);
           io.log("Test reply received.");
-          // API additions never change the URL/key behind an existing bot. A new
-          // isolated instance also avoids inherited global URL/key overrides.
           id = reuse && prior ? prior[0] : `api-${randomUUID().slice(0, 8)}`;
           entry = reuse && prior
             ? { ...cfg.instances![id]!, config: { ...rawObject(cfg.instances![id]!.config), model } }
@@ -280,8 +271,6 @@ export async function runSetup(
 
     io.log(`\nDefault for new dogs: ${entry.displayName ?? id} / ${model}`);
     if (!await io.confirm("Save this setup?", true)) throw new SetupCancelled();
-    // An explicit fleet replaces the implicit fleet. Start from an EMPTY
-    // config's defaults, not instanceConfigs(cfg), whose env contains secrets.
     const instances = { ...(cfg.instances && Object.keys(cfg.instances).length ? cfg.instances : instanceConfigs({})), [id]: entry };
     saveConfig({ instances, defaultModelSelection: { instanceId: id, model } });
     io.log("\nSetup saved. Existing dogs and conversations were not changed.");

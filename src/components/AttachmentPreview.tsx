@@ -1,6 +1,3 @@
-// Same-origin attachment previews plus the reusable image viewer used by
-// Markdown. Transcript paths are resolved through attachmentImageUrl; model
-// text never gets to turn an arbitrary local path into a browser request.
 import {
   useCallback,
   useEffect,
@@ -38,11 +35,8 @@ import { TableFileButton } from "./TableFilePreview";
 export interface PreviewImage {
   src: string;
   name: string;
-  /** Same-origin images can be downloaded directly. */
   downloadUrl?: string;
-  /** A portable filename chosen independently from the visible label. */
   downloadName?: string;
-  /** Authored remote images keep an explicit way to open their source. */
   openUrl?: string;
 }
 
@@ -105,7 +99,6 @@ const IMAGE_EXTENSIONS = new Set([
   "webp",
 ]);
 
-/** Keep a suggested download name portable and prevent it from naming a path. */
 export function safeDownloadFilename(value: string | null | undefined): string {
   const basename = (value ?? "").split(/[\\/]/).at(-1) ?? "";
   const cleaned = basename
@@ -127,7 +120,6 @@ export function safeDownloadFilename(value: string | null | undefined): string {
   return /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(stem) ? `_${bounded}` : bounded;
 }
 
-/** Read the server-selected filename, preferring RFC 5987's UTF-8 form. */
 export function contentDispositionFilename(header: string | null): string | null {
   if (!header) return null;
   const encoded = /(?:^|;)\s*filename\*\s*=\s*(?:UTF-8'[^']*')?([^;]*)/i.exec(header)?.[1]?.trim();
@@ -135,9 +127,7 @@ export function contentDispositionFilename(header: string | null): string | null
     const unquoted = encoded.replace(/^"|"$/g, "");
     try {
       return safeDownloadFilename(decodeURIComponent(unquoted));
-    } catch {
-      // A malformed extended value may still have a valid ASCII fallback.
-    }
+    } catch {}
   }
   const quoted = /(?:^|;)\s*filename\s*=\s*"((?:\\.|[^"\\])*)"/i.exec(header)?.[1];
   if (quoted !== undefined) return safeDownloadFilename(quoted.replace(/\\(.)/g, "$1"));
@@ -164,7 +154,6 @@ function replaceExtension(name: string, extension: string): string {
   return `${Array.from(stem).slice(0, available).join("")}${suffix}`;
 }
 
-/** The response chooses the label; image bytes/source choose the extension. */
 export function canonicalDownloadFilename({
   contentDisposition,
   fallback,
@@ -185,19 +174,10 @@ export function canonicalDownloadFilename({
 
 export function isExternalImageSource(src: string): boolean {
   const value = src.trim();
-  // The URL parser removes embedded ASCII tab/LF/CR and treats backslashes as
-  // slashes for special schemes. Normalize those parser quirks before deciding
-  // whether mounting the image would make a network request.
   const networkSpelling = value.replace(/[\t\n\r]/g, "").replace(/\\/g, "/");
-  // Chromium canonicalizes special-scheme variants such as `https:host/x`,
-  // `https:/host/x`, and backslash spellings into network requests. Treat the
-  // whole scheme family as remote before an <img> can mount.
   return networkSpelling.startsWith("//") || /^https?:/i.test(networkSpelling);
 }
 
-/** A message-scoped image URL is safe for an <img>: the server still proves
- * that this exact message rendered an image at this Markdown source offset
- * before streaming it. The host path never enters the browser URL. */
 export function messageImagePreviewUrl(
   message: MessageAttachmentContext,
   sourceOffset: number,
@@ -209,8 +189,6 @@ function revokeObjectUrlLater(url: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-/** Downloads and explicit media previews share the message-scoped capability.
- * Never request a transcript path directly, even when it looks like a URL. */
 export async function requestMessageFile(
   filePath: string,
   message: MessageAttachmentContext,
@@ -220,8 +198,6 @@ export async function requestMessageFile(
   const response = await fetch(`/api/threads/${encodeURIComponent(message.threadId)}/messages/${encodeURIComponent(message.messageId)}/file`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    // A linked folder answers with its files instead of a 400; an entry is
-    // one of those files, fetched by name under the same message grant.
     body: JSON.stringify({
       path: filePath,
       ...(folder?.entry !== undefined ? { entry: folder.entry } : folder?.list ? { listFolder: true } : {}),
@@ -235,7 +211,6 @@ export async function requestMessageFile(
   return response;
 }
 
-/** Shared save state for transcript file chips and bot-authored file links. */
 export interface MessageFolderListing {
   name: string;
   entries: { name: string; bytes: number; mime: string }[];
@@ -247,8 +222,6 @@ export function useLocalFileSave(filePath: string, name?: string, message?: Mess
   const [folder, setFolder] = useState<MessageFolderListing | null>(null);
   const [reason, setReason] = useState("");
   const [savedTo, setSavedTo] = useState("");
-  // The server refused because the file sits outside the conversation's
-  // workspace; the bot link offers Show in folder for that case alone.
   const [outsideWorkspace, setOutsideWorkspace] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const request = useRef<AbortController | null>(null);
@@ -323,7 +296,6 @@ export function useLocalFileSave(filePath: string, name?: string, message?: Mess
           link.remove();
         }
       } finally {
-        // Chromium may not consume a blob URL until after the click task ends.
         revokeObjectUrlLater(url);
       }
       if (!mounted.current || controller.signal.aborted) return;
@@ -386,7 +358,6 @@ function MessageFolderFile({ folderPath, name, bytes, message }: {
   );
 }
 
-/** The files directly inside a folder a bot linked; each one saves like a file link. */
 export function MessageFolderFiles({ folderPath, listing, message }: {
   folderPath: string;
   listing: MessageFolderListing;
@@ -408,12 +379,6 @@ export function MessageFolderFiles({ folderPath, listing, message }: {
   );
 }
 
-// A file outside the conversation's workspace is never served, but the local
-// desktop app can ask its own file manager to show where it is. A paired
-// remote client or a browser is not on the computer holding the file, so it
-// shows the path as selectable text instead. UNC and relative paths are not
-// offered for reveal: main refuses them. Shared by the inline bot link and its
-// attachment chip; the caller sets the text size.
 const REVEALABLE_PATH = /^(?:\/(?!\/)|[a-zA-Z]:[\\/])/;
 function revealBridge(): NonNullable<Window["laterdog"]>["revealInFolder"] {
   const laterdog = typeof window === "undefined" ? undefined : window.laterdog;
@@ -668,13 +633,8 @@ export function AttachmentThumbnail({
   className?: string;
   eager?: boolean;
 }) {
-  // Every caller keys this component by src. Resetting in an effect races a
-  // cached/blob image's onLoad: it can become ready before the effect runs,
-  // then be put back into a permanent loading state.
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [attempt, setAttempt] = useState(0);
-  // Until the pixels are known the tile is 4:3; then it takes the picture's own
-  // shape (within sane bounds) so a wide image has no empty band beneath it.
   const [ratio, setRatio] = useState<number | null>(null);
 
   return (
@@ -801,8 +761,6 @@ export function AttachedImageGallery({
   );
 }
 
-/** A Markdown image keeps its remote source, but receives the same stable
- * loading/error surface and full-screen viewer as an attached image. */
 export function MarkdownImagePreview({
   src,
   name,
@@ -903,7 +861,6 @@ export function MarkdownImagePreview({
 export function AttachedFileChip({ file, message, linked = false, className }: {
   file: TranscriptFileAttachment;
   message?: MessageAttachmentContext;
-  /** A rendered bot-authored Markdown link, still checked by the server on click. */
   linked?: boolean;
   className?: string;
 }) {
@@ -973,8 +930,6 @@ export function AttachedFileChip({ file, message, linked = false, className }: {
   );
 }
 
-/** Transcript file paths stay inert until the person explicitly asks the
- * desktop shell to validate and save a copy. */
 export function AttachedFileChips({ files, className, message }: { files: TranscriptFileAttachment[]; className?: string; message?: MessageAttachmentContext }) {
   if (files.length === 0) return null;
   return (

@@ -1,5 +1,3 @@
-/** Optional, cosmetic manifest data. Invalid/old Admin replies keep defaults;
- * they must never interrupt company model access. No remote URLs or SVG. */
 export function parseOrganizationBranding(value) {
   const empty = { logo: null, icons: [] };
   if (!value || typeof value !== "object" || JSON.stringify(value).length > 128 * 1024 || !Array.isArray(value.icons) || value.icons.length > 24) return empty;

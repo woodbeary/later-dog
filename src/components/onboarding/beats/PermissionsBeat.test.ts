@@ -5,8 +5,6 @@ import { setLocale } from "@/lib/i18n";
 import type { DesktopPermissionChecklist } from "@/lib/desktop-permissions";
 import type { PermissionChecklist } from "@/components/PermissionChecklist";
 
-// The hook owns the bridge round trips and the rows their own words (each
-// has its own test); the beat is what it hands them and what its buttons do.
 const hook = vi.hoisted(() => ({
   checklist: null as DesktopPermissionChecklist | null,
   busy: null,
@@ -83,7 +81,6 @@ describe("the permissions beat", () => {
     expect(rendered.html).toContain("ROWS:mac:answered;");
     expect(rendered.rows.checklist).toEqual(hook.checklist);
     expect(rendered.rows.stagger).toBe(true);
-    // the welcome tour offers no relaunch mid-flow; Settings does
     expect(rendered.rows.onRelaunch).toBeUndefined();
     rendered.rows.onRequest("accessibility");
     expect(hook.request).toHaveBeenCalledWith("accessibility");

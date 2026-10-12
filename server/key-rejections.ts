@@ -24,7 +24,6 @@ export function noteKeyAccepted(url: string, key: string): void {
   if (rejected.size > 0 && rejected.delete(markOf(url, key))) changed();
 }
 
-/** Drops every mark on this key, whatever endpoint it was used against. */
 export function forgetKey(key: string): void {
   if (rejected.size === 0) return;
   const suffix = ` ${fingerprint(key)}`;
@@ -38,9 +37,6 @@ export function onKeyRejectionChange(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** The provider refused the key itself: HTTP 401, or a 400/403 whose body
- * says the key is invalid or revoked (xAI answers a wrong key with a 400).
- * Rate limits, quota, billing and model access are not the key's fault. */
 export function rejectsKey(status: number, body: string): boolean {
   if (/\b(?:quota|billing|credits?|rate.?limit|insufficient.?(?:balance|funds))\b/i.test(body)) return false;
   if (status === 401) return true;

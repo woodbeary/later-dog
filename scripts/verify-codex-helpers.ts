@@ -1,5 +1,3 @@
-// Real chat renderer and harness; offline, scripted Codex protocol only.
-// No user data, provider credentials or authenticated inference are involved.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";

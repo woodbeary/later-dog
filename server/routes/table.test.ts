@@ -1,7 +1,3 @@
-// The route table is how new routes reach a request without an `if` in
-// server/index.ts, so its three promises are pinned against a real HTTP
-// server: PASS hands on, an answer stops the chain, and a handler that
-// answered but returned PASS by mistake cannot let a second handler run.
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,8 +10,6 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((done) => server.close(done))));
 });
 
-/** Serves `routes` the way handleRequest does: the table first, then the
- * caller's stand-in for index.ts's inline routes. */
 async function serve(routes: RouteHandler[]): Promise<{ base: string; outcomes: boolean[] }> {
   const outcomes: boolean[] = [];
   const server = createServer(async (req, res) => {
@@ -76,7 +70,6 @@ describe("route table dispatch", () => {
     const seen: string[] = [];
     const { base, outcomes } = await serve([
       async ({ res, json: reply }) => { seen.push("first"); reply(res, 200, { from: "first" }); return PASS; },
-      // Without the guard this would write a second response and throw.
       async ({ res, json: reply }) => { seen.push("second"); reply(res, 200, { from: "second" }); },
     ]);
     const response = await fetch(`${base}/api/example`);

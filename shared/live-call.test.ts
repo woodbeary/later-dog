@@ -34,8 +34,6 @@ describe("LiveTranscript", () => {
     expect(transcript.takeRequest(10_000)).toBe("");
   });
 
-  // The voice's own words, picked up again by the microphone (a phone on
-  // speaker), arrive as input. For a spoken yes or no they must not count.
   it("can leave out what was heard while the voice itself was speaking", () => {
     const transcript = new LiveTranscript();
     transcript.addOutput(900, 1_400);
@@ -45,7 +43,6 @@ describe("LiveTranscript", () => {
     expect(transcript.pending({ skipEcho: true })).toBe("no");
     expect(transcript.pending()).toBe("Okay, I need your permission no");
     expect(transcript.takeRequestParts(3_200)).toEqual({ text: "Okay, I need your permission no", withoutEcho: "no" });
-    // both are consumed either way
     expect(transcript.pending()).toBe("");
   });
 
