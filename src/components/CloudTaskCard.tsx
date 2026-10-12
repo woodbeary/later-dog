@@ -38,7 +38,8 @@ export const CloudTaskUpdateRow = memo(function CloudTaskUpdateRow({ message }: 
       >
         <Cloud size={12} aria-hidden="true" className="shrink-0" />
         <span className="shrink-0">{wakeupLine(wakeup.event)}</span>
-        {title && <span className="min-w-0 truncate">· {title}</span>}
+        {title && <span aria-hidden="true" className="shrink-0">·</span>}
+        {title && <span className="min-w-0 truncate">{title}</span>}
       </button>
     </div>
   );
@@ -184,13 +185,15 @@ export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message:
         aria-label={t("cloudTask.cardAria", { title, status: view.label })}
         data-testid="cloud-task-card"
         data-phase={view.phase}
-        className="w-full max-w-[min(42rem,78%)] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10"
+        // a narrow chat (a panel open beside it) gets the card a little wider
+        // than a bubble, and the card itself stacks rather than clips
+        className="@container/cloudtask w-full max-w-[min(42rem,max(78%,18rem))] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10"
       >
-        <div className="flex items-center gap-3 py-3 pl-3.5 pr-3">
-          <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-inset text-ink-secondary">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3 pl-3.5 pr-3">
+          <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-inset text-ink-secondary @max-[22rem]/cloudtask:hidden">
             <Cloud size={15} />
           </span>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-[9rem] flex-1">
             <p className="truncate text-[14px] font-medium leading-5 text-ink" title={title}>
               {view.phase === "working" && <span className="font-normal text-ink-secondary">{t("cloudTask.workingOn")} </span>}
               {title}

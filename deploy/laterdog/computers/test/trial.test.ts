@@ -28,7 +28,7 @@ afterEach(() => {
 
 describe("trialPolicy", () => {
   it("is off by default, with 30 minutes over 7 days, 20 trials a day and 5 idle minutes", () => {
-    expect(trialPolicy({})).toEqual({ enabled: false, siteKey: "", limitMs: 30 * MINUTE, windowMs: 7 * DAY, perDay: 20, idleSleepMs: 5 * MINUTE, countries: [] });
+    expect(trialPolicy({})).toEqual({ enabled: false, siteKey: "", limitMs: 30 * MINUTE, windowMs: 7 * DAY, perDay: 20, perNetwork: 3, idleSleepMs: 5 * MINUTE, countries: [] });
   });
 
   it("turns on only when switched on with every key set", () => {
@@ -49,6 +49,12 @@ describe("trialPolicy", () => {
     ]) {
       expect(trialPolicy(off).enabled, JSON.stringify(off)).toBe(false);
     }
+  });
+
+  it("lets a few trials start from one network, within bounds", () => {
+    expect(trialPolicy({ TRIALS_PER_NETWORK: "0" }).perNetwork).toBe(1);
+    expect(trialPolicy({ TRIALS_PER_NETWORK: "5" }).perNetwork).toBe(5);
+    expect(trialPolicy({ TRIALS_PER_NETWORK: "999" }).perNetwork).toBe(50);
   });
 
   it("keeps the numbers in bounds", () => {

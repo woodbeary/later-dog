@@ -19,6 +19,7 @@ export const VARS: Record<string, string> = {
   TRIAL_MINUTES: "30",
   TRIAL_DAYS: "7",
   TRIALS_PER_DAY: "20",
+  TRIALS_PER_NETWORK: "1",
   TRIAL_IDLE_SLEEP_MINUTES: "5",
   TRIAL_COUNTRIES: "",
   TURNSTILE_SITE_KEY: "0x4AAAAAAAtestsitekey000",

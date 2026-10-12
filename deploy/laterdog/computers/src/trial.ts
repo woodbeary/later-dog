@@ -13,6 +13,9 @@ export interface TrialEnv {
   TRIAL_MINUTES?: string;
   TRIAL_DAYS?: string;
   TRIALS_PER_DAY?: string;
+  /** Free trials one network may start per window (an office, a campus, a
+   * phone hotspot share one address). */
+  TRIALS_PER_NETWORK?: string;
   TRIAL_IDLE_SLEEP_MINUTES?: string;
   TRIAL_COUNTRIES?: string;
   TURNSTILE_SITE_KEY?: string;
@@ -26,6 +29,7 @@ export interface TrialPolicy {
   limitMs: number;
   windowMs: number;
   perDay: number;
+  perNetwork: number;
   idleSleepMs: number;
   countries: string[];
 }
@@ -59,6 +63,7 @@ export function trialPolicy(env: TrialEnv): TrialPolicy {
     limitMs: Math.round(bounded(env.TRIAL_MINUTES, 30, 5, 600)) * MINUTE,
     windowMs: Math.round(bounded(env.TRIAL_DAYS, 7, 1, 90)) * DAY,
     perDay,
+    perNetwork: Math.floor(bounded(env.TRIALS_PER_NETWORK, 3, 1, 50)),
     idleSleepMs: Math.round(bounded(env.TRIAL_IDLE_SLEEP_MINUTES, 5, 1, 60)) * MINUTE,
     countries: [...new Set((env.TRIAL_COUNTRIES ?? "").split(",").map((code) => code.trim().toUpperCase()))].filter((code) => /^[A-Z]{2}$/.test(code)),
   };

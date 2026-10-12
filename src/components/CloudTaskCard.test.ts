@@ -102,7 +102,7 @@ describe("CloudTaskCard", () => {
   it("is as wide as a message, in ink only", () => {
     for (const patch of Object.values(STATES)) {
       const markup = card(patch);
-      expect(markup).toContain("max-w-[min(42rem,78%)]");
+      expect(markup).toContain("max-w-[min(42rem,max(78%,18rem))]");
       expect(markup).not.toMatch(/(?:text|bg|ring|border)-(?:success|danger|warning)/);
     }
   });
