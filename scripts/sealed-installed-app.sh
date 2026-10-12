@@ -109,7 +109,10 @@ PROFILE="(version 1)(allow default)
   (subpath \"$REAL_HOME/Library/Application Support/later.dog\")
   (subpath \"$REAL_HOME/.claude\")
   (subpath \"$REAL_HOME/.codex\"))"
+# A dead supervisor address: a copy must never send a cloud task to a later.dog
+# supervisor that happens to be running on this Mac (port 9010).
 env -i HOME="$SEALED" CFFIXED_USER_HOME="$SEALED" LATERDOG_HOME="$SEALED/.laterdog" TMPDIR="$SEALED/tmp" \
+  LATERDOG_SUPERVISOR_URL=http://127.0.0.1:9 LATERDOG_TOKEN=sealed-installed-check \
   PATH=/usr/bin:/bin:/usr/sbin:/sbin USER="$USER" LANG=en_US.UTF-8 \
   /usr/bin/sandbox-exec -p "$PROFILE" "$ROOT/run/later.dog.app/Contents/MacOS/later.dog" \
   --no-sandbox --use-mock-keychain --remote-debugging-port="$PORT" >"$ROOT/app.log" 2>&1 &
