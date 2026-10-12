@@ -510,13 +510,16 @@ export function AccountsPanel() {
         <div className="flex items-center gap-3 border-t border-hairline/40 px-4 py-3">
           <button type="button" onClick={() => setSheet({ step: "pick" })} className={pill}>{t("accounts.add")}</button>
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-hairline/40 px-4 py-3">
-          <div className="min-w-0">
-            <div className="text-[13px] text-ink">{t("accounts.carryOn")}</div>
-            <div className="text-[12px] text-ink-secondary">{t("accounts.carryOnHint")}</div>
+        {/* switching to the next account means there is a next one */}
+        {(signedInCount >= 2 || carryOn.on) && (
+          <div className="flex items-center justify-between gap-3 border-t border-hairline/40 px-4 py-3">
+            <div className="min-w-0">
+              <div className="text-[13px] text-ink">{t("accounts.carryOn")}</div>
+              <div className="text-[12px] text-ink-secondary">{t("accounts.carryOnHint")}</div>
+            </div>
+            <Switch checked={carryOn.on} disabled={carryOn.saving} aria-label={t("accounts.carryOn")} onClick={() => void carryOn.set(!carryOn.on)} />
           </div>
-          <Switch checked={carryOn.on} disabled={carryOn.saving} aria-label={t("accounts.carryOn")} onClick={() => void carryOn.set(!carryOn.on)} />
-        </div>
+        )}
         {carryOn.error && <p role="alert" className="px-4 pb-3 text-[12px] text-danger">{carryOn.error}</p>}
       </div>
       {sheet && (
