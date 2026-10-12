@@ -2,16 +2,22 @@
 
 Approval levels belong to a bot and apply to its next provider turn, including
 when that provider resumes an existing native thread. Each level is one of the
-provider's own permission modes, passed through. later.dog does not judge an
-action itself: there is no app-side allowlist, classifier, or pattern rule. A
-native tool request that reaches you is one the provider left for you. In Full
-Access, later.dog also applies its own configuration tools without another approval.
+provider's own permission modes, passed through. In the app the two everyday levels
+are **Heel** (Ask for approval) and **Off-leash** (Approve for me); the others show
+only where a dog already uses them. A native tool request that reaches you is one
+the provider left for you. In Full Access, later.dog also applies its own
+configuration tools without another approval.
+
+Engines with no reviewer of their own (the free Kimi and Grok models, and other
+OpenAI-compatible chat engines) get one app-side rule: Off-leash runs the tools of
+the dog's own computer and built-in browser without a card, while connected apps
+and custom tools still ask. Heel asks for every tool.
 
 | Level | Behavior |
 | --- | --- |
-| **Ask for approval** | Requests approval for commands and file changes, the way the provider's supervised mode does. |
+| **Heel** (Ask for approval) | Requests approval for commands and file changes, the way the provider's supervised mode does. |
 | **Auto-accept edits** | Approves file edits automatically; other actions can still require approval. Offered where the provider has such a mode (Claude, Grok, Antigravity). |
-| **Approve for me** | Uses the provider's automatic review on Codex, Claude, Cursor, and Grok to approve routine actions and ask about others. Providers without an equivalent fall back to asking. |
+| **Off-leash** (Approve for me) | Uses the provider's automatic review on Codex, Claude, Cursor, and Grok to approve routine actions and ask about others. Chat engines without a reviewer run the dog's own computer and browser without asking, and ask about everything else. |
 | **Full access** | Enables the provider's permissive mode for commands, edits, and selected-computer actions, including potentially destructive or sensitive work. Residual native permission prompts are answered for you. later.dog profile changes, routine actions, team setup, bot deletion, and enabled skill authoring apply without a second approval. Peer-review prompts are skipped within the bot's authorized scope. Delegation uses the receiving bot's setting, never the sender's — except from a Chief of Staff, whose level flows down (below). Actual questions and missing credentials still need your input. |
 | **Custom (`config.toml`)** | Codex only. later.dog reads and reapplies the effective approval and sandbox settings from your Codex configuration. |
 
