@@ -6,6 +6,7 @@ import { parseArgs } from "node:util";
 import { UPDATE_FEED_FIELD } from "../electron/update-feed.mjs";
 
 export const FIRST_SELF_UPDATING_VERSION = "0.3.3";
+export const FIRST_DEVELOPER_ID_VERSION = "0.3.11";
 
 export function packageFeedArguments({ identity, feed }) {
   const text = typeof feed === "string" ? feed.trim() : "";
@@ -62,13 +63,26 @@ export function macUpdateYaml({ version, url, sha512, size, releaseDate, notes }
   return `${lines.join("\n")}\n`;
 }
 
-export function releaseNotesMarkdown({ version, notes }) {
+const UPDATES_ITSELF = "It updates itself. The update downloads in the background, and a small icon at the top of the sidebar appears when it is ready. Click it, then **Restart to update**.";
+
+export function releaseNotesMarkdown({ version, notes, notarized = false }) {
+  const install = notarized
+    ? [
+      `**Already on later.dog ${FIRST_DEVELOPER_ID_VERSION} or newer?** ${UPDATES_ITSELF}`,
+      "",
+      `**On an older later.dog?** Download this once and drag it over the old app. Releases are now signed with an Apple Developer ID instead of later.dog's own certificate, so older versions can't install it by themselves. Your dogs, chats and settings stay where they are. macOS may ask once for your password so the new app can open later.dog's keychain item, and Accessibility or Screen Recording may need to be switched on again.`,
+      "",
+      "**New install:** unzip, drag **later.dog** into Applications, then open it. It is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether to open an app downloaded from the internet.",
+    ]
+    : [
+      `**Already on later.dog ${FIRST_SELF_UPDATING_VERSION} or newer?** ${UPDATES_ITSELF}`,
+      "",
+      "**New install:** unzip, drag **later.dog** into Applications, then open it once. macOS will say it can't check the app, so go to System Settings → Privacy & Security and click **Open Anyway**. The app is signed with later.dog's own certificate, not Apple's, so macOS asks once. Every release carries the same signature, so updates keep your keychain access and the Accessibility and Screen Recording permissions you granted.",
+    ];
   return [
     `## later.dog ${version} for macOS (Apple silicon)`,
     "",
-    `**Already on later.dog ${FIRST_SELF_UPDATING_VERSION} or newer?** It updates itself. The update downloads in the background, and a small icon at the top of the sidebar appears when it is ready. Click it, then **Restart to update**.`,
-    "",
-    "**New install:** unzip, drag **later.dog** into Applications, then open it once. macOS will say it can't check the app, so go to System Settings → Privacy & Security and click **Open Anyway**. The app is signed with later.dog's own certificate, not Apple's, so macOS asks once. Every release carries the same signature, so updates keep your keychain access and the Accessibility and Screen Recording permissions you granted.",
+    ...install,
     "",
     "### What's new",
     "",
@@ -79,7 +93,7 @@ export function releaseNotesMarkdown({ version, notes }) {
   ].join("\n");
 }
 
-export function releaseFiles({ tag, packageVersion, changelog, zipName, zipBytes, repository, releaseDate }) {
+export function releaseFiles({ tag, packageVersion, changelog, zipName, zipBytes, repository, releaseDate, notarized = false }) {
   const { version, prerelease } = releaseTag(tag, packageVersion);
   const section = changelogSection(changelog, version);
   if (!section) throw new Error(`CHANGELOG.md has no "## ${version}" section.`);
@@ -88,7 +102,7 @@ export function releaseFiles({ tag, packageVersion, changelog, zipName, zipBytes
   }
   const digest = fileDigest(zipBytes);
   const files = {
-    "NOTES.md": releaseNotesMarkdown({ version, notes: section.body }),
+    "NOTES.md": releaseNotesMarkdown({ version, notes: section.body, notarized }),
     "SHA256SUMS.txt": `${digest.sha256}  ${zipName}\n`,
   };
   if (!prerelease) {
@@ -127,6 +141,7 @@ function main() {
     zipBytes: readFileSync(zipPath),
     repository: values.repository,
     releaseDate: new Date().toISOString(),
+    notarized: process.env.LATERDOG_NOTARIZE === "1",
   });
   mkdirSync(values.out, { recursive: true });
   for (const [name, text] of Object.entries(files)) {

@@ -17,13 +17,11 @@ there are no API keys to paste. New to later.dog? Start with the [user guide](do
 
 1. Download `later.dog-macOS-arm64.zip` from the [latest release](https://github.com/woodbeary/later-dog/releases/latest).
 2. Unzip and drag **later.dog** into Applications.
-3. Open **later.dog** once. macOS says it cannot verify the app, because releases are signed with later.dog's own
-   certificate, not Apple's. Then open **System Settings → Privacy & Security**, scroll to the message about later.dog
-   and click **Open Anyway**. (On macOS 15 and later, right-click → Open no longer works.) You only do this once. Every
-   release carries the same signature, so the keychain access and the Accessibility and Screen Recording permissions you
-   grant are meant to carry over to later versions.
-4. The welcome tour asks your name, shows which AI providers it found, and lets you **sign in to ChatGPT or Claude**
-   with their device-code or browser flows. Then it makes your first dog.
+3. Open **later.dog**. It is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether
+   to open an app downloaded from the internet. The keychain access and the Accessibility and Screen Recording
+   permissions you grant carry over to later versions.
+4. The welcome tour asks your name and lets you **sign in to ChatGPT or Claude** with their device-code or browser
+   flows, or **try later.dog AI free** with no account. Then it makes your first dog.
 
 That is the whole setup. Your dogs, chats and memory stay on your Mac. What a dog asks its AI goes to the provider you
 signed in with, and during a free trial, group-chat routing, voice and later.dog AI go through later.dog's cloud service.
@@ -70,7 +68,7 @@ say *"clone later.dog and set it up for me"*. It will find:
 
 - [`AGENTS.md`](AGENTS.md): the rules of this repo.
 - [`skills/laterdog/setup-laterdog/SKILL.md`](skills/laterdog/setup-laterdog/SKILL.md): the setup procedure, including
-  the things only you can do (click Open Anyway in System Settings, sign in to your providers, grant macOS permissions).
+  the things only you can do (sign in to your providers, grant macOS permissions).
 - [`llms.txt`](llms.txt): an index of every document that matters.
 
 ## Support later.dog, and the dogs

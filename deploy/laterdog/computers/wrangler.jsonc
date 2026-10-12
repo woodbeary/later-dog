@@ -68,7 +68,7 @@
   // Secrets (wrangler secret put, values piped on stdin):
   // COMPUTERS_KEY_SHA256 - lowercase hex SHA-256 of the API key ("ldc_..."); the key itself is never stored here.
   // DESKTOP_SIGNING_KEY  - random HMAC key for signed desktop viewer links.
-  // ELEVENLABS_API_KEY   - restricted ElevenLabs key for included voice (Text to Speech + Voices read).
+  // ELEVENLABS_API_KEY   - optional restricted ElevenLabs key (Text to Speech + Voices read); without it voice uses Aura-2 on Workers AI.
   // XAI_API_KEY          - optional xAI key; Grok then backs up later.dog AI (see TRIAL_AI_FIRST).
   // SQUARE_ACCESS_TOKEN  - Square production access token for the later.dog Cloud plan.
 }

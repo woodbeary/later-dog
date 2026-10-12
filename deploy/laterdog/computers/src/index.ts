@@ -34,7 +34,7 @@ import { trialPage, trialPageHeaders } from "./trial-page";
 import { type PlanRow, planPolicy, trials } from "./trial-registry";
 import { cancelSubscription, createPlanLink, customerPlan, orderCustomer, paidThrough, squareConfigured, subscription } from "./square";
 import { messagePage, newNonce } from "./viewer";
-import { INCLUDED_VOICES, VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, elevenLabsRequest, speechRequest, voiceInput } from "./voice";
+import { VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, elevenLabsRequest, includedVoices, speechRequest, voiceInput } from "./voice";
 
 export { DogComputer } from "./computer";
 export { ComputerRegistry } from "./registry";
@@ -260,7 +260,7 @@ async function trialRequest(op: TrialOp, env: Env, caller: Caller): Promise<Resp
 
 function includedServices(env: Env): string[] {
   if (!env.AI) return [];
-  return ["decisions", ...(env.ELEVENLABS_API_KEY?.trim() ? ["voice"] : []), "ai"];
+  return ["decisions", "voice", "ai"];
 }
 
 function includedField(env: Env): { included?: string[] } {
@@ -477,10 +477,10 @@ async function decideRequest(request: Request, env: Env): Promise<Response> {
   }
 }
 
-async function voicesRequest(request: Request): Promise<Response> {
+async function voicesRequest(request: Request, env: Env): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   if (!includedKey(request)) return apiError(NO_TRIAL, CHALLENGE);
-  return json({ voices: INCLUDED_VOICES });
+  return json({ voices: includedVoices(Boolean(env.ELEVENLABS_API_KEY?.trim())) });
 }
 
 async function speakRequest(request: Request, env: Env, url: URL, voiceId: string): Promise<Response> {
@@ -499,15 +499,15 @@ async function speakRequest(request: Request, env: Env, url: URL, voiceId: strin
   try {
     const key = env.ELEVENLABS_API_KEY?.trim();
     if (key) {
-      const upstream = await env.AI.gateway(aiGateway(env).gateway.id).run(elevenLabsRequest(parsed.request, key));
-      if (!upstream.ok || !upstream.body) {
-        console.error(`laterdog computers: speech failed: ElevenLabs answered ${upstream.status}`);
-        await upstream.body?.cancel().catch(() => {});
-        return apiError(INCLUDED_FAILED);
-      }
-      return new Response(upstream.body, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
+      const upstream = await env.AI.gateway(aiGateway(env).gateway.id).run(elevenLabsRequest(parsed.request, key)).catch((error: unknown) => {
+        console.error(`laterdog computers: speech failed: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      });
+      if (upstream?.ok && upstream.body) return new Response(upstream.body, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
+      if (upstream) console.error(`laterdog computers: speech failed: ElevenLabs answered ${upstream.status}`);
+      await upstream?.body?.cancel().catch(() => {});
     }
-    const bytes = await audioBytes(await env.AI.run(VOICE_MODEL, voiceInput(parsed.request), aiGateway(env)));
+    const bytes = await audioBytes(await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(VOICE_MODEL, voiceInput(parsed.request), aiGateway(env)));
     if (!bytes || bytes.byteLength === 0) return apiError(INCLUDED_FAILED);
     return new Response(bytes, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
   } catch (error) {
@@ -620,7 +620,7 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
       case "decide":
         return await decideRequest(request, env);
       case "voices":
-        return await voicesRequest(request);
+        return await voicesRequest(request, env);
       case "plan":
         return await planRequest(target.op, request, env, url);
       case "plan_done":

@@ -140,6 +140,15 @@ describe("the release files command", () => {
     expect(notes).toContain("**Open Anyway**");
     expect(notes).not.toContain("right-click");
 
+    const notarizedOut = path.join(directory, "notarized");
+    const notarized = spawnSync(process.execPath, [SCRIPT, "--tag", "v0.3.4", "--zip", zip, "--out", notarizedOut, "--repository", "woodbeary/later-dog", "--changelog", path.join(directory, "CHANGELOG.md"), "--package", path.join(directory, "package.json")], { encoding: "utf8", env: { ...process.env, LATERDOG_NOTARIZE: "1" } });
+    expect(notarized.status, notarized.stderr).toBe(0);
+    const signed = fs.readFileSync(path.join(notarizedOut, "NOTES.md"), "utf8");
+    expect(signed).toContain("notarized by Apple");
+    expect(signed).toContain("**On an older later.dog?** Download this once");
+    expect(signed).toContain("**Already on later.dog 0.3.11 or newer?** It updates itself.");
+    expect(signed).not.toContain("Open Anyway");
+
     const refused = spawnSync(process.execPath, [SCRIPT, "--tag", "v0.3.4", "--zip", zip, "--out", out, "--repository", "not a repo", "--changelog", path.join(directory, "CHANGELOG.md"), "--package", path.join(directory, "package.json")], { encoding: "utf8" });
     expect(refused.status).not.toBe(0);
     expect(refused.stderr).toContain("Not a GitHub repository");

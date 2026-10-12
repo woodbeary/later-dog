@@ -1,6 +1,6 @@
 import type { Refusal } from "./auth";
 
-export const VOICE_MODEL = "elevenlabs/eleven-flash-v2-5";
+export const VOICE_MODEL = "@cf/deepgram/aura-2-en";
 export const VOICE_MAX_CHARS = 2_500;
 export const VOICE_CHARS_PER_DAY = 10_000;
 export const VOICE_OUTPUT_FORMATS = new Set(["mp3_44100_64", "mp3_44100_128", "mp3_22050_32"]);
@@ -26,6 +26,27 @@ export const INCLUDED_VOICES: IncludedVoice[] = [
 ];
 
 const VOICE_IDS = new Set(INCLUDED_VOICES.map((voice) => voice.voice_id));
+
+const AURA: Record<string, { speaker: string; accent: string; description: string }> = {
+  JBFqnCBsd6RMkjVDRZzb: { speaker: "draco", accent: "British", description: "warm" },
+  EXAVITQu4vr4xnSDxMaL: { speaker: "athena", accent: "American", description: "calm" },
+  FGY2WhTYpPnrIDTdsKH5: { speaker: "thalia", accent: "American", description: "upbeat" },
+  IKne3meq5aSn9XLyUdCD: { speaker: "hyperion", accent: "Australian", description: "warm" },
+  TX3LPaxmHKxFdv7VOQHJ: { speaker: "orpheus", accent: "American", description: "clear" },
+  Xb7hH8MSUJpSbSDYk0k2: { speaker: "pandora", accent: "British", description: "calm" },
+  XrExE9yKIg1WjnnlVkGX: { speaker: "luna", accent: "American", description: "friendly" },
+  nPczCjzI2devNBz1zQrb: { speaker: "zeus", accent: "American", description: "deep" },
+  onwK4e9ZLuTAKqWW03F9: { speaker: "odysseus", accent: "American", description: "steady" },
+  pFZP5JQG7iQjIQuC4Bku: { speaker: "cordelia", accent: "American", description: "gentle" },
+};
+
+export function includedVoices(withElevenLabs: boolean): IncludedVoice[] {
+  if (withElevenLabs) return INCLUDED_VOICES;
+  return INCLUDED_VOICES.map((voice) => {
+    const aura = AURA[voice.voice_id]!;
+    return { ...voice, labels: { accent: aura.accent, description: aura.description } };
+  });
+}
 
 export type SpeechRequest = { voiceId: string; text: string; outputFormat: string };
 
@@ -59,7 +80,7 @@ export function elevenLabsRequest(request: SpeechRequest, key: string) {
 }
 
 export function voiceInput(request: SpeechRequest) {
-  return { text: request.text, voice_id: request.voiceId, output_format: request.outputFormat };
+  return { text: request.text, speaker: AURA[request.voiceId]?.speaker ?? "draco", encoding: "mp3" };
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);

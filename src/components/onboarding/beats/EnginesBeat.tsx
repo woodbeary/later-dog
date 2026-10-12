@@ -28,9 +28,9 @@ type Flow =
   | { step: "working" }
   | { step: "browser" | "code"; instanceId: string; flowId: string; link: string; sending?: boolean };
 
-type Report = (id: OnboardingAccountId, text: string | null) => void;
+export type Report = (id: OnboardingAccountId, text: string | null) => void;
 
-function AccountRow({ id, account, report }: { id: OnboardingAccountId; account: OnboardingAccount | null; report: Report }) {
+export function AccountRow({ id, account, report }: { id: OnboardingAccountId; account: OnboardingAccount | null; report: Report }) {
   const { dispatch, refreshModels } = useStore();
   const [flow, setFlow] = useState<Flow | null>(null);
   const [code, setCode] = useState("");

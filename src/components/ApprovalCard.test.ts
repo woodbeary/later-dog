@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ApprovalCard } from "./ApprovalCard";
+import { ApprovalCard, toolLabel } from "./ApprovalCard";
 import { pendingApprovals, PendingApprovalPanel, spokenApprovalPrompt, type Pending } from "./PendingApproval";
 import type { Bot, Message } from "@/state/store";
 import { skillRequestBehavior } from "../../shared/skill-request";
@@ -645,5 +645,14 @@ describe("ApprovalCard for a change that applied on its own", () => {
     const confirmed = routineCard(createRoutineOperation, { name: "Backlog review" });
     confirmed.card = { ...confirmed.card!, autoApplied: undefined, options: ["Confirm", "Cancel"] };
     expect(render(confirmed)).toContain("Routine scheduled");
+  });
+});
+
+describe("the action an approval asks about", () => {
+  it("says a dog wants to use a computer when it picks one", () => {
+    expect(toolLabel("mcp__agents__select_computer")).toBe("use a computer");
+    expect(toolLabel("agents_select_computer")).toBe("use a computer");
+    expect(toolLabel("mcp__computer__computer_exec")).toBe("use the computer");
+    expect(toolLabel("computer_get_desktop_state")).toBe("use the computer");
   });
 });

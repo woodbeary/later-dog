@@ -137,7 +137,7 @@ describe("held notes", () => {
     // questions are never held for a mode reason
     expect(approvalHeldNote({ source: "native-approval", permission: false })).toBeUndefined();
     expect(approvalHeldReason({ source: "native-approval", permission: true }))
-      .toBe("The provider requires your approval for this action.");
+      .toBe("This always asks you first.");
   });
 
   // Both ways: every note the server can send has a catalog entry, so the

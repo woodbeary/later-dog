@@ -38,9 +38,11 @@ const routing = (criteria: Record<string, string> = { rex: "Rex", scout: "Scout"
 });
 const clefAnswer = { model: "clef", answers: { answer: { type: "choice", choice: "rex", probabilities: { rex: 0.98, scout: 0.01, __everyone__: 0.01 } } }, usage: { input_tokens: 297 } };
 
-async function included(vars: Record<string, string> = {}) {
-  const run = vi.fn(async (model: string) => (model === CLEF_MODEL ? clefAnswer : { result: { audio: btoa("ID3-mp3-bytes") } }));
-  const gatewayRun = vi.fn(async () => new Response("mp3-from-elevenlabs", { headers: { "content-type": "audio/mpeg" } }));
+async function included(vars: Record<string, string> = {}, elevenLabs: "ok" | "down" = "ok") {
+  const run = vi.fn(async (model: string) => (model === CLEF_MODEL ? clefAnswer : new Response("ID3-mp3-bytes").body));
+  const gatewayRun = vi.fn(async () => elevenLabs === "down"
+    ? new Response("{\"detail\":{\"status\":\"quota_exceeded\"}}", { status: 401 })
+    : new Response("mp3-from-elevenlabs", { headers: { "content-type": "audio/mpeg" } }));
   const gateway = vi.fn(() => ({ run: gatewayRun }));
   const w = await world({ AI: { run, gateway }, ...vars } as unknown as Record<string, string>);
   siteverify();
@@ -59,8 +61,8 @@ const speak = (key: string, voiceId: string, text: string, headers: Record<strin
 describe("what the trial says is included", () => {
   it("names only the services that are set up", async () => {
     const { w, key } = await included();
-    expect((await body(await w.fetch(new Request(`${ORIGIN}/v1/trials`)))).included).toEqual(["decisions", "ai"]);
-    expect((await body(await w.fetch(apiRequest("GET", "/v1/trial", key)))).included).toEqual(["decisions", "ai"]);
+    expect((await body(await w.fetch(new Request(`${ORIGIN}/v1/trials`)))).included).toEqual(["decisions", "voice", "ai"]);
+    expect((await body(await w.fetch(apiRequest("GET", "/v1/trial", key)))).included).toEqual(["decisions", "voice", "ai"]);
     const all = await included({ ELEVENLABS_API_KEY: "sk", XAI_API_KEY: "xai" });
     expect((await body(await all.w.fetch(apiRequest("GET", "/v1/trial", all.key)))).included).toEqual(["decisions", "voice", "ai"]);
   });
@@ -104,16 +106,29 @@ describe("included decisions", () => {
 });
 
 describe("included voice", () => {
-  it("lists only the included voices and speaks with ElevenLabs through the AI Gateway", async () => {
-    const { w, run, key } = await included();
+  it("lists only the included voices and speaks with Cloudflare's Aura voices when no ElevenLabs key is set", async () => {
+    const { w, run, key, gatewayRun } = await included();
     const voices = await w.fetch(new Request(`${ORIGIN}/v1/voice/voices`, { headers: { "xi-api-key": key } }));
     expect(voices.status).toBe(200);
-    expect((await body(voices)).voices.map((voice: { voice_id: string }) => voice.voice_id)).toEqual(INCLUDED_VOICES.map((voice) => voice.voice_id));
+    const listed = (await body(voices)).voices as Array<{ voice_id: string; name: string; labels: { accent: string } }>;
+    expect(listed.map((voice) => voice.voice_id)).toEqual(INCLUDED_VOICES.map((voice) => voice.voice_id));
+    expect(listed[0]).toMatchObject({ name: "George", labels: { accent: "British", description: "warm" } });
+    expect(listed[3]).toMatchObject({ name: "Charlie", labels: { accent: "Australian" } });
     const audio = await w.fetch(speak(key, INCLUDED_VOICES[0]!.voice_id, "Hello from later.dog."));
     expect(audio.status).toBe(200);
     expect(audio.headers.get("content-type")).toBe("audio/mpeg");
     expect(new TextDecoder().decode(await audio.arrayBuffer())).toBe("ID3-mp3-bytes");
-    expect(run).toHaveBeenCalledWith(VOICE_MODEL, { text: "Hello from later.dog.", voice_id: INCLUDED_VOICES[0]!.voice_id, output_format: "mp3_44100_64" }, { gateway: { id: "default", collectLog: false } });
+    expect(run).toHaveBeenCalledWith(VOICE_MODEL, { text: "Hello from later.dog.", speaker: "draco", encoding: "mp3" }, { gateway: { id: "default", collectLog: false } });
+    expect(gatewayRun).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the Aura voices when ElevenLabs refuses", async () => {
+    const { w, run, key, gatewayRun } = await included({ ELEVENLABS_API_KEY: "sk_test_voice" }, "down");
+    const audio = await w.fetch(speak(key, INCLUDED_VOICES[7]!.voice_id, "Hello."));
+    expect(audio.status).toBe(200);
+    expect(new TextDecoder().decode(await audio.arrayBuffer())).toBe("ID3-mp3-bytes");
+    expect(gatewayRun).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(VOICE_MODEL, { text: "Hello.", speaker: "zeus", encoding: "mp3" }, { gateway: { id: "default", collectLog: false } });
   });
 
   it("speaks with later.dog's own ElevenLabs key through the AI Gateway when one is set, logging no content", async () => {
@@ -129,6 +144,8 @@ describe("included voice", () => {
       query: { text: "Hello.", model_id: "eleven_flash_v2_5" },
     }));
     expect(run).not.toHaveBeenCalled();
+    const voices = await w.fetch(new Request(`${ORIGIN}/v1/voice/voices`, { headers: { "xi-api-key": key } }));
+    expect((await body(voices)).voices).toEqual(INCLUDED_VOICES);
   });
 
   it("refuses other voices, oversized text and unknown keys before any speech is made", async () => {

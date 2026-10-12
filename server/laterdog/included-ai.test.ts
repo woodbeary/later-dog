@@ -70,6 +70,7 @@ describe("when later.dog AI can't answer", () => {
     expect(includedAiError(429, JSON.stringify({ error: { code: "daily_limit", message: "x" } }))).toContain("used today's free later.dog AI");
     expect(includedAiError(401, "{}")).toBe("Your free later.dog AI has ended. Sign in to Claude or ChatGPT to keep going.");
     expect(includedAiError(503, "{}")).toContain("busy right now");
+    expect(includedAiError(413, JSON.stringify({ error: { code: "too_large" } }))).toContain("too much for later.dog AI");
     expect(includedAiError(400, "{}")).toBeUndefined();
   });
 

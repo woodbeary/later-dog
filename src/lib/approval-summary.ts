@@ -114,6 +114,8 @@ export function toolService(tool: string): string | undefined {
 }
 
 export function usesComputer(tool: string): boolean {
-  const mcp = /^mcp__(.+?)__(.+)$/.exec(tool.trim());
-  return Boolean(mcp && (/^(computer|browser)$/.test(mcp[1]!) || /^(computer|browser|screenshot|click)/.test(mcp[2]!)));
+  const name = tool.trim();
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
+  if (mcp) return /^(computer|browser)$/.test(mcp[1]!) || /^(computer|browser|screenshot|click)/.test(mcp[2]!);
+  return /^(computer|browser)_/.test(name);
 }

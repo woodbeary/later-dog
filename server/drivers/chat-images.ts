@@ -54,6 +54,21 @@ export function chatUserContent(turn: SendTurnInput): string | ChatContentPart[]
   })];
 }
 
+const SCREENSHOT_LABEL = "Screenshot result from tool call";
+export const OLDER_SCREENSHOT = "[An older screenshot was removed to keep the request small; the newest screenshot is further down.]";
+
 export function chatToolImages(callId: string, images?: ChatImagePart[]): ChatContentPart[] {
-  return images?.length ? [{ type: "text", text: `Screenshot result from tool call ${callId}:` }, ...images] : [];
+  return images?.length ? [{ type: "text", text: `${SCREENSHOT_LABEL} ${callId}:` }, ...images] : [];
+}
+
+/** A turn sends only its newest round of tool screenshots: a Retina screen is
+ * several megabytes, and every earlier one would ride along on each request. */
+export function retireScreenshots(messages: Array<{ role: string; content?: unknown }>): void {
+  for (const message of messages) {
+    if (message.role !== "user" || !Array.isArray(message.content)) continue;
+    const parts = message.content as ChatContentPart[];
+    if (parts[0]?.type !== "text" || !parts[0].text.startsWith(SCREENSHOT_LABEL)) continue;
+    if (!parts.some((part) => part.type === "image_url")) continue;
+    message.content = parts.map((part) => (part.type === "image_url" ? { type: "text", text: OLDER_SCREENSHOT } : part));
+  }
 }

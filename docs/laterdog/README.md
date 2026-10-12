@@ -10,10 +10,8 @@ You need a Mac with Apple silicon.
 
 1. Download `later.dog-macOS-arm64.zip` from the [latest release](https://github.com/woodbeary/later-dog/releases/latest).
 2. Unzip it and drag **later.dog** into Applications.
-3. Open **later.dog** once. macOS will say it cannot verify the app, because later.dog is signed with its own
-   certificate and not Apple's. Close that message, then open **System Settings → Privacy & Security**, scroll down to
-   the message about later.dog and click **Open Anyway**. Confirm, and the app opens. On macOS 15 and later,
-   right-click → Open does not work for this, so use Open Anyway. You only do this once.
+3. Open **later.dog**. It is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether
+   to open an app you downloaded from the internet.
 
 ## First run
 

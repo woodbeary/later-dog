@@ -294,7 +294,7 @@ app.whenReady().then(async () => {
     assert.equal((await api(`/api/bots/${bot.id}/messages`, "POST", { text: "Verify this action still needs a person" })).status, 202);
     const card = await until(async () => pendingCard((await api("/api/bots")).body.bots.find((candidate) => candidate.id === bot.id)));
     if (instanceId === "grok-question") assert.deepEqual(card.options, ["Blue", "Green"]);
-    else assert.equal(card.held, "The provider requires your approval for this action.");
+    else assert.equal(card.held, "This always asks you first.");
     assert.equal((await api(`/api/bots/${bot.id}/respond`, "POST", { requestId: card.requestId, behavior: "deny" })).status, 200);
     await until(async () => !(await api("/api/bots?messages=0")).body.bots.find((candidate) => candidate.id === bot.id)?.busy);
     console.log(JSON.stringify({ provider: "grok", case: instanceId, mode: "auto", remainedInteractive: true }));
@@ -317,7 +317,7 @@ app.whenReady().then(async () => {
         await until(async () => (await api("/api/decisions")).body.decisions.filter((row) => row.botId === agyBot.id && row.source === "full-access" && row.decision === "auto-approved").length === turn + 1);
       } else {
         const card = await until(async () => pendingCard((await api("/api/bots")).body.bots.find((bot) => bot.id === agyBot.id)));
-        if (mode === "auto") assert.equal(card.held, "The provider requires your approval for this action.");
+        if (mode === "auto") assert.equal(card.held, "This always asks you first.");
         assert.equal((await api(`/api/bots/${agyBot.id}/respond`, "POST", { requestId: card.requestId, behavior: "allow" })).status, 200);
         await until(async () => !(await api("/api/bots?messages=0")).body.bots.find((bot) => bot.id === agyBot.id)?.busy);
       }
@@ -389,7 +389,7 @@ app.whenReady().then(async () => {
   const customRequest = api("/api/internal/ask-bot", "POST", { toBotId: customTarget.id, message: "Delegated Custom uses the native Auto reviewer" }, { authorization: `Bearer ${capability.body.token}` });
   void customRequest.catch(() => {});
   const customCard = await until(async () => pendingCard((await api("/api/bots")).body.bots.find((bot) => bot.id === customTarget.id)));
-  assert.equal(customCard.held, "The provider requires your approval for this action.");
+  assert.equal(customCard.held, "This always asks you first.");
   assert.equal((await api(`/api/bots/${customTarget.id}/respond`, "POST", { requestId: customCard.requestId, behavior: "allow" })).status, 200);
   assert.equal((await customRequest).status, 200);
   const customCalls = JSON.parse(readFileSync(codexDump, "utf8")).calls;
