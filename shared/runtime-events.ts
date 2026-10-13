@@ -1,4 +1,5 @@
 import type { AskQuestion } from "./ask-question.ts";
+import type { Helper } from "./helpers.ts";
 
 export type DriverKind = string;
 export type InstanceId = string;
@@ -110,6 +111,7 @@ export type RuntimeEvent = RuntimeEventBase &
         quota?: { resetsAt?: string; kind?: string };
       }
     | { type: "runtime.notice"; message: string }
+    | { type: "helper.updated"; helper: Helper }
   );
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void;
