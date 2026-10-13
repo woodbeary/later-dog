@@ -53,7 +53,7 @@ function readQwenRoutes(env: Record<string, string | undefined>): QwenRoute[] {
     }
   }
   // Qwen's ACP route identity, from QwenLM/qwen-code acpModelUtils.ts
-  // (Copyright 2025 Qwen Team, Apache-2.0). Never publish endpoints or env keys.
+  // (Copyright 2025 Qwen Team, Apache-2.0).
   const counts = new Map<string, number>();
   for (const route of routes) counts.set(route.id, (counts.get(route.id) ?? 0) + 1);
   for (const route of routes) {

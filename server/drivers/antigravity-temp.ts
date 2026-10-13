@@ -6,13 +6,6 @@
 //   - apps/server/src/provider/acp/AntigravitySessionFiles.ts:45-61 and
 //     apps/server/src/provider/Drivers/AntigravityDriver.ts:121-132
 //     (reclaim what earlier runs left behind when the driver starts).
-// What later.dog does differently: the folder is stable per instance, never per
-// process, because the ACP pool's contractKey hashes the launch environment
-// and a new TEMP per process would respawn on every turn. t3code's per-process
-// run-* folders (AntigravityDriver.ts:202-227) are deliberately not copied.
-// Because the folder is shared, the sweep removes only unpack folders whose
-// process is gone instead of the whole folder. The user-started cleanup of the
-// system temp folder is later.dog's own; t3code never touches system temp.
 import { createHash, randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import { lstat, readdir, realpath, rename, rm } from "node:fs/promises";
