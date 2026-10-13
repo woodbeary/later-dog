@@ -21,6 +21,14 @@ describe("how far a resting account has recharged", () => {
     expect(rechargeProgress({ since: at(-2 * HOUR), until: at(-HOUR) }, NOW)).toBe(1);
   });
 
+  it("does not calculate progress from an estimated reset", () => {
+    expect(rechargeProgress({ since: at(-HOUR), until: at(HOUR), estimated: true }, NOW)).toBeNull();
+    const host = mount(createElement(RestCharge, { rest: { since: at(-HOUR), until: at(HOUR), estimated: true }, now: NOW }));
+    const progress = host.querySelector("[data-recharge]")!;
+    expect(progress.getAttribute("data-recharge")).toBe("unknown");
+    expect(progress.hasAttribute("aria-valuenow")).toBe(false);
+  });
+
   it("does not guess without a start, or with a start that is not before the end", () => {
     expect(rechargeProgress({ until: at(HOUR) }, NOW)).toBeNull();
     expect(rechargeProgress({ since: at(HOUR), until: at(HOUR) }, NOW)).toBeNull();
@@ -45,7 +53,7 @@ describe("when a resting account is back", () => {
     expect(backAt(rest, NOW)).toMatch(/^Back at (\w{3} \d{1,2}, )?\d{1,2}:\d{2}/);
     expect(restSummary(rest, NOW)).toMatch(/^Back at [^·]+ · in 1h 15m$/);
     const rough = { ...rest, estimated: true };
-    expect(backAt(rough, NOW)).toMatch(/^Back around (\w{3} \d{1,2}, )?\d{1,2}:\d{2}/);
+    expect(backAt(rough, NOW)).toBe("Recharging");
     expect(restSummary(rough, NOW)).toBe(backAt(rough, NOW));
   });
 
@@ -62,7 +70,7 @@ describe("the recharge line", () => {
     expect(line.getAttribute("aria-valuenow")).toBe("42");
     expect(line.getAttribute("aria-valuetext")).toBe("42% recharged");
     expect(line.getAttribute("data-recharge")).toBe("42");
-    expect(line.querySelector<HTMLElement>(".recharge-fill")!.style.width).toBe("42%");
+    expect(line.querySelector<HTMLElement>(".recharge-fill")!.style.transform).toBe("scaleX(0.42)");
   });
 
   it("shows a faint full line with no reading when it cannot tell how far along it is", () => {
@@ -72,7 +80,7 @@ describe("the recharge line", () => {
     expect(line.hasAttribute("aria-valuetext")).toBe(false);
     const fill = line.querySelector<HTMLElement>(".recharge-fill")!;
     expect(fill.className).toContain("opacity-40");
-    expect(fill.style.width).toBe("100%");
+    expect(fill.style.transform).toBe("scaleX(1)");
   });
 });
 

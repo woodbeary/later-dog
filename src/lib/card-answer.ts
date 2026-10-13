@@ -15,7 +15,7 @@ export function answerResponse(card: CardKind, answer: string): CardResponse {
 }
 
 export function dismissResponse(card: CardKind): CardResponse {
-  if (card.tool) return { behavior: "deny", message: "Dismissed by user." };
+  if (card.tool) return { behavior: "deny", message: "Closed without approving." };
   return {
     behavior: "answer",
     message: QUESTION_DISMISS_MESSAGE,

@@ -41,7 +41,14 @@ const CREDENTIAL_TOKEN_FORMATS = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\bAIza[0-9A-Za-z_-]{30,}/g,
   /\bnpm_[A-Za-z0-9]{20,}/g,
+  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/g,
+  /\bglpat-[A-Za-z0-9_-]{20,}/g,
+  /\bhf_[A-Za-z0-9]{30,}/g,
+  /\bya29\.[A-Za-z0-9_-]{20,}/g,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
 ];
+const EMAIL_ADDRESS =
+  /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}\b/g;
 const KEY_VALUE_PAIR =
   /\b([A-Za-z0-9_.-]*(?:api[_-]?key|apikey|secret|token|password|passwd|authorization|auth[_-]?token|access[_-]?key|private[_-]?key)s?)["']?\s*[:=]\s*("[^"]*"|'[^']*'|[^\s"',;)\]}]+)/gi;
 const AUTHORIZATION =
@@ -64,6 +71,7 @@ export function redactSecretsInLine(line) {
     return address.replace(/^(https?:\/\/)[^/]*@/i, "$1«redacted credentials»@")
       + (query < 0 ? "" : "?«redacted URL parameters»");
   });
+  out = out.replace(EMAIL_ADDRESS, "«redacted email»");
   const alreadyMasked = (value) => String(value).includes("«redacted");
   for (const name of CREDENTIAL_ENV_NAMES) {
     out = out.replace(
@@ -267,7 +275,7 @@ export function buildDiagnosticsReport({
   let shown = 0;
   for (const key of Object.keys(summary).sort()) {
     if (!summaryAllows(summary[key])) continue;
-    lines.push(`${key}=${summary[key]}`);
+    lines.push(`${redactSecretsInLine(key)}=${summary[key]}`);
     shown += 1;
   }
   if (!shown) lines.push("(no configuration summary available)");

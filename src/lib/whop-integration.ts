@@ -8,10 +8,3 @@ export function isWhopServer(server: { url?: string; type?: string }): boolean {
       && !url.search && !url.hash && !url.username && !url.password;
   } catch { return false; }
 }
-
-export function whopServerName(servers: Array<{ name: string }>): string {
-  const names = new Set(servers.map((server) => server.name));
-  let name = "whop";
-  for (let suffix = 2; names.has(name); suffix++) name = `whop-${suffix}`;
-  return name;
-}

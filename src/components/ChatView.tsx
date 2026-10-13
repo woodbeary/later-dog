@@ -1352,6 +1352,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             </div>
           )}
           <TurnPresence
+            threadId={bot.threadId}
+            color={bot.color}
+            bodyId={bot.mascotBody}
             avatar={
               <BotAvatar
                 bot={bot}

@@ -1716,15 +1716,15 @@ button:disabled.bg-danger {
   100% { opacity: 0; transform: translate(0.45em, -0.75em) scale(1.05); }
 }
 .recharge-fill {
-  background-image: linear-gradient(90deg, transparent, color-mix(in oklab, var(--color-accent-ink) 35%, transparent), transparent);
-  background-size: 40% 100%;
-  background-repeat: no-repeat;
-  transition: width var(--motion-enter) var(--ease-out-soft);
+  transition: transform var(--motion-enter) var(--ease-out-soft);
+}
+.recharge-sheen {
   animation: recharge-sweep 2.6s ease-in-out infinite;
 }
 @keyframes recharge-sweep {
-  from { background-position: -60% 0; }
-  to { background-position: 160% 0; }
+  from { transform: translateX(-100%); opacity: 0.3; }
+  50% { opacity: 0.9; }
+  to { transform: translateX(100%); opacity: 0.3; }
 }
 .recharge-pulse {
   animation: recharge-pulse 2.6s ease-in-out infinite;
@@ -1734,13 +1734,14 @@ button:disabled.bg-danger {
   50% { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dog-snooze::before, .dog-snooze::after, .recharge-fill, .recharge-pulse { animation: none; transition: none; }
+  .dog-snooze::before, .dog-snooze::after, .recharge-fill, .recharge-sheen, .recharge-pulse { animation: none; transition: none; }
   .dog-snooze::before { opacity: 0.8; transform: translate(0, 0.15em); }
   .dog-snooze::after { opacity: 0.6; transform: translate(0.45em, -0.5em); }
 }
 :root[data-reduced-motion="true"] .dog-snooze::before,
 :root[data-reduced-motion="true"] .dog-snooze::after,
 :root[data-reduced-motion="true"] .recharge-fill,
+:root[data-reduced-motion="true"] .recharge-sheen,
 :root[data-reduced-motion="true"] .recharge-pulse {
   animation: none;
   transition: none;

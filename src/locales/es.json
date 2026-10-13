@@ -703,7 +703,6 @@
   "usage.costMixed": "según lo informa cada proveedor: en una suscripción es un equivalente, no un cargo",
   "botSettings.computer.checking": "Un momento",
   "botSettings.computer.asleep": "El ordenador está en reposo",
-  "botSettings.computer.wake": "Activar",
   "botSettings.computer.waking": "Activando…",
   "botSettings.computer.firstStart": "El primer inicio tarda alrededor de un minuto.",
   "botSettings.computer.unreachable": "No se puede acceder a la pantalla de {name}",

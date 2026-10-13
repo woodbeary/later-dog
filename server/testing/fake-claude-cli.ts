@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createPuppies } from "./fake-claude-puppies.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
@@ -356,7 +357,18 @@ const useCloudComputer = () => {
     is_error: Boolean(reply.error || reply.result?.isError), content: reply.result?.content ?? reply.error?.message ?? "" }] } });
 };
 
-const playTurn = (prompt: JsonValue, late = false) => {
+const playPuppies = createPuppies({
+  out,
+  init: () => out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools }),
+  endTurn: () => {
+    turnRunning = false;
+    finishIfDone();
+  },
+  sessionId,
+  model,
+});
+
+const playTurn = async (prompt: JsonValue, late = false) => {
   turnRunning = true;
   lateContinuation = late;
   steered = [];
@@ -434,6 +446,12 @@ const playTurn = (prompt: JsonValue, late = false) => {
 
   const usageGate = process.env.FAKE_CLAUDE_USAGE_LIMIT_GATE;
   if (mode === "usage-limit" && (!usageGate || existsSync(usageGate))) {
+    const release = process.env.FAKE_CLAUDE_USAGE_LIMIT_RELEASE;
+    while (release && !existsSync(release)) await new Promise((resolve) => setTimeout(resolve, 20));
+    replaySteered();
+    if (process.env.FAKE_CLAUDE_USAGE_LIMIT_ROOM_PLAN) {
+      await runRoomHandoffAgent(argv, process.env.FAKE_CLAUDE_USAGE_LIMIT_ROOM_PLAN, prompt);
+    }
     if (process.env.FAKE_CLAUDE_USAGE_LIMIT_AFTER_TOOL === "1") {
       const id = `tu-${process.pid}-${++toolUseCount}`;
       out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Bash", input: { command: "echo started" } }] } });
@@ -460,6 +478,11 @@ const playTurn = (prompt: JsonValue, late = false) => {
     out({ type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
     turnRunning = false;
     finishIfDone();
+    return;
+  }
+
+  if (mode === "puppies") {
+    playPuppies(steerText(prompt));
     return;
   }
 

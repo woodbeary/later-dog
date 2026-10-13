@@ -1,6 +1,6 @@
 import type { ModelSelection } from "../../shared/wire.ts";
 import { failedTurnTool, type FailedTurnTool } from "../../shared/failed-turn.ts";
-import { CONTINUE_AFTER_SWITCH, switchNotice, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
+import { CONTINUE_AFTER_SWITCH, switchNotice, selectionOnAccount, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
 
 export interface PathMessage {
   id: string;
@@ -12,6 +12,7 @@ export interface PathMessage {
 export interface Notice {
   name: string;
   ok: true;
+  carry?: { from: string; to: string };
 }
 
 export type ContinueOnCheck =
@@ -46,9 +47,11 @@ export function checkContinueOn(input: {
   if (!from?.eligible) return { ok: false, status: 409, error: "This dog's account can't switch." };
   if (!to?.eligible) return { ok: false, status: 404, error: "That account isn't available any more." };
   if (to.instanceId === from.instanceId) return { ok: false, status: 409, error: "That's the account that ran out." };
-  if (to.driverKind !== from.driverKind) return { ok: false, status: 409, error: `${accountName(to)} can't run this dog.` };
   if (!to.enabled || to.signedIn === false) return { ok: false, status: 409, error: `${accountName(to)} isn't signed in.` };
-  if (from.models.includes(selection.model) && !to.models.includes(selection.model)) {
+  if (from.driverKind !== to.driverKind && !to.defaultModel && !to.models.length) {
+    return { ok: false, status: 409, error: `${accountName(to)} does not have an available model.` };
+  }
+  if (from.driverKind === to.driverKind && from.models.includes(selection.model) && !to.models.includes(selection.model)) {
     return { ok: false, status: 409, error: `${accountName(to)} doesn't offer this dog's model.` };
   }
   if (input.resting(to)) return { ok: false, status: 409, error: `${accountName(to)} is out of usage too.` };
@@ -72,18 +75,18 @@ export function continueOnAccount(input: {
   const limit = latestLimit(path);
   const check = checkContinueOn({
     accounts, selection, from: limit?.tool?.quota?.instanceId ?? selection.instanceId, to: input.instanceId,
-    resting: (account) => Boolean(battery.restOf(account, accounts, selection.model)),
+    resting: (account) => Boolean(battery.restOf(account, accounts, selectionOnAccount(selection, account, accounts).model)),
   });
   if (!check.ok) return { status: check.status, body: { error: check.error } };
   const { from, to } = check;
   battery.choose(input.threadId, from.instanceId, to.instanceId, selection.instanceId);
   const turn = battery.takeTurn(input.threadId, input.generation);
-  const at = requestIndex(path);
-  if (!turn?.rerun || at === -1 || path[at]!.id !== turn.requestMessageId) return { status: 200, body: { continued: false } };
+  const at = path.findIndex((message) => message.id === turn?.requestMessageId);
+  if (!turn?.rerun || (turn.requestMessageId && at === -1)) return { status: 200, body: { continued: false } };
   const rest = battery.restOf(from, accounts, selection.model);
-  input.write({ name: `recovery: ${switchNotice({ to: accountName(to), from: accountName(from), rest, now: input.now ?? Date.now() })}`, ok: true }, limit?.id);
+  input.write({ name: `recovery: ${switchNotice({ to: accountName(to), from: accountName(from), rest, now: input.now ?? Date.now() })}`, ok: true, carry: { from: from.instanceId, to: to.instanceId } }, limit?.id);
   const toolRan = path.slice(at + 1).some((message) => message.kind === "activity" && Boolean(message.tool?.itemId));
-  void turn.rerun(toolRan ? CONTINUE_AFTER_SWITCH : null).catch((error: unknown) => {
+  void turn.rerun(toolRan || path.slice(at + 1).some((message) => message.role === "user") ? CONTINUE_AFTER_SWITCH : null).catch((error: unknown) => {
     input.write(failedTurnTool(`Could not continue on ${accountName(to)}: ${error instanceof Error ? error.message : String(error)}`));
   });
   return { status: 200, body: { continued: true } };

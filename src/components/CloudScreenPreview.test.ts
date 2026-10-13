@@ -38,6 +38,14 @@ describe("cloud screen connection feedback", () => {
     expect(html).not.toContain("Connecting to the screen…");
   });
 
+  it("shows the dog waking up instead of a spinner while its computer starts", () => {
+    const html = renderToStaticMarkup(createElement(CloudScreenPreview, { ...defaults, starting: true, dog: { color: "green" } }));
+    expect(html).toContain('data-dog-state="waking"');
+    expect(html).not.toContain("animate-spin");
+    expect(html).toContain("Starting your dog&#x27;s computer…");
+    expect(renderToStaticMarkup(createElement(CloudScreenPreview, { ...defaults, dog: { color: "green" } }))).toContain("animate-spin");
+  });
+
   it("surfaces request failures with a retry action instead of a permanent loader", () => {
     const html = renderToStaticMarkup(createElement(CloudScreenPreview, {
       ...defaults, error: "The computer took too long to send a frame. Try again.",

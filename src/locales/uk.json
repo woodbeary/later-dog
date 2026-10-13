@@ -903,7 +903,6 @@
   "usage.history.tokenSplit": "{input} вхід, {output} вихід, {cached} зі входу перечитано з кешу",
   "botSettings.computer.checking": "Зачекайте хвилинку",
   "botSettings.computer.asleep": "Комп’ютер спить",
-  "botSettings.computer.wake": "Пробудити",
   "botSettings.computer.waking": "Пробудження…",
   "botSettings.computer.firstStart": "Перший запуск триває приблизно хвилину.",
   "botSettings.computer.unreachable": "Не вдалося підключитися до екрана {name}",

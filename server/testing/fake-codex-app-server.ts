@@ -540,6 +540,9 @@ process.stdin.on("data", (chunk) => {
         out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: nativeTurnId } } });
         if (mode === "early-turn-events") break;
         if (mode === "helper-events") {
+          notify("item/completed", { item: { id: "spawn-helper", type: "collabAgentToolCall", tool: "spawnAgent", status: "completed", receiverThreadIds: ["helper-thread"], agentsStates: { "helper-thread": { status: "running", message: null } } } });
+          notify("item/started", { item: { id: "helper-active", type: "subAgentActivity", kind: "started", agentThreadId: "helper-thread", agentPath: "/root/checker" } });
+          notify("item/completed", { item: { id: "wait-helper", type: "collabAgentToolCall", tool: "wait", status: "completed", receiverThreadIds: ["helper-thread"], agentsStates: { "helper-thread": { status: "completed", message: "Checked the outline" } } } });
           for (const scope of [
             { threadId: "helper-thread", turnId: "helper-turn" },
             { threadId: nativeThreadId, turnId: "previous-turn" },

@@ -710,7 +710,6 @@
   "usage.costMixed": "wie jeder Anbieter es meldet — bei einem Abo ist es ein Gegenwert, keine Abrechnung",
   "botSettings.computer.checking": "Einen Moment",
   "botSettings.computer.asleep": "Computer schläft",
-  "botSettings.computer.wake": "Aufwecken",
   "botSettings.computer.waking": "Wird aufgeweckt…",
   "botSettings.computer.firstStart": "Der erste Start dauert etwa eine Minute.",
   "botSettings.computer.unreachable": "Bildschirm von {name} nicht erreichbar",

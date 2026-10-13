@@ -47,6 +47,8 @@ import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
+import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
+import { receiveReasoningEvent, forgetReasoning } from "@/lib/turn-reasoning";
 
 const MAX_ROUTINE_RUNS = 2_000;
 const ACTIVE_ROUTINE_RUN_STATUSES = new Set<RoutineRun["status"]>(["queued", "running", "waiting"]);
@@ -144,7 +146,7 @@ export interface Message {
   routineRun?: RoutineRunCardData;
   goalRun?: GroupGoalRunCardData;
   channelMode?: "chat" | "goal";
-  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean };
+  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota; carry?: { from: string; to: string }; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean };
   steered?: boolean;
   via?: "api" | "call";
   turnId?: string;
@@ -462,9 +464,12 @@ export interface ConfigStatus {
   automaticRecovery?: { enabled: boolean; backup?: ModelSelection };
   accountBattery?: {
     enabled: boolean;
+    auto?: boolean;
+    sequence?: string[];
     order: Record<string, string[]>;
     resting?: Record<string, { until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
     waiting?: Record<string, string>;
+    routed?: Record<string, { from: string; on: string }>;
   };
   localVm: { mode: "shared" | "per-bot" | "pool"; maxInstances: number; idleTimeoutMinutes?: number };
   opencodeGo?: { configured: boolean; providerKeys?: string[] };
@@ -890,7 +895,7 @@ export type Action =
   | { type: "renameTask"; botId: string; threadId: string; title: string }
   | { type: "regenerateTaskTitle"; botId: string; threadId: string; onSettled?: (ok: boolean) => void }
   | { type: "deleteTask"; botId: string; threadId: string }
-  | { type: "newBot"; name?: string; title?: string; modelSelection?: ModelSelection; visibility?: BotVisibility; section?: string; offLeash?: boolean; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
+  | { type: "newBot"; name?: string; title?: string; avatarUrl?: string | null; avatarCrop?: Bot["avatarCrop"]; modelSelection?: ModelSelection; visibility?: BotVisibility; section?: string; offLeash?: boolean; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
   | { type: "botCreationPending"; on: boolean }
   | { type: "updateTask"; botId: string; threadId: string; patch: TaskUpdatePatch }
   | { type: "refreshTaskPermissions"; botId: string; threadId: string; acknowledgeLocalAuto?: boolean }
@@ -2132,6 +2137,8 @@ export class ApiError extends Error {
 }
 
 export interface NewDogFields {
+  avatarUrl?: string | null;
+  avatarCrop?: Bot["avatarCrop"];
   name?: string;
   title?: string;
   modelSelection?: ModelSelection;
@@ -2149,7 +2156,10 @@ export async function createDog(fields: NewDogFields = {}, request: typeof api =
     ...(fields.modelSelection ? { modelSelection: fields.modelSelection, requireAvailableModel: true } : {}),
     ...(fields.visibility && fields.visibility !== "everyone" ? { visibility: fields.visibility } : {}),
     ...(fields.section !== undefined ? { section: fields.section } : {}),
-    ...(fields.offLeash ? { settings: { approvalMode: "auto" } } : {}),
+    ...(fields.offLeash || fields.avatarUrl ? { settings: {
+      ...(fields.offLeash ? { approvalMode: "auto" } : {}),
+      ...(fields.avatarUrl ? { avatarUrl: fields.avatarUrl, avatarCrop: fields.avatarCrop ?? "circle" } : {}),
+    } } : {}),
   };
   const { bot } = await request("/api/bots", {
     method: "POST",
@@ -2829,7 +2839,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (creatingBot) break;
           creatingBot = true;
           rawDispatch({ type: "botCreationPending", on: true });
-          void createDog({ name: action.name, title: action.title, modelSelection: action.modelSelection, visibility: action.visibility, section: action.section, offLeash: action.offLeash })
+          void createDog({ name: action.name, title: action.title, avatarUrl: action.avatarUrl, avatarCrop: action.avatarCrop, modelSelection: action.modelSelection, visibility: action.visibility, section: action.section, offLeash: action.offLeash })
             .then(({ bot }) => {
               rawDispatch({ type: "botAdded", bot, preserveSelection: action.preserveSelection });
               action.onCreated?.(bot);
@@ -3148,7 +3158,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    type PeripheralKey = "instances" | "config" | "routines" | "webhooks";
+    type PeripheralKey = "instances" | "config" | "routines" | "webhooks" | "helpers";
     type PeripheralPart = {
       key: PeripheralKey;
       request: () => Promise<() => void>;
@@ -3188,6 +3198,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         request: async () => {
           const { routines, runs } = await api("/api/routines");
           return () => rawDispatch({ type: "routinesHydrated", routines, runs });
+        },
+      },
+      {
+        key: "helpers",
+        request: async () => {
+          const snapshot = await api<unknown>("/api/helpers").catch((error: unknown) => {
+            if (error instanceof ApiError && error.status === 404) return null;
+            throw error;
+          });
+          return () => receiveHelpersSnapshot(snapshot);
         },
       },
       ...(window.laterdog?.remoteClient?.active ? [] : [{
@@ -3402,6 +3422,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "webhookDeleted", webhookId: frame.webhookId });
           break;
         case "runtime": {
+          if (receiveHelperEvent(frame.event)) bumpPeripheralVersion("helpers");
+          receiveReasoningEvent(frame.event);
           const action = runtimeFrameAction(frame.event);
           if (action) rawDispatch(action);
           break;
@@ -3465,6 +3487,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       alive = false;
+      forgetHelpers();
+      forgetReasoning();
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {
         if (refresh.timer) clearTimeout(refresh.timer);

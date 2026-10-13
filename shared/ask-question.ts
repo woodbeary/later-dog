@@ -1,5 +1,7 @@
 export const ASK_USER_QUESTION_TOOL = "AskUserQuestion";
-export const QUESTION_DISMISS_MESSAGE = "The user closed this question without answering. Use your best judgment and continue.";
+export const QUESTION_DISMISS_MESSAGE =
+  "later.dog: they closed this question without answering, so do not ask it again. If you can go on without the answer, use your best judgment; if not, stop. Either way, reply in one short line written to them as \"you\".";
+export const LEGACY_QUESTION_DISMISS_MESSAGE = "The user closed this question without answering. Use your best judgment and continue.";
 
 export const MAX_QUESTIONS = 6;
 export const MAX_OPTIONS = 12;
@@ -235,6 +237,10 @@ export function questionAnswersById(
   questions: readonly ProtocolAskQuestion[],
 ): Record<string, string> {
   const answers: Record<string, string> = Object.create(null);
+  if (message === QUESTION_DISMISS_MESSAGE) {
+    for (const { id } of questions) answers[id] = message;
+    return answers;
+  }
   const idByText = new Map<string, string>();
   const ambiguous = new Set<string>();
   for (const { id, question } of questions) {

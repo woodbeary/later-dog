@@ -253,6 +253,7 @@ export interface WireMessage {
     claudeUpdate?: boolean;
     place?: PlaceRow;
     quota?: FailedTurnQuota;
+    carry?: { from: string; to: string };
     itemId?: string;
     fullResult?: boolean;
   };

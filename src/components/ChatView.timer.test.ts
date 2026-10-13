@@ -31,7 +31,12 @@ const draw = async (profile: Bot) => {
   const value = { state, dispatch: vi.fn(), flushBotPatches: async () => null, refreshInstances: async () => {}, refreshModels: async () => {} };
   await act(async () => root.render(createElement(BotEditorStore, { value, children: createElement(ChatView, { bot: profile }) })));
 };
-const timer = () => host.querySelector(".turn-presence .tabular-nums")?.textContent;
+const timer = async () => {
+  const trigger = host.querySelector<HTMLButtonElement>('.turn-presence button[aria-haspopup="dialog"]');
+  expect(trigger).toBeTruthy();
+  if (trigger?.getAttribute("aria-expanded") !== "true") await act(async () => trigger?.click());
+  return document.querySelector('[role="dialog"] .tabular-nums')?.textContent;
+};
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -49,11 +54,11 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-describe("the Thinking timer", () => {
+describe("the progress peek timer", () => {
   it("counts from the resumed answer after a long question wait, including after reopening the chat", async () => {
     const profile = bot();
     await draw(profile);
-    expect(timer()).toBe("3s");
+    expect(await timer()).toBe("3s");
     const waiting = { ...profile, activity: "waiting-on-you" as const,
       tasks: profile.tasks!.map((task) => ({ ...task, activity: "waiting-on-you" as const, workingStartedAt: undefined })) };
     vi.setSystemTime(1_003_000);
@@ -61,18 +66,18 @@ describe("the Thinking timer", () => {
     const resumed = { ...profile, tasks: profile.tasks!.map((task) => ({ ...task, workingStartedAt: 1_046_000 })) };
     vi.setSystemTime(1_049_000);
     await draw(resumed);
-    expect(timer()).toBe("3s");
+    expect(await timer()).toBe("3s");
     expect(resumed.tasks![0]!.turnStartedAt).toBe(997_000);
     await act(async () => root.unmount());
     root = createRoot(host);
     vi.setSystemTime(1_051_000);
     await draw(resumed);
-    expect(timer()).toBe("5s");
+    expect(await timer()).toBe("5s");
   });
 
   it("keeps the original turn timer when an older server sends no working timestamp", async () => {
     const profile = bot();
     await draw({ ...profile, tasks: profile.tasks!.map((task) => ({ ...task, workingStartedAt: undefined })) });
-    expect(timer()).toBe("3s");
+    expect(await timer()).toBe("3s");
   });
 });

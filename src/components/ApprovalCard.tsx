@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, ChevronRight, ShieldCheck, Undo2, X } from "lucide-react";
 import { api, ApiError, type Bot, type Message, type OptionCardData } from "@/state/store";
 import { cn } from "@/lib/cn";
+import { FoldedCard } from "./FoldedCard";
 import { t, tFromServer } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { SkillRequestPreview } from "@/components/SkillRequestPreview";
@@ -51,6 +52,8 @@ const PROFILE_FIELD_LABEL: Record<ProfileRequestField, LocaleKey> = {
   cwd: "approval.applied.field.cwd",
   notifications: "approval.applied.field.notifications",
   speakReplies: "approval.applied.field.speakReplies",
+  avatarUrl: "approval.applied.field.avatarUrl",
+  avatarCrop: "approval.applied.field.avatarCrop",
 };
 
 export function approvalCardOutcome(card: OptionCardData): string | undefined {
@@ -282,7 +285,7 @@ export function ApprovalCard({
         })
     : undefined;
 
-  return (
+  const body = (
     <div
       data-tour={settled || expired ? undefined : "approval"}
       className={cn(
@@ -322,6 +325,8 @@ export function ApprovalCard({
       </pre>
       </details>
 
+      {card.profileRequest?.changes.avatarUrl && <img src={card.profileRequest.changes.avatarUrl} alt={t("botSettings.avatar.generatedPreview")} className="mt-3 size-24 rounded-xl object-cover" />}
+
       {card.skillRequest && <SkillRequestPreview request={card.skillRequest} />}
 
       {heldNote && (
@@ -346,5 +351,16 @@ export function ApprovalCard({
         )}
       </div>
     </div>
+  );
+  if (!outcome) return body;
+  return (
+    <FoldedCard
+      icon={settled === "allow" && !expired ? <Check size={14} className="shrink-0 text-success" /> : <X size={14} className="shrink-0" />}
+      summary={<><span className="min-w-0 truncate">{outcome}</span>{byVoice}</>}
+      title={outcome}
+      arriving={false}
+    >
+      {body}
+    </FoldedCard>
   );
 }

@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { repeatedModelLabels, SimpleModelPane } from "./SimpleModelPane";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
-import { requestAddAccount } from "@/lib/add-account-request";
+import { requestAccountSignIn, requestAddAccount } from "@/lib/add-account-request";
 import { fastModeFits } from "@/lib/fast-mode";
 import { modelShown, useHiddenModels } from "@/lib/model-visibility";
 import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
@@ -27,8 +27,8 @@ import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { threadsOnOwnModel } from "../../shared/thread-model";
 import { ThreadModelsLine } from "./ThreadModelsLine";
 import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
+import { SleepingDog } from "./AccountCharge";
 import { AccountBadge, AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
-import { AccountUsageGlance } from "./AccountUsageGlance";
 import { usePlanUsage, useRefreshAfterTurn } from "./PlanUsage";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
@@ -448,7 +448,7 @@ export function ClaudeAccountSelect({ accounts, selectedId, onSelect }: {
 
 const POPOVER_WIDTH = 420;
 export const SIMPLE_POPOVER_WIDTH = 380;
-export const ACCOUNT_MENU_WIDTH = 260;
+export const ACCOUNT_MENU_WIDTH = 336;
 export const MODEL_MENU_WIDTH = 240;
 const SIMPLE_SEARCH_AFTER = 12;
 
@@ -516,6 +516,8 @@ export function ModelPicker({
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const pickerInstances = configuredModelInstances(state.instances, selection.instanceId);
   const battery = state.config?.accountBattery;
+  const routed = battery?.routed?.[threadId ?? bot.threadId];
+  const inUse = state.instances.find((instance) => instance.instanceId === routed?.on) ?? active;
   const switcherAccounts = subscriptionAccounts(state.instances, battery)
     .filter((account) => pickerInstances.some((instance) => instance.instanceId === account.instanceId));
   const usage = usePlanUsage({ enabled: simpleUpdatesBotDefault && switcherAccounts.length > 0 });
@@ -758,10 +760,13 @@ export function ModelPicker({
       instance: member,
       label: member.displayName,
       selected: member.instanceId === selection.instanceId,
+      inUse: Boolean(routed && member.instanceId === routed.on),
+      provider: usage.report?.providers.find((entry) => entry.id === member.instanceId),
+      rest: activeRest(battery?.resting, member.instanceId, usage.now),
       movable: carryOn.canReorder && !carryOn.saving && ordered.includes(member)
-        && ordered.filter((other) => other.driverKind === member.driverKind).length > 1,
+        && switcherAccounts.length > 1,
     }));
-  });
+  }).sort((a, b) => (accountRank.get(a.instance.instanceId) ?? accountRank.size) - (accountRank.get(b.instance.instanceId) ?? accountRank.size));
   const chooseAccount = (account: InstanceInfo) => {
     setOpen(false);
     if (account.instanceId === selection.instanceId) return;
@@ -818,9 +823,9 @@ export function ModelPicker({
     : shownModel;
   const chosenDepth = selectedVariantLabel ?? shownEffortName;
   const followLine = follows === true ? `\n${t("model.followsBot", { name: profile.name })}` : follows === false ? `\n${t("model.ownModel")}` : "";
-  const activeProvider = usage.report?.providers.find((provider) => provider.id === active?.instanceId);
-  const activeRestNow = active ? activeRest(battery?.resting, active.instanceId, usage.now) : undefined;
-  const ring = active && switcherAccounts.some((account) => account.instanceId === active.instanceId)
+  const activeProvider = usage.report?.providers.find((provider) => provider.id === inUse?.instanceId);
+  const activeRestNow = inUse ? activeRest(battery?.resting, inUse.instanceId, usage.now) : undefined;
+  const ring = inUse && switcherAccounts.some((account) => account.instanceId === inUse.instanceId)
     ? usageRingFor(activeProvider, activeRestNow, usage.now) : null;
   const activeUsage = ring ? accountUsageLines(activeProvider, activeRestNow, usage.now) : [];
   const activeFamily = signInFamily(active);
@@ -853,11 +858,11 @@ export function ModelPicker({
         !contained && active && (!showActiveAccount || part === "account") && COMPACT_SQUARE,
         part === "model" && "border-transparent bg-transparent pl-2",
       )}
-      title={[`${summary}${followLine}`, ...activeUsage].join("\n")}
+      title={[routed && inUse ? t("accounts.runningOn", { name: inUse.displayName }) : `${summary}${followLine}`, ...activeUsage].join("\n")}
     >
-      {active && part === "account" && namedAccount ? <AccountBadge instance={active} ring={ring} />
+      {inUse && part === "account" && (namedAccount || routed) ? <AccountBadge instance={inUse} ring={ring} />
         : active && part !== "model" && (ring ? (
-          <UsageRing {...ring}><InstanceProviderMark instance={active} size={14} /></UsageRing>
+          <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={16} /> : <InstanceProviderMark instance={inUse ?? active} size={14} />}</UsageRing>
         ) : <InstanceProviderMark instance={active} size={14} />)}
       {!contained && active && showActiveAccount && part === undefined && (
         <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{active.displayName}</span>
@@ -922,15 +927,8 @@ export function ModelPicker({
           )}
           {part === "account" ? (
             <>
-              {active && ring && (
-                <AccountUsageGlance instance={active} provider={activeProvider} rest={activeRestNow} now={usage.now} onDetails={() => {
-                  setOpen(false);
-                  dispatch({ type: "toggleAppSettings", open: true, section: "usage" });
-                }} />
-              )}
-              <AccountMenu rows={accountRows} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
+              <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onSettings={() => { setOpen(false); dispatch({ type: "toggleAppSettings", open: true, section: "general" }); }} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
                 setOpen(false);
-                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
                 requestAddAccount();
               }} />
             </>
@@ -984,10 +982,9 @@ export function ModelPicker({
               needsSetup={part !== "model" && railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: simpleFamily !== undefined && !railInstance.policy } : null}
               signIn={part !== "model" && railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
               onSignIn={() => {
-                if (!simpleFamily) return;
+                if (!simpleFamily || !railInstance) return;
                 setOpen(false);
-                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
-                requestAddAccount(simpleFamily === "claude" ? "claudeAgent" : "codex");
+                requestAccountSignIn(railInstance.instanceId);
               }}
               onSetUp={() => {
                 if (simpleSignIn && hasOfficialModels) setPane("main");

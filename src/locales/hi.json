@@ -703,7 +703,6 @@
   "usage.costMixed": "जैसा हर प्रदाता बताता है — सदस्यता पर यह समतुल्य राशि है, शुल्क नहीं",
   "botSettings.computer.checking": "बस एक पल",
   "botSettings.computer.asleep": "कंप्यूटर स्लीप मोड में है",
-  "botSettings.computer.wake": "जगाएँ",
   "botSettings.computer.waking": "जगाया जा रहा है…",
   "botSettings.computer.firstStart": "पहली बार शुरू होने में लगभग एक मिनट लगता है।",
   "botSettings.computer.unreachable": "{name} की स्क्रीन से कनेक्ट नहीं हो पा रहा",

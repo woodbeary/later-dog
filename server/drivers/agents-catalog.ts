@@ -681,11 +681,12 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "propose_profile",
     description:
-      "Submit user-requested changes to your own name, title, description, standing instructions (SOUL.md), working folder (cwd), or your alert and voice toggles (notifications, speakReplies). Keep SOUL.md short — who you are and the rules you never break; put step-by-step procedure into a skill instead." + CHIEF_PROFILE_TARGET + SELF_CHANGE_OUTCOME,
+      "Submit user-requested changes to your own picture (avatar_prompt), name, title, description, standing instructions (SOUL.md), working folder (cwd), or your alert and voice toggles (notifications, speakReplies). Keep SOUL.md short — who you are and the rules you never break; put step-by-step procedure into a skill instead." + CHIEF_PROFILE_TARGET + SELF_CHANGE_OUTCOME,
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
+        avatar_prompt: { type: "string", minLength: 1, maxLength: 400, description: "Describe a picture to generate for this dog. Requires image generation setup. Your own picture applies immediately with Undo; changes for another dog follow its existing profile approval rules." },
         name: { type: "string", maxLength: 100, description: "New display name." },
         title: { type: "string", maxLength: 200, description: "New role or title." },
         description: { type: "string", maxLength: 4000, description: "New one-line blurb shown in rosters." },

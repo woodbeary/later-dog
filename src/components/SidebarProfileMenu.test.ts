@@ -180,7 +180,7 @@ describe("the menu under your name", () => {
 
   it("keeps to Settings when nothing here is signed in, with nothing about phones", () => {
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["settings"]);
+    expect(items.map((item) => item.key)).toEqual(["settings", "plugins"]);
     expect(items.map((item) => item.label).join(" ")).not.toMatch(/phone/i);
     items[0]!.onSelect();
     expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
@@ -189,10 +189,10 @@ describe("the menu under your name", () => {
   it("ends with Sign out, under a line, once an account here is signed in", () => {
     menu.instances = [claude, { ...claude, instanceId: "claude-api", authentication: { method: "paste-code" } } as InstanceInfo];
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["settings", "signOut"]);
-    expect(items[1]).toMatchObject({ label: "Sign out", separatorBefore: true });
+    expect(items.map((item) => item.key)).toEqual(["settings", "plugins", "signOut"]);
+    expect(items[2]).toMatchObject({ label: "Sign out", separatorBefore: true });
     menu.instances = [{ ...claude, snapshot: { state: "available", authenticated: false } } as InstanceInfo];
-    expect(open().map((item) => item.key)).toEqual(["settings"]);
+    expect(open().map((item) => item.key)).toEqual(["settings", "plugins"]);
   });
 
   it("marks Settings and opens it at Updates when an update is waiting, and stays quiet otherwise", () => {

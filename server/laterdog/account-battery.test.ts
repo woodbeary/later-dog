@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import {
-  AccountBattery, DEFAULT_REST_MS, backNotice, batteryOrder, checkBatteryConfig, limitRowToReplace, planResetAt, resetLabel, routeSelection, switchNotice, withoutAccount,
+  AccountBattery, DEFAULT_REST_MS, backNotice, batteryEnabled, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection,
+  routedNotice, switchNotice, withoutAccount,
   type AccountBatteryConfig, type BatteryAccount, type Rest,
 } from "./account-battery.ts";
 
@@ -71,14 +72,14 @@ describe("routing", () => {
     expect(route({ accounts: twins, resting, config: { enabled: true, order: { claudeAgent: ["claude", "claude-c", "claude-b"] } } }).instanceId).toBe("claude-b");
   });
 
-  it("keeps a Codex conversation on Codex accounts, in Codex's own order", () => {
+  it("can continue a Codex conversation on the next provider in the complete list", () => {
     const codex = (instanceId: string) => account(instanceId, { driverKind: "codex", models: ["gpt-5.5-codex"] });
     const accounts = [...ACCOUNTS, codex("chatgpt"), codex("chatgpt-b")];
     const config = { enabled: true, order: { ...ON.order, codex: ["chatgpt-b", "chatgpt"] } };
     const selection = { instanceId: "chatgpt", model: "gpt-5.5-codex" };
     expect(route({ config, accounts, selection })).toBe(selection);
-    expect(route({ config, accounts, selection, resting: { chatgpt: rest(HOUR) } })).toEqual({ ...selection, instanceId: "chatgpt-b" });
-    expect(route({ config, accounts, selection, resting: { "chatgpt-b": rest(HOUR), chatgpt: rest(HOUR) } })).toBe(selection);
+    expect(route({ config, accounts, selection, resting: { chatgpt: rest(HOUR) } })).toEqual({ instanceId: "claude-b", model: "claude-sonnet-5" });
+    expect(route({ config, accounts, selection, resting: { "chatgpt-b": rest(HOUR), chatgpt: rest(HOUR) } })).toEqual({ instanceId: "claude-b", model: "claude-sonnet-5" });
   });
 
   it("orders the saved accounts first, then any added since, without removed or ineligible ones", () => {
@@ -105,8 +106,101 @@ describe("settings", () => {
 
   it("lets a removed account go from the order", () => {
     expect(withoutAccount(ON, "claude")).toEqual({ enabled: true, order: { claudeAgent: ["claude-b", "claude-c"] } });
+    expect(withoutAccount({ ...ON, auto: true }, "claude")).toEqual({ enabled: true, order: { claudeAgent: ["claude-b", "claude-c"] }, auto: true });
     expect(withoutAccount(ON, "elsewhere")).toBeUndefined();
     expect(withoutAccount(undefined, "claude")).toBeUndefined();
+  });
+
+  it("keeps the saved order and the other switches when only part of the setting changes", () => {
+    const current = { enabled: true, order: { claudeAgent: ["claude-c", "claude"] } };
+    expect(checkBatteryConfig({ auto: true }, ACCOUNTS, current)).toEqual({ ok: true, config: { ...current, auto: true } });
+    expect(checkBatteryConfig({ enabled: false }, ACCOUNTS, { ...current, auto: true })).toEqual({ ok: true, config: { enabled: false, order: current.order, auto: true } });
+    expect(checkBatteryConfig({ auto: false }, ACCOUNTS, { ...current, auto: true })).toEqual({ ok: true, config: { ...current, auto: false } });
+    expect(checkBatteryConfig({ order: { claudeAgent: ["claude-b"] } }, ACCOUNTS, current)).toEqual({ ok: true, config: { enabled: true, order: { claudeAgent: ["claude-b"] } } });
+    expect(checkBatteryConfig({ order: { claudeAgent: ["nobody"] } }, ACCOUNTS, current)).toMatchObject({ ok: false, error: expect.stringContaining("nobody") });
+    expect(checkBatteryConfig({ auto: true }, ACCOUNTS)).toEqual({ ok: true, config: { enabled: true, order: {}, auto: true } });
+  });
+});
+
+describe("most available first", () => {
+  const closed = { available: false, usedPercent: null, remainingPercent: null, resetsAt: null };
+  const open = (used: number, resetsAt: string) => ({ available: true, usedPercent: used, remainingPercent: 100 - used, resetsAt });
+  const reading = (id: string, fiveHour: number | null, weekly: number | null, extra: { fiveHourResets?: string; ok?: boolean } = {}): PlanProviderRow => ({
+    id, name: id, driver: "claude", plan: "Max", ok: extra.ok ?? true, error: null,
+    fiveHour: fiveHour === null ? closed : open(fiveHour, extra.fiveHourResets ?? at(2 * HOUR)),
+    weekly: weekly === null ? closed : open(weekly, at(72 * HOUR)),
+    extra: [], models: [],
+  });
+  const AUTO: AccountBatteryConfig = { ...ON, auto: true };
+
+  it("reads what is left as the tighter of the 5-hour and weekly windows, counting a window that has reset as full", () => {
+    expect(percentLeft(reading("claude", 30, 80), NOW)).toBe(20);
+    expect(percentLeft(reading("claude", 90, 10), NOW)).toBe(10);
+    expect(percentLeft(reading("claude", 90, null), NOW)).toBe(10);
+    expect(percentLeft(reading("claude", 90, 10, { fiveHourResets: at(-1) }), NOW)).toBe(90);
+    expect(percentLeft(reading("claude", null, null), NOW)).toBeUndefined();
+    expect(percentLeft(reading("claude", 30, 80, { ok: false }), NOW)).toBeUndefined();
+    expect(percentLeft(undefined, NOW)).toBeUndefined();
+  });
+
+  it("ranks by what is left, resting accounts last and unknown usage after known, with the saved order breaking ties", () => {
+    const accounts = [...ACCOUNTS, account("claude-d"), account("claude-e")];
+    const saved = { ...AUTO, order: { claudeAgent: ["claude-b", "claude", "claude-c", "claude-d", "claude-e"] } };
+    const readings: Record<string, PlanProviderRow> = {
+      claude: reading("claude", 20, 30), "claude-b": reading("claude-b", 70, 10), "claude-c": reading("claude-c", 10, 30), "claude-e": reading("claude-e", 0, 0),
+    };
+    const order = (config: AccountBatteryConfig) =>
+      effectiveOrder({ config, accounts, resting: { "claude-e": rest(HOUR) }, now: NOW, usage: (id) => readings[id] }).claudeAgent;
+    expect(order(saved)).toEqual(["claude", "claude-c", "claude-b", "claude-d", "claude-e"]);
+    expect(order({ ...saved, auto: false })).toEqual(saved.order.claudeAgent);
+    expect(order({ ...saved, enabled: false })).toEqual(saved.order.claudeAgent);
+    expect(effectiveOrder({ config: saved, accounts, resting: {}, now: NOW }).claudeAgent).toEqual(saved.order.claudeAgent);
+  });
+
+  it("still runs on the pick while it can, then on the account with the most left", () => {
+    const readings: Record<string, PlanProviderRow> = {
+      claude: reading("claude", 50, 50), "claude-b": reading("claude-b", 90, 20), "claude-c": reading("claude-c", 40, 10),
+    };
+    const usage = (id: string) => readings[id];
+    expect(route({ config: AUTO, usage })).toBe(SELECTION);
+    expect(route({ config: AUTO, usage, resting: { claude: rest(HOUR) } }).instanceId).toBe("claude-c");
+    expect(route({ config: ON, usage, resting: { claude: rest(HOUR) } }).instanceId).toBe("claude-b");
+  });
+
+  it("reports the order it will use and moves a turn that ran out to the account with the most left", () => {
+    const readings: Record<string, PlanProviderRow> = {
+      claude: reading("claude", 100, 40), "claude-b": reading("claude-b", 90, 20), "claude-c": reading("claude-c", 40, 10),
+    };
+    const instance = new AccountBattery({ config: () => AUTO, now: () => NOW, usage: (id) => readings[id] });
+    expect(instance.status(ACCOUNTS)).toMatchObject({ enabled: true, auto: true, order: { claudeAgent: ["claude-c", "claude-b", "claude"] } });
+    instance.trackTurn("thread-1", { generation: "g1", instanceId: "claude", requestMessageId: "m1", rerun: vi.fn(async () => undefined) });
+    instance.markExhausted("claude", { resetsAt: at(HOUR), kind: "session" });
+    expect(instance.nextAccount({ threadId: "thread-1", generation: "g1", stopReason: "usage_limit", ranOn: "claude", selection: SELECTION, accounts: ACCOUNTS }))
+      .toMatchObject({ from: { instanceId: "claude" }, to: { instanceId: "claude-c" } });
+    readings["claude-b"] = reading("claude-b", 0, 0);
+    expect(instance.status(ACCOUNTS).order.claudeAgent).toEqual(["claude-b", "claude-c", "claude"]);
+  });
+
+  it("tells the app when new readings change the order it shows, and only then", () => {
+    const readings: Record<string, PlanProviderRow> = {
+      claude: reading("claude", 50, 50), "claude-b": reading("claude-b", 90, 20), "claude-c": reading("claude-c", 40, 10),
+    };
+    let config: AccountBatteryConfig = AUTO;
+    const onChange = vi.fn();
+    const instance = new AccountBattery({ config: () => config, now: () => NOW, usage: (id) => readings[id], onChange });
+    instance.status(ACCOUNTS);
+    instance.noteReadings(ACCOUNTS);
+    expect(onChange).not.toHaveBeenCalled();
+    readings.claude = reading("claude", 95, 95);
+    instance.noteReadings(ACCOUNTS);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    instance.status(ACCOUNTS);
+    instance.noteReadings(ACCOUNTS);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    config = { ...AUTO, auto: false };
+    readings.claude = reading("claude", 0, 0);
+    instance.noteReadings(ACCOUNTS);
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -159,7 +253,7 @@ describe("AccountBattery", () => {
     expect(instance.route(onB, ACCOUNTS).instanceId).toBe("claude-b");
     expect(instance.status(ACCOUNTS).resting).toEqual({});
     instance.markExhausted("claude-c", { resetsAt: at(3 * HOUR) });
-    instance.noteSwitch("thread-1", "claude-c");
+    instance.noteSwitch("thread-1", "claude-c", "claude");
     instance.forget("claude-c");
     expect(instance.status(ACCOUNTS).resting).toEqual({});
     expect(instance.takeBack("thread-1", "claude-c")).toBe(false);
@@ -171,8 +265,11 @@ describe("AccountBattery", () => {
     instance.markExhausted("claude", { resetsAt: at(HOUR) });
     expect(instance.status(twins)).toEqual({
       enabled: true,
+      auto: false,
+      sequence: ["claude-b", "claude", "claude-c"],
       order: { claudeAgent: ["claude-b", "claude", "claude-c"], codex: [] },
       resting: { claude: { until: at(HOUR), since: at(0) }, "claude-c": { until: at(HOUR), since: at(0), sharedWith: "claude" } },
+      routed: {},
     });
   });
 
@@ -216,7 +313,7 @@ describe("AccountBattery", () => {
     expect(instance.readyAt(SELECTION, ACCOUNTS, "thread-1")).toBe(at(HOUR));
     expect(instance.readyAt(SELECTION, [account("claude"), account("claude-b", { signedIn: false }), account("claude-c")])).toBe(at(2 * HOUR));
     const unusable = [account("claude"), account("claude-b", { models: ["claude-opus-5"] }), account("claude-c", { driverKind: "codex" })];
-    expect(instance.readyAt(SELECTION, unusable)).toBe(at(3 * HOUR));
+    expect(instance.readyAt(SELECTION, unusable)).toBe(at(2 * HOUR));
     expect(instance.readyAt(SELECTION, [account("claude", { eligible: false }), account("claude-b"), account("claude-c")])).toBe(at(3 * HOUR));
     expect(instance.readyAt({ ...SELECTION, instanceId: "gone" }, ACCOUNTS)).toBeUndefined();
     advance(HOUR);
@@ -238,8 +335,8 @@ describe("AccountBattery", () => {
   it("says once that a conversation is back on the account it left first", () => {
     const file = join(scratch(), "account-battery.json");
     const instance = new AccountBattery({ config: () => ON, file, now: () => NOW });
-    instance.noteSwitch("thread-1", "claude-b");
-    instance.noteSwitch("thread-1", "claude");
+    instance.noteSwitch("thread-1", "claude-b", "claude");
+    instance.noteSwitch("thread-1", "claude", "claude-c");
     expect(instance.takeBack("thread-1", "claude")).toBe(false);
     expect(new AccountBattery({ config: () => ON, file, now: () => NOW }).takeBack("thread-1", "claude-b")).toBe(true);
     expect(instance.takeBack("thread-2", "claude-b")).toBe(false);
@@ -266,7 +363,6 @@ describe("AccountBattery", () => {
       [account("claude"), account("claude-c", { enabled: false })],
       [account("claude"), account("claude-c", { eligible: false })],
       [account("claude"), account("claude-c", { models: ["claude-opus-5"] })],
-      [account("claude"), account("claude-c", { driverKind: "codex" })],
       [account("claude", { eligible: false }), account("claude-c")],
       [account("claude")],
     ];
@@ -320,6 +416,82 @@ describe("AccountBattery", () => {
     expect(instance.takeBack("thread-2", "claude")).toBe(false);
   });
 
+  it("says once that a turn runs on another account while the picked one rests, then that it is back", () => {
+    const file = join(scratch(), "account-battery.json");
+    let now = NOW;
+    const instance = new AccountBattery({ config: () => ON, file, now: () => now });
+    instance.markExhausted("claude", { resetsAt: at(HOUR), kind: "session" });
+    const ranOn = instance.route(SELECTION, ACCOUNTS, "thread-1").instanceId;
+    expect(ranOn).toBe("claude-b");
+    expect(instance.arrive("thread-1", SELECTION, ranOn, ACCOUNTS))
+      .toMatch(/^Running on claude-b — claude is recharging, back (?:[A-Z][a-z]{2} \d{1,2} )?at \d{1,2}:\d\d [AP]M\.$/);
+    expect(instance.arrive("thread-1", SELECTION, ranOn, ACCOUNTS)).toBeUndefined();
+    expect(instance.status(ACCOUNTS).routed).toEqual({ "thread-1": { from: "claude", on: "claude-b" } });
+    const restarted = new AccountBattery({ config: () => ON, file, now: () => now });
+    expect(restarted.arrive("thread-1", SELECTION, "claude-b", ACCOUNTS)).toBeUndefined();
+    expect(restarted.arrive("thread-1", SELECTION, "claude-c", ACCOUNTS)).toMatch(/^Running on claude-c — claude is recharging/);
+    now += HOUR + 1;
+    expect(restarted.status(ACCOUNTS).routed).toEqual({});
+    expect(restarted.route(SELECTION, ACCOUNTS, "thread-1")).toBe(SELECTION);
+    expect(restarted.arrive("thread-1", SELECTION, "claude", ACCOUNTS)).toBe("Back on claude.");
+    expect(restarted.arrive("thread-1", SELECTION, "claude", ACCOUNTS)).toBeUndefined();
+    expect(JSON.parse(readFileSync(file, "utf8")).away).toEqual({});
+  });
+
+  it("does not repeat a switch the conversation was already told about", () => {
+    const instance = new AccountBattery({ config: () => ON, now: () => NOW });
+    instance.markExhausted("claude", { resetsAt: at(HOUR) });
+    instance.noteSwitch("thread-1", "claude", "claude-b");
+    expect(instance.arrive("thread-1", SELECTION, "claude-b", ACCOUNTS)).toBeUndefined();
+    instance.choose("thread-2", "claude", "claude-c", "claude");
+    expect(instance.arrive("thread-2", SELECTION, "claude-c", ACCOUNTS)).toBeUndefined();
+    expect(instance.arrive("thread-3", SELECTION, "claude", ACCOUNTS)).toBeUndefined();
+    expect(instance.status(ACCOUNTS).routed).toEqual({ "thread-1": { from: "claude", on: "claude-b" }, "thread-2": { from: "claude", on: "claude-c" } });
+    instance.noteSwitch("thread-1", "claude-b", "claude-c");
+    expect(instance.arrive("thread-1", SELECTION, "claude-c", ACCOUNTS)).toBeUndefined();
+    expect(instance.takeBack("thread-1", "claude")).toBe(true);
+  });
+
+  it("drops the move without a word when a switch lands back on the account it left", () => {
+    const instance = new AccountBattery({ config: () => ON, now: () => NOW });
+    instance.markExhausted("claude", { resetsAt: at(HOUR) });
+    expect(instance.arrive("thread-1", SELECTION, "claude-b", ACCOUNTS)).toBeDefined();
+    instance.noteSwitch("thread-1", "claude-b", "claude");
+    expect(instance.arrive("thread-1", SELECTION, "claude", ACCOUNTS)).toBeUndefined();
+    expect(instance.status(ACCOUNTS).routed).toEqual({});
+  });
+
+  it("names why the picked account was passed over", () => {
+    const instance = new AccountBattery({ config: () => ON, now: () => NOW });
+    const signedOut = [account("claude", { signedIn: false }), account("claude-b")];
+    const off = [account("claude", { enabled: false }), account("claude-b")];
+    expect(instance.arrive("thread-1", SELECTION, "claude-b", signedOut)).toBe("Running on claude-b — claude isn't signed in.");
+    expect(instance.arrive("thread-2", SELECTION, "claude-b", off)).toBe("Running on claude-b — claude is turned off.");
+    expect(instance.status(off).routed).toEqual({ "thread-1": { from: "claude", on: "claude-b" }, "thread-2": { from: "claude", on: "claude-b" } });
+    expect(instance.arrive("thread-3", SELECTION, "claude-b", ACCOUNTS)).toBe("Running on claude-b instead of claude.");
+    expect(instance.status(ACCOUNTS).routed).toEqual({});
+  });
+
+  it("forgets where a conversation runs when that account is removed, still owing the move back", () => {
+    const instance = new AccountBattery({ config: () => ON, now: () => NOW });
+    instance.markExhausted("claude", { resetsAt: at(HOUR) });
+    instance.arrive("thread-1", SELECTION, "claude-b", ACCOUNTS);
+    instance.forget("claude-b");
+    expect(instance.status(ACCOUNTS).routed).toEqual({});
+    expect(instance.arrive("thread-1", SELECTION, "claude-c", ACCOUNTS)).toMatch(/^Running on claude-c/);
+    expect(instance.takeBack("thread-1", "claude")).toBe(true);
+  });
+
+  it("stops showing a move once a new pick takes the turn itself", () => {
+    const instance = new AccountBattery({ config: () => ON, now: () => NOW });
+    instance.markExhausted("claude", { resetsAt: at(HOUR) });
+    instance.arrive("thread-1", SELECTION, "claude-b", ACCOUNTS);
+    const picked = { ...SELECTION, instanceId: "claude-c" };
+    expect(instance.arrive("thread-1", picked, "claude-c", ACCOUNTS)).toBeUndefined();
+    expect(instance.status(ACCOUNTS).routed).toEqual({});
+    expect(instance.takeBack("thread-1", "claude")).toBe(true);
+  });
+
   it("starts empty from a missing or damaged file", () => {
     const dir = scratch();
     expect(new AccountBattery({ config: () => ON, file: join(dir, "missing.json") }).status(ACCOUNTS).resting).toEqual({});
@@ -340,6 +512,14 @@ describe("words and times", () => {
     expect(notice({ ...weekly, estimated: true })).toBe("Switched to Work — Personal is out of usage for now.");
     expect(notice(undefined)).toBe("Switched to Work — Personal is out of usage for now.");
     expect(backNotice("Personal")).toBe("Back on Personal.");
+    const running = (resting: Rest | undefined, why?: "signedOut" | "off") =>
+      routedNotice({ to: "Work", from: "Personal", rest: resting, why, now: NOW, timeZone: "America/Los_Angeles" });
+    expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0) })).toBe("Running on Work — Personal is recharging, back at 3:30 PM.");
+    expect(running({ ...weekly })).toBe("Running on Work — Personal is recharging, back Oct 9 at 5:00 PM.");
+    expect(running({ until: "2026-10-07T22:30:00.000Z", since: at(0), estimated: true })).toBe("Running on Work — Personal is recharging, back around 3:30 PM.");
+    expect(running({ until: at(-1), since: at(0) }, "signedOut")).toBe("Running on Work — Personal isn't signed in.");
+    expect(running(undefined, "off")).toBe("Running on Work — Personal is turned off.");
+    expect(running(undefined)).toBe("Running on Work instead of Personal.");
     expect(resetLabel("2026-10-07T22:00:00.000Z", NOW, "UTC")).toBe("10:00 PM");
   });
 
@@ -373,5 +553,32 @@ describe("the row a switch notice replaces", () => {
     expect(limitRowToReplace(path, "q1")).toBeNull();
     expect(limitRowToReplace(path, "missing")).toBeNull();
     expect(limitRowToReplace(path, undefined)).toBeNull();
+  });
+});
+
+
+describe("automatic continuation defaults and cross-provider order", () => {
+  const codex = account("codex", { driverKind: "codex", models: ["gpt-5.5"], defaultModel: "gpt-5.5", email: "same@example.test" });
+  const accounts = [account("claude", { email: "same@example.test" }), codex];
+  it("defaults on for two eligible accounts, including different providers, while explicit off wins", () => {
+    expect(batteryEnabled(undefined, accounts)).toBe(true);
+    expect(batteryEnabled(undefined, accounts.slice(0, 1))).toBe(false);
+    expect(batteryEnabled(undefined, [accounts[0]!, { ...codex, eligible: false }])).toBe(false);
+    expect(batteryEnabled({ ...ON, enabled: false }, accounts)).toBe(false);
+    const battery = new AccountBattery({ config: () => undefined, accounts: () => accounts, now: () => NOW });
+    expect(battery.enabled).toBe(true);
+    expect(battery.status(accounts).enabled).toBe(true);
+    battery.markExhausted("claude", { resetsAt: at(HOUR) });
+    expect(battery.route(SELECTION, accounts)).toEqual({ instanceId: "codex", model: "gpt-5.5" });
+    expect(battery.status(accounts).resting.codex).toBeUndefined();
+  });
+
+  it("validates and preserves a saved sequence across providers", () => {
+    const config = { ...ON, sequence: ["codex", "claude"] };
+    expect(batterySequence({ config, accounts, resting: {}, now: NOW })).toEqual(["codex", "claude"]);
+    expect(checkBatteryConfig({ sequence: ["codex", "codex", "claude"] }, accounts, ON))
+      .toMatchObject({ ok: true, config: { sequence: ["codex", "claude"] } });
+    expect(checkBatteryConfig({ sequence: ["missing"] }, accounts, ON).ok).toBe(false);
+    expect(withoutAccount(config, "codex")?.sequence).toEqual(["claude"]);
   });
 });

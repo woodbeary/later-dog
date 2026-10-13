@@ -26,6 +26,7 @@ describe("answerResponse", () => {
 describe("dismissResponse", () => {
   it("denies a permission but ANSWERS a question", () => {
     expect(dismissResponse({ tool: "Bash" })).toMatchObject({ behavior: "deny" });
+    expect(dismissResponse({ tool: "Bash" }).message).not.toMatch(/\buser\b/i);
     expect(dismissResponse({})).toMatchObject({ behavior: "answer", dismiss: true });
     expect(dismissResponse({}).message).toContain("without answering");
   });

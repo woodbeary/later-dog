@@ -12,6 +12,7 @@ export interface AccountRest {
 }
 
 export function rechargeProgress(rest: AccountRest, now: number): number | null {
+  if (rest.estimated) return null;
   const until = Date.parse(rest.until);
   const since = rest.since ? Date.parse(rest.since) : Number.NaN;
   if (!Number.isFinite(until) || !Number.isFinite(since) || until <= since) return null;
@@ -23,7 +24,7 @@ export function usageLeft(used: number): number {
 }
 
 export function backAt(rest: AccountRest, now: number): string {
-  return t(rest.estimated ? "accounts.backAround" : "accounts.backAt", { time: resetClock(rest.until, now) });
+  return rest.estimated ? t("accounts.recharging") : t("accounts.backAt", { time: resetClock(rest.until, now) });
 }
 
 export function restSummary(rest: AccountRest, now: number): string {
@@ -50,22 +51,17 @@ export function SleepingDog({ size = 16, color = DEFAULT_DOG_COLOR, bodyId, clas
 }
 
 export function RechargeLine({ progress, className }: { progress: number | null; className?: string }) {
-  const percent = progress === null ? null : Math.round(progress * 100);
+  const percent = progress === null ? null : Math.round(Math.min(1, Math.max(0, progress)) * 100);
   return (
-    <span
-      data-recharge={percent ?? "unknown"}
-      role="progressbar"
-      aria-label={t("accounts.recharging")}
-      aria-valuemin={percent === null ? undefined : 0}
-      aria-valuemax={percent === null ? undefined : 100}
-      aria-valuenow={percent ?? undefined}
-      aria-valuetext={percent === null ? undefined : t("accounts.recharged", { percent })}
-      className={cn("relative block h-1 w-full overflow-hidden rounded-full bg-control", className)}
-    >
-      <span
-        className={cn("recharge-fill block h-full rounded-full bg-accent", percent === null && "opacity-40")}
-        style={{ width: `${percent ?? 100}%` }}
-      />
+    <span data-recharge={percent ?? "unknown"} role="progressbar" aria-label={t("accounts.recharging")}
+      aria-valuemin={percent === null ? undefined : 0} aria-valuemax={percent === null ? undefined : 100}
+      aria-valuenow={percent ?? undefined} aria-valuetext={percent === null ? undefined : t("accounts.recharged", { percent })}
+      className={cn("relative inline-flex h-3 w-7 shrink-0 rounded-[3px] border border-accent/70 p-px text-accent after:absolute after:-right-1 after:top-1/2 after:h-1.5 after:w-0.5 after:-translate-y-1/2 after:rounded-r after:bg-current", className)}>
+      <span className="relative block size-full overflow-hidden rounded-[1px] bg-accent/10">
+        <span className={cn("recharge-fill absolute inset-0 origin-left bg-accent", percent === null && "opacity-40")}
+          style={{ transform: `scaleX(${(percent ?? 100) / 100})` }} />
+        <span aria-hidden="true" className="recharge-sheen absolute inset-0 bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+      </span>
     </span>
   );
 }
@@ -79,7 +75,7 @@ export function RestCharge({ rest, now }: { rest: AccountRest; now: number }) {
           <span className="shrink-0 font-medium text-ink">{t("accounts.recharging")}</span>
           <span className="truncate tabular-nums text-ink-secondary">{restSummary(rest, now)}</span>
         </p>
-        <RechargeLine progress={rechargeProgress(rest, now)} className="h-1.5" />
+        <RechargeLine progress={rechargeProgress(rest, now)}  />
       </div>
     </div>
   );

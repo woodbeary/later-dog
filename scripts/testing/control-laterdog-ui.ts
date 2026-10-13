@@ -27,7 +27,7 @@ const ENTRIES = {
   threads: { entry: "/scripts/testing/threads-preview.tsx", route: "/__threads.html", title: "Isolated later.dog Chat" },
   settings: { entry: "/src/testing/bot-settings.tsx", route: "/__bot-settings.html", title: "Isolated Bot Settings" },
 } as const satisfies Record<string, Parameters<typeof mountPreview>[1]>;
-const FAKE_MODES = ["happy", "exit-early", "hang", "malformed", "stream", "not-logged-in", "slow", "background-result"];
+const FAKE_MODES = ["happy", "exit-early", "hang", "malformed", "stream", "not-logged-in", "slow", "background-result", "puppies"];
 const SEEDED_BOT = "Pepper";
 const PLATFORM_ENV = ["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ"];
 const CHROME_LAYOUTS: Partial<Record<NodeJS.Platform, string[]>> = {

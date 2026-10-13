@@ -168,6 +168,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
         {pending.commandAllowlist?.command ?? pending.detail}
       </pre>
       </details>
+      {pending.message.card?.profileRequest?.changes.avatarUrl && <img src={pending.message.card.profileRequest.changes.avatarUrl} alt={t("botSettings.avatar.generatedPreview")} className="mt-3 size-24 rounded-xl object-cover" />}
       {pending.message.card?.skillRequest && (
         <SkillRequestPreview request={pending.message.card.skillRequest} />
       )}
@@ -202,7 +203,7 @@ export function PendingApprovalActions({
       threadId,
       requestId: pending.requestId,
       behavior,
-      message: behavior === "deny" ? "Denied by the user." : undefined,
+      message: behavior === "deny" ? "Declined." : undefined,
       reviewedSha256: behavior === "allow" ? reviewedSha256 : undefined,
       alwaysAllow: always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined,
       always: always && !pending.allowKey && pending.allowSession ? true : undefined,

@@ -12,13 +12,16 @@ import {
   appendComposerDraft,
   appendDraftAttachments,
   changeDraftAttachmentPending,
+  clampDraftPosition,
   draftRevision,
   failedComposerSends,
   getDraft,
   getDraftAttachments,
   getDraftChannelMode,
+  getDraftPosition,
   isDraftAttachmentPending,
   markDraftEdited,
+  placeDraftPosition,
   prependComposerDraft,
   recoverFailedComposerSend,
   replaceDraftAttachment,
@@ -26,6 +29,7 @@ import {
   setDraft,
   setDraftAttachments,
   setDraftChannelMode,
+  setDraftPosition,
   useComposerChannelMode,
   useDraft,
 } from "./drafts";
@@ -517,5 +521,88 @@ describe("saving typed drafts", () => {
     leavePage();
     expect(writes).toHaveLength(1);
     expect(JSON.parse(writes[0])).toEqual({ "bot:other-window:thread": "theirs" });
+  });
+});
+
+describe("keeping the composer's place in a long draft", () => {
+  afterEach(() => leavePage());
+
+  it("remembers the caret and scroll for each draft and brings them back after a restart", () => {
+    const store = memoryStorage();
+    const draftId = "bot:place:thread-a";
+    setDraft(store, draftId, "a long message\n".repeat(40));
+    setDraftPosition(store, draftId, { start: 120, end: 132, scrollTop: 240.5 });
+    expect(getDraftPosition(store, draftId)).toEqual({ start: 120, end: 132, scrollTop: 240.5 });
+    expect(getDraftPosition(store, "bot:place:thread-b")).toBeNull();
+
+    leavePage();
+    const restarted = copyStorage(store);
+    expect(getDraftPosition(restarted, draftId)).toEqual({ start: 120, end: 132, scrollTop: 240.5 });
+    expect(getDraftPosition(restarted, "bot:place:thread-b")).toBeNull();
+  });
+
+  it("keeps a saved draft when only its place changed", () => {
+    const store = memoryStorage();
+    const draftId = "bot:place:saved-earlier";
+    store.setItem("laterdog-drafts", JSON.stringify({ [draftId]: "written in an earlier session" }));
+    setDraftPosition(store, draftId, { start: 4, end: 4, scrollTop: 0 });
+    leavePage();
+    expect(JSON.parse(store.getItem("laterdog-drafts")!)[draftId]).toBe("written in an earlier session");
+    expect(JSON.parse(store.getItem("laterdog-draft-positions")!)[draftId]).toEqual({ start: 4, end: 4, scrollTop: 0 });
+  });
+
+  it("forgets the place once the draft is sent", () => {
+    const store = memoryStorage();
+    const draftId = "bot:place:sent";
+    setDraft(store, draftId, "about to send");
+    setDraftPosition(store, draftId, { start: 5, end: 5, scrollTop: 0 });
+    leavePage();
+    setDraft(store, draftId, "");
+    leavePage();
+    expect(JSON.parse(store.getItem("laterdog-draft-positions")!)).toEqual({});
+  });
+
+  it("drops the place when text is put in the draft for the person, so the caret goes to the end", () => {
+    const store = memoryStorage();
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
+    const draftId = "bot:place:filled";
+    setDraft(store, draftId, "first part");
+    setDraftPosition(store, draftId, { start: 2, end: 2, scrollTop: 0 });
+    appendComposerDraft(draftId, "added by a button");
+    expect(getDraftPosition(store, draftId)).toBeNull();
+    setDraftPosition(store, draftId, { start: 3, end: 3, scrollTop: 0 });
+    prependComposerDraft(draftId, "edited from the queue");
+    expect(getDraftPosition(store, draftId)).toBeNull();
+    leavePage();
+    expect(JSON.parse(store.getItem("laterdog-draft-positions")!)[draftId]).toBeUndefined();
+  });
+
+  it("ignores places that are not whole, ordered offsets", () => {
+    const store = memoryStorage();
+    store.setItem("laterdog-draft-positions", JSON.stringify({
+      negative: { start: -1, end: 2, scrollTop: 0 },
+      backwards: { start: 5, end: 2, scrollTop: 0 },
+      fraction: { start: 1.5, end: 2, scrollTop: 0 },
+      text: { start: 1, end: 2, scrollTop: "9" },
+      word: "middle",
+    }));
+    for (const id of ["negative", "backwards", "fraction", "text", "word"]) expect(getDraftPosition(store, id)).toBeNull();
+    setDraftPosition(store, "set-backwards", { start: 9, end: 3, scrollTop: 0 });
+    expect(getDraftPosition(store, "set-backwards")).toBeNull();
+  });
+
+  it("clamps a remembered place to the text that is there now", () => {
+    expect(clampDraftPosition({ start: 50, end: 80, scrollTop: 10 }, 60)).toEqual({ start: 50, end: 60, scrollTop: 10 });
+    expect(clampDraftPosition({ start: 70, end: 80, scrollTop: 10 }, 60)).toEqual({ start: 60, end: 60, scrollTop: 10 });
+    expect(clampDraftPosition({ start: 3, end: 7, scrollTop: 0 }, 60)).toEqual({ start: 3, end: 7, scrollTop: 0 });
+    const selections: [number, number][] = [];
+    const input = {
+      value: "short now",
+      scrollTop: 0,
+      setSelectionRange: (start: number, end: number) => { selections.push([start, end]); },
+    };
+    placeDraftPosition(input, { start: 4, end: 400, scrollTop: 320 });
+    expect(selections).toEqual([[4, 9]]);
+    expect(input.scrollTop).toBe(320);
   });
 });

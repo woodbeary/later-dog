@@ -62,7 +62,6 @@ const { SimpleModelPane } = await import("./SimpleModelPane");
 const { EngineSetup } = await import("./EngineSetup");
 const { InstanceProviderMark } = await import("./ProviderIcons");
 const { AccountMenu } = await import("./AccountMenu");
-const { AccountUsageGlance } = await import("./AccountUsageGlance");
 const { ModelMenu } = await import("./ModelMenu");
 
 afterAll(() => vi.unstubAllGlobals());
@@ -560,7 +559,7 @@ describe("the model picker in Simple mode", () => {
     expect(pane(open(bot("xhigh")))!.props.effort!.levels).toContain("xhigh");
   });
 
-  it("sends Claude, before sign-in, to Settings' sign-in with one button", async () => {
+  it("opens Claude's sign-in right where you are, before sign-in, with one button", async () => {
     const { subscribeAddAccount } = await import("@/lib/add-account-request");
     fixture.instances = [claude(false)];
     const opened = open(bot());
@@ -570,12 +569,12 @@ describe("the model picker in Simple mode", () => {
     const list = region(html, "data-simple-models", "data-simple-effort-band");
     expect(list).not.toContain("needs to be set up");
     expect(list).toContain(">Sign in to Claude</button>");
-    const asked: Array<string | undefined> = [];
-    const stop = subscribeAddAccount((kind) => asked.push(kind));
+    const asked: unknown[] = [];
+    const stop = subscribeAddAccount((request) => asked.push(request));
     click(inside(opened).find((node) => node.props["data-simple-set-up"] !== undefined));
     stop();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
-    expect(asked).toEqual(["claudeAgent"]);
+    expect(fixture.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "toggleAppSettings" }));
+    expect(asked).toEqual([{ instanceId: "claude" }]);
     expect(list).not.toContain("Opus 5.5");
     expect(region(html, "data-simple-providers", "data-simple-models")).toContain(">Claude</span>");
   });
@@ -726,7 +725,7 @@ describe("the model picker in Simple mode", () => {
     expect(pane(opened)).toBeDefined();
     expect(marked(opened, "data-model-back")).toBeUndefined();
     expect(fixture.usageEnabled).toBe(true);
-    expect(opened.html).toContain('data-usage-ring="30"');
+    expect(opened.html).toContain('data-usage-ring="70"');
   });
 
   it("does not count a signed-out second account, so it still opens on the models", () => {
@@ -806,14 +805,14 @@ describe("the model picker in Simple mode", () => {
     expect(pane(render(forBot))!.props.needsSetup).toEqual({ name: "Codex", signIn: true });
   });
 
-  it("rings the chip with what the binding limit has used, drains it while the account rests, and adds every window to its tooltip", () => {
+  it("rings the chip with what the binding limit has left, refills it while the account rests, and adds every window to its tooltip", () => {
     fixture.instances = [claude(), grok];
     fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 80, 30)] };
     const closed = render(bot());
     const trigger = closed.nodes.find((node) => node.props["data-tour"] === "model")!;
     const ring = closed.nodes.find((node) => node.type === UsageRing)!;
-    expect(ring.props).toEqual(expect.objectContaining({ level: 80, tone: "warning" }));
-    expect(closed.html).toContain('data-usage-ring="80"');
+    expect(ring.props).toEqual(expect.objectContaining({ level: 20, tone: "warning" }));
+    expect(closed.html).toContain('data-usage-ring="20"');
     expect(String(trigger.props.title).split("\n")).toEqual([
       "Claude · Opus 5.5",
       "5-hour · 20% left · resets in 1h 20m",
@@ -1047,20 +1046,30 @@ describe("the chat header's account chip and the message field's model menu", ()
     expect(renderPart(bot(), "account").html).not.toContain("data-account-initials");
   });
 
-  it("opens the header chip on a glance at what the account in use has left, with a way to the full usage page", () => {
+  it("shows every account as a compact row and keeps account settings reachable", () => {
     fixture.instances = [claude(), work()];
     fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 80, 30)] };
     const opened = openPart(bot(), "account");
-    const glance = opened.nodes.find((node) => node.type === AccountUsageGlance) as ReactElement<ComponentProps<typeof AccountUsageGlance>>;
-    expect(glance.props.instance.instanceId).toBe("claude");
-    expect(opened.html).toContain("5-hour · resets in 1h 20m");
     expect(opened.html).toContain("20% left");
-    expect(opened.html).toContain("70% left");
-    expect(opened.html.indexOf("data-account-usage")).toBeLessThan(opened.html.indexOf("data-account-menu"));
-    glance.props.onDetails();
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleAppSettings", open: true, section: "usage" });
-    fixture.planUsage = null;
-    expect(openPart(bot(), "account").nodes.find((node) => node.type === AccountUsageGlance)).toBeUndefined();
+    expect(opened.html).not.toContain("data-account-usage-details");
+    accountMenu(opened)!.props.onSettings!();
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
+  });
+
+  it("shows the server's routed account while the selected account recharges", () => {
+    fixture.instances = [claude(), codex];
+    fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["codex", "claude"],
+      routed: { "thread-scout": { from: "claude", on: "codex" } },
+      resting: { claude: { until: new Date(NOW + 3_600_000).toISOString() } } };
+    const closed = renderPart(bot(), "account");
+    expect(closed.html).toContain('title="Running on Codex"');
+    const opened = openPart(bot(), "account");
+    const rows = accountMenu(opened)!.props.rows;
+    expect(rows.map((row) => row.instance.instanceId)).toEqual(["codex", "claude"]);
+    expect(rows[0]!.inUse).toBe(true);
+    expect(rows[1]!.rest).toBeDefined();
+    expect(rows.every((row) => !row.movable)).toBe(true);
+    expect(opened.html).toContain("Automatically managed");
   });
 
   it("lets the header's account menu reorder accounts once the server keeps an order", () => {
@@ -1069,7 +1078,7 @@ describe("the chat header's account chip and the message field's model menu", ()
     openPart(bot(), "account");
     expect(rows()).toEqual([["claude", false], ["claude-work", false], ["codex", false]]);
     fixture.battery = { enabled: false, order: { claudeAgent: ["claude-work", "claude"], codex: ["codex"] }, resting: {} };
-    expect(rows()).toEqual([["claude-work", true], ["claude", true], ["codex", false]]);
+    expect(rows()).toEqual([["claude-work", true], ["claude", true], ["codex", true]]);
     expect(accountMenu(renderPart(bot(), "account"))!.props.onReorder).toBeTypeOf("function");
   });
 });

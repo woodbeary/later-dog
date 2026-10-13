@@ -119,6 +119,7 @@ export const APP_ICON_FILES: Readonly<Record<string, string>> = {
   "usepylon.com": "usepylon.com.png",
   "videogen.io": "videogen.io.png",
   "vidiq.com": "vidiq.com.png",
+  "whop.com": "whop.com.png",
   "windsor.ai": "windsor.ai.png",
   "withings.com": "withings.com.png",
   "workable.com": "workable.com.png",

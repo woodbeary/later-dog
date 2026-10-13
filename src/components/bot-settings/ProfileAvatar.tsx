@@ -8,6 +8,7 @@ import { imageAttachmentFromFile } from "@/lib/composer-attachments";
 import type { DogState } from "@/lib/mascot";
 import { AVATAR_FOCUS_CENTER, AVATAR_ZOOM_MIN, botAvatarUrlFromStoredPath } from "../../../shared/bot-avatar";
 import { BotAvatar } from "../Avatar";
+import { ImageGenerationSetup } from "../ApiKeys";
 import { useBotEditor } from "./BotEditorContext";
 import type { BotPatch } from "./useBotSettingsDerived";
 
@@ -47,7 +48,13 @@ function MenuItem({ id, icon: Icon, label, hint, checked, disabled, onSelect }: 
   );
 }
 
-export function ProfileAvatar({ bot, state, onPatch }: { bot: Bot; state: DogState; onPatch: (patch: BotPatch) => void }) {
+export function ProfileAvatar({ bot, state, onPatch, onGenerate, onBusyChange }: {
+  bot: Bot;
+  state: DogState;
+  onPatch: (patch: BotPatch) => void;
+  onGenerate?: (prompt: string) => Promise<{ avatarUrl: string; avatarCrop?: Bot["avatarCrop"] }>;
+  onBusyChange?: (busy: boolean) => void;
+}) {
   const { state: app, flushBotPatches } = useStore();
   const { request, uploadAvatar } = useBotEditor();
   const [menu, setMenu] = useState<Menu>("closed");
@@ -61,6 +68,8 @@ export function ProfileAvatar({ bot, state, onPatch }: { bot: Bot; state: DogSta
   const usesDog = !bot.avatarUrl || bot.avatarCrop === "mascot";
   const crop = bot.avatarCrop && bot.avatarCrop !== "mascot" ? bot.avatarCrop : "circle";
   const label = t("botSettings.avatar.edit", { name: bot.name });
+
+  useEffect(() => { onBusyChange?.(working !== null); }, [onBusyChange, working]);
 
   useEffect(() => {
     if (menu === "closed") return;
@@ -132,8 +141,8 @@ export function ProfileAvatar({ bot, state, onPatch }: { bot: Bot; state: DogSta
     setWorking("generate");
     setError("");
     try {
-      await flushBotPatches(bot.id);
-      const result = await request<{ avatarUrl: string; bot: Pick<Bot, "avatarCrop"> }>(`/api/bots/${bot.id}/avatar/generate`, {
+      if (!onGenerate) await flushBotPatches(bot.id);
+      const result = onGenerate ? await onGenerate(prompt.trim()).then((generated) => ({ avatarUrl: generated.avatarUrl, bot: { avatarCrop: generated.avatarCrop } })) : await request<{ avatarUrl: string; bot: Pick<Bot, "avatarCrop"> }>(`/api/bots/${bot.id}/avatar/generate`, {
         method: "POST",
         body: JSON.stringify({ prompt: prompt.trim() }),
         timeoutMs: 150_000,
@@ -189,20 +198,13 @@ export function ProfileAvatar({ bot, state, onPatch }: { bot: Bot; state: DogSta
                   icon={Sparkles}
                   label={t("botSettings.avatar.generate")}
                   hint={canGenerate ? undefined : t("botSettings.avatar.generateOff")}
-                  disabled={!canGenerate}
                   onSelect={() => setMenu("generate")}
                 />
                 <MenuItem id="upload" icon={ImageUp} label={t("botSettings.avatar.upload")} onSelect={pick} />
               </div>
             ) : (
-              <form
-                data-avatar-generate
-                className="flex flex-col gap-2 p-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void generate();
-                }}
-              >
+              <div data-avatar-generate className="flex flex-col gap-2 p-2">
+                {!canGenerate ? <ImageGenerationSetup /> : <>
                 <input
                   autoFocus
                   aria-label={t("botSettings.avatar.describe")}
@@ -210,15 +212,20 @@ export function ProfileAvatar({ bot, state, onPatch }: { bot: Bot; state: DogSta
                   maxLength={PROMPT_MAX}
                   value={prompt}
                   onChange={(event) => setPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); void generate(); }
+                  }}
                   className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink placeholder:text-ink-tertiary focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                 />
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={() => void generate()}
                   className="self-end rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink transition-colors hover:bg-control-hover"
                 >
                   {t("botSettings.avatar.generate")}
                 </button>
-              </form>
+                </>}
+              </div>
             )}
           </div>
         )}

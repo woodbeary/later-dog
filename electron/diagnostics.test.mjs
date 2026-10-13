@@ -238,6 +238,53 @@ describe("buildDiagnosticsReport", () => {
     const line = "user asked whether the XAI_API_KEY variable needs to be set manually";
     expect(redactSecretsInLine(line)).toBe(line);
   });
+
+  it("masks email addresses in every log tail, including inside public URL paths", () => {
+    const report = buildDiagnosticsReport({
+      appInfo,
+      configSummary: {},
+      logTail: "signed in as ada.lovelace+dog@example.co.uk via https://example.com/u/ada@example.com/settings",
+      updaterLogTail: "feed owner=release-bot@laterdog.dev",
+      desktopLogTail: "event=render-process-gone surface=main-window reason=crashed exitCode=1 owner=grace@example.org",
+    });
+    expect(report).not.toContain("ada.lovelace");
+    expect(report).not.toContain("ada@example.com");
+    expect(report).not.toContain("release-bot@");
+    expect(report).not.toContain("grace@");
+    expect(report).toContain("https://example.com/u/«redacted email»/settings");
+    expect(report).toContain("owner=«redacted email»");
+  });
+
+  it("leaves package versions and scoped names that only look like addresses alone", () => {
+    const line = "installed @anthropic-ai/claude-code@2.1.0 with node@24.0.0";
+    expect(redactSecretsInLine(line)).toBe(line);
+  });
+
+  it("masks email addresses and tokens hiding in configuration key names", () => {
+    const report = buildDiagnosticsReport({
+      appInfo,
+      configSummary: {
+        accounts: { "ada@example.com": { connected: true } },
+        tokens: { ghp_abcdefghijklmnopqrstuvwx: { valid: false } },
+      },
+      logTail: "",
+    });
+    expect(report).not.toContain("ada@example.com");
+    expect(report).not.toContain("ghp_abcdefghijklmnopqrstuvwx");
+    expect(report).toMatch(/«redacted email»[^\n]*=true/);
+    expect(report).toContain("tokens.«redacted 28 chars».valid=false");
+  });
+
+  it.each([
+    ["a JWT", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZGEifQ.c2lnbmF0dXJlLXNpZ25hdHVyZQ"],
+    ["a Stripe secret key", "sk_live_abcdefghijklmnop1234"],
+    ["a Google OAuth token", "ya29.a0AfH6SMBabcdefghijklmnopqrstu"],
+    ["a GitLab token", "glpat-abcdefghijklmnopqrstu"],
+    ["a Hugging Face token", "hf_abcdefghijklmnopqrstuvwxyz123456"],
+  ])("masks %s in the log tail", (_name, token) => {
+    const line = `request carried ${token} upstream`;
+    expect(redactSecretsInLine(line)).toBe(`request carried «redacted ${token.length} chars» upstream`);
+  });
 });
 
 describe("formatDesktopCrashRecord", () => {

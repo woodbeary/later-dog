@@ -91,6 +91,7 @@ const open = async (bot: Bot) => {
 const text = () => document.body.textContent ?? "";
 const spinning = () => document.querySelector(".animate-spin") !== null;
 const button = (label: string) => [...document.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === label);
+const wakeDog = () => document.querySelector<HTMLButtonElement>("[data-wake-dog] button");
 
 beforeAll(() => {
   vi.stubGlobal("laterdog", undefined);
@@ -148,6 +149,8 @@ describe("Computer panel on Cloud computer", () => {
     await open(makeBot({ computer: "cloud", busy: true }));
     expect(text()).toContain("Scout gets its own cloud computer the first time a task needs one.");
     expect(button("Start it now")).toBeUndefined();
+    expect(wakeDog()).toBeNull();
+    expect(document.querySelector("[data-sleeping-dog]")).not.toBeNull();
     expect(fixture.posts).toEqual([]);
   });
 
@@ -164,6 +167,7 @@ describe("Computer panel on Cloud computer", () => {
     await open(makeBot(moved));
     expect(text()).toContain("Scout's cloud computer is asleep. It wakes in a few seconds when Scout needs it.");
     expect(button("Wake it now")).toBeUndefined();
+    expect(wakeDog()).toBeNull();
     expect(fixture.posts).toEqual([]);
   });
 
@@ -186,6 +190,22 @@ describe("Computer panel on Cloud computer", () => {
     expect(fixture.looks).toBe(looks);
     expect(spinning()).toBe(false);
     expect(fixture.posts).toEqual([]);
+  });
+
+  it("wakes a sleeping cloud computer from a tap on the sleeping dog when opening did not start it", async () => {
+    vi.stubGlobal("laterdog", { remoteClient: { active: true } });
+    fixture.boatState = "archived";
+    await open(makeBot({ computer: "cloud" }));
+    expect(fixture.posts).toEqual([]);
+    expect(button("Wake it now")).toBeUndefined();
+    const dog = wakeDog()!;
+    expect(dog.getAttribute("aria-label")).toBe("Wake Scout's computer");
+    expect(text()).toContain("Tap to wake");
+    flushSync(() => dog.click());
+    await settle();
+    expect(fixture.posts.filter((path) => !path.endsWith("/screenshot"))).toEqual(["/api/bots/scout/computer/provision"]);
+    expect(document.querySelector("[data-live-screen]")).not.toBeNull();
+    vi.stubGlobal("laterdog", undefined);
   });
 
   it("still shows the screen of a cloud computer that select_computer moved this conversation to", async () => {

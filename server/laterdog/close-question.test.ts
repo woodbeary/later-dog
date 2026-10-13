@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
+import { LEGACY_QUESTION_DISMISS_MESSAGE, QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
 import { asksToCloseQuestion, closeQuestion } from "./close-question.ts";
 
 type Card = { requestType?: "question" | "permission"; tool?: string; answered?: string; answeredText?: string; dismissed?: boolean };
@@ -21,6 +21,10 @@ describe("asksToCloseQuestion", () => {
   it("is a close for a question card sent with dismiss or the close note", () => {
     expect(asksToCloseQuestion({ requestType: "question" }, { dismiss: true })).toBe(true);
     expect(asksToCloseQuestion({ requestType: "question" }, { message: QUESTION_DISMISS_MESSAGE })).toBe(true);
+  });
+
+  it("still closes for a window that sends the old close note", () => {
+    expect(asksToCloseQuestion({ requestType: "question" }, { message: LEGACY_QUESTION_DISMISS_MESSAGE })).toBe(true);
   });
 
   it("is not a close for a real answer or a permission card", () => {

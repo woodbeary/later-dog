@@ -204,10 +204,10 @@ export function UsageBar({ used, label, className }: { used: number; label: stri
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={100 - left}
+      aria-valuenow={left}
       aria-valuetext={t("planUsage.left", { left })}
     >
-      <span className={cn("block h-full rounded-full", BAR_TONE[usageTone(100 - left)])} style={{ width: `${100 - left}%` }} />
+      <span className={cn("block h-full rounded-full", BAR_TONE[usageTone(100 - left)])} style={{ width: `${left}%` }} />
     </span>
   );
 }

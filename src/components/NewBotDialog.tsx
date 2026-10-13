@@ -4,6 +4,9 @@ import { Loader2, X } from "lucide-react";
 import { api, useStore, type Bot, type ModelSelection } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
+import { imageAttachmentFromFile } from "@/lib/composer-attachments";
+import { botAvatarUrlFromStoredPath } from "../../shared/bot-avatar";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 
 export interface NewBotDialogProps {
@@ -25,6 +28,8 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
   const [modelSelection, setModelSelection] = useState<ModelSelection | undefined>(undefined);
   const [offLeash, setOffLeash] = useState(false);
   const [error, setError] = useState("");
+  const [avatar, setAvatar] = useState<Pick<Bot, "avatarUrl" | "avatarCrop" | "avatarZoom" | "avatarFocusX" | "avatarFocusY">>({});
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const saving = state.botCreationPending;
   const dialog = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
@@ -71,12 +76,14 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
 
   const trimmedName = name.trim();
   const create = () => {
-    if (saving || !trimmedName) return;
+    if (saving || avatarBusy || !trimmedName) return;
     setError("");
     dispatch({
       type: "newBot",
       name: trimmedName,
       title: purpose.trim() || undefined,
+      avatarUrl: avatar.avatarUrl,
+      avatarCrop: avatar.avatarCrop,
       modelSelection,
       section,
       ...(offLeash ? { offLeash } : {}),
@@ -120,6 +127,24 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
             create();
           }}
         >
+          <div className="mt-4 flex justify-center">
+            <ProfileAvatar
+              bot={{ id: "new-dog", name: name || t("sidebar.newBot"), title: purpose, color: "blue", ...avatar } as Bot}
+              state="idle"
+              onPatch={(next) => setAvatar((current) => ({ ...current, ...next }))}
+              onBusyChange={setAvatarBusy}
+              onGenerate={async (prompt) => {
+                const result = await api<{ dataUrl: string }>("/api/bot-defaults/avatar", {
+                  method: "POST", body: JSON.stringify({ profile: { name: name.trim() || "Dog", title: purpose.trim() }, prompt }), timeoutMs: 150_000,
+                });
+                const blob = await fetch(result.dataUrl).then((response) => response.blob());
+                const saved = await imageAttachmentFromFile(new File([blob], "avatar.webp", { type: blob.type }));
+                const avatarUrl = saved ? botAvatarUrlFromStoredPath(saved.path) : null;
+                if (!avatarUrl) throw new Error(t("botSettings.avatar.wrongType"));
+                return { avatarUrl, avatarCrop: "circle" };
+              }}
+            />
+          </div>
           <fieldset disabled={saving} className="mt-4 min-w-0 rounded-xl bg-card">
             <div className="px-4 py-3">
               <label htmlFor="new-dog-name" className={rowLabelCls}>{t("botSettings.simple.name")}</label>
@@ -150,7 +175,7 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
             <button type="button" onClick={() => closeRef.current()} className={pillCls}>{t("common.cancel")}</button>
             <button
               type="submit"
-              disabled={saving || !trimmedName}
+              disabled={saving || avatarBusy || !trimmedName}
               className={cn(pillCls, "flex items-center gap-2 bg-accent text-white hover:bg-accent hover:brightness-110")}
             >
               {saving && <Loader2 size={15} className="animate-spin" />}
