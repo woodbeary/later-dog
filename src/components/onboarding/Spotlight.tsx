@@ -4,15 +4,11 @@ import { DogAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
 import type { DogState } from "@/lib/mascot";
 import { reducedMotion } from "@/lib/onboarding";
+import { positionSpotlight, type SpotlightPlacement, type SpotlightRect } from "./spotlight-position";
 
 const PAD = 8;
 const RADIUS = 14;
-const CARD_W = 320;
-const GAP = 12;
-
-type Rect = { x: number; y: number; w: number; h: number };
-
-function measure(anchor: string): Rect | null {
+function measure(anchor: string): SpotlightRect | null {
   const all = Array.from(
     document.querySelectorAll<HTMLElement>(`[data-tour="${anchor}"]`),
   ).filter((el) => el.getClientRects().length > 0);
@@ -28,7 +24,7 @@ function measure(anchor: string): Rect | null {
   };
 }
 
-function cutout(r: Rect | null): string {
+function cutout(r: SpotlightRect | null): string {
   if (!r) return "polygon(0 0, 100% 0, 100% 100%, 0 100%)";
   const x1 = r.x,
     y1 = r.y,
@@ -62,7 +58,7 @@ export function Spotlight({
   onDone,
 }: {
   anchor: string | null;
-  placement: "above" | "below" | "right";
+  placement: SpotlightPlacement;
   mascot?: DogState;
   children: ReactNode;
   progress?: string;
@@ -70,24 +66,29 @@ export function Spotlight({
   secondary?: Action;
   onDone: () => void;
 }) {
-  const [rect, setRect] = useState<Rect | null>(null);
+  const [rect, setRect] = useState<SpotlightRect | null>(null);
+  const [viewport, setViewport] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  const [card, setCard] = useState<HTMLDivElement | null>(null);
+  const [cardHeight, setCardHeight] = useState(140);
   const [settled, setSettled] = useState(false);
   const [covered, setCovered] = useState(() => otherWindowOpen(anchor));
 
   useLayoutEffect(() => {
-    if (!anchor) {
-      setRect(null);
-      return;
-    }
     let frame = 0;
     const update = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() =>
-        setRect((prev) => measure(anchor) ?? prev),
-      );
+      frame = requestAnimationFrame(() => {
+        setViewport((prev) => prev.w === window.innerWidth && prev.h === window.innerHeight
+          ? prev : { w: window.innerWidth, h: window.innerHeight });
+        setRect((prev) => {
+          if (!anchor) return null;
+          const next = measure(anchor) ?? prev;
+          return next?.x === prev?.x && next?.y === prev?.y && next?.w === prev?.w && next?.h === prev?.h ? prev : next;
+        });
+      });
     };
     update();
-    const el = document.querySelector<HTMLElement>(`[data-tour="${anchor}"]`);
+    const el = anchor ? document.querySelector<HTMLElement>(`[data-tour="${anchor}"]`) : null;
     const ro = el ? new ResizeObserver(update) : null;
     if (el) ro?.observe(el);
     const mo = new MutationObserver(update);
@@ -107,6 +108,18 @@ export function Spotlight({
       window.removeEventListener("scroll", update, true);
     };
   }, [anchor]);
+
+  useLayoutEffect(() => {
+    if (!card) return;
+    const update = () => {
+      const height = card.getBoundingClientRect().height;
+      if (height > 0) setCardHeight(height);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [card]);
 
   useEffect(() => {
     if (reducedMotion()) {
@@ -142,38 +155,8 @@ export function Spotlight({
 
   if (anchor && !rect) return null;
 
-  const viewportW = window.innerWidth;
-  const cardWidth = Math.min(CARD_W, viewportW - 24);
-  const viewportH = window.innerHeight;
-  let transform: string;
-  let below = true;
-  let beside = false;
-  if (
-    rect &&
-    placement === "right" &&
-    rect.x + rect.w + GAP + cardWidth <= viewportW - 12
-  ) {
-    beside = true;
-    transform = `translate3d(${rect.x + rect.w + GAP}px, ${Math.max(12, Math.min(rect.y + rect.h / 2 - 70, viewportH - 180))}px, 0)`;
-  } else if (rect) {
-    const left = Math.max(12, Math.min(rect.x, viewportW - cardWidth - 12));
-    const roomBelow = viewportH - (rect.y + rect.h) - GAP;
-    const roomAbove = rect.y - GAP;
-    below =
-      placement === "below"
-        ? roomBelow >= 140 || roomAbove < roomBelow
-        : roomAbove < 140 && roomBelow > roomAbove;
-    if (roomBelow < 140 && roomAbove < 140) {
-      below = true;
-      transform = `translate3d(${Math.max(12, Math.min(rect.x + rect.w - cardWidth - GAP * 2, viewportW - cardWidth - 12))}px, ${Math.max(12, rect.y + GAP * 2)}px, 0)`;
-    } else {
-      transform = below
-        ? `translate3d(${left}px, ${rect.y + rect.h + GAP}px, 0)`
-        : `translate3d(${left}px, calc(${rect.y - GAP}px - 100%), 0)`;
-    }
-  } else {
-    transform = "translate3d(calc(50vw - 50%), calc(50vh - 50%), 0)";
-  }
+  const position = positionSpotlight(rect, placement, viewport, cardHeight);
+  const transform = `translate3d(${position.x}px, ${position.y}px, 0)`;
 
   return createPortal(
     <div
@@ -202,21 +185,20 @@ export function Spotlight({
         />
       )}
       <div
+        ref={setCard}
         data-tour-card
         className="pointer-events-auto absolute left-0 top-0 w-[320px] transition-transform duration-(--motion-enter) ease-(--ease-out-soft) motion-reduce:transition-none"
-        style={{ transform, width: cardWidth }}
+        style={{ transform, width: position.width }}
       >
         <div
           role="dialog"
+          style={{ maxHeight: position.maxHeight, overflowY: "auto" }}
           className={cn(
             "flex items-start gap-3 rounded-2xl border border-hairline/50 bg-panel p-3.5 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.6)]",
-            rect
-              ? beside
-                ? "origin-left"
-                : below
-                  ? "origin-top-left"
-                  : "origin-bottom-left"
-              : "origin-center",
+            position.side === "right" ? "origin-left"
+              : position.side === "left" ? "origin-right"
+                : position.side === "above" || position.side === "inside" ? "origin-bottom-left"
+                  : position.side === "below" ? "origin-top-left" : "origin-center",
             settled ? "animate-spot-in motion-reduce:animate-none" : "opacity-0",
           )}
         >
