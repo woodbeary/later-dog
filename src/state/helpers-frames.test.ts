@@ -112,7 +112,7 @@ describe("helpers in the store", () => {
     await mount(() => Promise.resolve(new Response(JSON.stringify({ helpers: {} }))));
     const before = seen;
     await send(runtime({ type: "turn.started" }));
-    await send(runtime({ type: "content.delta", streamKind: "reasoning_text", delta: "Weighing two options" }));
+    await send(runtime({ type: "content.delta", streamKind: "reasoning_text", summary: true, delta: "Weighing two options" }));
     await send(runtime({ type: "item.updated", itemType: "reasoning", tokens: 640 }));
     expect(turnReasoning("thread")).toMatchObject({ text: "Weighing two options", streamed: true, tokens: 640 });
     expect(seen.bots).toBe(before.bots);

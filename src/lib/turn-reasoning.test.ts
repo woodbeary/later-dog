@@ -6,7 +6,7 @@ const base = { provider: "claude", threadId: "thread-a", createdAt: "2026-10-13T
 let serial = 0;
 const at = (event: Record<string, unknown>) => ({ ...base, eventId: `e${(serial += 1)}`, turnId: "turn-1", ...event }) as RuntimeEvent;
 const started = (turnId = "turn-1") => at({ type: "turn.started", turnId });
-const thought = (delta: string, turnId = "turn-1") => at({ type: "content.delta", streamKind: "reasoning_text", delta, turnId });
+const thought = (delta: string, turnId = "turn-1") => at({ type: "content.delta", streamKind: "reasoning_text", summary: true, delta, turnId });
 const counted = (tokens: number | null) => at({ type: "item.updated", itemType: "reasoning", tokens });
 
 function replay(events: RuntimeEvent[]) {
@@ -24,6 +24,10 @@ describe("the current turn's reasoning", () => {
       thought("against the calendar."),
     ]);
     expect(state).toMatchObject({ text: "Checking the dates against the calendar.", streamed: true, clipped: false, turnId: "turn-1" });
+  });
+
+  it("does not expose raw reasoning deltas", () => {
+    expect(replay([started(), at({ type: "content.delta", streamKind: "reasoning_text", delta: "raw reasoning" })])).toMatchObject({ text: "", streamed: false });
   });
 
   it("keeps only a bounded tail, starting at a word", () => {

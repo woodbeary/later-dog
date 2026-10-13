@@ -47,8 +47,8 @@ import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
-import { receiveHelperEvent, receiveHelpersSnapshot } from "@/lib/helpers-state";
-import { receiveReasoningEvent } from "@/lib/turn-reasoning";
+import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
+import { receiveReasoningEvent, forgetReasoning } from "@/lib/turn-reasoning";
 
 const MAX_ROUTINE_RUNS = 2_000;
 const ACTIVE_ROUTINE_RUN_STATUSES = new Set<RoutineRun["status"]>(["queued", "running", "waiting"]);
@@ -3479,6 +3479,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       alive = false;
+      forgetHelpers();
+      forgetReasoning();
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {
         if (refresh.timer) clearTimeout(refresh.timer);

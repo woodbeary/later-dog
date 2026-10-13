@@ -40,7 +40,7 @@ function tail(text: string): string {
 export function withReasoningEvent(current: TurnReasoning | undefined, event: RuntimeEvent): TurnReasoning | undefined {
   if (event.type === "turn.started") return { ...NO_REASONING, turnId: event.turnId ?? null };
   if (event.type === "turn.completed") return undefined;
-  if (event.type === "content.delta" && event.streamKind === "reasoning_text") {
+  if (event.type === "content.delta" && event.streamKind === "reasoning_text" && event.summary === true) {
     if (!event.delta) return current;
     const base = forTurn(current, event.turnId);
     const joined = base.text + event.delta;
