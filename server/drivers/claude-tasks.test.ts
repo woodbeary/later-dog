@@ -34,9 +34,8 @@ describe("Claude helpers", () => {
     tasks.receive(start);
     tasks.receive({ ...start, task_id: "b" });
     tasks.receive({ subtype: "background_tasks_changed", tasks: [] });
-    expect(tasks.takeContinuation()).toBe(false);
+    expect(tasks.backgroundRunning()).toBe(false);
     tasks.receive({ subtype: "task_notification", task_id: "a", status: "completed" });
-    expect(tasks.takeContinuation()).toBe(false);
     tasks.receive({ subtype: "task_notification", task_id: "b", status: "failed" });
     expect(tasks.takeContinuation()).toBe(true);
     tasks.receive({ subtype: "task_notification", task_id: "b", status: "failed" });

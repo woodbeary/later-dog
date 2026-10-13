@@ -57,6 +57,12 @@ export class ClaudeTasks {
     const event = fields(value);
     if (event.subtype === "background_tasks_changed") {
       if (!Array.isArray(event.tasks)) return true;
+      const liveIds = new Set(event.tasks.map(task => text(fields(task).task_id)).filter(Boolean));
+      for (const helper of this.helpers.values()) {
+        if (helper.background && helper.state === "running" && !liveIds.has(helper.id)) {
+          this.update({ task_id: helper.id, subtype: "task_updated", patch: { status: "stopped" } });
+        }
+      }
       for (const task of event.tasks) this.update({ ...fields(task), is_backgrounded: true });
       return true;
     }
