@@ -81,7 +81,7 @@ export type RuntimeEvent = RuntimeEventBase &
     | { type: "item.completed"; itemType: "tool"; ok: boolean; output?: string }
     | { type: "item.completed"; itemType: "assistant_text"; text: string }
     | { type: "item.completed"; itemType: "assistant_image"; data: string; alt?: string }
-    | { type: "content.delta"; streamKind: "assistant_text" | "reasoning_text"; delta: string }
+    | { type: "content.delta"; streamKind: "assistant_text" | "reasoning_text"; delta: string; summary?: boolean }
     | {
         type: "request.opened";
         requestType: "permission" | "question";

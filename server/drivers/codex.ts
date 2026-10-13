@@ -1212,7 +1212,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           case "item/reasoning/textDelta":
           case "item/reasoning/summaryTextDelta": {
             const delta = typeof p.delta === "string" ? p.delta : "";
-            if (delta) emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "reasoning_text", delta });
+            if (delta) emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "reasoning_text", delta, summary: true });
             break;
           }
           case "item/started": {
