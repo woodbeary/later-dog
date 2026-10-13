@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MINUTE } from "../src/idle";
 import { ComputersApi } from "../src/index";
+import { sha256Hex } from "../src/auth";
 import { ORIGIN, OWNER_KEY, type World, apiRequest, body, trialKey, world } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
@@ -115,5 +116,23 @@ describe("the public route", () => {
     const exec = await w.fetch(unkeyed("POST", "/v1/computers/cmp_abcdefghij23/exec", { body: { command: "true" } }));
     expect(exec.status).toBe(401);
     expect((await w.fetch(apiRequest("GET", "/v1/computers", OWNER_KEY))).status).toBe(200);
+  });
+
+  it("grants each later.dog Cloud home a long-lived key, only through the binding", async () => {
+    const w = await world();
+    const api = binding(w);
+    const key = trialKey("h");
+    const claim = await sha256Hex(key);
+    const granted = await api.fetch(unkeyed("POST", "/v1/homes/grant", { body: { claim } }));
+    expect(granted.status).toBe(201);
+    const { trial } = await body(granted);
+    expect(trial).toMatchObject({ state: "active", minutes: 40 * 60, minutesLeft: 40 * 60 });
+    expect(new Date(trial.expiresAt).getTime() - Date.now()).toBeGreaterThan(89 * 24 * 60 * MINUTE);
+    expect((await api.fetch(unkeyed("POST", "/v1/homes/grant", { body: { claim } }))).status).toBe(200);
+    expect(await body(await w.fetch(apiRequest("GET", "/v1/trial", key)))).toMatchObject({ trial: { state: "active" } });
+
+    const publicGrant = await w.fetch(apiRequest("POST", "/v1/homes/grant", OWNER_KEY, { body: { claim: await sha256Hex(trialKey("p")) } }));
+    expect(publicGrant.status).toBe(404);
+    expect((await body(await api.fetch(unkeyed("POST", "/v1/homes/grant", { body: { claim: "short" } })))).error.code).toBe("invalid_claim");
   });
 });
