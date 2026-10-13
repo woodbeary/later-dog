@@ -101,7 +101,7 @@ describe("the Switch profile page", () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it("lists Back, every profile, then Add and Edit", () => {
+  it("lists Back and Add with a targeted edit action on each profile", () => {
     const on = handlers();
     const items = profilePageItems({ list, switching: null, error: null, ...on });
     expect(items.map((item) => item.key)).toEqual([
@@ -111,17 +111,16 @@ describe("the Switch profile page", () => {
       `profile-${SECOND}`,
       `profile-${STARTING}`,
       "profiles-add",
-      "profiles-edit",
     ]);
-    expect(items.map((item) => item.label)).toEqual(["Back", "Personal", "Business", "Business 2", "Side", "Add profile", "Edit profiles"]);
+    expect(items.map((item) => item.label)).toEqual(["Back", "Personal", "Business", "Business 2", "Side", "Add profile"]);
     expect(items.filter((item) => item.separatorBefore).map((item) => item.key)).toEqual(["profile-main", "profiles-add"]);
     expect(items[0]!.keepOpen).toBe(true);
     items[0]!.onSelect();
     expect(on.onBack).toHaveBeenCalledOnce();
-    items.at(-2)!.onSelect();
     items.at(-1)!.onSelect();
+    items[2]!.action!.onSelect();
     expect(on.onAdd).toHaveBeenCalledOnce();
-    expect(on.onEdit).toHaveBeenCalledOnce();
+    expect(on.onEdit).toHaveBeenCalledWith(BUSINESS);
   });
 
   it("ticks the open profile and switches to any other", () => {
@@ -150,7 +149,7 @@ describe("the Switch profile page", () => {
     expect(row.note).toBeUndefined();
     expect(markup(row.trailing)).toContain("animate-spin");
     expect(items.find((item) => item.key === `profile-${BUSINESS}`)!.disabled).toBe(false);
-    expect(items.at(-2)!.disabled).toBe(true);
+    expect(row.action!.disabled).toBe(true);
     expect(items.at(-1)!.disabled).toBe(true);
   });
 
@@ -162,8 +161,8 @@ describe("the Switch profile page", () => {
 
   it("says why no more profiles can be added", () => {
     const items = profilePageItems({ list: { ...list, canAdd: false }, switching: null, error: null, ...handlers() });
-    expect(items.at(-2)).toMatchObject({ disabled: true, note: "That's the most profiles you can have." });
-    expect(items.at(-1)!.disabled).toBe(false);
+    expect(items.at(-1)).toMatchObject({ disabled: true, note: "That's the most profiles you can have." });
+    expect(items[1]!.action!.disabled).toBe(false);
   });
 });
 

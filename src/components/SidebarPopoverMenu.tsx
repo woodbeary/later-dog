@@ -16,6 +16,7 @@ export interface SidebarMenuItem {
   separatorBefore?: boolean;
   heading?: string;
   trailing?: React.ReactNode;
+  action?: { label: string; icon: React.ReactNode; disabled?: boolean; onSelect: () => void };
   keepOpen?: boolean;
   onSelect: () => void;
   tourId?: string;
@@ -159,7 +160,7 @@ export function SidebarPopoverMenu({
           )}
         >
           {items.map((item) => (
-            <div key={item.key}>
+            <div key={item.key} className="group relative">
               {item.separatorBefore && <div className="my-1.5 h-px bg-hairline/50" />}
               {item.heading && <div className="px-3 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{item.heading}</div>}
               <button
@@ -173,6 +174,7 @@ export function SidebarPopoverMenu({
                 }}
                 className={cn(
                   "flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] disabled:opacity-60",
+                  item.action && "pr-12",
                   item.active ? "bg-raised text-ink" : "text-ink hover:bg-raised/70",
                 )}
               >
@@ -205,6 +207,11 @@ export function SidebarPopoverMenu({
                   />
                 )}
               </button>
+              {item.action && <button type="button" role="menuitem" aria-label={item.action.label} title={item.action.label}
+                disabled={item.action.disabled} onClick={() => { item.action?.onSelect(); close(); }}
+                className="absolute bottom-1 right-2 flex size-8 items-center justify-center rounded-lg text-ink-secondary opacity-0 hover:bg-control focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100 disabled:opacity-40">
+                {item.action.icon}
+              </button>}
             </div>
           ))}
         </div>

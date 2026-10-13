@@ -108,7 +108,7 @@ import {
 } from "@/lib/sidebar-layout";
 import { sidebarSectionAttention } from "@/lib/sidebar-attention";
 import { botListItemPointerIntent } from "@/lib/sidebar-selection";
-import { SidebarAppsButton, SidebarFooterNav } from "./SidebarFooterNav";
+import { SidebarBugButton, SidebarFooterNav } from "./SidebarFooterNav";
 import { GlassBar, GlassScrollFrame, GlassScroller } from "./GlassScrollFrame";
 import { DesktopWorkspaceSwitcher } from "./DesktopWorkspaceSwitcher";
 import { useCloudOwner } from "./CloudOwner";
@@ -2453,7 +2453,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
               <SidebarProfileMenu />
             </div>
             <UpdateButton above />
-            <SidebarAppsButton />
+            <SidebarBugButton />
           </div>
         )}
       </div>

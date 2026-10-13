@@ -1,90 +1,21 @@
-import { Puzzle } from "lucide-react";
-import type { ReactNode } from "react";
-
-import { cn } from "@/lib/cn";
+import { Bug } from "lucide-react";
+import { useState } from "react";
 import { t } from "@/lib/i18n";
 import type { SidebarDensity } from "@/lib/sidebar-preferences";
-import { useStore } from "@/state/store";
+import { BugReportDialog } from "./BugReportDialog";
 
-
-function NavRow({
-  id,
-  label,
-  icon,
-  active = false,
-  iconsOnly,
-  tourId,
-  onClick,
-}: {
-  id: string;
-  label: string;
-  icon: (active: boolean) => ReactNode;
-  active?: boolean;
-  iconsOnly: boolean;
-  tourId?: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      data-tour={tourId}
-      data-sidebar-nav={id}
-      onClick={onClick}
-      aria-label={iconsOnly ? label : undefined}
-      title={iconsOnly ? label : undefined}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "relative flex w-full items-center rounded-xl text-left transition-colors",
-        iconsOnly ? "min-h-10 justify-center px-2 py-2" : "min-h-9 gap-3 px-3 py-1.5",
-        active ? "bg-raised text-ink" : "text-ink hover:bg-raised/50",
-      )}
-    >
-      {icon(active)}
-      {!iconsOnly && <span className="flex-1 truncate text-[14px]">{label}</span>}
+export function SidebarBugButton() {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button type="button" data-sidebar-nav="bug-report" onClick={() => setOpen(true)}
+      aria-label={t("bugReport.title")} title={t("bugReport.title")} aria-haspopup="dialog"
+      className="flex size-9 shrink-0 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-raised/50 hover:text-ink">
+      <Bug size={18} />
     </button>
-  );
-}
-
-export function SidebarAppsButton() {
-  const { state, dispatch } = useStore();
-  const label = t("sidebar.nav.apps");
-  return (
-    <button
-      type="button"
-      data-tour="nav-apps"
-      data-sidebar-nav="apps"
-      onClick={() => dispatch({ type: "togglePlugins", open: true })}
-      aria-label={label}
-      title={label}
-      aria-pressed={state.pluginsOpen}
-      className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
-        state.pluginsOpen ? "bg-raised text-accent" : "text-ink-secondary hover:bg-raised/50 hover:text-ink",
-      )}
-    >
-      <Puzzle size={18} />
-    </button>
-  );
+    {open && <BugReportDialog onClose={() => setOpen(false)} />}
+  </>;
 }
 
 export function SidebarFooterNav({ density }: { density: SidebarDensity }) {
-  const { state, dispatch } = useStore();
-  const iconsOnly = density === "icons";
-  const iconSize = iconsOnly ? 20 : 18;
-  const tone = (active: boolean) => (active ? "text-accent" : "text-ink-secondary");
-
-  if (!iconsOnly) return null;
-  return (
-    <nav aria-label={t("sidebar.tools")} className="flex flex-col gap-0.5">
-      <NavRow
-        id="apps"
-        label={t("sidebar.nav.apps")}
-        tourId="nav-apps"
-        iconsOnly={iconsOnly}
-        active={state.pluginsOpen}
-        icon={(active) => <Puzzle size={iconSize} className={tone(active)} />}
-        onClick={() => dispatch({ type: "togglePlugins", open: true })}
-      />
-    </nav>
-  );
+  return density === "icons" ? <nav aria-label={t("sidebar.tools")}><SidebarBugButton /></nav> : null;
 }
