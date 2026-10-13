@@ -173,7 +173,7 @@ describe("Computer panel", () => {
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleComputer", open: false });
   });
 
-  it("pulses its live dot while a turn runs wherever the dog works, and never for Off", () => {
+  it("shows its live dot while a turn runs wherever the dog works, and never for Off", () => {
     expect(render(makeBot({ computer: "cloud", busy: true })).byTestId("computer-live")).toBeDefined();
     fresh();
     expect(render(makeBot({ computer: "local", busy: true })).byTestId("computer-live")).toBeDefined();

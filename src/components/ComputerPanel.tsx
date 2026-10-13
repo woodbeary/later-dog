@@ -1171,7 +1171,7 @@ export function ComputerPanel({
           <Monitor size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
           {t("computer.tab.computer")}
           {placeLive && bot.computer !== undefined && bot.computer !== "off" && (
-            <span className="size-1.5 animate-status-pulse rounded-full bg-success" role="img" aria-label={t("place.live")} data-testid="computer-live" />
+            <span className="size-1.5 rounded-full bg-success" role="img" aria-label={t("place.live")} data-testid="computer-live" />
           )}
         </h2>
         <button
