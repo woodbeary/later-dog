@@ -481,6 +481,7 @@ import { asSchedule, RoutineRequestService } from "./routine-requests.ts";
 import { directApply, UNDO_STALE, type DirectApply } from "./direct-apply.ts";
 import { createOptionsCard } from "./options-card.ts";
 import { buildBotOverview, type BotOverview, connectedAppsFacts } from "./bot-overview.ts";
+import { prepareProfileAvatar } from "./profile-avatar.ts";
 import { ProfileRequestService } from "./profile-requests.ts";
 import { ModelRequestService } from "./model-requests.ts";
 import { TeamSetupError, TeamSetupRequestService } from "./team-setup-requests.ts";
@@ -14482,6 +14483,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           fromThreadId: z.string().min(1).max(128),
           forBotId: z.string().max(128).optional(),
           changes: z.unknown(),
+          avatarPrompt: z.string().trim().min(1).max(400).optional(),
           reason: z.unknown(),
         }).strict().safeParse(await readInternalBody());
         if (!parsed.success) return json(res, 400, { error: "invalid profile proposal" });
@@ -14491,11 +14493,29 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const owner = connectorThread(from.id, body.fromThreadId);
         if (!owner) return json(res, 403, { error: "source conversation does not belong to sender" });
         const targetBotId = body.forBotId?.trim() || from.id;
+        let changes = body.changes;
+        if (body.avatarPrompt) {
+          const target = store.bot(targetBotId);
+          if (!target) return json(res, 404, { error: "That dog no longer exists" });
+          const refusal = targetBotId !== from.id ? profileRequests.validateTarget?.(from.id, targetBotId) : null;
+          if (refusal) return json(res, 403, { error: refusal });
+          const persistence = proposalPersistence(from.id, body.fromThreadId, true);
+          if (!persistence.ok) return json(res, persistence.status, { error: persistence.error });
+          if (typeof body.reason !== "string" || !body.reason.trim() || body.reason.trim().length > 500) return json(res, 400, { error: "reason must be 1 to 500 characters" });
+          const before = profileRevision(target);
+          const generated = await prepareProfileAvatar({ config: cfg, target, changes, prompt: body.avatarPrompt, save: saveImage });
+          const current = store.bot(targetBotId);
+          if (!current || profileRevision(current) !== before) {
+            deleteAttachment(generated.path);
+            return json(res, 409, { error: "The dog's profile changed while its picture was being generated. Try again with the current profile." });
+          }
+          changes = generated.changes;
+        }
         const proposed = profileRequests.submit({
           botId: from.id,
           threadId: body.fromThreadId,
           targetBotId,
-          changes: body.changes,
+          changes,
           reason: body.reason,
           from: owner.group ? { botId: from.id, name: from.name, color: from.color } : undefined,
         });

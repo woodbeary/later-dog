@@ -895,8 +895,11 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (typeof args.cwd === "string") changes.cwd = args.cwd.trim();
     if (typeof args.notifications === "boolean") changes.notifications = args.notifications;
     if (typeof args.speakReplies === "boolean") changes.speakReplies = args.speakReplies;
-    if (!Object.keys(changes).length) {
-      return { text: "propose_profile needs at least one of name, title, description, soul, cwd, notifications, or speakReplies.", isError: true };
+    if (args.avatar_prompt !== undefined && (typeof args.avatar_prompt !== "string" || !args.avatar_prompt.trim() || args.avatar_prompt.trim().length > 400)) {
+      return { text: "avatar_prompt must be a description of 1 to 400 characters.", isError: true };
+    }
+    if (!Object.keys(changes).length && !args.avatar_prompt) {
+      return { text: "propose_profile needs at least one of name, title, description, soul, cwd, notifications, speakReplies, or avatar_prompt.", isError: true };
     }
     const forBotId = String(args.for_bot_id ?? "").trim();
     const r = await api("/api/internal/profile-requests", {
@@ -905,6 +908,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         fromBotId: BOT_ID,
         fromThreadId: THREAD_ID,
         changes,
+        avatarPrompt: typeof args.avatar_prompt === "string" ? args.avatar_prompt.trim() : undefined,
         reason: args.reason,
         forBotId: forBotId || undefined,
       }),

@@ -52,6 +52,8 @@ const PROFILE_FIELD_LABEL: Record<ProfileRequestField, LocaleKey> = {
   cwd: "approval.applied.field.cwd",
   notifications: "approval.applied.field.notifications",
   speakReplies: "approval.applied.field.speakReplies",
+  avatarUrl: "approval.applied.field.avatarUrl",
+  avatarCrop: "approval.applied.field.avatarCrop",
 };
 
 export function approvalCardOutcome(card: OptionCardData): string | undefined {
@@ -322,6 +324,8 @@ export function ApprovalCard({
         {card.subtitle}
       </pre>
       </details>
+
+      {card.profileRequest?.changes.avatarUrl && <img src={card.profileRequest.changes.avatarUrl} alt={t("botSettings.avatar.generatedPreview")} className="mt-3 size-24 rounded-xl object-cover" />}
 
       {card.skillRequest && <SkillRequestPreview request={card.skillRequest} />}
 

@@ -105,6 +105,27 @@ function harness(options: { name: string; chiefOfStaff?: boolean }) {
 }
 
 describe("ProfileRequestService", () => {
+  it("shows a generated picture before applying even with Full Access", () => {
+    const { store, bot } = harness({ name: "Scout" });
+    const service = new ProfileRequestService({ store, autoApply: () => "full-access" });
+    const proposed = service.submit({ botId: bot.id, threadId: bot.threadId, changes: { avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" }, reason: "You asked for a space beagle" });
+    expect(proposed.state).toBe("pending");
+    expect(bot.avatarUrl).toBeUndefined();
+    expect(store.messagesFor(bot.threadId)[0]?.card?.profileRequest?.changes.avatarUrl).toBe("/api/attachments/generated.png");
+    const result = service.resolve({ botId: bot.id, threadId: bot.threadId, requestId: proposed.requestId, behavior: "allow" });
+    expect(result.state).toBe("applied");
+    expect(bot.avatarUrl).toBe("/api/attachments/generated.png");
+    expect(bot.avatarCrop).toBe("circle");
+  });
+
+  it("rejects a generated-picture proposal if the picture changed before confirmation", () => {
+    const { service, bot } = harness({ name: "Scout" });
+    const proposed = service.propose({ botId: bot.id, threadId: bot.threadId, changes: { avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" }, reason: "You asked" });
+    bot.avatarUrl = "/api/attachments/newer.png";
+    expect(service.resolve({ botId: bot.id, threadId: bot.threadId, requestId: proposed.requestId, behavior: "allow" }).state).toBe("invalid");
+    expect(bot.avatarUrl).toBe("/api/attachments/newer.png");
+  });
+
   it("applies Full Access from the source thread without exposing an unanswered card and claims replays", () => {
     const { store, bot } = harness({ name: "Scout" });
     bot.approvalMode = "full";

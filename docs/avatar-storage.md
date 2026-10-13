@@ -7,10 +7,16 @@ images.
 
 ## Image provider setup
 
-Open a bot's profile, find **Avatar → Generate with AI**, and choose an
-**Image provider**. The selected connection is shared by all bot avatars.
-Save the connection, optionally describe the image, then choose **Generate
-avatar**. The image provider is independent of the bot's chat engine.
+Open a bot's settings, choose its picture, then **Generate**. The same picture
+menu is available in **New dog** and remote agent settings. Generation uses the
+image connection shared by all dogs. When none is configured, Generate opens
+an in-place password field for an OpenAI image API key; the desktop saves it
+through its secure credential slot, and the web app uses the authenticated
+configuration endpoint. The entry is cleared after saving. Existing configured
+Grok and custom image connections continue to be used.
+
+Describe the image if you want, then choose **Generate**. A new dog's picture
+is kept with the creation form and saved when you choose **Create dog**.
 
 - **OpenAI** is the default for existing installations. Save an OpenAI API
   key to use `gpt-image-2` for a low-quality 1024 × 1024 WebP draft. See the
@@ -52,6 +58,17 @@ Leave the custom key blank when initially configuring a keyless gateway. If a
 custom key was saved previously, choose **Remove saved key** to make the
 connection keyless; a blank field otherwise preserves the saved key. OpenAI
 and xAI keys are never used as fallbacks for custom connections.
+
+## Generated profile proposals
+
+A dog can call `propose_profile` with a flat `avatar_prompt` description of
+1–400 characters. The existing image provider generates and stores a preview,
+then the profile proposal card shows that picture. Generated pictures always
+wait for confirmation, including when other own-profile changes can apply
+immediately. A changed profile makes an in-flight generation or pending
+proposal stale instead of replacing a newer picture. When image generation
+is not configured, the tool points to the picture menu's secure setup; it does
+not request a key in chat.
 
 ## Deferred cleanup
 

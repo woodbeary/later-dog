@@ -23,6 +23,12 @@ function mount(request: typeof fetch) {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("createDog", () => {
+  it("keeps the generated picture in the creation request", async () => {
+    const request = vi.fn(async () => ({ bot: { id: "generated-dog" } })) as unknown as Parameters<typeof createDog>[1];
+    await createDog({ name: "Scout", avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle", offLeash: true }, request);
+    expect(request).toHaveBeenCalledWith("/api/bots", expect.objectContaining({ body: JSON.stringify({ name: "Scout", settings: { approvalMode: "auto", avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" } }) }));
+  });
+
   const bot = { id: "created", name: "Scout", messages: [] };
 
   it("creates a dog with one bare request when nothing is chosen", async () => {

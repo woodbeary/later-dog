@@ -6,6 +6,7 @@ import type { Bot } from "@/state/store";
 
 const fixture = vi.hoisted(() => ({
   api: vi.fn(),
+  dispatch: vi.fn(),
   upload: vi.fn(),
   flushBotPatches: vi.fn(async () => null),
   config: null as null | { imageGen?: { configured: boolean } },
@@ -13,7 +14,7 @@ const fixture = vi.hoisted(() => ({
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   api: fixture.api,
-  useStore: () => ({ state: { config: fixture.config }, flushBotPatches: fixture.flushBotPatches }),
+  useStore: () => ({ state: { config: fixture.config }, dispatch: fixture.dispatch, flushBotPatches: fixture.flushBotPatches }),
 }));
 vi.mock("@/lib/composer-attachments", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/composer-attachments")>(),
@@ -81,11 +82,13 @@ describe("the dog's picture", () => {
     expect(items.map((item) => item.dataset.avatarOption)).toEqual(["dog", "generate", "upload"]);
     expect(option("dog").getAttribute("role")).toBe("menuitemradio");
     expect(option("dog").getAttribute("aria-checked")).toBe("true");
-    expect(option("generate").disabled).toBe(true);
+    expect(option("generate").disabled).toBe(false);
     expect(option("generate").textContent).toContain("Picture generation isn't set up here");
     expect(document.activeElement).toBe(option("dog"));
 
     await key(option("dog"), "ArrowDown");
+    expect(document.activeElement).toBe(option("generate"));
+    await key(option("generate"), "ArrowDown");
     expect(document.activeElement).toBe(option("upload"));
     await key(option("upload"), "ArrowDown");
     expect(document.activeElement).toBe(option("dog"));
@@ -159,7 +162,7 @@ describe("the dog's picture", () => {
       set.call(describe, "a red kite");
       describe.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await act(async () => host.querySelector<HTMLFormElement>("[data-avatar-generate]")!.requestSubmit());
+    await act(async () => host.querySelector<HTMLButtonElement>("[data-avatar-generate] button")!.click());
     await settle();
 
     expect(fixture.flushBotPatches).toHaveBeenCalledWith("scout");
@@ -181,9 +184,19 @@ describe("the dog's picture", () => {
     await show(scout());
     await press(trigger());
     await press(option("generate"));
-    await act(async () => host.querySelector<HTMLFormElement>("[data-avatar-generate]")!.requestSubmit());
+    await act(async () => host.querySelector<HTMLButtonElement>("[data-avatar-generate] button")!.click());
     await settle();
     expect(host.querySelector('[role="alert"]')!.textContent).toBe("The picture service is busy");
     expect(onPatch).not.toHaveBeenCalled();
   });
+  it("opens secure key setup from Generate when images are not configured", async () => {
+    await show(scout());
+    await press(trigger());
+    await press(option("generate"));
+    expect(host.querySelector("[data-image-generation-setup]")).not.toBeNull();
+    expect(host.querySelector('input[type="password"]')?.getAttribute("aria-label")).toBe("OpenAI image API key");
+    expect(host.querySelector("[data-avatar-generate]")?.textContent).toContain("Your chat subscription does not include image API access");
+    expect(fixture.api).not.toHaveBeenCalled();
+  });
+
 });
