@@ -631,6 +631,13 @@ import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } fr
 import { GROUP_CHAT_REFUSAL, mayMakeGroupChats } from "./laterdog/group-chats.ts";
 import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
 import { INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
+import { createPhonePush } from "./laterdog/phone-push.ts";
+import { cloudEmailDelivery } from "./laterdog/email-me.ts";
+import { withConnectMac } from "./laterdog/connect-mac.ts";
+import { createHomeActivity, HOME_ACTIVITY_HORIZON_MS, homeActivityFrom } from "./laterdog/home-activity.ts";
+import { createHomeActivityRoute } from "./routes/home-activity.ts";
+import { createEmailMeRoute } from "./routes/email-me.ts";
+import { createPhonePushRoutes } from "./routes/phone-push.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
@@ -729,6 +736,7 @@ const sessions = new SessionRegistry({
 const sharedComputers = new SharedComputers(id => sessions.isLive(id));
 const CLOUD_SECRETS = BOOT_CLOUD_SECRETS;
 const CLOUD_ENV: NodeJS.ProcessEnv = { ...process.env, ...CLOUD_SECRETS };
+const deliverOwnerEmail = cloudEmailDelivery(CLOUD_ENV.LATERDOG_CLOUD_EMAIL_URL, CLOUD_ENV.LATERDOG_CLOUD_EMAIL_TOKEN);
 const CLOUD_HOME = cloudHomeConfiguration(CLOUD_ENV);
 if (CLOUD_HOME) sessions.requireAdmin(CLOUD_PERSONAL_REFUSAL);
 const lendingEnabled = () => sharedComputersEnabled(cfg) || CLOUD_HOME !== null;
@@ -749,6 +757,10 @@ const lendingMemory = CLOUD_HOME ? createLendingMemory({
 }) : null;
 if (CLOUD_HOME) readMemoryOnlyFromRegularFiles();
 const cloudPairing = CLOUD_HOME ? createCloudPairing({ secret: CLOUD_HOME.bootstrapSecret, sessions }) : null;
+const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivity({
+  secret: CLOUD_HOME.bootstrapSecret,
+  activity: () => homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, store.bots.some((bot) => botHasActiveTurn(bot.id))),
+})) : null;
 if (CLOUD_HOME) {
   delete process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
   for (const key of CLOUD_IGNORED_KEYS) delete process.env[key];
@@ -2079,6 +2091,7 @@ function agentsIntegration(
       LATERDOG_MEMORY_ENABLED: store.bot(botId)?.memoryEnabled === false ? "0" : "1",
       LATERDOG_SHARED_COMPUTERS_ENABLED: lendingEnabled() ? "1" : "0",
       LATERDOG_CLOUD_HOME: CLOUD_HOME ? "1" : "0",
+      LATERDOG_EMAIL_ME: CLOUD_HOME && deliverOwnerEmail ? "1" : "0",
       LATERDOG_VOICE_NOTES: (() => {
         const speaking = botForThread(botId, threadId) ?? store.bot(botId);
         return tts.voiceReady(cfg, speaking?.voice) && speaking?.voiceNotes !== false ? "1" : "0";
@@ -5027,8 +5040,12 @@ const providerLabel = (provider: string): string => {
   return bare.charAt(0).toUpperCase() + bare.slice(1);
 };
 
+const phonePush = createPhonePush({ dataDir: DATA_DIR });
+
 function notify(notification: Notification | null) {
-  if (notification) broadcast({ kind: "notify", notification });
+  if (!notification) return;
+  broadcast({ kind: "notify", notification });
+  void phonePush.send(notification);
 }
 
 const groupSpeakers = new Map<string, { botId: string; name: string; color: string }>();
@@ -13240,6 +13257,21 @@ ROUTES.push(createTakeoverRoutes({
   end: endTakeover,
 }));
 ROUTES.push(createSecureFormRoutes({ forms: secureForms }));
+ROUTES.push(createPhonePushRoutes({ push: phonePush }));
+INTERNAL_ROUTES.push(createEmailMeRoute({
+  deliver: CLOUD_HOME ? deliverOwnerEmail : null,
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  readMacFile: async (operation, capability) => {
+    const turn = capability as InternalCapability;
+    if (!lendingEnabled()) throw Object.assign(new Error("No Mac is lending folders to this home."), { status: 409 });
+    const principal = sharedComputerPrincipal(turn);
+    const why = !principal ? cloudLendingRefusal(turn) : null;
+    if (why === "someone-else" || why === "memory-changed") {
+      throw Object.assign(new Error(why === "someone-else" ? LENDING_SOMEONE_ELSE : LENDING_MEMORY_CHANGED), { status: 403 });
+    }
+    return sharedComputers.request(sharedComputerOperation.parse(operation), principal, () => lendingEnabled() && internalCapabilityIsActive(turn));
+  },
+}));
 INTERNAL_ROUTES.push(createTakeoverRequestRoute({
   ...takeoverLease,
   owner: connectorThread,
@@ -13469,6 +13501,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (result.status !== 200) console.warn(`cloud pairing refused from ${source}: ${String(result.body.error)}`);
       return json(res, result.status, result.body);
     }
+    if (homeActivityRoute?.(req, res, path, method, json)) return;
     if (method === "POST" && path === "/api/auth/pair") {
       if (!/^application\/json\b/i.test(String(req.headers["content-type"] ?? ""))) {
         return json(res, 415, { error: "send the pairing code as JSON (content-type: application/json)" });
@@ -13837,7 +13870,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         threadId: internalCapability.threadId,
       });
       if (await dispatchInternalRoutes(INTERNAL_ROUTES, {
-        req, res, url, path, method, json, sender: internalSender, threadId: internalCapability.threadId, readBody: readInternalBody,
+        req, res, url, path, method, json, sender: internalSender, threadId: internalCapability.threadId, capability: internalCapability, readBody: readInternalBody,
       })) return;
       if (path === "/api/internal/computer/select" && (method === "GET" || method === "POST")) {
         const source = computerSelectionTurns.get(internalCapability.threadId);
@@ -13986,7 +14019,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const principal = sharedComputerPrincipal(internalCapability);
         const why = CLOUD_HOME && !principal && sharedComputers.status(CLOUD_HOME_LENDER).length > 0 ? cloudLendingRefusal(internalCapability) : null;
         const notice = why === "someone-else" ? { unavailable: LENDING_SOMEONE_ELSE } : why === "memory-changed" ? { unavailable: LENDING_MEMORY_CHANGED } : {};
-        return json(res, 200, { computers: sharedComputers.list(principal), ...notice });
+        return json(res, 200, withConnectMac({ computers: sharedComputers.list(principal), ...notice }, Boolean(CLOUD_HOME) && sharedComputers.status(CLOUD_HOME_LENDER).length === 0));
       }
       if (method === "POST" && path === "/api/internal/shared-computers" && lendingEnabled()) {
         const parsed = sharedComputerOperation.safeParse(await readInternalBody());

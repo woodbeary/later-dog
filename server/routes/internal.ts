@@ -12,6 +12,7 @@ export interface InternalRouteContext {
   json: typeof json;
   sender: BotRecord;
   threadId: string;
+  capability: unknown;
   readBody(): Promise<any>;
 }
 
