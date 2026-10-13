@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
+import { copyText } from "@/lib/copy-text";
 import { appVersion, openExternalLink } from "@/lib/app-links";
 import { BUG_REPORT_TEXT_LIMIT, bugReportIssue, bugReportOs } from "@/lib/bug-report";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
@@ -24,6 +25,10 @@ export function BugReportDialog({ onClose }: { onClose: () => void }) {
   const threadId = state.activeView === "chat" ? owner?.threadId : undefined;
   const issue = bugReportIssue({ happened, expected, conversationId: includeConversation ? threadId : undefined,
     diagnostics, version: appVersion(), os: bugReportOs(window.laterdog?.platform, navigator.userAgent) });
+  const copyReport = async () => {
+    const result = await copyText(issue.report);
+    setError(result === "failed" ? t("common.copyFailed") : "");
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (pending || !happened.trim()) return;
@@ -63,7 +68,7 @@ export function BugReportDialog({ onClose }: { onClose: () => void }) {
         {window.laterdog?.exportDiagnostics && <label className="flex items-center gap-2"><input type="checkbox" checked={diagnostics} onChange={(event) => setDiagnostics(event.target.checked)} />{t("bugReport.diagnostics")}</label>}
         <p className="text-ink-secondary">{t("bugReport.finish")}</p>
         {saved && <p role="status">{t("bugReport.attach")}</p>}
-        {issue.shortened && <p className="text-ink-secondary">{t("bugReport.shortened")} <button type="button" className="text-accent-text" onClick={() => void navigator.clipboard.writeText(issue.report).catch((cause) => setError(String(cause)))}>{t("bugReport.copy")}</button></p>}
+        {issue.shortened && <p className="text-ink-secondary">{t("bugReport.shortened")} <button type="button" className="text-accent-text" onClick={() => void copyReport()}>{t("bugReport.copy")}</button></p>}
         {opened && <p role="status">{t("bugReport.opened")}</p>}
         {error && <p role="alert" className="text-danger">{error}</p>}
         <div className="flex justify-end"><button type="submit" disabled={pending || !happened.trim()} className="rounded-full bg-accent px-4 py-2 font-medium text-white disabled:opacity-45">{t(pending ? "bugReport.opening" : "bugReport.open")}</button></div>

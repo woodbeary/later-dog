@@ -81,7 +81,12 @@ function moreMenus() {
   const menus: Record<string, string[]> = {};
   for (const trigger of document.querySelectorAll<HTMLButtonElement>(`[data-mid] button[aria-label="${t("chat.messageActions")}"]`)) {
     flushSync(() => trigger.click());
-    const items = trigger.parentElement!.querySelectorAll('[role="menu"] [role="menuitem"]');
+    const menu = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(menu?.getAttribute("role")).toBe("menu");
+    expect(menu?.getAttribute("aria-label")).toBe(t("chat.messageActions"));
+    expect(trigger.closest("[data-mid]")!.contains(menu)).toBe(false);
+    const items = menu!.querySelectorAll('[role="menuitem"]');
     menus[trigger.closest("[data-mid]")!.getAttribute("data-mid")!] = [...items].map((item) => item.textContent ?? "");
     flushSync(() => trigger.click());
   }

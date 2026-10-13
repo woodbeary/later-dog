@@ -628,6 +628,7 @@ import { json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
+import { createHelpersRoutes } from "./routes/helpers.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
 import { GROUP_CHAT_REFUSAL, mayMakeGroupChats } from "./laterdog/group-chats.ts";
@@ -13335,6 +13336,13 @@ ROUTES.push(createBotMemoryRoutes({
 }));
 ROUTES.push(createDeciderRoutes({ decider }));
 ROUTES.push(createLaterDogRoutes());
+ROUTES.push(createHelpersRoutes({
+  board: helperBoard,
+  visibleThreads: auth => {
+    const visible = visibleTo(viewerFor(auth));
+    return threadId => visible.thread(threadId);
+  },
+}));
 ROUTES.push(createDogHelloRoutes({
   bot: (id) => store.bot(id) ?? undefined,
   messages: (threadId) => store.messagesFor(threadId),
@@ -13715,7 +13723,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       onJsonBody(res, (body) => memberBody(body, visible));
     }
     beginAdminAudit(req, res, method, path, auth);
-    if (method === "GET" && path === "/api/helpers") return json(res, 200, helperBoard.snapshot(threadId => visible.thread(threadId)));
 
     if (method === "POST" && path === "/api/workspace-backup/restore" && teamComputers.list().some(computer => computer.section !== null)) {
       return json(res, 409, { error: "Unassign pack computers before restoring a workspace; restored pack names must not gain access to existing desktops" });

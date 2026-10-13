@@ -162,7 +162,7 @@ describe("sidebar top row", () => {
 
 describe("sidebar glass head and foot", () => {
   it.each(["comfortable", "compact", "icons"] as const)(
-    "puts the top row and search in the glass head, Apps in the glass foot, and the list between at %s density",
+    "puts the top row and search in the glass head, Bug report in the glass foot, and the list between at %s density",
     (density) => {
       fixture.density = density;
       const html = render();
@@ -176,12 +176,12 @@ describe("sidebar glass head and foot", () => {
       const search = at('aria-label="Search dogs and messages"');
       const list = at('class="glass-scroller ');
       const foot = at('data-glass-bar="bottom"');
-      const apps = at('data-sidebar-nav="apps"');
+      const bugReport = at('data-sidebar-nav="bug-report"');
       expect(head).toBeLessThan(topRow);
       expect(topRow).toBeLessThan(search);
       expect(search).toBeLessThan(list);
       expect(list).toBeLessThan(foot);
-      expect(foot).toBeLessThan(apps);
+      expect(foot).toBeLessThan(bugReport);
       expect(html.match(/data-glass-frame=""/g)).toHaveLength(1);
       expect(at("data-glass-frame")).toBeLessThan(head);
     },
@@ -189,13 +189,13 @@ describe("sidebar glass head and foot", () => {
 });
 
 describe("sidebar foot", () => {
-  it.each(["comfortable", "compact"] as const)("keeps only the profile row, with Apps at its end (%s)", (density) => {
+  it.each(["comfortable", "compact"] as const)("keeps only the profile row, with Bug report at its end (%s)", (density) => {
     fixture.density = density;
     const html = render();
     const foot = html.indexOf('data-glass-bar="bottom"');
     expect(html).not.toContain('data-sidebar-nav="routines"');
     expect(html).not.toContain('data-sidebar-nav="triggers"');
-    expect(html.match(/data-sidebar-nav="apps"/g)).toHaveLength(1);
-    expect(html.indexOf('data-sidebar-nav="apps"')).toBeGreaterThan(foot);
+    expect(html.match(/data-sidebar-nav="bug-report"/g)).toHaveLength(1);
+    expect(html.indexOf('data-sidebar-nav="bug-report"')).toBeGreaterThan(foot);
   });
 });

@@ -27,7 +27,7 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, auto =
   onReorder?: (ids: string[]) => void;
 }) {
   const drag = useAccountDrag(
-    rows.map((row) => ({ id: row.instance.instanceId, kind: "account", movable: Boolean(!auto && onReorder && row.movable) })),
+    rows.map((row) => ({ id: row.instance.instanceId, kind: row.movable ? "account" : `fixed:${row.instance.instanceId}`, movable: Boolean(!auto && onReorder && row.movable) })),
     (ids) => onReorder?.(ids),
   );
   const shown = drag.order.flatMap((id) => rows.filter((row) => row.instance.instanceId === id));

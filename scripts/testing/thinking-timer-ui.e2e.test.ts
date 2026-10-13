@@ -76,6 +76,24 @@ function launch(args: string[]): Promise<Launched> {
 const ui = (verb: string, handle: string, ...args: string[]) =>
   runControlLaterDog(["ui", verb, "--ui", handle, ...args]) as Promise<Record<string, any>>;
 
+const progressDialog = `Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).find(dialog =>
+  document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent === 'See progress')`;
+const progressTimer = async (handle: string): Promise<string | null> =>
+  (await ui("eval", handle, "--js", `${progressDialog}?.querySelector('span.tabular-nums')?.textContent ?? null`)).result;
+
+async function openProgress(handle: string): Promise<string> {
+  await waitUntil(async () => (await ui("eval", handle, "--js", `Boolean(document.querySelector('button[aria-label="See progress"][aria-haspopup="dialog"]'))`)).result, 15_000, "the progress button to appear");
+  await ui("click", handle, "--name", "See progress");
+  await waitUntil(async () => (await ui("eval", handle, "--js", `Boolean(${progressDialog}) && Boolean(document.querySelector('button[aria-label="See progress"][aria-expanded="true"]'))`)).result, 10_000, "the named progress dialog to open");
+  return await waitUntil(() => progressTimer(handle), 15_000, "the progress timer to appear") as string;
+}
+
+async function closeProgress(handle: string): Promise<void> {
+  await ui("press", handle, "--keys", "Escape");
+  await waitUntil(async () => (await ui("eval", handle, "--js", `!(${progressDialog}) && Boolean(document.querySelector('button[aria-label="See progress"][aria-expanded="false"]'))`)).result, 10_000, "the progress dialog to close");
+  expect((await ui("eval", handle, "--js", `document.activeElement?.getAttribute('aria-label')`)).result).toBe("See progress");
+}
+
 function elapsedSeconds(text: string): number {
   const minutes = /^(\d+)m (\d{2})s$/.exec(text);
   if (minutes) return Number(minutes[1]) * 60 + Number(minutes[2]);
@@ -135,7 +153,7 @@ describe("the thinking timer stays anchored across a thread switch", () => {
     const { info } = launched;
     const api = fixtureApi(info.url);
     const evaluate = async (js: string) => (await ui("eval", info.ui, "--js", js)).result;
-    const timerText = () => evaluate(`document.querySelector('.turn-presence .tabular-nums')?.textContent ?? null`);
+    const timerText = () => progressTimer(info.ui);
     const selectThread = (threadId: string) => evaluate(`document.querySelector('[data-sidebar-thread-row="${threadId}"]')?.click(); true`);
     const isCurrent = (threadId: string) => evaluate(`Boolean(document.querySelector('[data-sidebar-thread-row="${threadId}"][aria-current="page"]'))`);
     const taskOf = async (threadId: string) =>
@@ -160,19 +178,20 @@ describe("the thinking timer stays anchored across a thread switch", () => {
     expect(stamp).toBeGreaterThanOrEqual(sentAt - 2_000);
     expect(stamp).toBeLessThanOrEqual(Date.now() + 2_000);
 
-    const first = await waitUntil(timerText, 15_000, "the thinking readout to appear");
+    const first = await openProgress(info.ui);
     expect(elapsedSeconds(first)).toBeGreaterThanOrEqual(0);
     await new Promise((done) => setTimeout(done, Math.max(0, stamp + 10_000 - Date.now())));
-    const beforeSwitch = await timerText();
+    const beforeSwitch = (await timerText())!;
     expect(elapsedSeconds(beforeSwitch)).toBeGreaterThanOrEqual(Math.floor((Date.now() - stamp) / 1000) - 2);
 
+    await closeProgress(info.ui);
     await selectThread(otherThread);
     await waitUntil(() => isCurrent(otherThread), 10_000, "the other thread to become current");
     await new Promise((done) => setTimeout(done, 3_000));
     await selectThread(busyThread);
     await waitUntil(() => isCurrent(busyThread), 10_000, "the busy thread to become current again");
 
-    const resumed = await waitUntil(timerText, 10_000, "the thinking readout to appear again");
+    const resumed = await openProgress(info.ui);
     const away = (Date.now() - stamp) / 1000;
     expect(elapsedSeconds(resumed)).toBeGreaterThanOrEqual(Math.floor(away) - 3);
     expect(elapsedSeconds(resumed)).toBeGreaterThanOrEqual(10);
@@ -194,7 +213,7 @@ describe("the thinking timer stays anchored across a thread switch", () => {
     const { info } = launched;
     const api = fixtureApi(info.url);
     const evaluate = async (js: string) => (await ui("eval", info.ui, "--js", js)).result;
-    const timerText = () => evaluate(`document.querySelector('.turn-presence .tabular-nums')?.textContent ?? null`);
+    const timerText = () => progressTimer(info.ui);
     const botsState = () => api("GET", "/api/bots");
     const groupState = async () => (await botsState()).groups.find((row: any) => row.id === groupId);
 
@@ -225,19 +244,20 @@ describe("the thinking timer stays anchored across a thread switch", () => {
     expect(stamp).toBeGreaterThanOrEqual(sentAt - 2_000);
     expect(stamp).toBeLessThanOrEqual(Date.now() + 2_000);
 
-    const first = await waitUntil(timerText, 15_000, "the group's thinking readout to appear");
+    const first = await openProgress(info.ui);
     expect(elapsedSeconds(first)).toBeGreaterThanOrEqual(0);
     await new Promise((done) => setTimeout(done, Math.max(0, stamp + 10_000 - Date.now())));
-    const beforeSwitch = await timerText();
+    const beforeSwitch = (await timerText())!;
     expect(elapsedSeconds(beforeSwitch)).toBeGreaterThanOrEqual(Math.floor((Date.now() - stamp) / 1000) - 2);
 
+    await closeProgress(info.ui);
     await selectRow(soloRow);
     await waitUntil(() => isCurrentRow(soloRow), 10_000, "the 1:1 thread to become current");
     await new Promise((done) => setTimeout(done, 3_000));
     await selectRow(groupRow);
     await waitUntil(() => isCurrentRow(groupRow), 10_000, "the group to become current again");
 
-    const resumed = await waitUntil(timerText, 10_000, "the group's thinking readout to appear again");
+    const resumed = await openProgress(info.ui);
     const away = (Date.now() - stamp) / 1000;
     expect(elapsedSeconds(resumed)).toBeGreaterThanOrEqual(Math.floor(away) - 3);
     expect(elapsedSeconds(resumed)).toBeGreaterThanOrEqual(10);

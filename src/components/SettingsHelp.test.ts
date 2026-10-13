@@ -14,7 +14,7 @@ vi.mock("@/lib/app-links", async (importOriginal) => ({
   appVersion: () => "1.2.3",
   openExternalLink: fixture.openExternalLink,
 }));
-vi.mock("./AccountsPanel", () => ({ AccountsPanel: () => null }));
+vi.mock("./AccountsPanel", () => ({ AccountsPanel: () => null, AccountsRefresh: () => null }));
 vi.mock("./AboutMeSettings", () => ({ AboutMeSettings: () => null }));
 vi.mock("./ReleaseCheck", async (importOriginal) => ({ ...await importOriginal<typeof import("./ReleaseCheck")>(), AboutReleaseLine: () => null }));
 

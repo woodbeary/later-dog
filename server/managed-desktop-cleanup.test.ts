@@ -42,6 +42,8 @@ function fixture(kind: "direct" | "group", threadIds = ["first"]) {
   const started = new Map<string, ReturnType<typeof deferred>>(), interrupted = new Map<string, ReturnType<typeof deferred>>();
   const interruptCalls: string[] = [], cancelled: string[] = [], revoked: string[] = [], messages: string[] = [], settled: string[] = [], detached: string[] = [];
   const pendingComputerResumes = new Map<string, { threadId: string }>();
+  const pendingBatteryTurns = new Map<string, string>();
+  const cancelledBatteryTurns: Array<{ threadId: string; reason: string }> = [];
   const resumeDrains: number[] = [];
   const microtasks: Array<() => void> = [];
   for (const threadId of threadIds) {
@@ -75,6 +77,11 @@ function fixture(kind: "direct" | "group", threadIds = ["first"]) {
     } } }) },
     turnResourceOwners: owners, directTurnGenerationByThread: generations, directTurnBots: directBots, groupSpeakers: speakers,
     directRequestOwners: new Map(),
+    accountBattery: { pending: (threadId: string, generation: string) => pendingBatteryTurns.get(threadId) === generation },
+    cancelBatteryContinuation: (threadId: string, reason: string) => {
+      cancelledBatteryTurns.push({ threadId, reason });
+      pendingBatteryTurns.delete(threadId);
+    },
     autoVmClaims,
     turnResources: { release() {} }, settlingResourceOwners: new Map(), turnComputerResources: new Map(), teamComputerTurns: new Map(),
     roomHandoffs: { stopAwaitingDirect() {} }, noteTeammatesLeftRunning() {},
@@ -97,7 +104,7 @@ function fixture(kind: "direct" | "group", threadIds = ["first"]) {
     bots, tasks, groups, owners, directBots, speakers, vmLeases, approvals, screens, watched,
     autoVmClaims,
     interruptCalls, cancelled, revoked, messages, settled, detached,
-    pendingComputerResumes, resumeDrains, microtasks,
+    pendingComputerResumes, pendingBatteryTurns, cancelledBatteryTurns, resumeDrains, microtasks,
     flushMicrotasks: () => { for (const run of microtasks.splice(0)) run(); },
     context,
     stop: () => context.stopCompanyInstances(["company"]) as Promise<void>,
@@ -147,6 +154,22 @@ it("preserves a personal direct turn started while a slower Company sibling is s
 it("interruptDirectThread cannot close a replacement generation's approval after awaiting its adapter", async () => {
   const f = fixture("direct"), interrupted = f.interrupt("first");
   await f.started("first"); f.replace("first"); f.finish("first"); await interrupted;
+  expectPersonalResources(f, "first");
+});
+
+it("interruptDirectThread cancels only the pending account continuation belonging to the interrupted generation", async () => {
+  const f = fixture("direct");
+  f.pendingBatteryTurns.set("first", "company-first");
+  const interrupted = f.interrupt("first");
+  await f.started("first");
+  expect(f.cancelledBatteryTurns).toEqual([{ threadId: "first", reason: "You stopped this work. Automatic continuation is cancelled." }]);
+  expect(f.pendingBatteryTurns.has("first")).toBe(false);
+  f.replace("first");
+  f.pendingBatteryTurns.set("first", "personal-first");
+  f.finish("first");
+  await interrupted;
+  expect(f.pendingBatteryTurns.get("first")).toBe("personal-first");
+  expect(f.cancelledBatteryTurns).toHaveLength(1);
   expectPersonalResources(f, "first");
 });
 

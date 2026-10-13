@@ -23,7 +23,7 @@ import { startFakeOAuth } from "./testing/fake-oauth-server.ts";
 import { freePortBlock, withFreeSignInPort } from "./testing/ports.ts";
 import { openSse } from "./testing/sse.ts";
 import { FILE_MAX_BYTES, IMAGE_MAX_BYTES } from "./attachments.ts";
-import { computerPrompt, SIGN_IN_PROMPT } from "./system-prompt.ts";
+import { computerPrompt, SIGN_IN_PROMPT, VOICE_PROMPT } from "./system-prompt.ts";
 import {
   PHONE_SECRET_INFO,
   phoneSecretAAD,
@@ -8113,9 +8113,12 @@ describe("harness HTTP API", () => {
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "/setup watch Discord too" })).status).toBe(202);
       const seen = await readJsonFileWhenReady<{ systemPrompt?: string; prompt?: { message?: { content?: unknown } } }>(fakeClaudeDump, 15_000);
       const system: string = seen.systemPrompt ?? "";
-      const soulEnd = system.indexOf("--- END STANDING INSTRUCTIONS ---") + "--- END STANDING INSTRUCTIONS ---".length;
-      expect(soulEnd).toBeGreaterThan(0);
-      expect(system.slice(soulEnd).startsWith("\n\nThe user explicitly asked you to set yourself up")).toBe(true);
+      const soul = "--- BEGIN STANDING INSTRUCTIONS (SOUL.md, 17 bytes) ---\nNever file noise.\n--- END STANDING INSTRUCTIONS ---";
+      const soulStart = system.indexOf(soul);
+      expect(soulStart).toBeGreaterThanOrEqual(0);
+      const soulEnd = soulStart + soul.length;
+      const afterSoul = `${VOICE_PROMPT}\n\nThe user explicitly asked you to set yourself up`;
+      expect(system.slice(soulEnd, soulEnd + afterSoul.length)).toBe(afterSoul);
       const content: unknown = seen.prompt?.message?.content;
       const userText: string = typeof content === "string"
         ? content
