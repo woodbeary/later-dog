@@ -1686,8 +1686,13 @@ button:disabled.bg-danger {
   opacity: 1;
 }
 
-[data-sidebar] :is(button, [role="button"]):not(:disabled, [aria-busy="true"]) {
-  cursor: pointer;
+@layer base {
+  :is(button, [role="button"]):not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
+    cursor: pointer;
+  }
+  :is(button, [role="button"]):is(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
+    cursor: default;
+  }
 }
 ::highlight(laterdog-citation-source) {
   background-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
