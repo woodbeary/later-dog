@@ -15,6 +15,8 @@
   "vars": {
     "BETTER_AUTH_URL": "https://accounts.later.dog",
     "EMAIL_FROM": "noreply@later.dog",
+    "REVIEW_EMAIL": "appreview@later.dog",
+    "PHONE_APP_URL": "",
     "ALLOWED_ORIGINS": "",
     // Your own account and the zone that holds COMPANION_HOST_SUFFIX.
     "CLOUDFLARE_ACCOUNT_ID": "",
@@ -32,7 +34,9 @@
     "LATERDOG_TUNNEL_OFFLINE_RECLAIM_DAYS": "14",
     // Cleanup rows per five-minute cron run. 20 needs Workers Paid; use 4 on
     // Workers Free (50 subrequests per invocation).
-    "LATERDOG_CLEANUP_SWEEP_LIMIT": "4"
+    "LATERDOG_CLEANUP_SWEEP_LIMIT": "4",
+    "CLOUD_HOME_CAP": "200",
+    "MANAGED_ENDPOINTS": "off"
   },
   "secrets": {
     "required": ["BETTER_AUTH_SECRET", "CLOUDFLARE_API_TOKEN"]
@@ -50,6 +54,9 @@
       "name": "EMAIL",
       "allowed_sender_addresses": ["noreply@later.dog"]
     }
+  ],
+  "services": [
+    { "binding": "HOMES", "service": "laterdog-home", "entrypoint": "HomesApi" }
   ],
   "triggers": {
     "crons": ["*/5 * * * *"]

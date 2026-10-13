@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { accountSession, createAuth, deleteExpiredVerifications } from "./auth";
+import { cloudHomeCap, cloudRoute, type HomesService } from "./cloud";
+import { inviteFromWaitlist } from "./waitlist";
+import { cloudPage, phoneAppTarget } from "./cloud-pages";
+export { AccountsApi } from "./owner-mail";
 import { readConfig, type ControlPlaneConfig } from "./config";
 import { errorResponse, HTTPError, json, preflight, secureResponse, withBoundedRequestBody } from "./http";
 import { limitedOTPResponse } from "./otp-rate-limit";
@@ -66,6 +70,7 @@ async function route(
   config: ControlPlaneConfig,
   requestId: string,
   cloudflareFetch: CloudflareFetch,
+  homes: HomesService | null,
 ) {
   const url = new URL(request.url);
   if (request.method === "OPTIONS") return preflight(request, config);
@@ -93,6 +98,11 @@ async function route(
   }
 
   const auth = createAuth(env, ctx, config, requestId);
+  if (url.pathname.startsWith("/api/cloud/")) {
+    if (!homes) return errorResponse(503, "cloud_unavailable");
+    const cloud = await cloudRoute(request, env, auth, config, homes);
+    if (cloud) return cloud;
+  }
   if (request.method === "GET" && url.pathname === "/v1/me") {
     const session = await accountSession(request, auth);
     if (!session) throw new HTTPError(401, "unauthorized");
@@ -116,6 +126,7 @@ async function route(
   }
   if (url.pathname === "/v1/installations/self/endpoint") {
     if (request.method === "GET") return getManagedEndpoint(request, env);
+    if (!config.managedEndpoints) return errorResponse(503, "endpoints_unavailable");
     if (request.method === "POST") {
       return provisionManagedEndpoint(request, env, config, cloudflareFetch, requestId);
     }
@@ -131,6 +142,7 @@ async function route(
   const installation = url.pathname.match(INSTALLATION_ROUTE);
   if (request.method === "DELETE" && installation) {
     const response = await revokeInstallation(request, installation[1], env, auth);
+    if (!config.managedEndpoints) return response;
     ctx.waitUntil(cleanupEndpointForInstallation(
       env,
       config,
@@ -149,7 +161,14 @@ async function route(
   return errorResponse(404, "not_found");
 }
 
-export function createWorker(cloudflareFetch: CloudflareFetch = fetch) {
+function boundHomes(env: Env): HomesService | null {
+  return (env as unknown as { HOMES?: HomesService }).HOMES ?? null;
+}
+
+export function createWorker(
+  cloudflareFetch: CloudflareFetch = fetch,
+  homesFor: (env: Env) => HomesService | null = boundHomes,
+) {
   return {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
       const requestId = crypto.randomUUID();
@@ -161,13 +180,16 @@ export function createWorker(cloudflareFetch: CloudflareFetch = fetch) {
         } catch {
           return secureResponse(errorResponse(503, "misconfigured"), request, null, requestId);
         }
-        const capacity = await capacityHealth(env, healthConfig, ctx).catch(() => null);
+        const capacity = healthConfig.managedEndpoints ? await capacityHealth(env, healthConfig, ctx).catch(() => null) : null;
         return secureResponse(json({
           ok: true,
           service: "laterdog-control-plane",
           ...(capacity === null ? {} : { capacity }),
         }), request, null, requestId);
       }
+
+      const page = cloudPage(request, phoneAppTarget((env as unknown as { PHONE_APP_URL?: unknown }).PHONE_APP_URL));
+      if (page) return secureResponse(page, request, null, requestId);
 
       let config: ControlPlaneConfig | null = null;
       try {
@@ -178,7 +200,7 @@ export function createWorker(cloudflareFetch: CloudflareFetch = fetch) {
         }
         const boundedRequest = await withBoundedRequestBody(request);
         return secureResponse(
-          await route(boundedRequest, env, ctx, config, requestId, cloudflareFetch),
+          await route(boundedRequest, env, ctx, config, requestId, cloudflareFetch, homesFor(env)),
           request,
           config,
           requestId,
@@ -205,6 +227,13 @@ export function createWorker(cloudflareFetch: CloudflareFetch = fetch) {
           }));
           return;
         }
+        try {
+          const invited = await inviteFromWaitlist(env, cloudHomeCap(env));
+          if (invited) console.log(JSON.stringify({ message: "invited people from the waitlist", requestId, invited }));
+        } catch {
+          console.error(JSON.stringify({ message: "waitlist invites failed", requestId, errorCode: "waitlist_failed" }));
+        }
+        if (!config.managedEndpoints) return;
         try {
           await scanTunnelCapacity(env, config, cloudflareFetch, requestId);
         } catch {
