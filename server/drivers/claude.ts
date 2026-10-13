@@ -30,6 +30,7 @@ import { assertToolScopeSupported } from "../../shared/tool-scope-support.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { askInputSummary, commandSummary, toolDetailPreview } from "../tool-summary.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
+import { ClaudeTasks } from "./claude-tasks.ts";
 import { sessionIdlePolicy } from "./session-idle.ts";
 import { parseVersionTriple, versionAtLeast } from "./acp/core.ts";
 import {
@@ -918,6 +919,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         armGrace?: () => void;
         continuationSilence: ReturnType<typeof setTimeout> | null;
       } | null;
+      helperTurnId: string;
+      helpers: ClaudeTasks;
+      helperTimer: ReturnType<typeof setTimeout> | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
       closing: boolean;
       stderr: string;
@@ -952,7 +956,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     };
     const armIdle = (threadId: string) => {
       const s = sessions.get(threadId);
-      if (!s) return;
+      if (!s || s.helpers.running()) return;
       if (s.idleTimer) clearTimeout(s.idleTimer);
       s.idleTimer = setTimeout(() => closeSession(threadId, "idle"), SESSION_IDLE_MS);
       s.idleTimer.unref?.();
@@ -1200,6 +1204,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const live = sessions.get(threadId);
       if (!turn.sessionReset && live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
         if (live.idleTimer) clearTimeout(live.idleTimer);
+        live.helpers.beginTurn();
+        live.helperTurnId = turnId;
         live.turn = { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, awaitingInit: true, pendingSteers: new Set(), deferred: null, continuationGrace: null, continuationSilence: null };
         active.set(threadId, { stop: () => {
           if (live.turn) live.turn.stopRequested = true;
@@ -1345,6 +1351,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         nativePermissionMode: null,
         replaysUserMessages,
         turn: { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, pendingSteers: new Set(), deferred: null, continuationGrace: null, continuationSilence: null },
+        helperTurnId: turnId,
+        helpers: new ClaudeTasks((helper) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "helper.updated", helper })),
+        helperTimer: null,
         idleTimer: null,
         closing: false,
         stderr: "",
@@ -1361,6 +1370,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         const t = session.turn;
         if (!t || t.settled) return;
         t.settled = true;
+        if (session.helperTimer) clearTimeout(session.helperTimer);
+        session.helperTimer = null;
+        if (session.helpers.running()) {
+          closeSession(threadId, "helpers stopped at turn end");
+          stopSession(session);
+        }
         if (t.continuationGrace) {
           clearTimeout(t.continuationGrace);
           t.continuationGrace = null;
@@ -1389,7 +1404,24 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
       const settleResult = (result: NativeTurnResult) => settle(result.ok, result.stopReason, result.cost, result.usage);
-      const currentTurnId = () => session.turn?.turnId ?? turnId;
+      const currentTurnId = () => session.turn?.turnId ?? session.helperTurnId;
+      const continueAfterHelpers = (): boolean => {
+        const held = session.turn;
+        if (!held?.deferred || held.settled || held.stopRequested || session.helpers.backgroundRunning()) return false;
+        if (session.helpers.continuationLimitReached()) {
+          emit({ ...base(threadId, held.turnId), type: "runtime.error", message: "Your dog reached the limit for consecutive helper rounds. Check its reported results before continuing." });
+          settle(false, "helper_continuation_limit");
+          return true;
+        }
+        if (!session.helpers.takeContinuation()) return false;
+        void writeUser(session, threadId, claudeUserMessage("Your background helpers have finished. Review their reported results, complete the original request, and reply. Do not repeat work that is already complete.", undefined)).then((written) => {
+          if (!written && session.turn === held && !held.settled) {
+            emit({ ...base(threadId, held.turnId), type: "runtime.error", message: "Your helpers finished, but their results could not be delivered to the dog." });
+            settle(false, "helper_continuation_failed");
+          }
+        });
+        return true;
+      };
       const noteCostState = (total: unknown, modelUsage: unknown, usage: Parameters<typeof restoredCostBase>[2]) => {
         const state = claudeCostSnapshot(total, modelUsage);
         if (!state) return;
@@ -1416,6 +1448,25 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
         switch (o.type) {
           case "system":
+            if (session.helpers.receive(o)) {
+              if (session.helpers.running() && session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null; }
+              if (session.helpers.running() && !session.helperTimer) {
+                const helperMaxMs = Math.min(2_147_483_647, Math.max(1_000, Number(input.environment.LATERDOG_HELPERS_MAX_MS ?? process.env.LATERDOG_HELPERS_MAX_MS) || 4 * 60 * 60_000));
+                session.helperTimer = setTimeout(() => {
+                  if (!session.helpers.running()) return;
+                  emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: "Your helpers reached their time limit and are being stopped." });
+                  const runningTurn = active.get(threadId);
+                  if (runningTurn) runningTurn.stop();
+                  else { closeSession(threadId, "helper time limit"); stopSession(session); }
+                }, helperMaxMs);
+                session.helperTimer.unref?.();
+              }
+              if (!session.helpers.running() && session.helperTimer) {
+                clearTimeout(session.helperTimer);
+                session.helperTimer = null;
+              }
+              break;
+            }
             if (o.subtype === "init") {
               const tools: unknown[] = Array.isArray(o.tools) ? o.tools : [];
               if (session.turn?.input.guestConfined && (o.permissionMode !== "default" || tools.some((tool) => typeof tool === "string" && GUEST_FORBIDDEN_TOOLS.has(tool)))) {
@@ -1545,7 +1596,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             break;
           }
           case "result": {
-            if (o.origin?.kind === "task-notification") break;
+            if (o.origin?.kind === "task-notification") {
+              continueAfterHelpers();
+              break;
+            }
             noteCostState(o.total_cost_usd, o.modelUsage, {
               input: o.usage?.input_tokens || 0,
               cacheRead: o.usage?.cache_read_input_tokens || 0,
@@ -1575,6 +1629,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 : {}),
             };
             const t = session.turn;
+            if (t && !t.settled && session.helpers.backgroundRunning() && native.ok && !t.usageLimited && !t.authFailed && !t.updateRequired) {
+              t.deferred = sumNativeTurnResults(t.deferred, native);
+              if (t.continuationGrace) clearTimeout(t.continuationGrace);
+              t.continuationGrace = null;
+              break;
+            }
             const queuedTurns = typeof o.queued_turn_count === "number" ? o.queued_turn_count : 0;
             if (t && !t.settled && (queuedTurns > 0 || t.pendingSteers.size > 0)) {
               if (!session.replaysUserMessages) t.pendingSteers.clear();
@@ -1592,6 +1652,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               t.armGrace();
               appendNative(threadId, { dir: "out", source: "claude.session", msg: { hold: `result: a steered message is still queued (queued_turn_count ${o.queued_turn_count ?? "absent"})` } });
               break;
+            }
+            if (t && native.ok && !t.usageLimited && !t.authFailed && !t.updateRequired) {
+              const earlier = t.deferred;
+              t.deferred = sumNativeTurnResults(earlier, native);
+              if (continueAfterHelpers()) break;
+              t.deferred = earlier;
             }
             settleResult(sumNativeTurnResults(t?.deferred ?? null, native));
             break;
@@ -1632,6 +1698,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
         if (closeFinalized) return;
         closeFinalized = true;
+        if (session.helperTimer) clearTimeout(session.helperTimer);
+        session.helperTimer = null;
+        if (session.helpers.stop()) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: "The helpers stopped with this turn." });
         if (session.turn?.stopRequested && !session.turn.settled) {
           settle(false, "interrupted");
         } else if (session.turn?.deferred && !session.turn.settled) {

@@ -358,6 +358,7 @@ import { buildRecoveryText, buildTurnContext, engineIsFresh, NATIVELY_REPLAYING_
 import { Handoffs, handedStateUsable, recordHanded, renderUnseen, sessionStart, unseenMessages, withUnseenMessages, type ContextMessage } from "./delta-context.ts";
 import { extractTurnImages } from "./turn-images.ts";
 import { threadTitlePrompt, titleConversationExcerpt, type ThreadTitleSource } from "./thread-title.ts";
+import { HelperBoard } from "./laterdog/helper-board.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { TurnResources, type TurnOwner } from "./turn-resources.ts";
 import {
@@ -5048,7 +5049,9 @@ const GROUP_GOAL_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_GOAL_
 const COMPUTER_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_COMPUTER_WAIT_MAX_MS) || 30 * 60_000);
 const GROUP_GOAL_MAX_WAIT_EXHAUSTIONS = 3;
 const roomStallCompletions = new RoomTurnStallRegistry();
+const helperBoard = new HelperBoard();
 const watchdog = new TurnWatchdog({
+  helpersMaxMs: Math.max(1_000, Number(process.env.LATERDOG_HELPERS_MAX_MS) || 4 * 60 * 60_000),
   stallMs: TURN_STALL_MS,
   checkMs: 60_000,
   onStall: (turn) => {
@@ -5063,18 +5066,19 @@ const watchdog = new TurnWatchdog({
     const routineRun = activeRoutineRunForThread(turn.threadId);
     void runningTurnInstance(bot, turn.threadId)?.adapter.interruptTurn(turn.threadId).catch(() => {});
     const minutes = Math.round(TURN_STALL_MS / 60_000);
+    const detail = turn.waitingOnHelpers ? "The helpers reached their time limit and were stopped" : `no activity for ${minutes} minutes — the turn was stopped`;
     if (routineRun?.target === "bot") {
-      routines?.failThread(turn.threadId, `No activity for ${minutes} minutes — the routine was stopped`);
+      routines?.failThread(turn.threadId, detail);
       pendingDelegationWakes.delete(turn.threadId);
       discardDelegations(commsBus, turn.threadId);
     }
     store.appendMessage(turn.threadId, {
       role: "bot",
       kind: "activity",
-      tool: failedTurnTool(`no activity for ${minutes} minutes — the turn was stopped`),
+      tool: failedTurnTool(detail),
     });
     if (bot && routineRun?.target !== "bot") {
-      reportIncident({ kind: "stalled", bot, threadId: turn.threadId, detail: `no activity for ${minutes} minutes — the turn was stopped` });
+      reportIncident({ kind: "stalled", bot, threadId: turn.threadId, detail });
     }
     settleDirectFollowup(stalledGeneration);
     finalizeDelegationWatch(turn.threadId, false, "", "Delegated turn stalled and was stopped");
@@ -5127,6 +5131,12 @@ watchdog.start();
 
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
+  if (event.type === "turn.started") helperBoard.start(event.threadId);
+  if (event.type === "helper.updated") {
+    helperBoard.update(event.threadId, event.helper);
+    watchdog.setWaitingOnHelpers(event.threadId, helperBoard.running(event.threadId));
+  }
+  if (event.type === "turn.completed") helperBoard.settle(event.threadId);
   if (event.type === "request.opened") watchdog.setWaitingOnHuman(event.threadId, true);
   else if (event.type === "request.resolved") watchdog.setWaitingOnHuman(event.threadId, false);
   else if (event.type === "turn.wait_started") watchdog.setWaitingOnComputer(event.threadId, true);
@@ -13563,6 +13573,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       onJsonBody(res, (body) => memberBody(body, visible));
     }
     beginAdminAudit(req, res, method, path, auth);
+    if (method === "GET" && path === "/api/helpers") return json(res, 200, helperBoard.snapshot(threadId => visible.thread(threadId)));
 
     if (method === "POST" && path === "/api/workspace-backup/restore" && teamComputers.list().some(computer => computer.section !== null)) {
       return json(res, 409, { error: "Unassign pack computers before restoring a workspace; restored pack names must not gain access to existing desktops" });

@@ -5,11 +5,14 @@ export interface WatchedTurn {
   lastEventAt: number;
   waitingOnHuman: boolean;
   waitingOnComputer: boolean;
+  waitingOnHelpers: boolean;
+  helpersStartedAt?: number;
 }
 
 export interface TurnWatchdogOptions {
   stallMs: number;
   checkMs: number;
+  helpersMaxMs?: number;
   onStall: (turn: WatchedTurn) => void;
   now?: () => number;
 }
@@ -41,7 +44,7 @@ export class TurnWatchdog {
 
   watch(threadId: string, botId: string): void {
     const at = this.now();
-    this.turns.set(threadId, { threadId, botId, startedAt: at, lastEventAt: at, waitingOnHuman: false, waitingOnComputer: false });
+    this.turns.set(threadId, { threadId, botId, startedAt: at, lastEventAt: at, waitingOnHuman: false, waitingOnComputer: false, waitingOnHelpers: false });
   }
 
   touch(threadId: string): void {
@@ -63,6 +66,15 @@ export class TurnWatchdog {
     turn.lastEventAt = this.now();
   }
 
+  setWaitingOnHelpers(threadId: string, waiting: boolean): void {
+    const turn = this.turns.get(threadId);
+    if (!turn) return;
+    if (waiting && !turn.waitingOnHelpers) turn.helpersStartedAt = this.now();
+    if (!waiting) turn.helpersStartedAt = undefined;
+    turn.waitingOnHelpers = waiting;
+    turn.lastEventAt = this.now();
+  }
+
   settle(threadId: string): void {
     this.turns.delete(threadId);
   }
@@ -74,8 +86,11 @@ export class TurnWatchdog {
   sweep(): void {
     const at = this.now();
     for (const turn of this.turns.values()) {
-      if (turn.waitingOnHuman || turn.waitingOnComputer) continue;
-      if (at - turn.lastEventAt < this.opts.stallMs) continue;
+      const helperDeadline = turn.waitingOnHelpers && turn.helpersStartedAt !== undefined && at - turn.helpersStartedAt >= (this.opts.helpersMaxMs ?? 4 * 60 * 60_000);
+      if (!helperDeadline) {
+        if (turn.waitingOnHuman || turn.waitingOnComputer || turn.waitingOnHelpers) continue;
+        if (at - turn.lastEventAt < this.opts.stallMs) continue;
+      }
       this.turns.delete(turn.threadId);
       this.opts.onStall(turn);
     }

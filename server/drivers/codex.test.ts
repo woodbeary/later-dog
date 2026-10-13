@@ -654,6 +654,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     await instance.adapter.sendTurn({ threadId: "t-helper-events", text: "use a helper then continue" });
     const permission = await recorder.until((event) => event.type === "request.opened");
     expect(permission).toMatchObject({ summary: "echo parent continues" });
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "helper.updated", helper: expect.objectContaining({ label: "checker", state: "done" }) }));
     expect(recorder.events.some((event) => event.type === "turn.completed")).toBe(false);
     expect(JSON.stringify(recorder.events)).not.toContain("FOREIGN");
     expect(recorder.events.some((event) => event.type === "thread.token-usage.updated")).toBe(false);

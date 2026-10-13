@@ -1774,6 +1774,30 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("--dangerously-skip-permissions");
   });
 
+  it.each([false, true])("holds helpers open and resumes exactly once (reordered: %s)", async (reorder) => {
+    const gate = join(scratch, "helpers-finish");
+    await create("puppies", { FAKE_CLAUDE_PUPPIES_GATE: gate, FAKE_CLAUDE_PUPPIES_STAGGER_MS: "10", FAKE_CLAUDE_PUPPIES_REORDER: reorder ? "1" : "0", FAKE_CLAUDE_PUPPIES_ECHO: "1" });
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-puppies", text: "Check these notes" });
+    await recorder.until(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("working now"));
+    expect(recorder.events.some(e => e.type === "turn.completed")).toBe(false);
+    expect(instance.adapter.hasSession("t-puppies")).toBe(true);
+    writeFileSync(gate, "done");
+    await recorder.until(e => e.type === "turn.completed");
+    expect(recorder.events.filter(e => e.type === "turn.completed")).toEqual([expect.objectContaining({ turnId, ok: true })]);
+    expect(recorder.events.filter(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("Both helpers are back"))).toHaveLength(1);
+    expect(recorder.events.filter(e => e.type === "helper.updated" && e.helper.state === "done").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it.each(["stop", "cap"])("reports stopped helpers after %s", async (reason) => {
+    await create("puppies", { FAKE_CLAUDE_PUPPIES_GATE: join(scratch, "never"), ...(reason === "cap" ? { LATERDOG_HELPERS_MAX_MS: "1000" } : {}) });
+    await instance.adapter.sendTurn({ threadId: "t-stop-puppies", text: "Check these notes" });
+    await recorder.until(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("working now"));
+    if (reason === "stop") await instance.adapter.interruptTurn("t-stop-puppies");
+    await recorder.until(e => e.type === "turn.completed");
+    expect(recorder.events.filter(e => e.type === "helper.updated" && e.helper.state === "stopped")).toHaveLength(2);
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "runtime.error", message: "The helpers stopped with this turn." }));
+  });
+
   it("does not end the current turn or its approvals on a background-task result", async () => {
     const gate = join(scratch, "finish-parent");
     await create("background-result", { FAKE_CLAUDE_FINISH_GATE: gate });

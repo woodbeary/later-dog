@@ -1,3 +1,4 @@
+import { CodexHelpers } from "./codex-helpers.ts";
 import { codexToolSurfaceArgs } from "./codex-tool-surface.ts";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -836,6 +837,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       let codexTurnId: string | null = null;
       let startingNativeTurn = false;
       const earlyNotifications: any[] = [];
+      const helpers = new CodexHelpers(helper => emit({ ...base(threadId, turnId), type: "helper.updated", helper }));
       const state = {
         settled: false,
         lastError: "",
@@ -945,6 +947,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const complete = () => {
           if (active.get(threadId)?.stop !== stop) return;
           active.delete(threadId);
+          if (helpers.stop()) emit({ ...base(threadId, turnId), type: "runtime.error", message: "The remaining helpers stopped with this turn." });
           emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null, ...(state.usage ? { usage: state.usage } : {}) });
         };
         completeStoppedTurn = complete;
@@ -1212,11 +1215,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           case "item/reasoning/textDelta":
           case "item/reasoning/summaryTextDelta": {
             const delta = typeof p.delta === "string" ? p.delta : "";
-            if (delta) emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "reasoning_text", delta, summary: true });
+            if (delta) emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "reasoning_text", delta, ...(msg.method === "item/reasoning/summaryTextDelta" ? { summary: true } : {}) });
             break;
           }
           case "item/started": {
             const item = p.item ?? {};
+            helpers.receive(item);
             const runs = item.type === "mcpToolCall" && item.tool === CALL_TOOL && typeof item.server === "string" && directoryMounts.has(item.server)
               ? directoryCallTarget(CALL_TOOL, item.arguments) : undefined;
             const title =
@@ -1244,6 +1248,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           }
           case "item/completed": {
             const item = p.item ?? {};
+            helpers.receive(item);
             if (item.type === "agentMessage") {
               if (item.text?.trim()) {
                 state.lastText = item.text;
