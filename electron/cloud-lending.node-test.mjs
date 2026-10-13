@@ -34,7 +34,7 @@ async function scratch(t) {
 
 function cloudHome({ cloudHome = true, scopes = ["admin", "client"] } = {}) {
   const json = (value, status = 200) => ({ ok: status < 400, status, body: (async function* () { yield Buffer.from(JSON.stringify(value)); })() });
-  const state = { paired: true, environmentId: randomUUID(), sessionId: randomUUID(), connects: [], disconnects: 0, results: [], queue: [], waiting: null };
+  const state = { paired: true, environmentId: randomUUID(), sessionId: randomUUID(), connects: [], disconnects: 0, results: [], queue: [], waiting: null, unmarked: [] };
   const nextJob = () => new Promise(resolve => { state.waiting = resolve; });
   state.push = operation => {
     const job = { id: randomUUID(), operation: { computer_id: state.connects.at(-1).id, ...operation } };
@@ -42,6 +42,7 @@ function cloudHome({ cloudHome = true, scopes = ["admin", "client"] } = {}) {
   };
   state.fetch = async (url, init) => {
     const route = new URL(url).pathname;
+    if (init?.headers?.["x-laterdog-lending"] !== "1") state.unmarked.push(route);
     if (route === "/api/auth/session") return state.paired ? json({ kind: "session", id: state.sessionId, scopes, ...(cloudHome ? { cloudHome: true } : {}) }) : json({ error: "unauthorized" }, 401);
     if (route === "/.well-known/laterdog/environment") return json({ environmentId: state.environmentId, capabilities: { sharedComputers: true } });
     const body = init?.body ? JSON.parse(init.body) : {};
@@ -295,4 +296,13 @@ test("the menu-bar indicator exists only while lending, says when the Cloud is u
   assert.deepEqual([stops, opens], [1, 1]);
   indicator.update({ lending: false, busy: true });
   assert.equal(trays[0].destroyed, true, "gone as soon as lending ends");
+});
+
+test("every request the lending connector makes is marked, so it never wakes My Cloud or keeps it awake", async t => {
+  const { home, sharing, folderPath } = await lendingFixture(t);
+  await sharing.saveCloud(env, { folders: [{ id: randomUUID(), name: "Plans", path: folderPath, write: false }] });
+  for (let i = 0; i < 100 && !sharing.cloudState(env).connected; i++) await delay(20);
+  assert.equal(sharing.cloudState(env).connected, true);
+  assert.ok(home.connects.length >= 1);
+  assert.deepEqual(home.unmarked, []);
 });

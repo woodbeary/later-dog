@@ -178,37 +178,39 @@ describe("the menu under your name", () => {
     menu.dispatch.mockReset();
   });
 
-  it("keeps to Settings when nothing here is signed in, with nothing about phones", () => {
+  it("offers the iPhone app above Settings when nothing here is signed in, and no phone pairing", () => {
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["settings"]);
-    expect(items.map((item) => item.label).join(" ")).not.toMatch(/phone/i);
-    items[0]!.onSelect();
+    expect(items.map((item) => item.key)).toEqual(["phoneApp", "settings"]);
+    expect(items[0]).toMatchObject({ label: "Get later.dog for iPhone" });
+    expect(items.map((item) => item.label).join(" ")).not.toMatch(/connect your phone|pair/i);
+    items[1]!.onSelect();
     expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
   });
 
   it("ends with Sign out, under a line, once an account here is signed in", () => {
     menu.instances = [claude, { ...claude, instanceId: "claude-api", authentication: { method: "paste-code" } } as InstanceInfo];
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["settings", "signOut"]);
-    expect(items[1]).toMatchObject({ label: "Sign out", separatorBefore: true });
+    expect(items.map((item) => item.key)).toEqual(["phoneApp", "settings", "signOut"]);
+    expect(items[2]).toMatchObject({ label: "Sign out", separatorBefore: true });
     menu.instances = [{ ...claude, snapshot: { state: "available", authenticated: false } } as InstanceInfo];
-    expect(open().map((item) => item.key)).toEqual(["settings"]);
+    expect(open().map((item) => item.key)).toEqual(["phoneApp", "settings"]);
   });
 
   it("marks Settings and opens it at Updates when an update is waiting, and stays quiet otherwise", () => {
     const updater = { updater: { check: vi.fn(), install: vi.fn(), onState: vi.fn() } };
     menu.updater = { status: "downloaded", version: "0.2.0" } as UpdaterState;
-    const [ready] = open(updater);
+    const settings = (items: SidebarMenuItem[]) => items.find((item) => item.key === "settings");
+    const ready = settings(open(updater));
     expect(ready).toMatchObject({ key: "settings", attention: true, attentionTone: "accent", note: "Update ready" });
     ready!.onSelect();
     expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "updates" });
 
     menu.updater = { status: "idle", releaseCheck: "on", available: { version: "0.2.0", url: "https://example.test" } } as UpdaterState;
-    expect(open(updater)[0]).toMatchObject({ attention: true, note: "Update available" });
+    expect(settings(open(updater))).toMatchObject({ attention: true, note: "Update available" });
 
     menu.updater = { status: "error", message: "offline" } as UpdaterState;
-    expect(open(updater)[0]).toMatchObject({ attention: false, note: undefined });
+    expect(settings(open(updater))).toMatchObject({ attention: false, note: undefined });
     menu.updater = { status: "idle" } as UpdaterState;
-    expect(open(updater)[0]).toMatchObject({ attention: false, note: undefined });
+    expect(settings(open(updater))).toMatchObject({ attention: false, note: undefined });
   });
 });

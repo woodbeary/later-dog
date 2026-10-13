@@ -7,6 +7,7 @@ import readline from "node:readline";
 import { lentScreenArguments, lentScreenToolListing } from "./lent-screen-tools.mjs";
 
 const LIMIT = 256 * 1024;
+export const LENT_FILE_MAX = 25 * 1024 * 1024;
 const PROTECTED = "Desktop credentials and sharing settings cannot be accessed through a shared folder";
 const GIT_INTERNALS = "Files inside .git cannot be changed through a shared folder: git runs commands from its configuration and hooks";
 
@@ -203,6 +204,10 @@ export async function executeSharedOperation(grant, operation, signal, cua) {
     return text({ entries: shown, truncated: entries.length > 200 });
   }
   const write = operation.action === "write_file";
+  const ranged = !write && (operation.offset !== undefined || operation.length !== undefined);
+  if (ranged && (!Number.isSafeInteger(operation.offset ?? 0) || (operation.offset ?? 0) < 0 || !Number.isSafeInteger(operation.length ?? LIMIT) || (operation.length ?? LIMIT) < 1 || (operation.length ?? LIMIT) > LIMIT)) {
+    throw new Error("Read a part with a whole-number offset and a length of at most 256 KiB");
+  }
   if (write && folder.write !== true) throw new Error("This folder is read-only");
   if (write && insideGitInternals(folder.path, operation.path ?? "")) throw new Error(GIT_INTERNALS);
   let data;
@@ -215,13 +220,31 @@ export async function executeSharedOperation(grant, operation, signal, cua) {
   const file = await fs.open(target, flags, 0o600);
   try {
     const stat = await file.stat({ bigint: true });
-    if (!stat.isFile() || stat.nlink !== 1n || stat.size > LIMIT) throw new Error("Only regular, single-link files up to 256 KiB can be shared");
+    if (!stat.isFile() || stat.nlink !== 1n) throw new Error("Only regular, single-link files can be shared");
+    if (stat.size > BigInt(ranged ? LENT_FILE_MAX : LIMIT)) {
+      throw new Error(ranged ? "Files over 25 MiB can't be shared" : "Files over 256 KiB are read in parts: give offset and length (up to 256 KiB each)");
+    }
     await sharedPath(folder, operation.path);
     const named = await fs.lstat(target, { bigint: true });
     if (named.ino !== stat.ino || named.dev !== stat.dev || named.isSymbolicLink()) throw new Error("The file changed while opening it; retry after inspecting the folder");
     if (protectedRoots.has(`${stat.dev}:${stat.ino}`)) throw new Error(PROTECTED);
     await assertOutsideProtected(protectedRoots, target);
     let current = Buffer.alloc(0);
+    if (ranged) {
+      const offset = operation.offset ?? 0;
+      const size = Number(stat.size);
+      const length = Math.max(0, Math.min(operation.length ?? LIMIT, size - offset));
+      const part = Buffer.alloc(length);
+      let read = 0;
+      while (read < length) {
+        const { bytesRead } = await file.read(part, read, length - read, offset + read);
+        if (!bytesRead) break;
+        read += bytesRead;
+      }
+      signal.throwIfAborted();
+      const chunk = part.subarray(0, read);
+      return text({ content: chunk.toString(operation.encoding === "base64" ? "base64" : "utf8"), encoding: operation.encoding ?? "utf8", bytes: chunk.length, offset, size, sha256: hash(chunk) });
+    }
     if (!write || operation.expected_sha256) {
       const buffer = Buffer.alloc(LIMIT + 1);
       let total = 0;

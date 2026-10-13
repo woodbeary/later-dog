@@ -119,6 +119,27 @@ test("folder boundary rejects traversal, links, oversized files and unknown fold
   await assert.rejects(validateSharedFolders([{ id: randomUUID(), path: path.parse(dir).root, write: false }]), /specific folders/);
 });
 
+test("big lent files are read in parts of at most 256 KiB, up to 25 MiB", async t => {
+  const { dir, run } = await fixture(t);
+  const big = Buffer.alloc(600_000);
+  for (let index = 0; index < big.length; index++) big[index] = index % 251;
+  await writeFile(path.join(dir, "report.pdf"), big);
+  await assert.rejects(run({ action: "read_file", path: "report.pdf" }), /read in parts/);
+  const parts = [];
+  for (let offset = 0; offset < big.length; offset += 262144) {
+    const part = payload(await run({ action: "read_file", path: "report.pdf", encoding: "base64", offset, length: 262144 }));
+    assert.equal(part.size, 600_000);
+    assert.equal(part.offset, offset);
+    parts.push(Buffer.from(part.content, "base64"));
+  }
+  assert.equal(Buffer.compare(Buffer.concat(parts), big), 0);
+  const past = payload(await run({ action: "read_file", path: "report.pdf", encoding: "base64", offset: 700_000, length: 1000 }));
+  assert.equal(past.bytes, 0);
+  await assert.rejects(run({ action: "read_file", path: "report.pdf", offset: 0, length: 262145 }), /at most 256 KiB/);
+  await assert.rejects(run({ action: "read_file", path: "report.pdf", offset: -1, length: 10 }), /whole-number offset/);
+  await assert.rejects(run({ action: "write_file", path: "other.txt", content: "x", offset: 0 }), /read-only/);
+});
+
 test("terminal and computer control are separately off, and revocation fails closed", async t => {
   const { grant, run } = await fixture(t);
   await assert.rejects(run({ action: "run_command", command: "echo no" }), /Terminal access/);

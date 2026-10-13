@@ -12,6 +12,7 @@ export const sharedComputerOperation = z.object({
   folder_id: z.string().uuid().optional(), path: z.string().max(2048).optional(),
   content: z.string().max(350_000).optional(), encoding: z.enum(["utf8", "base64"]).optional(),
   expected_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  offset: z.number().int().min(0).max(64 * 1024 * 1024).optional(), length: z.number().int().min(1).max(256 * 1024).optional(),
   command: z.string().max(8000).optional(), tool_name: z.string().max(100).optional(),
   arguments: z.record(z.string(), z.unknown()).optional(),
 }).strict();

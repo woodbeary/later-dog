@@ -10,6 +10,7 @@ import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotenc
 import type { ComputerRegistry } from "./registry";
 import { type ComputerOp, type TrialOp, route } from "./routes";
 import {
+  DAY,
   TRIAL_CLAIM,
   TRIAL_FORM_MAX_BYTES,
   TRIAL_TOKEN,
@@ -376,6 +377,20 @@ async function startTrialFromApp(request: Request, env: Env): Promise<Response> 
   return json({ trial: trialView(activation.trial), ...includedField(env) }, activation.replayed ? 200 : 201);
 }
 
+export const HOME_GRANT_DAYS = 90;
+
+async function grantHome(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const claim = (body.value as { claim?: unknown } | undefined)?.claim;
+  if (typeof claim !== "string" || !TRIAL_CLAIM.test(claim)) {
+    return apiError({ status: 400, code: "invalid_claim", message: "Send { \"claim\": \"<the home key's 64-character SHA-256>\" }." });
+  }
+  const granted = await trials(env).grant({ keySha256: claim, limitMs: planPolicy(env).limitMs, windowMs: HOME_GRANT_DAYS * DAY });
+  if (!granted.ok) return apiError(granted.refusal);
+  return json({ trial: trialView(granted.trial) }, granted.replayed ? 200 : 201);
+}
+
 async function grantTrial(request: Request, env: Env, caller: Caller): Promise<Response> {
   if (caller.trial) return apiError({ status: 403, code: "owner_only", message: "Only the owner's key can grant a free trial." });
   const body = await readJson(request);
@@ -693,6 +708,9 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return await transcribeRequest(request, env);
       case "trial_start":
         return await startTrialFromApp(request, env);
+      case "home_grant":
+        if (via !== "binding") return apiError(NO_ENDPOINT);
+        return await grantHome(request, env);
       case "trial":
       case "trial_grant":
       case "collection":

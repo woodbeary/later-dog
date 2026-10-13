@@ -1,0 +1,22 @@
+{
+  "name": "laterdog-home",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker and Containers that host each person's later.dog Cloud home.",
+  "scripts": {
+    "types": "wrangler types",
+    "check": "wrangler types && tsc --noEmit",
+    "test": "vitest run",
+    "dry-run": "wrangler deploy --dry-run --containers-rollout=none",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.148.0"
+  }
+}

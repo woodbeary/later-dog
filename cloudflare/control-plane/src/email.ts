@@ -39,10 +39,12 @@ export async function sendOTPEmail(
   from: string,
   input: OTPEmailInput,
   requestId: string,
+  onFailure?: (error: unknown) => Promise<unknown>,
 ): Promise<void> {
   try {
     await sender.send(buildOTPEmail(from, input));
-  } catch {
+  } catch (error) {
     console.error(JSON.stringify({ message: "transactional email send failed", requestId }));
+    await onFailure?.(error).catch(() => undefined);
   }
 }

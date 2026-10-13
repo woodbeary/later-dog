@@ -35,6 +35,8 @@ export interface CloudPlanBridge {
 }
 
 export declare const CLOUD_ORIGIN: string;
+export declare const DEFAULT_CLOUD_ORIGIN: string;
+export declare function configuredCloudOrigin(environment?: NodeJS.ProcessEnv): string;
 export declare function cloudOrigin(value?: string, fixture?: boolean): string;
 export interface CloudAccountStore {
   read(): Promise<unknown>;
@@ -74,6 +76,8 @@ export declare function createCloudAccountClient(options: {
   fetch?: typeof fetch;
   now?: () => number;
   onState?: (state: CloudAccountState) => void;
+  setTimer?: typeof setTimeout;
+  clearTimer?: typeof clearTimeout;
   warn?: (message: string) => void;
 }): CloudAccountClient;
 export declare function cloudPlanSnapshot(state: CloudAccountState | null | undefined): CloudPlanSnapshot;
