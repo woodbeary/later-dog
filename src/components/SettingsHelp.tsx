@@ -6,7 +6,7 @@ import { AboutDialog } from "./AboutDialog";
 import { SettingRow } from "./SettingsPrimitives";
 import { shortcutLabel } from "./ShortcutHint";
 
-const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover";
+const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover";
 
 export function HelpRows() {
   const { dispatch } = useStore();

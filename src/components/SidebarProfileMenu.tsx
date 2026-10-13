@@ -170,7 +170,8 @@ export function SidebarProfileMenu() {
   const profile = state.config?.profile;
   const name = profileLabel(profile);
   const openProfile = profiles?.list.profiles.find((entry) => entry.id === profiles.list.activeId);
-  const setup = openProfile && profiles && profiles.list.profiles.length > 1 ? profileName(openProfile) : "";
+  const openName = openProfile && profiles && profiles.list.profiles.length > 1 ? profileName(openProfile) : "";
+  const setup = openName.trim().toLowerCase() === name.trim().toLowerCase() ? "" : openName;
 
   const focusTrigger = () => triggerRef.current?.closest("button")?.focus();
   const switchTo = async (id: string) => {

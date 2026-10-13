@@ -211,7 +211,7 @@ export function ComposioKeyNotice({ remote, onSaved }: { remote: boolean; onSave
       <div className="flex items-center justify-between gap-3">
         <p className="min-w-0">{t(remote ? "connectors.setupNeededRemote" : "connectors.keyNeeded")}</p>
         {!remote && (
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setAdding((open) => !open)} className="shrink-0 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-raised-hover">
+          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setAdding((open) => !open)} className="shrink-0 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-control-hover">
             {adding ? t("common.cancel") : t("connectors.addKey")}
           </button>
         )}
@@ -355,7 +355,7 @@ export function ApiKeyRow({
             type="button"
             onClick={() => save(true)}
             disabled={saving}
-            className="flex w-[72px] shrink-0 items-center justify-center rounded-lg bg-control py-2 text-[13px] text-danger hover:bg-raised-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-[72px] shrink-0 items-center justify-center rounded-lg bg-control py-2 text-[13px] text-danger hover:bg-control-hover disabled:cursor-not-allowed disabled:opacity-50"
             title={t("keys.removeKey")}
           >
             {t("keys.clear")}
@@ -433,7 +433,7 @@ export function OpenCodeProviderKeys() {
               onClick={() => remove(saved)}
               disabled={busy}
               aria-label={t("keys.opencode.otherProviders.removeAria", { name: saved })}
-              className="flex w-[72px] shrink-0 items-center justify-center rounded-lg bg-control py-1.5 text-[13px] text-danger hover:bg-raised-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-[72px] shrink-0 items-center justify-center rounded-lg bg-control py-1.5 text-[13px] text-danger hover:bg-control-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {removing === saved ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : t("keys.clear")}
             </button>
@@ -467,7 +467,7 @@ export function OpenCodeProviderKeys() {
             type="button"
             onClick={add}
             disabled={busy || !name.trim() || !key.trim()}
-            className="flex w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-control-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {adding ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <><Check size={13} aria-hidden="true" />{t("common.save")}</>}
           </button>
@@ -577,7 +577,7 @@ export function VpsConnection() {
           disabled={saving || (!alias.trim() && !configured)}
           className={cn(
             "flex w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-lg py-2 text-[13px]",
-            !alias.trim() && configured ? "bg-control text-danger hover:bg-raised-hover" : "bg-control text-ink hover:bg-raised-hover",
+            !alias.trim() && configured ? "bg-control text-danger hover:bg-control-hover" : "bg-control text-ink hover:bg-control-hover",
             "disabled:cursor-not-allowed disabled:opacity-50",
           )}
           title={!alias.trim() && configured ? t("keys.vps.removeAlias") : t("common.save")}

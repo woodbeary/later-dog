@@ -130,18 +130,64 @@ describe("the message field's model menu", () => {
     expect(html.match(/Sonnet 5\.5/g)).toHaveLength(1);
   });
 
-  it("keeps four by name, numbered, and puts the rest under More models", () => {
-    const opus = { ...claude, models: { default: "sonnet", options: [] } } as unknown as InstanceInfo;
+  it("leads with the newest of each family and keeps earlier versions under More models", () => {
+    const anthropic = { ...claude, models: { default: "claude-sonnet-5", options: [] } } as unknown as InstanceInfo;
+    const codex = instance("codex", "codex", "Codex");
+    const live = [
+      {
+        instance: anthropic,
+        label: "Claude",
+        models: [
+          ["claude-fable-5-1", "Claude Fable 5.1"], ["claude-fable-5", "Claude Fable 5"],
+          ["claude-opus-5-5", "Claude Opus 5.5"], ["claude-opus-5", "Claude Opus 5"],
+          ["claude-sonnet-5-5", "Claude Sonnet 5.5"], ["claude-sonnet-5", "Claude Sonnet 5"],
+          ["claude-haiku-5-5", "Claude Haiku 5.5"], ["claude-haiku-4-5", "Claude Haiku 4.5"],
+        ].map(([id, label]) => ({ id, label })),
+      },
+      {
+        instance: codex,
+        label: "Codex",
+        models: [["gpt-6-astra", "GPT-6-Astra"], ["gpt-5.6-sol", "GPT-5.6-Sol"], ["gpt-5.6-terra", "GPT-5.6-Terra"], ["daybreak", "Daybreak Blue"]]
+          .map(([id, label]) => ({ id, label })),
+      },
+    ];
+    const ids = (entries: readonly { id: string }[]) => entries.map((entry) => entry.id);
+    const opus = splitModels(live, "claude", "claude-opus-5-5");
+    expect(ids(opus.primary)).toEqual(["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "gpt-6-astra", "daybreak"]);
+    expect(ids(opus.more)).toEqual([]);
+    expect(ids(opus.earlier)).toEqual(["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "gpt-5.6-sol", "gpt-5.6-terra"]);
+    const older = splitModels(live, "claude", "claude-sonnet-5");
+    expect(ids(older.primary)).toEqual(["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5", "gpt-6-astra", "daybreak"]);
+    expect(ids(older.earlier)).not.toContain("claude-sonnet-5");
+  });
+
+  it("keeps eight by name, numbered, and puts the rest under More models above the earlier versions", async () => {
     const many = [
-      { instance: opus, label: "Claude", models: ["opus", "sonnet", "haiku", "fable"].map((id) => ({ id, label: id })) },
+      { instance: claude, label: "Claude", models: ["opus", "sonnet", "haiku", "fable", "mythos", "Claude 5", "Claude 4"].map((id) => ({ id, label: id })) },
       ...groups,
     ];
-    const { primary, more } = splitModels(many, "laterdogAi", "kimi-k2.6");
-    expect(primary.map((entry) => entry.id)).toEqual(["opus", "sonnet", "kimi-k2.6", "grok-4.3"]);
-    expect(more.map((entry) => entry.id)).toEqual(["haiku", "fable"]);
-    const html = renderToStaticMarkup(createElement(ModelMenu, { groups: many, currentInstanceId: "laterdogAi", currentModel: "kimi-k2.6", onPick: () => {} }));
-    expect(html).toContain("More models");
-    expect(html).not.toContain("data-model-menu-effort");
+    const { primary, more, earlier } = splitModels(many, "laterdogAi", "kimi-k2.6");
+    expect(primary.map((entry) => entry.id)).toEqual(["opus", "sonnet", "haiku", "fable", "mythos", "Claude 5", "kimi-k2.6", "grok-4.3"]);
+    expect(more).toEqual([]);
+    expect(earlier.map((entry) => entry.id)).toEqual(["Claude 4"]);
+    const crowded = [{ instance: claude, label: "Claude", models: "abcdefghij".split("").map((id) => ({ id, label: `Model ${id}` })) }];
+    const split = splitModels(crowded, "claude", "j");
+    expect(split.primary.map((entry) => entry.id)).toEqual(["a", "b", "c", "d", "e", "f", "g", "j"]);
+    expect(split.more.map((entry) => entry.id)).toEqual(["h", "i"]);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    await act(async () => root.render(createElement(ModelMenu, { groups: many, currentInstanceId: "laterdogAi", currentModel: "kimi-k2.6", onPick: () => {} })));
+    expect(host.textContent).toContain("More models");
+    expect(host.querySelector("[data-model-menu-effort]")).toBeNull();
+    await act(async () => (host.querySelector("[data-model-more]") as HTMLButtonElement).click());
+    const list = host.querySelector("[data-model-more-list]")!;
+    expect(list.querySelector("[data-model-earlier]")?.textContent).toBe("Earlier versions");
+    expect([...list.querySelectorAll("[data-model-option]")].map((node) => node.textContent)).toEqual(["Claude 4"]);
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
   });
 });
 

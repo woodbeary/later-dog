@@ -10,10 +10,12 @@ const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
 const PORT = 18800 + Math.floor(Math.random() * 10_000);
 const BASE = `http://127.0.0.1:${PORT}`;
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-const SCREENSHOT = JSON.stringify([{
-  name: "mcp__browser__agent_browser_screenshot",
-  output: [{ type: "image", source: { type: "base64", media_type: "image/png", data: PNG } }],
-}]);
+const PICTURE = [{ type: "image", source: { type: "base64", media_type: "image/png", data: PNG } }];
+const TOOL_CALLS = JSON.stringify([
+  { name: "mcp__browser__agent_browser_screenshot", output: PICTURE },
+  { name: "mcp__computer__screenshot", output: PICTURE },
+  { name: "mcp__charts__render_chart", output: PICTURE },
+]);
 
 describe.skipIf(process.platform === "win32")("images a dog takes mid-turn", () => {
   let child: ChildProcess;
@@ -46,7 +48,7 @@ describe.skipIf(process.platform === "win32")("images a dog takes mid-turn", () 
     const created = (await api("POST", "/api/bots")).body.bot;
     await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "claudeShots", model: "claude-fake" } });
     expect((await api("POST", `/api/bots/${created.id}/messages`, { text })).status).toBe(202);
-    await waitFor(async () => images(await getBot(created.id)).length > 0, "the screenshot");
+    await waitFor(async () => images(await getBot(created.id)).length > 0, "the chart");
     return created.id as string;
   };
 
@@ -61,7 +63,7 @@ describe.skipIf(process.platform === "win32")("images a dog takes mid-turn", () 
         instances: {
           claudeShots: {
             driver: "claudeAgent",
-            environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: finishGate, FAKE_CLAUDE_TOOL_CALLS: SCREENSHOT },
+            environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: finishGate, FAKE_CLAUDE_TOOL_CALLS: TOOL_CALLS },
             config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" },
           },
         },
@@ -91,9 +93,11 @@ describe.skipIf(process.platform === "win32")("images a dog takes mid-turn", () 
     rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
-  it("shows the image while the turn is still running and keeps it where it was taken", async () => {
+  it("shows a tool's picture while the turn is still running and keeps it where it was made", async () => {
     rmSync(finishGate, { force: true });
+    const before = savedPngs().length;
     const botId = await startTurn("show me the page");
+    expect(savedPngs()).toHaveLength(before + 1);
 
     const working = await getBot(botId);
     expect(working.busy).toBe(true);
@@ -113,7 +117,7 @@ describe.skipIf(process.platform === "win32")("images a dog takes mid-turn", () 
     expect(order.indexOf(shot.id)).toBeLessThan(order.indexOf(reply.id));
   }, 60_000);
 
-  it("keeps an image taken before the person pressed Stop", async () => {
+  it("keeps a picture made before the person pressed Stop", async () => {
     rmSync(finishGate, { force: true });
     const before = savedPngs().length;
     const botId = await startTurn("take a screenshot and keep going");

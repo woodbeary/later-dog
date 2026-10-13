@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { modelShown, setModelShown, useHiddenModels } from "@/lib/model-visibility";
+import { newestOfLine } from "@/lib/model-lines";
 import { needsCli, needsSignIn } from "./EngineSetup";
 import { setVoiceMode, useVoiceMode } from "@/lib/voice-mode";
 import { Boxes, Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
-import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
+import { api, useStore, type AppSettingsSection, type ConfigStatus, type InstanceInfo } from "@/state/store";
 import { cloudDictationEnabled, stepUpdatesEnabled } from "@/lib/feature-flags";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { analyticsConfigured } from "@/lib/laterdog-analytics";
@@ -22,6 +23,7 @@ import { HelpRows } from "./SettingsHelp";
 import { CloudComputerRows } from "./CloudComputerRows";
 import { ExecutionRows, ThisComputerRow } from "./ComputerSettings";
 import { PermissionChecklist } from "./PermissionChecklist";
+import { InstanceProviderMark } from "./ProviderIcons";
 import { SettingRow, Switch } from "./SettingsPrimitives";
 import { shortcutLabel } from "./ShortcutHint";
 import { UsageSection } from "./UsageSection";
@@ -131,7 +133,7 @@ export function UpdatesRow() {
           checksOff || s.status === "checking" || s.status === "downloading" || s.status === "preparing" ||
           s.status === "installing" || s.retryable === false
         }
-        className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45"
+        className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45"
       >
         {release ? t("releaseCheck.download") : s.retryable === false
           ? t("settings.updates.quitReopen")
@@ -359,41 +361,60 @@ function ModelsPage() {
   const [query, setQuery] = useState("");
   const accounts = state.instances.filter((instance) => !instance.policy && !needsCli(instance) && !needsSignIn(instance)
     && instance.models.options.some((option) => !option.custom));
-  const kinds = accounts.map((account) => account.driverKind);
   const needle = query.trim().toLowerCase();
-  const rows = accounts
-    .flatMap((account) => account.models.options.filter((option) => !option.custom).map((option) => ({ account, option })))
-    .filter(({ option }) => !needle || option.label.toLowerCase().includes(needle) || option.id.toLowerCase().includes(needle));
+  const groups = accounts.flatMap((account) => {
+    const options = account.models.options.filter((option) => !option.custom);
+    const latest = newestOfLine(options, (option) => option.label);
+    const found = options.filter((option) => !needle || option.label.toLowerCase().includes(needle) || option.id.toLowerCase().includes(needle));
+    if (found.length === 0) return [];
+    const shown = options.filter((option) => modelShown(account.instanceId, option.id, hidden)).length;
+    return [{ account, shown, total: options.length, newest: found.filter(latest), earlier: found.filter((option) => !latest(option)) }];
+  });
   if (accounts.length === 0) return <p className="px-1 text-[13px] text-ink-secondary">{t("settings.models.none")}</p>;
+  const row = (account: InstanceInfo, option: InstanceInfo["models"]["options"][number]) => {
+    const shown = modelShown(account.instanceId, option.id, hidden);
+    return (
+      <label key={`${account.instanceId}:${option.id}`} data-settings-model={`${account.instanceId}:${option.id}`}
+        className="-mx-2 flex h-9 cursor-pointer items-center gap-3 rounded-lg px-2 transition-colors hover:bg-raised-hover">
+        <span className={cn("min-w-0 flex-1 truncate text-[13px]", shown ? "text-ink" : "text-ink-secondary")}>{option.label}</span>
+        <Switch
+          size="small"
+          checked={shown}
+          aria-label={t("settings.models.show", { model: option.label })}
+          onClick={() => setModelShown(account.instanceId, option.id, !shown)}
+        />
+      </label>
+    );
+  };
   return (
-    <div data-settings-group="models" className="flex flex-col">
+    <div data-settings-group="models" className="flex flex-col gap-5">
       <input
         type="search"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder={t("settings.models.search")}
         aria-label={t("settings.models.search")}
-        className="mb-2 h-8 w-full rounded-lg bg-inset px-3 text-[13px] text-ink placeholder:text-ink-tertiary focus:outline-none"
+        className="h-8 w-full rounded-lg bg-inset px-3 text-[13px] text-ink placeholder:text-ink-tertiary focus:outline-none"
       />
-      {rows.map(({ account, option }) => {
-        const shown = modelShown(account.instanceId, option.id, hidden);
-        const named = kinds.filter((kind) => kind === account.driverKind).length > 1;
-        return (
-          <label key={`${account.instanceId}:${option.id}`} data-settings-model={`${account.instanceId}:${option.id}`}
-            className="flex h-8 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-control/40">
-            <span className={cn("min-w-0 flex-1 truncate text-[13px]", shown ? "text-ink" : "text-ink-secondary")}>
-              {option.label}
-              {named && <span className="text-ink-tertiary"> · {account.displayName}</span>}
-            </span>
-            <Switch
-              size="small"
-              checked={shown}
-              aria-label={t("settings.models.show", { model: option.label })}
-              onClick={() => setModelShown(account.instanceId, option.id, !shown)}
-            />
-          </label>
-        );
-      })}
+      {groups.length === 0 && <p className="px-1 text-[13px] text-ink-secondary">{t("settings.models.noMatch")}</p>}
+      {groups.map(({ account, shown, total, newest, earlier }) => (
+        <section key={account.instanceId} data-settings-model-group={account.instanceId} aria-label={account.displayName} className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2 px-1 text-[12px] font-medium text-ink-secondary">
+            <InstanceProviderMark instance={account} size={13} />
+            <span className="min-w-0 flex-1 truncate">{account.displayName}</span>
+            <span className="shrink-0 tabular-nums text-ink-tertiary">{t("settings.models.shownCount", { shown, total })}</span>
+          </div>
+          <div className="rounded-xl bg-card px-4 py-1.5">
+            {newest.map((option) => row(account, option))}
+            {earlier.length > 0 && (
+              <p data-settings-model-earlier className={cn("pb-1 text-[11.5px] font-medium text-ink-tertiary", newest.length > 0 ? "mt-1.5 border-t border-hairline/40 pt-2.5" : "pt-1")}>
+                {t("model.earlier")}
+              </p>
+            )}
+            {earlier.map((option) => row(account, option))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

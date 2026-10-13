@@ -214,7 +214,7 @@ export function ProfileAvatar({ bot, state, onPatch }: { bot: Bot; state: DogSta
                 />
                 <button
                   type="submit"
-                  className="self-end rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink transition-colors hover:bg-raised-hover"
+                  className="self-end rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink transition-colors hover:bg-control-hover"
                 >
                   {t("botSettings.avatar.generate")}
                 </button>

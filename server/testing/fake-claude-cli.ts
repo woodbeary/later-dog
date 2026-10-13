@@ -337,6 +337,8 @@ const readLaunchFiles = (): Record<string, unknown> => {
   return { systemPrompt, mcpConfig, settings, settingsMode };
 };
 
+const ASKS_FOR_SCREEN = /\b(computer|desktop|screen|screenshot|chrome|browser)\b/i;
+
 const useCloudComputer = () => {
   launchFiles ??= readLaunchFiles();
   const server = (launchFiles.mcpConfig as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> } | null)
@@ -529,7 +531,7 @@ const playTurn = (prompt: JsonValue, late = false) => {
     });
   }
 
-  if (process.env.FAKE_CLAUDE_USES_CLOUD_COMPUTER === "1") useCloudComputer();
+  if (process.env.FAKE_CLAUDE_USES_CLOUD_COMPUTER === "1" && ASKS_FOR_SCREEN.test(steerText(prompt))) useCloudComputer();
 
   let replyParts = nextScriptedReply();
   const defaultToolId = `tu-${process.pid}-${++toolUseCount}`;

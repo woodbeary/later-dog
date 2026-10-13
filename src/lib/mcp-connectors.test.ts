@@ -48,7 +48,14 @@ describe("connector catalog", () => {
       }
       expect(["http", "sse"]).toContain(connector.transport);
       expect(Object.keys(MCP_CONNECTOR_CATEGORIES)).toContain(connector.category);
+      expect(connector.domain, connector.id).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/);
     }
+  });
+
+  it("files every category under at least one service, in catalog order", () => {
+    const order = Object.keys(MCP_CONNECTOR_CATEGORIES);
+    const seen = [...new Set(MCP_CONNECTORS.map((connector) => connector.category))];
+    expect(seen).toEqual(order);
   });
 
   it("describes what a dog can do with each in one short line of English copy", () => {
@@ -108,6 +115,18 @@ describe("recognizing a configured server", () => {
     expect(connectorState(row({ name: "linear", enabled: true, auth: "signed-in", managedBy: "Acme" }))).toBe("blocked");
   });
 
+  it("counts a server that needs no sign-in as Connected once it is on", () => {
+    const deepwiki = byId("deepwiki");
+    expect(deepwiki.open).toBe(true);
+    expect(linear.open).toBeUndefined();
+    expect(connectorState(row({ name: "deepwiki", enabled: true }), deepwiki)).toBe("connected");
+    expect(connectorState(row({ name: "deepwiki", enabled: false }), deepwiki)).toBe("available");
+    expect(connectorState(row({ name: "deepwiki", enabled: true, auth: "needs-sign-in" }), deepwiki)).toBe("needs-sign-in");
+    expect(connectorState(row({ name: "linear", enabled: true }), linear)).toBe("needs-sign-in");
+    const servers = [row({ name: "wiki", url: deepwiki.url, enabled: true }), row({ name: "deepwiki", url: deepwiki.url })];
+    expect(connectorServer(deepwiki, servers)?.name).toBe("wiki");
+  });
+
   it("finds it under any name, preferring one that works", () => {
     const servers = [
       row({ name: "notes", url: "https://mcp.notion.com/mcp", enabled: true }),
@@ -132,7 +151,8 @@ describe("recognizing a configured server", () => {
   it("searches names, descriptions and categories", () => {
     expect(MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, "")).length).toBe(MCP_CONNECTORS.length);
     expect(MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, " LINEAR ")).map((connector) => connector.id)).toEqual(["linear"]);
-    expect(MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, "payments")).map((connector) => connector.id)).toEqual(["paypal", "stripe"]);
+    expect(MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, "payments")).map((connector) => connector.id))
+      .toEqual(["paypal", "stripe", "square", "revenuecat", "airwallex"]);
     expect(MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, "jira")).map((connector) => connector.id)).toEqual(["atlassian"]);
     expect(MCP_CONNECTORS.some((connector) => connectorMatchesSearch(connector, "gmail"))).toBe(false);
   });
@@ -230,6 +250,45 @@ describe("Connect", () => {
       expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual(["POST /api/mcp/servers/linear/test", "PATCH /api/mcp/servers/linear"]);
       expect(onSignedIn).not.toHaveBeenCalled();
     }
+  });
+
+  it("connects a server that needs no sign-in straight away", async () => {
+    const deepwiki = byId("deepwiki");
+    const added = row({ name: "deepwiki", url: deepwiki.url });
+    const { api, calls } = fakeApi({
+      "POST /api/mcp/servers": () => ({ servers: [added] }),
+      "POST /api/mcp/servers/deepwiki/test": () => ({ ok: true, tools: [{ name: "ask_question" }] }),
+      "PATCH /api/mcp/servers/deepwiki": () => ({ servers: [{ ...added, enabled: true }] }),
+    });
+    const open = vi.fn(async () => {});
+    expect(await connectMcpConnector(deepwiki, [], { api, open })).toEqual({ outcome: "connected", server: "deepwiki" });
+    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+      "POST /api/mcp/servers",
+      "POST /api/mcp/servers/deepwiki/test",
+      "PATCH /api/mcp/servers/deepwiki",
+    ]);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("signs in to a server that stopped being open, then tests it again", async () => {
+    const deepwiki = byId("deepwiki");
+    const existing = row({ name: "deepwiki", url: deepwiki.url });
+    let tests = 0;
+    const { api, calls } = fakeApi({
+      "POST /api/mcp/servers/deepwiki/test": () => (++tests === 1 ? { ok: false, error: "This server needs you to sign in.", auth: "required" } : { ok: true, tools: [] }),
+      "POST /api/mcp/servers/deepwiki/sign-in": () => ({ auth: WAITING }),
+      "GET /api/mcp/servers/deepwiki/sign-in/flow-1": () => ({ auth: SIGNED_IN }),
+      "PATCH /api/mcp/servers/deepwiki": () => ({ servers: [{ ...existing, enabled: true, auth: "signed-in" }] }),
+    });
+    expect(await connectMcpConnector(deepwiki, [existing], { api, open: async () => {}, sleep: async () => {} }))
+      .toEqual({ outcome: "connected", server: "deepwiki" });
+    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+      "POST /api/mcp/servers/deepwiki/test",
+      "POST /api/mcp/servers/deepwiki/sign-in",
+      "GET /api/mcp/servers/deepwiki/sign-in/flow-1",
+      "POST /api/mcp/servers/deepwiki/test",
+      "PATCH /api/mcp/servers/deepwiki",
+    ]);
   });
 
   it("stops before testing or switching on when the sign-in fails or is cancelled", async () => {

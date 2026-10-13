@@ -17,7 +17,7 @@ export interface ProfileSwitchError {
 
 const IPC_PREFIX = /^Error invoking remote method ['"][^'"\r\n]+['"]:\s*(?:Error:\s*)?/i;
 const NAME_LIMIT = 40;
-const pillCls = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
+const pillCls = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
 const primaryCls = cn(pillCls, "flex items-center gap-2 bg-accent text-white hover:bg-accent hover:brightness-110");
 const cardCls = "w-full max-w-[420px] rounded-2xl border border-hairline/50 bg-panel p-5 shadow-2xl outline-none";
 

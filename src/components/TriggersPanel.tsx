@@ -333,7 +333,7 @@ function TriggerRow({
           type="button"
           disabled={busy || (!hasCredential && !ingressAvailable)}
           onClick={() => onCopy("link", false)}
-          className="flex items-center gap-1.5 rounded-lg bg-control/70 px-2.5 py-1.5 text-[12px] font-medium text-ink hover:bg-raised-hover disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-lg bg-control/70 px-2.5 py-1.5 text-[12px] font-medium text-ink hover:bg-control-hover disabled:opacity-40"
         >
           {copied === "link" ? <Check size={13} className="text-success" /> : working === `${webhook.id}:command` ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
           {copied === "link" ? t("triggers.copied") : t("triggers.copyLink")}

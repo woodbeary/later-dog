@@ -39,6 +39,6 @@ export function RoutineLogs({ runs, bots, loading, error, routineId, status, onS
         <p className={cn("mt-2 line-clamp-2 whitespace-pre-wrap text-[12px] leading-relaxed", run.error ? "text-danger" : "text-ink-secondary")}>{run.attention || run.error || run.output || t("routines.noOutput")}</p>
       </button>;
     })}</div>
-    {filtered.length > limit && <button type="button" onClick={() => setLimit((current) => current + 50)} className="rounded-lg bg-raised px-4 py-2 text-[12px] text-ink">{t("routines.loadMore")}</button>}
+    {filtered.length > limit && <button type="button" onClick={() => setLimit((current) => current + 50)} className="rounded-lg bg-raised px-4 py-2 text-[12px] text-ink transition-colors hover:bg-raised-hover">{t("routines.loadMore")}</button>}
   </section>;
 }

@@ -155,6 +155,7 @@ describe("what every dog with later.dog's tools knows up front", () => {
     expect(CREDENTIAL_PROMPT.endsWith(TAKEOVER_PROMPT)).toBe(true);
     expect(TAKEOVER_PROMPT.startsWith(" ")).toBe(true);
     expect(TAKEOVER_PROMPT).toMatch(/do all the legwork first/);
+    expect(TAKEOVER_PROMPT).toMatch(/a sign-in or code you have no Secure Form for/);
     expect(TAKEOVER_PROMPT).toMatch(/call request_takeover with that one step and end the turn/);
     expect(TAKEOVER_PROMPT).toMatch(/never a reason to refuse or stop/);
     expect(TAKEOVER_PROMPT).toMatch(/passwords and codes never belong in chat/);

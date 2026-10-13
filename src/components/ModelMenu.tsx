@@ -2,6 +2,7 @@ import { Check, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { newestOfLine } from "@/lib/model-lines";
 import type { InstanceInfo } from "@/state/store";
 
 export interface ModelMenuGroup {
@@ -16,7 +17,7 @@ export interface ModelMenuEntry {
   label: string;
 }
 
-const PRIMARY = 4;
+const PRIMARY = 8;
 
 export function distinctModels(groups: readonly ModelMenuGroup[], currentInstanceId: string, currentModel: string): ModelMenuEntry[] {
   const all = groups.flatMap((group) => group.models.map((model) => ({ instance: group.instance, id: model.id, label: model.label })));
@@ -31,9 +32,10 @@ export function distinctModels(groups: readonly ModelMenuGroup[], currentInstanc
   });
 }
 
-export function splitModels(groups: readonly ModelMenuGroup[], currentInstanceId: string, currentModel: string): { primary: ModelMenuEntry[]; more: ModelMenuEntry[] } {
+export function splitModels(groups: readonly ModelMenuGroup[], currentInstanceId: string, currentModel: string): { primary: ModelMenuEntry[]; more: ModelMenuEntry[]; earlier: ModelMenuEntry[] } {
   const all = distinctModels(groups, currentInstanceId, currentModel);
   const key = (entry: ModelMenuEntry) => `${entry.instance.instanceId}\u0000${entry.id}`;
+  const latest = newestOfLine(all, (entry) => entry.label);
   const picked = new Set<string>();
   const primary: ModelMenuEntry[] = [];
   const take = (entry: ModelMenuEntry | undefined) => {
@@ -41,16 +43,12 @@ export function splitModels(groups: readonly ModelMenuGroup[], currentInstanceId
     picked.add(key(entry));
     primary.push(entry);
   };
-  const current = all.find((entry) => entry.instance.instanceId === currentInstanceId && entry.id === currentModel);
-  take(current);
-  for (const group of groups) {
-    const own = all.filter((entry) => entry.instance.instanceId === group.instance.instanceId);
-    take(own.find((entry) => entry.id === group.instance.models.default) ?? own[0]);
-  }
-  for (const entry of all) take(entry);
+  take(all.find((entry) => entry.instance.instanceId === currentInstanceId && entry.id === currentModel));
+  for (const entry of all) if (latest(entry)) take(entry);
   const order = new Map(all.map((entry, index) => [key(entry), index]));
   primary.sort((a, b) => order.get(key(a))! - order.get(key(b))!);
-  return { primary, more: all.filter((entry) => !picked.has(key(entry))) };
+  const rest = all.filter((entry) => !picked.has(key(entry)));
+  return { primary, more: rest.filter(latest), earlier: rest.filter((entry) => !latest(entry)) };
 }
 
 export function ModelMenu({ groups, currentInstanceId, currentModel, onPick }: {
@@ -59,7 +57,8 @@ export function ModelMenu({ groups, currentInstanceId, currentModel, onPick }: {
   currentModel: string;
   onPick: (instance: InstanceInfo, model: string) => void;
 }) {
-  const { primary, more } = splitModels(groups, currentInstanceId, currentModel);
+  const { primary, more, earlier } = splitModels(groups, currentInstanceId, currentModel);
+  const hidden = more.length + earlier.length;
   const [moreOpen, setMoreOpen] = useState(false);
   const isCurrent = (entry: ModelMenuEntry) => entry.instance.instanceId === currentInstanceId && entry.id === currentModel;
 
@@ -77,6 +76,20 @@ export function ModelMenu({ groups, currentInstanceId, currentModel, onPick }: {
   }, [primary, onPick]);
 
   const row = "flex h-8 w-full items-center gap-3 rounded-lg px-2.5 text-left text-[13.5px] text-ink hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus";
+  const option = (entry: ModelMenuEntry) => (
+    <button
+      key={`${entry.instance.instanceId}:${entry.id}`}
+      type="button"
+      role="menuitemradio"
+      aria-checked={isCurrent(entry)}
+      data-model-option={`${entry.instance.instanceId}:${entry.id}`}
+      onClick={() => onPick(entry.instance, entry.id)}
+      className={row}
+    >
+      <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+      {isCurrent(entry) && <Check size={14} aria-hidden="true" className="shrink-0 text-accent-text" />}
+    </button>
+  );
   return (
     <div data-model-menu className="relative">
       <div role="menu" aria-label={t("model.simple.model")} className="flex flex-col p-1">
@@ -96,7 +109,7 @@ export function ModelMenu({ groups, currentInstanceId, currentModel, onPick }: {
               : <span aria-hidden="true" className="shrink-0 text-[12px] tabular-nums text-ink-tertiary">{index + 1}</span>}
           </button>
         ))}
-        {more.length > 0 && (
+        {hidden > 0 && (
           <>
             <div className="mx-2.5 my-1 border-t border-hairline/40" />
             <button
@@ -114,27 +127,20 @@ export function ModelMenu({ groups, currentInstanceId, currentModel, onPick }: {
           </>
         )}
       </div>
-      {moreOpen && more.length > 0 && (
+      {moreOpen && hidden > 0 && (
         <div
           role="menu"
           data-model-more-list
           aria-label={t("model.more")}
           className="absolute bottom-0 right-full mr-1.5 flex max-h-[min(420px,70dvh)] w-56 flex-col overflow-y-auto rounded-xl border border-hairline/50 bg-card p-1 shadow-2xl shadow-black/50"
         >
-          {more.map((entry) => (
-            <button
-              key={`${entry.instance.instanceId}:${entry.id}`}
-              type="button"
-              role="menuitemradio"
-              aria-checked={isCurrent(entry)}
-              data-model-option={`${entry.instance.instanceId}:${entry.id}`}
-              onClick={() => onPick(entry.instance, entry.id)}
-              className={row}
-            >
-              <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-              {isCurrent(entry) && <Check size={14} aria-hidden="true" className="shrink-0 text-accent-text" />}
-            </button>
-          ))}
+          {more.map(option)}
+          {earlier.length > 0 && (
+            <p data-model-earlier className={cn("px-2.5 pb-1 text-[11.5px] font-medium text-ink-tertiary", more.length > 0 ? "mt-1 border-t border-hairline/40 pt-2" : "pt-1.5")}>
+              {t("model.earlier")}
+            </p>
+          )}
+          {earlier.map(option)}
         </div>
       )}
     </div>

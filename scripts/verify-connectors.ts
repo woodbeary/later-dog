@@ -1,16 +1,14 @@
-import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { MCP_CONNECTORS } from "../src/lib/mcp-connector-catalog.ts";
 import { launchVerificationServer } from "./control-laterdog.ts";
 import { fixtureApi, mountPreview, parkUntilSignal, type MountedPreview } from "./testing/preview-fixture.ts";
 import { startFakeHttpMcp, type FakeHttpMcp } from "../server/testing/fake-http-mcp-server.ts";
 import { startFakeOAuth } from "../server/testing/fake-oauth-server.ts";
 
-const catalog = readFileSync(new URL("../src/lib/mcp-connectors.ts", import.meta.url), "utf8");
-const endpoints = [...catalog.matchAll(/url: "(https:\/\/[^"]+)",\s*transport: "(http|sse)"/g)]
-  .map(([, url, transport]) => ({ url: url!, transport: transport as "http" | "sse" }));
-if (endpoints.length === 0 || endpoints.length !== catalog.match(/^\s+id: "/gm)?.length) {
-  throw new Error("could not read every connector endpoint from src/lib/mcp-connectors.ts");
+const endpoints = MCP_CONNECTORS.map(({ url, transport, open }) => ({ url, transport, open: open === true }));
+if (endpoints.length === 0 || new Set(endpoints.map(({ url }) => url)).size !== endpoints.length) {
+  throw new Error("could not read one endpoint per connector from src/lib/mcp-connector-catalog.ts");
 }
 
 const fixture = await launchVerificationServer();
@@ -20,10 +18,12 @@ let ui: MountedPreview | undefined;
 try {
   const tools = [{ name: "list_items", inputSchema: { type: "object", properties: {} } }];
   const official = new Map<string, FakeHttpMcp>();
-  for (const { url, transport } of endpoints) {
+  for (const { url, transport, open } of endpoints) {
     official.set(url, url === "https://mcp.sentry.dev/mcp"
       ? await startFakeHttpMcp({ requireHeader: { name: "Authorization", value: "Bearer fixture-not-a-secret" }, tools })
-      : await startFakeHttpMcp({ transport, acceptBearer: oauth.isValid, wwwAuthenticate: oauth.challenge, tools }));
+      : open
+        ? await startFakeHttpMcp({ transport, tools })
+        : await startFakeHttpMcp({ transport, acceptBearer: oauth.isValid, wwwAuthenticate: oauth.challenge, tools }));
   }
   fakes.push(...official.values());
   const toFake = new Map([...official].map(([url, fake]) => [url, fake.url]));

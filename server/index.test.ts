@@ -2478,46 +2478,51 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("binds Chief room management to the bearer and rechecks it after a slow body", async () => {
-    const chief = (await api("POST", "/api/bots")).body.bot;
+  it("binds group chat management to the bearer and rechecks it after a slow body", async () => {
+    const maker = (await api("POST", "/api/bots")).body.bot;
     const peer = (await api("POST", "/api/bots")).body.bot;
-    const room = (await api("POST", "/api/groups", { name: "Guarded room", memberIds: [chief.id, peer.id] })).body.group;
+    const room = (await api("POST", "/api/groups", { name: "Guarded room", memberIds: [maker.id, peer.id] })).body.group;
+    const roomIds: string[] = [room.id];
     let held: Awaited<ReturnType<typeof delayedJsonBody>> | undefined;
     try {
-      await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true });
-      const nonChiefToken = await mintTestCapability(BASE, peer.id, peer.threadId);
+      const peerToken = await mintTestCapability(BASE, peer.id, peer.threadId);
+      const made = await chiefRoomRequest(BASE, peerToken, "create-room", { name: "Peer chat", memberIds: [maker.id] });
+      expect(made.status).toBe(201);
+      roomIds.push(String(made.body.id));
+      expect(made.body).toMatchObject({ name: "Peer chat", memberIds: [peer.id, maker.id] });
       for (const route of ["create-room", "manage-room"] as const) {
         const body = route === "create-room" ? { name: "Must not exist", memberIds: [peer.id] }
           : { roomId: room.id, action: "rename", name: "Must not change" };
         expect((await chiefRoomRequest(BASE, "", route, body)).status).toBe(401);
-        expect((await chiefRoomRequest(BASE, nonChiefToken, route, body)).status).toBe(403);
-        const forged = await chiefRoomRequest(BASE, nonChiefToken, route, { ...body, fromBotId: chief.id, fromThreadId: chief.threadId });
+        const forged = await chiefRoomRequest(BASE, peerToken, route, { ...body, fromBotId: maker.id, fromThreadId: maker.threadId });
         expect(forged.status).toBe(403);
         expect(forged.body.error).toMatch(/different bot/);
-        let token = await mintTestCapability(BASE, chief.id, chief.threadId);
+        let token = await mintTestCapability(BASE, maker.id, maker.threadId);
         expect((await chiefRoomRequest(BASE, token, route, { ...body, fromThreadId: peer.threadId })).status).toBe(403);
         held = await delayedJsonBody("POST", `/api/internal/${route}`, body, { authorization: `Bearer ${token}` });
-        await mintTestCapability(BASE, chief.id, chief.threadId);
+        await mintTestCapability(BASE, maker.id, maker.threadId);
         const expired = await held.finish();
         expect(expired.status).toBe(401);
         expect(expired.body.error).toMatch(/expired/);
         held.close();
         held = undefined;
-        token = await mintTestCapability(BASE, chief.id, chief.threadId, { kind: "connectors" });
+        token = await mintTestCapability(BASE, maker.id, maker.threadId, { kind: "connectors" });
         expect((await chiefRoomRequest(BASE, token, route, body)).status).toBe(403);
       }
-      const token = await mintTestCapability(BASE, chief.id, chief.threadId);
-      held = await delayedJsonBody("POST", "/api/internal/manage-room", { roomId: room.id, action: "rename", name: "Demoted" }, { authorization: `Bearer ${token}` });
-      await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: false });
-      expect((await held.finish()).status).toBe(403);
+      const token = await mintTestCapability(BASE, maker.id, maker.threadId);
+      expect((await fetch(`${BASE}/api/internal/move-bot`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ targetBotId: peer.id, section: "Elsewhere" }) })).status).toBe(404);
+      held = await delayedJsonBody("POST", "/api/internal/manage-room", { roomId: room.id, action: "rename", name: "Archived" }, { authorization: `Bearer ${token}` });
+      expect((await api("PATCH", `/api/bots/${maker.id}`, { hidden: true })).status).toBe(200);
+      const archived = await held.finish();
+      expect(archived.status).toBe(403);
+      expect(archived.body.error).toMatch(/archived/);
       const groups = (await api("GET", "/api/bots?messages=0")).body.groups;
       expect(groups.find((group: { id: string }) => group.id === room.id).name).toBe("Guarded room");
       expect(groups.some((group: { name: string }) => group.name === "Must not exist")).toBe(false);
-      expect((await fetch(`${BASE}/api/internal/move-bot`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ targetBotId: peer.id, section: "Elsewhere" }) })).status).toBe(404);
     } finally {
       held?.close();
-      await api("DELETE", `/api/groups/${room.id}`);
-      await api("DELETE", `/api/bots/${chief.id}`);
+      for (const id of roomIds) await api("DELETE", `/api/groups/${id}`);
+      await api("DELETE", `/api/bots/${maker.id}`);
       await api("DELETE", `/api/bots/${peer.id}`);
     }
   });
@@ -7314,8 +7319,9 @@ describe("harness HTTP API", () => {
       rmSync(fakeClaudeDump, { force: true });
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Describe your available computer tools" })).status).toBe(202);
       type Dump = { argv: string[]; mcpConfig: { mcpServers: Record<string, { args?: string[] }> }; systemPrompt: string };
-      const local = await readJsonFileWhenReady<Dump>(fakeClaudeDump);
-      expect(local.mcpConfig.mcpServers.computer).toBeUndefined();
+      const auto = await readJsonFileWhenReady<Dump>(fakeClaudeDump);
+      expect(auto.mcpConfig.mcpServers.computer?.args).toEqual([expect.stringMatching(/harness-mcp-proxy\.(?:ts|js)$/), "computer"]);
+      expect(auto.systemPrompt).toContain("assigned cloud computer");
       expect(boatPromptBodies).toHaveLength(0);
       expect(boatRouteCalls).toEqual([]);
       await api("POST", `/api/bots/${bot.id}/interrupt`, {}); await idle();

@@ -9,7 +9,7 @@ import {
 export const TAKEOVER_STEP_CHARS = 200;
 
 export const TAKEOVER_PROMPT =
-  " When a step needs the person on your screen (a sign-in, a verification code, a CAPTCHA, a payment or a final yes), do all the legwork first: open the exact page and fill in everything you can, then call request_takeover with that one step and end the turn. later.dog gives them a Take over card and wakes you when they hand the screen back. A sign-in is never a reason to refuse or stop, and passwords and codes never belong in chat.";
+  " When a step needs the person on your screen (a sign-in or code you have no Secure Form for, a CAPTCHA, a passkey, a payment or a final yes), do all the legwork first: open the exact page and fill in everything you can, then call request_takeover with that one step and end the turn. later.dog gives them a Take over card and wakes you when they hand the screen back. A sign-in is never a reason to refuse or stop, and passwords and codes never belong in chat.";
 
 export interface TakeoverWait {
   botId: string;

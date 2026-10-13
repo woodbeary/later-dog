@@ -38,6 +38,8 @@ describe("readClaudeModelCatalog", () => {
     expect(ids.indexOf("claude-sonnet-5-5")).toBe(ids.indexOf("claude-sonnet-5") - 1);
     expect(STATIC_CLAUDE_MODELS.default).toBe("claude-sonnet-5");
     expect(STATIC_CLAUDE_MODELS.options[ids.indexOf("claude-haiku-4-5")]?.effortLevels).toEqual([]);
+    expect(STATIC_CLAUDE_MODELS.options[ids.indexOf("claude-haiku-5-5")]).toEqual({ id: "claude-haiku-5-5", label: "Claude Haiku 5.5", effortLevels: [] });
+    expect(ids.indexOf("claude-haiku-5-5")).toBe(ids.indexOf("claude-haiku-4-5") - 1);
   });
 
   it("lists ANTHROPIC_MODEL from the instance environment when settings are missing", () => {

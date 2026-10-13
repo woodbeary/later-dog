@@ -24,6 +24,7 @@ describe("the first dog speaks first", () => {
     expect(started).toHaveLength(1);
     expect(started[0]).toContain("do not greet again");
     expect(started[0]).toContain("what should you help with first");
+    expect(started[0]).toContain("Once they answer, start on what they asked right away");
   });
 
   it("tells the dog what the person said it is for, so the options fit that purpose", async () => {

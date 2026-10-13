@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.26 — 2026-10-13
+
+- **Dogs use their computer.** A dog left on Auto works on its cloud computer instead of saying it has none, and it handles a sign-in with a Secure Form or a Take over card rather than refusing.
+- **Quiet while it works.** A dog says once what it is about to do, then works without a running commentary. Its screenshots stay with it: you watch the live screen instead of a stream of pictures in chat, and what it said along the way folds into its reply.
+- **One card when a dog needs you.** Secure Form and Take over look and behave the same, with hover feedback and a clear status. After you send your details the card says so, and "(retry)" is gone.
+- **Your draft stays put.** Each chat keeps what you were typing when you switch to another chat and back.
+- **New messages, easier to spot.** The "New" divider sits in the middle of the line, and the jump-down button says how many new messages are waiting below.
+- **The account chip shows the provider.** Its logo is front and center with the account's initials as a small badge, and your name no longer appears twice in the sidebar.
+- **A usage ring.** The ring around the account fills as you use it and turns from green to yellow, orange and red as it runs low. Click the chip for a small summary of what's left, with Details for the full page.
+- **Dictation works.** Mac dictation keeps your earlier words when it pauses to listen again, and voice notes can use your ElevenLabs or xAI key, or the free trial.
+- **No repeated models.** The model menu leads with the newest of each model, More models holds the rest without repeats, and older versions sit under Earlier versions. Claude Haiku 5.5 is in the list.
+- **Unread until you look.** A reply that finishes while later.dog is in the background stays unread until you come back to it.
+- **Hover feedback everywhere,** including Apps, Settings and menus.
+- **170 apps.** Apps groups them into 21 categories, with the rest of the categories under More and a View all for each. Sign-in also works with services that hand later.dog a client secret.
+- **A tidier Models page.** Models are grouped by account with how many are shown, newest first, with older versions under Earlier versions.
+- **Real effort names.** The effort button shows the level the model actually uses, such as High, instead of "Default".
+- **Any dog can make a group chat.** Ask a dog for a group chat with teammates and it creates it, then renames it or changes who is in it when you ask. A dog only mentions a Chief of Staff when your team has one, and for a new pack it points you to Create a pack.
+- **A pasted conversation ID stays as you pasted it** instead of turning into a link.
+
 ## 0.3.25 — 2026-10-13
 
 - **When a step needs you, the dog hands you the screen.** For a sign-in, a code, a CAPTCHA or a payment, the dog does the legwork first, then a Take over card puts you on its computer with one tap. Press Done and it carries on. A sign-in is never a reason for it to stop.

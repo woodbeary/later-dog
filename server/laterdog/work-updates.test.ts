@@ -7,6 +7,8 @@ describe("how a dog keeps the person posted", () => {
     expect(workUpdatesPrompt(false)).toBe(QUIET_WORK_PROMPT);
     expect(QUIET_WORK_PROMPT).toMatch(/do not narrate your steps/);
     expect(QUIET_WORK_PROMPT).toMatch(/Finish with one clear answer/);
+    expect(QUIET_WORK_PROMPT).toMatch(/say once in one short line what you are about to do/);
+    expect(QUIET_WORK_PROMPT).toMatch(/Screenshots you take are for you/);
     expect(workUpdatesPrompt(true)).toBe(STEP_UPDATES_PROMPT);
     expect(STEP_UPDATES_PROMPT).toMatch(/step-by-step updates/);
   });

@@ -35,7 +35,7 @@ export function ChatGptPlanStatus({ instanceId }: { instanceId: string }) {
       <h2 id={titleId} className="mt-4 text-lg font-semibold">{t("engineSetup.chatgpt.welcome")}</h2>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-secondary">{t("engineSetup.chatgpt.welcomeBody")}</p>
       <form method="dialog" onSubmit={(event) => { event.preventDefault(); dismiss(); }}>
-        <button type="submit" className="mt-5 w-full rounded-lg bg-ink px-4 py-2 text-[13px] font-semibold text-app">{t("onboarding.spot.gotIt")}</button>
+        <button type="submit" className="mt-5 w-full rounded-lg bg-ink px-4 py-2 text-[13px] font-semibold text-app transition-opacity hover:opacity-90">{t("onboarding.spot.gotIt")}</button>
       </form>
     </dialog>}
   </>;

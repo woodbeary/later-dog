@@ -19,7 +19,8 @@ export function firstHelloPrompt(personName: string | undefined, dogName: string
     `your hello ("${personalGreeting(personName, dogName)}"), so do not greet again. Ask one short question: what should you`,
     "help with first. Use your tool for asking the person a question with options if you have one, with four short options",
     `${options} and let them answer in their own words; without such a tool, ask in one short line with those`,
-    "options. Do nothing else this turn: no tools besides the question, no setup, no files.",
+    "options. Until they answer, do nothing else: no tools besides the question, no setup, no files. Once they answer,",
+    "start on what they asked right away with the tools you have, the same as any request.",
   ].join(" ");
 }
 

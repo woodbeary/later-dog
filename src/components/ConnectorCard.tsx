@@ -153,7 +153,7 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
                   event.preventDefault();
                   void connect();
                 }
-              }} className="mt-2 inline-block text-[12px] text-accent-text underline underline-offset-2">
+              }} className="mt-2 inline-block text-[12px] text-accent-text underline underline-offset-2 transition-opacity hover:opacity-80">
                 {t("connectors.openAuthorizationPage")}
               </a>
             )}

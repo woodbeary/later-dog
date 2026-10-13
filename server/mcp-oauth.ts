@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:http";
 import type { McpServerSpec } from "./contracts.ts";
 import { discoverMcpAuth, type McpAuthMetadata } from "./mcp-oauth-discovery.ts";
 import { McpOAuthStore, type McpOAuthRecord, type McpOAuthTokens } from "./mcp-oauth-store.ts";
+import { registeredClient, registrationAttempts, registrationRequest, secretMethod, type DynamicClient, type TokenAuthMethod } from "./laterdog/mcp-dcr.ts";
 import type { McpOAuthClientConfig } from "./mcp-registry.ts";
 
 export type McpSignInPhase = "waiting" | "succeeded" | "failed" | "cancelled" | "expired";
@@ -104,20 +105,12 @@ export function mcpCallbackOrigin(browserOrigin: string | null, configured: Read
   return known[0] ?? null;
 }
 
-type TokenAuthMethod = "none" | "client_secret_post" | "client_secret_basic";
-
-interface ClientAuth {
-  id: string;
-  secret?: string;
-  method: TokenAuthMethod;
+interface ClientAuth extends DynamicClient {
+  issued?: true;
 }
 
 function tokenAuthMethod(meta: McpAuthMetadata, secret: string | undefined): TokenAuthMethod {
-  if (!secret) return "none";
-  const supported = meta.tokenEndpointAuthMethods;
-  return !supported || supported.includes("client_secret_basic") || !supported.includes("client_secret_post")
-    ? "client_secret_basic"
-    : "client_secret_post";
+  return secret ? secretMethod(meta.tokenEndpointAuthMethods) : "none";
 }
 
 const formEncoded = (value: string) => new URLSearchParams({ v: value }).toString().slice(2);
@@ -196,6 +189,7 @@ export class McpOAuthManager {
   private recordClient(name: string, record: McpOAuthRecord): ClientAuth | null {
     if (!record.clientId) return null;
     if (!record.tokenAuth) return { id: record.clientId, method: "none" };
+    if (record.clientSecret) return { id: record.clientId, secret: record.clientSecret, method: record.tokenAuth };
     const configured = this.clients(name, record.url);
     return configured?.clientId === record.clientId && configured.clientSecret
       ? { id: record.clientId, secret: configured.clientSecret, method: record.tokenAuth }
@@ -337,7 +331,7 @@ export class McpOAuthManager {
       answer = await postForm(record.tokenEndpoint, {
         grant_type: "refresh_token",
         refresh_token: tokens.refresh,
-        resource: record.url,
+        resource: record.resource ?? record.url,
       }, client);
     } catch {
       return stillValid ? tokens.access : null;
@@ -371,28 +365,24 @@ export class McpOAuthManager {
     }
   }
 
-  private async register(meta: McpAuthMetadata, redirectUri: string): Promise<string> {
-    if (!meta.registrationEndpoint) {
+  private async register(meta: McpAuthMetadata, redirectUri: string): Promise<ClientAuth> {
+    const endpoint = meta.registrationEndpoint;
+    if (!endpoint) {
       throw new McpOAuthError("no-registration", "This server only signs in apps registered with it in advance. Edit the server and add that app's client ID under Sign-in app.");
     }
-    const response = await fetch(meta.registrationEndpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({
-        client_name: "later.dog",
-        redirect_uris: [redirectUri],
-        grant_types: ["authorization_code", "refresh_token"],
-        response_types: ["code"],
-        token_endpoint_auth_method: "none",
-      }),
-      redirect: "error",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    const body = await response.json().catch(() => ({})) as { client_id?: unknown };
-    if (!response.ok || typeof body.client_id !== "string" || !body.client_id) {
-      throw new RegistrationRefused("This server would not register later.dog for sign-in. Try again later.");
+    for (const method of registrationAttempts(meta.tokenEndpointAuthMethods)) {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify(registrationRequest(redirectUri, method)),
+        redirect: "error",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const body: unknown = await response.json().catch(() => null);
+      const client = response.ok ? registeredClient(body, meta.tokenEndpointAuthMethods) : null;
+      if (client) return { ...client, issued: true };
     }
-    return body.client_id;
+    throw new RegistrationRefused("This server would not register later.dog for sign-in. Try again later.");
   }
 
   private async begin(name: string, url: string, starting: StartingFlow, wwwAuthenticate?: string | null): Promise<McpSignInStatus> {
@@ -404,13 +394,13 @@ export class McpOAuthManager {
 
     if (!registered && starting.browser.remote && starting.browser.origin) {
       const redirectUri = `${starting.browser.origin}${CALLBACK_PATH}`;
-      let clientId: string | null = null;
+      let client: ClientAuth | null = null;
       try {
-        clientId = await this.register(meta, redirectUri);
+        client = await this.register(meta, redirectUri);
       } catch (error) {
         if (!(error instanceof RegistrationRefused)) throw error;
       }
-      if (clientId) return { ...this.open(name, url, starting, meta, redirectUri, { id: clientId, method: "none" }, null, meta.scopes).status };
+      if (client) return { ...this.open(name, url, starting, meta, redirectUri, client, null, meta.scopes).status };
     }
 
     const server = createServer();
@@ -428,7 +418,7 @@ export class McpOAuthManager {
       const redirectUri = `http://127.0.0.1:${address.port}${CALLBACK_PATH}`;
       const client: ClientAuth = registered
         ? { id: registered.clientId, ...(registered.clientSecret ? { secret: registered.clientSecret } : {}), method: tokenAuthMethod(meta, registered.clientSecret) }
-        : { id: await this.register(meta, redirectUri), method: "none" };
+        : await this.register(meta, redirectUri);
       const scopes = registered?.scopes?.length ? registered.scopes : meta.scopes;
       const flow = this.open(name, url, starting, meta, redirectUri, client, server, scopes);
       server.on("request", (request, response) => void this.callback(flow, request, response));
@@ -556,6 +546,8 @@ export class McpOAuthManager {
         issuer: flow.meta.issuer,
         clientId: flow.client.id,
         ...(flow.client.method !== "none" ? { tokenAuth: flow.client.method } : {}),
+        ...(flow.client.issued && flow.client.method !== "none" && flow.client.secret ? { clientSecret: flow.client.secret } : {}),
+        resource: flow.meta.resource,
         redirectUri: flow.redirectUri,
         tokenEndpoint: flow.meta.tokenEndpoint,
         ...(flow.meta.revocationEndpoint ? { revocationEndpoint: flow.meta.revocationEndpoint } : {}),

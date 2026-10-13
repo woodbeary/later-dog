@@ -13,7 +13,7 @@ export interface NewBotDialogProps {
   preserveSelection?: boolean;
 }
 
-const pillCls = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
+const pillCls = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
 const rowLabelCls = "block text-[12px] text-ink-secondary";
 const rowInputCls = "mt-1 w-full bg-transparent text-[14px] text-ink placeholder:text-ink-tertiary focus:outline-none";
 

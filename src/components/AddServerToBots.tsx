@@ -19,7 +19,7 @@ export function AddServerToBots({ server, className }: { server: string; classNa
             type="button"
             data-add-server-bot={bot.id}
             onClick={() => dispatch({ type: "updateBot", botId: bot.id, patch: { mcpServers: [...(bot.mcpServers ?? []), server] } })}
-            className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-raised-hover"
+            className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-control-hover"
           >
             {t("mcpConnectors.addTo", { name: bot.name })}
           </button>

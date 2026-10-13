@@ -389,4 +389,22 @@ describe("a cloud computer starts only when the bot uses it", () => {
       refuse.creates = false;
     }
   }, 60_000);
+
+  it("an Auto dog has its own cloud computer from the first turn and starts it only when used", async () => {
+    const bot = await cloudBot("Auto", { computer: null });
+    const before = creates();
+    const sent = await startTurn(bot.id, "Sign in to my mail");
+    expect(sent.mcpConfig.mcpServers.computer?.args?.at(-1)).toBe("computer");
+    expect(sent.systemPrompt).toContain("assigned cloud computer");
+    expect(sent.systemPrompt).toContain("request_secure_form");
+    expect(sent.systemPrompt).not.toContain("No computer tools are mounted this turn");
+    expect(creates()).toBe(before);
+    const first = await computerCall(sent, "tools/call", { name: "screenshot", arguments: {} });
+    expect(first.body.result.isError, JSON.stringify(first.body)).toBeFalsy();
+    expect(creates()).toBe(before + 1);
+    await finish(bot.id);
+    const thread = (await task(bot.id))?.tasks.find((candidate: any) => candidate.threadId === bot.threadId);
+    expect(thread?.surface).toBe("cloud");
+    await apiOk("DELETE", `/api/bots/${bot.id}`);
+  }, 60_000);
 });

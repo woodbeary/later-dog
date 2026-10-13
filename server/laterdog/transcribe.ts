@@ -1,5 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import type { ServiceCredential } from "../included-services.ts";
+import { isXaiVoice, transcribeWithXai, type Transcriber } from "./transcribe-xai.ts";
 
 export const TRANSCRIBE_MAX_BYTES = 10 * 1024 * 1024;
 export const TRANSCRIBE_MODEL = "scribe_v2";
@@ -105,7 +106,7 @@ export async function transcribeRoute(
   req: IncomingMessage,
   url: URL,
   enabled: boolean,
-  credential: ServiceCredential | null,
+  credential: Transcriber | null,
   fetcher: typeof fetch = fetch,
 ): Promise<TranscribeAnswer> {
   const refuse = (status: number, error: string, reason?: string): TranscribeAnswer => {
@@ -113,7 +114,7 @@ export async function transcribeRoute(
     return { status, body: { error, ...(reason ? { reason } : {}) } };
   };
   if (!enabled) return refuse(409, "Sharper dictation is turned off.", "off");
-  if (!credential) return refuse(409, "No transcription service is set up. Add an ElevenLabs key, or start the free trial.", "no-service");
+  if (!credential) return refuse(409, "No transcription service is set up. Add an ElevenLabs or xAI key, or start the free trial.", "no-service");
   const type = first(req.headers["content-type"])?.split(";")[0]?.trim().toLowerCase();
   if (!type || !WAV_TYPES.has(type)) return refuse(415, "Send the voice note as audio/wav.");
   const declared = first(req.headers["content-length"]);
@@ -124,7 +125,9 @@ export async function transcribeRoute(
   if (audio === "too-large") return { status: 413, body: { error: "That voice note is too long to transcribe." } };
   if (audio.byteLength === 0) return { status: 400, body: { error: "The voice note is empty." } };
   try {
-    const { text, language: heard } = await transcribeAudio(audio, credential, language || undefined, fetcher);
+    const { text, language: heard } = isXaiVoice(credential)
+      ? await transcribeWithXai(audio, credential, language || undefined, fetcher)
+      : await transcribeAudio(audio, credential, language || undefined, fetcher);
     return { status: 200, body: { text, ...(heard ? { language: heard } : {}), included: credential.included } };
   } catch (error) {
     return { status: 502, body: { error: error instanceof Error ? error.message : String(error) } };

@@ -631,7 +631,7 @@ function Spoiler({ children }: { children?: ReactNode }) {
           aria-label="Reveal spoiler"
           title="Reveal spoiler"
           onClick={() => setRevealed(true)}
-          className="absolute inset-0 rounded bg-raised/90"
+          className="absolute inset-0 rounded bg-raised/90 transition-colors hover:bg-raised/75"
         />
       </span>
     );

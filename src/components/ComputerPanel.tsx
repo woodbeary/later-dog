@@ -1114,7 +1114,7 @@ export function ComputerPanel({
   };
   const panelOffers = (id: PlaceActionId | undefined): id is PlaceActionId => Boolean(id) && id !== "watch" && id !== "open-computer-panel"
     && ((id !== "start" && id !== "wake") || (canManageCloud && !profileBot.busy));
-  const placeActionButton = (view: PlaceView, className = "mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover") =>
+  const placeActionButton = (view: PlaceView, className = "mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover") =>
     view.action && panelOffers(view.action.id) ? (
       <button type="button" data-testid="place-action" onClick={() => runPlaceAction(view.action!.id)} className={className}>
         {view.action.label}
@@ -1311,7 +1311,7 @@ export function ComputerPanel({
                   type="button"
                   onClick={() => run("provision")}
                   disabled={pending === "provision"}
-                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover disabled:opacity-50"
+                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover disabled:opacity-50"
                 >
                   {pending === "provision" && <Loader2 size={13} className="mr-1.5 inline animate-spin" />}
                   {t("place.action.start")}
@@ -1344,7 +1344,7 @@ export function ComputerPanel({
                   type="button"
                   data-testid="turn-on-computer"
                   onClick={() => updateComputerSelection({ computer: "cloud" })}
-                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover"
+                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover"
                 >
                   {t("computer.turnOn", { name: bot.name })}
                 </button>
@@ -1353,7 +1353,7 @@ export function ComputerPanel({
                 <button
                   type="button"
                   onClick={() => updateComputerSelection({ computer: "cloud" })}
-                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover"
+                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover"
                 >
                   {phase === "show-sleeping-boat"
                     ? t("computer.chooseCloudWake")
@@ -1394,7 +1394,7 @@ export function ComputerPanel({
                 ) : (
                   <button
                     onClick={openVmSettings}
-                    className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover"
+                    className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover"
                   >
                     {t("computer.openVmSetup")}
                   </button>
@@ -1429,7 +1429,7 @@ export function ComputerPanel({
               <button
                 onClick={() => controlAction("dismiss-help")}
                 disabled={controlPending}
-                className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
+                className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control-hover disabled:opacity-50"
               >
                 {t("computer.skip")}
               </button>

@@ -184,13 +184,16 @@ export function usePlanUsage({ enabled = true }: { enabled?: boolean } = {}) {
   };
 }
 
-export type UsageTone = "accent" | "warning" | "danger";
+export type UsageTone = "good" | "caution" | "warning" | "danger";
 
 export function usageTone(used: number): UsageTone {
-  return used >= 90 ? "danger" : used >= 75 ? "warning" : "accent";
+  const left = usageLeft(used);
+  return left <= 10 ? "danger" : left <= 25 ? "warning" : left <= 50 ? "caution" : "good";
 }
 
-const BAR_TONE: Record<UsageTone, string> = { accent: "bg-accent", warning: "bg-warning", danger: "bg-danger" };
+export const USAGE_TEXT: Record<UsageTone, string> = { good: "text-ink-secondary", caution: "text-ink-secondary", warning: "text-warning", danger: "text-danger" };
+
+const BAR_TONE: Record<UsageTone, string> = { good: "bg-success", caution: "bg-caution", warning: "bg-warning", danger: "bg-danger" };
 
 export function UsageBar({ used, label, className }: { used: number; label: string; className?: string }) {
   const left = usageLeft(used);
@@ -201,10 +204,10 @@ export function UsageBar({ used, label, className }: { used: number; label: stri
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={left}
+      aria-valuenow={100 - left}
       aria-valuetext={t("planUsage.left", { left })}
     >
-      <span className={cn("block h-full rounded-full", BAR_TONE[usageTone(100 - left)])} style={{ width: `${left}%` }} />
+      <span className={cn("block h-full rounded-full", BAR_TONE[usageTone(100 - left)])} style={{ width: `${100 - left}%` }} />
     </span>
   );
 }

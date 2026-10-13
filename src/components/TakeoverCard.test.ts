@@ -38,7 +38,7 @@ function render(takeoverRequest: TakeoverRequestCardData): string {
 describe("the Take over card", () => {
   it("asks for just the one step, with Take over, I'm done and Skip", () => {
     const text = render(request("waiting"));
-    expect(text).toContain("Computer");
+    expect(text).toContain("Pepper's cloud computer");
     expect(text).toContain("Sign in to iCloud");
     expect(text).toContain("Take over");
     expect(text).toContain("I'm done");

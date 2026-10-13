@@ -237,11 +237,11 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
         {auth?.phase !== "succeeded" && (
           <div className="flex justify-end gap-2">
             {auth?.phase !== "waiting" && !busy && started && (
-              <button type="button" onClick={() => void start()} className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45">
+              <button type="button" onClick={() => void start()} className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45">
                 {t("engineSetup.device.tryAgain")}
               </button>
             )}
-            <button type="button" disabled={busy === "cancel"} onClick={() => void cancel()} className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45">
+            <button type="button" disabled={busy === "cancel"} onClick={() => void cancel()} className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45">
               {busy === "cancel" ? t("engineSetup.device.cancelling") : t("common.cancel")}
             </button>
           </div>
@@ -287,7 +287,7 @@ export function ClaudeSignIn({ instanceId, autoStart = false, compact = false, o
               <p className="text-[11px] text-ink-secondary">{t("engineSetup.device.expires", { time: new Date(auth.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })}</p>
             ) : null}
             <p className="text-[11px] leading-relaxed text-ink-secondary">{t("engineSetup.claude.security")}</p>
-            <button type="button" disabled={busy !== null} onClick={() => void cancel()} className="w-full rounded-lg bg-control px-3 py-2 text-[12px] font-medium text-ink disabled:opacity-50">
+            <button type="button" disabled={busy !== null} onClick={() => void cancel()} className="w-full rounded-lg bg-control px-3 py-2 text-[12px] font-medium text-ink disabled:opacity-50 transition-colors enabled:hover:bg-control-hover">
               {busy === "cancel" ? t("engineSetup.device.cancelling") : t("engineSetup.device.cancel")}
             </button>
           </div>

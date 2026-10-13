@@ -110,7 +110,7 @@ import { LiveCallChip } from "./LiveCallPill";
 import { effectivePlace, toolPlace, type EffectivePlace } from "@/lib/place";
 import { cn } from "@/lib/cn";
 import { activeLocale, t } from "@/lib/i18n";
-import { groupTranscript, isStatusActivity } from "@/lib/activity-runs";
+import { groupTranscript, isStatusActivity, planTranscript, type TranscriptPlan } from "@/lib/activity-runs";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
@@ -121,6 +121,7 @@ import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
+import { useNewBelow } from "@/lib/new-below";
 import { appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
 import { dayLabel, localDay, transcriptLookups, type TranscriptLookups } from "@/lib/transcript-derivations";
 import { citationPreviewText, splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
@@ -132,6 +133,7 @@ import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
 
 const USER_COLLAPSE_CHARS = 600;
+const newBelowLabel = (count: number) => count === 1 ? t("chat.newBelowOne") : t("chat.newBelowMany", { count });
 const USER_COLLAPSE_LINES = 8;
 
 interface ChatRows {
@@ -240,7 +242,7 @@ export function ErrorRow({
         ) : isProviderSafetyBlock(message) ? (
           <p className="mt-2 text-[12.5px] leading-relaxed text-ink-secondary">
             {PROVIDER_SAFETY_GUIDANCE}{" "}
-            <a href={PROVIDER_SAFETY_HELP_URL} target="_blank" rel="noreferrer" className="underline">About provider safety checks</a>
+            <a href={PROVIDER_SAFETY_HELP_URL} target="_blank" rel="noreferrer" className="underline transition-opacity hover:opacity-80">About provider safety checks</a>
           </p>
         ) : setupInstance &&
         !(setupInstance.snapshot.state === "available" && setupInstance.snapshot.authenticated !== false) ? (
@@ -250,7 +252,7 @@ export function ErrorRow({
             <button
               type="button"
               onClick={action.onClick}
-              className="mt-1.5 mb-0.5 flex items-center gap-1.5 rounded-full bg-control px-3 py-1 text-[13px] text-ink hover:bg-raised-hover"
+              className="mt-1.5 mb-0.5 flex items-center gap-1.5 rounded-full bg-control px-3 py-1 text-[13px] text-ink hover:bg-control-hover"
             >
               {action.label}
             </button>
@@ -259,7 +261,7 @@ export function ErrorRow({
           onRetry && (
             <button
               onClick={onRetry}
-              className="mt-1.5 mb-0.5 flex items-center gap-1.5 rounded-full bg-control px-3 py-1 text-[13px] text-ink hover:bg-raised-hover"
+              className="mt-1.5 mb-0.5 flex items-center gap-1.5 rounded-full bg-control px-3 py-1 text-[13px] text-ink hover:bg-control-hover"
             >
               <RefreshCw size={12} /> {t("chat.retry")}
             </button>
@@ -376,7 +378,7 @@ function BubbleEditor({
         <button
           onClick={submit}
           disabled={!draft.trim()}
-          className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white disabled:opacity-40"
+          className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
         >
           {t("chat.send")}
         </button>
@@ -754,6 +756,7 @@ function EmptyChat({ bot }: { bot: Bot }) {
 const MessagesList = memo(function MessagesList({
   messages,
   transcript,
+  plan,
   lookups,
   place,
   pinnedMessageId,
@@ -771,6 +774,7 @@ const MessagesList = memo(function MessagesList({
 }: {
   messages: Message[];
   transcript: Message[];
+  plan: TranscriptPlan;
   lookups: TranscriptLookups;
   place: EffectivePlace;
   pinnedMessageId?: string;
@@ -790,7 +794,7 @@ const MessagesList = memo(function MessagesList({
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
-  const items = useMemo(() => groupTranscript(messages), [messages, locale]);
+  const items = useMemo(() => groupTranscript(messages, plan), [messages, plan, locale]);
   const unreadSince = useUnreadBoundary(`${botId}/${threadId}`, messages);
   let unreadPlaced = false;
   const unreadDivider = (rows: readonly Message[]) => {
@@ -903,7 +907,7 @@ const MessagesList = memo(function MessagesList({
             case "compaction":
               return <CompactionChip message={m} />;
             case "screen":
-              return <ScreenFrame threadId={threadId} message={m} />;
+              return showToolCalls ? <ScreenFrame threadId={threadId} message={m} /> : null;
             default:
               if (cloudWakeupOf(m)) return <CloudTaskUpdateRow message={m} />;
               return (
@@ -1045,7 +1049,19 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     [messages],
   );
   const showToolCalls = showToolCallsEnabled(state.config);
-  const countsInWindow = useCallback((message: Message) => transcriptRowShown(message, showToolCalls), [showToolCalls]);
+  const runningSince = bot.busy ? bot.turnStartedAt ?? null : null;
+  const plan = useMemo(
+    () => planTranscript(messages, { runningSince, quiet: !showToolCalls }),
+    [messages, runningSince, showToolCalls],
+  );
+  const shownMessages = useMemo(
+    () => plan.hiddenIds.size ? messages.filter((message) => !plan.hiddenIds.has(message.id)) : messages,
+    [messages, plan],
+  );
+  const countsInWindow = useCallback(
+    (message: Message) => !plan.hiddenIds.has(message.id) && transcriptRowShown(message, showToolCalls),
+    [plan, showToolCalls],
+  );
   const {
     scrollRef,
     transcriptRef,
@@ -1067,10 +1083,12 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     pinOn: [bot.busy, composerDock.pad],
     counts: countsInWindow,
   });
+  const shownRows = useMemo(() => messages.filter(countsInWindow), [messages, countsInWindow]);
+  const newBelow = useNewBelow(following, shownRows);
 
   const lastBotTextId = useMemo(
-    () => [...messages].reverse().find((m) => m.role === "bot" && m.kind === "text")?.id,
-    [messages],
+    () => [...shownMessages].reverse().find((m) => m.role === "bot" && m.kind === "text")?.id,
+    [shownMessages],
   );
 
   const bots = useDrawnBots(state.bots);
@@ -1111,7 +1129,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     return cited.citations.length > 0 || attached.images.length > 0 || attached.files.length > 0;
   }, [lastUserMessage]);
 
-  const lastMessage = messages.at(-1);
+  const lastMessage = shownMessages.at(-1);
   const activityLabel = liveActivityLabel(lastMessage);
   const working = useWorkingDots(bot.busy, lastMessage, bot.turnStartedAt);
   const waiting = Boolean(bot.busy && bot.activity !== "waiting-on-you" && working);
@@ -1147,11 +1165,11 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     const question = openQuestion(messages);
     return {
       busy: Boolean(bot.busy),
-      reply: latestReply(messages, () => bot.name),
+      reply: latestReply(shownMessages, () => bot.name),
       approval: approval ? { id: approval.requestId, name: bot.name } : undefined,
       question: question ? { id: question.id, name: bot.name } : undefined,
     };
-  }, [messages, bot.busy, bot.name]);
+  }, [messages, shownMessages, bot.busy, bot.name]);
   const [busySince, setBusySince] = useState<number | null>(null);
   useEffect(() => {
     setBusySince(bot.busy ? bot.turnStartedAt ?? Date.now() : null);
@@ -1298,6 +1316,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             <MessagesList
               messages={windowedMessages}
               transcript={messages}
+              plan={plan}
               lookups={lookups}
               place={place}
               pinnedMessageId={bot.pinnedMessageId}
@@ -1356,11 +1375,15 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       {!following && (
         <button
           onClick={jumpToLatest}
-          aria-label={t("chat.jumpToLatestAria")}
-          className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover"
+          aria-label={newBelow ? newBelowLabel(newBelow) : t("chat.jumpToLatestAria")}
+          data-new-below={newBelow || undefined}
+          className={cn(
+            "animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] shadow-lg transition-colors motion-reduce:transition-none",
+            newBelow ? "bg-accent font-medium text-accent-ink hover:bg-accent/85" : "border border-hairline/40 bg-raised text-ink hover:bg-raised-hover",
+          )}
           style={{ bottom: composerDock.height }}
         >
-          <ArrowDown size={13} /> {t("chat.jumpToLatest")}
+          <ArrowDown size={13} /> {newBelow ? newBelowLabel(newBelow) : t("chat.jumpToLatest")}
         </button>
       )}
 
@@ -1400,7 +1423,7 @@ export function NewConversationInstead({ onNew }: { onNew: () => void }) {
   return (
     <div className="pointer-events-auto mx-5 mb-4 flex items-center justify-between gap-3 rounded-2xl border border-hairline/60 bg-raised px-4 py-3" data-testid="cloud-guest-composer">
       <p className="text-[13px] text-ink-secondary">{t("chat.cloudGuest.notYours")}</p>
-      <button type="button" onClick={onNew} className="shrink-0 rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white">
+      <button type="button" onClick={onNew} className="shrink-0 rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white transition-[filter] enabled:hover:brightness-110">
         {t("chat.cloudGuest.newConversation")}
       </button>
     </div>
@@ -1507,7 +1530,7 @@ function NeedsYouRow({ botId, name }: { botId: string; name: string }) {
         <b className="font-medium">{t("computer.needsYou", { name })}</b> <span className="text-ink-secondary">{control.helpReason}</span>
       </span>
       <button type="button" onClick={() => dispatch({ type: "toggleComputer", open: true })}
-        className="shrink-0 rounded-full bg-control px-3 py-1 text-[12.5px] font-medium hover:bg-raised-hover">
+        className="shrink-0 rounded-full bg-control px-3 py-1 text-[12.5px] font-medium hover:bg-control-hover">
         {t("computer.needsYouOpen")}
       </button>
     </div>

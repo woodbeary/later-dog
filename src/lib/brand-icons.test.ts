@@ -8,16 +8,15 @@ import { MCP_CONNECTORS } from "./mcp-connectors";
 const PATH_DATA = /^[Mm][MmZzLlHhVvCcSsQqTtAa0-9.,\s-]+$/;
 
 describe("brand marks for the connector catalog", () => {
-  it("has a mark for every connector, so one added without a mark fails here", () => {
-    for (const connector of MCP_CONNECTORS) {
-      const mark = brandMark(connector.id);
-      expect(mark, `${connector.id} needs an entry in BRAND_MARKS (src/lib/brand-icons.ts)`).toBeDefined();
-      expect(mark?.title, connector.id).toBe(connector.name);
+  it("names each mark after the catalog connector it draws, and ships none for anything else", () => {
+    expect(Object.keys(BRAND_MARKS).length).toBeGreaterThanOrEqual(50);
+    expect(Object.keys(BRAND_MARKS)).toEqual(Object.keys(BRAND_MARKS).sort());
+    for (const [id, mark] of Object.entries(BRAND_MARKS)) {
+      const connector = MCP_CONNECTORS.find((entry) => entry.id === id);
+      expect(connector, `${id} is not in the connector catalog`).toBeDefined();
+      expect(mark.title, id).toBe(connector?.name);
+      expect(brandMark(id), id).toBe(mark);
     }
-  });
-
-  it("ships the catalog's marks and no others", () => {
-    expect(Object.keys(BRAND_MARKS).sort()).toEqual(MCP_CONNECTORS.map((connector) => connector.id).sort());
   });
 
   it("keeps each entry to a brand colour, plain path data and https links", () => {

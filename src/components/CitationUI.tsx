@@ -91,7 +91,7 @@ function CitationEditor({
       {tooLong && <p role="status" className="mt-1 text-[11px] text-danger">Comments can contain up to {CITATION_MAX_COMMENT_LENGTH.toLocaleString()} characters.</p>}
       <div className="mt-2 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="rounded-lg px-3 py-1.5 text-[12px] text-ink-secondary hover:bg-raised">Cancel</button>
-        <button type="button" disabled={tooLong} onClick={() => onSave(withCitationComment(citation, comment))} className="rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-40">Save</button>
+        <button type="button" disabled={tooLong} onClick={() => onSave(withCitationComment(citation, comment))} className="rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110">Save</button>
       </div>
     </div>,
     document.body,
@@ -277,7 +277,7 @@ export function CitationBadge({
           <div className="mt-3 flex justify-end gap-2">
             {onNavigate && <button type="button" onClick={() => { void onNavigate().then((found) => { setUnavailable(!found); if (found) setOpen(false); }); }} className="rounded-lg border border-hairline/40 px-3 py-1.5 text-[12px] hover:bg-raised">Go to source</button>}
             {onChange && <button type="button" onClick={() => { setOpen(false); setEditing(true); }} className="rounded-lg border border-hairline/40 px-3 py-1.5 text-[12px] hover:bg-raised">Edit comment</button>}
-            <button type="button" onClick={() => { setOpen(false); restoreTriggerFocus(); }} className="rounded-lg bg-accent px-3 py-1.5 text-[12px] text-white">Close</button>
+            <button type="button" onClick={() => { setOpen(false); restoreTriggerFocus(); }} className="rounded-lg bg-accent px-3 py-1.5 text-[12px] text-white transition-[filter] enabled:hover:brightness-110">Close</button>
           </div>
         </div>,
         document.body,

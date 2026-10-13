@@ -67,7 +67,7 @@ export function SoulField({ bot, onPatch }: { bot: Bot; onPatch: (patch: { soul?
             <button type="button" disabled={resolving} onClick={() => void resolve("apply-file")} className="rounded-full bg-accent px-3 py-1.5 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-45">
               {t("botSettings.soul.useFile")}
             </button>
-            <button type="button" disabled={resolving} onClick={() => void resolve("discard-file")} className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45">
+            <button type="button" disabled={resolving} onClick={() => void resolve("discard-file")} className="rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45">
               {t("botSettings.soul.keepSaved")}
             </button>
           </div>

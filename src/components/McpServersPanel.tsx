@@ -541,7 +541,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
           autoComplete="off" spellCheck={false} placeholder="http://127.0.0.1:…/mcp-oauth/callback?…"
           className="mt-1 w-full rounded-lg border border-hairline bg-inset px-3 py-2 text-ink outline-none focus:border-accent" />
         <button type="button" disabled={!callbackUrl.trim() || completingSignIn} aria-busy={completingSignIn} onClick={() => void completeSignIn()}
-          className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 font-medium text-white disabled:opacity-40">
+          className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110">
           {completingSignIn && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
           {t(completingSignIn ? "mcp.auth.completing" : "mcp.auth.complete")}
         </button>
@@ -586,11 +586,11 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
       </div>
       <div className="mt-auto flex items-center justify-between gap-2 pt-3">
         <span className="text-[12px] font-medium text-success">{whopConnected ? t("apps.connected") : ""}</span>
-        {signingIn ? <button type="button" onClick={() => signInAbort.current?.abort()} className="rounded-full bg-control px-3 py-1.5 text-[12px] text-ink">{t("mcp.auth.cancel")}</button> :
+        {signingIn ? <button type="button" onClick={() => signInAbort.current?.abort()} className="rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors enabled:hover:bg-control-hover">{t("mcp.auth.cancel")}</button> :
           <button type="button" aria-label={t(whopConnected ? "whop.disconnect" : "whop.connect")}
             disabled={pending || (servers !== null && !whopConnected && (Boolean(whopServer?.managedBy) || (restricted && !policy?.mcp.allowlist.length)))}
             onClick={() => void (servers === null ? load() : whopConnected && whopServer ? signOut(whopServer) : connectWhop())}
-            className="flex min-w-[80px] items-center justify-center gap-1.5 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover disabled:opacity-40">
+            className="flex min-w-[80px] items-center justify-center gap-1.5 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover disabled:opacity-40">
             {pending ? <Loader2 size={13} className="animate-spin" /> : servers === null ? t("connectors.action.retry") : t(whopConnected ? "connectors.disconnect" : "connectors.action.connect")}
           </button>}
       </div>
@@ -640,7 +640,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
                 setError(null);
                 setNotice(null);
               }}
-              className="flex items-center gap-1.5 rounded-lg bg-control px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-raised-hover disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-lg bg-control px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-control-hover disabled:opacity-40"
             >
               <ClipboardPaste size={14} /> {t("mcp.import")}
             </button>
@@ -654,7 +654,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
                 setError(null);
                 setNotice(null);
               }}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-white disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
             >
               <Plus size={14} /> {t(embedded ? "apps.mcp.add" : "mcp.addServer")}
             </button>
@@ -694,7 +694,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
                 type="button"
                 disabled={busy !== null || !importText.trim()}
                 onClick={() => void importServers()}
-                className="rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-accent-ink disabled:opacity-40"
+                className="rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-accent-ink disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
               >
                 {t("mcp.importAction")}
               </button>
@@ -870,7 +870,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
                 type="button"
                 disabled={busy !== null}
                 onClick={() => void save()}
-                className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[12.5px] font-medium text-white disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[12.5px] font-medium text-white disabled:opacity-50 transition-[filter] enabled:hover:brightness-110"
               >
                 {busy === "save" && <Loader2 size={13} className="animate-spin" />} {t("mcp.save")}
               </button>
@@ -900,7 +900,7 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
               return (
                 <div key={server.name} data-whop-server={whop ? server.name : undefined} className="rounded-2xl border border-hairline/50 bg-card px-4 py-4 sm:px-5">
                   <div data-mcp-row className="flex flex-wrap items-center gap-3">
-                    {connector ? <BrandIcon brand={connector.id} name={connector.name} /> : (
+                    {connector ? <BrandIcon brand={connector.id} name={connector.name} domain={connector.domain} /> : (
                       <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl", server.enabled ? "bg-success/10 text-success" : "bg-raised text-ink-secondary")}>
                         {whop ? <WhopIcon /> : isRemoteMcpListing(server) ? <Globe size={19} /> : <ServerCog size={19} />}
                       </div>

@@ -176,7 +176,7 @@ export function TeamMemoryDialog({ section, label, onClose }: { section: string;
                     <button
                       onClick={() => void accept(entry)}
                       disabled={busyId !== null}
-                      className="flex shrink-0 items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white disabled:opacity-50"
+                      className="flex shrink-0 items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white disabled:opacity-50 transition-[filter] enabled:hover:brightness-110"
                     >
                       <Check size={12} /> Remember
                     </button>
@@ -280,7 +280,7 @@ export function TeamMemoryDialog({ section, label, onClose }: { section: string;
                 <button
                   onClick={add}
                   disabled={busyId !== null || !draft.name.trim() || !draft.detail.trim()}
-                  className="rounded-lg bg-accent px-3 py-1 text-[12.5px] font-medium text-white disabled:opacity-50"
+                  className="rounded-lg bg-accent px-3 py-1 text-[12.5px] font-medium text-white disabled:opacity-50 transition-[filter] enabled:hover:brightness-110"
                 >
                   {busyId === "new" ? "Adding…" : "Add"}
                 </button>

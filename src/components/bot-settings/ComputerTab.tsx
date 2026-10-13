@@ -57,7 +57,7 @@ export function computerCardFor(bot: Pick<Bot, "computer" | "autoStartVps">, sta
   return { kind: "waking", fresh: false, polling: true };
 }
 
-const pill = "rounded-full bg-control px-4 py-1.5 text-[13px] font-medium text-ink transition-colors hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-45";
+const pill = "rounded-full bg-control px-4 py-1.5 text-[13px] font-medium text-ink transition-colors hover:bg-control-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-45";
 const headline = "text-[14px] font-medium text-ink";
 const line = "max-w-[17rem] text-[12px] leading-relaxed text-ink-secondary";
 

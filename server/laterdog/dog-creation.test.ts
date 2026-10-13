@@ -103,19 +103,23 @@ describe("greetNewDog", () => {
 });
 
 describe("what a dog is told about creating dogs", () => {
-  it("every dog's prompt says it may create one itself; team setup stays a Chief's", () => {
+  it("every dog's prompt says it may create a dog or a group chat itself, and never sends the person to a missing Chief", () => {
     expect(PROFILE_PROMPT).toContain(DOG_CREATION_PROMPT);
     expect(DOG_CREATION_PROMPT).toContain("create it yourself with create_bot");
-    expect(DOG_CREATION_PROMPT).toContain("Team setup, deleting bots and managing rooms are a Chief's job");
+    expect(DOG_CREATION_PROMPT).toContain("When they ask for a group chat with teammates, create it yourself with create_room");
+    expect(DOG_CREATION_PROMPT).toContain("Create a pack is in the sidebar's + menu");
+    expect(DOG_CREATION_PROMPT).not.toMatch(/Chief/);
     expect(PROFILE_PROMPT).not.toMatch(/bot-creation and team-setup tools for Chiefs|bots cannot be created/);
   });
 
-  it("an ordinary dog's roster no longer says only a Chief creates bots", () => {
+  it("an ordinary dog's roster names a Chief only when one is on it", () => {
     const team = [{ id: "rex", name: "Rex", section: "Research" }];
     for (const roster of [peerRosterSystemPrompt(team), peerRosterSystemPrompt(team, true)]) {
       expect(roster).not.toMatch(/create (new )?bots|Chief of Staff creates|bot creation/);
-      expect(roster).toContain("For requested team configuration, send a self-contained request to a reachable Chief of Staff");
+      expect(roster).not.toMatch(/Chief/);
     }
+    const led = [...team, { id: "clive", name: "Clive", section: "Research", chiefOfStaff: true }];
+    expect(peerRosterSystemPrompt(led)).toContain("For requested team configuration, send a self-contained request to a reachable Chief of Staff");
   });
 });
 

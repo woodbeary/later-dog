@@ -24,7 +24,7 @@ export const SECURE_FORM_TOOLS = [
   {
     name: "request_secure_form",
     description:
-      "Ask the person for details only they know (an email or username, a password, a one-time code) with a sealed Secure Form card, to sign in on this cloud computer. Open the sign-in page in the browser first; site is the host shown in its address bar, for example accounts.google.com. You never see the values. End your turn right after; later.dog wakes you when they press Continue, then type each value with fill_secure_field.",
+      "Ask the person for details only they know (an email or username, a password, a one-time code) with a sealed Secure Form card, to sign in on this cloud computer. Open the sign-in page in the browser first; site is the host shown in its address bar, for example accounts.google.com. Name the step plainly, for example \"Sign in to iCloud\"; when asking again after a failed try, keep the same title and say in one short line what the site said. You never see the values. End your turn right after; later.dog wakes you when they press Continue, then type each value with fill_secure_field.",
     inputSchema: {
       type: "object",
       properties: {
@@ -81,8 +81,10 @@ export interface SecureFormInput {
 const clean = (value: unknown, max: number) =>
   typeof value === "string" ? [...value].map((char) => (fitsOnOneLine(char) ? char : " ")).join("").replace(/\s+/g, " ").trim().slice(0, max).trim() : "";
 
+const RETRY_MARK = /\s*[([](?:re-?try(?:ing)?|again|try again|another try|new try|(?:second|third|2nd|3rd|next) (?:try|attempt)|attempt \d+|take \d+)[)\]]\s*$/i;
+
 export function parseSecureFormInput(raw: Record<string, unknown>): SecureFormInput | { error: string } {
-  const title = clean(raw.title, TITLE_CHARS);
+  const title = clean(raw.title, TITLE_CHARS).replace(RETRY_MARK, "").trim();
   if (!title) return { error: "request_secure_form needs a short title, for example \"Sign in to iCloud\"." };
   const host = normalizeSecureHost(raw.site);
   if (!host) return { error: "Name the site's own address as shown in the browser's address bar, for example icloud.com." };
@@ -204,6 +206,8 @@ export function secureFillCommand(input: { host: string; x: number; y: number; v
     "[ \"$(xdotool getactivewindow 2>/dev/null)\" = \"$w\" ] || exit 10",
     "xdotool key --clearmodifiers ctrl+a",
     `printf %s ${quote(encoded)} | base64 -d | xclip -selection clipboard || exit 11`,
+    "i=0",
+    `until [ "$(xclip -o -selection clipboard 2>/dev/null | base64 | tr -d '\\n')" = ${quote(encoded)} ]; do i=$((i + 1)); [ "$i" -lt 5 ] || { printf '' | xclip -selection clipboard; exit 12; }; sleep 0.1; done`,
     "xdotool key --clearmodifiers ctrl+v",
     "s=$?",
     "sleep 0.5",
@@ -238,6 +242,8 @@ export function secureFillProblem(exitCode: number | null, stdout: string, formH
       return "The click on the field did not go through, so nothing was typed. Take a screenshot and try again.";
     case 10:
       return "Another window took focus after the click, so nothing was typed. Take a screenshot and try again.";
+    case 12:
+      return "The cloud computer's clipboard did not take the value, so nothing was typed. Call fill_secure_field again.";
     default:
       return NOT_CONFIRMED;
   }

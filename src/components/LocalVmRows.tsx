@@ -31,7 +31,7 @@ export interface LocalVmStatus {
 type VmAction = "start" | "run" | "recreate";
 type Stage = "checking" | "unavailable" | "noRuntime" | "runtimeOff" | "notSetUp" | "settingUp" | "stopped" | "starting" | "ready" | "stuck";
 
-export const pillButton = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
+export const pillButton = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
 
 async function readStatus(signal?: AbortSignal): Promise<LocalVmStatus> {
   const response = await fetch("/api/local-computer", { signal });

@@ -17,6 +17,8 @@ const recordSchema = z.object({
   issuer: z.string().optional(),
   clientId: z.string().optional(),
   tokenAuth: z.enum(["client_secret_post", "client_secret_basic"]).optional(),
+  clientSecret: z.string().min(1).optional(),
+  resource: z.string().optional(),
   redirectUri: z.string().optional(),
   tokenEndpoint: z.string().optional(),
   revocationEndpoint: z.string().optional(),

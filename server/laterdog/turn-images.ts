@@ -1,6 +1,7 @@
 import type { Message } from "../store.ts";
 import { deleteAttachment, saveImage } from "../attachments.ts";
 import { decodeGeneratedImage } from "../generated-image.ts";
+import { screenTouchingTool, toolSurfaceKind } from "../../shared/tool-surface.ts";
 
 export type TurnImageMessage = Omit<Message, "id" | "at">;
 
@@ -27,4 +28,10 @@ export function latestTurnAnswer(messages: readonly Message[], turnId: string | 
     message.kind === "text" &&
     message.turnId === turnId &&
     Boolean(message.text?.trim()));
+}
+
+export function screenCaptureFrom(messages: readonly Message[], itemId: string | undefined): boolean {
+  if (!itemId) return false;
+  const name = messages.findLast((message) => message.kind === "activity" && message.tool?.itemId === itemId)?.tool?.name;
+  return Boolean(name && (screenTouchingTool(name) || toolSurfaceKind(name) !== null));
 }

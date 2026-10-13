@@ -49,7 +49,7 @@ export function lastSeen(lastSeenAt: number, now = Date.now()): string {
   return t("remote.serverPairing.daysAgo", { days: Math.round(minutes / 1440) });
 }
 
-const button = "rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink disabled:opacity-50";
+const button = "rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink transition-[filter] enabled:hover:brightness-110 disabled:opacity-50";
 const quiet = "rounded-md border border-hairline/50 px-3 py-1.5 text-[13px] text-ink hover:bg-control";
 
 export function ServerPairingCard({ initialSession = null, initialPairingCodes = true, cloudHome = false }: { initialSession?: SessionState | null; initialPairingCodes?: boolean; cloudHome?: boolean }) {

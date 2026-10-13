@@ -53,6 +53,10 @@ describe("what a dog may ask for in a Secure Form", () => {
     expect(parseSecureFormInput({ title: "Sign in", site, fields: SIGN_IN })).toEqual({ error: expect.stringContaining("the site's own address") });
   });
 
+  it.each(["Sign in to iCloud (retry)", "Sign in to iCloud [try again]", "Sign in to iCloud (2nd attempt)", "Sign in to iCloud (Again)"])("keeps the step's own name when %j asks again", (title) => {
+    expect(parseSecureFormInput({ title, site: "icloud.com", fields: SIGN_IN })).toMatchObject({ title: "Sign in to iCloud" });
+  });
+
   it("needs a title", () => {
     expect(parseSecureFormInput({ title: "\n\t ", site: "example.com", fields: SIGN_IN })).toEqual({ error: expect.stringContaining("needs a short title") });
   });
@@ -226,7 +230,7 @@ describe.skipIf(process.platform === "win32")("the fill script on a stand-in des
         "",
       ].join("\n"),
       xprop: "#!/bin/sh\ncat \"$FAKE_X/class\"\n",
-      xclip: "#!/bin/sh\nif [ \"$1\" = \"-o\" ]; then cat \"$FAKE_X/clipboard\" 2>/dev/null; else cat > \"$FAKE_X/clipboard\"; fi\n",
+      xclip: "#!/bin/sh\nif [ \"$1\" = \"-o\" ]; then cat \"$FAKE_X/clipboard\" 2>/dev/null; elif [ -f \"$FAKE_X/clipboard-stuck\" ]; then cat > /dev/null; else cat > \"$FAKE_X/clipboard\"; fi\n",
       sleep: "#!/bin/sh\nexit 0\n",
     };
     for (const [name, body] of Object.entries(tools)) {
@@ -247,6 +251,7 @@ describe.skipIf(process.platform === "win32")("the fill script on a stand-in des
     active?: string;
     focusAfterClick?: string;
     clickFails?: boolean;
+    clipboardStuck?: boolean;
     x?: number;
     y?: number;
     submit?: boolean;
@@ -259,6 +264,7 @@ describe.skipIf(process.platform === "win32")("the fill script on a stand-in des
     if (options.url !== null) writeFileSync(join(dir, "url"), `${options.url ?? "https://accounts.example.com/signin?continue=%2F"}\n`);
     if (options.focusAfterClick) writeFileSync(join(dir, "focus-after-click"), options.focusAfterClick);
     if (options.clickFails) writeFileSync(join(dir, "click-fails"), "");
+    if (options.clipboardStuck) writeFileSync(join(dir, "clipboard-stuck"), "");
     const script = secureFillCommand({ host: "example.com", x: options.x ?? 640, y: options.y ?? 400, value: PASSWORD, submit: options.submit ?? false });
     const run = spawnSync("/bin/bash", ["-c", script], {
       cwd: dir,
@@ -292,6 +298,14 @@ describe.skipIf(process.platform === "win32")("the fill script on a stand-in des
       "key --clearmodifiers ctrl+a",
       "key --clearmodifiers ctrl+v",
     ]);
+  });
+
+  it("pastes nothing when the clipboard never takes the value", () => {
+    const run = fill({ clipboardStuck: true });
+    expect(run.status).toBe(12);
+    expect(run.typed).toBe("");
+    expect(run.calls).not.toContain("key --clearmodifiers ctrl+v");
+    expect(secureFillProblem(run.status, run.stdout, "example.com")).toContain("nothing was typed");
   });
 
   it("presses Enter after typing only when asked", () => {
@@ -365,7 +379,7 @@ describe("what the dog hears when typing could not happen", () => {
     expect(secureFillProblem(7, "", "example.com")).toBe(elsewhere);
   });
 
-  it.each([3, 4, 5, 6, 8, 9, 10])("says nothing was typed after exit %i", (code) => {
+  it.each([3, 4, 5, 6, 8, 9, 10, 12])("says nothing was typed after exit %i", (code) => {
     expect(secureFillProblem(code, "", "example.com")).toContain("nothing was typed");
   });
 

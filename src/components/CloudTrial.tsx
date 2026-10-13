@@ -206,7 +206,7 @@ export function CloudTrialOffer({ onUse, className = "mt-3" }: { onUse?: () => v
       ) : (
         <>
           <span className="text-[12px]">{t("vm.trial.pending")}</span>
-          <button type="button" onClick={() => void openExternalLink(status.url)} className="rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover">
+          <button type="button" onClick={() => void openExternalLink(status.url)} className="rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover">
             {t("vm.trial.open")}
           </button>
         </>

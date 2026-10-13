@@ -3,14 +3,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { AppState, Bot, InstanceInfo, Message } from "@/state/store";
 
-vi.hoisted(() => {
+const view = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
+  return { showToolCalls: true };
 });
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, useStore: () => ({
-    state: { ...original.initialState, instances: [{ instanceId: "test", driverKind: "codex", displayName: "Test" } as InstanceInfo] },
+    state: {
+      ...original.initialState,
+      config: { features: { showToolCalls: view.showToolCalls } },
+      instances: [{ instanceId: "test", driverKind: "codex", displayName: "Test" } as InstanceInfo],
+    },
     dispatch: vi.fn(),
   }) };
 });
@@ -55,6 +60,18 @@ describe("ChatView screenshot", () => {
       { id: "shot", role: "bot", kind: "screen", png: "PRIVATE_BASE64_PIXELS", mime: "image/png", at: 2, parentId: "hi" } as Message]));
     expect(markup).toContain(IMAGE);
     expect(markup).not.toContain("PRIVATE_BASE64_PIXELS");
+  });
+
+  it("keeps the last look at the screen out of a quiet chat, like every other step", () => {
+    view.showToolCalls = false;
+    try {
+      const markup = render(bot([greeting,
+        { id: "shot", role: "bot", kind: "screen", hasImage: true, mime: "image/png", at: 2, parentId: "hi" } as Message]));
+      expect(markup).not.toContain(IMAGE);
+      expect(markup).toContain("Hello");
+    } finally {
+      view.showToolCalls = true;
+    }
   });
 
   it("shows nothing for a screen message that has no image", () => {

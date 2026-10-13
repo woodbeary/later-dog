@@ -12,9 +12,9 @@ type Room = { id: string; name: string; memberIds: string[]; section?: string; b
 type RpcReply = { result: { isError?: boolean; content: Array<{ text: string }> } };
 type Mounted = { command: string; args: string[]; env: Record<string, string> };
 
-const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "create_room", "manage_room", "retry_thread"];
+const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 
-it("creates and manages an own-section room through the mounted Chief MCP proxy", async () => {
+it("creates and manages an own-section room through the mounted MCP proxy, for a Chief and for any dog", async () => {
   const fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_MODE: "hang" });
   const evidence: unknown[] = [{ fixture: fixture.info }];
   const proxies: ChildProcess[] = [];
@@ -79,9 +79,18 @@ it("creates and manages an own-section room through the mounted Chief MCP proxy"
     expect(peerMount.env.LATERDOG_CHIEF_OF_STAFF).toBe("0");
     const peerTools = await toolNames(connect(peerMount));
     expect(peerTools).toContain("list_rooms");
-    expect(peerTools).toContain("create_bot");
+    expect(peerTools).toEqual(expect.arrayContaining(["create_bot", "create_room", "manage_room"]));
     expect(CHIEF_ONLY_TOOLS.filter((name) => peerTools.includes(name))).toEqual([]);
     evidence.push({ peerTools });
+    const peerRpc = connect(peerMount);
+    const peerMade = await peerRpc("tools/call", { name: "create_room", arguments: { name: "Peer chat", member_bot_ids: [second.id] } });
+    evidence.push({ tool: "create_room", by: "peer", result: peerMade });
+    expect(Boolean(peerMade.isError), JSON.stringify(peerMade)).toBe(false);
+    const peerForeign = await peerRpc("tools/call", { name: "create_room", arguments: { name: "Peer foreign", member_bot_ids: [foreign.id] } });
+    expect(Boolean(peerForeign.isError), JSON.stringify(peerForeign)).toBe(true);
+    const peerRooms = (await api<{ groups: Room[] }>("GET", "/api/bots?messages=0")).groups;
+    expect(peerRooms.find((candidate) => candidate.name === "Peer chat")).toMatchObject({ section: "Room verification", memberIds: [peer.id, second.id] });
+    expect(peerRooms.some((candidate) => candidate.name === "Peer foreign")).toBe(false);
     await control(["interrupt", "--bot", peer.id]);
 
     const mounted = await mount(chief, "Set up a small room for the team.");

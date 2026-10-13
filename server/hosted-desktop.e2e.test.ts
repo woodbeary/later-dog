@@ -177,9 +177,9 @@ it("keeps the bot's own engine on the cloud computer, and a failed place never b
     const callsBeforeAuto = boatCalls;
     rmSync(fixture.fixtureDumpPath, { force: true });
     await control(["send", "--bot", bot.id, "--task", autoThread, "--text", "what is 2+2?"]);
-    expect((await dump()).mcpConfig?.mcpServers?.computer?.args?.[1]).not.toBe("computer");
+    expect((await dump()).mcpConfig?.mcpServers?.computer?.args?.[1]).toBe("computer");
     await finish(bot.id, autoThread);
-    expect(boatCalls - callsBeforeAuto, "an Auto turn read the Boat account").toBe(0);
+    expect(boatCalls - callsBeforeAuto, "an Auto turn that left its computer alone read the Boat account").toBe(0);
     expect((await task(bot.id, autoThread)).surface).toBeUndefined();
     rows.length = 0;
     await control(["send", "--bot", bot.id, "--task", autoThread, "--text", "and 3+3?"]);

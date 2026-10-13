@@ -90,7 +90,7 @@ describe("owner-granted cross-team coordination", () => {
     const prompt = peerRosterSystemPrompt([reachable]);
     expect(prompt).toContain("[Chief of Staff]");
     expect(prompt).toContain("send a self-contained request to a reachable Chief");
-    expect(peerRosterSystemPrompt([{ ...reachable, chiefOfStaff: false }])).not.toContain("[Chief of Staff]");
+    expect(peerRosterSystemPrompt([{ ...reachable, chiefOfStaff: false }])).not.toContain("Chief of Staff");
   });
   const chief = { ...self, chiefOfStaff: true, managedSections: ["Personal"] };
   it("lets Clive reach selected teams without elevating their specialists", () => {

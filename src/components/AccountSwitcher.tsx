@@ -5,7 +5,7 @@ import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { InstanceProviderMark } from "./ProviderIcons";
 import { signedIn, useCarryOn } from "./AccountsPanel";
-import { usageLines, usageReading, usageTone, type PlanProvider, type PlanUsageReport, type UsageTone } from "./PlanUsage";
+import { USAGE_TEXT, usageLines, usageReading, usageTone, type PlanProvider, type PlanUsageReport, type UsageTone } from "./PlanUsage";
 import { backAt, rechargeProgress, restSummary, SleepingDog, usageLeft, type AccountRest } from "./AccountCharge";
 import { useAccountDrag } from "./account-drag";
 
@@ -15,12 +15,13 @@ type Resting = Readonly<Record<string, AccountRest>> | undefined;
 
 export interface UsageRingLevel {
   level: number;
-  tone: UsageTone;
+  tone: UsageTone | "accent";
   charging?: boolean;
 }
 
-const RING_TONE: Record<UsageTone, string> = { accent: "text-accent", warning: "text-warning", danger: "text-danger" };
-const TEXT_TONE: Record<UsageTone, string> = { accent: "text-ink-secondary", warning: "text-warning", danger: "text-danger" };
+const RING_TONE: Record<UsageRingLevel["tone"], string> = {
+  good: "text-success", caution: "text-caution", warning: "text-warning", danger: "text-danger", accent: "text-accent",
+};
 
 export function activeRest(resting: Resting, instanceId: string, now: number): AccountRest | undefined {
   const rest = resting?.[instanceId];
@@ -55,13 +56,12 @@ export function accountInitials(name: string): string {
 
 export function AccountBadge({ instance, ring }: { instance: InstanceInfo; ring: UsageRingLevel | null }) {
   const initials = accountInitials(instance.displayName);
-  const face = <span className={cn("font-semibold leading-none text-ink", initials.length > 1 ? "text-[8.5px] tracking-tight" : "text-[10px]")}>{initials}</span>;
   return (
     <span data-account-initials={initials} className="relative flex size-5 shrink-0 items-center justify-center">
-      {ring ? <UsageRing {...ring}>{face}</UsageRing>
-        : <span className="flex size-5 items-center justify-center rounded-full bg-control">{face}</span>}
-      <span aria-hidden="true" className="absolute -bottom-1 -right-1.5 flex size-3.5 items-center justify-center rounded-full bg-card">
-        <InstanceProviderMark instance={instance} size={9} />
+      {ring ? <UsageRing {...ring}><InstanceProviderMark instance={instance} size={12} /></UsageRing>
+        : <InstanceProviderMark instance={instance} size={15} />}
+      <span aria-hidden="true" className="absolute -bottom-1 -right-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-ink px-[2.5px] text-[7.5px] font-semibold leading-none tracking-tight text-app ring-[1.5px] ring-card">
+        {initials}
       </span>
     </span>
   );
@@ -101,7 +101,7 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
           const status = rest ? backAt(rest, now)
             : !signedIn(account) ? t("accounts.signedOut")
             : reading ? t("planUsage.left", { left: usageLeft(reading.used) }) : "";
-          const low = reading ? usageTone(reading.used) : "accent";
+          const low = reading ? usageTone(reading.used) : "good";
           return (
             <li
               key={id}
@@ -126,7 +126,7 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
                 )}
                 <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{account.displayName}</span>
                 {rest && <SleepingDog size={14} />}
-                {status && <span className={cn("shrink-0 text-[12px] tabular-nums", rest ? "text-ink-secondary" : TEXT_TONE[low])}>{status}</span>}
+                {status && <span className={cn("shrink-0 text-[12px] tabular-nums", rest ? "text-ink-secondary" : USAGE_TEXT[low])}>{status}</span>}
                 <Check size={14} aria-hidden="true" className={cn("shrink-0 text-accent", !current && "invisible")} />
               </button>
               {grips && (
@@ -151,7 +151,7 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
 }
 
 export function usageRingFor(provider: PlanProvider | undefined, rest: AccountRest | undefined, now: number): UsageRingLevel | null {
-  if (rest) return { level: Math.round((rechargeProgress(rest, now) ?? 0) * 100), tone: "accent", charging: true };
+  if (rest) return { level: 100 - Math.round((rechargeProgress(rest, now) ?? 0) * 100), tone: "accent", charging: true };
   const reading = usageReading(provider);
-  return reading ? { level: usageLeft(reading.used), tone: usageTone(reading.used) } : null;
+  return reading ? { level: 100 - usageLeft(reading.used), tone: usageTone(reading.used) } : null;
 }

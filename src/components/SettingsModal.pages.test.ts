@@ -173,6 +173,52 @@ describe("General", () => {
   });
 });
 
+describe("Models", () => {
+  const account = (instanceId: string, driverKind: string, displayName: string, models: Array<[string, string, boolean?]>) => ({
+    instanceId, driverKind, displayName, snapshot: { state: "available", authenticated: true }, capabilities: {},
+    models: { default: models[0]![0], options: models.map(([id, label, custom]) => ({ id, label, ...(custom ? { custom } : {}) })) },
+  }) as unknown as InstanceInfo;
+
+  beforeEach(() => {
+    fixture.section = "models";
+    fixture.instances = [
+      account("claude", "claudeAgent", "Claude", [
+        ["claude-fable-5-1", "Claude Fable 5.1"], ["claude-fable-5", "Claude Fable 5"], ["claude-opus-5-5", "Claude Opus 5.5"],
+        ["claude-opus-5", "Claude Opus 5"], ["claude-haiku-5-5", "Claude Haiku 5.5"], ["claude-haiku-4-5", "Claude Haiku 4.5"],
+        ["my-local", "My local model", true],
+      ]),
+      account("codex", "codex", "Codex", [["gpt-6-astra", "GPT-6 Astra"], ["gpt-5.6-sol", "GPT-5.6 Sol"]]),
+    ];
+  });
+
+  const sections = (html: string) => [...html.matchAll(/data-settings-model-group="([^"]+)"/g)].map((match) => match[1]);
+  const rows = (html: string, group: string) => {
+    const block = html.split(`data-settings-model-group="${group}"`)[1]!.split("data-settings-model-group=")[0]!;
+    return [...block.matchAll(/data-settings-model="[^:]+:([^"]+)"|data-settings-model-earlier/g)].map((match) => match[1] ?? "earlier");
+  };
+
+  it("groups models by account, newest of each family first and earlier versions below their own heading", () => {
+    const html = render();
+    expect(sections(html)).toEqual(["claude", "codex"]);
+    expect(rows(html, "claude")).toEqual(["claude-fable-5-1", "claude-opus-5-5", "claude-haiku-5-5", "earlier", "claude-fable-5", "claude-opus-5", "claude-haiku-4-5"]);
+    expect(rows(html, "codex")).toEqual(["gpt-6-astra", "earlier", "gpt-5.6-sol"]);
+    expect(html).toContain("Earlier versions");
+    expect(html).not.toContain("My local model");
+  });
+
+  it("counts what each account shows in chats", async () => {
+    const { setModelShown } = await import("@/lib/model-visibility");
+    setModelShown("codex", "gpt-5.6-sol", false);
+    try {
+      const html = render();
+      expect(html).toContain("6 of 6 shown");
+      expect(html).toContain("1 of 2 shown");
+    } finally {
+      setModelShown("codex", "gpt-5.6-sol", true);
+    }
+  });
+});
+
 describe("Computer", () => {
   beforeEach(() => { fixture.section = "computer"; });
 

@@ -40,7 +40,7 @@ const cardCls = "rounded-xl bg-card";
 const rowCls = "px-4 py-3";
 const dividedRowCls = "border-t border-hairline/40 px-4 py-3";
 const profileInputCls = "w-full max-w-[18rem] rounded-lg bg-transparent px-2 py-0.5 text-center placeholder:text-ink-tertiary transition-colors hover:bg-control/60 focus:bg-inset focus:outline-none focus-visible:ring-1 focus-visible:ring-focus motion-reduce:transition-none";
-const pillCls = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
+const pillCls = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
 const itemTextCls = "min-w-0 flex-1";
 
 export function looksLikeSkillSource(text: string): boolean {

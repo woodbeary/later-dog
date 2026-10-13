@@ -210,7 +210,7 @@ export function PendingApprovalActions({
     });
 
   const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
-  const quiet = "bg-control text-ink hover:bg-raised-hover";
+  const quiet = "bg-control text-ink hover:bg-control-hover";
   const primary = "bg-accent font-medium text-white hover:brightness-110";
   const alwaysIsPrimary = !durableRequest && Boolean((bot && pending.allowKey) || (!pending.allowKey && !canRememberCommand && pending.allowSession));
   return (

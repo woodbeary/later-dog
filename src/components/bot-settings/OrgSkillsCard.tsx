@@ -84,7 +84,7 @@ export function OrgSkillsCard({ bot, onAdded }: { bot: Bot; onAdded: () => void 
                 disabled={working !== ""}
                 onClick={() => void add(skill)}
                 aria-label={t("orgLibrary.skillAddAria", { name: skill.name })}
-                className="shrink-0 rounded-lg bg-control px-3 py-1.5 text-[12.5px] text-ink hover:bg-raised-hover disabled:opacity-50"
+                className="shrink-0 rounded-lg bg-control px-3 py-1.5 text-[12.5px] text-ink hover:bg-control-hover disabled:opacity-50"
               >
                 {working === `${skill.installId}:${skill.name}` ? t("orgLibrary.adding") : t("orgLibrary.add")}
               </button>

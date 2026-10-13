@@ -681,7 +681,7 @@ function SectionPicker({
           disabled={!trimmed || trimmed.length > 60}
           className={cn(
             "shrink-0 rounded-lg px-2.5 py-1.5 text-[12px] font-medium",
-            trimmed ? "bg-accent text-panel" : "bg-raised/70 text-ink-secondary",
+            trimmed ? "bg-accent text-panel hover:brightness-110" : "bg-raised/70 text-ink-secondary",
           )}
         >
           {t("common.add")}
@@ -1203,7 +1203,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
       title={bot.name}
       onClick={() => dispatch({ type: "select", id: bot.id })}
       onContextMenu={(event) => openBotContextMenu(onMenu, bot.id, event)}
-      className="flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-1 text-center outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+      className="flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-1 text-center outline-none focus-visible:ring-1 focus-visible:ring-accent/60 transition-colors hover:bg-raised/60"
     >
       <span className="relative">
         <span

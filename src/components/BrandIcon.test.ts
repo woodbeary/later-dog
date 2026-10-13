@@ -11,9 +11,11 @@ const draw = (props: Parameters<typeof BrandIcon>[0]) => renderToStaticMarkup(cr
 
 describe("BrandIcon", () => {
   it("draws every catalog connector's mark as an svg of its path, in its colour", () => {
-    for (const connector of MCP_CONNECTORS) {
-      const mark = BRAND_MARKS[connector.id];
-      const html = draw({ brand: connector.id, name: connector.name });
+    const marked = MCP_CONNECTORS.filter((connector) => Object.hasOwn(BRAND_MARKS, connector.id));
+    expect(marked.length).toBe(Object.keys(BRAND_MARKS).length);
+    for (const connector of marked) {
+      const mark = BRAND_MARKS[connector.id]!;
+      const html = draw({ brand: connector.id, name: connector.name, domain: connector.domain });
       expect(html, connector.id).toContain('<svg viewBox="0 0 24 24"');
       expect(html, connector.id).toContain(`<path d="${mark.path}"></path>`);
       expect(html, connector.id).toContain(`fill="${markColor(mark)}"`);
@@ -45,6 +47,18 @@ describe("BrandIcon", () => {
     expect(unknown).toContain('role="img" aria-label="Gmail"');
     expect(unknown).toContain("background-color:#ffffff");
     expect(unknown).toMatch(/>G<\/span><\/span>$/);
+  });
+
+  it("shows the service's own icon from its site when there is no mark, without sending a referrer", () => {
+    const html = draw({ brand: "deepwiki", name: "DeepWiki", domain: "deepwiki.com" });
+    expect(html).not.toContain("<svg");
+    expect(html).toContain('src="https://www.google.com/s2/favicons?domain=deepwiki.com&amp;sz=64"');
+    expect(html).toContain('alt=""');
+    expect(html).toContain('width="22" height="22"');
+    expect(html).toContain('referrerPolicy="no-referrer"');
+    expect(html).toContain('role="img" aria-label="DeepWiki"');
+    expect(html).not.toContain(">D</span>");
+    expect(draw({ brand: "linear", name: "Linear", domain: "linear.app" })).not.toContain("<img");
   });
 });
 

@@ -313,7 +313,7 @@ describe("surface pin provenance against the real server", () => {
     await stop();
   });
 
-  it("clears a select_computer pin to a cloud computer that fails, and keeps a person's pin", async () => {
+  it("tells an Auto turn to try again, clears an automatic cloud pin that fails, and keeps a person's pin", async () => {
     await start();
     const { bot } = await apiOk("POST", "/api/bots", { name: "Failed place bot" });
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
@@ -322,33 +322,38 @@ describe("surface pin provenance against the real server", () => {
       const { messages } = await apiOk("GET", `/api/threads/${task.threadId}/messages?limit=30`);
       return String(messages.filter((message: any) => message.kind !== "digest").at(-1)?.tool?.name ?? "");
     };
+    boatDown = true;
     resetTurn();
     await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Open Chrome on the cloud computer.", threadId: task.threadId });
     const sent = await dump();
-    const token = sent.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN;
-    const selected = await fetch(base + "/api/internal/computer/select", { method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ surface: "cloud" }) });
-    expect(await selected.json()).toMatchObject({ status: "pending", surface: "cloud" });
-    boatDown = true;
-    writeFileSync(finishFile, "finish");
+    expect(mountedComputer(sent).args.at(-1)).toBe("computer");
+    expect(sent.systemPrompt).toContain("assigned cloud computer");
     await until(() => lastRow(), row => row.startsWith("error:"));
+    writeFileSync(finishFile, "finish");
+    await idle(bot.id, task.threadId);
+    expect(await lastRow()).toBe("error: Cloud computers can't start right now. It isn't anything you did. Try again.");
+    expect(savedTask(bot.id, task.threadId)?.surface).toBeUndefined();
+
+    await stop();
+    editSavedBot(bot.id, saved => {
+      Object.assign(saved.tasks.find((entry: any) => entry.threadId === task.threadId), { surface: "cloud", surfaceSource: "auto" });
+    });
+    await start();
+    resetTurn();
+    await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Keep going on the cloud computer.", threadId: task.threadId });
+    await until(() => lastRow(), row => row.includes("back on Auto"));
+    writeFileSync(finishFile, "finish");
     await idle(bot.id, task.threadId);
     expect(await lastRow()).toBe("error: Cloud computers can't start right now. It isn't anything you did. This conversation is back on Auto. Send your message again.");
     const cleared = savedTask(bot.id, task.threadId)!;
     expect(cleared.surface).toBeUndefined();
     expect(cleared.surfaceSource).toBeUndefined();
-    resetTurn();
-    await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Carry on where you can.", threadId: task.threadId });
-    const next = await dump();
-    expect(mountedComputer(next)?.args ?? []).not.toContain("computer");
-    writeFileSync(finishFile, "finish");
-    await idle(bot.id, task.threadId);
-    expect(await lastRow()).not.toMatch(/^error:/);
 
     await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${task.threadId}`, { surface: "cloud" });
     resetTurn();
     await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Use the cloud computer.", threadId: task.threadId });
-    await until(() => lastRow(), row => row.startsWith("error:"));
+    await until(() => lastRow(), row => row.includes("Clear this conversation's place"));
+    writeFileSync(finishFile, "finish");
     await idle(bot.id, task.threadId);
     expect(await lastRow()).toBe("error: Cloud computers can't start right now. It isn't anything you did. Clear this conversation's place in the composer to continue.");
     expect(savedTask(bot.id, task.threadId)).toMatchObject({ surface: "cloud", surfaceSource: "user" });

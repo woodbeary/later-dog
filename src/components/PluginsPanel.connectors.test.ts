@@ -2,7 +2,7 @@ import { Children, createElement, isValidElement, type ReactElement, type ReactN
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MCP_CONNECTORS, type McpConnector } from "@/lib/mcp-connectors";
+import { MCP_CONNECTOR_CATEGORIES, MCP_CONNECTORS, type McpConnector, type McpConnectorCategory } from "@/lib/mcp-connectors";
 
 const fixture = vi.hoisted(() => ({
   surface: "apps" as "apps" | "mcp",
@@ -10,7 +10,13 @@ const fixture = vi.hoisted(() => ({
   overrides: new Map<number, unknown>(),
   index: 0,
   counting: false,
-  cards: null as null | { connectors: McpConnector[]; refreshKey?: number; onConnected?: (ids: string[]) => void; onServersChange?: () => void },
+  cards: null as null | {
+    connectors: McpConnector[];
+    refreshKey?: number;
+    grouped?: { limit: number; onViewAll: (category: McpConnectorCategory) => void };
+    onConnected?: (ids: string[]) => void;
+    onServersChange?: () => void;
+  },
   embedded: null as null | { refreshKey?: number },
 }));
 vi.mock("react", async (original) => {
@@ -59,6 +65,8 @@ const TAB = 16;
 const WHOP_CONNECTED = 18;
 const REFRESH = 19;
 const CONNECTED_CONNECTORS = 20;
+const CATEGORY = 21;
+const MORE = 22;
 
 type Node = ReactElement<{ children?: ReactNode; [key: string]: unknown }>;
 function nodes(value: ReactNode): Node[] {
@@ -82,6 +90,14 @@ function render() {
   return { html, nodes: nodes(tree) };
 }
 const shown = () => fixture.cards?.connectors.map((connector) => connector.id) ?? null;
+const inCategory = (category: McpConnectorCategory) => MCP_CONNECTORS.filter((connector) => connector.category === category).map((connector) => connector.id);
+const control = (tree: Node[], attribute: string, value: string) => {
+  const found = tree.find((node) => node.props[attribute] === value);
+  if (!found) throw new Error(`no ${attribute}=${value}`);
+  return found;
+};
+const press = (node: Node) => (node.props.onClick as () => void)();
+const whopWrapper = (tree: Node[]) => tree.find((node) => isValidElement(node.props.children) && (node.props.children as Node).props.whopCard === true)!;
 const card = (slug: string) => ({ slug, label: slug[0]!.toUpperCase() + slug.slice(1), blurb: `${slug} things`, logo: null, domain: null });
 
 beforeEach(() => {
@@ -146,6 +162,7 @@ describe("connectors in the Apps pop-up", () => {
     fixture.overrides.set(CONFIGURED, true);
     const { html, nodes: tree } = render();
     expect(shown()).toEqual(MCP_CONNECTORS.map((connector) => connector.id));
+    expect(fixture.cards!.grouped?.limit).toBe(4);
     const section = tree.find((node) => node.props["data-apps-grid"] !== undefined)!;
     const inSection = nodes(section);
     const cards = inSection.findIndex((node) => Array.isArray(node.props.connectors));
@@ -162,7 +179,8 @@ describe("connectors in the Apps pop-up", () => {
   it("narrow with the search box", () => {
     fixture.overrides.set(SEARCH, "pay");
     render();
-    expect(shown()).toEqual(["paypal", "stripe"]);
+    expect(shown()).toEqual(["paypal", "stripe", "square", "revenuecat", "airwallex"]);
+    expect(fixture.cards!.grouped).toBeUndefined();
     fixture.overrides.set(SEARCH, "gmail");
     let { html } = render();
     expect(shown()).toEqual([]);
@@ -170,6 +188,74 @@ describe("connectors in the Apps pop-up", () => {
     fixture.overrides.set(CONFIGURED, true);
     ({ html } = render());
     expect(html).toContain('data-app-tile="gmail"');
+  });
+
+  it("browse one category at a time from the chips, the More menu or a section's View all", () => {
+    fixture.overrides.set(CONFIGURED, true);
+    let { html, nodes: tree } = render();
+    expect(tree.filter((node) => node.props["data-apps-filter"] !== undefined).map((node) => node.props["data-apps-filter"]))
+      .toEqual(["all", "connected", "projects", "email", "design", "code", "more", "mcp"]);
+    expect(control(tree, "data-apps-filter", "all").props["aria-pressed"]).toBe(true);
+    expect(html).toContain("data-apps-more-heading");
+
+    press(control(tree, "data-apps-filter", "design"));
+    expect(fixture.overrides.get(CATEGORY)).toBe("design");
+    ({ html, nodes: tree } = render());
+    expect(shown()).toEqual(inCategory("design"));
+    expect(fixture.cards!.grouped).toBeUndefined();
+    expect(control(tree, "data-apps-filter", "design").props["aria-pressed"]).toBe(true);
+    expect(control(tree, "data-apps-filter", "all").props["aria-pressed"]).toBe(false);
+    expect(html).toContain('id="apps-grid-title" class="mb-3 text-[12px] font-medium text-ink-secondary">Design and media</div>');
+    expect(html).not.toContain("data-app-tile");
+    expect(html).not.toContain("data-apps-more-heading");
+    expect(whopWrapper(tree).props.className).toBe("hidden");
+
+    const more = control(tree, "data-apps-filter", "more");
+    expect(more.props["aria-haspopup"]).toBe("menu");
+    expect(more.props["aria-expanded"]).toBe(false);
+    expect(tree.some((node) => node.props.role === "menu")).toBe(false);
+    press(more);
+    expect(fixture.overrides.get(MORE)).toBe(true);
+    ({ nodes: tree } = render());
+    const items = tree.filter((node) => node.props.role === "menuitemradio");
+    expect(items.map((node) => node.props["data-apps-category"]))
+      .toEqual(Object.keys(MCP_CONNECTOR_CATEGORIES).filter((key) => !["projects", "email", "design", "code"].includes(key)));
+    expect(items.every((node) => node.props["aria-checked"] === false)).toBe(true);
+    press(control(tree, "data-apps-category", "payments"));
+    expect(fixture.overrides.get(CATEGORY)).toBe("payments");
+    expect(fixture.overrides.get(MORE)).toBe(false);
+    ({ html, nodes: tree } = render());
+    expect(shown()).toEqual(["paypal", "stripe", "square", "revenuecat"]);
+    expect(whopWrapper(tree).props.className).toBe("contents");
+    expect(renderToStaticMarkup(control(tree, "data-apps-filter", "more"))).toContain(">Payments<");
+
+    fixture.overrides.set(SEARCH, "linear");
+    ({ html } = render());
+    expect(shown()).toEqual([]);
+    expect(html).toContain("No apps found");
+    fixture.overrides.set(SEARCH, "");
+
+    press(control(render().nodes, "data-apps-filter", "all"));
+    expect(fixture.overrides.get(CATEGORY)).toBeNull();
+    render();
+    fixture.cards!.grouped!.onViewAll("finance");
+    expect(fixture.overrides.get(CATEGORY)).toBe("finance");
+    render();
+    expect(shown()).toEqual(inCategory("finance"));
+    press(control(render().nodes, "data-apps-filter", "connected"));
+    expect(fixture.overrides.get(CATEGORY)).toBeNull();
+    expect(fixture.overrides.get(TAB)).toBe("connected");
+  });
+
+  it("close the More menu on Escape without closing Apps", () => {
+    fixture.overrides.set(MORE, true);
+    const { nodes: tree } = render();
+    const wrapper = tree.find((node) => typeof node.props.onKeyDown === "function")!;
+    const stopPropagation = vi.fn();
+    (wrapper.props.onKeyDown as (event: { key: string; stopPropagation: () => void }) => void)({ key: "Escape", stopPropagation });
+    expect(stopPropagation).toHaveBeenCalled();
+    expect(fixture.overrides.get(MORE)).toBe(false);
+    expect(fixture.dispatch).not.toHaveBeenCalled();
   });
 
   it("show only the connected ones under Connected, and count them", () => {

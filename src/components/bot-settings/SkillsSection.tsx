@@ -248,7 +248,7 @@ export function SkillReviewDialog({
             type="button"
             disabled={working}
             onClick={onEnable}
-            className="rounded-lg bg-accent px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
+            className="rounded-lg bg-accent px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
           >
             Enable reviewed trick
           </button>
@@ -406,7 +406,7 @@ export function SkillsSection({ bot }: { bot: Bot }) {
                   type="button"
                   disabled={!addFromLibrary || Boolean(working)}
                   onClick={() => void addToBot()}
-                  className="shrink-0 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
+                  className="shrink-0 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control-hover disabled:opacity-50"
                 >
                   Add
                 </button>
@@ -434,7 +434,7 @@ export function SkillsSection({ bot }: { bot: Bot }) {
               <button
                 type="submit"
                 disabled={importing || !source.trim()}
-                className="shrink-0 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
+                className="shrink-0 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control-hover disabled:opacity-50"
               >
                 {importing ? "Importing…" : "Import"}
               </button>
@@ -455,7 +455,7 @@ export function SkillsSection({ bot }: { bot: Bot }) {
                   <button
                     type="button"
                     onClick={() => void view(skill)}
-                    className="min-w-0 flex-1 text-left"
+                    className="min-w-0 flex-1 text-left transition-opacity hover:opacity-80"
                   >
                     <div className="truncate font-mono text-[12.5px] text-ink">{skill.name}</div>
                     {libraryOn && (

@@ -10,7 +10,7 @@ import { Switch } from "./SettingsPrimitives";
 import { ClaudeMark, CodexMark } from "./ProviderIcons";
 import { ClaudeSignIn } from "./ClaudeSignIn";
 import { DeviceSignIn } from "./DeviceSignIn";
-import { UsageBar, usageLines, usageReading, usageTone, usePlanUsage, type PlanProvider } from "./PlanUsage";
+import { USAGE_TEXT, UsageBar, usageLines, usageReading, usageTone, usePlanUsage, type PlanProvider } from "./PlanUsage";
 import { backAt, rechargeProgress, RechargeLine, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
 import { useAccountDrag, type AccountDrag } from "./account-drag";
 import { MoreProviders, ProviderKeyFields, keyProviders, keyStepTitle } from "./AddAccountProviders";
@@ -26,7 +26,7 @@ export const ACCOUNT_ENGINES: ReadonlyArray<{ kind: AccountKind; name: string; r
 
 const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex"]);
 
-export const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
+export const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
 const primary = cn(pill, "bg-accent text-white hover:bg-accent");
 const ROW = "flex h-14 items-center gap-3 px-4";
 
@@ -75,8 +75,6 @@ function unusedDefault(instances: readonly InstanceInfo[], kind: AccountKind): I
 type RowUsage =
   | { text: string; detail: string; rest: Rest }
   | { text: string; detail: string; rest?: undefined; used: number; label: string };
-
-const USAGE_TEXT = { accent: "text-ink-secondary", warning: "text-warning", danger: "text-danger" } as const;
 
 function rowUsage(provider: PlanProvider | undefined, rest: Rest | undefined, now: number): RowUsage | null {
   if (rest && Date.parse(rest.until) > now) return { text: backAt(rest, now), detail: restSummary(rest, now), rest };

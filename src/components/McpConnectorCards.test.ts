@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BRAND_MARKS } from "@/lib/brand-icons";
-import { MCP_CONNECTORS, type McpConnector, type McpServerRow } from "@/lib/mcp-connectors";
+import { MCP_CONNECTOR_CATEGORIES, MCP_CONNECTORS, type McpConnector, type McpConnectorCategory, type McpServerRow } from "@/lib/mcp-connectors";
 
 const fixture = vi.hoisted(() => ({
   values: [] as unknown[],
@@ -68,6 +68,7 @@ const textOf = (node: Node): string => Children.toArray(node.props.children)
 const byId = (id: string) => MCP_CONNECTORS.find((connector) => connector.id === id)!;
 const props = {
   connectors: [] as McpConnector[],
+  grouped: undefined as undefined | { limit: number; onViewAll: (category: McpConnectorCategory) => void },
   onConnected: vi.fn(),
   onServersChange: vi.fn(),
 };
@@ -114,6 +115,7 @@ beforeEach(() => {
   fixture.open.mockReset();
   fixture.updateMcpServers.mockReset();
   props.connectors = [];
+  props.grouped = undefined;
   props.onConnected = vi.fn();
   props.onServersChange = vi.fn();
 });
@@ -139,6 +141,32 @@ describe("connector rows", () => {
     expect(tile("webflow").html).not.toMatch(/SSE|MCP/);
     expect(tile("intercom").html).toContain("For Intercom accounts hosted in the US.");
     expect(linear.html).not.toContain("hosted in the US");
+  });
+
+  it("groups the catalog under its categories, a few apiece and connected first, with View all for the rest", () => {
+    props.connectors = [...MCP_CONNECTORS];
+    props.grouped = { limit: 4, onViewAll: vi.fn() };
+    fixture.values[SERVERS] = [row({ name: "neon", url: "https://mcp.neon.tech/mcp", enabled: true, headerKeys: ["Authorization"] })];
+    const { html, all } = render();
+    expect(html).not.toContain("data-connector-list");
+    const sections = all.filter((node) => node.props["data-connector-category"] !== undefined);
+    expect(sections.map((node) => node.props["data-connector-category"])).toEqual(Object.keys(MCP_CONNECTOR_CATEGORIES));
+    const tilesIn = (section: Node) => nodes(section.props.children)
+      .filter((node) => node.props["data-connector-tile"] !== undefined)
+      .map((node) => node.props["data-connector-tile"]);
+    for (const section of sections) {
+      const category = section.props["data-connector-category"] as McpConnectorCategory;
+      const members = MCP_CONNECTORS.filter((connector) => connector.category === category);
+      expect(section.props["aria-label"]).toBe(textOf(nodes(section.props.children).find((node) => node.type === "h3")!));
+      expect(tilesIn(section)).toHaveLength(Math.min(4, members.length));
+      expect(nodes(section.props.children).some((node) => node.props["data-connector-view-all"] === category), category).toBe(members.length > 4);
+    }
+    const databases = sections.find((node) => node.props["data-connector-category"] === "databases")!;
+    expect(tilesIn(databases)).toEqual(["neon", "supabase", "airtable", "planetscale"]);
+    expect(html).toContain('aria-label="View all in Databases"');
+    expect(html).toContain(">Docs and notes</h3>");
+    click(all.find((node) => node.props["data-connector-view-all"] === "finance"));
+    expect(props.grouped.onViewAll).toHaveBeenCalledWith("finance");
   });
 
   it("reads Connected, Needs sign-in, Error and Managed from the servers as configured", () => {

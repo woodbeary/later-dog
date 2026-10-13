@@ -21,13 +21,14 @@ import { fastModeFits } from "@/lib/fast-mode";
 import { modelShown, useHiddenModels } from "@/lib/model-visibility";
 import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
 import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
-import { effortLevelsFor, effortName, effortNote, simpleEffortLevels } from "@/lib/model-friendly";
+import { declaredEffort, effortLevelsFor, effortName, effortNote, simpleEffortLevels } from "@/lib/model-friendly";
 import { t } from "@/lib/i18n";
 import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { threadsOnOwnModel } from "../../shared/thread-model";
 import { ThreadModelsLine } from "./ThreadModelsLine";
 import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { AccountBadge, AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
+import { AccountUsageGlance } from "./AccountUsageGlance";
 import { usePlanUsage, useRefreshAfterTurn } from "./PlanUsage";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
@@ -94,15 +95,17 @@ export function EffortRow({
   const levels = effortLevelsFor(instance, selection.model);
   if (!levels.length) return null;
   const name = (level: EffortLevel) => effortName(level, instance?.driverKind);
+  const declared = declaredEffort(levels, instance?.models?.options.find((option) => option.id === selection.model)?.defaultEffort);
+  const chosen = selection.effort ?? declared;
 
   if (compact) return (
     <label className={cn("flex items-center justify-between gap-3", className)}>
       {label}
-      <select aria-label="Reasoning effort" value={selection.effort ?? ""}
+      <select aria-label="Reasoning effort" value={chosen ?? ""}
         onChange={(event) => dispatch({ type: "setModel", botId: bot.id, threadId, ...(updateBotDefault ? { updateBotDefault: true } : {}),
           selection: { ...selection, effort: levels.find((level) => level === event.target.value) } })}
         className="min-w-0 max-w-[65%] rounded-lg border border-hairline/40 bg-inset px-2 py-1.5 text-[12px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70">
-        <option value="">Default</option>
+        {!declared && <option value="">{t("model.effort.auto")}</option>}
         {levels.map((level) => <option key={level} value={level}>{name(level)}</option>)}
       </select>
     </label>
@@ -112,11 +115,11 @@ export function EffortRow({
     <div className={className}>
       {label}
       <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label="Reasoning effort">
-        {[undefined, ...levels].map((level) => (
+        {(declared ? levels : [undefined, ...levels]).map((level) => (
           <button
-            key={level ?? "default"}
+            key={level ?? "auto"}
             type="button"
-            aria-pressed={selection.effort === level}
+            aria-pressed={chosen === level}
             title={
               level === undefined
                 ? "Send no effort level and let the provider decide"
@@ -125,12 +128,12 @@ export function EffortRow({
             onClick={() => dispatch({ type: "setModel", botId: bot.id, threadId, ...(updateBotDefault ? { updateBotDefault: true } : {}), selection: { ...selection, effort: level } })}
             className={cn(
               "rounded-full border px-2.5 py-1 text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70",
-              selection.effort === level
+              chosen === level
                 ? "border-accent/60 bg-control text-ink"
                 : "border-hairline/40 text-ink-secondary hover:bg-control/60 hover:text-ink",
             )}
           >
-            {level === undefined ? "Default" : name(level)}
+            {level === undefined ? t("model.effort.auto") : name(level)}
           </button>
         ))}
       </div>
@@ -445,7 +448,7 @@ export function ClaudeAccountSelect({ accounts, selectedId, onSelect }: {
 
 const POPOVER_WIDTH = 420;
 export const SIMPLE_POPOVER_WIDTH = 380;
-export const ACCOUNT_MENU_WIDTH = 220;
+export const ACCOUNT_MENU_WIDTH = 260;
 export const MODEL_MENU_WIDTH = 240;
 const SIMPLE_SEARCH_AFTER = 12;
 
@@ -783,7 +786,8 @@ export function ModelPicker({
     dispatch({ type: "toggleAppSettings", open: true, section: "general" });
   };
   const activeLevels = effortLevelsFor(active, selection.model);
-  const shownEffort = fitEffort(activeLevels, selection.effort);
+  const shownEffort = fitEffort(activeLevels, selection.effort)
+    ?? declaredEffort(activeLevels, active?.models?.options.find((option) => option.id === selection.model)?.defaultEffort);
   const shownEffortName = shownEffort ? effortName(shownEffort, active?.driverKind) : undefined;
   const simpleEffort = activeLevels.length > 0 ? {
     levels: simpleEffortLevels(activeLevels, shownEffort),
@@ -845,7 +849,7 @@ export function ModelPicker({
       aria-expanded={open}
       aria-haspopup="dialog"
       className={cn(
-        "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
+        "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-control-hover",
         !contained && active && (!showActiveAccount || part === "account") && COMPACT_SQUARE,
         part === "model" && "border-transparent bg-transparent pl-2",
       )}
@@ -917,11 +921,19 @@ export function ModelPicker({
             <p data-model-next-reply className="shrink-0 border-b border-hairline/40 px-3 py-2 text-[12px] text-ink-secondary">{t("model.nextReply")}</p>
           )}
           {part === "account" ? (
-            <AccountMenu rows={accountRows} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
-              setOpen(false);
-              dispatch({ type: "toggleAppSettings", open: true, section: "general" });
-              requestAddAccount();
-            }} />
+            <>
+              {active && ring && (
+                <AccountUsageGlance instance={active} provider={activeProvider} rest={activeRestNow} now={usage.now} onDetails={() => {
+                  setOpen(false);
+                  dispatch({ type: "toggleAppSettings", open: true, section: "usage" });
+                }} />
+              )}
+              <AccountMenu rows={accountRows} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
+                setOpen(false);
+                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
+                requestAddAccount();
+              }} />
+            </>
           ) : part === "model" ? (
             <ModelMenu
               groups={modelGroups}

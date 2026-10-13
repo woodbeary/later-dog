@@ -9,6 +9,7 @@ import { harnessClientFromEnv } from "./agents-client.ts";
 import type { HarnessClient, Json } from "./agents-client.ts";
 import { boundedAgentResult } from "./agents-result.ts";
 import { parseTakeoverInput, takeoverRequestedText } from "../laterdog/takeover.ts";
+import { groupChatMadeText } from "../laterdog/group-chats.ts";
 
 export interface ToolCallContext {
   botId: string;
@@ -736,9 +737,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       }),
     });
     if (r.error) return { text: `Couldn't create room: ${r.error}`, isError: true };
-    return {
-      text: `Created room “${r.name ?? roomName}” in section “${r.section ?? "General"}” [id: ${r.id}] with ${r.memberCount ?? memberIds.length} members.`,
-    };
+    return { text: groupChatMadeText(r, { name: roomName, members: memberIds.length }) };
   }
   if (name === "manage_room") {
     if (args.section !== undefined || args.action === "set_section") return { text: "Moving rooms between sections is user-only.", isError: true };

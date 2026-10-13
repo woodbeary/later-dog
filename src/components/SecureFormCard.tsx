@@ -1,24 +1,35 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, Eye, EyeOff, Loader2, LockKeyhole, X } from "lucide-react";
+import { Check, Eye, EyeOff, Globe, Loader2, LockKeyhole, X } from "lucide-react";
 
 import { SECURE_VALUE_CHARS, shownSecureFormStatus, type SecureFormCardData, type SecureFormField, type SecureFormStatus } from "../../shared/secure-form";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { api, ApiError, type Message } from "@/state/store";
+import { REQUEST_PRIMARY, RequestCard, RequestStatus } from "./RequestCard";
 
-export function secureFormCaption(status: SecureFormStatus): string {
+export function secureFormStatusLabel(status: SecureFormStatus): string | null {
   switch (status) {
     case "open":
-      return t("secureForm.caption");
+      return null;
     case "sending":
       return t("secureForm.filling");
     case "filled":
       return t("secureForm.filled");
+    case "superseded":
+      return t("secureForm.replaced");
     default:
       return t("secureForm.notFilled");
   }
+}
+
+function SecureFormStatusBadge({ status }: { status: SecureFormStatus }) {
+  const label = secureFormStatusLabel(status);
+  if (!label) return null;
+  if (status === "sending") return <RequestStatus tone="muted" leading={<Loader2 size={12} className="animate-spin" aria-hidden="true" />}>{label}</RequestStatus>;
+  if (status === "filled") return <RequestStatus tone="success" leading={<Check size={12} aria-hidden="true" />}>{label}</RequestStatus>;
+  return <RequestStatus tone={status === "expired" ? "danger" : "muted"}>{label}</RequestStatus>;
 }
 
 export function secureFormReady(fields: readonly SecureFormField[], values: Readonly<Record<string, string>>): boolean {
@@ -60,40 +71,34 @@ export function SecureFormCard({
   const openButton = useRef<HTMLButtonElement>(null);
   const remoteClient = window.laterdog?.remoteClient?.active === true;
   const fillable = status === "open";
+  const canOpen = fillable && !remoteClient;
 
   return (
-    <section aria-label={t("secureForm.aria", { name: botName })} data-secure-form={status} className="flex w-full justify-start">
-      <div className="w-full max-w-[420px] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10">
-        <div className="flex items-center gap-3 px-3.5 py-3">
-          <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl bg-control", fillable ? "text-ink" : "text-ink-tertiary")}>
-            <LockKeyhole size={16} aria-hidden="true" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className={cn("truncate text-[14px] font-medium leading-snug", fillable ? "text-ink" : "text-ink-secondary")}>{card.title}</p>
-            <p className="mt-0.5 flex items-center gap-1.5 text-[12px] text-ink-secondary">
-              {status === "sending" && <Loader2 size={11} className="shrink-0 animate-spin" aria-hidden="true" />}
-              {status === "filled" && <Check size={11} className="shrink-0 text-success" aria-hidden="true" />}
-              <span className="truncate">{secureFormCaption(status)}</span>
-            </p>
-          </div>
-          {fillable && !remoteClient && (
-            <button
-              ref={openButton}
-              type="button"
-              onClick={() => setOpen(true)}
-              aria-label={t("secureForm.openAria", { title: card.title })}
-              aria-haspopup="dialog"
-              className="flex h-8 shrink-0 items-center rounded-full bg-ink px-3.5 text-[13px] font-medium text-app transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1 motion-reduce:transition-none"
-            >
-              {t("secureForm.open")}
-            </button>
-          )}
-        </div>
-        {fillable && remoteClient && (
-          <p className="px-3.5 pb-3 text-[12.5px] leading-relaxed text-ink-secondary">{t("secureForm.remote")}</p>
-        )}
-      </div>
-      {open && fillable && !remoteClient && (
+    <RequestCard
+      label={t("secureForm.aria", { name: botName })}
+      data={{ "data-secure-form": status }}
+      media={<Globe size={17} aria-hidden="true" />}
+      title={card.title}
+      subtitle={t("secureForm.caption")}
+      active={fillable}
+      onActivate={canOpen ? () => setOpen(true) : undefined}
+      trailing={canOpen ? (
+        <button
+          ref={openButton}
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={t("secureForm.openAria", { title: card.title })}
+          aria-haspopup="dialog"
+          className={REQUEST_PRIMARY}
+        >
+          {t("secureForm.open")}
+        </button>
+      ) : <SecureFormStatusBadge status={status} />}
+    >
+      {fillable && remoteClient && (
+        <p className="px-3.5 pb-3 text-[12.5px] leading-relaxed text-ink-secondary">{t("secureForm.remote")}</p>
+      )}
+      {open && canOpen && (
         <SecureFormDialog
           botId={botId}
           threadId={threadId}
@@ -105,7 +110,7 @@ export function SecureFormCard({
           }}
         />
       )}
-    </section>
+    </RequestCard>
   );
 }
 

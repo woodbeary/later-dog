@@ -15,6 +15,9 @@ export interface FakeOAuthOptions {
   claimIssuer?: string;
   preRegistered?: Record<string, string | null>;
   tokenAuthMethods?: string[];
+  registrationSecrets?: "client_secret_basic" | "client_secret_post";
+  refusePublicRegistration?: boolean;
+  resource?: string;
 }
 
 export interface FakeClientAuth {
@@ -48,7 +51,7 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
   const codes = new Map<string, { challenge: string; clientId: string; redirectUri: string }>();
   const access = new Set<string>();
   const refresh = new Set<string>();
-  const clients = new Set<string>();
+  const clients = new Map<string, string | null>();
   const counts = { register: 0, token: 0, refresh: 0, revoke: 0 };
   let issuer = "";
   const clientAuths: FakeClientAuth[] = [];
@@ -76,7 +79,7 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
       const expected = preRegistered[auth.clientId];
       return expected === null ? (secret === null ? auth.clientId : null) : (secret === expected ? auth.clientId : null);
     }
-    return clients.has(auth.clientId) && secret === null ? auth.clientId : null;
+    return clients.has(auth.clientId) && clients.get(auth.clientId) === secret ? auth.clientId : null;
   };
 
   const issue = () => {
@@ -93,7 +96,7 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
     void (async () => {
       const url = new URL(req.url ?? "/", issuer);
       if (req.method === "GET" && url.pathname.startsWith("/.well-known/oauth-protected-resource")) {
-        return json(res, 200, { resource: `${issuer}/mcp`, authorization_servers: [issuer], scopes_supported: ["mcp"] });
+        return json(res, 200, { resource: options.resource ?? `${issuer}/mcp`, authorization_servers: [issuer], scopes_supported: ["mcp"] });
       }
       if (req.method === "GET" && url.pathname === "/.well-known/oauth-authorization-server") {
         return json(res, 200, {
@@ -109,11 +112,20 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
       if (req.method === "POST" && url.pathname === "/register") {
         counts.register += 1;
         await options.beforeRegister?.();
-        const body = JSON.parse(await readBody(req)) as { redirect_uris?: string[] };
+        const body = JSON.parse(await readBody(req)) as { redirect_uris?: string[]; token_endpoint_auth_method?: string };
         if (body.redirect_uris?.some((uri) => options.refuseRedirect?.(uri))) return json(res, 400, { error: "invalid_redirect_uri" });
+        const requested = body.token_endpoint_auth_method ?? "none";
+        if (options.refusePublicRegistration && requested === "none") return json(res, 400, { error: "invalid_client_metadata" });
+        const method = options.registrationSecrets ?? requested;
         const clientId = `client_${counts.register}`;
-        clients.add(clientId);
-        return json(res, 201, { client_id: clientId, redirect_uris: body.redirect_uris });
+        const secret = method === "none" ? null : `secret_${randomBytes(8).toString("hex")}`;
+        clients.set(clientId, secret);
+        return json(res, 201, {
+          client_id: clientId,
+          redirect_uris: body.redirect_uris,
+          token_endpoint_auth_method: method,
+          ...(secret ? { client_secret: secret } : {}),
+        });
       }
       if (req.method === "GET" && url.pathname === "/authorize") {
         fake.lastAuthorize = url.searchParams;

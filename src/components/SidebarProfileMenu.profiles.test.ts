@@ -111,6 +111,11 @@ describe("switching profiles from the name menu", () => {
     expect(labels()[0]).toBe("Switch profile");
   });
 
+  it("does not repeat the person's name when the open profile carries it", async () => {
+    await show(bridgeFor(listOf(BUSINESS, [PERSONAL, { id: BUSINESS, name: " anthony ", main: false, status: "running" }])));
+    expect(trigger().textContent).toBe("AAnthony");
+  });
+
   it("keeps the name alone while Personal is the only profile", async () => {
     await show(bridgeFor(listOf("main", [PERSONAL])));
     expect(trigger().textContent).toBe("AAnthony");

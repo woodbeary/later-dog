@@ -128,7 +128,7 @@ export function SimpleModelPane({
             ) : needsSetup ? (
               <div className="flex flex-col items-start gap-3 px-2 py-1.5 text-[12.5px] text-ink-secondary">
                 {!needsSetup.signIn && <span>{t("model.simple.needsSetup", { name: needsSetup.name })}</span>}
-                <button type="button" data-simple-set-up onClick={needsSetup.signIn && onSignIn ? onSignIn : onSetUp} className="rounded-full bg-accent px-3 py-1.5 text-[12.5px] font-medium text-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                <button type="button" data-simple-set-up onClick={needsSetup.signIn && onSignIn ? onSignIn : onSetUp} className="rounded-full bg-accent px-3 py-1.5 text-[12.5px] font-medium text-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus transition-[filter] enabled:hover:brightness-110">
                   {needsSetup.signIn ? t("model.simple.signInTo", { name: needsSetup.name }) : t("model.simple.setUp")}
                 </button>
               </div>

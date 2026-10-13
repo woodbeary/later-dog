@@ -112,7 +112,6 @@ export interface ThreadRefAddress {
 }
 
 const THREAD_URL_PREFIX = "laterdog://thread/";
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID_LIMIT = 256;
 
 const plainId = (value: string): string | null => {
@@ -155,10 +154,6 @@ export function parseThreadRefUrl(value: string): ThreadRefAddress | null {
 
 export function looksLikeThreadRefUrl(value: string): boolean {
   return value.trim().toLowerCase().startsWith(THREAD_URL_PREFIX);
-}
-
-export function isThreadUuid(value: string): boolean {
-  return UUID.test(value.trim());
 }
 
 export function resolveThreadRefAddress(
@@ -323,7 +318,7 @@ export function threadTokenFromPaste(
   const wrapped = /^\[((?:\\.|[^\\\]])*)\]\((laterdog:\/\/thread\/[^()\s]*)\)$/.exec(trimmed);
   const address = wrapped
     ? parseThreadRefUrl(wrapped[2])
-    : parseThreadRefUrl(trimmed) ?? (isThreadUuid(trimmed) ? { threadId: trimmed } : null);
+    : parseThreadRefUrl(trimmed);
   if (!address) return null;
   const ref = resolveThreadRefAddress(threads, address, currentBotId);
   if (!ref) return null;

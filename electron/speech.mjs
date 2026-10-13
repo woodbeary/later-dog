@@ -20,6 +20,7 @@ import {
   speechHelperBinary,
   speechHelperBundle,
 } from "./build-speech-helper.mjs";
+import { speechTranscript } from "./speech-transcript.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, "resources", "speech-helper.swift");
@@ -140,6 +141,7 @@ export function startSpeech(win, options = {}) {
   let offset = 0;
   let reportedError = null;
   let completed = false;
+  const transcript = speechTranscript();
 
   const drain = () => {
     let content;
@@ -160,8 +162,9 @@ export function startSpeech(win, options = {}) {
         const parsed = JSON.parse(line);
         if (typeof parsed.error === "string") reportedError = parsed.error;
         if (parsed.partial === false && typeof parsed.text === "string") completed = true;
+        const heard = transcript(parsed);
         if (child === speechSession && !win.isDestroyed()) {
-          win.webContents.send("speech:transcript", parsed);
+          win.webContents.send("speech:transcript", heard);
         }
       } catch {}
     }

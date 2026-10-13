@@ -136,11 +136,11 @@ describe("canonical thread links", () => {
     }
   });
 
-  it("turns a pasted link or raw UUID into the title token, and leaves unknown ids plain", () => {
+  it("turns a pasted link into the title token, and leaves a copied conversation id and unknown ids plain", () => {
     const link = threadRefUrl({ botId: "scout", threadId: uuid });
     expect(threadTokenFromPaste(link, uuidThreads)).toEqual({ token: "#QA PR 245", ref: expect.objectContaining({ threadId: uuid, botId: "scout" }) });
     expect(threadTokenFromPaste(`[QA PR 245](${link})`, uuidThreads)?.token).toBe("#QA PR 245");
-    expect(threadTokenFromPaste(uuid, uuidThreads)?.ref).toMatchObject({ threadId: uuid });
+    expect(threadTokenFromPaste(uuid, uuidThreads)).toBeNull();
     expect(threadTokenFromPaste("laterdog://thread/" + crypto.randomUUID(), uuidThreads)).toBeNull();
     expect(threadTokenFromPaste("not a uuid", uuidThreads)).toBeNull();
     expect(threadTokenFromPaste("see " + uuid, uuidThreads)).toBeNull();

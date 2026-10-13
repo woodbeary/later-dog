@@ -62,6 +62,7 @@ const { SimpleModelPane } = await import("./SimpleModelPane");
 const { EngineSetup } = await import("./EngineSetup");
 const { InstanceProviderMark } = await import("./ProviderIcons");
 const { AccountMenu } = await import("./AccountMenu");
+const { AccountUsageGlance } = await import("./AccountUsageGlance");
 const { ModelMenu } = await import("./ModelMenu");
 
 afterAll(() => vi.unstubAllGlobals());
@@ -725,7 +726,7 @@ describe("the model picker in Simple mode", () => {
     expect(pane(opened)).toBeDefined();
     expect(marked(opened, "data-model-back")).toBeUndefined();
     expect(fixture.usageEnabled).toBe(true);
-    expect(opened.html).toContain('data-usage-ring="70"');
+    expect(opened.html).toContain('data-usage-ring="30"');
   });
 
   it("does not count a signed-out second account, so it still opens on the models", () => {
@@ -805,14 +806,14 @@ describe("the model picker in Simple mode", () => {
     expect(pane(render(forBot))!.props.needsSetup).toEqual({ name: "Codex", signIn: true });
   });
 
-  it("rings the chip with what the binding limit leaves, refills it while the account rests, and adds every window to its tooltip", () => {
+  it("rings the chip with what the binding limit has used, drains it while the account rests, and adds every window to its tooltip", () => {
     fixture.instances = [claude(), grok];
     fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 80, 30)] };
     const closed = render(bot());
     const trigger = closed.nodes.find((node) => node.props["data-tour"] === "model")!;
     const ring = closed.nodes.find((node) => node.type === UsageRing)!;
-    expect(ring.props).toEqual(expect.objectContaining({ level: 20, tone: "warning" }));
-    expect(closed.html).toContain('data-usage-ring="20"');
+    expect(ring.props).toEqual(expect.objectContaining({ level: 80, tone: "warning" }));
+    expect(closed.html).toContain('data-usage-ring="80"');
     expect(String(trigger.props.title).split("\n")).toEqual([
       "Claude · Opus 5.5",
       "5-hour · 20% left · resets in 1h 20m",
@@ -1044,6 +1045,22 @@ describe("the chat header's account chip and the message field's model menu", ()
     expect(renderPart(bot(undefined, "claude-work", "claude-sonnet-5-5"), "account").html).toContain('data-account-initials="WP"');
     fixture.instances = [claude()];
     expect(renderPart(bot(), "account").html).not.toContain("data-account-initials");
+  });
+
+  it("opens the header chip on a glance at what the account in use has left, with a way to the full usage page", () => {
+    fixture.instances = [claude(), work()];
+    fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 80, 30)] };
+    const opened = openPart(bot(), "account");
+    const glance = opened.nodes.find((node) => node.type === AccountUsageGlance) as ReactElement<ComponentProps<typeof AccountUsageGlance>>;
+    expect(glance.props.instance.instanceId).toBe("claude");
+    expect(opened.html).toContain("5-hour · resets in 1h 20m");
+    expect(opened.html).toContain("20% left");
+    expect(opened.html).toContain("70% left");
+    expect(opened.html.indexOf("data-account-usage")).toBeLessThan(opened.html.indexOf("data-account-menu"));
+    glance.props.onDetails();
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleAppSettings", open: true, section: "usage" });
+    fixture.planUsage = null;
+    expect(openPart(bot(), "account").nodes.find((node) => node.type === AccountUsageGlance)).toBeUndefined();
   });
 
   it("lets the header's account menu reorder accounts once the server keeps an order", () => {

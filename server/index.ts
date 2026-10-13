@@ -113,7 +113,7 @@ import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputer
 import { isEffortLevel, type BotVisibility, type CardAnswerer, type ResolvedSender, type SteerQueueReason, type WireBot, type WireGroup, type WireTask } from "../shared/wire.ts";
 import { engineRefusesEffort, fittedEffort, offeredEffortLevels } from "./laterdog/effort-levels.ts";
 import { isPersistentQuestionCard, shouldSettleRequestCard } from "../shared/ask-question.ts";
-import { parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
+import { canUseMcpServer, parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import type { TeamComputersPayload } from "../shared/team-computer.ts";
 import { boatCreateRecoverySnapshot, retireDeletedBoatCreate } from "./boat-create-idempotency.ts";
 import { boatDeletionSnapshot } from "./boat-delete-journal.ts";
@@ -628,6 +628,7 @@ import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
+import { GROUP_CHAT_REFUSAL, mayMakeGroupChats } from "./laterdog/group-chats.ts";
 import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
 import { INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
@@ -640,13 +641,15 @@ import {
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold } from "./laterdog/limit-hold.ts";
-import { latestTurnAnswer, postTurnImage } from "./laterdog/turn-images.ts";
+import { latestTurnAnswer, postTurnImage, screenCaptureFrom } from "./laterdog/turn-images.ts";
+import { mountsAutoCloud } from "./laterdog/auto-cloud.ts";
 import { steerWords } from "./laterdog/steer-images.ts";
 import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts";
 import { openQuestion, typedReplyAnswer } from "./laterdog/typed-answer.ts";
 import { finishTakeover, TakeoverWaits, takeoverResumePrompt, type TakeoverCards, type TakeoverWait } from "./laterdog/takeover.ts";
 import { SecureForms, secureFormMessageText } from "./laterdog/secure-form.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
+import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { workUpdatesPrompt } from "./laterdog/work-updates.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
@@ -6288,6 +6291,7 @@ bus.subscribe((event: RuntimeEvent) => {
         pushMessage({ role: "bot", kind: "text", text, turnId: event.turnId });
         lastReply.set(event.threadId, text);
       } else if (event.itemType === "assistant_image") {
+        if (screenCaptureFrom(store.messagesFor(event.threadId), event.itemId)) break;
         try {
           postTurnImage(event.data, event.turnId, pushMessage);
         } catch (error) {
@@ -8476,6 +8480,26 @@ async function startTurn(
           integrations.localComputer = gatedLocalComputer(cua, controlIntegration(bot.id, threadId, dispatchClaimId, "this computer"));
           computerKind = "local";
         }
+      }
+      if (mountsAutoCloud({
+        wants,
+        alreadyMounted: Boolean(integrations.localComputer),
+        teamComputer: Boolean(teamComputer),
+        backend: cloudBackend,
+        configured: boat.boatConfigured(cfg),
+        placeRefused: Boolean(computerPlaceRefusal("box")),
+        engineSupportsComputer: canWorkOnCloud(cloudEngine(instance)),
+        computerToolsAllowed: canUseMcpServer(toolScope, "computer"),
+      })) {
+        integrations.localComputer = mountBotBoat(bot, resourceOwner, {
+          source: "works-on",
+          onClaimed: (capture) => {
+            pinAutoSurface("cloud");
+            adoptClaimedCapture(capture);
+          },
+          onRejected: surfaceLazyClaimRejection("the cloud computer"),
+        });
+        computerKind = "box";
       }
       if (
         wants === undefined &&
@@ -13197,7 +13221,7 @@ ROUTES.push(createUndoRoutes({
   undo: (auth, res, threadId, requestId) => withDecisionActor(decisionActorFor(auth), () => undoAppliedChange(res, threadId, requestId)),
 }));
 ROUTES.push(createVoiceTranscribeRoutes({
-  transcribe: (req, url) => transcribeRoute(req, url, cloudDictationEnabled(cfg), voiceCredential(cfg.tts?.key)),
+  transcribe: (req, url) => transcribeRoute(req, url, cloudDictationEnabled(cfg), pickTranscriber(voiceCredential(cfg.tts?.key), xaiVoice(cfg.xai?.key))),
 }));
 const takeoverLease = {
   controlKey: botComputerControlKey,
@@ -15455,19 +15479,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && (path === "/api/internal/create-room" || path === "/api/internal/manage-room")) {
         const body = await readInternalBody();
-        const chief = store.bot(internalCapability.botId)!;
-        if (chief.hidden || !chief.chiefOfStaff || !connectorThread(chief.id, internalCapability.threadId)) {
-          return json(res, 403, { error: "only an active section Chief of Staff can manage rooms" });
+        const maker = store.bot(internalCapability.botId)!;
+        if (!mayMakeGroupChats(maker)) return json(res, 403, { error: GROUP_CHAT_REFUSAL });
+        if (!connectorThread(maker.id, internalCapability.threadId)) {
+          return json(res, 403, { error: "source conversation does not belong to this bot" });
         }
         if (!body || typeof body !== "object" || Array.isArray(body)) {
           return json(res, 400, { error: "room request must be a JSON object" });
         }
-        if (peerReviewRequired(chief, internalCapability.threadId)) {
+        if (peerReviewRequired(maker, internalCapability.threadId)) {
           return json(res, 403, { error: "peer approval is required; ask the user to make this room change" });
         }
-        const allowedIds = new Set([chief.id, ...reachablePeers(store.bots, chief).map((bot) => bot.id)]);
-        const allowedRoster = (ids: string[]) => ids.includes(chief.id) && ids.every((id) => allowedIds.has(id));
-        if (body.section !== undefined && (typeof body.section !== "string" || sectionKey(body.section) !== sectionKey(chief.section))) {
+        const allowedIds = new Set([maker.id, ...reachablePeers(store.bots, maker).map((bot) => bot.id)]);
+        const allowedRoster = (ids: string[]) => ids.includes(maker.id) && ids.every((id) => allowedIds.has(id));
+        if (body.section !== undefined && (typeof body.section !== "string" || sectionKey(body.section) !== sectionKey(maker.section))) {
           return json(res, 403, { error: "rooms must stay in your own section; ask the user to move them" });
         }
         if (path === "/api/internal/create-room") {
@@ -15480,15 +15505,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             section: z.string().optional(), bulletin: z.string().max(12_000).optional(),
           }).strict().safeParse(body);
           if (!parsed.success) return json(res, 400, { error: "provide a room name, memberIds, and optional bulletin (at most 12000 characters)" });
-          const memberIds = [...new Set([chief.id, ...parsed.data.memberIds])];
+          const memberIds = [...new Set([maker.id, ...parsed.data.memberIds])];
           if (!allowedRoster(memberIds)) {
             return json(res, 403, { error: "include yourself and only active, allowed peers from your section" });
           }
           const group = createChannel({
-            name: redactSecretsInText(parsed.data.name), memberIds, section: chief.section,
+            name: redactSecretsInText(parsed.data.name), memberIds, section: maker.section,
             setup: {
               bulletin: redactSecretsInText(parsed.data.bulletin ?? ""),
-              defaultResponder: deciderReady(cfg, "roomRouting") ? { kind: "auto", fallbackBotId: chief.id } : { kind: "member", botId: chief.id },
+              defaultResponder: deciderReady(cfg, "roomRouting") ? { kind: "auto", fallbackBotId: maker.id } : { kind: "member", botId: maker.id },
             },
           });
           internalCapability.createdRooms = (internalCapability.createdRooms ?? 0) + 1;
@@ -15502,7 +15527,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }).strict().safeParse(body);
         if (!parsed.success) return json(res, 400, { error: "provide roomId and a supported room action; section moves are user-only" });
         const room = store.group(parsed.data.roomId);
-        if (!room || room.dm || sectionKey(room.section) !== sectionKey(chief.section) || !allowedRoster(room.memberIds)) {
+        if (!room || room.dm || sectionKey(room.section) !== sectionKey(maker.section) || !allowedRoster(room.memberIds)) {
           return json(res, 403, { error: "you can only manage rooms you belong to with allowed peers in your own section" });
         }
         const { action, memberIds, name, bulletin } = parsed.data;
@@ -15519,7 +15544,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           const next = action === "add_members" ? [...new Set([...room.memberIds, ...memberIds])]
             : action === "remove_members" ? room.memberIds.filter((id) => !memberIds.includes(id)) : memberIds;
-          if (!allowedRoster(next)) return json(res, 403, { error: "keep yourself in the room; only the user can remove its managing Chief" });
+          if (!allowedRoster(next)) return json(res, 403, { error: "keep yourself in the room; only the user can take you out of it" });
           patch.memberIds = next;
         }
         const updated = updateChannel(room.id, patch);

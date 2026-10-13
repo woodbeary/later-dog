@@ -1086,13 +1086,14 @@ describe("agents-proxy MCP surface", () => {
     expect(result.result.content[0].text).toContain(JSON.stringify(modelSelection));
   });
 
-  it("lets a Chief create a group room and manage members through the harness", async () => {
+  it("creates a group chat and manages its members through the harness", async () => {
     const resCreate = await callTool("create_room", {
       name: "Dev Team",
       member_bot_ids: ["bot-1", "bot-2"],
       bulletin: "Ship fast.",
     });
-    expect(resCreate.result.content[0].text).toContain("Created room “Dev Team” in section “Work”");
+    expect(resCreate.result.content[0].text).toContain("Created the group chat “Dev Team” [id: room-dev] with 2 members, you included.");
+    expect(resCreate.result.content[0].text).toContain("in the person's sidebar under Group chats now");
     expect(lastCreateRoomBody).toEqual({
       fromBotId: "bot-asker",
       fromThreadId: "thread-asker-routine",
@@ -2131,10 +2132,11 @@ describe("with computer sharing off and no Chief of Staff (the defaults)", () =>
   it("shows a bot that is not a Chief none of the Chief-only tools or parameters", async () => {
     type ListedTool = { name: string; description: string; inputSchema: { properties: Record<string, unknown> } };
     const tools = new Map(((await gatedRpc("tools/list")).result.tools as ListedTool[]).map((tool) => [tool.name, tool]));
-    for (const name of ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "create_room", "manage_room", "retry_thread"]) {
+    for (const name of ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"]) {
       expect(tools.has(name), name).toBe(false);
     }
-    expect(tools.has("create_bot")).toBe(true);
+    for (const name of ["create_bot", "create_room", "manage_room"]) expect(tools.has(name), name).toBe(true);
+    for (const name of ["create_room", "manage_room"]) expect(tools.get(name)!.description).not.toMatch(/Chief/);
     for (const name of ["propose_profile", "propose_model"]) {
       expect(tools.get(name)!.inputSchema.properties).not.toHaveProperty("for_bot_id");
       expect(tools.get(name)!.description).not.toContain("for_bot_id");
@@ -2143,12 +2145,18 @@ describe("with computer sharing off and no Chief of Staff (the defaults)", () =>
   });
 
   it("refuses a Chief-only tool called by name without reaching the harness", async () => {
-    lastCreateRoomBody = null;
-    const room = await gatedRpc("tools/call", { name: "create_room", arguments: { name: "Ops", member_bot_ids: ["bot-helper"] } });
-    expect(room.error).toMatchObject({ code: -32602, message: "Unknown tool: create_room" });
     const deletion = await gatedRpc("tools/call", { name: "propose_bot_deletion", arguments: { bot_id: "bot-helper", reason: "Done." } });
     expect(deletion.error).toMatchObject({ code: -32602, message: "Unknown tool: propose_bot_deletion" });
-    expect(lastCreateRoomBody).toBeNull();
+    const setup = await gatedRpc("tools/call", { name: "list_team_setup", arguments: {} });
+    expect(setup.error).toMatchObject({ code: -32602, message: "Unknown tool: list_team_setup" });
+  });
+
+  it("lets a bot that is not a Chief make a group chat through the harness", async () => {
+    lastCreateRoomBody = null;
+    const room = await gatedRpc("tools/call", { name: "create_room", arguments: { name: "Ivy, etsy", member_bot_ids: ["bot-helper"] } });
+    expect(room.result.isError).toBeFalsy();
+    expect(room.result.content[0].text).toContain("in the person's sidebar under Group chats now");
+    expect(lastCreateRoomBody).toEqual({ fromBotId: "bot-asker", fromThreadId: "thread-asker-routine", name: "Ivy, etsy", memberIds: ["bot-helper"] });
   });
 
   it("lets a bot that is not a Chief create a bot through the harness", async () => {

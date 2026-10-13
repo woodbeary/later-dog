@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Loader2, LockKeyhole, Monitor } from "lucide-react";
+import { Check, Loader2, LockKeyhole, Monitor } from "lucide-react";
 
 import { isOpenTakeover, type TakeoverPlace } from "../../shared/takeover";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { api, useStore, type Message } from "@/state/store";
+import { REQUEST_PRIMARY, REQUEST_QUIET, REQUEST_SECONDARY, RequestCard, RequestStatus } from "./RequestCard";
 
 type TakeoverAction = "take" | "done" | "skip";
 
@@ -66,88 +67,70 @@ export function TakeoverCard({
   };
 
   const spinner = (action: TakeoverAction) => busy === action && <Loader2 size={13} className="animate-spin" aria-hidden="true" />;
-  const button = "flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors disabled:opacity-50";
+
+  const status = inControl
+    ? <RequestStatus tone="live">{t("takeover.inControl")}</RequestStatus>
+    : request.status === "done"
+      ? <RequestStatus tone="success" leading={<Check size={12} aria-hidden="true" />}>{t("takeover.done")}</RequestStatus>
+      : request.status === "skipped"
+        ? <RequestStatus tone="muted">{t("takeover.skipped")}</RequestStatus>
+        : null;
 
   return (
-    <section
-      aria-label={t("takeover.aria", { name: botName })}
-      data-takeover-card={request.status}
-      className="flex w-full justify-start"
+    <RequestCard
+      label={t("takeover.aria", { name: botName })}
+      data={{ "data-takeover-card": request.status }}
+      media={<Monitor size={17} aria-hidden="true" />}
+      title={request.step}
+      subtitle={takeoverPlaceName(request.place, botName)}
+      active={open}
+      trailing={waiting ? (
+        <button type="button" onClick={() => void act("take")} disabled={busy !== null} className={REQUEST_PRIMARY}>
+          {spinner("take")}
+          {t("computer.takeOver")}
+        </button>
+      ) : status}
     >
-      <div className="w-full max-w-[420px] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10">
-        <div className="px-3.5 pb-3 pt-3">
-          <div className="flex items-center gap-2 text-[12.5px] text-ink-secondary">
-            <Monitor size={14} aria-hidden="true" />
-            <span className="font-medium">{t("takeover.title")}</span>
-            {inControl && (
-              <span className="ml-auto flex items-center gap-1.5 text-[11.5px] font-medium text-success">
-                <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden="true" />
-                {t("takeover.inControl")}
-              </span>
-            )}
-            {request.status === "done" && (
-              <span className="ml-auto flex items-center gap-1.5 text-[11.5px] font-medium text-ink-secondary">
-                <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
-                {t("takeover.done")}
-              </span>
-            )}
-            {request.status === "skipped" && (
-              <span className="ml-auto text-[11.5px] font-medium text-ink-tertiary">{t("takeover.skipped")}</span>
-            )}
-          </div>
-          <p className={cn("mt-1.5 text-[15px] font-medium leading-snug", open ? "text-ink" : "text-ink-secondary")}>
-            {request.step}
+      <div className="px-3.5 pb-3">
+        {open && request.reason === "sign-in" && (
+          <p className="flex items-start gap-1.5 text-[12px] leading-[17px] text-ink-tertiary">
+            <LockKeyhole size={12} className="mt-[2px] shrink-0" aria-hidden="true" />
+            {t("takeover.signInNote", { place: takeoverPlaceName(request.place, botName) })}
           </p>
-          {open && request.reason === "sign-in" && (
-            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-[17px] text-ink-tertiary">
-              <LockKeyhole size={12} className="mt-[2px] shrink-0" aria-hidden="true" />
-              {t("takeover.signInNote", { place: takeoverPlaceName(request.place, botName) })}
-            </p>
+        )}
+        {failed && <p role="alert" className="mt-2 text-[12px] text-danger">{t("takeover.failed")}</p>}
+        <div className={cn("flex flex-wrap items-center gap-2", (open && request.reason === "sign-in") || failed ? "mt-2.5" : "")}>
+          {waiting && (
+            <>
+              <button type="button" onClick={() => void act("done")} disabled={busy !== null} className={REQUEST_SECONDARY}>
+                {spinner("done")}
+                {t("computer.handBack")}
+              </button>
+              <button type="button" onClick={() => void act("skip")} disabled={busy !== null}
+                title={t("takeover.skipTitle", { name: botName })} className={REQUEST_QUIET}>
+                {spinner("skip")}
+                {t("computer.skip")}
+              </button>
+            </>
           )}
-          {failed && <p role="alert" className="mt-2 text-[12px] text-danger">{t("takeover.failed")}</p>}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {waiting && (
-              <>
-                <button type="button" onClick={() => void act("take")} disabled={busy !== null}
-                  className={cn(button, "bg-ink text-app hover:opacity-90")}>
-                  {spinner("take")}
-                  {t("computer.takeOver")}
-                </button>
-                <button type="button" onClick={() => void act("done")} disabled={busy !== null}
-                  className={cn(button, "text-ink ring-[0.5px] ring-ink/20 hover:bg-control")}>
-                  {spinner("done")}
-                  {t("computer.handBack")}
-                </button>
-                <button type="button" onClick={() => void act("skip")} disabled={busy !== null}
-                  title={t("takeover.skipTitle", { name: botName })}
-                  className={cn(button, "text-ink-secondary hover:bg-control hover:text-ink")}>
-                  {spinner("skip")}
-                  {t("computer.skip")}
-                </button>
-              </>
-            )}
-            {inControl && (
-              <>
-                <button type="button" onClick={() => showComputer(true)} disabled={busy !== null}
-                  className={cn(button, "bg-ink text-app hover:opacity-90")}>
-                  {t("takeover.openComputer")}
-                </button>
-                <button type="button" onClick={() => void act("done")} disabled={busy !== null}
-                  className={cn(button, "text-ink ring-[0.5px] ring-ink/20 hover:bg-control")}>
-                  {spinner("done")}
-                  {t("computer.handBack")}
-                </button>
-              </>
-            )}
-            {!open && (
-              <button type="button" onClick={() => showComputer(false)}
-                className={cn(button, "-ml-1.5 text-ink-secondary hover:bg-control hover:text-ink")}>
+          {inControl && (
+            <>
+              <button type="button" onClick={() => showComputer(true)} disabled={busy !== null} className={REQUEST_PRIMARY}>
                 {t("takeover.openComputer")}
               </button>
-            )}
-          </div>
+              <button type="button" onClick={() => void act("done")} disabled={busy !== null} className={REQUEST_SECONDARY}>
+                {spinner("done")}
+                {t("computer.handBack")}
+              </button>
+            </>
+          )}
+          {!open && (
+            <button type="button" onClick={() => showComputer(false)} className={cn(REQUEST_QUIET, "-ml-1.5")}>
+              {t("takeover.openComputer")}
+            </button>
+          )}
         </div>
       </div>
-    </section>
+    </RequestCard>
   );
 }

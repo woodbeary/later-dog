@@ -48,7 +48,7 @@ export function AboutMeSettings() {
         {status === "saving" && <span className="text-ink-secondary">{t("settings.profile.saving")}</span>}
         {status === "saved" && <span className="text-success">{t("settings.profile.saved")}</span>}
         {status === "error" && <span className="text-danger">{t("settings.profile.saveError")} {" "}
-          <button type="button" onClick={() => void flush()} className="underline">{t("settings.profile.retry")}</button>
+          <button type="button" onClick={() => void flush()} className="underline transition-opacity hover:opacity-80">{t("settings.profile.retry")}</button>
         </span>}
       </div>
     </div>

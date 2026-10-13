@@ -1066,16 +1066,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               trackRunningTool(current, u);
               if (u.status === "completed" || u.status === "failed") {
                 current.state.producedItem = true;
+                const toolItemId = (typeof u.toolCallId === "string" && u.toolCallId) ? u.toolCallId : current.unkeyedToolIds.shift();
                 emit({
                   ...base(threadId, current.turnId),
                   type: "item.completed",
                   itemType: "tool",
-                  itemId: (typeof u.toolCallId === "string" && u.toolCallId) ? u.toolCallId : current.unkeyedToolIds.shift(),
+                  itemId: toolItemId,
                   ok: u.status !== "failed",
                   output: toolDetailPreview(u.rawOutput ?? u.content),
                 });
                 for (const img of extractMcpImages(u.content ?? u.rawOutput)) {
-                  emit({ ...base(threadId, current.turnId), type: "item.completed", itemType: "assistant_image", data: img.data });
+                  emit({ ...base(threadId, current.turnId), type: "item.completed", itemType: "assistant_image", itemId: toolItemId, data: img.data });
                 }
               }
               break;

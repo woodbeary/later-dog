@@ -307,6 +307,7 @@ export const STATIC_CLAUDE_MODELS: ModelCatalog = {
     { id: "claude-opus-5", label: "Claude Opus 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
     { id: "claude-sonnet-5", label: "Claude Sonnet 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", effortLevels: [] },
     { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", effortLevels: [] },
   ],
 };
@@ -1537,7 +1538,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               if (b.type === "tool_result") {
                 emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "tool", itemId: b.tool_use_id, ok: !b.is_error, output: toolDetailPreview(b.content) });
                 for (const img of extractMcpImages(b.content)) {
-                  emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "assistant_image", data: img.data });
+                  emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "assistant_image", itemId: b.tool_use_id, data: img.data });
                 }
               }
             }

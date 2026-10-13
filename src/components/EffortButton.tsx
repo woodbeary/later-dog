@@ -2,7 +2,7 @@ import { CircleHelp, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { effortLevelsFor, effortName, effortNote, recommendedEffort } from "@/lib/model-friendly";
+import { declaredEffort, effortLevelsFor, effortName, effortNote, recommendedEffort } from "@/lib/model-friendly";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { useStore, type Bot } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
@@ -42,9 +42,9 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
   if (levels.length === 0 && !fast) return null;
   const save = (next: typeof selection) => dispatch({ type: "setModel", botId: bot.id, threadId,
     ...(updateBotDefault ? { updateBotDefault: true } : {}), selection: next });
-  const current = fitEffort(levels, selection.effort);
+  const current = fitEffort(levels, selection.effort) ?? declaredEffort(levels, option?.defaultEffort);
   const recommended = recommendedEffort(levels, option?.defaultEffort);
-  const label = current ? name(current) : t("model.effort.default");
+  const label = current ? name(current) : t("model.effort.auto");
   const note = current ? effortNote(current) : undefined;
   const columns = { gridTemplateColumns: `repeat(${levels.length}, minmax(0, 1fr))` };
 
@@ -95,13 +95,13 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
                     title={effortNote(level) ? `${name(level)} · ${effortNote(level)}` : name(level)}
                     data-effort-level={level}
                     onClick={() => save({ ...selection, effort: level })}
-                    className="flex h-5 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                    className="group/level flex h-5 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                   >
                     {level === current
                       ? <span className="h-4 w-5 rounded-[5px] bg-ink shadow-sm" />
                       : !current && level === recommended
-                        ? <span className="h-4 w-5 rounded-[5px] bg-ink/35" />
-                        : <span className="size-1 rounded-full bg-ink-tertiary" />}
+                        ? <span className="h-4 w-5 rounded-[5px] bg-ink/35 transition-colors group-hover/level:bg-ink/55" />
+                        : <span className="size-1 rounded-full bg-ink-tertiary transition-transform group-hover/level:scale-[2] group-hover/level:bg-ink-secondary" />}
                   </button>
                 ))}
               </div>

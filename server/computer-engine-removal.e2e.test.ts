@@ -267,8 +267,8 @@ describe("removing the Computer engine", () => {
     await server.api("PATCH", `/api/bots/${starter.id}`, { computer: null });
     const callsBeforeAuto = boatCalls;
     const autoTurn = await server.turn(starter.id, other, "what is 2+2?");
-    expect(autoTurn.mcpConfig?.mcpServers?.computer?.args?.[1]).not.toBe("computer");
-    expect(boatCalls - callsBeforeAuto, "an Auto turn reached the Boat account").toBe(0);
+    expect(autoTurn.mcpConfig?.mcpServers?.computer?.args?.[1]).toBe("computer");
+    expect(boatCalls - callsBeforeAuto, "an Auto turn that left its computer alone reached the Boat account").toBe(0);
     expect(agentCalls).toEqual([]);
     await server.stop();
   }, 180_000);

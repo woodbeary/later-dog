@@ -4,6 +4,7 @@ import { Check, ExternalLink, Loader2 } from "lucide-react";
 import { openExternalLink } from "@/lib/app-links";
 import { t } from "@/lib/i18n";
 import {
+  MCP_CONNECTOR_CATEGORIES,
   MCP_CONNECTORS,
   connectMcpConnector,
   connectorServer,
@@ -11,6 +12,7 @@ import {
   disconnectMcpConnector,
   type ConnectResult,
   type McpConnector,
+  type McpConnectorCategory,
   type McpServerRow,
 } from "@/lib/mcp-connectors";
 import { updateMcpServers, useMcpServers } from "@/lib/mcp-servers";
@@ -34,9 +36,10 @@ function failureMessage(result: Extract<ConnectResult, { outcome: "failed" }>, c
 
 const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
-export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onServersChange }: {
+export function McpConnectorCards({ connectors, refreshKey = 0, grouped, onConnected, onServersChange }: {
   connectors: readonly McpConnector[];
   refreshKey?: number;
+  grouped?: { limit: number; onViewAll: (category: McpConnectorCategory) => void };
   onConnected?: (ids: string[]) => void;
   onServersChange?: () => void;
 }) {
@@ -100,7 +103,7 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
 
   const connectedKey = servers === null
     ? null
-    : MCP_CONNECTORS.filter((connector) => connectorState(connectorServer(connector, servers)) === "connected")
+    : MCP_CONNECTORS.filter((connector) => connectorState(connectorServer(connector, servers), connector) === "connected")
       .map((connector) => connector.id).join(",");
   useEffect(() => {
     if (connectedKey !== null) onConnected?.(connectedKey ? connectedKey.split(",") : []);
@@ -198,7 +201,7 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
     }
   };
 
-  const isConnected = (connector: McpConnector) => servers !== null && connectorState(connectorServer(connector, servers)) === "connected";
+  const isConnected = (connector: McpConnector) => servers !== null && connectorState(connectorServer(connector, servers), connector) === "connected";
   const ordered = connectors
     .map((connector, index) => ({ connector, index }))
     .sort((a, b) => Number(isConnected(b.connector)) - Number(isConnected(a.connector)) || a.index - b.index)
@@ -206,145 +209,181 @@ export function McpConnectorCards({ connectors, refreshKey = 0, onConnected, onS
 
   if (ordered.length === 0) return null;
 
-  return (
-    <div data-connector-list className="mb-4 grid grid-cols-1 gap-x-8 @3xl:grid-cols-2">
-      {ordered.map((connector) => {
-        const server = servers ? connectorServer(connector, servers) : undefined;
-        const state = connectorState(server);
-        const busy = active?.id === connector.id;
-        const signingIn = busy && active.phase === "signing-in";
-        const error = errors[connector.id];
-        const description = t(connector.description);
-        const disabled = busy
-          || (active !== null && !busy)
-          || (servers === null && loadFailed === null)
-          || state === "blocked"
-          || (locked && state !== "connected");
-        const label = servers === null
-          ? t(loadFailed === null ? "connectors.action.checking" : "connectors.action.retry")
-          : state === "connected"
-            ? t("connectors.disconnect")
-            : state === "needs-sign-in"
-              ? t("mcp.auth.signIn")
-              : t(error ? "connectors.action.retry" : "connectors.action.connect");
-        const aria = servers === null
-          ? undefined
-          : state === "connected"
-            ? t("mcpConnectors.disconnectAria", { name: connector.name })
-            : state === "needs-sign-in"
-              ? t("mcpConnectors.signInAria", { name: connector.name })
-              : t("mcpConnectors.connectAria", { name: connector.name });
-        return (
-          <div key={connector.id} data-connector-tile={connector.id} className="flex min-w-0 items-start gap-3 py-2.5">
-            <BrandIcon brand={connector.id} name={connector.name} decorative />
+  const renderTile = (connector: McpConnector) => {
+    const server = servers ? connectorServer(connector, servers) : undefined;
+    const state = connectorState(server, connector);
+    const busy = active?.id === connector.id;
+    const signingIn = busy && active.phase === "signing-in";
+    const error = errors[connector.id];
+    const description = t(connector.description);
+    const disabled = busy
+      || (active !== null && !busy)
+      || (servers === null && loadFailed === null)
+      || state === "blocked"
+      || (locked && state !== "connected");
+    const label = servers === null
+      ? t(loadFailed === null ? "connectors.action.checking" : "connectors.action.retry")
+      : state === "connected"
+        ? t("connectors.disconnect")
+        : state === "needs-sign-in"
+          ? t("mcp.auth.signIn")
+          : t(error ? "connectors.action.retry" : "connectors.action.connect");
+    const aria = servers === null
+      ? undefined
+      : state === "connected"
+        ? t("mcpConnectors.disconnectAria", { name: connector.name })
+        : state === "needs-sign-in"
+          ? t("mcpConnectors.signInAria", { name: connector.name })
+          : t("mcpConnectors.connectAria", { name: connector.name });
+    return (
+      <div key={connector.id} data-connector-tile={connector.id} className="-mx-2 flex min-w-0 items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-raised/50">
+        <BrandIcon brand={connector.id} name={connector.name} domain={connector.domain} decorative />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-h-10 items-center gap-2">
             <div className="min-w-0 flex-1">
-              <div className="flex min-h-10 items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-[14px] font-medium text-ink">{connector.name}</span>
-                    {state === "connected" ? (
-                      <span className="flex shrink-0 items-center gap-1 text-[11.5px] font-medium text-success">
-                        <Check size={12} className="shrink-0" aria-hidden="true" /> {t("apps.connected")}
-                      </span>
-                    ) : state === "needs-sign-in" ? (
-                      <span className="shrink-0 text-[11.5px] font-medium text-warning">{t("mcp.auth.needsSignIn")}</span>
-                    ) : state === "blocked" && server?.managedBy ? (
-                      <span className="min-w-0 truncate text-[11.5px] text-ink-secondary">{t("policy.managedBy", { organization: server.managedBy })}</span>
-                    ) : null}
-                  </div>
-                  <p className="mt-0.5 truncate text-[12px] leading-snug text-ink-secondary" title={description}>{description}</p>
-                </div>
-                <a
-                  href={connector.docs}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={t("mcpConnectors.learnMore", { name: connector.name })}
-                  title={t("mcpConnectors.learnMore", { name: connector.name })}
-                  className="shrink-0 rounded-lg p-1.5 text-ink-secondary transition-colors hover:bg-raised hover:text-ink"
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-[14px] font-medium text-ink">{connector.name}</span>
+                {state === "connected" ? (
+                  <span className="flex shrink-0 items-center gap-1 text-[11.5px] font-medium text-success">
+                    <Check size={12} className="shrink-0" aria-hidden="true" /> {t("apps.connected")}
+                  </span>
+                ) : state === "needs-sign-in" ? (
+                  <span className="shrink-0 text-[11.5px] font-medium text-warning">{t("mcp.auth.needsSignIn")}</span>
+                ) : state === "blocked" && server?.managedBy ? (
+                  <span className="min-w-0 truncate text-[11.5px] text-ink-secondary">{t("policy.managedBy", { organization: server.managedBy })}</span>
+                ) : null}
+              </div>
+              <p className="mt-0.5 truncate text-[12px] leading-snug text-ink-secondary" title={description}>{description}</p>
+            </div>
+            <a
+              href={connector.docs}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t("mcpConnectors.learnMore", { name: connector.name })}
+              title={t("mcpConnectors.learnMore", { name: connector.name })}
+              className="shrink-0 rounded-lg p-1.5 text-ink-secondary transition-colors hover:bg-raised hover:text-ink"
+            >
+              <ExternalLink size={14} aria-hidden="true" />
+            </a>
+            {signingIn ? (
+              <button
+                type="button"
+                onClick={() => abort.current?.abort()}
+                aria-label={t("mcpConnectors.cancelAria", { name: connector.name })}
+                className="flex min-w-[80px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-control-hover"
+              >
+                {t("mcp.auth.cancel")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                aria-label={aria}
+                disabled={disabled}
+                title={locked && policy ? t("policy.managedBy", { organization: policy.organizationName }) : undefined}
+                onClick={() => {
+                  if (servers === null) void load();
+                  else if (state === "connected" && server) void disconnect(connector, server);
+                  else void connect(connector);
+                }}
+                className="flex min-w-[80px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-control-hover disabled:opacity-40"
+              >
+                {busy ? <Loader2 size={13} className="mx-auto animate-spin" aria-hidden="true" /> : label}
+              </button>
+            )}
+          </div>
+          {connector.note && <p className="mt-1 text-[11px] leading-snug text-ink-secondary">{t(connector.note)}</p>}
+          {connector.transport === "sse" && <p className="mt-1 text-[11px] leading-snug text-ink-secondary">{t("mcpConnectors.sseDogs")}</p>}
+          {error && <p role="alert" className="mt-1.5 text-[12px] leading-relaxed text-danger">{error}</p>}
+          {signingIn && (
+            <div className="mt-2 space-y-2 rounded-lg bg-raised px-3 py-3 text-[12px] text-ink-secondary">
+              <div role="status" className="flex items-center gap-2">
+                <Loader2 size={13} className="animate-spin" aria-hidden="true" /> {t("mcp.auth.waiting")}
+              </div>
+              {flow?.authorizationUrl && mcpSignInLink(flow.authorizationUrl) && (
+                <button
+                  type="button"
+                  onClick={() => void openExternalLink(flow.authorizationUrl!).catch(() => setCallbackError(t("mcp.auth.openFailed")))}
+                  className="text-accent hover:underline"
                 >
-                  <ExternalLink size={14} aria-hidden="true" />
-                </a>
-                {signingIn ? (
+                  {t("mcp.auth.openAgain")}
+                </button>
+              )}
+              {flow?.flowId && (
+                <details>
+                  <summary className="cursor-pointer font-medium text-ink">{t("mcp.auth.otherComputer")}</summary>
+                  <p className="mt-2 leading-relaxed">{t("mcp.auth.otherComputerHint")}</p>
+                  <label className="mt-3 block" htmlFor={`connector-callback-${connector.id}`}>{t("mcp.auth.callbackUrl")}</label>
+                  <input
+                    id={`connector-callback-${connector.id}`}
+                    type="text"
+                    value={callbackUrl}
+                    disabled={completing}
+                    onChange={(event) => setCallbackUrl(event.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="http://127.0.0.1:…/mcp-oauth/callback?…"
+                    className="mt-1 w-full rounded-lg border border-hairline bg-inset px-3 py-2 text-ink outline-none focus:border-accent"
+                  />
                   <button
                     type="button"
-                    onClick={() => abort.current?.abort()}
-                    aria-label={t("mcpConnectors.cancelAria", { name: connector.name })}
-                    className="flex min-w-[80px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-raised-hover"
+                    disabled={!callbackUrl.trim() || completing}
+                    aria-busy={completing}
+                    onClick={() => void completeSignIn()}
+                    className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
                   >
-                    {t("mcp.auth.cancel")}
+                    {completing && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+                    {t(completing ? "mcp.auth.completing" : "mcp.auth.complete")}
                   </button>
-                ) : (
+                </details>
+              )}
+              {callbackError && <p role="alert" className="text-danger">{callbackError}</p>}
+            </div>
+          )}
+          {state === "connected" && server && (
+            <AddServerToBots server={server.name} className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary" />
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  if (grouped) {
+    const sections = (Object.keys(MCP_CONNECTOR_CATEGORIES) as McpConnectorCategory[])
+      .map((category) => ({ category, members: ordered.filter((connector) => connector.category === category) }))
+      .filter(({ members }) => members.length > 0);
+    return (
+      <div data-connector-groups className="mb-6 flex flex-col gap-5">
+        {sections.map(({ category, members }) => {
+          const label = t(MCP_CONNECTOR_CATEGORIES[category]);
+          return (
+            <section key={category} data-connector-category={category} aria-label={label}>
+              <div className="mb-1 flex min-h-8 items-center justify-between gap-3">
+                <h3 className="text-[13px] font-semibold text-ink">{label}</h3>
+                {members.length > grouped.limit && (
                   <button
                     type="button"
-                    aria-label={aria}
-                    disabled={disabled}
-                    title={locked && policy ? t("policy.managedBy", { organization: policy.organizationName }) : undefined}
-                    onClick={() => {
-                      if (servers === null) void load();
-                      else if (state === "connected" && server) void disconnect(connector, server);
-                      else void connect(connector);
-                    }}
-                    className="flex min-w-[80px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-raised-hover disabled:opacity-40"
+                    data-connector-view-all={category}
+                    onClick={() => grouped.onViewAll(category)}
+                    aria-label={t("apps.viewAllIn", { category: label })}
+                    className="rounded-full px-2.5 py-1 text-[12px] font-medium text-ink-secondary transition-colors hover:bg-raised hover:text-ink"
                   >
-                    {busy ? <Loader2 size={13} className="mx-auto animate-spin" aria-hidden="true" /> : label}
+                    {t("apps.viewAll")}
                   </button>
                 )}
               </div>
-              {connector.note && <p className="mt-1 text-[11px] leading-snug text-ink-secondary">{t(connector.note)}</p>}
-              {connector.transport === "sse" && <p className="mt-1 text-[11px] leading-snug text-ink-secondary">{t("mcpConnectors.sseDogs")}</p>}
-              {error && <p role="alert" className="mt-1.5 text-[12px] leading-relaxed text-danger">{error}</p>}
-              {signingIn && (
-                <div className="mt-2 space-y-2 rounded-lg bg-raised px-3 py-3 text-[12px] text-ink-secondary">
-                  <div role="status" className="flex items-center gap-2">
-                    <Loader2 size={13} className="animate-spin" aria-hidden="true" /> {t("mcp.auth.waiting")}
-                  </div>
-                  {flow?.authorizationUrl && mcpSignInLink(flow.authorizationUrl) && (
-                    <button
-                      type="button"
-                      onClick={() => void openExternalLink(flow.authorizationUrl!).catch(() => setCallbackError(t("mcp.auth.openFailed")))}
-                      className="text-accent hover:underline"
-                    >
-                      {t("mcp.auth.openAgain")}
-                    </button>
-                  )}
-                  {flow?.flowId && (
-                    <details>
-                      <summary className="cursor-pointer font-medium text-ink">{t("mcp.auth.otherComputer")}</summary>
-                      <p className="mt-2 leading-relaxed">{t("mcp.auth.otherComputerHint")}</p>
-                      <label className="mt-3 block" htmlFor={`connector-callback-${connector.id}`}>{t("mcp.auth.callbackUrl")}</label>
-                      <input
-                        id={`connector-callback-${connector.id}`}
-                        type="text"
-                        value={callbackUrl}
-                        disabled={completing}
-                        onChange={(event) => setCallbackUrl(event.target.value)}
-                        autoComplete="off"
-                        spellCheck={false}
-                        placeholder="http://127.0.0.1:…/mcp-oauth/callback?…"
-                        className="mt-1 w-full rounded-lg border border-hairline bg-inset px-3 py-2 text-ink outline-none focus:border-accent"
-                      />
-                      <button
-                        type="button"
-                        disabled={!callbackUrl.trim() || completing}
-                        aria-busy={completing}
-                        onClick={() => void completeSignIn()}
-                        className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 font-medium text-white disabled:opacity-40"
-                      >
-                        {completing && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
-                        {t(completing ? "mcp.auth.completing" : "mcp.auth.complete")}
-                      </button>
-                    </details>
-                  )}
-                  {callbackError && <p role="alert" className="text-danger">{callbackError}</p>}
-                </div>
-              )}
-              {state === "connected" && server && (
-                <AddServerToBots server={server.name} className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary" />
-              )}
-            </div>
-          </div>
-        );
-      })}
+              <div className="grid grid-cols-1 gap-x-8 @3xl:grid-cols-2">
+                {members.slice(0, grouped.limit).map(renderTile)}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div data-connector-list className="mb-4 grid grid-cols-1 gap-x-8 @3xl:grid-cols-2">
+      {ordered.map(renderTile)}
     </div>
   );
 }

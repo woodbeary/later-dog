@@ -231,7 +231,7 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
 
   if (compact) {
     const link = auth?.phase === "waiting" ? (browserPkce ? chatgptPlanLink(auth.authorizationUrl) : deviceSignInLink(provider, auth.authorizationUrl, auth.userCode)) : null;
-    const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
+    const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
     return (
       <div className="space-y-3" data-device-sign-in={provider} data-chatgpt-plan-sign-in={browserPkce || undefined}>
         {auth && auth.phase !== "waiting" && <DeviceSignInProgress auth={auth} browserPkce={browserPkce} provider={provider} />}
@@ -272,7 +272,7 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
     <div className="mt-3 space-y-2" data-device-sign-in={provider} data-chatgpt-plan-sign-in={browserPkce || undefined}>
       {auth && <DeviceSignInProgress auth={auth} browserPkce={browserPkce} provider={provider} />}
       {auth?.phase === "waiting" ? (
-        <button type="button" disabled={busy} onClick={() => void cancel()} className="w-full rounded-lg bg-control px-3 py-2 text-[12px] font-medium text-ink disabled:opacity-50">
+        <button type="button" disabled={busy} onClick={() => void cancel()} className="w-full rounded-lg bg-control px-3 py-2 text-[12px] font-medium text-ink disabled:opacity-50 transition-colors enabled:hover:bg-control-hover">
           {busy ? t("engineSetup.device.cancelling") : t("engineSetup.device.cancel")}
         </button>
       ) : auth?.phase !== "succeeded" && (

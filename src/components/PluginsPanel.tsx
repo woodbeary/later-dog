@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { Check, Loader2, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
 import { api, useStore, type Bot, type InstanceInfo } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { glassPopupFrameStyle } from "@/lib/glass-popup";
@@ -10,11 +10,12 @@ import { reserveConnectionPage, reusableConnectionUrl, type PendingAuthorization
 import { mcpSignInLink } from "@/lib/mcp-sign-in";
 import { managedConnectorUnavailableReason } from "../../shared/connector-availability";
 import { connectorServiceAccess, isConnectorToolGrantShape } from "@/lib/connector-grants";
-import { MCP_CONNECTORS, connectorMatchesSearch } from "@/lib/mcp-connectors";
+import { MCP_CONNECTOR_CATEGORIES, MCP_CONNECTORS, connectorMatchesSearch, type McpConnectorCategory } from "@/lib/mcp-connectors";
 import { ComposioKeyNotice } from "./ApiKeys";
 import { BotAvatar } from "./Avatar";
 import { McpConnectorCards } from "./McpConnectorCards";
 import { McpServersPanel } from "./McpServersPanel";
+import { useMenuMotion } from "./MenuMotion";
 
 export interface ToolkitCard {
   slug: string;
@@ -244,6 +245,20 @@ export type AppsFilter = "all" | "connected" | "mcp";
 
 export const APPS_PREVIEW_COUNT = 48;
 
+export const APPS_GROUP_PREVIEW_COUNT = 4;
+
+export const APPS_FEATURED_CATEGORIES: readonly McpConnectorCategory[] = ["projects", "email", "design", "code"];
+
+const MORE_CATEGORIES = (Object.keys(MCP_CONNECTOR_CATEGORIES) as McpConnectorCategory[])
+  .filter((category) => !APPS_FEATURED_CATEGORIES.includes(category));
+
+const MORE_MENU_MAX = 560;
+
+const chipClass = (active: boolean) => cn(
+  "rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors",
+  active ? "bg-accent text-accent-ink" : "bg-control/70 text-ink-secondary hover:bg-control-hover hover:text-ink",
+);
+
 export const USED_BY_AVATAR_SIZE = 16;
 
 export function botsUsingService(bots: Bot[], instances: InstanceInfo[], slug: string): Bot[] {
@@ -288,11 +303,19 @@ export function PluginsPanel() {
   const [whopConnected, setWhopConnected] = useState<boolean | null>(null);
   const [whopRefresh, setWhopRefresh] = useState(0);
   const [connectedConnectors, setConnectedConnectors] = useState<string[]>([]);
+  const [category, setCategory] = useState<McpConnectorCategory | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [moreRoom, setMoreRoom] = useState(MORE_MENU_MAX);
+  const moreMotion = useMenuMotion(moreOpen);
 
   const pollTimers = useRef(new Map<string, ReturnType<typeof setInterval>>());
   const statusGenerations = useRef(new Map<string, number>());
   const latestStatusRequests = useRef(new Map<string, number>());
   const opening = useRef<ReturnType<typeof reserveConnectionPage> | null>(null);
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const refreshStatus = useCallback((slugs: string[]): Promise<Record<string, ConnectorStatus>> => {
     if (!slugs.length) return Promise.resolve({});
@@ -454,6 +477,15 @@ export function PluginsPanel() {
     };
   }, [dispatch]);
 
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !moreRef.current?.contains(event.target)) setMoreOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [moreOpen]);
+
   const openConnectUrl = async (url: string) => {
     if (opening.current) return;
     const launch = reserveConnectionPage();
@@ -550,18 +582,25 @@ export function PluginsPanel() {
   );
   const filter: AppsFilter = surface === "mcp" ? "mcp" : tab === "connected" ? "connected" : "all";
   const whopMatches = !search || `whop ${t("whop.description")}`.toLowerCase().includes(search.toLowerCase().trim());
-  const showWhop = whopMatches && (filter === "all" || (filter === "connected" && whopConnected !== false));
+  const browsing = filter === "all" ? category : null;
+  const showWhop = whopMatches && (filter === "all"
+    ? browsing === null || browsing === "payments"
+    : filter === "connected" && whopConnected !== false);
   const connectorMatches = MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, search));
   const shownConnectors = filter === "connected"
     ? connectorMatches.filter((connector) => connectedConnectors.includes(connector.id))
-    : connectorMatches;
+    : browsing
+      ? connectorMatches.filter((connector) => connector.category === browsing)
+      : connectorMatches;
+  const grouped = filter === "all" && browsing === null && !search;
   const visible = (filter === "connected" ? matching.filter((card) => isConnected(card.slug)) : matching.filter((card) => configured || isConnected(card.slug)))
     .map((card, index) => ({ card, index }))
     .sort((a, b) => Number(isConnected(b.card.slug)) - Number(isConnected(a.card.slug)) || a.index - b.index)
     .map(({ card }) => card);
   const needKey = !configured && matching.some((card) => !isConnected(card.slug));
-  const capped = filter === "all" && !search && !showAllApps && visible.length > APPS_PREVIEW_COUNT;
-  const shown = capped ? visible.slice(0, APPS_PREVIEW_COUNT) : visible;
+  const listed = browsing === null ? visible : [];
+  const capped = filter === "all" && browsing === null && !search && !showAllApps && visible.length > APPS_PREVIEW_COUNT;
+  const shown = capped ? visible.slice(0, APPS_PREVIEW_COUNT) : listed;
   const connectedCount = Object.values(status).filter((service) => service.connected || service.accounts?.length).length + Number(whopConnected === true)
     + connectedConnectors.length;
   const connectedEmptyCopy = connectedInventoryCopy(inventoryPhase);
@@ -571,6 +610,8 @@ export function PluginsPanel() {
     ? botsMissingConnectedApps(state.bots, state.instances)
     : [];
   const chooseFilter = (next: AppsFilter) => {
+    setCategory(null);
+    setMoreOpen(false);
     if (next === "mcp") {
       dispatch({ type: "togglePlugins", open: true, surface: "mcp" });
       return;
@@ -578,11 +619,46 @@ export function PluginsPanel() {
     setTab(next === "connected" ? "connected" : "marketplace");
     if (surface !== "apps") dispatch({ type: "togglePlugins", open: true, surface: "apps" });
   };
-  const filters: Array<{ id: AppsFilter; label: string }> = [
-    { id: "all", label: t("apps.filter.all") },
-    { id: "connected", label: `${t("apps.filter.connected")}${connectedCount > 0 ? ` ${connectedCount}` : ""}` },
-    { id: "mcp", label: t("apps.filter.custom") },
+  const chooseCategory = (next: McpConnectorCategory) => {
+    setCategory(next);
+    setTab("marketplace");
+    setMoreOpen(false);
+    if (surface !== "apps") dispatch({ type: "togglePlugins", open: true, surface: "apps" });
+    bodyRef.current?.scrollTo({ top: 0 });
+  };
+  const viewAll = (next: McpConnectorCategory) => {
+    chooseCategory(next);
+    chipsRef.current?.querySelector<HTMLElement>(`[data-apps-filter="${APPS_FEATURED_CATEGORIES.includes(next) ? next : "more"}"]`)?.focus();
+  };
+  const chips: Array<{ id: string; label: string; active: boolean; choose: () => void }> = [
+    { id: "all", label: t("apps.filter.all"), active: filter === "all" && browsing === null, choose: () => chooseFilter("all") },
+    {
+      id: "connected",
+      label: `${t("apps.filter.connected")}${connectedCount > 0 ? ` ${connectedCount}` : ""}`,
+      active: filter === "connected",
+      choose: () => chooseFilter("connected"),
+    },
+    ...APPS_FEATURED_CATEGORIES.map((key) => ({
+      id: key,
+      label: t(MCP_CONNECTOR_CATEGORIES[key]),
+      active: browsing === key,
+      choose: () => chooseCategory(key),
+    })),
   ];
+  const custom = { id: "mcp", label: t("apps.filter.custom"), active: filter === "mcp", choose: () => chooseFilter("mcp") };
+  const moreLabel = browsing !== null && !APPS_FEATURED_CATEGORIES.includes(browsing) ? t(MCP_CONNECTOR_CATEGORIES[browsing]) : null;
+  const renderChip = (item: { id: string; label: string; active: boolean; choose: () => void }) => (
+    <button
+      key={item.id}
+      type="button"
+      data-apps-filter={item.id}
+      aria-pressed={item.active}
+      onClick={item.choose}
+      className={chipClass(item.active)}
+    >
+      {item.label}
+    </button>
+  );
 
   return (
     <div
@@ -645,26 +721,71 @@ export function PluginsPanel() {
               className="min-w-0 flex-1 bg-transparent text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
             />
           </label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label={t("apps.filter.aria")}>
-            {filters.map((item) => (
+          <div ref={chipsRef} className="flex flex-wrap gap-2" role="group" aria-label={t("apps.filter.aria")}>
+            {chips.map(renderChip)}
+            <div
+              ref={moreRef}
+              className="relative"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape" || !moreOpen) return;
+                event.stopPropagation();
+                setMoreOpen(false);
+                moreButton.current?.focus();
+              }}
+            >
               <button
-                key={item.id}
+                ref={moreButton}
                 type="button"
-                data-apps-filter={item.id}
-                aria-pressed={filter === item.id}
-                onClick={() => chooseFilter(item.id)}
-                className={cn(
-                  "rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors",
-                  filter === item.id ? "bg-accent text-accent-ink" : "bg-control/70 text-ink-secondary hover:bg-raised-hover hover:text-ink",
-                )}
+                data-apps-filter="more"
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
+                onClick={() => {
+                  const pane = moreButton.current?.closest(".glass-popup")?.getBoundingClientRect();
+                  const chip = moreButton.current?.getBoundingClientRect();
+                  if (pane && chip) setMoreRoom(Math.max(160, Math.min(MORE_MENU_MAX, pane.bottom - chip.bottom - 18)));
+                  setMoreOpen((open) => !open);
+                }}
+                className={cn(chipClass(moreLabel !== null), "flex items-center gap-1")}
               >
-                {item.label}
+                {moreLabel ?? t("apps.filter.more")}
+                <ChevronDown size={13} aria-hidden="true" className={cn("shrink-0 transition-transform", moreOpen && "rotate-180")} />
               </button>
-            ))}
+              {moreMotion.shown && (
+                <div
+                  role="menu"
+                  aria-label={t("apps.filter.moreAria")}
+                  className={cn(
+                    "absolute left-0 top-full z-40 mt-1.5 w-[232px] overflow-y-auto overscroll-contain rounded-xl border border-hairline/50 bg-menu py-1.5 shadow-2xl shadow-black/50",
+                    moreMotion.className,
+                  )}
+                  style={{ maxHeight: moreRoom }}
+                  {...moreMotion.exitProps}
+                >
+                  {MORE_CATEGORIES.map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={browsing === key}
+                      data-apps-category={key}
+                      onClick={() => {
+                        chooseCategory(key);
+                        moreButton.current?.focus();
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-ink transition-colors hover:bg-raised/70"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{t(MCP_CONNECTOR_CATEGORIES[key])}</span>
+                      {browsing === key && <Check size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {renderChip(custom)}
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-7 pt-2 sm:px-8">
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto px-6 pb-7 pt-2 sm:px-8">
           {stale && (
             <div className="mb-2 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12.5px] text-warning">
               <TriangleAlert size={14} className="mt-px shrink-0" />
@@ -688,7 +809,7 @@ export function PluginsPanel() {
                     key={candidate.id}
                     type="button"
                     onClick={() => dispatch({ type: "updateBot", botId: candidate.id, patch: { composio: true } })}
-                    className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-raised-hover"
+                    className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-control-hover"
                   >
                     {t("connectors.perBot.allow", { name: candidate.name })}
                   </button>
@@ -708,10 +829,12 @@ export function PluginsPanel() {
               <div id="apps-grid-title" className="mb-3 text-[12px] font-medium text-ink-secondary">
                 {filter === "connected"
                   ? t("connectors.section.yours")
-                  : search
-                    ? t("connectors.section.results")
-                    : t("connectors.section.available")}
-                {filter === "all" && !search && pagination
+                  : browsing
+                    ? t(MCP_CONNECTOR_CATEGORIES[browsing])
+                    : search
+                      ? t("connectors.section.results")
+                      : t("connectors.section.available")}
+                {filter === "all" && browsing === null && !search && pagination
                   && (pagination.stalled || (pagination.totalItems !== undefined && pagination.items < pagination.totalItems)) && (
                   <span className="ml-2 font-normal">
                     {pagination.totalItems !== undefined && pagination.items < pagination.totalItems
@@ -727,8 +850,12 @@ export function PluginsPanel() {
                 )}
               </div>
               <McpConnectorCards connectors={shownConnectors} refreshKey={whopRefresh} onConnected={setConnectedConnectors}
+                grouped={grouped ? { limit: APPS_GROUP_PREVIEW_COUNT, onViewAll: viewAll } : undefined}
                 onServersChange={() => setWhopRefresh((value) => value + 1)} />
-              {filter === "all" && setupNotice?.tone === "info" && needKey && (
+              {grouped && (showWhop || shown.length > 0 || (setupNotice?.tone === "info" && needKey)) && (
+                <h3 data-apps-more-heading className="mb-2 flex min-h-8 items-center text-[13px] font-semibold text-ink">{t("apps.moreApps")}</h3>
+              )}
+              {filter === "all" && browsing === null && setupNotice?.tone === "info" && needKey && (
                 <ComposioKeyNotice remote={remoteClient} onSaved={readCatalogAgain} />
               )}
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
@@ -737,7 +864,7 @@ export function PluginsPanel() {
                 </div>
                 {shown.map((card) => renderTile(card))}
               </div>
-              {cards === null && (
+              {cards === null && browsing === null && (
                 <div className="flex items-center justify-center gap-2 py-24 text-[13px] text-ink-secondary">
                   <Loader2 size={14} className="animate-spin" /> {t("connectors.loadingCatalog")}
                 </div>
@@ -747,13 +874,13 @@ export function PluginsPanel() {
                   <button
                     type="button"
                     onClick={() => setShowAllApps(true)}
-                    className="rounded-full bg-control/70 px-4 py-2 text-[12.5px] font-medium text-ink hover:bg-raised-hover"
+                    className="rounded-full bg-control/70 px-4 py-2 text-[12.5px] font-medium text-ink hover:bg-control-hover"
                   >
                     {t("apps.showAll", { count: visible.length.toLocaleString() })}
                   </button>
                 </div>
               )}
-              {cards !== null && visible.length === 0 && !showWhop && shownConnectors.length === 0 && (
+              {(cards !== null || browsing !== null) && listed.length === 0 && !showWhop && shownConnectors.length === 0 && (
                 <div className="flex min-h-40 flex-col items-center justify-center text-center">
                   <div className="text-[14px] font-medium text-ink">
                     {filter === "connected" ? connectedEmptyCopy.title : t("connectors.noAppsFound")}
@@ -872,7 +999,7 @@ export function PluginsPanel() {
                   setAliasDraft("");
                 }
               }}
-              className="flex min-w-[80px] items-center justify-center gap-1.5 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-raised-hover disabled:opacity-40"
+              className="flex min-w-[80px] items-center justify-center gap-1.5 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-control-hover disabled:opacity-40"
             >
               {unavailableReason ? (
                 t("connectors.selfHostOnly")
@@ -897,7 +1024,7 @@ export function PluginsPanel() {
               event.preventDefault();
               void connect(card.slug);
             }
-          }} className="mt-2 text-[12px] text-accent-text underline underline-offset-2">
+          }} className="mt-2 text-[12px] text-accent-text underline underline-offset-2 transition-opacity hover:opacity-80">
             {t("connectors.openAuthorizationPage")}
           </a>
         )}
@@ -953,7 +1080,7 @@ export function PluginsPanel() {
                       botId: candidate.id,
                       patch: { connectorTools: { ...candidate.connectorTools, [card.slug]: { tools: "*" } } },
                     })}
-                    className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-raised-hover"
+                    className="rounded-full bg-control px-2.5 py-1 text-[11.5px] font-medium text-ink hover:bg-control-hover"
                   >
                     {t("connectors.grants.allowAll", { name: candidate.name })}
                   </button>
@@ -989,7 +1116,7 @@ export function PluginsPanel() {
             <button
               type="submit"
               disabled={busy || !aliasDraft.trim()}
-              className="rounded-lg bg-accent px-3 py-2 text-[12px] font-medium text-accent-ink disabled:opacity-40"
+              className="rounded-lg bg-accent px-3 py-2 text-[12px] font-medium text-accent-ink disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
             >
               {t("connectors.action.continue")}
             </button>

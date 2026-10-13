@@ -13,7 +13,7 @@ type Bot = { id: string; threadId: string; name: string };
 type Mounted = { command: string; args: string[]; env: Record<string, string> };
 type ToolResult = { isError?: boolean; content: Array<{ text: string }> };
 
-const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "create_room", "manage_room", "retry_thread"];
+const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 const dumpSchema = z.object({
   systemPrompt: z.string(),
   mcpConfig: z.object({ mcpServers: z.object({

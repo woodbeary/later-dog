@@ -35,7 +35,7 @@ export function CredentialStoreNotice() {
         <button
           type="button"
           onClick={() => void window.laterdog?.relaunch?.()}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[13px] font-medium text-white transition-colors"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[13px] font-medium text-white transition-colors enabled:hover:brightness-110"
         >
           <RefreshCw size={13} aria-hidden="true" /> {t("credentialStore.relaunch")}
         </button>

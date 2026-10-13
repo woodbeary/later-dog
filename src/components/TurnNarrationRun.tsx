@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+
+import { cn } from "@/lib/cn";
+import { t } from "@/lib/i18n";
 
 export function TurnNarrationRun({
   label,
@@ -17,17 +20,16 @@ export function TurnNarrationRun({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex justify-start">
+      <div className="flex justify-center">
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          title={open ? "Hide progress messages" : "Show progress messages"}
-          className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control"
+          title={open ? t("chat.run.hideProgress") : t("chat.run.showProgress")}
+          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[12.5px] text-ink-tertiary transition-colors hover:bg-control hover:text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
-          <Check size={13} className="text-success" />
           <span>{label}</span>
-          <ChevronRight size={13} className={open ? "rotate-90" : undefined} />
+          <ChevronRight size={12} aria-hidden="true" className={cn("transition-transform", open && "rotate-90")} />
         </button>
       </div>
       {open && children}

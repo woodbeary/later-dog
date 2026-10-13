@@ -30,15 +30,16 @@ describe("reset distance", () => {
 });
 
 describe("Account usage presentation", () => {
-  it("shows each window as a bar of what is left, with its reset", () => {
+  it("shows each window as a bar that fills as it is used, warming as it runs low, with what is left and its reset", () => {
     const html = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now: Date.now() }));
     expect(html.match(/role="meter"/g)).toHaveLength(2);
-    expect(html).toContain('aria-valuenow="68"');
-    expect(html).toContain('aria-valuenow="30"');
+    expect(html).toContain('aria-valuenow="32"');
+    expect(html).toContain('aria-valuenow="70"');
     expect(html).toContain("5-hour · 68% left · resets in 2h 10m");
     expect(html).toContain("Weekly · 30% left · resets in 3d 4h");
     expect(html).not.toContain("% used");
-    expect(html).toContain("bg-accent");
+    expect(html).toContain("bg-success");
+    expect(html).toContain("bg-caution");
     expect(html).not.toContain("bg-danger");
   });
 

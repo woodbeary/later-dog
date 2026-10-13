@@ -80,6 +80,7 @@
   --color-card: #262626;
   --color-inset: #191919;
   --color-control: #2f2f2f;
+  --color-control-hover: #3d3d3d;
   --color-hairline: #333333;
   --color-ink: #fcfcfc;
   --color-ink-secondary: #fcfcfc99;
@@ -92,6 +93,7 @@
   --color-success: #38d591;
   --color-danger: #ff5667;
   --color-warning: #ff9800;
+  --color-caution: #f2c94c;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
 }
@@ -124,6 +126,7 @@
   --color-menu: #262626;
   --color-inset: #191919;
   --color-control: #2f2f2f;
+  --color-control-hover: #3d3d3d;
   --color-hairline: #333333;
   --color-ink: #fcfcfc;
   --color-ink-secondary: #fcfcfc99;
@@ -140,6 +143,7 @@
   --color-danger-ink: #ffffff;
   --color-success-ink: #072114;
   --color-warning: #ff9800;
+  --color-caution: #f2c94c;
   --color-scrollbar: #3d3d3d;
   --color-dog-line: #fcfcfc;
 
@@ -160,6 +164,7 @@
   --color-menu: #ffffff;
   --color-inset: #f5f1eb;
   --color-control: #ece4d6;
+  --color-control-hover: #e0d6c4;
   --color-hairline: #c8bda8;
 
   --color-ink: #1a1a18;
@@ -179,6 +184,7 @@
   --color-danger-ink: #ffffff;
   --color-success-ink: #ffffff;
   --color-warning: #7a5f31;
+  --color-caution: #8a7a24;
   --color-scrollbar: #c9c0ae;
   --color-dog-line: #6b6559;
 
@@ -200,6 +206,7 @@
   --color-menu: #1e1a14;
   --color-inset: #0b0a08;
   --color-control: #262019;
+  --color-control-hover: #322b21;
   --color-hairline: #3d3529;
 
   --color-ink: #f4efe4;
@@ -219,6 +226,7 @@
   --color-danger-ink: #1c0d0b;
   --color-success-ink: #1c150c;
   --color-warning: #dfa441;
+  --color-caution: #dcc35a;
   --color-scrollbar: #3d3529;
   --color-dog-line: #b0a696;
 
@@ -240,6 +248,7 @@
   --color-menu: #ffffff;
   --color-inset: #d5e8e5;
   --color-control: #c3dcd9;
+  --color-control-hover: #b3d1cd;
   --color-hairline: #aebfbd;
 
   --color-ink: #14201f;
@@ -259,6 +268,7 @@
   --color-danger-ink: #ffffff;
   --color-success-ink: #ffffff;
   --color-warning: #7a5a2a;
+  --color-caution: #7f7322;
   --color-scrollbar: #a6b8b6;
   --color-dog-line: #4d5c5b;
 
@@ -280,6 +290,7 @@
   --color-menu: #22252a;
   --color-inset: #0d0e10;
   --color-control: #2a2d32;
+  --color-control-hover: #353941;
   --color-hairline: #3b4048;
 
   --color-ink: #f2f4f7;
@@ -299,6 +310,7 @@
   --color-danger-ink: #1e0b0e;
   --color-success-ink: #101a14;
   --color-warning: #d3a150;
+  --color-caution: #d6c25e;
   --color-scrollbar: #464b54;
   --color-dog-line: #b3b8c2;
 
@@ -320,6 +332,7 @@
   --color-menu: #ffffff;
   --color-inset: #e6e9ee;
   --color-control: #d3d9e1;
+  --color-control-hover: #c4ccd6;
   --color-hairline: #b4bbc5;
 
   --color-ink: #1d2229;
@@ -339,6 +352,7 @@
   --color-danger-ink: #ffffff;
   --color-success-ink: #ffffff;
   --color-warning: #765b2b;
+  --color-caution: #7f7224;
   --color-scrollbar: #aeb6c0;
   --color-dog-line: #59616c;
 
@@ -360,6 +374,7 @@
   --color-menu: #231f27;
   --color-inset: #0d0b0f;
   --color-control: #2b2630;
+  --color-control-hover: #37303d;
   --color-hairline: #403847;
 
   --color-ink: #f4eff6;
@@ -379,6 +394,7 @@
   --color-danger-ink: #210c10;
   --color-success-ink: #101812;
   --color-warning: #d0a35d;
+  --color-caution: #d4c26a;
   --color-scrollbar: #4a414f;
   --color-dog-line: #b9afbd;
 
@@ -397,6 +413,7 @@
   --color-card: #eeeeee;
   --color-inset: #e6e6e6;
   --color-control: #dedede;
+  --color-control-hover: #d0d0d0;
   --color-hairline: #d0d0d0;
 
   --color-ink: #0d0d0d;
@@ -419,6 +436,7 @@
   --color-danger-ink: #ffffff;
   --color-success-ink: #ffffff;
   --color-warning: #8a5a00;
+  --color-caution: #8f7800;
   --color-scrollbar: #c4c4c4;
   --color-dog-line: #5f5f5f;
 
@@ -436,6 +454,7 @@
   --color-card: #f1f5f2;
   --color-inset: #e7ece8;
   --color-control: #dce3de;
+  --color-control-hover: #ccd6cf;
   --color-hairline: #c9d3cc;
 
   --color-ink: #0f1a13;
@@ -458,6 +477,7 @@
   --color-danger-ink: #ffffff;
   --color-success-ink: #ffffff;
   --color-warning: #8a5a00;
+  --color-caution: #8f7800;
   --color-scrollbar: #c3cdc6;
   --color-dog-line: #5a675f;
 
@@ -595,6 +615,13 @@ body {
 .glass-surface .bg-card {
   background-color: color-mix(in srgb, var(--color-card) 60%, transparent);
 }
+.glass-card[data-app-tile] {
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.glass-card[data-app-tile]:hover {
+  background: color-mix(in srgb, var(--color-raised) 72%, transparent);
+  border-color: color-mix(in srgb, var(--color-ink) 14%, transparent);
+}
 .glass-rail {
   background: color-mix(in srgb, var(--color-app) 22%, transparent);
 }
@@ -611,6 +638,7 @@ body {
   }
   .glass-card,
   .glass-surface .bg-card { background: var(--color-card); }
+  .glass-card[data-app-tile]:hover { background: var(--color-raised); }
   .glass-rail { background: var(--color-app); }
   .glass-scrim {
     background: color-mix(in srgb, black 50%, transparent);
@@ -620,7 +648,8 @@ body {
 }
 @media (forced-colors: active) {
   .glass-surface,
-  .glass-card {
+  .glass-card,
+  .glass-card[data-app-tile]:hover {
     background: Canvas;
     border-color: CanvasText;
   }
@@ -1578,6 +1607,7 @@ body {
     --color-raised: #2f2f2f;
     --color-raised-hover: #3d3d3d;
     --color-control: #2f2f2f;
+    --color-control-hover: #3d3d3d;
     --color-hairline: #666666;
     --color-accent: #fcfcfc;
     --color-accent-text: #fcfcfc;
@@ -1600,6 +1630,7 @@ body {
     --color-raised: #2a3b30;
     --color-raised-hover: #35493c;
     --color-control: #2a3b30;
+    --color-control-hover: #35493c;
     --color-hairline: #5f7266;
     --color-accent: #7fdca8;
     --color-accent-text: #7fdca8;
@@ -1622,6 +1653,7 @@ body {
   --color-raised: #2f2f2f;
   --color-raised-hover: #3d3d3d;
   --color-control: #2f2f2f;
+  --color-control-hover: #3d3d3d;
   --color-hairline: #8a8a8a;
   --color-accent: #ffffff;
   --color-accent-text: #ffffff;

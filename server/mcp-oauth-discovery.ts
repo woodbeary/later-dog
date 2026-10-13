@@ -1,3 +1,4 @@
+import { protectedResourceFor } from "./laterdog/mcp-resource.ts";
 
 export interface McpAuthMetadata {
   issuer: string;
@@ -121,7 +122,6 @@ export async function discoverMcpAuth(
   const revocationEndpoint = optionalEndpoint(metadata.revocation_endpoint);
   const scopes = stringList(resource?.scopes_supported);
   const tokenEndpointAuthMethods = stringList(metadata.token_endpoint_auth_methods_supported);
-  target.hash = "";
   return {
     issuer,
     authorizationEndpoint,
@@ -130,6 +130,6 @@ export async function discoverMcpAuth(
     ...(revocationEndpoint ? { revocationEndpoint } : {}),
     ...(scopes?.length ? { scopes } : {}),
     ...(tokenEndpointAuthMethods?.length ? { tokenEndpointAuthMethods } : {}),
-    resource: target.toString(),
+    resource: protectedResourceFor(target, resource?.resource),
   };
 }

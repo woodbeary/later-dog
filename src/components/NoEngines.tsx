@@ -60,7 +60,7 @@ export function NoEngines() {
         <button
           type="button"
           onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "general" })}
-          className="mt-4 rounded-full bg-control px-3.5 py-1.5 text-[13px] text-ink hover:bg-raised-hover"
+          className="mt-4 rounded-full bg-control px-3.5 py-1.5 text-[13px] text-ink hover:bg-control-hover"
         >
           {t("noEngines.more")}
         </button>

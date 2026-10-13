@@ -128,7 +128,7 @@ export function CommandAllowlistDialog({ botId, botName, threadId, onClose }: {
           {error && <div role="alert" className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">
             <p>{error}</p>
             {!data && !loading && <button type="button" onClick={() => setRevision((value) => value + 1)}
-              className="mt-2 underline underline-offset-2">{t("commandAllowlist.retry")}</button>}
+              className="mt-2 underline underline-offset-2 transition-opacity hover:opacity-80">{t("commandAllowlist.retry")}</button>}
           </div>}
           {data && !loading && <>
             {data.rules.length ? <ul className="mt-4 divide-y divide-hairline/25 rounded-xl border border-hairline/40">

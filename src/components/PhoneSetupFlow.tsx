@@ -1113,7 +1113,7 @@ export function PhoneSetupFlowView({
           <button
             disabled={c.accountBusy}
             onClick={c.retryAccount}
-            className="mt-5 rounded-lg bg-accent py-2.5 text-[14px] font-medium text-white disabled:opacity-40"
+            className="mt-5 rounded-lg bg-accent py-2.5 text-[14px] font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
           >
             {c.accountBusy ? t("remote.account.retrying") : t("phone.signIn.retry")}
           </button>
@@ -1193,7 +1193,7 @@ export function PhoneSetupFlowView({
             c.finish();
             onComplete?.();
           }}
-          className="mt-5 w-full max-w-[280px] rounded-lg bg-accent py-2.5 text-[14px] font-medium text-white"
+          className="mt-5 w-full max-w-[280px] rounded-lg bg-accent py-2.5 text-[14px] font-medium text-white transition-[filter] enabled:hover:brightness-110"
         >
           {variant === "onboarding" ? t("phone.success.start", { app: brand().name }) : t("phone.success.done")}
         </button>
@@ -1234,7 +1234,7 @@ export function PhoneSetupFlowView({
         </p>
       )}
       {c.pairingExpired && (
-        <button onClick={c.refreshCode} className="mt-5 rounded-lg bg-accent px-5 py-2.5 text-[14px] font-medium text-white">
+        <button onClick={c.refreshCode} className="mt-5 rounded-lg bg-accent px-5 py-2.5 text-[14px] font-medium text-white transition-[filter] enabled:hover:brightness-110">
           {t("phone.code.createNew")}
         </button>
       )}

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Message } from "@/state/store";
 import type { SecureFormCardData } from "../../shared/secure-form";
-import { SecureFormCard, secureFormCaption, secureFormReady } from "./SecureFormCard";
+import { SecureFormCard, secureFormReady, secureFormStatusLabel } from "./SecureFormCard";
 
 const form = (patch: Partial<SecureFormCardData> = {}): SecureFormCardData => ({
   title: "Sign in to Example",
@@ -164,21 +164,34 @@ describe("the Secure Form card", () => {
   });
 
   it.each([
-    ["sending", { status: "sending", until: Date.now() + 60_000 }, "Filling in…"],
-    ["filled", { status: "filled" }, "Filled"],
-    ["expired", { status: "expired" }, "Not filled"],
-    ["superseded", { status: "superseded" }, "Not filled"],
-    ["expired", { status: "sending", until: Date.now() - 1 }, "Not filled"],
-  ] as const)("settles to a quiet %s record once sent", (shown, patch, caption) => {
+    ["sending", { status: "sending", until: Date.now() + 60_000 }, "Filling in", "muted"],
+    ["filled", { status: "filled" }, "Filled", "success"],
+    ["expired", { status: "expired" }, "Not filled", "danger"],
+    ["superseded", { status: "superseded" }, "Replaced", "muted"],
+    ["expired", { status: "sending", until: Date.now() - 1 }, "Not filled", "danger"],
+  ] as const)("trades its Open button for a %s badge once sent", (shown, patch, label, tone) => {
     mount(form(patch));
     expect(card().dataset.secureForm).toBe(shown);
-    expect(card().textContent).toContain(caption);
+    const badge = card().querySelector<HTMLElement>("[data-request-status]")!;
+    expect(badge.textContent).toBe(label);
+    expect(badge.dataset.requestStatus).toBe(tone);
     expect(openButton()).toBeNull();
+  });
+
+  it("opens from anywhere on the card while it waits, and not once it is sent", () => {
+    mount(form());
+    press(card().querySelector<HTMLElement>("[data-request-card]")!);
+    expect(dialog()).not.toBeNull();
+    flushSync(() => root?.unmount());
+    document.body.innerHTML = "";
+    mount(form({ status: "filled" }));
+    press(card().querySelector<HTMLElement>("[data-request-card]")!);
+    expect(dialog()).toBeNull();
   });
 
   it("stops saying it is filling in once the details are cleared", async () => {
     mount(form({ status: "sending", until: Date.now() + 30 }));
-    expect(card().textContent).toContain("Filling in…");
+    expect(card().textContent).toContain("Filling in");
     await vi.waitFor(() => expect(card().dataset.secureForm).toBe("expired"));
     expect(card().textContent).toContain("Not filled");
   });
@@ -192,9 +205,9 @@ describe("the Secure Form card", () => {
 });
 
 describe("Secure Form wording", () => {
-  it("names each state in a word or two", () => {
-    expect(["open", "sending", "filled", "expired", "superseded"].map((status) => secureFormCaption(status as SecureFormCardData["status"])))
-      .toEqual(["Secure Form", "Filling in…", "Filled", "Not filled", "Not filled"]);
+  it("names each settled state in a word or two", () => {
+    expect(["open", "sending", "filled", "expired", "superseded"].map((status) => secureFormStatusLabel(status as SecureFormCardData["status"])))
+      .toEqual([null, "Filling in", "Filled", "Not filled", "Replaced"]);
   });
 
   it("counts a password of spaces as filled in, but not other fields", () => {

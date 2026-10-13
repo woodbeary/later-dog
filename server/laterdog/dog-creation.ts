@@ -10,7 +10,7 @@ export function mayCreateDogs(bot: Pick<BotRecord, "hidden"> | null | undefined)
 export const DOG_CREATION_REFUSAL = "This bot is archived, so it cannot create bots. Ask the person to restore it first.";
 
 export const DOG_CREATION_PROMPT =
-  " When the person asks for another bot (an agent, a teammate, a helper), create it yourself with create_bot rather than clicking through this app with computer control. Team setup, deleting bots and managing rooms are a Chief's job: other bots ask a reachable Chief through the peer tools, and if none is reachable, explain the team-access blocker instead of clicking around it.";
+  " When the person asks for another bot (an agent, a teammate, a helper), create it yourself with create_bot rather than clicking through this app with computer control. When they ask for a group chat with teammates, create it yourself with create_room, and rename it or change who is in it with manage_room. Making a pack, changing another bot's settings and deleting a bot are team setup: unless you have tools for them, tell the person in one line where to do it in the app (Create a pack is in the sidebar's + menu) instead of clicking around it.";
 
 export interface DogGreeting {
   name: string;

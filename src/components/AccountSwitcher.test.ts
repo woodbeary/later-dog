@@ -82,8 +82,8 @@ describe("the account list", () => {
     await show();
     expect(order()).toEqual(["claude", "claude-work", "codex"]);
     expect(row("claude")!.textContent).toBe("Personal38% left");
-    expect(ring("claude")!.getAttribute("data-usage-ring")).toBe("38");
-    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("5");
+    expect(ring("claude")!.getAttribute("data-usage-ring")).toBe("62");
+    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("95");
     expect(ring("claude-work")!.querySelectorAll("circle")[1].getAttribute("class")).toBe("text-danger");
     expect(ring("claude-work")!.hasAttribute("data-charging")).toBe(false);
     expect(document.querySelector('[role="meter"]')).toBeNull();
@@ -119,7 +119,7 @@ describe("the account list", () => {
   it("says only roughly when a rest without a known reset ends", async () => {
     await show({ resting: { "claude-work": { until: new Date(NOW + 3_600_000).toISOString(), estimated: true } } });
     expect(row("claude-work")!.textContent).toContain("Back around");
-    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("0");
+    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("100");
     expect(row("claude-work")!.title).not.toContain(" · in ");
   });
 
@@ -218,17 +218,20 @@ describe("reordering accounts", () => {
 });
 
 describe("the usage ring", () => {
-  it("drains to what the tighter limit leaves, in its tone, and refills while the account rests", () => {
-    expect(usageRingFor(usage("claude", 80, 30), undefined, NOW)).toEqual({ level: 20, tone: "warning" });
-    expect(usageRingFor(usage("claude", 20, 95), undefined, NOW)).toEqual({ level: 5, tone: "danger" });
+  it("fills with what the tighter limit has used, warms from green to red as it runs low, and drains while the account rests", () => {
+    expect(usageRingFor(usage("claude", 0, 0), undefined, NOW)).toEqual({ level: 0, tone: "good" });
+    expect(usageRingFor(usage("claude", 30, 10), undefined, NOW)).toEqual({ level: 30, tone: "good" });
+    expect(usageRingFor(usage("claude", 20, 60), undefined, NOW)).toEqual({ level: 60, tone: "caution" });
+    expect(usageRingFor(usage("claude", 80, 30), undefined, NOW)).toEqual({ level: 80, tone: "warning" });
+    expect(usageRingFor(usage("claude", 20, 95), undefined, NOW)).toEqual({ level: 95, tone: "danger" });
     const rest = { since: new Date(NOW - 1_200_000).toISOString(), until: new Date(NOW + 3_600_000).toISOString() };
-    expect(usageRingFor(usage("claude", 20, 30), rest, NOW)).toEqual({ level: 25, tone: "accent", charging: true });
-    expect(usageRingFor(usage("claude", 20, 30), { until: rest.until }, NOW)).toEqual({ level: 0, tone: "accent", charging: true });
+    expect(usageRingFor(usage("claude", 20, 30), rest, NOW)).toEqual({ level: 75, tone: "accent", charging: true });
+    expect(usageRingFor(usage("claude", 20, 30), { until: rest.until }, NOW)).toEqual({ level: 100, tone: "accent", charging: true });
     expect(usageRingFor(undefined, undefined, NOW)).toBeNull();
     expect(usageRingFor({ ...usage("claude", 20, 30), ok: false }, undefined, NOW)).toBeNull();
   });
 
-  it("draws an arc only while something is left", async () => {
+  it("draws an arc only once something is used", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -251,7 +254,7 @@ describe("an account's initials", () => {
     expect(accountInitials("   ")).toBe("?");
   });
 
-  it("wears them on a badge with the provider's mark, inside the usage ring when there is one", async () => {
+  it("wears them on a small badge beside the provider's mark, which sits inside the usage ring when there is one", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -261,6 +264,8 @@ describe("an account's initials", () => {
     expect(container.querySelector("svg")).not.toBeNull();
     await act(async () => root!.render(createElement(AccountBadge, { instance: work, ring: { level: 40, tone: "accent" } })));
     expect(container.querySelector("[data-usage-ring]")!.getAttribute("data-usage-ring")).toBe("40");
-    expect(container.querySelector("[data-usage-ring]")!.textContent).toBe("W");
+    expect(container.querySelector("[data-usage-ring]")!.children).toHaveLength(2);
+    expect(container.querySelector("[data-usage-ring]")!.textContent).not.toContain("W");
+    expect(container.querySelector("[data-account-initials]")!.textContent).toBe("W");
   });
 });

@@ -31,6 +31,10 @@ export function effortLevelsFor(instance: InstanceInfo | undefined, model: strin
   return modelEffortLevels(instance?.capabilities?.effortLevels ?? [], instance?.models?.options.find((option) => option.id === model));
 }
 
+export function declaredEffort(levels: readonly EffortLevel[], declared?: EffortLevel): EffortLevel | undefined {
+  return declared && levels.includes(declared) ? declared : undefined;
+}
+
 export function recommendedEffort(levels: readonly EffortLevel[], preferred?: EffortLevel): EffortLevel | undefined {
   if (preferred && levels.includes(preferred)) return preferred;
   return levels.includes("medium") ? "medium" : undefined;

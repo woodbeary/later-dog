@@ -253,7 +253,7 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
 
         <div className="mt-3 flex flex-wrap gap-2">
           {summary?.screen && (
-            <button type="button" disabled={pending !== null} onClick={() => void run("screen")} className="inline-flex items-center gap-1.5 rounded-lg bg-control px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-raised-hover disabled:opacity-60">
+            <button type="button" disabled={pending !== null} onClick={() => void run("screen")} className="inline-flex items-center gap-1.5 rounded-lg bg-control px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-control-hover disabled:opacity-60">
               {pending === "screen" ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <MonitorPlay size={13} aria-hidden="true" />}
               {t("cloudTask.watchScreen")}
             </button>
@@ -271,7 +271,7 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
             </button>
           )}
           {summary?.stoppable && (
-            <button type="button" disabled={pending !== null} onClick={() => void run("stop")} className="inline-flex items-center gap-1.5 rounded-lg bg-control px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-raised-hover disabled:opacity-60">
+            <button type="button" disabled={pending !== null} onClick={() => void run("stop")} className="inline-flex items-center gap-1.5 rounded-lg bg-control px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-control-hover disabled:opacity-60">
               {pending === "stop" ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Square size={12} aria-hidden="true" />}
               {t("cloudTask.stop")}
             </button>

@@ -36,6 +36,7 @@ import {
 import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { botShowsUnread } from "@/lib/bot-unread";
+import { personIsLooking, readWhenBack } from "@/lib/viewing";
 import { jevRoomRoutingOn } from "@/lib/group-routing";
 import { descendsFrom, newestTip } from "@/lib/leaf-follow";
 import type { ComputerStart } from "@/lib/computer-start";
@@ -3347,7 +3348,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const bot = frame.bot as BotAnnouncement;
           const selected = stateRef.current.bots.find((candidate) => candidate.id === bot.id);
           const selectedTask = bot.tasks?.find((task) => task.threadId === selected?.threadId);
-          if (bot.id === stateRef.current.selectedId && stateRef.current.activeView === "chat" &&
+          if (bot.id === stateRef.current.selectedId && stateRef.current.activeView === "chat" && personIsLooking() &&
               (selectedTask?.unread || (!bot.tasks && bot.unread))) {
             if (selectedTask) selectedTask.unread = false;
             bot.unread = botShowsUnread(bot);
@@ -3361,7 +3362,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         case "group": {
           const group = frame.group as Partial<Group> & { id: string };
-          if (group.unread && group.id === stateRef.current.selectedId) {
+          if (group.unread && group.id === stateRef.current.selectedId && personIsLooking()) {
             group.unread = false;
             fetch(`/api/groups/${group.id}/read`, { method: "POST" }).catch(() => {});
           }
@@ -3481,6 +3482,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       method: "POST",
     });
     rawDispatch({ type: "instances", instances });
+  }, []);
+
+  useEffect(() => {
+    const back = () => {
+      if (!personIsLooking()) return;
+      const read = readWhenBack(stateRef.current);
+      if (read) api(read.path, { method: "POST", ...(read.body ? { body: read.body } : {}) }).catch(() => {});
+    };
+    window.addEventListener("focus", back);
+    document.addEventListener("visibilitychange", back);
+    return () => {
+      window.removeEventListener("focus", back);
+      document.removeEventListener("visibilitychange", back);
+    };
   }, []);
 
   const lastFocusProbe = useRef(0);

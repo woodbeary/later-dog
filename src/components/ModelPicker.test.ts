@@ -63,7 +63,7 @@ function renderEffort(instances: InstanceInfo[], effort?: EffortLevel): string {
 }
 
 describe("EffortRow", () => {
-  it("uses a compact dropdown without changing scope or conflating Off with Default", () => {
+  it("uses a compact dropdown without changing scope or conflating Off with Auto", () => {
     fixture.instances = [engine(["none", "low", "high"])];
     const row = EffortRow({ bot: bot("high"), threadId: "independent-thread", updateBotDefault: true, compact: true })!;
     const select = Children.toArray(row.props.children).at(-1) as ReactElement<{ value: string; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }>;
@@ -77,7 +77,7 @@ describe("EffortRow", () => {
     const markup = renderToStaticMarkup(createElement(EffortRow, { bot: bot(), compact: true }));
     expect(markup).toContain('aria-label="Reasoning effort"');
     expect(markup).not.toContain("<button");
-    expect([...markup.matchAll(/<option[^>]*>([^<]+)</g)].map((match) => match[1])).toEqual(["Default", "Off", "Low", "High"]);
+    expect([...markup.matchAll(/<option[^>]*>([^<]+)</g)].map((match) => match[1])).toEqual(["Auto", "Off", "Low", "High"]);
   });
   it("can apply effort to the pinned thread and bot default together", () => {
     fixture.instances = [engine(["high"])];
@@ -101,25 +101,37 @@ describe("EffortRow", () => {
     expect(renderEffort([])).toBe("");
   });
 
-  it("offers only the levels the selected engine accepts, plus Default", () => {
+  it("offers only the levels the selected engine accepts, plus Auto", () => {
     const markup = renderEffort([engine(["low", "medium", "high"])]);
 
-    expect(levelButtons(markup).map((button) => button.label)).toEqual(["Default", "Low", "Medium", "High"]);
+    expect(levelButtons(markup).map((button) => button.label)).toEqual(["Auto", "Low", "Medium", "High"]);
     expect(markup).not.toContain(">Extra high<");
     expect(markup).not.toContain(">Max<");
   });
 
-  it("keeps Default and Off apart — Default sends no level, Off sends one", () => {
+  it("keeps Auto and Off apart — Auto sends no level, Off sends one", () => {
     const markup = renderEffort([engine(["none", "low"])]);
 
-    expect(levelButtons(markup).map((button) => button.label)).toEqual(["Default", "Off", "Low"]);
+    expect(levelButtons(markup).map((button) => button.label)).toEqual(["Auto", "Off", "Low"]);
   });
 
-  it("marks the active level, and Default when the bot carries no level", () => {
+  it("marks the active level, and Auto when the bot carries no level", () => {
     const pressed = (markup: string) => levelButtons(markup).find((button) => button.pressed)?.label;
 
     expect(pressed(renderEffort([engine(["low", "high"])], "high"))).toBe("High");
-    expect(pressed(renderEffort([engine(["low", "high"])]))).toBe("Default");
+    expect(pressed(renderEffort([engine(["low", "high"])]))).toBe("Auto");
+  });
+
+  it("names the model's own default level instead of a vague Default when the bot carries no level", () => {
+    const declared = { ...engine(["low", "medium", "high"]), models: { default: "gpt-5.6", options: [{ id: "gpt-5.6", label: "GPT-5.6", defaultEffort: "medium" as const }] } };
+    const markup = renderEffort([declared]);
+    expect(levelButtons(markup)).toEqual([{ label: "Low", pressed: false }, { label: "Medium", pressed: true }, { label: "High", pressed: false }]);
+    expect(markup).not.toMatch(/>(Auto|Default)</);
+    expect(levelButtons(renderEffort([declared], "high")).find((button) => button.pressed)?.label).toBe("High");
+    fixture.instances = [declared];
+    const compact = renderToStaticMarkup(createElement(EffortRow, { bot: bot(), compact: true }));
+    expect([...compact.matchAll(/<option[^>]*>([^<]+)</g)].map((match) => match[1])).toEqual(["Low", "Medium", "High"]);
+    expect(compact).toMatch(/<option value="medium" selected="">Medium</);
   });
 
   it("names the step above high the way each provider does", () => {
