@@ -13,7 +13,7 @@ import type { MascotBodyId } from "../../shared/mascot-bodies";
 export function TurnPresence({
   avatar,
   visible,
-  label = "Thinking",
+  label = t("chat.activity.thinking"),
   answering = false,
   since = null,
   threadId,
@@ -51,11 +51,11 @@ export function TurnPresence({
     if (!mounted) return;
     const handoff = wasAnswering.current;
     wasAnswering.current = false;
+    setOpen(false);
     if (handoff) {
       setMounted(false);
       return;
     }
-    setOpen(false);
     setPhase("out");
     const timer = setTimeout(() => setMounted(false), MOTION.micro);
     return () => clearTimeout(timer);
