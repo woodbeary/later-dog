@@ -27,6 +27,7 @@ import { useBotEditor } from "./bot-settings/BotEditorContext";
 import { botLibraryItems } from "./bot-settings/library";
 import { SimpleMemory } from "./bot-settings/SimpleMemory";
 import { ComputerTab } from "./bot-settings/ComputerTab";
+import { OrgSkillsCard } from "./bot-settings/OrgSkillsCard";
 import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
 import { TEACH_TRICK_LINE } from "../../shared/learn-request";
 import { BOT_SECTIONS, tabForSection } from "./bot-settings/sections";
@@ -466,6 +467,8 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                   )}
                 </div>
               </div>
+
+              <OrgSkillsCard bot={bot} onAdded={() => void skills.refresh()} />
 
               {library.length > 0 && (
               <div>

@@ -239,13 +239,19 @@ describe("control-laterdog ui drives the real renderer", () => {
     const originalModel = originalBot.modelSelection.model;
     const models = await runControlLaterDog(["models", "--url", info.url]) as any;
     const options = models.instances.find((instance: any) => instance.instanceId === originalBot.modelSelection.instanceId).models.options;
-    const rows = "[...document.querySelectorAll('[data-model-picker-content] [data-simple-models] [role=group] button')]";
+    const rows = "[...document.querySelectorAll('[data-model-picker-content] [data-model-menu] [data-model-option]')]";
+    const trigger = "document.querySelector('[data-tour=composer] [data-tour=model]')";
     const openPicker = async () => {
-      await expect.poll(async () => (await ui("eval", info.ui, "--js", "!document.querySelector('[data-model-picker-content]') && !!document.querySelector('[data-tour=model]')")).result, { timeout: 10_000 }).toBe(true);
-      await ui("eval", info.ui, "--js", "document.querySelector('[data-tour=model]').click(); true");
+      await expect.poll(async () => (await ui("eval", info.ui, "--js", `!document.querySelector('[data-model-picker-content]') && !!${trigger}`)).result, { timeout: 10_000 }).toBe(true);
+      await ui("eval", info.ui, "--js", `${trigger}.click(); true`);
       await expect.poll(async () => (await ui("eval", info.ui, "--js", `${rows}.length`)).result, { timeout: 10_000 }).toBeGreaterThan(1);
     };
-    const pickRow = (label: string) => ui("eval", info.ui, "--js", `${rows}.find(b => b.querySelector('span').textContent === ${JSON.stringify(label)}).click(); true`);
+    const pickRow = async (label: string) => {
+      const row = `${rows}.find(b => b.querySelector('span').textContent === ${JSON.stringify(label)})`;
+      if (!(await ui("eval", info.ui, "--js", `!!${row}`)).result) await ui("eval", info.ui, "--js", "document.querySelector('[data-model-picker-content] [data-model-more]').click(); true");
+      await expect.poll(async () => (await ui("eval", info.ui, "--js", `!!${row}`)).result, { timeout: 10_000 }).toBe(true);
+      await ui("eval", info.ui, "--js", `${row}.click(); true`);
+    };
     await openPicker();
     expect((await ui("eval", info.ui, "--js", "document.querySelector('[aria-label=\"Apply model changes to\"]') === null")).result).toBe(true);
     const labels = (await ui("eval", info.ui, "--js", `${rows}.map(b => b.querySelector('span').textContent)`)).result as string[];
@@ -300,9 +306,6 @@ describe("control-laterdog ui drives the real renderer", () => {
       const late = document.createElement("button");
       late.textContent = "Late QA control";
       late.setAttribute("aria-label", "Late QA control");
-      // Keep this synthetic target inside the viewport: appending a normal
-      // flow sibling below the full-height app makes click scroll the app
-      // out of view, interfering with the real controls exercised next.
       late.style.cssText = 'position:fixed;top:0;left:0;z-index:2147483647';
       setTimeout(() => document.body.appendChild(late), 1500);
       return "planted";

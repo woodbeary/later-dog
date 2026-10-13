@@ -11,8 +11,6 @@ Run the isolated lifecycle checks:
 ```sh
 pnpm exec vitest run server/team-lifecycle.e2e.test.ts server/section-context.test.ts server/store.test.ts src/lib/team-map.test.ts --maxWorkers=2
 LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/team-lifecycle-ui.e2e.test.ts scripts/testing/team-template-ui.e2e.test.ts --maxWorkers=1
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/team-canvas-ui.e2e.test.ts --maxWorkers=1
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/team-computers-ui.e2e.test.ts --maxWorkers=1
 pnpm exec vitest run scripts/testing/team-computers-fixture.test.ts
 pnpm exec vitest run server/index.test.ts -t "creates team computers|shares one team computer" --maxWorkers=1
 ```
@@ -33,8 +31,8 @@ and leaves the malformed file byte-for-byte unchanged. Later team and shared
 instruction writes still fail closed until that file is repaired.
 
 The renderer test uses `control-laterdog ui launch`, opens **Create team**, and checks
-that renaming preserves the sidebar's collapsed state and ordering. It moves
-two bots through Team map, edits membership, and creates a bot directly in the
+that renaming preserves the sidebar's collapsed state and ordering. It adds
+two bots with **Add dogs**, edits membership, and creates a bot directly in the
 team. Dismissing that pending creation must retain unsaved membership edits and
 select the created bot when its response arrives. It edits shared instructions
 and reloads. A second fixture client moves the bots out; live updates retain the
@@ -46,29 +44,11 @@ its trigger when dismissed. It captures
 New lifecycle labels use the existing string catalog; untranslated packs fall
 back to the English labels without changing or regenerating other translations.
 
-The canvas renderer check uses that same isolated full-app launcher. It seeds
-two Chiefs, two specialists with different model defaults, an empty team, and
-a real conversation with the fake engine. Opening a bot's settings or model
-section keeps Team map mounted. A multi-bot move preserves bot identities,
-threads, model defaults, messages, and shared instructions; selecting a Chief
-and another bot for a conflicting move leaves both memberships unchanged.
-Team controls are grouped under each team's **Manage** menu.
-The General-team move is also completed with keyboard input through the native
-menu and bot picker, with focus returning to the menu summary afterward.
-Cross-team drag/drop explains that the bot's home team and shared instructions
-will change, and requires **Move bot** confirmation before writing through the
-real API. Cancelling preserves membership and conversations. Same-team pointer
-reordering and Alt + Up/Down change only personal card order; arranging a team
-likewise stores its canvas position without changing membership. Both orders
-and positions survive reload. Panning, zoom controls, and fitting teams to view
-are checked against the rendered layout. Leaving a pending gesture permits the
-next bot click, and Escape during arrangement restores the original position.
-Idle cards omit the redundant Ready label. A computer shortcut appears only on
-the selected bot and opens that bot's access settings while Team map remains
-mounted.
-The **Add → Boat computer** entry explains provider charges and cannot create a
-machine while this credential-free fixture is disconnected. Opening and
-cancelling it leaves the server's computer inventory unchanged.
+Pack map has no entry in the current app: it opens only from a conversation's
+place card when a team computer is already assigned, and team computers are
+created only inside Pack map. Its renderer checks (`team-canvas-ui` and
+`team-computers-ui`) were retired in 0.3.27 rather than kept against a screen
+people cannot reach. `src/lib/team-map.test.ts` still covers its layout logic.
 
 The focused `server/index.test.ts` cases run the real server against a local
 HTTP Boat stand-in, with a disposable fake token and no paid account or container
@@ -87,19 +67,6 @@ another bot and is revoked after its turn. Removing the simulated provider
 machine causes a clear failure, never an automatic paid replacement. These
 checks prove server routing and ownership, not actual Boat provisioning or
 remote desktop operation.
-
-The separate `team-computers-ui` test uses a real later.dog server and renderer with
-an owned loopback HTTP Boat provider. It creates a named machine through **Add →
-Boat computer**, verifies opening the shelf never provisions a machine, cancels
-and confirms a pointer drop, explicitly unassigns before moving to another team,
-and preserves bot settings and the computer registry across a browser reload.
-It also checks an Auto bot's **Computer** panel names the shared team machine
-without offering a second private computer, then takes/releases human control,
-sleeps the machine, and retries a simulated rate-limit error using the same
-durable resource ID. No provider deletion is made. Evidence and a screenshot
-are retained beside the fixture log as `*.team-computers.json` and
-`*.team-computers.png`. Accessible clicks and confirmation keys are real browser
-input; pointer events and native-select change events are injected in this test.
 
 For a separately driven computer-use preview, run:
 
@@ -123,13 +90,6 @@ capture after replacing HTML drag-and-drop. The confirmation clearly explains
 shared files/accounts and that only one bot can use the desktop at a time.
 This native pass does not prove physical touch input, a paid provider's
 provisioning behavior, or a live remote desktop stream.
-
-The test retains its before/after receipts and dark/light screenshots beside
-the fixture log as `*.team-canvas.json` and `*.team-canvas-*.png`. Its injected
-pointer events exercise renderer gesture handlers against the isolated API;
-they do not prove native pointer capture or physical mouse/touch behavior.
-Native input and narrow-window appearance need separate fixture browser or
-Electron verification. Never use the running desktop app for those checks.
 
 The owner API keeps the existing `/api/sidebar-sections` name for older clients:
 

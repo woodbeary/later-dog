@@ -56,45 +56,34 @@ describe("cloud preview recovery in the real renderer", () => {
     await evaluate(`location.href = ${JSON.stringify(preview.previewUrl)}; true`);
     await expect.poll(frameVisible, { timeout: 20_000 }).toBe(true);
 
-    for (const scenario of ["vm-pin", "auto-vm"]) {
+    const browserPanel = () => evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))');
+    const captured = async (threadId: string) => (await stat("paths") as string[]).some((path) => path.endsWith(`/computer/screenshot?threadId=${threadId}`));
+    for (const scenario of ["vm-pin", "browser-pin"]) {
       await select("Conversation surface", scenario);
-      await expect.poll(currentFrame, { timeout: 6000 }).toBe(await stat("vmScreenshot"));
-      expect((await stat("paths") as string[]).some((path) => path.endsWith(`/local-computer/screenshot?threadId=fixture-${scenario}`))).toBe(true);
-      expect(await snapshot()).not.toContain("The selected model engine cannot use a Local VM");
-      expect(await snapshot()).not.toContain("can't use a Local VM");
+      await expect.poll(() => captured(`fixture-${scenario}`), { timeout: 6000 }).toBe(true);
+      await expect.poll(currentFrame, { timeout: 6000 }).toBe(await stat("screenshot"));
+      expect(await browserPanel()).toBe(false);
     }
+    expect((await stat("paths") as string[]).some((path) => path.includes("/local-computer"))).toBe(false);
+    expect(await snapshot()).not.toContain("Local VM");
     await select("Conversation surface", "off");
     await expect.poll(currentFrame, { timeout: 5000 }).toBe(null);
-    await select("Screenshot response", "held");
-    await select("Conversation surface", "vm-pin");
-    await expect.poll(() => stat("vmPending"), { timeout: 6000 }).toBe(true);
-    const beforeCloudPin = await stat("paths") as string[];
-    const provisions = beforeCloudPin.filter((path) => path.endsWith("/computer/provision")).length;
-    await select("Screenshot response", "connected");
+    const provisions = (await stat("paths") as string[]).filter((path) => path.endsWith("/computer/provision")).length;
     await select("Conversation surface", "cloud-pin");
     await expect.poll(frameVisible, { timeout: 6000 }).toBe(true);
-    await click("Release VM capture");
-    await pause(200);
     expect(await currentFrame()).toBe(await stat("screenshot"));
+    expect(await captured("fixture-cloud-pin")).toBe(true);
     expect((await stat("paths") as string[]).filter((path) => path.endsWith("/computer/provision"))).toHaveLength(provisions);
-    expect((await stat("paths") as string[]).some((path) => path.endsWith("/computer/screenshot?threadId=fixture-cloud-pin"))).toBe(true);
     await evaluate(`document.querySelector('button[aria-label$="live desktop"]')?.click(); true`);
     await expect.poll(() => stat("joining"), { timeout: 3000 }).toBe(true);
     await select("Conversation surface", "vm-pin");
     await expect.poll(() => stat("abortedJoins"), { timeout: 3000 }).toBe(1);
-    await expect.poll(currentFrame, { timeout: 6000 }).toBe(await stat("vmScreenshot"));
+    await expect.poll(currentFrame, { timeout: 6000 }).toBe(await stat("screenshot"));
     await click("Release desktop join");
     expect(await stat("opened")).toBe(0);
-    await select("Conversation surface", "browser-pin");
-    await expect.poll(() => evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))'), { timeout: 5000 }).toBe(true);
-    await select("Conversation surface", "vm-pin");
-    await expect.poll(currentFrame, { timeout: 6000 }).toBe(await stat("vmScreenshot"));
-    expect(await evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))')).toBe(false);
-    await select("Conversation surface", "browser-pin");
-    await expect.poll(() => evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))'), { timeout: 5000 }).toBe(true);
     await select("Conversation surface", "default");
     await expect.poll(frameVisible, { timeout: 6000 }).toBe(true);
-    expect(await evaluate('Boolean(document.querySelector("[data-testid=computer-browser], [data-testid=browser-off]"))')).toBe(false);
+    expect(await browserPanel()).toBe(false);
     const beforeBusy = await stat("paths") as string[];
     const busyProvisions = beforeBusy.filter((path) => path.endsWith("/computer/provision")).length;
     await click("Busy: false");

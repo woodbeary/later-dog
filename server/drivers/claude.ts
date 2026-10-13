@@ -157,6 +157,7 @@ function claudeEnvironment(
   }
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
+  delete env.CLAUDE_CODE_SILENT_TURN_REMINDER;
   stripWorkspaceCredentialEnv(env);
   const applied = applyClaudeInject(env, model);
   if (!applied.injected && !instanceEnvironment.ANTHROPIC_API_KEY) delete env.ANTHROPIC_API_KEY;
@@ -307,7 +308,7 @@ export const STATIC_CLAUDE_MODELS: ModelCatalog = {
     { id: "claude-opus-5", label: "Claude Opus 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
     { id: "claude-sonnet-5", label: "Claude Sonnet 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", effortLevels: [] },
+    { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
     { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", effortLevels: [] },
   ],
 };

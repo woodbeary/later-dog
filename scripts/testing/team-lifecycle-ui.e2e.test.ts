@@ -295,11 +295,14 @@ if (!enabled) console.log("skipping team lifecycle UI e2e: set LATERDOG_UI_E2E=1
     await click("Delete group chat");
     await expect.poll(async () => (await api("/api/bots?messages=0")).groups.some((room: any) => room.id === group.id)).toBe(false);
     expect((await api("/api/bots?messages=0")).bots.map((bot: any) => bot.id)).toEqual(expect.arrayContaining([a.id, b.id]));
-    await preview.close();
-    preview = await mountPreview({ info: { url: info!.url } }, {
+    const confirmPreview = await mountPreview({ info: { url: info!.url } }, {
       entry: "/scripts/testing/confirm-dialog-preview.tsx", route: "/__confirm-focus.html", title: "Confirmation focus regression", logLevel: "silent",
     });
-    await ui("eval", "--js", `location.href = ${JSON.stringify(preview.previewUrl)}; true`);
+    await ui("eval", "--js", `location.href = ${JSON.stringify(confirmPreview.previewUrl)}; true`);
+    await expect.poll(() => evaluate("location.pathname"), { timeout: 15_000 }).toBe("/__confirm-focus.html");
+    await preview.close();
+    preview = confirmPreview;
+    await expect.poll(snapshot, { timeout: 15_000 }).toContain("Open confirmation");
     for (const action of ["Cancel", "Escape", "Confirm"]) {
       await click("Open confirmation");
       await expect.poll(async () => (await ui("eval", "--js", "document.activeElement.textContent")).result).toBe("Cancel");

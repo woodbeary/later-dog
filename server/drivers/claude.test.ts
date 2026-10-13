@@ -1495,9 +1495,9 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(JSON.parse(readFileSync(dump, "utf8")).settings?.fastMode).toBeUndefined();
   });
 
-  it("stops Claude Code nudging a quiet dog into progress notes, and only for quiet turns", async () => {
+  it("stops Claude Code nudging a quiet dog into progress notes, and only for quiet turns, whatever later.dog inherited", async () => {
     const dump = join(scratch, "quiet.json");
-    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, CLAUDE_CODE_SILENT_TURN_REMINDER: "0" });
     const env = () => JSON.parse(readFileSync(dump, "utf8")).env;
     const quiet = await instance.adapter.sendTurn({ threadId: "t-quiet", text: "hi", quietWork: true });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === quiet.turnId);
