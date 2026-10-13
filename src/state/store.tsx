@@ -144,7 +144,7 @@ export interface Message {
   routineRun?: RoutineRunCardData;
   goalRun?: GroupGoalRunCardData;
   channelMode?: "chat" | "goal";
-  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean };
+  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota; carry?: { from: string; to: string }; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean };
   steered?: boolean;
   via?: "api" | "call";
   turnId?: string;
@@ -460,6 +460,7 @@ export interface ConfigStatus {
   accountBattery?: {
     enabled: boolean;
     auto?: boolean;
+    sequence?: string[];
     order: Record<string, string[]>;
     resting?: Record<string, { until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
     waiting?: Record<string, string>;

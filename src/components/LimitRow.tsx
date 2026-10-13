@@ -65,11 +65,11 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
     const other = battery?.resting?.[account.instanceId];
     return Boolean(other && Date.parse(other.until) > now);
   };
-  const others = limited ? accounts.filter((account) => account.driverKind === limited.driverKind && account !== limited) : [];
-  const free = others.filter((account) => signedIn(account) && offers(account) && !resting(account));
+  const others = limited ? accounts.filter((account) => account !== limited) : [];
+  const free = others.filter((account) => signedIn(account) && (account.driverKind !== limited?.driverKind || offers(account)) && !resting(account));
   const chosen = free.find((account) => account.instanceId === pick) ?? free[0];
   const waiting = threadId ? state.pendingQueued[threadId]?.length ?? 0 : 0;
-  const picksUpAt = threadId && waiting === 0 ? battery?.waiting?.[threadId] : undefined;
+  const picksUpAt = threadId ? battery?.waiting?.[threadId] : undefined;
 
   const continueOn = async (account: InstanceInfo) => {
     if (sending || !botId || !threadId) return;
@@ -105,10 +105,15 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
                   : t("chat.limit.resetUnknown")}
               </p>
             )}
-            {actionable && recharge !== null && <RechargeLine progress={recharge} className="mt-1.5 max-w-56" />}
+            {actionable && !over && <div className="mt-2 flex items-center gap-2"><RechargeLine progress={recharge} /><span className="text-[12px] text-ink-secondary">{t("accounts.recharging")}</span></div>}
           </div>
         </div>
-        {actionable && (over || !limited ? (
+        {actionable && carryOn.on && limited && <p role="status" className="mt-2 text-[12.5px] text-ink-secondary">{
+          picksUpAt ? t("chat.limit.carriesOn", { time: resetClock(picksUpAt, now) })
+            : t(chosen ? "chat.limit.autoContinuing" : "chat.limit.autoWaiting")
+        }</p>}
+        {actionable && carryOn.on && limited && !chosen && <button type="button" onClick={() => requestAddAccount()} className={`${pill} mt-2`}>{t("accounts.add")}</button>}
+        {actionable && (!carryOn.on || !limited) && (over || !limited ? (
           <button type="button" onClick={onRetry} className={`mt-2.5 flex items-center gap-1.5 ${pill}`}>
             <RefreshCw size={12} /> {t("chat.retry")}
           </button>

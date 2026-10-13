@@ -82,8 +82,8 @@ describe("the account list", () => {
     await show();
     expect(order()).toEqual(["claude", "claude-work", "codex"]);
     expect(row("claude")!.textContent).toBe("Personal38% left");
-    expect(ring("claude")!.getAttribute("data-usage-ring")).toBe("62");
-    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("95");
+    expect(ring("claude")!.getAttribute("data-usage-ring")).toBe("38");
+    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("5");
     expect(ring("claude-work")!.querySelectorAll("circle")[1].getAttribute("class")).toBe("text-danger");
     expect(ring("claude-work")!.hasAttribute("data-charging")).toBe(false);
     expect(document.querySelector('[role="meter"]')).toBeNull();
@@ -118,8 +118,8 @@ describe("the account list", () => {
 
   it("says only roughly when a rest without a known reset ends", async () => {
     await show({ resting: { "claude-work": { until: new Date(NOW + 3_600_000).toISOString(), estimated: true } } });
-    expect(row("claude-work")!.textContent).toContain("Back around");
-    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("100");
+    expect(row("claude-work")!.textContent).toContain("Recharging");
+    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("0");
     expect(row("claude-work")!.title).not.toContain(" · in ");
   });
 
@@ -147,7 +147,7 @@ describe("reordering accounts", () => {
   it("drags an account onto another of its kind, shows the new order at once, and saves it on the drop", async () => {
     await show();
     expect(item("claude").getAttribute("draggable")).toBe("true");
-    expect(item("codex").getAttribute("draggable")).toBeNull();
+    expect(item("codex").getAttribute("draggable")).toBe("true");
     const transfer = new DataTransfer();
     await drag(item("claude-work"), "dragstart", transfer);
     expect(transfer.getData(ACCOUNT_DRAG_TYPE)).toBe("claude-work");
@@ -162,14 +162,14 @@ describe("reordering accounts", () => {
     expect(fixture.carryOn.reorder).toHaveBeenCalledWith(["claude-work", "claude", "codex"]);
   });
 
-  it("keeps an account among its own kind, and puts it back when the drag is called off", async () => {
+  it("allows cross-provider priority changes and cancels a drag without saving", async () => {
     await show();
     const transfer = new DataTransfer();
     await drag(item("claude"), "dragstart", transfer);
     await drag(item("codex"), "dragover", transfer);
-    expect(order()).toEqual(["claude", "claude-work", "codex"]);
+    expect(order()).toEqual(["claude-work", "codex", "claude"]);
     await drag(item("claude-work"), "dragover", transfer);
-    expect(order()).toEqual(["claude-work", "claude", "codex"]);
+    expect(order()).toEqual(["claude", "claude-work", "codex"]);
     await drag(item("claude"), "dragend", transfer);
     expect(order()).toEqual(["claude", "claude-work", "codex"]);
     expect(fixture.carryOn.reorder).not.toHaveBeenCalled();
@@ -183,12 +183,11 @@ describe("reordering accounts", () => {
     expect(fixture.carryOn.reorder).not.toHaveBeenCalled();
   });
 
-  it("moves an account with Alt and the arrow keys, within its kind", async () => {
+  it("moves accounts across providers with Alt and the arrow keys", async () => {
     await show();
     expect(row("claude")!.getAttribute("aria-keyshortcuts")).toBe("Alt+ArrowUp Alt+ArrowDown");
-    expect(row("codex")!.getAttribute("aria-keyshortcuts")).toBeNull();
+    expect(row("codex")!.getAttribute("aria-keyshortcuts")).toBe("Alt+ArrowUp Alt+ArrowDown");
     await press(row("claude")!, "ArrowUp");
-    await press(row("claude-work")!, "ArrowDown");
     await press(row("claude")!, "ArrowDown", false);
     expect(fixture.carryOn.reorder).not.toHaveBeenCalled();
     await press(row("claude")!, "ArrowDown");
@@ -198,7 +197,7 @@ describe("reordering accounts", () => {
   it("shows a grip only on an account that has somewhere to go", async () => {
     await show();
     expect(item("claude").querySelector("[data-account-grip]")!.getAttribute("title")).toBe("Drag to reorder");
-    expect(item("codex").querySelector("[data-account-grip]")).toBeNull();
+    expect(item("codex").querySelector("[data-account-grip]")).not.toBeNull();
   });
 
   it("offers no reordering while the order cannot be saved", async () => {
@@ -219,19 +218,19 @@ describe("reordering accounts", () => {
 
 describe("the usage ring", () => {
   it("fills with what the tighter limit has used, warms from green to red as it runs low, and drains while the account rests", () => {
-    expect(usageRingFor(usage("claude", 0, 0), undefined, NOW)).toEqual({ level: 0, tone: "good" });
-    expect(usageRingFor(usage("claude", 30, 10), undefined, NOW)).toEqual({ level: 30, tone: "good" });
-    expect(usageRingFor(usage("claude", 20, 60), undefined, NOW)).toEqual({ level: 60, tone: "caution" });
-    expect(usageRingFor(usage("claude", 80, 30), undefined, NOW)).toEqual({ level: 80, tone: "warning" });
-    expect(usageRingFor(usage("claude", 20, 95), undefined, NOW)).toEqual({ level: 95, tone: "danger" });
+    expect(usageRingFor(usage("claude", 0, 0), undefined, NOW)).toEqual({ level: 100, tone: "good" });
+    expect(usageRingFor(usage("claude", 30, 10), undefined, NOW)).toEqual({ level: 70, tone: "good" });
+    expect(usageRingFor(usage("claude", 20, 60), undefined, NOW)).toEqual({ level: 40, tone: "caution" });
+    expect(usageRingFor(usage("claude", 80, 30), undefined, NOW)).toEqual({ level: 20, tone: "warning" });
+    expect(usageRingFor(usage("claude", 20, 95), undefined, NOW)).toEqual({ level: 5, tone: "danger" });
     const rest = { since: new Date(NOW - 1_200_000).toISOString(), until: new Date(NOW + 3_600_000).toISOString() };
-    expect(usageRingFor(usage("claude", 20, 30), rest, NOW)).toEqual({ level: 75, tone: "accent", charging: true });
-    expect(usageRingFor(usage("claude", 20, 30), { until: rest.until }, NOW)).toEqual({ level: 100, tone: "accent", charging: true });
+    expect(usageRingFor(usage("claude", 20, 30), rest, NOW)).toEqual({ level: 25, tone: "accent", charging: true });
+    expect(usageRingFor(usage("claude", 20, 30), { until: rest.until }, NOW)).toEqual({ level: 0, tone: "accent", charging: true });
     expect(usageRingFor(undefined, undefined, NOW)).toBeNull();
     expect(usageRingFor({ ...usage("claude", 20, 30), ok: false }, undefined, NOW)).toBeNull();
   });
 
-  it("draws an arc only once something is used", async () => {
+  it("draws the remaining battery and empties at zero", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);

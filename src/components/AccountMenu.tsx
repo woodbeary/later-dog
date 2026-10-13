@@ -1,8 +1,10 @@
-import { Check, GripVertical, Plus } from "lucide-react";
+import { Check, GripVertical, Plus, Settings } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 import { InstanceProviderMark } from "./ProviderIcons";
+import { RechargeLine, SleepingDog, backAt, rechargeProgress, usageLeft, type AccountRest } from "./AccountCharge";
+import { USAGE_TEXT, usageReading, usageTone, type PlanProvider } from "./PlanUsage";
 import { useAccountDrag } from "./account-drag";
 
 export interface AccountMenuRow {
@@ -10,25 +12,33 @@ export interface AccountMenuRow {
   label: string;
   selected: boolean;
   movable?: boolean;
+  provider?: PlanProvider;
+  rest?: AccountRest;
+  inUse?: boolean;
 }
 
-export function AccountMenu({ rows, onPick, onAdd, onReorder }: {
+export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, auto = false, now = Date.now() }: {
   rows: readonly AccountMenuRow[];
+  onSettings?: () => void;
+  auto?: boolean;
+  now?: number;
   onPick: (instance: InstanceInfo) => void;
   onAdd?: () => void;
   onReorder?: (ids: string[]) => void;
 }) {
   const drag = useAccountDrag(
-    rows.map((row) => ({ id: row.instance.instanceId, kind: row.instance.driverKind, movable: Boolean(onReorder && row.movable) })),
+    rows.map((row) => ({ id: row.instance.instanceId, kind: "account", movable: Boolean(!auto && onReorder && row.movable) })),
     (ids) => onReorder?.(ids),
   );
   const shown = drag.order.flatMap((id) => rows.filter((row) => row.instance.instanceId === id));
   const grips = shown.some((row) => drag.movable(row.instance.instanceId));
   return (
     <div data-account-menu role="menu" aria-label={t("accounts.title")} className="flex min-h-0 flex-col overflow-y-auto p-1" {...drag.list}>
+      {auto && <p data-account-managed className="px-2.5 py-1.5 text-[11px] text-ink-secondary">{t("accounts.automatic")}</p>}
       {shown.map((row) => {
         const id = row.instance.instanceId;
         const canMove = drag.movable(id);
+        const reading = usageReading(row.provider);
         return (
           <div key={id} role="none" {...drag.row(id)} className={cn("group", drag.dragging === id && "opacity-50")}>
             <button
@@ -45,8 +55,11 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder }: {
                 grips && "pr-1",
               )}
             >
-              <InstanceProviderMark instance={row.instance} size={16} />
+              {row.rest ? <SleepingDog size={19} /> : <InstanceProviderMark instance={row.instance} size={16} />}
               <span className="min-w-0 flex-1 truncate">{row.label}</span>
+              {row.inUse && <span data-account-in-use className="text-[11px] text-accent-text">{t("accounts.inUseNow")}</span>}
+              {row.rest ? <><RechargeLine progress={row.rest.estimated ? null : rechargeProgress(row.rest, now)} /><span className="text-[11px] tabular-nums text-ink-secondary">{backAt(row.rest, now)}</span></>
+                : reading && <span className={cn("text-[12px] tabular-nums", USAGE_TEXT[usageTone(reading.used)])}>{t("planUsage.left", { left: usageLeft(reading.used) })}</span>}
               {row.selected && <Check size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />}
               {grips && (
                 <span
@@ -54,7 +67,7 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder }: {
                   data-account-grip={canMove || undefined}
                   title={canMove ? t("accounts.dragHint") : undefined}
                   className={cn(
-                    "flex w-5 shrink-0 cursor-grab items-center justify-center self-stretch text-ink-tertiary opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100",
+                    "flex w-5 shrink-0 cursor-grab items-center justify-center self-stretch text-ink-tertiary",
                     !canMove && "invisible",
                   )}
                 >
@@ -65,6 +78,7 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder }: {
           </div>
         );
       })}
+      {onSettings && <button type="button" role="menuitem" onClick={onSettings} className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-ink-secondary hover:bg-raised-hover"><Settings size={16} />{t("accounts.title")}</button>}
       {onAdd && (
         <button
           type="button"

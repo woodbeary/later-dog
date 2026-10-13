@@ -58,7 +58,7 @@ export function AccountBadge({ instance, ring }: { instance: InstanceInfo; ring:
   const initials = accountInitials(instance.displayName);
   return (
     <span data-account-initials={initials} className="relative flex size-5 shrink-0 items-center justify-center">
-      {ring ? <UsageRing {...ring}><InstanceProviderMark instance={instance} size={12} /></UsageRing>
+      {ring ? <UsageRing {...ring}>{ring.charging ? <SleepingDog size={15} /> : <InstanceProviderMark instance={instance} size={12} />}</UsageRing>
         : <InstanceProviderMark instance={instance} size={15} />}
       <span aria-hidden="true" className="absolute -bottom-1 -right-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-ink px-[2.5px] text-[7.5px] font-semibold leading-none tracking-tight text-app ring-[1.5px] ring-card">
         {initials}
@@ -81,14 +81,15 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
 }) {
   const carryOn = useCarryOn();
   const listed = shownAccounts(accounts, currentId);
-  const movable = (account: InstanceInfo) => carryOn.canReorder && !carryOn.saving
-    && listed.filter((other) => other.driverKind === account.driverKind).length > 1;
-  const drag = useAccountDrag(listed.map((account) => ({ id: account.instanceId, kind: account.driverKind, movable: movable(account) })),
+  const movable = (_account: InstanceInfo) => carryOn.canReorder && !carryOn.saving
+    && listed.length > 1;
+  const drag = useAccountDrag(listed.map((account) => ({ id: account.instanceId, kind: "account", movable: movable(account) })),
     (ids) => void carryOn.reorder(ids));
   const rows = drag.order.flatMap((id) => listed.filter((account) => account.instanceId === id));
   const grips = listed.some(movable);
   return (
     <section data-account-switcher aria-label={t("accounts.title")} className="shrink-0 py-1">
+      {carryOn.auto && <p className="px-3 py-1 text-[11px] text-ink-secondary">{t("accounts.automatic")}</p>}
       <ul {...drag.list}>
         {rows.map((account) => {
           const id = account.instanceId;
@@ -120,12 +121,11 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
                 className={cn("flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus", grips ? "pr-1" : "pr-3")}
               >
                 {ring ? (
-                  <UsageRing {...ring}><InstanceProviderMark instance={account} size={12} /></UsageRing>
+                  <UsageRing {...ring}>{rest ? <SleepingDog size={15} /> : <InstanceProviderMark instance={account} size={12} />}</UsageRing>
                 ) : (
                   <span className="flex size-5 shrink-0 items-center justify-center"><InstanceProviderMark instance={account} size={14} /></span>
                 )}
                 <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{account.displayName}</span>
-                {rest && <SleepingDog size={14} />}
                 {status && <span className={cn("shrink-0 text-[12px] tabular-nums", rest ? "text-ink-secondary" : USAGE_TEXT[low])}>{status}</span>}
                 <Check size={14} aria-hidden="true" className={cn("shrink-0 text-accent", !current && "invisible")} />
               </button>
@@ -151,7 +151,7 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
 }
 
 export function usageRingFor(provider: PlanProvider | undefined, rest: AccountRest | undefined, now: number): UsageRingLevel | null {
-  if (rest) return { level: 100 - Math.round((rechargeProgress(rest, now) ?? 0) * 100), tone: "accent", charging: true };
+  if (rest) return { level: Math.round((rechargeProgress(rest, now) ?? 0) * 100), tone: "accent", charging: true };
   const reading = usageReading(provider);
-  return reading ? { level: 100 - usageLeft(reading.used), tone: usageTone(reading.used) } : null;
+  return reading ? { level: usageLeft(reading.used), tone: usageTone(reading.used) } : null;
 }

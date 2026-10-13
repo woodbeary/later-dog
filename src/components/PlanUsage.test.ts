@@ -33,8 +33,8 @@ describe("Account usage presentation", () => {
   it("shows each window as a bar that fills as it is used, warming as it runs low, with what is left and its reset", () => {
     const html = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now: Date.now() }));
     expect(html.match(/role="meter"/g)).toHaveLength(2);
-    expect(html).toContain('aria-valuenow="32"');
-    expect(html).toContain('aria-valuenow="70"');
+    expect(html).toContain('aria-valuenow="68"');
+    expect(html).toContain('aria-valuenow="30"');
     expect(html).toContain("5-hour · 68% left · resets in 2h 10m");
     expect(html).toContain("Weekly · 30% left · resets in 3d 4h");
     expect(html).not.toContain("% used");
@@ -62,7 +62,8 @@ describe("Account usage presentation", () => {
     expect(resting).toContain('aria-valuetext="50% recharged"');
     expect(resting).not.toContain('role="meter"');
     const rough = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now, resting: { until: rest.until, estimated: true } }));
-    expect(rough).toMatch(/Back around [^<]*\d{1,2}:\d{2}[^<]*</);
+    expect(rough).toContain("Recharging");
+    expect(rough).not.toContain("Back around");
     expect(rough).not.toContain(" · in ");
     expect(rough).toContain('data-recharge="unknown"');
     const over = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now, resting: { ...rest, until: new Date(now - 1).toISOString() } }));
