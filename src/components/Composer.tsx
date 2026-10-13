@@ -1,5 +1,5 @@
 import { track } from "@/lib/analytics";
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ModelPicker } from "./ModelPicker";
 import { ArrowUp, BookOpen, Clock, Loader2, Mic, Square, Target, Users, X } from "lucide-react";
 import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
@@ -11,11 +11,14 @@ import {
   draftRevision,
   appendDraftAttachments,
   changeDraftAttachmentPending,
+  composerDraftPosition,
   draftAttachments,
   forgetFailedComposerSend,
   markDraftEdited,
+  placeDraftPosition,
   prependComposerDraft,
   recoverFailedComposerSend,
+  rememberComposerDraftPosition,
   rememberFailedComposerSend,
   replaceDraftAttachment,
   restoredSendId,
@@ -235,13 +238,29 @@ export function Composer({
       input.setSelectionRange(at, at);
     });
   }, []);
+  const rememberPosition = useCallback(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    rememberComposerDraftPosition(draftIdRef.current, {
+      start: input.selectionStart,
+      end: input.selectionEnd,
+      scrollTop: input.scrollTop,
+    });
+  }, []);
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    const position = composerDraftPosition(draftIdRef.current);
+    if (input && position) placeDraftPosition(input, position);
+  }, []);
   useEffect(() => {
     if (window.matchMedia?.("(hover: none) and (pointer: coarse)").matches) return;
     const frame = requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input || input.disabled || !composerTakesFocusOnOpen(document.activeElement, input)) return;
       input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
+      const position = composerDraftPosition(draftIdRef.current);
+      if (position) placeDraftPosition(input, position);
+      else input.setSelectionRange(input.value.length, input.value.length);
     });
     return () => cancelAnimationFrame(frame);
   }, []);
@@ -1053,9 +1072,15 @@ export function Composer({
             setCaret(e.target.selectionStart ?? e.target.value.length);
             setDismissedAt(null);
             setDismissedSlashAt(null);
+            rememberPosition();
           }}
           onPaste={handlePaste}
-          onKeyUp={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
+          onSelect={rememberPosition}
+          onScroll={rememberPosition}
+          onKeyUp={(e) => {
+            setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0);
+            rememberPosition();
+          }}
           onClick={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
           onKeyDown={(e) => {
             if (commandPickerOpen) {

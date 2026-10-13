@@ -5,6 +5,7 @@ const KEY = "laterdog-drafts";
 const ATTACHMENTS_KEY = "laterdog-draft-attachments";
 const SEND_IDS_KEY = "laterdog-draft-send-ids";
 const CHANNEL_MODES_KEY = "laterdog-draft-channel-modes";
+const POSITIONS_KEY = "laterdog-draft-positions";
 const draftRevisions = new Map<string, number>();
 const replyDrafts = new Map<string, string>();
 type ChannelMode = "chat" | "goal";
@@ -42,6 +43,13 @@ const textDraftsByStore = new WeakMap<object, Map<string, string>>();
 const attachmentDraftsByStore = new WeakMap<object, Map<string, Attachment[]>>();
 const fallbackChannelModes = new Map<string, ChannelMode>();
 const channelModesByStore = new WeakMap<object, Map<string, ChannelMode>>();
+export interface DraftPosition {
+  start: number;
+  end: number;
+  scrollTop: number;
+}
+const fallbackPositions = new Map<string, DraftPosition | null>();
+const positionsByStore = new WeakMap<object, Map<string, DraftPosition | null>>();
 
 function memoryFor<T>(
   store: Store,
@@ -99,18 +107,79 @@ function saveDraftLater(store: NonNullable<Store>, id: string): void {
 function saveDrafts(): void {
   clearTimeout(saveTimer);
   for (const [store, ids] of unsavedDrafts) {
-    const memory = memoryFor(store, textDraftsByStore, fallbackTextDrafts);
+    const positionMemory = memoryFor(store, positionsByStore, fallbackPositions);
     const drafts = read(store, KEY);
+    const positions = read(store, POSITIONS_KEY);
     for (const id of ids) {
-      const text = memory.get(id);
+      const text = getDraft(store, id);
+      const position = positionMemory.get(id);
       if (text) drafts[id] = text;
       else delete drafts[id];
+      if (text && position) positions[id] = position;
+      else if (!text || position === null) delete positions[id];
     }
     try {
       store.setItem(KEY, JSON.stringify(drafts));
+      store.setItem(POSITIONS_KEY, JSON.stringify(positions));
       unsavedDrafts.delete(store);
     } catch {}
   }
+}
+
+function isOffset(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function asDraftPosition(value: unknown): DraftPosition | null {
+  if (!value || typeof value !== "object") return null;
+  const { start, end, scrollTop } = value as Values;
+  if (!isOffset(start) || !isOffset(end) || start > end) return null;
+  if (typeof scrollTop !== "number" || !Number.isFinite(scrollTop) || scrollTop < 0) return null;
+  return { start, end, scrollTop };
+}
+
+function samePosition(a: DraftPosition | null | undefined, b: DraftPosition | null): boolean {
+  if (!a || !b) return a === b;
+  return a.start === b.start && a.end === b.end && a.scrollTop === b.scrollTop;
+}
+
+export function getDraftPosition(store: Store, id: string): DraftPosition | null {
+  const memory = memoryFor(store, positionsByStore, fallbackPositions);
+  const known = memory.get(id);
+  if (known !== undefined) return known;
+  const value = asDraftPosition(read(store, POSITIONS_KEY)[id]);
+  memory.set(id, value);
+  return value;
+}
+
+export function setDraftPosition(store: Store, id: string, position: DraftPosition | null): void {
+  const memory = memoryFor(store, positionsByStore, fallbackPositions);
+  const value = position && asDraftPosition(position);
+  if (samePosition(memory.get(id), value)) return;
+  memory.set(id, value);
+  if (store) saveDraftLater(store, id);
+}
+
+export function clampDraftPosition(position: DraftPosition, length: number): DraftPosition {
+  const end = Math.min(position.end, length);
+  return { start: Math.min(position.start, end), end, scrollTop: position.scrollTop };
+}
+
+export function placeDraftPosition(
+  input: Pick<HTMLTextAreaElement, "value" | "scrollTop" | "setSelectionRange">,
+  position: DraftPosition,
+): void {
+  const { start, end, scrollTop } = clampDraftPosition(position, input.value.length);
+  input.setSelectionRange(start, end);
+  input.scrollTop = scrollTop;
+}
+
+export function composerDraftPosition(id: string): DraftPosition | null {
+  return getDraftPosition(getStore(), id);
+}
+
+export function rememberComposerDraftPosition(id: string, position: DraftPosition): void {
+  setDraftPosition(getStore(), id, position);
 }
 
 export function getDraftChannelMode(store: Store, id: string): ChannelMode {
@@ -271,6 +340,7 @@ function setStoredSendId(store: Store, draftId: string, sendId: string | undefin
 
 export function restoreComposerDraft(id: string, draft: DraftRestore): void {
   const store = getStore();
+  setDraftPosition(store, id, null);
   setDraft(store, id, draft.text);
   setDraftAttachments(store, id, draft.attachments);
   setDraftChannelMode(store, id, draft.channelMode ?? "chat");

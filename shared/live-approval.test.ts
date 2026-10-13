@@ -71,7 +71,7 @@ describe("spoken prompts", () => {
     expect(LIVE_COPY.granted).toBe("Thanks, I'll go ahead.");
     expect(LIVE_COPY.denied).toBe("Okay, I won't do it.");
     expect(LIVE_COPY.noAnswer).toBe("I'm done. The result, or what went wrong, is in the chat.");
-    expect(LIVE_COPY.deniedMessage).toBe("Denied by the user, on a live call.");
+    expect(LIVE_COPY.deniedMessage).toBe("Declined on a live call.");
   });
 });
 

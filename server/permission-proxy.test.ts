@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { QUESTION_DISMISS_MESSAGE } from "../shared/ask-question.ts";
 import { brokerSocketPath } from "./procs.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
@@ -191,6 +192,29 @@ describe("permission proxy", () => {
     expect(resultJson(res).updatedInput.answers).toEqual({
       "Which framework?": "React",
       "Which features?": "Auth, Search",
+    });
+  });
+
+  it("hands the dog the close note for every question when the person closes the card", async () => {
+    const input = {
+      questions: [
+        { question: "Which framework?", options: [{ label: "React" }, { label: "Vue" }] },
+        { question: "Which features?", multiSelect: true, options: [{ label: "Auth" }, { label: "Search" }] },
+      ],
+    };
+    answerWith = () => ({ behavior: "answer", message: QUESTION_DISMISS_MESSAGE, source: "user" });
+    rpc({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "approve", arguments: { tool_name: "AskUserQuestion", input } },
+    });
+    expect(resultJson(await waitFor(2))).toEqual({
+      behavior: "allow",
+      updatedInput: {
+        ...input,
+        answers: { "Which framework?": QUESTION_DISMISS_MESSAGE, "Which features?": QUESTION_DISMISS_MESSAGE },
+      },
     });
   });
 

@@ -202,7 +202,7 @@ export function PendingApprovalActions({
       threadId,
       requestId: pending.requestId,
       behavior,
-      message: behavior === "deny" ? "Denied by the user." : undefined,
+      message: behavior === "deny" ? "Declined." : undefined,
       reviewedSha256: behavior === "allow" ? reviewedSha256 : undefined,
       alwaysAllow: always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined,
       always: always && !pending.allowKey && pending.allowSession ? true : undefined,

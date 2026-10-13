@@ -23,6 +23,7 @@ import {
 import { removeTempDir } from "../testing/cleanup.ts";
 import * as procs from "../procs.ts";
 import { autoVerdict } from "../auto-approve.ts";
+import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
 
 vi.mock("./codex-release.ts", async (importOriginal) => ({
   ...await importOriginal<typeof import("./codex-release.ts")>(),
@@ -2118,6 +2119,25 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     await recorder.until((e) => e.type === "turn.completed");
     expect(JSON.parse(readFileSync(dump, "utf8")).decision).toEqual({
       answers: { "q-ship": { answers: ["Yes"] }, "q-review": { answers: ["Ada"] } },
+    });
+  });
+
+  it("tells Codex every question was closed without an answer when the person closes the card", async () => {
+    await create({ mode: "multi-question" });
+    const dump = join(scratch, "question-closed.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-question-closed", text: "ask me twice" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    await instance.adapter.respondToRequest("t-question-closed", opened.requestId!, {
+      behavior: "answer",
+      message: QUESTION_DISMISS_MESSAGE,
+    });
+    expect(await recorder.until((e) => e.type === "request.resolved")).toMatchObject({ behavior: "answer", source: "user" });
+
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(JSON.parse(readFileSync(dump, "utf8")).decision).toEqual({
+      answers: { "q-ship": { answers: [QUESTION_DISMISS_MESSAGE] }, "q-review": { answers: [QUESTION_DISMISS_MESSAGE] } },
     });
   });
 

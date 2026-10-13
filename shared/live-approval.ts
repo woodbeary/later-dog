@@ -97,7 +97,7 @@ export function spokenQuestionPrompt(card: OptionCardData): string {
 export const LIVE_COPY = {
   notHeard: "The request was not heard clearly. Ask the user to say it again.",
   notClear: "That was not a clear yes or no. Ask the user again for a clear yes or no.",
-  deniedMessage: "Denied by the user, on a live call.",
+  deniedMessage: "Declined on a live call.",
   answeredInChat: "The user answered that request in the chat. Do not ask about it again.",
   working: "You are working on the request now. Nothing is done until the result comes back; do not guess it.",
   answerPassed: "You are using the user's answer now. Wait for the result.",

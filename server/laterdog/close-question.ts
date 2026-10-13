@@ -1,9 +1,10 @@
-import { isPersistentQuestionCard, QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
+import { isPersistentQuestionCard, LEGACY_QUESTION_DISMISS_MESSAGE, QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
 
 type QuestionCard = NonNullable<Parameters<typeof isPersistentQuestionCard>[0]> & { answered?: string; dismissed?: boolean };
 
 export function asksToCloseQuestion(card: QuestionCard, body: { dismiss?: unknown; message?: unknown } | null | undefined): boolean {
-  return isPersistentQuestionCard(card) && (body?.dismiss === true || body?.message === QUESTION_DISMISS_MESSAGE);
+  return isPersistentQuestionCard(card) &&
+    (body?.dismiss === true || body?.message === QUESTION_DISMISS_MESSAGE || body?.message === LEGACY_QUESTION_DISMISS_MESSAGE);
 }
 
 export interface CloseQuestionDeps<Card> {

@@ -819,7 +819,7 @@ describe("LiveCallController relay", () => {
       await vi.advanceTimersByTimeAsync(0);
       hear(t, "no", 5_000);
       await delegate(t, "del_2", 5_100);
-      expect(t.deps.respond).toHaveBeenCalledWith(expect.objectContaining({ behavior: "deny", message: "Denied by the user, on a live call." }));
+      expect(t.deps.respond).toHaveBeenCalledWith(expect.objectContaining({ behavior: "deny", message: "Declined on a live call." }));
     });
 
     it("asks again when the answer is not a clear yes or no", async () => {

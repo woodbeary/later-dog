@@ -15,6 +15,9 @@ export function userProfileSystemPrompt(profile?: { aboutMe?: string }): string 
 
 const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "availability"]);
 
+export const VOICE_PROMPT =
+  "\n\nWrite to the person directly, as \"you\". These instructions call them \"the user\" or \"the person\"; your replies never do, and never narrate your reasoning to yourself: say what you did, found or need.";
+
 export function teamAvailabilityPart(team: readonly RosterMember[]): PromptPart {
   return { id: "availability", label: "Team availability", text: teammateAvailabilityPrompt(team) };
 }
@@ -27,6 +30,7 @@ export function buildSystemPrompt(
   const ordered: PromptPart[] = [
     { id: "persona", label: "Identity", text: persona },
     { id: "soul", label: "Standing instructions (SOUL.md)", text: soulSystemPrompt(soul) },
+    { id: "voice", label: "Voice", text: VOICE_PROMPT },
     ...parts,
   ];
   const sections = ordered
