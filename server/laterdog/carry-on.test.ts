@@ -39,7 +39,7 @@ const setup = (options: {
   for (const [instanceId, offset] of Object.entries(options.resets ?? { claude: HOUR, "claude-b": 2 * HOUR })) {
     battery.markExhausted(instanceId, { resetsAt: at(offset), kind: "session" });
   }
-  battery.noteSwitch("thread-1", "claude");
+  battery.noteSwitch("thread-1", "claude", "claude-b");
   const rerun = options.rerun === undefined ? vi.fn(async (_continuation: string | null) => undefined) : options.rerun;
   battery.trackTurn("thread-1", { generation: "g1", instanceId: "claude-b", requestMessageId: options.requestMessageId ?? "q1", ...(rerun ? { rerun } : {}) });
   const input = {

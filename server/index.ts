@@ -207,7 +207,7 @@ import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts"
 import { registerEnginesBinDir } from "./engine-install.ts";
 import { registerNativeBinDir } from "./laterdog/native-install.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
-import { loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
+import { latestPlanRow, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { GroupUsageReader } from "./group-thread-usage.ts";
 import { ledgerCost } from "./model-prices.ts";
 import type { PriceList } from "./prices.ts";
@@ -635,7 +635,7 @@ import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, MAX_BATTERY_RERUNS, backNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, MAX_BATTERY_RERUNS, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -828,6 +828,7 @@ const accountBattery = new AccountBattery({
     if (!account) return undefined;
     return planResetAt((await loadPlanUsage({ accounts: [account], refresh: true })).providers[0], kind, Date.now());
   },
+  usage: latestPlanRow,
   onChange: () => broadcast({ kind: "config", ...configStatus() }),
 });
 function batteryAccounts(): BatteryAccount[] {
@@ -5954,7 +5955,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
     const limitRow = limitRowToReplace(store.activePath(threadId), turn.requestMessageId);
     if (limitRow) store.patchMessage(threadId, limitRow.id, { tool: notice });
     else store.appendMessage(threadId, { role: "bot", kind: "activity", tool: notice });
-    accountBattery.noteSwitch(threadId, next.from.instanceId);
+    accountBattery.noteSwitch(threadId, next.from.instanceId, next.to.instanceId);
     void rerun(toolRan ? CONTINUE_AFTER_SWITCH : null).catch((error) => {
       if (!store.botByThread(threadId)) return;
       store.appendMessage(threadId, { role: "bot", kind: "activity",
@@ -7865,7 +7866,8 @@ async function startTurn(
     };
   }
   healThreadModel(botId, threadId);
-  const bot = onBatteryAccount(store.projectBotForTask(botId, threadId), threadId);
+  const picked = store.projectBotForTask(botId, threadId);
+  const bot = onBatteryAccount(picked, threadId);
   if (!bot) throw Object.assign(new Error("no such task"), { status: 404 });
   const boundedCoordination = !opts?.automationSource && (!opts?.commsDepth || Boolean(opts?.coordination));
   if (bot.approvalGrant) {
@@ -8011,9 +8013,8 @@ async function startTurn(
   directTurnDispatchClaims.set(threadId, { id: dispatchClaimId, botId, threadId, phase: "setup" });
   directTurnBots.set(threadId, bot);
   limitHold.release(threadId);
-  if (!opts?.compactOnly && accountBattery.takeBack(threadId, instanceId)) {
-    store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `notice: ${backNotice(instance.displayName || instance.driverKind)}`, ok: true } });
-  }
+  const arrival = !opts?.compactOnly && picked ? accountBattery.arrive(threadId, picked.modelSelection, instanceId, batteryAccounts()) : undefined;
+  if (arrival) store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `notice: ${arrival}`, ok: true } });
   {
     const asked = userMessage;
     const request = opts?.cardContinuation ? opts.requestMessageId : asked.id;
@@ -12857,7 +12858,7 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
     vps: { configured: status.vps.configured, sshAlias: "" },
     opencodeGo: { configured: status.opencodeGo.configured, providerKeys: [] },
     profile: { name: status.profile.name, email: "" },
-    accountBattery: { ...status.accountBattery, waiting: {} },
+    accountBattery: { ...status.accountBattery, waiting: {}, routed: {} },
     browserProfiles: status.browserProfiles.map((profile) => Object.fromEntries(Object.entries(profile).filter(([key]) => key !== "partitionId"))),
   };
 }
@@ -20001,6 +20002,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         accounts: planAccountsFromInstances(instanceConfigs(cfg)),
         refresh: url.searchParams.get("refresh") === "1",
       });
+      accountBattery.noteReadings(batteryAccounts());
       return json(res, 200, report);
     }
 
@@ -20601,7 +20603,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         patch.automaticRecovery.backup = checked.selection;
       }
       if (patch.accountBattery) {
-        const checked = checkBatteryConfig(patch.accountBattery, batteryAccounts());
+        const checked = checkBatteryConfig(patch.accountBattery, batteryAccounts(), cfg.accountBattery);
         if (!checked.ok) return json(res, 400, { error: checked.error });
         patch.accountBattery = checked.config;
       }

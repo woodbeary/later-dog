@@ -251,9 +251,15 @@ export async function fetchPlanUsage(accounts: PlanAccount[], deps: PlanUsageDep
 }
 
 let cachedReport: { at: number; key: string; report: PlanUsageReport } | null = null;
+const latestRows = new Map<string, PlanProviderRow>();
 
 export function clearPlanUsageCache(): void {
   cachedReport = null;
+  latestRows.clear();
+}
+
+export function latestPlanRow(id: string): PlanProviderRow | undefined {
+  return latestRows.get(id);
 }
 
 export async function loadPlanUsage(input: {
@@ -277,6 +283,7 @@ export async function loadPlanUsage(input: {
     timeoutMs: input.timeoutMs,
   });
   cachedReport = { at: now, key, report };
+  for (const row of report.providers) if (row.ok) latestRows.set(row.id, row);
   return report;
 }
 

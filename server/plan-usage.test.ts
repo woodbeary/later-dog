@@ -6,6 +6,7 @@ import {
   clearPlanUsageCache,
   fetchPlanUsage,
   fileCredentialReader,
+  latestPlanRow,
   loadPlanUsage,
   parseClaudeUsage,
   parseCodexUsage,
@@ -381,6 +382,24 @@ describe("plan usage fetcher", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     await loadPlanUsage({ accounts, now: NOW + 11_000 + 45_000, fetch: fetchImpl, credentials });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps each account's last good reading for the token battery, even after a failed read", async () => {
+    let fail = false;
+    const fetchImpl = vi.fn<PlanFetch>(async () => fail ? jsonResponse("down", 503) : jsonResponse({
+      five_hour: { utilization: 25, resets_at: "2026-09-26T12:00:00.000Z" },
+      seven_day: { utilization: 40, resets_at: "2026-10-03T00:00:00.000Z" },
+    }));
+    const credentials = { read: () => ({ token: SECRET, accountId: null, expired: false }) };
+    expect(latestPlanRow("claude")).toBeUndefined();
+    await loadPlanUsage({ accounts: [account("claude")], now: NOW, fetch: fetchImpl, credentials });
+    expect(latestPlanRow("claude")).toMatchObject({ ok: true, fiveHour: { usedPercent: 25 }, weekly: { usedPercent: 40 } });
+    fail = true;
+    const failed = await loadPlanUsage({ accounts: [account("claude")], refresh: true, now: NOW + 1_000, fetch: fetchImpl, credentials });
+    expect(failed.providers[0]?.ok).toBe(false);
+    expect(latestPlanRow("claude")).toMatchObject({ ok: true, fiveHour: { usedPercent: 25 } });
+    clearPlanUsageCache();
+    expect(latestPlanRow("claude")).toBeUndefined();
   });
 
   it("does not share the cache when GROK_HOME changes", async () => {

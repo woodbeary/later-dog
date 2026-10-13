@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Server } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { HermesMark } from "./HermesMark";
 import { CursorMark } from "./CursorMark";
@@ -113,6 +114,32 @@ export function PiMark({ size = 16, className }: IconProps) {
   );
 }
 
+export function CerebrasMark({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#F05A28" strokeWidth="1.8" strokeLinecap="round" className={className} aria-hidden="true">
+      <path d="M18.01 5.99A8.5 8.5 0 1 0 18.01 18.01" />
+      <path d="M15.89 8.11A5.5 5.5 0 1 0 15.89 15.89" />
+      <path d="M13.77 10.23A2.5 2.5 0 1 0 13.77 13.77" />
+    </svg>
+  );
+}
+
+export function EndpointMark({ size = 16, className }: IconProps) {
+  return <Server size={size} strokeWidth={1.75} aria-hidden="true" className={cn("shrink-0 text-ink-secondary", className)} />;
+}
+
+function LetterMark({ driverKind, size = 16, className }: IconProps & { driverKind: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("inline-flex shrink-0 items-center justify-center rounded-[22%] bg-control font-semibold leading-none tracking-tight text-ink-secondary", className)}
+      style={{ width: size, height: size, fontSize: Math.max(7, Math.round(size * 0.6)) }}
+    >
+      {(driverKind.replace(/Agent$/i, "").slice(0, 1) || "?").toUpperCase()}
+    </span>
+  );
+}
+
 export function ProviderMark({ driverKind, size, className }: IconProps & { driverKind: string }) {
   switch (driverKind) {
     case "grok":
@@ -144,12 +171,12 @@ export function ProviderMark({ driverKind, size, className }: IconProps & { driv
       return <KimiMark size={size} className={className} />;
     case "laterdogGrok":
       return <GrokMark size={size} className={className} />;
+    case "cerebras":
+      return <CerebrasMark size={size} className={className} />;
+    case "openai-compat":
+      return <EndpointMark size={size} className={className} />;
     default:
-      return (
-        <span className="flex size-full items-center justify-center text-[10px] font-semibold tracking-tight text-ink-secondary">
-          {(driverKind.replace(/Agent$/i, "").slice(0, 1) || "?").toUpperCase()}
-        </span>
-      );
+      return <LetterMark driverKind={driverKind} size={size} className={className} />;
   }
 }
 

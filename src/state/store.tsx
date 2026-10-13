@@ -459,9 +459,11 @@ export interface ConfigStatus {
   automaticRecovery?: { enabled: boolean; backup?: ModelSelection };
   accountBattery?: {
     enabled: boolean;
+    auto?: boolean;
     order: Record<string, string[]>;
     resting?: Record<string, { until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
     waiting?: Record<string, string>;
+    routed?: Record<string, { from: string; on: string }>;
   };
   localVm: { mode: "shared" | "per-bot" | "pool"; maxInstances: number; idleTimeoutMinutes?: number };
   opencodeGo?: { configured: boolean; providerKeys?: string[] };

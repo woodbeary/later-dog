@@ -38,7 +38,7 @@ export function carryOnAfterReset(input: CarryOnInput & {
   if (!kept || battery.restOf(kept.to, accounts, selection.model)) return "skipped";
   if (input.full) return "full";
   const turn = battery.takeTurn(input.threadId, input.generation)!;
-  battery.takeBack(input.threadId, kept.to.instanceId);
+  battery.arrive(input.threadId, selection, kept.to.instanceId, accounts);
   const name = kept.to.displayName || kept.to.instanceId;
   input.write({ name: `recovery: ${carryOnNotice(name)}`, ok: true }, limitRowToReplace(path, turn.requestMessageId)?.id);
   const toolRan = path.slice(kept.at + 1).some((message) => message.kind === "activity" && Boolean(message.tool?.itemId));
