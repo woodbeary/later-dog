@@ -164,7 +164,7 @@ export function LiveCallBar({ bot }: { bot: Bot }) {
       aria-label={t("call.live.with", { name: bot.name })}
       className={cn(frame, "relative flex-wrap gap-x-2 gap-y-1 border-success/40")}
     >
-      <span className="size-2 shrink-0 animate-pulse rounded-full bg-success" aria-hidden />
+      <span className="size-2 shrink-0 rounded-full bg-success" aria-hidden />
       <span className="shrink-0 font-medium tabular-nums">{view.title}</span>
       <span
         className={cn(

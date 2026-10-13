@@ -71,7 +71,7 @@ export function LiveCallPill({ onOpen, currentBotId, iconOnly = false }: {
           className={cn(round, "relative text-success hover:bg-raised")}
         >
           <Phone className="size-4" />
-          <span className="absolute right-0.5 top-0.5 size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
+          <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-success" aria-hidden />
         </button>
         {mute}
         {hangUp}
@@ -81,7 +81,7 @@ export function LiveCallPill({ onOpen, currentBotId, iconOnly = false }: {
   return (
     <div className="mx-2 mb-2 flex items-center gap-1 rounded-xl border border-success/40 bg-panel px-2 py-1.5 text-[12.5px] text-ink">
       <button type="button" onClick={() => onOpen(bot.id, threadId)} title={t("call.live.back")} className="flex min-w-0 flex-1 items-center gap-2 text-left transition-opacity hover:opacity-80">
-        <span className="size-2 shrink-0 animate-pulse rounded-full bg-success" aria-hidden />
+        <span className="size-2 shrink-0 rounded-full bg-success" aria-hidden />
         <span className="truncate">{title}</span>
       </button>
       {mute}
@@ -100,7 +100,7 @@ export function LiveCallChip({ currentBotId, onOpen }: { currentBotId: string; o
       title={t("call.live.pill", { name: bot.name })}
       className="flex shrink-0 items-center gap-1.5 rounded-full border border-success/40 px-2.5 py-1 text-[12px] text-ink hover:bg-raised md:hidden"
     >
-      <span className="size-2 animate-pulse rounded-full bg-success" aria-hidden />
+      <span className="size-2 rounded-full bg-success" aria-hidden />
       {t("call.live.back")}
     </button>
   );
