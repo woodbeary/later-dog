@@ -44,7 +44,7 @@ export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "
 export function SettingsGroup({ label, children, testId, action }: { label: string; children: ReactNode; testId?: string; action?: ReactNode }) {
   return (
     <section data-settings-group={testId} className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between px-4 text-[12px] font-medium text-ink-secondary"><span>{label}</span>{action}</div>
+      <div className="flex items-center justify-between px-4 text-[12px] font-medium text-ink-secondary"><div>{label}</div>{action}</div>
       {children}
     </section>
   );

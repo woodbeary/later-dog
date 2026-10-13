@@ -28,7 +28,7 @@ const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex"]);
 
 export const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
 const primary = cn(pill, "bg-accent text-white hover:bg-accent");
-const ROW = "flex h-14 items-center gap-3 px-4";
+const ROW = "flex min-h-16 items-center gap-3 px-4 py-3";
 
 export function signedIn(instance: InstanceInfo): boolean {
   return instance.snapshot.state !== "unavailable" && instance.snapshot.authenticated !== false;
@@ -263,7 +263,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
           <GripVertical size={12} />
         </button>
       )}
-      <div data-account-row className="flex min-h-16 items-center gap-3 px-4 py-3">
+      <div data-account-row className={ROW}>
         <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
           {usage?.rest ? <SleepingDog size={25} /> : <AccountMark kind={instance.driverKind} />}
         </span>
@@ -310,16 +310,16 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
               <p className="h-4 truncate text-[12px] leading-4 text-ink-secondary">
                 {isSignedIn ? [email, plan].filter(Boolean).join(" · ") || t("accounts.signedIn") : t("accounts.signedOut")}
               </p>
-              <div data-account-meter className="mt-1 flex items-center gap-2">
+              <div data-account-meter className="mt-1 flex h-3 items-center gap-2">
                 {usage?.rest ? <><RechargeLine progress={usage.rest.estimated ? null : rechargeProgress(usage.rest, now)} /><span className="text-[11px] text-ink-secondary">{t("accounts.recharging")}</span></>
                   : usage && <UsageBar used={usage.used} label={usage.label} />}
               </div>
-              {provider?.ok && <p data-account-resets className="mt-1 text-[11px] leading-4 text-ink-secondary">{
+              <p data-account-resets className="mt-1 h-4 truncate text-[11px] leading-4 text-ink-secondary">{provider?.ok ?
                 ([[t("planUsage.fiveHour"), provider.fiveHour], [t("planUsage.weekly"), provider.weekly]] as const).flatMap(([label, window]) => {
                   const when = window.available ? resetDistance(window.resetsAt, now) : null;
                   return when ? [`${label} ${t("planUsage.resetsIn", { when })}`] : [];
-                }).join(" · ")
-              }</p>}
+                }).join(" · ") : ""
+              }</p>
             </div>
             {usage && (
               <span

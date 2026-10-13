@@ -17,6 +17,8 @@ const fixture = vi.hoisted(() => ({
   signIns: [] as Array<{ kind: "claude" | "device"; props: SignInProps }>,
   report: null as Report | null,
   loading: false,
+  reload: vi.fn(),
+  refreshInstances: vi.fn(),
 }));
 function publish(next: Partial<State>) {
   fixture.state = { ...fixture.state, ...next };
@@ -35,12 +37,12 @@ vi.mock("@/state/store", async () => {
   };
   return {
     api: fixture.api,
-    useStore: () => ({ state: useSyncExternalStore(subscribe, () => fixture.state), dispatch }),
+    useStore: () => ({ state: useSyncExternalStore(subscribe, () => fixture.state), dispatch, refreshInstances: fixture.refreshInstances }),
   };
 });
 vi.mock("./PlanUsage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./PlanUsage")>()),
-  usePlanUsage: () => ({ report: fixture.report, loading: fixture.loading, error: "", now: Date.now(), reload: async () => {} }),
+  usePlanUsage: () => ({ report: fixture.report, loading: fixture.loading, error: "", now: Date.now(), reload: fixture.reload }),
 }));
 vi.mock("./ClaudeSignIn", () => ({
   ClaudeSignIn: (props: SignInProps) => {
@@ -55,10 +57,10 @@ vi.mock("./DeviceSignIn", () => ({
   },
 }));
 
-const { AccountsPanel, accountOrder, pollSignedIn, realAccount, removable, shownOrder, subscriptionAccounts, useCarryOn } = await import("./AccountsPanel");
+const { AccountsPanel, AccountsRefresh, accountOrder, pollSignedIn, realAccount, removable, shownOrder, subscriptionAccounts, useCarryOn } = await import("./AccountsPanel");
 const { requestAddAccount } = await import("@/lib/add-account-request");
 const { AddAccountHost } = await import("./AddAccountHost");
-const Settings = () => createElement(Fragment, null, createElement(AccountsPanel), createElement(AddAccountHost));
+const Settings = () => createElement(Fragment, null, createElement(AccountsRefresh), createElement(AccountsPanel), createElement(AddAccountHost));
 
 const claude = (instanceId: string, displayName: string, snapshot: Partial<InstanceInfo["snapshot"]> = {}): InstanceInfo => ({
   instanceId, driverKind: "claudeAgent", displayName, access: "subscription",
@@ -150,6 +152,8 @@ beforeEach(async () => {
     config: { accountBattery: { enabled: false, order: { claudeAgent: ["claude", "claude-work"], codex: ["chatgpt"] }, resting: {} } },
   };
   fixture.api.mockReset();
+  fixture.reload.mockReset().mockResolvedValue(undefined);
+  fixture.refreshInstances.mockReset().mockResolvedValue(undefined);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -160,6 +164,26 @@ afterEach(async () => {
   host.remove();
   document.body.innerHTML = "";
   vi.useRealTimers();
+});
+
+describe("account refresh", () => {
+  it("refreshes usage, sign-ins and cooldowns together and accepts the new config", async () => {
+    fixture.api.mockResolvedValueOnce({ accountBattery: { enabled: true, order: {}, resting: {} } });
+    await click(document.body.querySelector<HTMLButtonElement>("[data-accounts-refresh]"));
+    expect(fixture.reload).toHaveBeenCalledWith(true);
+    expect(fixture.refreshInstances).toHaveBeenCalledOnce();
+    expect(fixture.api).toHaveBeenCalledWith("/api/config");
+    expect(fixture.state.config.accountBattery?.enabled).toBe(true);
+    expect(document.body.querySelector<HTMLButtonElement>("[data-accounts-refresh]")?.disabled).toBe(false);
+  });
+
+  it("allows another refresh after one source fails", async () => {
+    fixture.api.mockRejectedValueOnce(new Error("offline"));
+    fixture.refreshInstances.mockRejectedValueOnce(new Error("offline"));
+    await click(document.body.querySelector<HTMLButtonElement>("[data-accounts-refresh]"));
+    expect(fixture.reload).toHaveBeenCalledWith(true);
+    expect(document.body.querySelector<HTMLButtonElement>("[data-accounts-refresh]")?.disabled).toBe(false);
+  });
 });
 
 describe("account helpers", () => {
@@ -275,7 +299,7 @@ describe("Accounts", () => {
     expect(document.body.textContent).not.toContain("Claude API");
     expect(document.body.innerHTML.match(/rounded-xl bg-card/g)).toHaveLength(1);
     expect(button("Refresh")).toBeUndefined();
-    expect(document.body.querySelector('[aria-label="Refresh"]')).toBeNull();
+    expect(document.body.querySelector('[data-accounts-refresh][aria-label="Refresh"]')).not.toBeNull();
   });
 
   it("lists Claude and a second Claude side by side, each removable", async () => {
@@ -316,7 +340,7 @@ describe("Accounts", () => {
     expect(usageOf("chatgpt")).toBeNull();
     expect(usageOf("claude-work")?.textContent).toBe("88% left");
     expect(usageOf("claude-work")?.getAttribute("title")).toContain("5-hour · 88% left · resets in 2h");
-    expect(box("claude-work").querySelector('[role="meter"]')!.getAttribute("aria-valuenow")).toBe("12");
+    expect(box("claude-work").querySelector('[role="meter"]')!.getAttribute("aria-valuenow")).toBe("88");
     expect(box("claude").querySelector('[role="meter"]')).toBeNull();
     expect(line("claude")).toBe("me@example.test");
     expect(line("chatgpt")).toBe("me@openai.test · Plus");
@@ -331,10 +355,11 @@ describe("Accounts", () => {
       lines: [...box(instanceId).querySelector("[data-account-text]")!.children].map((child) => `${child.tagName}.${child.className}`),
     });
     const before = shape("claude");
-    expect(before.box).toContain("h-14");
-    expect(before.lines).toHaveLength(3);
+    expect(before.box).toContain("min-h-16");
+    expect(before.lines).toHaveLength(4);
     expect(before.lines[1]).toContain("h-4");
-    expect(before.lines[2]).toContain("absolute");
+    expect(before.lines[2]).toContain("h-3");
+    expect(before.lines[3]).toContain("h-4");
     expect(box("claude").querySelector('[role="meter"]')).toBeNull();
     expect(line("claude")).toBe("Signed in");
 
@@ -342,7 +367,7 @@ describe("Accounts", () => {
     await act(async () => publish({ instances: signedInAs("claude", "me@example.test") }));
     expect(line("claude")).toBe("me@example.test · Max");
     expect(usageOf("claude")?.textContent).toBe("60% left");
-    expect(box("claude").querySelector('[role="meter"]')!.getAttribute("aria-valuenow")).toBe("40");
+    expect(box("claude").querySelector('[role="meter"]')!.getAttribute("aria-valuenow")).toBe("60");
     expect(usageOf("claude")?.parentElement).toBe(box("claude"));
     expect(shape("claude")).toEqual(before);
     expect(box("chatgpt").className).toBe(before.box);
@@ -354,7 +379,7 @@ describe("Accounts", () => {
     expect(skeleton).not.toBeNull();
     expect(skeleton!.getAttribute("aria-hidden")).toBe("true");
     const fixed = skeleton!.className;
-    expect(fixed).toContain("h-14");
+    expect(fixed).toContain("min-h-16");
     expect(ids()).toEqual([]);
     expect(empty()).toBeNull();
 
@@ -374,7 +399,8 @@ describe("Accounts", () => {
     await act(async () => publish({ config: { accountBattery: { ...fixture.state.config.accountBattery!, resting: { claude: { since, until, kind: "weekly" } } } } }));
     expect(usageOf("claude")?.textContent).toMatch(/^Back at /);
     expect(usageOf("claude")?.getAttribute("title")).toMatch(/^Back at .+ · in (59m|1h)$/);
-    expect(usageOf("claude")?.querySelector("[data-sleeping-dog]")).not.toBeNull();
+    expect(box("claude").firstElementChild?.querySelector("[data-sleeping-dog]")).not.toBeNull();
+    expect(usageOf("claude")?.querySelector("[data-sleeping-dog]")).toBeNull();
     expect(box("claude").querySelector("[data-recharge]")!.getAttribute("data-recharge")).toBe("50");
     expect(box("claude").querySelector('[role="meter"]')).toBeNull();
     expect(usageOf("chatgpt")).toBeNull();
@@ -384,7 +410,7 @@ describe("Accounts", () => {
     await click(row("claude-work")!.querySelector<HTMLButtonElement>('[aria-label="Rename Work"]'));
     const input = row("claude-work")!.querySelector<HTMLInputElement>('input[aria-label="Account name"]')!;
     expect(input.value).toBe("Work");
-    expect(box("claude-work").className).toContain("h-14");
+    expect(box("claude-work").className).toContain("min-h-16");
     await type(input, "Office");
     fixture.api.mockResolvedValueOnce({ instances: fixture.state.instances.map((item) => item.instanceId === "claude-work" ? { ...item, displayName: "Office" } : item) });
     await press(input, "Enter");
@@ -494,7 +520,7 @@ describe("Accounts", () => {
     await click(removeButton("Work"));
     expect(ids()).toEqual(["claude", "claude-work", "chatgpt"]);
     expect(row("claude-work")!.querySelector('[role="alert"]')?.textContent).toBe("Choose another account for the bots and default model using this account before removing it.");
-    expect(box("claude-work").className).toContain("h-14");
+    expect(box("claude-work").className).toContain("min-h-16");
     expect(removeButton("Work")!.disabled).toBe(false);
   });
 
@@ -549,7 +575,7 @@ describe("Accounts", () => {
     expect(rowButtons("claude-side")).toEqual([]);
     expect(removeButton("Side project")).not.toBeNull();
     expect(fixture.api).toHaveBeenCalledTimes(1);
-    expect(document.body.querySelector('[aria-label="Refresh"]')).toBeNull();
+    expect(document.body.querySelector('[data-accounts-refresh][aria-label="Refresh"]')).not.toBeNull();
   });
 
   it("signs in to the built-in Claude or ChatGPT account when it has no sign-in yet, instead of naming a new one", async () => {
