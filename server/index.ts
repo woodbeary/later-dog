@@ -6002,6 +6002,16 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
       limitHold.retry(threadId);
       return;
     }
+    const selection = store.projectBotForTask(owner.id, threadId)?.modelSelection;
+    const refreshed = accountBattery.nextAccount({ threadId, generation, stopReason: "usage_limit", ranOn: next.from.instanceId,
+      selection, accounts: batteryAccounts() });
+    if (!refreshed) {
+      console.info(`token battery: ${threadId} account availability changed before continuation`);
+      limitHold.hold(threadId);
+      if (!limitHold.holds(threadId)) pickUpAfterReset(threadId);
+      return;
+    }
+    next = refreshed;
     const path = store.activePath(threadId);
     const at = path.findIndex((message) => message.id === turn.requestMessageId);
     const toolRan = path.some((message) => message.kind === "activity" && message.turnId === turnId && Boolean(message.tool?.itemId));

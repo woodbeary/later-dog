@@ -143,3 +143,21 @@ describe("continuing on another account", () => {
     }
   });
 });
+
+
+it("manually continues to another provider with that account's default model and a structured notice", () => {
+  const codex = account("codex", "Codex", { driverKind: "codex", models: ["gpt-default"], defaultModel: "gpt-default" });
+  const accounts = [ACCOUNTS[0]!, codex];
+  const battery = new AccountBattery({ config: () => OFF, now: () => NOW });
+  battery.markExhausted("claude", { resetsAt: at(HOUR) });
+  const rerun = vi.fn(async () => undefined);
+  battery.trackTurn("cross", { generation: "g", instanceId: "claude", requestMessageId: "q", rerun });
+  const write = vi.fn();
+  expect(continueOnAccount({ battery, accounts, threadId: "cross", selection: { ...SELECTION, effort: "high" }, busy: false,
+    generation: "g", path: [asked("q"), limit("l")], instanceId: "codex", write, now: NOW }))
+    .toEqual({ status: 200, body: { continued: true } });
+  expect(battery.route({ ...SELECTION, effort: "high" }, accounts, "cross"))
+    .toEqual({ instanceId: "codex", model: "gpt-default" });
+  expect(write).toHaveBeenCalledWith(expect.objectContaining({ carry: { from: "claude", to: "codex" } }), "l");
+  expect(rerun).toHaveBeenCalledOnce();
+});

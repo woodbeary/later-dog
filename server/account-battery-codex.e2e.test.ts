@@ -49,7 +49,7 @@ it("continues a Codex conversation on ChatGPT account 2 with the conversation ca
       environment: { FAKE_CODEX_MODE: "resume", FAKE_CODEX_PROMPTS: secondFile, FAKE_CODEX_REPLY: "hello from codex account 2",
         FAKE_CODEX_ACCOUNT_EMAIL: "two@example.test" },
     };
-    config.accountBattery = { enabled: true, order: { codex: ["codex-one", "codex-two"] } };
+    config.accountBattery = { enabled: true, order: { codex: ["codex-one", "codex-two"] }, sequence: ["codex-one", "codex-two", "claude"] };
     writeFileSync(configPath, JSON.stringify(config));
     const log = openSync(logPath, "a", 0o600);
     server = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
