@@ -1172,8 +1172,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   }, [messages, shownMessages, bot.busy, bot.name]);
   const [busySince, setBusySince] = useState<number | null>(null);
   useEffect(() => {
-    setBusySince(bot.busy ? bot.turnStartedAt ?? Date.now() : null);
-  }, [bot.busy, bot.id, bot.threadId, bot.turnStartedAt]);
+    setBusySince(bot.busy ? bot.workingStartedAt ?? bot.turnStartedAt ?? Date.now() : null);
+  }, [bot.busy, bot.id, bot.threadId, bot.turnStartedAt, bot.workingStartedAt]);
 
   const regenerate = useCallback(() => {
     if (lastUserMessage?.text && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")) {

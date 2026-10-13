@@ -322,12 +322,54 @@ describe("independent bot task state", () => {
       expect(task).not.toHaveProperty("busy");
       expect(task).not.toHaveProperty("activity");
       expect(task).not.toHaveProperty("turnStartedAt");
+      expect(task).not.toHaveProperty("workingStartedAt");
     }
     const reloaded = new Store(selection);
     expect(reloaded.bot(bot.id)).toMatchObject({ activity: "idle", busy: false });
-    expect(reloaded.tasks(bot.id).every((task) => task.activity === "idle" && !task.busy && task.turnStartedAt === undefined)).toBe(true);
+    expect(reloaded.tasks(bot.id).every((task) => task.activity === "idle" && !task.busy && task.turnStartedAt === undefined && task.workingStartedAt === undefined)).toBe(true);
     store.deleteTask(bot.id, second.threadId);
     expect(bot).toMatchObject({ activity: "idle", busy: false });
+  });
+
+  it("restarts the working timer after a person's answer without changing the turn or a sibling's timer", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    try {
+      const store = new Store(selection);
+      const bot = store.createBot();
+      const first = store.taskByThread(bot.id, bot.threadId)!;
+      const sibling = store.createTask(bot.id, "Other work", false)!;
+      store.setTaskActivity(bot.id, first.threadId, "working");
+      store.setTaskActivity(bot.id, sibling.threadId, "working");
+      expect(first).toMatchObject({ turnStartedAt: 100_000, workingStartedAt: 100_000 });
+
+      now.mockReturnValue(106_000);
+      store.setTaskActivity(bot.id, first.threadId, "waiting-on-you");
+      expect(first).toMatchObject({ busy: true, turnStartedAt: 100_000 });
+      expect(first.workingStartedAt).toBeUndefined();
+      now.mockReturnValue(140_000);
+      store.setTaskActivity(bot.id, first.threadId, "waiting-on-you");
+      now.mockReturnValue(146_000);
+      store.setTaskActivity(bot.id, first.threadId, "working");
+      expect(first).toMatchObject({ busy: true, turnStartedAt: 100_000, workingStartedAt: 146_000 });
+      expect(sibling).toMatchObject({ busy: true, turnStartedAt: 100_000, workingStartedAt: 100_000 });
+
+      now.mockReturnValue(150_000);
+      store.setTaskActivity(bot.id, first.threadId, "working");
+      store.setTaskActivity(bot.id, first.threadId, "no-signal");
+      store.setTaskActivity(bot.id, first.threadId, "working");
+      expect(first.workingStartedAt).toBe(146_000);
+      store.patchBot(bot.id, { title: "Saved during the resumed answer" });
+      expect(savedBots()[0]!.tasks!.find((task) => task.threadId === first.threadId)).not.toHaveProperty("workingStartedAt");
+
+      store.setTaskActivity(bot.id, first.threadId, "idle");
+      expect(first.turnStartedAt).toBeUndefined();
+      expect(first.workingStartedAt).toBeUndefined();
+      now.mockReturnValue(160_000);
+      store.setTaskActivity(bot.id, first.threadId, "working");
+      expect(first).toMatchObject({ turnStartedAt: 160_000, workingStartedAt: 160_000 });
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("stamps a group's busy member turn without persisting it", async () => {
