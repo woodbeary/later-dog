@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, Check, Loader2, LogOut, RefreshCw, Settings as SettingsIcon } from "lucide-react";
+import { ArrowDownToLine, Check, Loader2, LogOut, RefreshCw, Settings as SettingsIcon, Smartphone } from "lucide-react";
 
 import { InitialsAvatar } from "./Avatar";
 import {
@@ -12,6 +12,7 @@ import {
   useProfiles,
   type ProfileSwitchError,
 } from "./ProfileSwitcher";
+import { PhoneAppDialog } from "./PhoneAppDialog";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { SignOutDialog, useSignOutTargets, type SignOutTargets } from "./SignOutAll";
@@ -162,6 +163,7 @@ export function SidebarProfileMenu() {
   const [switching, setSwitching] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<ProfileSwitchError | null>(null);
   const [profileDialog, setProfileDialog] = useState<"add" | "edit" | null>(null);
+  const [phoneOpen, setPhoneOpen] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
   const switchTicket = useRef(0);
   const profilesShown = useRef(false);
@@ -201,6 +203,15 @@ export function SidebarProfileMenu() {
   const updateReady = update?.phase === "downloaded" || update?.phase === "available";
   const mainItems: SidebarMenuItem[] = [
     ...(profiles ? [profileEntryItem(() => setPage("profiles"))] : []),
+    {
+      key: "phoneApp",
+      label: t("phoneApp.menu"),
+      icon: <Smartphone size={18} />,
+      onSelect: () => {
+        focusTrigger();
+        setPhoneOpen(true);
+      },
+    },
     {
       key: "settings",
       label: t("sidebar.menu.settings"),
@@ -263,6 +274,7 @@ export function SidebarProfileMenu() {
         )}
       />
       {signingOut && <SignOutDialog targets={signingOut} onClose={() => setSigningOut(null)} />}
+      <PhoneAppDialog open={phoneOpen} onClose={() => setPhoneOpen(false)} />
       {profiles && profileDialog === "add" && (
         <AddProfileDialog bridge={profiles.bridge} onClose={() => setProfileDialog(null)} />
       )}
