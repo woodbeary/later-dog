@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createPuppies } from "./fake-claude-puppies.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
@@ -356,6 +357,17 @@ const useCloudComputer = () => {
     is_error: Boolean(reply.error || reply.result?.isError), content: reply.result?.content ?? reply.error?.message ?? "" }] } });
 };
 
+const playPuppies = createPuppies({
+  out,
+  init: () => out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools }),
+  endTurn: () => {
+    turnRunning = false;
+    finishIfDone();
+  },
+  sessionId,
+  model,
+});
+
 const playTurn = (prompt: JsonValue, late = false) => {
   turnRunning = true;
   lateContinuation = late;
@@ -460,6 +472,11 @@ const playTurn = (prompt: JsonValue, late = false) => {
     out({ type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
     turnRunning = false;
     finishIfDone();
+    return;
+  }
+
+  if (mode === "puppies") {
+    playPuppies(steerText(prompt));
     return;
   }
 
