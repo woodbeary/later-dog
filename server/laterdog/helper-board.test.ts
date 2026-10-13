@@ -21,3 +21,27 @@ it("scopes live helpers, keeps settled results briefly and clears a new turn", (
   board.start("private");
   expect(board.snapshot(() => true)).toEqual({ helpers: {} });
 });
+
+
+it("terminalizes timed-out helpers and workflow members without claiming confirmed shutdown", () => {
+  let now = 5_000;
+  const board = new HelperBoard(() => now);
+  const helper: Helper = { id: "workflow", kind: "workflow", label: "Review", state: "running", background: true, startedAt: 1_000,
+    members: [{ id: "active", label: "Check", state: "running" }, { id: "done", label: "Read", state: "done" }] };
+  board.update("room", helper);
+  board.update("room", { ...helper, id: "finished", state: "done", endedAt: 4_000 });
+  board.update("other", helper);
+  const activity = "The room turn timed out; helper shutdown was requested.";
+  const updates = board.fail("room", activity);
+  expect(updates).toHaveLength(1);
+  expect(updates[0]).toMatchObject({ id: "workflow", state: "failed", endedAt: 5_000, activity,
+    members: [{ id: "active", state: "failed", activity }, { id: "done", state: "done" }] });
+  expect(board.running("room")).toBe(false);
+  expect(board.running("other")).toBe(true);
+  board.update("room", helper);
+  expect(board.running("room")).toBe(false);
+  expect(board.fail("room", activity)).toEqual([]);
+  now += 10_000;
+  expect(board.snapshot(() => true).helpers.room).toBeUndefined();
+  expect(board.snapshot(() => true).helpers.other).toEqual([helper]);
+});

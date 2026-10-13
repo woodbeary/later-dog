@@ -105,17 +105,33 @@ function harness(options: { name: string; chiefOfStaff?: boolean }) {
 }
 
 describe("ProfileRequestService", () => {
-  it("shows a generated picture before applying even with Full Access", () => {
+  it.each(["self", "full-access"] as const)("applies an own generated picture with Undo for %s", (grant) => {
     const { store, bot } = harness({ name: "Scout" });
-    const service = new ProfileRequestService({ store, autoApply: () => "full-access" });
-    const proposed = service.submit({ botId: bot.id, threadId: bot.threadId, changes: { avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" }, reason: "You asked for a space beagle" });
-    expect(proposed.state).toBe("pending");
-    expect(bot.avatarUrl).toBeUndefined();
-    expect(store.messagesFor(bot.threadId)[0]?.card?.profileRequest?.changes.avatarUrl).toBe("/api/attachments/generated.png");
-    const result = service.resolve({ botId: bot.id, threadId: bot.threadId, requestId: proposed.requestId, behavior: "allow" });
-    expect(result.state).toBe("applied");
+    const canPersist = vi.fn(() => ({ ok: true as const }));
+    const service = new ProfileRequestService({ store, autoApply: () => grant, canPersist });
+    const proposed = service.submit({ botId: bot.id, threadId: bot.threadId, changes: { title: "Astronomer", avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" }, reason: "You asked for a space beagle" });
+    expect(proposed.state).toBe("applied");
+    expect(canPersist).toHaveBeenCalledWith(bot.id, bot.threadId, false);
+    expect(store.messagesFor(bot.threadId)[0]?.card).toMatchObject({ autoApplied: true, answered: "allow", options: [], profileRequest: { changes: { avatarUrl: "/api/attachments/generated.png" }, undo: { appliedRevision: profileRevision(bot) } } });
     expect(bot.avatarUrl).toBe("/api/attachments/generated.png");
     expect(bot.avatarCrop).toBe("circle");
+    expect(bot.title).toBe("Astronomer");
+    expect(service.undo({ botId: bot.id, threadId: bot.threadId, requestId: proposed.requestId })).toMatchObject({ state: "undone" });
+    expect(bot.avatarUrl).toBeUndefined();
+    expect(bot.avatarCrop).toBe("mascot");
+    expect(bot.title).toBe("");
+  });
+
+  it("retains another dog's generated picture review without a direct apply grant", () => {
+    const { store, bot, addBot } = harness({ name: "Chief" });
+    const peer = addBot({ name: "Scout" });
+    const service = new ProfileRequestService({ store, autoApply: (botId, _threadId, targetBotId) => directApply({ botId, targetBotId, fullAccess: false, blocked: false }) });
+    const proposed = service.submit({ botId: bot.id, threadId: bot.threadId, targetBotId: peer.id, changes: { avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" }, reason: "You asked for a space beagle" });
+    expect(proposed.state).toBe("pending");
+    expect(peer.avatarUrl).toBeUndefined();
+    expect(store.messagesFor(bot.threadId)[0]?.card).toMatchObject({ options: ["Confirm", "Cancel"] });
+    expect(service.resolve({ botId: bot.id, threadId: bot.threadId, requestId: proposed.requestId, behavior: "allow" }).state).toBe("applied");
+    expect(peer.avatarUrl).toBe("/api/attachments/generated.png");
   });
 
   it("rejects a generated-picture proposal if the picture changed before confirmation", () => {

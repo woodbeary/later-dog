@@ -22,7 +22,7 @@ function CarriedAccount({ from, to, text }: { from: string; to: string; text: st
 export function StatusActivityRow({ message }: { message: Message }) {
   const status = statusActivity(message);
   if (!status) return null;
-  if (status.kind === "recovery" && message.tool?.carry) return <CarriedAccount {...message.tool.carry} text={status.text} />;
+  if (message.tool?.carry) return <CarriedAccount {...message.tool.carry} text={status.text} />;
   const Icon = status.kind === "recovery" ? RefreshCw : Info;
   return (
     <div role="status" className="flex w-fit max-w-full items-start gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary">

@@ -28,10 +28,10 @@ describe("helpers from the server's snapshot", () => {
   it("keeps each thread's helpers and drops what it can't read", () => {
     const threads = helpersFromSnapshot({
       helpers: {
-        "thread-a": [helper("one"), { id: "broken" }, helper("two", { kind: "workflow", members: [
+        "thread-a": [helper("one"), { id: "broken" }, { ...helper("two", { kind: "workflow" }), members: [
           { id: "m1", label: "Check the sources", state: "done", phase: "Gather" },
           { label: "No id", state: "running" },
-        ] })],
+        ] }],
         "thread-b": "not a list",
         "thread-c": [],
       },
@@ -57,6 +57,13 @@ describe("helpers from the server's snapshot", () => {
 });
 
 describe("helper updates from runtime frames", () => {
+  it("clears previous helpers when the thread starts a new turn", () => {
+    receiveHelpersSnapshot({ helpers: { "thread-a": [helper("one")], "thread-b": [helper("two")] } });
+    expect(receiveHelperEvent({ type: "turn.started", provider: "claude", threadId: "thread-a", eventId: "start", turnId: "next", createdAt: "2026-10-13T12:00:00.000Z" })).toBe(true);
+    expect(currentHelpers()["thread-a"]).toBeUndefined();
+    expect(currentHelpers()["thread-b"]).toEqual([helper("two")]);
+  });
+
   it("adds, updates and settles helpers on top of the snapshot", () => {
     receiveHelpersSnapshot({ helpers: { "thread-a": [helper("one")] } });
     expect(receiveHelperEvent(updated("thread-a", helper("two")))).toBe(true);

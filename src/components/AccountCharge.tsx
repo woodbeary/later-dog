@@ -12,6 +12,7 @@ export interface AccountRest {
 }
 
 export function rechargeProgress(rest: AccountRest, now: number): number | null {
+  if (rest.estimated) return null;
   const until = Date.parse(rest.until);
   const since = rest.since ? Date.parse(rest.since) : Number.NaN;
   if (!Number.isFinite(until) || !Number.isFinite(since) || until <= since) return null;

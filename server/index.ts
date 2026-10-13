@@ -481,7 +481,7 @@ import { asSchedule, RoutineRequestService } from "./routine-requests.ts";
 import { directApply, UNDO_STALE, type DirectApply } from "./direct-apply.ts";
 import { createOptionsCard } from "./options-card.ts";
 import { buildBotOverview, type BotOverview, connectedAppsFacts } from "./bot-overview.ts";
-import { prepareProfileAvatar } from "./profile-avatar.ts";
+import { submitProfileAvatar } from "./profile-avatar.ts";
 import { ProfileRequestService } from "./profile-requests.ts";
 import { ModelRequestService } from "./model-requests.ts";
 import { TeamSetupError, TeamSetupRequestService } from "./team-setup-requests.ts";
@@ -10784,6 +10784,10 @@ async function runGroupMemberTurn(
     let unsub = () => {};
     let unregisterStall = () => {};
     const deadline = new RoomTurnDeadline(timeoutMinutes, () => {
+      for (const helper of helperBoard.fail(threadId, "The room turn timed out; helper shutdown was requested.")) {
+        bus.publish({ type: "helper.updated", eventId: newId(), provider: instance.driverKind,
+          providerInstanceId: instance.instanceId, threadId, turnId: providerTurnId, createdAt: new Date().toISOString(), helper });
+      }
       abandonProviderTurn();
       void instance.adapter.interruptTurn(threadId).catch(() => {});
       store.appendMessage(threadId, {
@@ -14493,25 +14497,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const owner = connectorThread(from.id, body.fromThreadId);
         if (!owner) return json(res, 403, { error: "source conversation does not belong to sender" });
         const targetBotId = body.forBotId?.trim() || from.id;
-        let changes = body.changes;
-        if (body.avatarPrompt) {
-          const target = store.bot(targetBotId);
-          if (!target) return json(res, 404, { error: "That dog no longer exists" });
-          const refusal = targetBotId !== from.id ? profileRequests.validateTarget?.(from.id, targetBotId) : null;
-          if (refusal) return json(res, 403, { error: refusal });
-          const persistence = proposalPersistence(from.id, body.fromThreadId, true);
-          if (!persistence.ok) return json(res, persistence.status, { error: persistence.error });
-          if (typeof body.reason !== "string" || !body.reason.trim() || body.reason.trim().length > 500) return json(res, 400, { error: "reason must be 1 to 500 characters" });
-          const before = profileRevision(target);
-          const generated = await prepareProfileAvatar({ config: cfg, target, changes, prompt: body.avatarPrompt, save: saveImage });
-          const current = store.bot(targetBotId);
-          if (!current || profileRevision(current) !== before) {
-            deleteAttachment(generated.path);
-            return json(res, 409, { error: "The dog's profile changed while its picture was being generated. Try again with the current profile." });
-          }
-          changes = generated.changes;
-        }
-        const proposed = profileRequests.submit({
+        const submit = (changes: unknown) => profileRequests.submit({
           botId: from.id,
           threadId: body.fromThreadId,
           targetBotId,
@@ -14519,6 +14505,26 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           reason: body.reason,
           from: owner.group ? { botId: from.id, name: from.name, color: from.color } : undefined,
         });
+        let proposed: ReturnType<typeof submit>;
+        if (body.avatarPrompt) {
+          const target = store.bot(targetBotId);
+          if (!target) return json(res, 404, { error: "That dog no longer exists" });
+          const refusal = targetBotId !== from.id ? profileRequests.validateTarget?.(from.id, targetBotId) : null;
+          if (refusal) return json(res, 403, { error: refusal });
+          const grant = appliesDirectly(from.id, body.fromThreadId, targetBotId);
+          const changesCwd = Boolean(body.changes && typeof body.changes === "object" && Object.hasOwn(body.changes, "cwd"));
+          const opensCard = grant !== "full-access" && (grant !== "self" || changesCwd);
+          const persistence = proposalPersistence(from.id, body.fromThreadId, opensCard);
+          if (!persistence.ok) return json(res, persistence.status, { error: persistence.error });
+          if (typeof body.reason !== "string" || !body.reason.trim() || body.reason.trim().length > 500) return json(res, 400, { error: "reason must be 1 to 500 characters" });
+          proposed = await submitProfileAvatar({
+            config: cfg, target, changes: body.changes, prompt: body.avatarPrompt, save: saveImage,
+            currentTarget: () => store.bot(targetBotId), assertActive: requireActiveInternalCapability,
+            discard: deleteAttachment, submit,
+          });
+        } else {
+          proposed = submit(body.changes);
+        }
         appendDecision(DATA_DIR, {
           threadId: body.fromThreadId, requestId: proposed.requestId, botId: from.id, botName: from.name,
           tool: "update_profile", summary: proposed.detail, decision: proposed.state === "applied" ? "auto-approved" : "card-shown",

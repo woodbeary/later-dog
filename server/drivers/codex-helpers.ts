@@ -12,7 +12,9 @@ function helperState(status: unknown): HelperState {
 export class CodexHelpers {
   private helpers = new Map<string, Helper>();
   private generations = new Map<string, number>();
-  constructor(private emit: (helper: Helper) => void, private now: () => number = Date.now) {}
+  private readonly emit: (helper: Helper) => void;
+  private readonly now: () => number;
+  constructor(emit: (helper: Helper) => void, now: () => number = Date.now) { this.emit = emit; this.now = now; }
   receive(value: unknown): void {
     const item = object(value);
     if (item.type === "subAgentActivity") {

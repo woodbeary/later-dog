@@ -686,7 +686,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
       type: "object",
       additionalProperties: false,
       properties: {
-        avatar_prompt: { type: "string", minLength: 1, maxLength: 400, description: "Describe a picture to generate for this dog. Requires image generation setup. The generated picture is shown for confirmation before applying, including for your own profile." },
+        avatar_prompt: { type: "string", minLength: 1, maxLength: 400, description: "Describe a picture to generate for this dog. Requires image generation setup. Your own picture applies immediately with Undo; changes for another dog follow its existing profile approval rules." },
         name: { type: "string", maxLength: 100, description: "New display name." },
         title: { type: "string", maxLength: 200, description: "New role or title." },
         description: { type: "string", maxLength: 4000, description: "New one-line blurb shown in rosters." },

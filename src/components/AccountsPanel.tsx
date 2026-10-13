@@ -265,7 +265,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
       )}
       <div data-account-row className={ROW}>
         <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
-          {usage?.rest ? <SleepingDog size={25} /> : <AccountMark kind={instance.driverKind} />}
+          {usage && (usage.rest || usage.used >= 100) ? <SleepingDog size={25} /> : <AccountMark kind={instance.driverKind} />}
         </span>
         {asking ? (
           <div

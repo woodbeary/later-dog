@@ -393,6 +393,15 @@ describe("Accounts", () => {
     expect(empty()!.className).toBe(fixed);
   });
 
+  it("sleeps at a verified full limit while keeping zero remaining visible", async () => {
+    fixture.report = { providers: [usage("claude", 100), usage("chatgpt", 99.6)] };
+    await remount({});
+    expect(box("claude").querySelector("[data-sleeping-dog]")).not.toBeNull();
+    expect(usageOf("claude")?.textContent).toBe("0% left");
+    expect(box("claude").querySelector("[data-recharge]")).toBeNull();
+    expect(box("chatgpt").querySelector("[data-sleeping-dog]")).toBeNull();
+  });
+
   it("puts a resting account to sleep with a line that recharges until it is back", async () => {
     const since = new Date(Date.now() - 3_600_000).toISOString();
     const until = new Date(Date.now() + 3_600_000).toISOString();

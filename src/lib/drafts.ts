@@ -166,7 +166,7 @@ export function clampDraftPosition(position: DraftPosition, length: number): Dra
 }
 
 export function placeDraftPosition(
-  input: Pick<HTMLTextAreaElement, "value" | "scrollTop" | "setSelectionRange">,
+  input: { value: string; scrollTop: number; setSelectionRange: (start: number, end: number) => void },
   position: DraftPosition,
 ): void {
   const { start, end, scrollTop } = clampDraftPosition(position, input.value.length);

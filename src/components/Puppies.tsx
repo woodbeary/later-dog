@@ -9,7 +9,7 @@ export const puppyState: Record<HelperState, DogState> = { running: "working", d
 export const helperStateText = (state: HelperState) => t(`chat.helpers.${state}`);
 
 export function puppyRows(helpers: readonly Helper[]): Array<Pick<HelperMember, "id" | "label" | "state" | "phase">> {
-  return helpers.flatMap(helper => helper.members?.length
+  return helpers.flatMap<Pick<HelperMember, "id" | "label" | "state" | "phase">>(helper => helper.members?.length
     ? helper.members.map(member => ({ ...member, id: `${helper.id}:${member.id}` }))
     : [helper]);
 }

@@ -21,6 +21,14 @@ describe("how far a resting account has recharged", () => {
     expect(rechargeProgress({ since: at(-2 * HOUR), until: at(-HOUR) }, NOW)).toBe(1);
   });
 
+  it("does not calculate progress from an estimated reset", () => {
+    expect(rechargeProgress({ since: at(-HOUR), until: at(HOUR), estimated: true }, NOW)).toBeNull();
+    const host = mount(createElement(RestCharge, { rest: { since: at(-HOUR), until: at(HOUR), estimated: true }, now: NOW }));
+    const progress = host.querySelector("[data-recharge]")!;
+    expect(progress.getAttribute("data-recharge")).toBe("unknown");
+    expect(progress.hasAttribute("aria-valuenow")).toBe(false);
+  });
+
   it("does not guess without a start, or with a start that is not before the end", () => {
     expect(rechargeProgress({ until: at(HOUR) }, NOW)).toBeNull();
     expect(rechargeProgress({ since: at(HOUR), until: at(HOUR) }, NOW)).toBeNull();

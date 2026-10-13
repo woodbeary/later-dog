@@ -9,11 +9,11 @@ const now = Date.parse("2026-10-13T12:00:00Z");
 const instance = (instanceId: string): InstanceInfo => ({ instanceId, displayName: instanceId, driverKind: "claudeAgent", snapshot: { state: "available", authenticated: true }, models: { default: "opus", options: [] } });
 const provider: PlanProvider = { id: "a", name: "a", driver: "claude", plan: null, ok: true, error: null, extra: [], fiveHour: { available: true, usedPercent: 16, remainingPercent: 84, resetsAt: null }, weekly: { available: true, usedPercent: 27, remainingPercent: 73, resetsAt: null } };
 const rest = { since: new Date(now - 3_600_000).toISOString(), until: new Date(now + 3_600_000).toISOString() };
-function render(auto = false) {
+function render(auto = false, used = 27) {
   const host = document.createElement("div");
   host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { auto, now, onPick: vi.fn(), onReorder: vi.fn(), rows: [
     { instance: instance("a"), label: "Personal", selected: true, movable: true, rest },
-    { instance: instance("b"), label: "Work", selected: false, movable: true, inUse: true, provider },
+    { instance: instance("b"), label: "Work", selected: false, movable: true, inUse: true, provider: { ...provider, weekly: { ...provider.weekly, usedPercent: used, remainingPercent: 100 - used } } },
   ] }));
   return host;
 }
@@ -29,6 +29,13 @@ describe("compact account batteries", () => {
     const row = render().querySelector('[data-account-row="b"]')!;
     expect(row.textContent).toContain("73% left");
     expect(row.querySelector("[data-account-in-use]")?.textContent).toBe("In use now");
+  });
+  it("sleeps at a verified full limit without a fabricated recharge estimate", () => {
+    const row = render(false, 100).querySelector('[data-account-row="b"]')!;
+    expect(row.querySelector("[data-sleeping-dog]")).not.toBeNull();
+    expect(row.textContent).toContain("0% left");
+    expect(row.querySelector("[data-recharge]")).toBeNull();
+    expect(render(false, 99.6).querySelector('[data-account-row="b"] [data-sleeping-dog]')).toBeNull();
   });
   it("locks dragging while the server manages priority", () => {
     const host = render(true);

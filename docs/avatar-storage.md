@@ -63,12 +63,14 @@ and xAI keys are never used as fallbacks for custom connections.
 
 A dog can call `propose_profile` with a flat `avatar_prompt` description of
 1–400 characters. The existing image provider generates and stores a preview,
-then the profile proposal card shows that picture. Generated pictures always
-wait for confirmation, including when other own-profile changes can apply
-immediately. A changed profile makes an in-flight generation or pending
-proposal stale instead of replacing a newer picture. When image generation
-is not configured, the tool points to the picture menu's secure setup; it does
-not request a key in chat.
+then the profile receipt or proposal card shows that picture. Your own picture
+applies immediately with Undo, following the same rules as other profile edits.
+Changes for another dog retain the existing profile approval rules. A changed
+profile makes an in-flight generation or pending proposal stale instead of
+replacing a newer picture. A stopped or superseded turn cannot submit its
+finished image, and rejected submissions discard their generated attachment.
+When image generation is not configured, the tool points to the picture menu's
+secure setup; it does not request a key in chat.
 
 ## Deferred cleanup
 

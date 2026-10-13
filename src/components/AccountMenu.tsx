@@ -55,7 +55,7 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, auto =
                 grips && "pr-1",
               )}
             >
-              {row.rest ? <SleepingDog size={19} /> : <InstanceProviderMark instance={row.instance} size={16} />}
+              {row.rest || (reading && reading.used >= 100) ? <SleepingDog size={19} /> : <InstanceProviderMark instance={row.instance} size={16} />}
               <span className="min-w-0 flex-1 truncate">{row.label}</span>
               {row.inUse && <span data-account-in-use className="text-[11px] text-accent-text">{t("accounts.inUseNow")}</span>}
               {row.rest ? <><RechargeLine progress={row.rest.estimated ? null : rechargeProgress(row.rest, now)} /><span className="text-[11px] tabular-nums text-ink-secondary">{backAt(row.rest, now)}</span></>

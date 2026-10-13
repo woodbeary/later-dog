@@ -14,9 +14,10 @@ export { ACCOUNT_DRAG_TYPE, movedTo } from "./account-drag";
 type Resting = Readonly<Record<string, AccountRest>> | undefined;
 
 export interface UsageRingLevel {
-  level: number;
+  level: number | null;
   tone: UsageTone | "accent";
   charging?: boolean;
+  sleeping?: boolean;
 }
 
 const RING_TONE: Record<UsageRingLevel["tone"], string> = {
@@ -33,16 +34,16 @@ export function accountUsageLines(provider: PlanProvider | undefined, rest: Acco
 }
 
 export function UsageRing({ level, tone, charging = false, children }: UsageRingLevel & { children: ReactNode }) {
-  const clamped = Math.min(100, Math.max(0, level));
+  const clamped = level === null ? null : Math.min(100, Math.max(0, level));
   const radius = 9;
   const length = 2 * Math.PI * radius;
   return (
-    <span data-usage-ring={Math.round(clamped)} data-charging={charging || undefined} className="relative flex size-5 shrink-0 items-center justify-center">
+    <span data-usage-ring={clamped === null ? "unknown" : Math.round(clamped)} data-charging={charging || undefined} className="relative flex size-5 shrink-0 items-center justify-center">
       <svg aria-hidden="true" viewBox="0 0 20 20" className="absolute inset-0 size-5 -rotate-90">
         <circle cx="10" cy="10" r={radius} fill="none" stroke="currentColor" strokeWidth="1.5" className="text-control" />
-        {clamped > 0 && (
+        {(clamped === null || clamped > 0) && (
           <circle cx="10" cy="10" r={radius} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-            strokeDasharray={length} strokeDashoffset={length * (1 - clamped / 100)} className={cn(RING_TONE[tone], charging && "recharge-pulse")} />
+            strokeDasharray={length} strokeDashoffset={length * (1 - (clamped ?? 100) / 100)} className={cn(RING_TONE[tone], charging && "recharge-pulse", clamped === null && "opacity-40")} />
         )}
       </svg>
       {children}
@@ -58,7 +59,7 @@ export function AccountBadge({ instance, ring }: { instance: InstanceInfo; ring:
   const initials = accountInitials(instance.displayName);
   return (
     <span data-account-initials={initials} className="relative flex size-5 shrink-0 items-center justify-center">
-      {ring ? <UsageRing {...ring}>{ring.charging ? <SleepingDog size={15} /> : <InstanceProviderMark instance={instance} size={12} />}</UsageRing>
+      {ring ? <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={15} /> : <InstanceProviderMark instance={instance} size={12} />}</UsageRing>
         : <InstanceProviderMark instance={instance} size={15} />}
       <span aria-hidden="true" className="absolute -bottom-1 -right-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-ink px-[2.5px] text-[7.5px] font-semibold leading-none tracking-tight text-app ring-[1.5px] ring-card">
         {initials}
@@ -121,7 +122,7 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
                 className={cn("flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus", grips ? "pr-1" : "pr-3")}
               >
                 {ring ? (
-                  <UsageRing {...ring}>{rest ? <SleepingDog size={15} /> : <InstanceProviderMark instance={account} size={12} />}</UsageRing>
+                  <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={15} /> : <InstanceProviderMark instance={account} size={12} />}</UsageRing>
                 ) : (
                   <span className="flex size-5 shrink-0 items-center justify-center"><InstanceProviderMark instance={account} size={14} /></span>
                 )}
@@ -151,7 +152,10 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
 }
 
 export function usageRingFor(provider: PlanProvider | undefined, rest: AccountRest | undefined, now: number): UsageRingLevel | null {
-  if (rest) return { level: Math.round((rechargeProgress(rest, now) ?? 0) * 100), tone: "accent", charging: true };
+  if (rest) {
+    const progress = rechargeProgress(rest, now);
+    return { level: progress === null ? null : Math.round(progress * 100), tone: "accent", charging: true };
+  }
   const reading = usageReading(provider);
-  return reading ? { level: usageLeft(reading.used), tone: usageTone(reading.used) } : null;
+  return reading ? { level: usageLeft(reading.used), tone: usageTone(reading.used), ...(reading.used >= 100 ? { sleeping: true } : {}) } : null;
 }

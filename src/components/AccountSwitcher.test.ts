@@ -117,10 +117,19 @@ describe("the account list", () => {
   });
 
   it("says only roughly when a rest without a known reset ends", async () => {
-    await show({ resting: { "claude-work": { until: new Date(NOW + 3_600_000).toISOString(), estimated: true } } });
+    await show({ resting: { "claude-work": { since: new Date(NOW - 3_600_000).toISOString(), until: new Date(NOW + 3_600_000).toISOString(), estimated: true } } });
     expect(row("claude-work")!.textContent).toContain("Recharging");
-    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("0");
+    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("unknown");
     expect(row("claude-work")!.title).not.toContain(" · in ");
+  });
+
+  it("sleeps at a reported full limit without inventing recharge progress", async () => {
+    await show({ report: { ...report, providers: [usage("claude", 100, 30), usage("claude-work", 99.6, 30)] } });
+    expect(row("claude")!.querySelector("[data-sleeping-dog]")).not.toBeNull();
+    expect(row("claude")!.textContent).toContain("0% left");
+    expect(ring("claude")!.hasAttribute("data-charging")).toBe(false);
+    expect(row("claude-work")!.querySelector("[data-sleeping-dog]")).toBeNull();
+    expect(row("claude-work")!.textContent).toContain("0% left");
   });
 
   it("forgets a rest that is over", async () => {
@@ -225,7 +234,7 @@ describe("the usage ring", () => {
     expect(usageRingFor(usage("claude", 20, 95), undefined, NOW)).toEqual({ level: 5, tone: "danger" });
     const rest = { since: new Date(NOW - 1_200_000).toISOString(), until: new Date(NOW + 3_600_000).toISOString() };
     expect(usageRingFor(usage("claude", 20, 30), rest, NOW)).toEqual({ level: 25, tone: "accent", charging: true });
-    expect(usageRingFor(usage("claude", 20, 30), { until: rest.until }, NOW)).toEqual({ level: 0, tone: "accent", charging: true });
+    expect(usageRingFor(usage("claude", 20, 30), { until: rest.until }, NOW)).toEqual({ level: null, tone: "accent", charging: true });
     expect(usageRingFor(undefined, undefined, NOW)).toBeNull();
     expect(usageRingFor({ ...usage("claude", 20, 30), ok: false }, undefined, NOW)).toBeNull();
   });
@@ -266,5 +275,8 @@ describe("an account's initials", () => {
     expect(container.querySelector("[data-usage-ring]")!.children).toHaveLength(2);
     expect(container.querySelector("[data-usage-ring]")!.textContent).not.toContain("W");
     expect(container.querySelector("[data-account-initials]")!.textContent).toBe("W");
+    await act(async () => root!.render(createElement(AccountBadge, { instance: work, ring: usageRingFor(usage("claude-work", 100, 20), undefined, NOW) })));
+    expect(container.querySelector("[data-sleeping-dog]")).not.toBeNull();
+    expect(container.querySelector("[data-charging]")).toBeNull();
   });
 });

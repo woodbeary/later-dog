@@ -140,6 +140,14 @@ export function receiveHelpersSnapshot(body: unknown): void {
 }
 
 export function receiveHelperEvent(event: RuntimeEvent): boolean {
+  if (event.type === "turn.started") {
+    if (threads[event.threadId]) {
+      threads = { ...threads };
+      delete threads[event.threadId];
+      emit();
+    }
+    return true;
+  }
   if (event.type !== "helper.updated") return false;
   const helper = helperFrom(event.helper);
   if (!helper || !event.threadId) return true;

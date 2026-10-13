@@ -47,7 +47,9 @@ export class ClaudeTasks {
   private published = new Map<string, { at: number; helper: Helper }>();
   private consumed = new Set<string>();
   private continuations = 0;
-  constructor(private emit: (helper: Helper) => void, private now: () => number = Date.now) {}
+  private readonly emit: (helper: Helper) => void;
+  private readonly now: () => number;
+  constructor(emit: (helper: Helper) => void, now: () => number = Date.now) { this.emit = emit; this.now = now; }
 
   beginTurn(): void { this.helpers.clear(); this.published.clear(); this.consumed.clear(); this.continuations = 0; }
 

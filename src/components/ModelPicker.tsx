@@ -862,7 +862,7 @@ export function ModelPicker({
     >
       {inUse && part === "account" && (namedAccount || routed) ? <AccountBadge instance={inUse} ring={ring} />
         : active && part !== "model" && (ring ? (
-          <UsageRing {...ring}>{ring.charging ? <SleepingDog size={16} /> : <InstanceProviderMark instance={inUse ?? active} size={14} />}</UsageRing>
+          <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={16} /> : <InstanceProviderMark instance={inUse ?? active} size={14} />}</UsageRing>
         ) : <InstanceProviderMark instance={active} size={14} />)}
       {!contained && active && showActiveAccount && part === undefined && (
         <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{active.displayName}</span>

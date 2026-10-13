@@ -302,7 +302,7 @@ export class ProfileRequestService {
 
     const copy = profileCardCopy({ name: targetName, crossBot }, snapshot, before, finalChanges, reason);
     const grant = submitted ? this.autoApply?.(args.botId, args.threadId, targetBotId) ?? null : null;
-    const automatic = finalChanges.avatarUrl === undefined && (grant === "full-access" || (grant === "self" && finalChanges.cwd === undefined));
+    const automatic = grant === "full-access" || (grant === "self" && finalChanges.cwd === undefined);
     const persistence = this.canPersist?.(args.botId, args.threadId, !automatic);
     if (persistence && !persistence.ok) {
       throw new ProfileRequestError(persistence.error, persistence.status);
