@@ -1,18 +1,9 @@
-# One later.dog tenant: the harness server plus Caddy for TLS + login.
-#
-# Caddy runs in the server's network namespace, so it reaches the server on
-# 127.0.0.1 — the server never binds a public interface. Ports are therefore
-# declared on the `laterdog` service (the namespace owner).
-#
-#   cp .env.example .env   # set DOMAIN
-#   docker compose up -d --build   # builds the image from this checkout
 services:
   laterdog:
     build:
       context: ..
       args:
         ENGINES: ${ENGINES:-}
-    # the name `docker compose up --build` gives the image it builds from this checkout
     image: laterdog:local
     restart: unless-stopped
     volumes:
@@ -23,12 +14,8 @@ services:
     environment:
       LATERDOG_SERVER_PORT: "8799"
       LATERDOG_WEBHOOK_PORT: "8800"
-      # what the app prints as hook URLs — Caddy passes /hooks/* straight through
       LATERDOG_WEBHOOK_PUBLIC_URL: https://${DOMAIN}
-      # pairing links for remote clients point here (docs/self-hosting.md)
       LATERDOG_PUBLIC_URL: https://${DOMAIN}
-      # Who may sign in with an emailed code at /pair (docs/self-hosting.md,
-      # "Sign in with your email"). Empty means pairing codes only.
       LATERDOG_SIGNIN_EMAILS: ${LATERDOG_SIGNIN_EMAILS:-}
       LATERDOG_SIGNIN_MEMBER_EMAILS: ${LATERDOG_SIGNIN_MEMBER_EMAILS:-}
     healthcheck:

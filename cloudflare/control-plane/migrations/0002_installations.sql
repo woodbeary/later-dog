@@ -1,6 +1,3 @@
--- Local bots, chats, and desktop state deliberately do not belong here. This
--- database records only cloud account ownership and revocable installation
--- credentials.
 CREATE TABLE installations (
   id TEXT PRIMARY KEY,
   owner_user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
@@ -22,8 +19,6 @@ CREATE UNIQUE INDEX installations_owner_client_active_uidx
   ON installations(owner_user_id, client_instance_id)
   WHERE revoked_at IS NULL;
 
--- Keep the unpaginated management surface complete and put a hard ceiling on
--- account abuse. The trigger makes the limit atomic across concurrent creates.
 CREATE TRIGGER installations_active_limit_before_insert
 BEFORE INSERT ON installations
 WHEN NEW.revoked_at IS NULL
@@ -36,9 +31,6 @@ BEGIN
   SELECT RAISE(ABORT, 'active_installation_limit');
 END;
 
--- The first rotation is immediate. Later rotations are serialized and limited
--- so concurrent requests never both return credentials while one revokes the
--- other before it reaches the client.
 CREATE TRIGGER installations_rotation_cooldown_before_update
 BEFORE UPDATE OF last_rotation_at ON installations
 WHEN OLD.last_rotation_at IS NOT NULL

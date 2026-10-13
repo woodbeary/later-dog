@@ -1,4 +1,3 @@
-# Local-only placeholders. Copy this file to .dev.vars and replace the secret.
 BETTER_AUTH_URL=https://auth.laterdog.test
 BETTER_AUTH_SECRET=replace-with-at-least-32-random-bytes
 CLOUDFLARE_API_TOKEN=replace-with-a-scoped-cloudflare-api-token

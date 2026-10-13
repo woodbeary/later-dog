@@ -1,7 +1,7 @@
 name: later.dog CI
 on:
   push:
-    branches: [main]
+    branches: [main, staging, dev]
   pull_request:
 permissions:
   contents: read
@@ -34,10 +34,6 @@ jobs:
           path: .laterdog-evidence/
           retention-days: 14
   vitest:
-    # later.dog's whole vitest suite. CI once ran only the supervisor's tests and
-    # a few others, and renaming the data folder broke 132 server tests with CI
-    # still green. vitest splits the files deterministically, so a failing shard
-    # reproduces locally with the same --shard flag.
     name: vitest (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -56,8 +52,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Prepare Electron test runtime
-        # Electron downloads its runtime on first import; do it before the
-        # fixtures' timeouts start.
         run: node --input-type=commonjs -e "require('electron')"
       - run: pnpm exec vitest run --shard=${{ matrix.shard }}/4 --reporter=default --reporter=github-actions
       - name: Broker and Electron unit tests
