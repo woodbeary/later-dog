@@ -368,7 +368,7 @@ const playPuppies = createPuppies({
   model,
 });
 
-const playTurn = (prompt: JsonValue, late = false) => {
+const playTurn = async (prompt: JsonValue, late = false) => {
   turnRunning = true;
   lateContinuation = late;
   steered = [];
@@ -446,6 +446,9 @@ const playTurn = (prompt: JsonValue, late = false) => {
 
   const usageGate = process.env.FAKE_CLAUDE_USAGE_LIMIT_GATE;
   if (mode === "usage-limit" && (!usageGate || existsSync(usageGate))) {
+    const release = process.env.FAKE_CLAUDE_USAGE_LIMIT_RELEASE;
+    while (release && !existsSync(release)) await new Promise((resolve) => setTimeout(resolve, 20));
+    replaySteered();
     if (process.env.FAKE_CLAUDE_USAGE_LIMIT_AFTER_TOOL === "1") {
       const id = `tu-${process.pid}-${++toolUseCount}`;
       out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Bash", input: { command: "echo started" } }] } });

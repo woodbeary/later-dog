@@ -55,7 +55,10 @@ export class LimitHold {
   }
 
   waiting(): Record<string, string> {
-    return Object.fromEntries([...this.held].map(([threadId, { until }]) => [threadId, new Date(until).toISOString()]));
+    return Object.fromEntries([
+      ...[...this.held].map(([threadId, { until }]) => [threadId, new Date(until).toISOString()]),
+      ...[...this.retries.keys()].map((threadId) => [threadId, new Date(this.now() + RECHECK_MS).toISOString()]),
+    ]);
   }
 
   private until(threadId: string): number | undefined {

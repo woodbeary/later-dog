@@ -636,7 +636,7 @@ import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, MAX_BATTERY_RERUNS, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -823,6 +823,7 @@ registerNativeBinDir();
 
 const accountBattery = new AccountBattery({
   config: () => cfg.accountBattery,
+  accounts: batteryAccounts,
   file: join(DATA_DIR, "account-battery.json"),
   planReset: async (instanceId, kind) => {
     const account = planAccountsFromInstances(instanceConfigs(cfg)).find((candidate) => candidate.id === instanceId);
@@ -844,7 +845,7 @@ function batteryAccounts(): BatteryAccount[] {
         (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key",
       ...(snapshot ? { signedIn: snapshot.state !== "unavailable" && snapshot.authenticated !== false } : {}),
       ...(snapshot?.account?.email ? { email: snapshot.account.email } : {}),
-      models: instance.models.options.map((option) => option.id),
+      models: instance.models.options.map((option) => option.id), defaultModel: instance.models.default,
     };
   });
 }
@@ -853,15 +854,18 @@ function onBatteryAccount<T extends BotRecord | null | undefined>(bot: T, thread
   const modelSelection = accountBattery.route(bot.modelSelection, batteryAccounts(), threadId);
   return modelSelection === bot.modelSelection ? bot : { ...bot, modelSelection };
 }
+const groupBatteryTurns = new Map<string, { botId: string; generation: string; selection: ModelSelection; pending: boolean }>();
+const groupBatteryWakes = new Map<string, () => void>();
 const limitHold = new LimitHold({
   readyAt: (threadId) => {
     const owner = store.botByThread(threadId);
-    const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+    const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : groupBatteryTurns.get(threadId)?.selection;
     return selection ? accountBattery.readyAt(selection, batteryAccounts(), threadId) : undefined;
   },
   wake: (threadId) => {
-    drainQueuedSends();
+    if (groupBatteryWakes.has(threadId)) { groupBatteryWakes.get(threadId)!(); return; }
     pickUpAfterReset(threadId);
+    drainQueuedSends();
   },
   onChange: () => broadcast({ kind: "config", ...configStatus() }),
 });
@@ -2382,6 +2386,7 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
   noteTeammatesLeftRunning(botId, threadId, roomHandoffs.stopAwaitingDirect(threadId));
   const owner = botForThread(botId, threadId);
   const generation = directTurnGenerationByThread.get(threadId);
+  if (accountBattery.pending(threadId, generation)) cancelBatteryContinuation(threadId, "You stopped this work. Automatic continuation is cancelled.");
   cancelDirectTurnDispatch(botId, threadId);
   revokeInternalCapabilitiesForThread(threadId);
   await (owner ? runningTurnInstance(owner, threadId) : null)?.adapter.interruptTurn(threadId);
@@ -4706,9 +4711,10 @@ function settleTrackedRequest(threadId: string): void {
   if ([...roomHandoffs.nodes.values()].some(node => !node.parentId && node.threadId === threadId &&
       owner.generations.has(node.id) && node.status !== "completed")) return;
   const path = store.activePath(threadId);
-  const source = path.findLast(message => message.role === "user");
-  if (source?.id !== owner.messageId || source.requestCancelled || source.requestPending !== true) return;
+  const source = path.find(message => message.id === owner.messageId && message.role === "user");
+  if (!source || source.requestCancelled || source.requestPending !== true) return;
   const messages = path.slice(path.indexOf(source) + 1);
+  if (messages.some(message => message.role === "user" && !message.steered)) return;
   const terminal = messages.findLast(message => message.turnTerminal && message.role === "bot" && message.kind === "text");
   if (messages.some(requestNeedsInput) || terminal?.requestMessageId !== source.id || !terminal.turnSucceeded ||
       terminal.turnId !== owner.turnId || messages.findLast(message => message.turnId)?.turnId !== terminal.turnId ||
@@ -5144,7 +5150,7 @@ bus.subscribe((event: RuntimeEvent) => {
   else if (event.type === "turn.completed") {
     watchdog.settle(event.threadId);
     revokeInternalCapabilityForProviderEvent(event);
-    if (event.turnId && store.botByThread(event.threadId)) {
+    if (event.turnId && store.botByThread(event.threadId) && !automaticallyCarriesOn(event)) {
       const reply = store.messagesFor(event.threadId).findLast(message =>
         message.role === "bot" && message.kind === "text" && message.turnId === event.turnId);
       const outcome = { ok: event.ok, text: (reply?.text || event.stopReason || "The bot finished without a text reply").slice(0, 12_000) };
@@ -5950,23 +5956,67 @@ function continueComputerSelection(threadId: string, generation: string | undefi
   return true;
 }
 
-function continueOnNextAccount(threadId: string, turnId: string | undefined, generation: string | undefined, next: BatteryRerun): void {
+function automaticallyCarriesOn(event: RuntimeEvent): boolean {
+  if (event.type !== "turn.completed" || event.stopReason !== "usage_limit" || !accountBattery.enabled ||
+      directRequestOwners.get(event.threadId)?.stopped) return false;
+  const room = groupBatteryTurns.get(event.threadId);
+  if (room && store.groupByThread(event.threadId)) {
+    return batteryAccounts().some((account) => account.instanceId === room.selection.instanceId && account.eligible);
+  }
+  const input = carryOnInput(event.threadId);
+  return Boolean(input && carriesOn(input));
+}
+
+function batteryContinuationPending(threadId: string): boolean {
+  return accountBattery.enabled && !directRequestOwners.get(threadId)?.stopped &&
+    accountBattery.pending(threadId, directTurnGenerationByThread.get(threadId));
+}
+
+function cancelBatteryContinuation(threadId: string, message: string): void {
+  const generation = directTurnGenerationByThread.get(threadId);
   const turn = accountBattery.takeTurn(threadId, generation);
-  if (!turn?.rerun) return;
-  const rerun = turn.rerun;
-  const toolRan = store.activePath(threadId).some((message) => message.kind === "activity" && message.turnId === turnId && Boolean(message.tool?.itemId));
+  limitHold.release(threadId);
+  if (!turn?.pending) return;
+  console.info(`token battery: ${threadId} cancelled: ${message}`);
+  settleDirectFollowup(generation, { ok: false, text: message });
+  routines?.failThread(threadId, message);
+  finalizeDelegationWatch(threadId, false, "", message);
+  if (store.botByThread(threadId)) store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `notice: ${message}`, ok: true } });
+}
+
+function continueOnNextAccount(threadId: string, turnId: string | undefined, generation: string | undefined, next: BatteryRerun): void {
   setImmediate(() => {
     const owner = store.botByThread(threadId);
-    if (!owner || directTurnGenerationByThread.get(threadId) !== generation || threadBusy(owner.id, threadId) ||
-        directRequestOwners.get(threadId)?.stopped || hasQueuedSteeredMessages(owner.id, threadId) ||
-        store.activePath(threadId).findLast((message) => message.role === "user" && message.kind === "text")?.id !== turn.requestMessageId) return;
+    const turn = accountBattery.keptTurn(threadId, generation);
+    if (!owner || !turn?.rerun || directTurnGenerationByThread.get(threadId) !== generation) {
+      console.info(`token battery: ${threadId} continuation superseded`);
+      return;
+    }
+    if (directRequestOwners.get(threadId)?.stopped || !accountBattery.enabled) {
+      console.info(`token battery: ${threadId} continuation cancelled`);
+      limitHold.release(threadId);
+      return;
+    }
+    if (threadBusy(owner.id, threadId) || botAtThreadCapacity(owner.id) || activeGroupTurnForBot(owner.id)) {
+      console.info(`token battery: ${threadId} waiting for a free turn slot`);
+      limitHold.retry(threadId);
+      return;
+    }
+    const path = store.activePath(threadId);
+    const at = path.findIndex((message) => message.id === turn.requestMessageId);
+    const toolRan = path.some((message) => message.kind === "activity" && message.turnId === turnId && Boolean(message.tool?.itemId));
+    const newerWords = path.slice(at + 1).some((message) => message.role === "user");
     const name = (account: BatteryRerun["to"]) => account.displayName || account.instanceId;
-    const notice = { name: `recovery: ${switchNotice({ to: name(next.to), from: name(next.from), rest: next.rest, now: Date.now() })}`, ok: true };
-    const limitRow = limitRowToReplace(store.activePath(threadId), turn.requestMessageId);
+    const notice = { name: `recovery: ${switchNotice({ to: name(next.to), from: name(next.from), rest: next.rest, now: Date.now() })}`,
+      ok: true, carry: { from: next.from.instanceId, to: next.to.instanceId } };
+    const limitRow = limitRowToReplace(path, turn.requestMessageId) ?? path.findLast((message) => message.tool?.quota);
     if (limitRow) store.patchMessage(threadId, limitRow.id, { tool: notice });
     else store.appendMessage(threadId, { role: "bot", kind: "activity", tool: notice });
+    accountBattery.takeTurn(threadId, generation);
     accountBattery.noteSwitch(threadId, next.from.instanceId, next.to.instanceId);
-    void rerun(toolRan ? CONTINUE_AFTER_SWITCH : null).catch((error) => {
+    console.info(`token battery: ${threadId} carrying on from ${next.from.instanceId} to ${next.to.instanceId}`);
+    void turn.rerun(toolRan || newerWords ? CONTINUE_AFTER_SWITCH : null).catch((error) => {
+      settleDirectFollowup(generation, { ok: false, text: String(error) });
       if (!store.botByThread(threadId)) return;
       store.appendMessage(threadId, { role: "bot", kind: "activity",
         tool: failedTurnTool(`Could not continue on ${name(next.to)}: ${error instanceof Error ? error.message : String(error)}`) });
@@ -5986,23 +6036,27 @@ function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | un
 
 function pickUpAfterReset(threadId: string): void {
   const input = carryOnInput(threadId);
-  if (!input || threadBusy(input.botId, threadId) || hasQueuedSteeredMessages(input.botId, threadId)) return;
+  if (!input) {
+    console.info(`token battery: ${threadId} pickup cancelled or superseded`);
+    return;
+  }
   const outcome = carryOnAfterReset({
     ...input,
-    full: botAtThreadCapacity(input.botId) || Boolean(activeGroupTurnForBot(input.botId)) || parksBehindCoordination(input.botId, threadId),
+    full: threadBusy(input.botId, threadId) || botAtThreadCapacity(input.botId) || Boolean(activeGroupTurnForBot(input.botId)),
     write: (tool, replaceId) => {
       if (!store.botByThread(threadId)) return;
       if (replaceId) store.patchMessage(threadId, replaceId, { tool });
       else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
     },
   });
+  console.info(`token battery: ${threadId} pickup ${outcome}`);
   if (outcome === "full") limitHold.retry(threadId);
 }
 
 function carryOnWaiting(): Record<string, string> {
   return Object.fromEntries(Object.entries(limitHold.waiting()).filter(([threadId]) => {
     const input = carryOnInput(threadId);
-    return input !== undefined && carriesOn(input);
+    return (input !== undefined && carriesOn(input)) || (accountBattery.enabled && groupBatteryTurns.get(threadId)?.pending === true);
   }));
 }
 
@@ -6256,7 +6310,8 @@ bus.subscribe((event: RuntimeEvent) => {
     const publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
     broadcast({ kind: "runtime", event: publicEvent });
   }
-  const routineRun = privateImageEvent ? null : (routines?.handleRuntimeEvent(event) ?? null);
+  const carryingOn = automaticallyCarriesOn(event);
+  const routineRun = privateImageEvent ? null : carryingOn ? activeRoutineRunForThread(event.threadId) : (routines?.handleRuntimeEvent(event) ?? null);
   const ownerBot = store.botByThread(event.threadId);
   const bot = ownerBot ? botForThread(ownerBot.id, event.threadId) ?? undefined : undefined;
   const group = bot ? undefined : store.groupByThread(event.threadId);
@@ -6279,7 +6334,7 @@ bus.subscribe((event: RuntimeEvent) => {
     pushMessage({ role: "bot", kind: "text", text: coordinatorVisibleText, turnId: completedTurnId });
     lastReply.set(event.threadId, coordinatorVisibleText);
   }
-  if (bot) handoffs.onEvent(event);
+  if (bot && !carryingOn) handoffs.onEvent(event);
 
   if (event.turnId) liveTurnByThread.set(event.threadId, event.turnId);
   const requestOwner = bot ? directRequestOwners.get(event.threadId) : undefined;
@@ -6600,8 +6655,14 @@ bus.subscribe((event: RuntimeEvent) => {
         threadId: event.threadId, generation: directTurnGenerationByThread.get(event.threadId), stopReason: event.stopReason,
         ranOn: event.providerInstanceId, selection: store.projectBotForTask(bot.id, event.threadId)?.modelSelection, accounts: batteryAccounts(),
       }) : null;
+      if (carryingOn) {
+        const room = groupBatteryTurns.get(event.threadId);
+        if (room) room.pending = true;
+        accountBattery.pauseTurn(event.threadId, directTurnGenerationByThread.get(event.threadId));
+        console.info(`token battery: ${event.threadId} ${nextAccount ? "switch scheduled" : "waiting for an account to recharge"}`);
+      }
       if (bot && event.stopReason === "usage_limit" && !nextAccount) limitHold.hold(event.threadId);
-      if (!event.ok && event.stopReason !== "interrupted" && !lazyClaimAlreadyReported && !computerParked && !nextAccount && !routines?.runForThread(event.threadId)) {
+      if (!event.ok && event.stopReason !== "interrupted" && !lazyClaimAlreadyReported && !computerParked && !carryingOn && !routines?.runForThread(event.threadId)) {
         const broken = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
         if (broken) reportIncident({ kind: "failed", bot: broken, threadId: event.threadId, detail: event.stopReason?.trim() || "the run ended without a result" });
       }
@@ -6627,7 +6688,7 @@ bus.subscribe((event: RuntimeEvent) => {
             store.setTaskActivity(bot.id, event.threadId, resourceOwner?.computerParkedOn !== undefined ? "parked.computer" : "idle");
           }
           directTurnBots.delete(event.threadId);
-          if (continueComputerSelection(event.threadId, generation, event.ok)) return;
+          if (!carryingOn && continueComputerSelection(event.threadId, generation, event.ok)) return;
           if (nextAccount) continueOnNextAccount(event.threadId, completedTurnId, generation, nextAccount);
           if (resumeQueued) {
             retryDelegationsWaitingOn(bot.id);
@@ -6664,7 +6725,7 @@ bus.subscribe((event: RuntimeEvent) => {
           threadId: event.threadId,
           instanceId: ranOn,
           driverKind: registry.get(ranOn)?.driverKind ?? "unknown",
-          model: selection.model,
+          model: measuredSelection.model,
           input: tokens?.input ?? 0,
           output: tokens?.output ?? 0,
           ...(typeof tokens?.cachedInput === "number" ? { cachedInput: tokens.cachedInput } : {}),
@@ -6692,7 +6753,7 @@ bus.subscribe((event: RuntimeEvent) => {
         liveTurnByThread.delete(event.threadId);
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
         if (!routineReportThread && !internal) store.patchTask(bot.id, event.threadId, { unread: true });
-        if ((!routineRun || routineRun.status === "completed") && !internal && !computerSelectionTurns.get(event.threadId)?.selected) {
+        if (!carryingOn && (!routineRun || routineRun.status === "completed") && !internal && !computerSelectionTurns.get(event.threadId)?.selected) {
           const completionDetail = routineRun
             ? reply || routineRun.output || routineRun.routineName
             : reply;
@@ -6769,7 +6830,7 @@ bus.subscribe((event: RuntimeEvent) => {
       const delegationFailureName = !event.ok && event.stopReason?.trim()
         ? `Delegated turn did not finish — ${event.stopReason.trim().slice(0, 120)}`
         : undefined;
-      finalizeDelegationWatch(event.threadId, event.ok, reply, delegationFailureName);
+      if (!carryingOn) finalizeDelegationWatch(event.threadId, event.ok, reply, delegationFailureName);
       break;
     }
   }
@@ -7315,6 +7376,7 @@ function retryDelegationsWaitingOn(botId: string): void {
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type !== "turn.completed") return;
+  if (automaticallyCarriesOn(event)) return;
   if (!event.ok) discardDelegations(commsBus, event.threadId);
   drainThreadDelegations(event.threadId);
   const settledBot = store.botByThread(event.threadId);
@@ -7345,7 +7407,7 @@ function drainQueuedSends() {
       }).catch(reject);
     }),
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId),
+      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId) || batteryContinuationPending(threadId),
   );
   drainAsideLane();
 }
@@ -7384,12 +7446,12 @@ function drainAsideLane() {
         }).catch(reject);
       }),
     isBlocked: (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId),
+      || parksBehindCoordination(botId, threadId) || batteryContinuationPending(threadId),
   }).catch((error) => console.warn("aside-queue: drain failed", error));
 }
 
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "call") {
-  const behindHeld = limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId);
+  const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId));
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
     threadBusy: threadBusy(botId, threadId) || behindHeld,
@@ -7406,7 +7468,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
       trigger,
       via,
     });
-    if (behindHeld) {
+    if (behindHeld && !batteryContinuationPending(threadId)) {
       limitHold.release(threadId);
       queueMicrotask(drainQueuedSends);
     }
@@ -8024,18 +8086,28 @@ async function startTurn(
   directTurnBots.set(threadId, bot);
   limitHold.release(threadId);
   const arrival = !opts?.compactOnly && picked ? accountBattery.arrive(threadId, picked.modelSelection, instanceId, batteryAccounts()) : undefined;
-  if (arrival) store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `notice: ${arrival}`, ok: true } });
+  if (arrival) store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `notice: ${arrival}`, ok: true,
+    ...(picked!.modelSelection.instanceId !== instanceId ? { carry: { from: picked!.modelSelection.instanceId, to: instanceId } } : {}) } });
   {
     const asked = userMessage;
     const request = opts?.cardContinuation ? opts.requestMessageId : asked.id;
-    const once = (opts?.accountBatteryReruns ?? 0) >= MAX_BATTERY_RERUNS || opts?.compactOnly || opts?.automationSource || continuingRoutine || opts?.coordination || commsDepth > 0 || !request;
+    const once = opts?.compactOnly;
     accountBattery.trackTurn(threadId, { generation: dispatchClaimId, instanceId, requestMessageId: request, ...(once ? {} : {
-      rerun: (continuation: string | null) => startTurn(bot.id, continuation ?? text, { ...opts, threadId, editedMessageId: undefined, accountBatteryReruns: (opts?.accountBatteryReruns ?? 0) + 1,
-        ...(continuation
-          ? { userMessage: undefined, excludeMessageIds: undefined, replyTo: undefined, cardContinuation: true, requestMessageId: request }
-          : { userMessage: asked }) }),
+      rerun: async (continuation: string | null) => {
+        const result = await startTurn(bot.id, continuation ? request ? continuation : `${continuation}\n\n${text}` : text, {
+          ...opts, threadId, editedMessageId: undefined, accountBatteryReruns: (opts?.accountBatteryReruns ?? 0) + 1,
+          ...(continuation
+            ? { userMessage: undefined, excludeMessageIds: undefined, replyTo: undefined, cardContinuation: true, requestMessageId: request }
+            : { userMessage: asked }),
+        });
+        directFollowupSettlers.delete(dispatchClaimId);
+        directCoordinationSettlers.delete(dispatchClaimId);
+        directFollowupTurns.deleteGeneration(threadId, dispatchClaimId);
+        return result;
+      },
     }) });
   }
+
   beginInternalCapabilityGeneration(threadId, dispatchClaimId);
   if (!opts?.computerSelectionContinuation && !opts?.cardContinuation && !opts?.automationSource && !opts?.unattended &&
       !opts?.commsDepth && !opts?.coordination && !inheritedTeamComputer(bot) && bot.computer !== "off" && agentsMounted) {
@@ -10159,7 +10231,7 @@ async function runGroupMemberTurn(
     return false;
   }
   const group = store.group(groupId);
-  const bot = onBatteryAccount(store.bot(botId));
+  const bot = onBatteryAccount(store.bot(botId), threadId);
   const ownsThread = group?.dm
     ? group.threadId === threadId
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
@@ -10237,6 +10309,8 @@ async function runGroupMemberTurn(
     releaseTurnResources(resourceOwner);
   };
   let roomHandoffSourceSucceeded = false;
+  const batteryTurn = { botId, generation: internalGeneration, selection: store.bot(botId)!.modelSelection, pending: false };
+  groupBatteryTurns.set(threadId, batteryTurn);
   try {
   assertWithinBudget(cfg, DATA_DIR);
   assertModelVariantSupported(preparedSelection, instance.adapter.capabilities);
@@ -10676,6 +10750,7 @@ async function runGroupMemberTurn(
     return false;
   }
   let replyText = "";
+  let usageLimited = false;
   let providerTurnId: string | undefined;
   let abandoned = false;
   const retirementOwner = `room-abandoned:${randomUUID()}`;
@@ -10722,6 +10797,7 @@ async function runGroupMemberTurn(
       if (providerTurnId && e.turnId && e.turnId !== providerTurnId) return;
       if (e.type === "item.completed" && e.itemType === "assistant_text") replyText += `\n${e.text}`;
       else if (e.type === "turn.completed") {
+        usageLimited = automaticallyCarriesOn(e);
         const end = roomTurnEnd(e, Boolean(orchestration), roomClaimFailure);
         if (orchestration && end.stopReason !== undefined) orchestration.result.stopReason = end.stopReason;
         finish(end.outcome);
@@ -10801,6 +10877,48 @@ async function runGroupMemberTurn(
   revokeInternalCapabilityGeneration(threadId, internalGeneration);
   retainRoomVmLease = outcome === "timed_out" || outcome === "stalled";
   if (!retainRoomVmLease) releaseRoomVmLease();
+  if (usageLimited && !isCancelled?.()) {
+    const accounts = batteryAccounts();
+    const from = accounts.find((account) => account.instanceId === instance.instanceId);
+    const waited = accountBattery.readyAt(batteryTurn.selection, accounts, threadId) !== undefined;
+    if (waited) {
+      console.info(`token battery: room ${threadId} waiting for an account to recharge`);
+      await new Promise<void>((resolve) => {
+        const finish = () => { clearInterval(cancel); groupBatteryWakes.delete(threadId); limitHold.release(threadId); resolve(); };
+        const cancel = setInterval(() => {
+          if (isCancelled?.() || !accountBattery.enabled || !store.groupByThread(threadId)) finish();
+        }, 250);
+        cancel.unref();
+        groupBatteryWakes.set(threadId, finish);
+        limitHold.hold(threadId);
+      });
+    }
+    if (isCancelled?.() || !accountBattery.enabled || !store.groupByThread(threadId)) {
+      const stopped = "Automatic continuation stopped. Resume this conversation when you are ready.";
+      routines?.failThread(threadId, stopped);
+      if (orchestration) { orchestration.result.outcome = "cancelled"; orchestration.result.stopReason = stopped; }
+      if (store.groupByThread(threadId)) store.appendMessage(threadId, { role: "bot", kind: "activity", from: roomSpeaker,
+        tool: { name: `notice: ${stopped}`, ok: true } });
+      return false;
+    }
+    const routed = accountBattery.route(batteryTurn.selection, batteryAccounts(), threadId);
+    const to = batteryAccounts().find((account) => account.instanceId === routed.instanceId);
+    if (!from || !to) return false;
+    const notice = { name: `recovery: ${waited ? carryOnNotice(to.displayName || to.instanceId) : switchNotice({
+      to: to.displayName || to.instanceId, from: from.displayName || from.instanceId,
+      rest: accountBattery.restOf(from, batteryAccounts(), bot.modelSelection.model), now: Date.now(),
+    })}`, ok: true, carry: { from: from.instanceId, to: to.instanceId } };
+    const limit = store.activePath(threadId).findLast((message) => message.tool?.quota && message.tool.ok === false);
+    if (limit) store.patchMessage(threadId, limit.id, { tool: notice });
+    else store.appendMessage(threadId, { role: "bot", kind: "activity", from: roomSpeaker, tool: notice });
+    accountBattery.noteSwitch(threadId, from.instanceId, to.instanceId);
+    console.info(`token battery: room ${threadId} carrying on from ${from.instanceId} to ${to.instanceId}`);
+    if (operation && await waitForChatRoomMember(operation, threadId, store.bot(botId)!) !== "run") return false;
+    roomHandoffSourceSucceeded = await runGroupMemberTurn(groupId, threadId, botId, hop, spoken,
+      [waited ? CONTINUE_AFTER_RESET : CONTINUE_AFTER_SWITCH, cardContinuation].filter(Boolean).join("\n\n"),
+      onDispatchError, isCancelled, onProviderHandshakeStarted, onProviderHandshakeSettled, skillAuthoringClaim, orchestration, operation, setupRetry);
+    return roomHandoffSourceSucceeded;
+  }
   roomHandoffSourceSucceeded = outcome === "settled";
   if (orchestration) {
     orchestration.result.replyText = replyText.trim();
@@ -10970,6 +11088,7 @@ async function runGroupMemberTurn(
     }
     return isToolScopeError;
   } finally {
+    if (groupBatteryTurns.get(threadId) === batteryTurn) groupBatteryTurns.delete(threadId);
     unregisterSetupStall();
     revokeInternalCapabilityGeneration(threadId, internalGeneration);
     roomHandoffs.sourceSettled(internalGeneration, roomHandoffSourceSucceeded);
@@ -21025,7 +21144,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           const status = configStatus();
           broadcast({ kind: "config", ...status });
-          if (patch.accountBattery) limitHold.recheck();
+          if (patch.accountBattery) {
+            if (!accountBattery.enabled) for (const threadId of accountBattery.pendingThreads()) {
+              cancelBatteryContinuation(threadId, "You turned off automatic continuation. Resume this work when you are ready.");
+            }
+            limitHold.recheck();
+          }
           if (patch.threads !== undefined) {
             drainQueuedSends();
             drainDelegationWakes();

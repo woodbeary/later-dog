@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import {
-  AccountBattery, DEFAULT_REST_MS, backNotice, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection,
+  AccountBattery, DEFAULT_REST_MS, backNotice, batteryEnabled, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection,
   routedNotice, switchNotice, withoutAccount,
   type AccountBatteryConfig, type BatteryAccount, type Rest,
 } from "./account-battery.ts";
@@ -72,14 +72,14 @@ describe("routing", () => {
     expect(route({ accounts: twins, resting, config: { enabled: true, order: { claudeAgent: ["claude", "claude-c", "claude-b"] } } }).instanceId).toBe("claude-b");
   });
 
-  it("keeps a Codex conversation on Codex accounts, in Codex's own order", () => {
+  it("can continue a Codex conversation on the next provider in the complete list", () => {
     const codex = (instanceId: string) => account(instanceId, { driverKind: "codex", models: ["gpt-5.5-codex"] });
     const accounts = [...ACCOUNTS, codex("chatgpt"), codex("chatgpt-b")];
     const config = { enabled: true, order: { ...ON.order, codex: ["chatgpt-b", "chatgpt"] } };
     const selection = { instanceId: "chatgpt", model: "gpt-5.5-codex" };
     expect(route({ config, accounts, selection })).toBe(selection);
-    expect(route({ config, accounts, selection, resting: { chatgpt: rest(HOUR) } })).toEqual({ ...selection, instanceId: "chatgpt-b" });
-    expect(route({ config, accounts, selection, resting: { "chatgpt-b": rest(HOUR), chatgpt: rest(HOUR) } })).toBe(selection);
+    expect(route({ config, accounts, selection, resting: { chatgpt: rest(HOUR) } })).toEqual({ instanceId: "claude-b", model: "claude-sonnet-5" });
+    expect(route({ config, accounts, selection, resting: { "chatgpt-b": rest(HOUR), chatgpt: rest(HOUR) } })).toEqual({ instanceId: "claude-b", model: "claude-sonnet-5" });
   });
 
   it("orders the saved accounts first, then any added since, without removed or ineligible ones", () => {
@@ -118,7 +118,7 @@ describe("settings", () => {
     expect(checkBatteryConfig({ auto: false }, ACCOUNTS, { ...current, auto: true })).toEqual({ ok: true, config: { ...current, auto: false } });
     expect(checkBatteryConfig({ order: { claudeAgent: ["claude-b"] } }, ACCOUNTS, current)).toEqual({ ok: true, config: { enabled: true, order: { claudeAgent: ["claude-b"] } } });
     expect(checkBatteryConfig({ order: { claudeAgent: ["nobody"] } }, ACCOUNTS, current)).toMatchObject({ ok: false, error: expect.stringContaining("nobody") });
-    expect(checkBatteryConfig({ auto: true }, ACCOUNTS)).toEqual({ ok: true, config: { enabled: false, order: {}, auto: true } });
+    expect(checkBatteryConfig({ auto: true }, ACCOUNTS)).toEqual({ ok: true, config: { enabled: true, order: {}, auto: true } });
   });
 });
 
@@ -266,6 +266,7 @@ describe("AccountBattery", () => {
     expect(instance.status(twins)).toEqual({
       enabled: true,
       auto: false,
+      sequence: ["claude-b", "claude", "claude-c"],
       order: { claudeAgent: ["claude-b", "claude", "claude-c"], codex: [] },
       resting: { claude: { until: at(HOUR), since: at(0) }, "claude-c": { until: at(HOUR), since: at(0), sharedWith: "claude" } },
       routed: {},
@@ -312,7 +313,7 @@ describe("AccountBattery", () => {
     expect(instance.readyAt(SELECTION, ACCOUNTS, "thread-1")).toBe(at(HOUR));
     expect(instance.readyAt(SELECTION, [account("claude"), account("claude-b", { signedIn: false }), account("claude-c")])).toBe(at(2 * HOUR));
     const unusable = [account("claude"), account("claude-b", { models: ["claude-opus-5"] }), account("claude-c", { driverKind: "codex" })];
-    expect(instance.readyAt(SELECTION, unusable)).toBe(at(3 * HOUR));
+    expect(instance.readyAt(SELECTION, unusable)).toBe(at(2 * HOUR));
     expect(instance.readyAt(SELECTION, [account("claude", { eligible: false }), account("claude-b"), account("claude-c")])).toBe(at(3 * HOUR));
     expect(instance.readyAt({ ...SELECTION, instanceId: "gone" }, ACCOUNTS)).toBeUndefined();
     advance(HOUR);
@@ -362,7 +363,6 @@ describe("AccountBattery", () => {
       [account("claude"), account("claude-c", { enabled: false })],
       [account("claude"), account("claude-c", { eligible: false })],
       [account("claude"), account("claude-c", { models: ["claude-opus-5"] })],
-      [account("claude"), account("claude-c", { driverKind: "codex" })],
       [account("claude", { eligible: false }), account("claude-c")],
       [account("claude")],
     ];
@@ -553,5 +553,32 @@ describe("the row a switch notice replaces", () => {
     expect(limitRowToReplace(path, "q1")).toBeNull();
     expect(limitRowToReplace(path, "missing")).toBeNull();
     expect(limitRowToReplace(path, undefined)).toBeNull();
+  });
+});
+
+
+describe("automatic continuation defaults and cross-provider order", () => {
+  const codex = account("codex", { driverKind: "codex", models: ["gpt-5.5"], defaultModel: "gpt-5.5", email: "same@example.test" });
+  const accounts = [account("claude", { email: "same@example.test" }), codex];
+  it("defaults on for two eligible accounts, including different providers, while explicit off wins", () => {
+    expect(batteryEnabled(undefined, accounts)).toBe(true);
+    expect(batteryEnabled(undefined, accounts.slice(0, 1))).toBe(false);
+    expect(batteryEnabled(undefined, [accounts[0]!, { ...codex, eligible: false }])).toBe(false);
+    expect(batteryEnabled({ ...ON, enabled: false }, accounts)).toBe(false);
+    const battery = new AccountBattery({ config: () => undefined, accounts: () => accounts, now: () => NOW });
+    expect(battery.enabled).toBe(true);
+    expect(battery.status(accounts).enabled).toBe(true);
+    battery.markExhausted("claude", { resetsAt: at(HOUR) });
+    expect(battery.route(SELECTION, accounts)).toEqual({ instanceId: "codex", model: "gpt-5.5" });
+    expect(battery.status(accounts).resting.codex).toBeUndefined();
+  });
+
+  it("validates and preserves a saved sequence across providers", () => {
+    const config = { ...ON, sequence: ["codex", "claude"] };
+    expect(batterySequence({ config, accounts, resting: {}, now: NOW })).toEqual(["codex", "claude"]);
+    expect(checkBatteryConfig({ sequence: ["codex", "codex", "claude"] }, accounts, ON))
+      .toMatchObject({ ok: true, config: { sequence: ["codex", "claude"] } });
+    expect(checkBatteryConfig({ sequence: ["missing"] }, accounts, ON).ok).toBe(false);
+    expect(withoutAccount(config, "codex")?.sequence).toEqual(["claude"]);
   });
 });

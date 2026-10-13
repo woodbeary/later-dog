@@ -71,7 +71,7 @@ describe("checking a pick", () => {
       .toEqual([404, "That account isn't available any more."]);
     expect(refusal(check("claude"))).toEqual([409, "That's the account that ran out."]);
     expect(refusal(check("chatgpt", { accounts: [...ACCOUNTS, account("chatgpt", "ChatGPT", { driverKind: "codex" })] })))
-      .toEqual([409, "ChatGPT can't run this dog."]);
+      .toBeNull();
     expect(refusal(check("claude-b", { accounts: [ACCOUNTS[0]!, account("claude-b", "Work", { signedIn: false })] })))
       .toEqual([409, "Work isn't signed in."]);
     expect(refusal(check("claude-b", { accounts: [ACCOUNTS[0]!, account("claude-b", "Work", { enabled: false })] })))
@@ -113,7 +113,7 @@ describe("continuing on another account", () => {
   });
 
   it("leaves the run to Retry when the turn can't run again, keeping the pick", () => {
-    for (const options of [{ rerun: null }, { requestMessageId: "q0" }, { path: [asked("q1"), limit("l1"), asked("q2")] }]) {
+    for (const options of [{ rerun: null }, { requestMessageId: "missing" }]) {
       const { battery, writes, result } = setup(options);
       expect(result).toEqual({ status: 200, body: { continued: false } });
       expect(writes).toEqual([]);

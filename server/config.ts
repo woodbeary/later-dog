@@ -293,11 +293,13 @@ const batteryOrderSchema = z.record(z.string().trim().min(1).max(100), z.array(z
 const accountBatterySchema = z.object({
   enabled: z.boolean(),
   order: batteryOrderSchema.default({}),
+  sequence: z.array(z.string().trim().min(1).max(200)).max(128).optional(),
   auto: z.boolean().optional(),
 }).strict();
 const accountBatteryPatchSchema = z.object({
   enabled: z.boolean().optional(),
   order: batteryOrderSchema.optional(),
+  sequence: z.array(z.string().trim().min(1).max(200)).max(128).optional(),
   auto: z.boolean().optional(),
 }).strict();
 const threadsConfigSchema = z.object({
@@ -452,7 +454,7 @@ export interface AppConfig {
   signIn?: { admins?: string[]; members?: string[] };
   defaultModelSelection?: ModelSelection;
   automaticRecovery?: { enabled: boolean; backup?: ModelSelection };
-  accountBattery?: { enabled: boolean; order: Record<string, string[]>; auto?: boolean };
+  accountBattery?: { enabled: boolean; order: Record<string, string[]>; auto?: boolean; sequence?: string[] };
   newBotDefaults?: NewBotDefaults;
   newBots?: { effort?: EffortLevel };
   cliStartup?: {

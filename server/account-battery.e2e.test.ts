@@ -19,18 +19,24 @@ interface BatteryFixture {
   firstPrompts: () => any[];
   secondPrompts: () => any[];
   gate: string;
+  release: string;
+  dataDir: string;
+  thirdPrompts: () => any[];
   bookedTo: (threadId: string) => string[];
   evidence: unknown[];
 }
 
 async function withBatteryFixture(
-  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number },
+  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number; gated?: boolean; scripted?: boolean; crossProvider?: boolean; defaultEnabled?: boolean },
   check: (fixture: BatteryFixture) => Promise<void>,
 ) {
   const fixture = await launchVerificationServer({});
   const { dataDir, url, logPath } = fixture.info;
   const gate = join(dataDir, "account-1-out-of-usage");
   const firstFile = join(dataDir, "account-1-prompts.jsonl");
+  const thirdFile = join(dataDir, "account-3-prompts.jsonl");
+  const release = join(dataDir, "usage-limit-release");
+  const roomPlan = options.scripted ? { FAKE_CLAUDE_ROOM_PLAN: join(dataDir, "room-plan.json") } : {};
   const secondFile = join(dataDir, "account-2-prompts.jsonl");
   const evidence: unknown[] = [{ url, options }];
   let server: ChildProcess | undefined;
@@ -58,6 +64,8 @@ async function withBatteryFixture(
     config.instances.claude = {
       ...config.instances.claude, displayName: "Claude account 1",
       environment: {
+        ...roomPlan,
+        ...(options.gated ? { FAKE_CLAUDE_USAGE_LIMIT_RELEASE: release } : {}),
         FAKE_CLAUDE_MODE: "usage-limit", FAKE_CLAUDE_USAGE_LIMIT_GATE: gate, FAKE_CLAUDE_USAGE_RESETS_IN: String(options.resetsIn ?? 3_600),
         FAKE_CLAUDE_PROMPTS: firstFile, FAKE_CLAUDE_TOOL_CALLS: "[]",
         ...(options.afterTool ? { FAKE_CLAUDE_USAGE_LIMIT_AFTER_TOOL: "1" } : {}),
@@ -67,11 +75,22 @@ async function withBatteryFixture(
       driver: "claudeAgent", displayName: "Claude account 2",
       config: { cli, configDir: join(dataDir, "providers", "claude-two") },
       environment: {
+        ...roomPlan,
         FAKE_CLAUDE_MODE: options.secondOutOfUsage ? "usage-limit" : "happy", FAKE_CLAUDE_PROMPTS: secondFile, FAKE_CLAUDE_TOOL_CALLS: "[]",
         FAKE_CLAUDE_REPLIES: JSON.stringify(["hello from account 2"]),
       },
     };
+    if (options.scripted) config.instances["chief-account"] = {
+      ...config.instances["claude-two"], displayName: "Chief account",
+      config: { cli, configDir: join(dataDir, "providers", "chief-account") },
+    };
+    if (options.crossProvider) config.instances["codex-last"] = {
+      driver: "codex", displayName: "Codex final account",
+      config: { cli: fileURLToPath(new URL("./testing/fake-codex-app-server.ts", import.meta.url)) },
+      environment: { FAKE_CODEX_MODE: "resume", FAKE_CODEX_PROMPTS: thirdFile, FAKE_CODEX_REPLY: "Finished on Codex", FAKE_CODEX_ACCOUNT_EMAIL: "codex@example.test" },
+    };
     config.accountBattery = { enabled: options.enabled !== false, order: { claudeAgent: ["claude", "claude-two"] } };
+    if (options.defaultEnabled) delete config.accountBattery;
     writeFileSync(configPath, JSON.stringify(config));
     const log = openSync(logPath, "a", 0o600);
     server = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
@@ -84,7 +103,7 @@ async function withBatteryFixture(
     }, { timeout: 20_000 }).toBe(true);
     const bookedTo = (threadId: string) => readUsage(dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) })
       .filter((row) => row.threadId === threadId).map((row) => row.instanceId);
-    await check({ api, control, firstPrompts: () => jsonLines(firstFile), secondPrompts: () => jsonLines(secondFile), gate, bookedTo, evidence });
+    await check({ api, control, release, dataDir, thirdPrompts: () => jsonLines(thirdFile), firstPrompts: () => jsonLines(firstFile), secondPrompts: () => jsonLines(secondFile), gate, bookedTo, evidence });
   } finally {
     evidence.push({ firstPrompts: jsonLines(firstFile), secondPrompts: jsonLines(secondFile) });
     const evidencePath = `${logPath}.account-battery.json`;
@@ -198,7 +217,7 @@ it("tells account 2 to continue, not redo, when a tool already ran on account 1"
   });
 }, 120_000);
 
-it("tries the next account once: when it is out of usage too, the limit stays the answer", async () => {
+it("tries each account once and queues newer words while all accounts recharge", async () => {
   await withBatteryFixture({ secondOutOfUsage: true }, async (fixture) => {
     const { firstPrompts, secondPrompts, gate, evidence, api } = fixture;
     const chat = await batteryBot(fixture, "Battery both out");
@@ -216,9 +235,10 @@ it("tries the next account once: when it is out of usage too, the limit stays th
     expect(rows.findLast((row) => row.kind !== "digest")?.tool?.ok).toBe(false);
     const battery = (await api("GET", "/api/config")).accountBattery;
     expect(Object.keys(battery.resting).sort()).toEqual(["claude", "claude-two"]);
-    await chat.send("ALL_RESTING_6W");
-    await chat.settled((rows) => limitRows(rows).length === 2);
-    expect(firstPrompts()).toHaveLength(2);
+    const queued = await fixture.api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text: "ALL_RESTING_6W" });
+    expect(queued.queued).toBe(true);
+    expect(limitRows(await chat.messages())).toHaveLength(1);
+    expect(firstPrompts()).toHaveLength(1);
     expect(secondPrompts()).toHaveLength(1);
     expect(switches(await chat.messages())).toHaveLength(1);
   });
@@ -318,3 +338,123 @@ it("continues on the account the person picks with the battery off, stays there 
     await expect.poll(() => bookedTo(chat.threadId), { timeout: 10_000 }).toEqual(["claude", "claude-two", "claude-two", "claude"]);
   });
 }, 150_000);
+
+
+it("carries on after a mid-turn message, keeping both the original request and new words", async () => {
+  await withBatteryFixture({ gated: true, afterTool: true, defaultEnabled: true }, async (fixture) => {
+    const chat = await batteryBot(fixture, "Midturn battery");
+    writeFileSync(fixture.gate, "limited");
+    await chat.send("ORIGINAL_CARRY_REQUEST");
+    await expect.poll(fixture.firstPrompts, { timeout: 20_000 }).toHaveLength(1);
+    const steered = await fixture.api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text: "MIDTURN_CARRY_WORDS", deliver: "steer" });
+    expect(steered.steered).toBe(true);
+    writeFileSync(fixture.release, "finish");
+    await chat.settled((rows) => lastReply(rows)?.text === "hello from account 2");
+    expect(fixture.secondPrompts()).toHaveLength(1);
+    const prompt = promptText(fixture.secondPrompts()[0]);
+    expect(prompt).toContain("ORIGINAL_CARRY_REQUEST");
+    expect(prompt).toContain("MIDTURN_CARRY_WORDS");
+    expect(prompt).toContain("Do not redo what was already done.");
+    expect(switches(await chat.messages())[0].tool.carry).toEqual({ from: "claude", to: "claude-two" });
+    expect((await chat.messages()).find((row) => row.text === "ORIGINAL_CARRY_REQUEST").requestPending).toBe(false);
+  });
+}, 90_000);
+
+it("tries the full account list through Codex after every Claude account runs out", async () => {
+  await withBatteryFixture({ crossProvider: true, secondOutOfUsage: true, afterTool: true }, async (fixture) => {
+    const chat = await batteryBot(fixture, "Cross-provider battery");
+    writeFileSync(fixture.gate, "limited");
+    await chat.send("CONTINUE_ALL_THE_WAY_TO_CODEX");
+    await chat.settled((rows) => lastReply(rows)?.text === "Finished on Codex");
+    expect(fixture.firstPrompts()).toHaveLength(1);
+    expect(fixture.secondPrompts()).toHaveLength(1);
+    expect(fixture.thirdPrompts()).toHaveLength(1);
+    const prompt = JSON.stringify(fixture.thirdPrompts()[0]);
+    expect(prompt).toContain("CONTINUE_ALL_THE_WAY_TO_CODEX");
+    expect(prompt).toContain("Do not redo what was already done.");
+    expect(switches(await chat.messages()).map((row) => row.tool.carry)).toEqual([
+      { from: "claude", to: "claude-two" }, { from: "claude-two", to: "codex-last" },
+    ]);
+    expect((await chat.task()).modelSelection).toMatchObject(FIRST);
+  });
+}, 90_000);
+
+it("finishes the same routine run once after automatically changing accounts", async () => {
+  await withBatteryFixture({}, async (fixture) => {
+    const chat = await batteryBot(fixture, "Routine battery");
+    writeFileSync(fixture.gate, "limited");
+    const { routine } = await fixture.api("POST", "/api/routines", { name: "Carry routine", prompt: "ROUTINE_CARRY_REQUEST", botId: chat.bot.id,
+      enabled: false, schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } });
+    const { run } = await fixture.api("POST", `/api/routines/${routine.id}/run`);
+    const runs = async () => (await fixture.api("GET", "/api/routines")).runs.filter((entry: any) => entry.routineId === routine.id);
+    await expect.poll(async () => (await runs()).find((entry: any) => entry.id === run.id)?.status, { timeout: 30_000 }).toBe("completed");
+    expect(await runs()).toHaveLength(1);
+    expect(fixture.secondPrompts()).toHaveLength(1);
+    expect(promptText(fixture.secondPrompts()[0])).toContain("ROUTINE_CARRY_REQUEST");
+  });
+}, 90_000);
+
+it("returns a coordinated result exactly once after the specialist changes accounts", async () => {
+  await withBatteryFixture({ scripted: true }, async (fixture) => {
+    const { api, control, dataDir } = fixture;
+    const { bot: chief } = await control("new-bot", "--name", "Carry Chief", "--section", "Leadership");
+    const { bot: specialist } = await control("new-bot", "--name", "Carry specialist", "--section", "Engineering");
+    await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true, managedSections: ["Engineering"], acknowledgePeerScope: true });
+    await api("PATCH", `/api/bots/${chief.id}/tasks/${chief.activeTaskId}`, { modelSelection: { ...FIRST, instanceId: "chief-account" }, updateBotDefault: true });
+    await api("PATCH", `/api/bots/${specialist.id}/tasks/${specialist.activeTaskId}`, { modelSelection: FIRST, updateBotDefault: true });
+    writeFileSync(join(dataDir, "room-plan.json"), JSON.stringify({
+      [chief.id]: { turns: [
+        { steps: [{ arguments: { bot_ids: [specialist.id], request_key: "carry-check", message: "CARRY_SPECIALIST_REQUEST" } }], reply: "Assigned" },
+        { expectContextIncludes: ["SPECIALIST_CARRIED"], reply: "CHIEF_CARRY_DONE" },
+      ] },
+      [specialist.id]: { turns: [{ expectContextIncludes: ["CARRY_SPECIALIST_REQUEST"], reply: "SPECIALIST_CARRIED" }] },
+    }));
+    writeFileSync(fixture.gate, "limited");
+    await control("send", "--bot", chief.id, "--task", chief.activeTaskId, "--text", "Ask Engineering to check this and report back.");
+    const rows = async () => (await api("GET", `/api/threads/${chief.activeTaskId}/messages?limit=100`)).messages;
+    await expect.poll(async () => (await rows()).filter((row: any) => row.text === "CHIEF_CARRY_DONE").length, { timeout: 30_000 }).toBe(1);
+    const nodes = JSON.parse(readFileSync(join(dataDir, "room-handoffs.json"), "utf8")) as any[];
+    const child = nodes.find((node) => node.botId === specialist.id);
+    expect(child).toMatchObject({ status: "completed", reported: true, result: "SPECIALIST_CARRIED" });
+    expect((await rows()).filter((row: any) => row.roomRequest?.id === child.id && row.roomRequest.phase === "result")).toHaveLength(1);
+    expect(jsonLines(join(dataDir, "room-plan.json.evidence.jsonl")).filter((turn) => turn.botId === specialist.id)).toHaveLength(1);
+  });
+}, 90_000);
+
+
+it.each([false, true])("continues a room member automatically, including an all-resting wait: %s", async (resting) => {
+  await withBatteryFixture({ secondOutOfUsage: resting, resetsIn: resting ? 5 : 3_600 }, async (fixture) => {
+    const chat = await batteryBot(fixture, "Room battery member");
+    const { group } = await fixture.api("POST", "/api/groups", {
+      name: "Battery room", memberIds: [chat.bot.id], setup: { bulletin: "", defaultResponder: { kind: "member", botId: chat.bot.id } },
+    });
+    writeFileSync(fixture.gate, "limited");
+    await fixture.api("POST", `/api/groups/${group.id}/messages`, { text: "ROOM_CARRY_REQUEST" });
+    const rows = async () => (await fixture.api("GET", `/api/threads/${group.threadId}/messages?limit=100`)).messages;
+    if (resting) {
+      await expect.poll(async () => Boolean((await fixture.api("GET", "/api/config")).accountBattery.waiting[group.threadId]), { timeout: 20_000 }).toBe(true);
+      rmSync(fixture.gate);
+    }
+    await expect.poll(async () => lastReply(await rows())?.text, { timeout: 30_000 }).toBe(resting ? "hello from fake claude" : "hello from account 2");
+    expect((await rows()).filter((row: any) => row.tool?.carry)).toHaveLength(resting ? 2 : 1);
+    expect(fixture.secondPrompts()).toHaveLength(1);
+    expect(promptText(fixture.secondPrompts()[0])).toContain("ROOM_CARRY_REQUEST");
+    expect(promptText(fixture.secondPrompts()[0])).toContain("Do not redo what was already done.");
+  });
+}, 90_000);
+
+it("keeps queued words until the carried-on request finishes", async () => {
+  await withBatteryFixture({ gated: true }, async (fixture) => {
+    const chat = await batteryBot(fixture, "Queued battery");
+    writeFileSync(fixture.gate, "limited");
+    await chat.send("ORIGINAL_QUEUED_CARRY");
+    await expect.poll(fixture.firstPrompts, { timeout: 20_000 }).toHaveLength(1);
+    const queued = await fixture.api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text: "QUEUED_CARRY_WORDS", deliver: "queue" });
+    expect(queued.queued).toBe(true);
+    writeFileSync(fixture.release, "finish");
+    await chat.settled(() => fixture.secondPrompts().length === 2);
+    expect(promptText(fixture.secondPrompts()[0])).toContain("ORIGINAL_QUEUED_CARRY");
+    expect(promptText(fixture.secondPrompts()[1])).toContain("QUEUED_CARRY_WORDS");
+    expect((await chat.messages()).filter((row) => row.role === "user" && row.text === "QUEUED_CARRY_WORDS")).toHaveLength(1);
+  });
+}, 90_000);
