@@ -96,7 +96,8 @@ describe("ApprovalCard routine proposals", () => {
     };
 
     const markup = renderToStaticMarkup(createElement(ApprovalCard, { message }));
-    expect(markup).toContain("Delete “Daily inbox”?");
+    expect(markup).not.toContain("Delete “Daily inbox”?");
+    expect(markup).toContain('aria-expanded="false"');
     expect(markup).toContain("Routine deleted");
   });
 
@@ -525,7 +526,8 @@ describe("ApprovalCard outbound holds", () => {
 
   it("keeps the settled status line", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: outboundMessage("allow") }));
-    expect(html).toContain("Send to Linear?");
+    expect(html).not.toContain("Send to Linear?");
+    expect(html).toContain('aria-expanded="false"');
     expect(html).toContain("Allowed");
   });
 

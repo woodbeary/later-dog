@@ -116,3 +116,35 @@ describe("answering a dog's question", () => {
     expect(fixture.dispatch).not.toHaveBeenCalled();
   });
 });
+
+
+describe("folded answers", () => {
+  it("folds immediately, expands read-only and folds again", () => {
+    mount(question());
+    act(() => host.querySelector<HTMLButtonElement>("[role=radio]")?.click());
+    const line = host.querySelector<HTMLButtonElement>("[data-folded-line]")!;
+    expect(line.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector("[role=radio]")).toBeNull();
+    expect(host.textContent).toBe("Code and GitHub");
+    act(() => line.click());
+    expect(line.getAttribute("aria-expanded")).toBe("true");
+    expect(host.textContent).toContain("What should I help with first?");
+    expect(host.querySelector("[role=radio]")).toBeNull();
+    act(() => line.click());
+    expect(host.textContent).toBe("Code and GitHub");
+  });
+
+  it("opens again when sending fails", () => {
+    mount(question());
+    act(() => host.querySelector<HTMLButtonElement>("[role=radio]")?.click());
+    act(() => fixture.dispatch.mock.calls[0]![0].onError("offline"));
+    expect(host.querySelector("[data-folded-line]")).toBeNull();
+    expect(host.querySelector("[role=radio]")).not.toBeNull();
+  });
+
+  it("loads a saved answer folded", () => {
+    mount(question({ answered: "answer", answeredText: "Code and GitHub" }));
+    expect(host.querySelector("[data-folded-line]")?.getAttribute("aria-expanded")).toBe("false");
+    expect(host.textContent).toBe("Code and GitHub");
+  });
+});

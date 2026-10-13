@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { useStore, visibleMessages, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { isPersistentQuestionCard, parseChoices } from "../../shared/ask-question";
 import { ExpandableText } from "./ExpandableText";
+import { FoldedCard } from "./FoldedCard";
 import { optionCardTitle } from "@/lib/option-card-title";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
+const DECISIONS = new Set(["answer", "allow", "deny"]);
 
 export function isOnboardingCard(message: Message): boolean {
   return message.kind === "options" && !!message.card && !message.card.requestId;
@@ -26,6 +28,12 @@ export function canDismissOptionCard(card: NonNullable<Message["card"]>): boolea
   return true;
 }
 
+function chosenAnswer(card: NonNullable<Message["card"]>, picked?: string): string | undefined {
+  if (card.answeredText) return card.answeredText;
+  if (card.answered && !DECISIONS.has(card.answered)) return card.answered;
+  return picked;
+}
+
 export function OptionCard({
   botId,
   threadId,
@@ -39,6 +47,8 @@ export function OptionCard({
 }) {
   const { state, dispatch } = useStore();
   const [custom, setCustom] = useState("");
+  const [picked, setPicked] = useState<string>();
+  const [answeredAtMount] = useState(() => Boolean(message.card?.answered));
   const card = message.card;
   const bot = state.bots.find((candidate) => candidate.id === botId);
   const transcript = bot ? visibleMessages(bot) : [];
@@ -47,14 +57,34 @@ export function OptionCard({
   const title = optionCardTitle(card, bot?.name);
   const subtitle = card.subtitle;
   const options = parseChoices(card.options, LETTERS.length) ?? [];
+  const answered = Boolean(card.answered) || picked !== undefined;
+  const chosen = answered ? chosenAnswer(card, picked) : undefined;
 
   const answer = (text: string) => {
     if (!text.trim()) return;
+    if (answered) return;
+    if (card.requestId && !card.tool && (threadId || bot?.threadId)) {
+      setPicked(text.trim());
+      dispatch({
+        type: "decideRequest",
+        threadId: threadId ?? bot!.threadId,
+        requestId: card.requestId,
+        behavior: "answer",
+        message: text.trim(),
+        onError: () => setPicked(undefined),
+      });
+      return;
+    }
     dispatch({ type: "answerCard", botId, threadId, messageId: message.id, answer: text.trim(), groupId });
   };
 
-  return (
-    <div className="w-full max-w-[420px] rounded-[18px] bg-card px-3.5 py-3 ring-[0.5px] ring-ink/10">
+  const body = (
+    <div
+      className={cn(
+        "w-full max-w-[420px] rounded-[18px] bg-card px-3.5 py-3",
+        answered ? "opacity-70" : "ring-[0.5px] ring-ink/10",
+      )}
+    >
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-[14px] font-medium text-ink">{title}</div>
@@ -62,7 +92,7 @@ export function OptionCard({
             <ExpandableText text={subtitle} className="mt-0.5 text-[13px] text-ink-secondary" />
           )}
         </div>
-        {canDismissOptionCard(card) && (
+        {!answered && canDismissOptionCard(card) && (
           <button
             onClick={() =>
               dispatch({ type: "dismissCard", botId, threadId, messageId: message.id, groupId })
@@ -80,12 +110,12 @@ export function OptionCard({
         {options.map((opt, i) => (
           <button
             key={opt}
-            disabled={!!card.answered}
+            disabled={answered}
             onClick={() => answer(opt)}
             className={cn(
               "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink",
               i > 0 && "border-t border-hairline/40",
-              (card.answeredText ?? card.answered) === opt
+              chosen === opt
                 ? "bg-raised-hover"
                 : "hover:bg-raised-hover/60 disabled:hover:bg-transparent",
             )}
@@ -98,7 +128,14 @@ export function OptionCard({
         ))}
       </div>
 
-      {!card.answered && !card.tool && (
+      {answered && chosen && !options.includes(chosen) && (
+        <div className="mt-2.5 flex items-start gap-1.5 text-[13px] text-ink-secondary">
+          <Check size={14} className="mt-0.5 shrink-0 text-success" />
+          <span className="whitespace-pre-wrap break-words">{chosen}</span>
+        </div>
+      )}
+
+      {!answered && !card.tool && (
         <input
           value={custom}
           onChange={(e) => setCustom(e.target.value)}
@@ -108,5 +145,20 @@ export function OptionCard({
         />
       )}
     </div>
+  );
+
+  if (!answered) return body;
+  const line = chosen ?? t("question.status.answered");
+  return (
+    <FoldedCard
+      icon={<Check size={14} className="shrink-0 text-success" />}
+      summary={<span className="min-w-0 truncate">{line}</span>}
+      title={line}
+      label={t("question.answered.label", { answer: line })}
+      arriving={!answeredAtMount}
+      takeFocus={picked !== undefined}
+    >
+      {body}
+    </FoldedCard>
   );
 }

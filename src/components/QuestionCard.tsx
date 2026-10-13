@@ -10,7 +10,8 @@ import {
   type AskQuestion,
 } from "../../shared/ask-question";
 import { ExpandableText } from "./ExpandableText";
-import { settledAnswer } from "@/lib/settled-answer";
+import { FoldedCard } from "./FoldedCard";
+import { answerSummary, settledAnswer } from "@/lib/settled-answer";
 
 interface Draft {
   picked: string[];
@@ -45,6 +46,7 @@ export function QuestionCard({
   const [active, setActive] = useState(0);
   const [sent, setSent] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
+  const [answeredAtMount] = useState(() => Boolean(card?.answered));
 
   const answered = useMemo(
     () => questions.map((_, index) => answersOf(drafts[index] ?? EMPTY).length > 0),
@@ -126,7 +128,7 @@ export function QuestionCard({
     requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
   };
 
-  return (
+  const body = (
     <div
       role="group"
       aria-label={t("question.aria.card")}
@@ -271,6 +273,20 @@ export function QuestionCard({
         </div>
       )}
     </div>
+  );
+  if (!settled) return body;
+  const line = answerText ? answerSummary(answerText, questions) : t("question.status.answered");
+  return (
+    <FoldedCard
+      icon={<Check size={14} className="shrink-0 text-success" />}
+      summary={<span className="min-w-0 truncate">{line}</span>}
+      title={line}
+      label={t("question.answered.label", { answer: line })}
+      arriving={!answeredAtMount}
+      takeFocus={sent !== null}
+    >
+      {body}
+    </FoldedCard>
   );
 }
 

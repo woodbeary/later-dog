@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, ChevronRight, ShieldCheck, Undo2, X } from "lucide-react";
 import { api, ApiError, type Bot, type Message, type OptionCardData } from "@/state/store";
 import { cn } from "@/lib/cn";
+import { FoldedCard } from "./FoldedCard";
 import { t, tFromServer } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { SkillRequestPreview } from "@/components/SkillRequestPreview";
@@ -282,7 +283,7 @@ export function ApprovalCard({
         })
     : undefined;
 
-  return (
+  const body = (
     <div
       data-tour={settled || expired ? undefined : "approval"}
       className={cn(
@@ -346,5 +347,16 @@ export function ApprovalCard({
         )}
       </div>
     </div>
+  );
+  if (!outcome) return body;
+  return (
+    <FoldedCard
+      icon={settled === "allow" && !expired ? <Check size={14} className="shrink-0 text-success" /> : <X size={14} className="shrink-0" />}
+      summary={<><span className="min-w-0 truncate">{outcome}</span>{byVoice}</>}
+      title={outcome}
+      arriving={false}
+    >
+      {body}
+    </FoldedCard>
   );
 }
