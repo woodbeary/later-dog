@@ -5,7 +5,7 @@ const TIMEOUT_MS = 15_000;
 const PARALLEL = 6;
 
 export type LiveResult =
-  | { id: string; verdict: "one-click"; detail: string }
+  | { id: string; verdict: "oauth-ready"; detail: string }
   | { id: string; verdict: "open"; detail: string }
   | { id: string; verdict: "needs-client-id" | "no-oauth" | "unreachable" | "refused"; detail: string };
 
@@ -58,7 +58,7 @@ export async function checkConnector(connector: McpConnector): Promise<LiveResul
   const meta = await discoverMcpAuth(connector.url, challenge);
   if (!meta) return { id: connector.id, verdict: "no-oauth", detail: "401, but no usable OAuth metadata (PKCE S256, issuer and HTTPS endpoints)" };
   if (!meta.registrationEndpoint) return { id: connector.id, verdict: "needs-client-id", detail: `issuer ${meta.issuer} has no registration endpoint` };
-  return { id: connector.id, verdict: "one-click", detail: `issuer ${meta.issuer}` };
+  return { id: connector.id, verdict: "oauth-ready", detail: `issuer ${meta.issuer}` };
 }
 
 if (import.meta.main) {
@@ -70,5 +70,5 @@ if (import.meta.main) {
   }));
   const counts: Record<string, number> = {};
   for (const result of results) counts[result.verdict] = (counts[result.verdict] ?? 0) + 1;
-  console.log(JSON.stringify({ checkedAt: new Date().toISOString(), counts, problems: results.filter((r) => r.verdict !== "one-click" && r.verdict !== "open").sort((a, b) => a.id.localeCompare(b.id)) }, null, 2));
+  console.log(JSON.stringify({ checkedAt: new Date().toISOString(), counts, problems: results.filter((r) => r.verdict !== "oauth-ready" && r.verdict !== "open").sort((a, b) => a.id.localeCompare(b.id)) }, null, 2));
 }

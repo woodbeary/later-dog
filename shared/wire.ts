@@ -103,6 +103,7 @@ export interface WireTask {
   activity?: BotActivity;
   busy?: boolean;
   turnStartedAt?: number;
+  workingStartedAt?: number;
   surface?: Surface;
   surfaceAuto?: true;
   usage?: TaskUsage;

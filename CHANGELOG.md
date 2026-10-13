@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.28 — 2026-10-13
+
+- **Thinking time starts when work resumes.** Time spent answering a question or approving a step no longer makes your dog look slow. The timer also stays right when you return to a chat.
+- **The tour keeps Apps search clear.** Hints fit the available space, including longer translations and smaller windows, and scroll when needed.
+- **Recent desktop updates in your language.** The launch updates now have translations in German, Spanish, French, Hindi, Japanese, Brazilian Portuguese, Ukrainian, and Simplified and Traditional Chinese.
+- **Clear computer buttons.** Open, wake and show a computer directly, without instructions to find an old picker.
+
 ## 0.3.27 — 2026-10-13
 
 - **Your organization's tricks are back in a dog's profile.** The tricks your organization shares are listed there again, and adding one puts it on that dog, switched on.

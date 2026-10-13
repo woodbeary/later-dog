@@ -729,10 +729,11 @@ export class Store {
           delete task.approvalMode;
           botsMigrated = true;
         }
-        if (task.busy !== undefined || task.activity !== undefined || task.turnStartedAt !== undefined) botsMigrated = true;
+        if (task.busy !== undefined || task.activity !== undefined || task.turnStartedAt !== undefined || task.workingStartedAt !== undefined) botsMigrated = true;
         task.busy = false;
         task.activity = "idle";
         task.turnStartedAt = undefined;
+        task.workingStartedAt = undefined;
       }
       this.mirrorActiveTask(b, active);
       b.unread = b.tasks.some(taskCountsAsBotUnread);
@@ -830,7 +831,7 @@ export class Store {
     if (registerSections) this.rememberSections([...this.bots, ...bots].map((bot) => bot.section));
     writeFileAtomicIfChanged(BOTS_FILE, JSON.stringify(bots.map(({ busy: _busy, activity: _activity, ...bot }) => ({
       ...bot,
-      tasks: bot.tasks?.map(({ busy: _taskBusy, activity: _taskActivity, turnStartedAt: _taskTurnStarted, ...task }) => persistedPin(task)),
+      tasks: bot.tasks?.map(({ busy: _taskBusy, activity: _taskActivity, turnStartedAt: _taskTurnStarted, workingStartedAt: _taskWorkingStarted, ...task }) => persistedPin(task)),
     })), null, 2), { mode: 0o600 });
   }
 
@@ -1796,10 +1797,13 @@ export class Store {
     const busy = ACTIVITY_BUSY.has(activity);
     if ((task.activity ?? "idle") === activity && Boolean(task.busy) === busy) return bot;
     const wasBusy = Boolean(task.busy);
+    const wasWaiting = task.activity === "waiting-on-you";
     task.activity = activity;
     task.busy = busy;
     if (busy && !wasBusy) task.turnStartedAt = Date.now();
     else if (!busy) delete task.turnStartedAt;
+    if (!busy || activity === "waiting-on-you") delete task.workingStartedAt;
+    else if (!wasBusy || wasWaiting) task.workingStartedAt = Date.now();
     if (task.snoozedUntil === 0) {
       task.snoozedUntil = undefined;
       this.saveBots();

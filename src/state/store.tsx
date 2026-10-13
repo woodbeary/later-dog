@@ -233,6 +233,7 @@ export interface Task {
   activity?: Bot["activity"];
   busy?: boolean;
   turnStartedAt?: number;
+  workingStartedAt?: number;
   unread?: boolean;
   pinnedMessageId?: string;
   surface?: "cloud" | "vm" | "local" | "browser";
@@ -291,6 +292,7 @@ export interface Bot {
   busy?: boolean;
   activity?: "working" | "waiting-on-you" | "idle" | "no-signal" | "dead" | "parked.computer";
   turnStartedAt?: number | null;
+  workingStartedAt?: number | null;
   modelSelection: ModelSelection;
   computer?: "cloud" | "vm" | "local" | "browser" | "off";
   cloudBackend?: CloudBackend;
@@ -351,6 +353,7 @@ export function currentTaskBot(bot: Bot, threadId = bot.threadId): Bot {
     unread: task.unread ?? bot.unread,
     pinnedMessageId: task.pinnedMessageId,
     turnStartedAt: task.turnStartedAt ?? null,
+    workingStartedAt: task.workingStartedAt ?? null,
     waitingForTeammates: task.waitingForTeammates ?? false,
   };
 }

@@ -21,6 +21,7 @@ afterEach(async () => {
   host = null;
   document.body.innerHTML = "";
   delete document.documentElement.dataset.reducedMotion;
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -57,8 +58,9 @@ function popup(role: string) {
   return element;
 }
 
-function onScreen(element: HTMLElement) {
-  const rect = { x: 40, y: 40, left: 40, top: 40, width: 300, height: 200, right: 340, bottom: 240, toJSON: () => ({}) };
+function onScreen(element: HTMLElement, bounds = { x: 40, y: 40, w: 300, h: 200 }) {
+  const { x, y, w, h } = bounds;
+  const rect = { x, y, left: x, top: y, width: w, height: h, right: x + w, bottom: y + h, toJSON: () => ({}) };
   element.getBoundingClientRect = () => rect as DOMRect;
   element.getClientRects = () => [rect] as unknown as DOMRectList;
 }
@@ -153,5 +155,21 @@ describe("the tour spotlight", () => {
     const onDone = await show(null);
     await escapeOn(menu.querySelector("button")!);
     expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("measures its card to keep an Apps panel's header clear without losing keyboard focus", async () => {
+    const panel = modal({ "data-tour": "apps-panel" });
+    onScreen(panel, { x: 8, y: 8, w: window.innerWidth - 16, h: window.innerHeight - 16 });
+    document.body.append(panel);
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.hasAttribute("data-tour-card") ? { height: 230 } as DOMRect : original.call(this);
+    });
+    await show("apps-panel");
+    const card = document.querySelector<HTMLElement>("[data-tour-card]")!;
+    const coordinates = card.style.transform.match(/translate3d\(([\d.]+)px, ([\d.]+)px/)!;
+    expect(Number(coordinates[2])).toBe(window.innerHeight - 230 - 24);
+    expect(card.querySelector<HTMLElement>('[role="dialog"]')!.style.maxHeight).toBe(`${window.innerHeight - 24}px`);
+    expect(document.activeElement?.textContent).toBe("Next");
   });
 });
