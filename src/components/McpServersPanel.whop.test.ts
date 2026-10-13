@@ -24,14 +24,14 @@ import { McpServersPanel } from "./McpServersPanel";
 
 const whop = { name: "whop", type: "http", url: "https://mcp.whop.com/mcp", headerKeys: [], enabled: false, auth: "needs-sign-in" };
 
-function WhopCard() { return McpServersPanel({ whopCard: true }); }
+function ServerList() { return McpServersPanel({ embedded: true }); }
 
 let host: HTMLDivElement;
 let root: Root;
 let testRequest: { resolve: (value: unknown) => void; signal?: AbortSignal } | null;
 
 const settle = () => act(async () => { for (let turn = 0; turn < 5; turn += 1) await Promise.resolve(); });
-const card = () => host.querySelector<HTMLElement>('[data-app-tile="whop"]')!;
+const card = () => host.querySelector<HTMLElement>('[data-whop-server="whop"]')!;
 const button = (label: string) => [...card().querySelectorAll("button")].find((element) => element.textContent?.trim() === label)!;
 
 beforeEach(async () => {
@@ -52,7 +52,7 @@ beforeEach(async () => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root.render(createElement(WhopCard)));
+  await act(async () => root.render(createElement(ServerList)));
   await settle();
 });
 afterEach(async () => {
@@ -61,11 +61,13 @@ afterEach(async () => {
 });
 
 async function connect() {
-  await act(async () => button("Connect").click());
+  await act(async () => button("Connect Whop").click());
   await settle();
 }
 
-describe("Connecting Whop from its card", () => {
+const failure = () => [...card().querySelectorAll('[role="status"]')].map((element) => element.textContent?.trim());
+
+describe("Connecting Whop from its server row", () => {
   it("says it is loading Whop's tools while the test runs, then shows why it failed in one line", async () => {
     await connect();
     expect(testRequest).not.toBeNull();
@@ -76,28 +78,25 @@ describe("Connecting Whop from its card", () => {
     await act(async () => testRequest!.resolve({ ok: false, error: "The server did not answer in time." }));
     await settle();
 
-    const alerts = [...card().querySelectorAll('[role="alert"]')].map((element) => element.textContent);
-    expect(alerts).toEqual([
+    expect(failure()).toEqual([
       "Signed in, but Whop’s tools could not be loaded: The server did not answer in time. Please connect again to retry.",
     ]);
     expect(fixture.api.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "PATCH")).toBe(false);
-    expect(button("Connect")).toBeTruthy();
+    expect(button("Connect Whop")).toBeTruthy();
   });
 
   it("keeps the reason when the test request itself is refused", async () => {
     await connect();
     await act(async () => { testRequest!.resolve(Promise.reject(new Error("Two MCP connection tests are already running."))); });
     await settle();
-    expect(card().querySelector('[role="alert"]')?.textContent)
-      .toBe("Signed in, but Whop’s tools could not be loaded: Two MCP connection tests are already running. Please connect again to retry.");
+    expect(failure()).toEqual(["Signed in, but Whop’s tools could not be loaded: Two MCP connection tests are already running. Please connect again to retry."]);
   });
 
   it("ends a reason that has no period of its own, like a proxy's 504", async () => {
     await connect();
     await act(async () => { testRequest!.resolve(Promise.reject(new Error("504 Gateway Timeout"))); });
     await settle();
-    expect(card().querySelector('[role="alert"]')?.textContent)
-      .toBe("Signed in, but Whop’s tools could not be loaded: 504 Gateway Timeout. Please connect again to retry.");
+    expect(failure()).toEqual(["Signed in, but Whop’s tools could not be loaded: 504 Gateway Timeout. Please connect again to retry."]);
   });
 
   it("closes the test request when the person cancels", async () => {
@@ -106,6 +105,7 @@ describe("Connecting Whop from its card", () => {
     await act(async () => button("Cancel").click());
     await settle();
     expect(testRequest?.signal?.aborted).toBe(true);
+    expect(failure()).toEqual([]);
     expect(card().querySelector('[role="alert"]')).toBeNull();
   });
 });

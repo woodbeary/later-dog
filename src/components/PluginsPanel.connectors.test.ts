@@ -40,8 +40,7 @@ vi.mock("@/state/store", () => ({
   useStore: () => ({ state: { pluginsSurface: fixture.surface, bots: [], instances: [] }, dispatch: fixture.dispatch }),
 }));
 vi.mock("./McpServersPanel", () => ({
-  McpServersPanel: (props: { embedded?: boolean; whopCard?: boolean; refreshKey?: number }) => {
-    if (props.whopCard) return createElement("div", { "data-whop-card": true }, "Connect Whop");
+  McpServersPanel: (props: { embedded?: boolean; refreshKey?: number }) => {
     fixture.embedded = props;
     return createElement("div", { "data-embedded": "true" }, "MCP inventory");
   },
@@ -53,6 +52,7 @@ vi.mock("./McpConnectorCards", () => ({
   },
 }));
 vi.mock("./Avatar", () => ({ BotAvatar: () => null }));
+vi.mock("./SponsoredApps", () => ({ SponsoredApps: () => createElement("div", { "data-sponsored-slot": true }) }));
 import { PluginsPanel } from "./PluginsPanel";
 
 const CARDS = 0;
@@ -62,11 +62,10 @@ const STATUS = 6;
 const PHASE = 13;
 const SEARCH = 15;
 const TAB = 16;
-const WHOP_CONNECTED = 18;
-const REFRESH = 19;
-const CONNECTED_CONNECTORS = 20;
-const CATEGORY = 21;
-const MORE = 22;
+const REFRESH = 18;
+const CONNECTED_CONNECTORS = 19;
+const CATEGORY = 20;
+const MORE = 21;
 
 type Node = ReactElement<{ children?: ReactNode; [key: string]: unknown }>;
 function nodes(value: ReactNode): Node[] {
@@ -97,7 +96,6 @@ const control = (tree: Node[], attribute: string, value: string) => {
   return found;
 };
 const press = (node: Node) => (node.props.onClick as () => void)();
-const whopWrapper = (tree: Node[]) => tree.find((node) => isValidElement(node.props.children) && (node.props.children as Node).props.whopCard === true)!;
 const card = (slug: string) => ({ slug, label: slug[0]!.toUpperCase() + slug.slice(1), blurb: `${slug} things`, logo: null, domain: null });
 
 beforeEach(() => {
@@ -125,7 +123,6 @@ describe("setting up connected apps", () => {
     const notice = html.indexOf("data-connectors-key");
     expect(notice).toBeGreaterThan(html.indexOf("data-apps-grid"));
     expect(notice).toBeGreaterThan(html.indexOf("data-connectors="));
-    expect(notice).toBeLessThan(html.indexOf("data-whop-card"));
     expect(html).not.toContain('data-app-tile="gmail"');
   });
 
@@ -166,20 +163,27 @@ describe("connectors in the Apps pop-up", () => {
     const section = tree.find((node) => node.props["data-apps-grid"] !== undefined)!;
     const inSection = nodes(section);
     const cards = inSection.findIndex((node) => Array.isArray(node.props.connectors));
-    const whop = inSection.findIndex((node) => node.props.whopCard === true);
     expect(cards).toBeGreaterThanOrEqual(0);
-    expect(whop).toBeGreaterThan(cards);
     const grid = inSection.find((node) => String(node.props.className ?? "").includes("@3xl:grid-cols-3"))!;
     expect(nodes(grid).some((node) => Array.isArray(node.props.connectors))).toBe(false);
-    expect(html.indexOf("data-connectors")).toBeLessThan(html.indexOf("data-whop-card"));
-    expect(html.indexOf("data-whop-card")).toBeLessThan(html.indexOf('data-app-tile="gmail"'));
+    expect(html.indexOf("data-connectors")).toBeLessThan(html.indexOf('data-app-tile="gmail"'));
     expect(fixture.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("list Whop with the other payment apps, with no place of its own", () => {
+    fixture.overrides.set(CONFIGURED, true);
+    const { html } = render();
+    expect(html).not.toContain("data-whop-card");
+    expect(html).not.toContain('data-app-tile="whop"');
+    expect(shown()).toContain("whop");
+    expect(shown()!.indexOf("whop")).toBe(MCP_CONNECTORS.findIndex((connector) => connector.id === "whop"));
+    expect(inCategory("payments").indexOf("whop")).toBeGreaterThanOrEqual(fixture.cards!.grouped!.limit);
   });
 
   it("narrow with the search box", () => {
     fixture.overrides.set(SEARCH, "pay");
     render();
-    expect(shown()).toEqual(["paypal", "stripe", "square", "revenuecat", "airwallex"]);
+    expect(shown()).toEqual(["paypal", "stripe", "square", "revenuecat", "whop", "airwallex"]);
     expect(fixture.cards!.grouped).toBeUndefined();
     fixture.overrides.set(SEARCH, "gmail");
     let { html } = render();
@@ -208,7 +212,6 @@ describe("connectors in the Apps pop-up", () => {
     expect(html).toContain('id="apps-grid-title" class="mb-3 text-[12px] font-medium text-ink-secondary">Design and media</div>');
     expect(html).not.toContain("data-app-tile");
     expect(html).not.toContain("data-apps-more-heading");
-    expect(whopWrapper(tree).props.className).toBe("hidden");
 
     const more = control(tree, "data-apps-filter", "more");
     expect(more.props["aria-haspopup"]).toBe("menu");
@@ -225,8 +228,7 @@ describe("connectors in the Apps pop-up", () => {
     expect(fixture.overrides.get(CATEGORY)).toBe("payments");
     expect(fixture.overrides.get(MORE)).toBe(false);
     ({ html, nodes: tree } = render());
-    expect(shown()).toEqual(["paypal", "stripe", "square", "revenuecat"]);
-    expect(whopWrapper(tree).props.className).toBe("contents");
+    expect(shown()).toEqual(["paypal", "stripe", "square", "revenuecat", "whop"]);
     expect(renderToStaticMarkup(control(tree, "data-apps-filter", "more"))).toContain(">Payments<");
 
     fixture.overrides.set(SEARCH, "linear");
@@ -245,6 +247,22 @@ describe("connectors in the Apps pop-up", () => {
     press(control(render().nodes, "data-apps-filter", "connected"));
     expect(fixture.overrides.get(CATEGORY)).toBeNull();
     expect(fixture.overrides.get(TAB)).toBe("connected");
+  });
+
+  it("keep the Sponsored slot at the top of All, above the apps, and out of searches, categories, Connected and Custom", () => {
+    expect(render().html.indexOf("data-sponsored-slot")).toBeGreaterThanOrEqual(0);
+    expect(render().html.indexOf("data-sponsored-slot")).toBeLessThan(render().html.indexOf("data-apps-grid"));
+    fixture.overrides.set(SEARCH, "pay");
+    expect(render().html).not.toContain("data-sponsored-slot");
+    fixture.overrides.set(SEARCH, "");
+    fixture.overrides.set(CATEGORY, "payments");
+    expect(render().html).not.toContain("data-sponsored-slot");
+    fixture.overrides.set(CATEGORY, null);
+    fixture.overrides.set(TAB, "connected");
+    expect(render().html).not.toContain("data-sponsored-slot");
+    fixture.overrides.set(TAB, "marketplace");
+    fixture.surface = "mcp";
+    expect(render().html).not.toContain("data-sponsored-slot");
   });
 
   it("close the More menu on Escape without closing Apps", () => {
@@ -269,7 +287,6 @@ describe("connectors in the Apps pop-up", () => {
   it("never sit under a claim that nothing is connected", () => {
     fixture.overrides.set(TAB, "connected");
     fixture.overrides.set(STATUS, {});
-    fixture.overrides.set(WHOP_CONNECTED, false);
     fixture.overrides.set(CONNECTED_CONNECTORS, ["linear"]);
     let { html } = render();
     expect(html).not.toContain("No connected apps yet");

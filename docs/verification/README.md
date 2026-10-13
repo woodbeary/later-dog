@@ -94,9 +94,10 @@ The [MCP sign-in fixture](mcp-sign-in.md) checks remote sign-in, callback URL
 paste-back, MCP tools and logout cancellation through the real settings panel
 and a synthetic OAuth provider in a disposable workspace.
 
-The [Whop fixture](whop.md) checks its one-click setup, cancellation, denied
-consent, discovery failures, reconnect and disconnect using that same registry
-and a synthetic provider, without accessing a real Whop account.
+The [Whop fixture](whop.md) checks that Whop sits in Apps like any other app,
+then its setup, cancellation, denied consent, discovery failures, reconnect and
+disconnect using that same registry and a synthetic provider, without accessing
+a real Whop account.
 
 The [Connected Apps OAuth fixture](connected-apps-oauth.md) checks blocked-popup
 recovery, safe authorization links and abandoned-account retries through real

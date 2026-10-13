@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isWhopServer, WHOP_MCP_URL, whopServerName } from "./whop-integration";
+import { MCP_CONNECTORS, connectorServerName } from "./mcp-connectors";
+import { isWhopServer, WHOP_MCP_URL } from "./whop-integration";
+
+const whop = MCP_CONNECTORS.find((connector) => connector.id === "whop")!;
 
 describe("Whop integration", () => {
   it("recognizes the official HTTP endpoint independently of its local name", () => {
@@ -13,9 +16,14 @@ describe("Whop integration", () => {
     expect(isWhopServer({ type: "sse", url: WHOP_MCP_URL })).toBe(false);
     expect(isWhopServer({})).toBe(false);
   });
+  it("is an ordinary payments app in the catalog, at the endpoint the server list recognizes", () => {
+    expect(whop).toMatchObject({ name: "Whop", url: WHOP_MCP_URL, category: "payments", domain: "whop.com" });
+    expect(whop.open).toBeUndefined();
+    expect(isWhopServer({ type: whop.transport, url: whop.url })).toBe(true);
+  });
   it("does not replace an existing server with the same name", () => {
-    expect(whopServerName([])).toBe("whop");
-    expect(whopServerName([{ name: "whop" }, { name: "whop-2" }])).toBe("whop-3");
-    expect(whopServerName([{ name: "whop-2" }])).toBe("whop");
+    expect(connectorServerName(whop, [])).toBe("whop");
+    expect(connectorServerName(whop, [{ name: "whop" }, { name: "whop-2" }])).toBe("whop-3");
+    expect(connectorServerName(whop, [{ name: "whop-2" }])).toBe("whop");
   });
 });

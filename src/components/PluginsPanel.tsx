@@ -16,6 +16,7 @@ import { ComposioKeyNotice } from "./ApiKeys";
 import { BotAvatar } from "./Avatar";
 import { McpConnectorCards } from "./McpConnectorCards";
 import { McpServersPanel } from "./McpServersPanel";
+import { SponsoredApps } from "./SponsoredApps";
 import { useMenuMotion } from "./MenuMotion";
 
 export interface ToolkitCard {
@@ -302,8 +303,7 @@ export function PluginsPanel() {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"marketplace" | "connected">("marketplace");
   const [showAllApps, setShowAllApps] = useState(false);
-  const [whopConnected, setWhopConnected] = useState<boolean | null>(null);
-  const [whopRefresh, setWhopRefresh] = useState(0);
+  const [serversRefresh, setServersRefresh] = useState(0);
   const [connectedConnectors, setConnectedConnectors] = useState<string[]>([]);
   const [category, setCategory] = useState<McpConnectorCategory | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -583,11 +583,7 @@ export function PluginsPanel() {
       && (isConnected(c.slug) || !MCP_CONNECTORS.some((connector) => connector.id === c.slug)),
   );
   const filter: AppsFilter = surface === "mcp" ? "mcp" : tab === "connected" ? "connected" : "all";
-  const whopMatches = !search || `whop ${t("whop.description")}`.toLowerCase().includes(search.toLowerCase().trim());
   const browsing = filter === "all" ? category : null;
-  const showWhop = whopMatches && (filter === "all"
-    ? browsing === null || browsing === "payments"
-    : filter === "connected" && whopConnected !== false);
   const connectorMatches = MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, search));
   const shownConnectors = filter === "connected"
     ? connectorMatches.filter((connector) => connectedConnectors.includes(connector.id))
@@ -603,7 +599,7 @@ export function PluginsPanel() {
   const listed = browsing === null ? visible : [];
   const capped = filter === "all" && browsing === null && !search && !showAllApps && visible.length > APPS_PREVIEW_COUNT;
   const shown = capped ? visible.slice(0, APPS_PREVIEW_COUNT) : listed;
-  const connectedCount = Object.values(status).filter((service) => service.connected || service.accounts?.length).length + Number(whopConnected === true)
+  const connectedCount = Object.values(status).filter((service) => service.connected || service.accounts?.length).length
     + connectedConnectors.length;
   const connectedEmptyCopy = connectedInventoryCopy(inventoryPhase);
   const close = () => dispatch({ type: "togglePlugins", open: false });
@@ -696,7 +692,7 @@ export function PluginsPanel() {
                 />
               </label>
               <button
-                onClick={() => { setWhopRefresh((value) => value + 1); void loadConnectionInventory(true); }}
+                onClick={() => { setServersRefresh((value) => value + 1); void loadConnectionInventory(true); }}
                 disabled={refreshing}
                 className="rounded-lg p-2 text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-50"
                 title={t("connectors.refreshTitle")}
@@ -798,7 +794,7 @@ export function PluginsPanel() {
           )}
           {setupNotice?.tone === "warning" && filter !== "mcp" && (
             <div className="mb-2 rounded-xl bg-warning/10 px-4 py-3 text-[13px] text-warning">
-              {t(whopConnected ? "whop.otherAppsSetup" : setupNotice.key)}
+              {t(setupNotice.key)}
             </div>
           )}
           {botsWithoutApps.length > 0 && (
@@ -825,6 +821,7 @@ export function PluginsPanel() {
             </div>
           )}
           {error && <div role="alert" className="mb-2 mt-1 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">{typeof error === "string" ? error : t(error.key)}</div>}
+          {grouped && <SponsoredApps />}
 
           {filter !== "mcp" && (
             <section data-apps-grid aria-labelledby="apps-grid-title" className="@container pt-3">
@@ -851,19 +848,16 @@ export function PluginsPanel() {
                   </span>
                 )}
               </div>
-              <McpConnectorCards connectors={shownConnectors} refreshKey={whopRefresh} onConnected={setConnectedConnectors}
+              <McpConnectorCards connectors={shownConnectors} refreshKey={serversRefresh} onConnected={setConnectedConnectors}
                 grouped={grouped ? { limit: APPS_GROUP_PREVIEW_COUNT, onViewAll: viewAll } : undefined}
-                onServersChange={() => setWhopRefresh((value) => value + 1)} />
-              {grouped && (showWhop || shown.length > 0 || (setupNotice?.tone === "info" && needKey)) && (
+                onServersChange={() => setServersRefresh((value) => value + 1)} />
+              {grouped && (shown.length > 0 || (setupNotice?.tone === "info" && needKey)) && (
                 <h3 data-apps-more-heading className="mb-2 flex min-h-8 items-center text-[13px] font-semibold text-ink">{t("apps.moreApps")}</h3>
               )}
               {filter === "all" && browsing === null && setupNotice?.tone === "info" && needKey && (
                 <ComposioKeyNotice remote={remoteClient} onSaved={readCatalogAgain} />
               )}
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
-                <div className={showWhop ? "contents" : "hidden"}>
-                  <McpServersPanel whopCard refreshKey={whopRefresh} onWhopConnection={setWhopConnected} />
-                </div>
                 {shown.map((card) => renderTile(card))}
               </div>
               {cards === null && browsing === null && (
@@ -882,7 +876,7 @@ export function PluginsPanel() {
                   </button>
                 </div>
               )}
-              {(cards !== null || browsing !== null) && listed.length === 0 && !showWhop && shownConnectors.length === 0 && (
+              {(cards !== null || browsing !== null) && listed.length === 0 && shownConnectors.length === 0 && (
                 <div className="flex min-h-40 flex-col items-center justify-center text-center">
                   <div className="text-[14px] font-medium text-ink">
                     {filter === "connected" ? connectedEmptyCopy.title : t("connectors.noAppsFound")}
@@ -908,7 +902,7 @@ export function PluginsPanel() {
 
           {filter === "mcp" && (
             <div className="pt-3">
-              <McpServersPanel embedded refreshKey={whopRefresh} />
+              <McpServersPanel embedded refreshKey={serversRefresh} />
             </div>
           )}
         </div>
