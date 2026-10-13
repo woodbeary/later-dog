@@ -49,16 +49,20 @@ describe("BrandIcon", () => {
     expect(unknown).toMatch(/>G<\/span><\/span>$/);
   });
 
-  it("shows the service's own icon from its site when there is no mark, without sending a referrer", () => {
+  it("shows the service's own icon from later.dog itself when there is no mark, asking no other site for it", () => {
     const html = draw({ brand: "deepwiki", name: "DeepWiki", domain: "deepwiki.com" });
     expect(html).not.toContain("<svg");
-    expect(html).toContain('src="https://www.google.com/s2/favicons?domain=deepwiki.com&amp;sz=64"');
+    expect(html).toContain('src="/app-icons/deepwiki.com.png"');
+    expect(html).not.toContain("https://");
     expect(html).toContain('alt=""');
     expect(html).toContain('width="22" height="22"');
     expect(html).toContain('referrerPolicy="no-referrer"');
     expect(html).toContain('role="img" aria-label="DeepWiki"');
     expect(html).not.toContain(">D</span>");
     expect(draw({ brand: "linear", name: "Linear", domain: "linear.app" })).not.toContain("<img");
+    const unbundled = draw({ brand: "nowhere", name: "Nowhere", domain: "nowhere.example" });
+    expect(unbundled).not.toContain("<img");
+    expect(unbundled).toMatch(/>N<\/span><\/span>$/);
   });
 });
 

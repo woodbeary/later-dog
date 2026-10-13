@@ -199,6 +199,11 @@ async function snapshot(handle: UiHandle, interactive: boolean): Promise<Record<
 }
 
 const TARGET_WAIT_MS = 5_000;
+const SPLASH_GONE = `!document.querySelector('[data-launch-splash="shown"]')`;
+
+async function afterSplash(binary: string, env: NodeJS.ProcessEnv): Promise<void> {
+  await agentBrowser(binary, env, ["wait", "--fn", SPLASH_GONE], 30_000);
+}
 
 async function resolveTarget(handle: UiHandle, values: Record<string, unknown>, verb: string): Promise<{ target: string; name?: string }> {
   const ref = typeof values.ref === "string" ? values.ref.trim() : "";
@@ -302,6 +307,7 @@ export async function runControlLaterDogUi(args: string[]): Promise<unknown> {
     const text = verb === "type" ? values.text : undefined;
     if (verb === "type" && typeof text !== "string") throw new ControlLaterDogError("ui type requires --text TEXT");
     await requireLiveSession(handle);
+    await afterSplash(handle.binary, sessionEnv(handle));
     const { target, name } = await resolveTarget(handle, values, verb);
     const data = await agentBrowser(handle.binary, sessionEnv(handle), verb === "click" ? ["click", target] : ["type", target, text as string]);
     return { ok: true, target, ...(name ? { name } : {}), ...data };
@@ -312,6 +318,7 @@ export async function runControlLaterDogUi(args: string[]): Promise<unknown> {
     const handle = loadHandle(values.ui, verb);
     if (typeof values.keys !== "string" || !values.keys.trim()) throw new ControlLaterDogError("ui press requires --keys KEYS", "example: --keys Enter or --keys Meta+k");
     await requireLiveSession(handle);
+    await afterSplash(handle.binary, sessionEnv(handle));
     return { ok: true, ...(await agentBrowser(handle.binary, sessionEnv(handle), ["press", values.keys.trim()])) };
   }
 
@@ -434,7 +441,14 @@ export async function launchUi(
     const session: SessionEnv = { home: fixture.info.dataDir, session: `laterdog-ui-${new URL(fixture.info.url).port}`, chrome };
     const env = sessionEnv(session, parentEnv);
     opened = { binary, env };
-    await agentBrowser(binary, env, ["open", preview.previewUrl], 120_000);
+    const previewUrl = preview.previewUrl;
+    const open = () => agentBrowser(binary, env, ["open", previewUrl], 120_000);
+    await open().catch((error: unknown) => {
+      if (!(error instanceof Error) || !error.message.includes("Operation timed out")) throw error;
+      note("the first page load timed out while the preview compiled; opening it again");
+      return open();
+    });
+    await afterSplash(binary, env);
     checkpoint();
     const handle: UiHandle = {
       url: fixture.info.url,

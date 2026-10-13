@@ -120,7 +120,7 @@ describe("the organization library in the real renderer", () => {
     expect(shelf).toContain("Added");
     expect(shelf).not.toContain("Add Sales desk");
     await click("Add Sales skills");
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("Sales skills is added. Its skills are offered under each bot's Skills.");
+    await expect.poll(snapshot, { timeout: 10_000 }).toContain("Sales skills is added. Its tricks are offered under each dog's Tricks.");
     await evidence("org-library-added.png");
     await press("Escape");
 
@@ -129,9 +129,7 @@ describe("the organization library in the real renderer", () => {
       .find(([, entry]) => entry.role === "button" && /Open .+ profile/.test(entry.name));
     expect(profile).toBeDefined();
     await ui("click", "--ref", `@${profile![0]}`);
-    await click("Identity");
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("From Sales desk 1.3.0 · Acme Partners");
-    await click("Tricks");
+    await click("Library");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Tricks your organization shares");
     await evidence("org-library-bot-skills.png");
     await click("Add follow-up to this dog");

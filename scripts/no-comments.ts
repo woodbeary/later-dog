@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import ts from "typescript";
+import { CONFIG, configComments, dropLines, stripConfig } from "./no-comments-config.ts";
 
 export const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
 export const CSS = /\.css$/;
-export const SHELL = /\.sh$/;
+export const SHELL = /\.sh$|^scripts\/git-hooks\/[^/.]+$/;
 export const DOCKER = /(?:^|\/)(?:Dockerfile|[^/]+\.Dockerfile)$/;
 export const SWIFT = /\.swift$/;
 export const PYTHON = /\.py$/;
@@ -133,6 +134,7 @@ export function remainingComments(file: string, text: string): Array<{ line: num
     const comments = lineComments(file, text);
     return text.split("\n").flatMap((line, index) => (comments.has(index) ? [{ line: index + 1, text: line.trim() }] : []));
   }
+  if (CONFIG.some((pattern) => pattern.test(file))) return configComments(file, text);
   const { comments } = find(file, text);
   const keep = kept(text, comments);
   return comments
@@ -344,29 +346,20 @@ function lineComments(file: string, text: string): Set<number> {
 }
 
 export function stripLines(file: string, text: string): { text: string; removed: number } {
-  const lines = text.split("\n");
   const comments = lineComments(file, text);
-  const drop = new Set(comments);
-  for (const index of comments) {
-    let previous = index - 1;
-    while (drop.has(previous)) previous--;
-    let next = index + 1;
-    while (drop.has(next)) next++;
-    const openedAbove = previous < 0 || isBlank(lines[previous]) || (previous === 0 && lines[0].startsWith("#!"));
-    if (openedAbove && next < lines.length - 1 && isBlank(lines[next])) drop.add(next);
-  }
-  return { text: lines.filter((_, index) => !drop.has(index)).join("\n"), removed: comments.size };
+  return { text: comments.size ? dropLines(text, comments) : text, removed: comments.size };
 }
 
 export function trackedFiles(): string[] {
   return execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
     .split("\0")
-    .filter((file) => file && !EXCLUDED.test(file) && [SOURCE, CSS, ...LINE_COMMENTED].some((pattern) => pattern.test(file)));
+    .filter((file) => file && !EXCLUDED.test(file) && [SOURCE, CSS, ...LINE_COMMENTED, ...CONFIG].some((pattern) => pattern.test(file)));
 }
 
 export function strip(file: string, text: string): { text: string; removed: number } {
   if (CSS.test(file)) return stripCss(text);
   if (LINE_COMMENTED.some((pattern) => pattern.test(file))) return stripLines(file, text);
+  if (CONFIG.some((pattern) => pattern.test(file))) return stripConfig(file, text);
   return stripSource(file, text);
 }
 

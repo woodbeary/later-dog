@@ -37,6 +37,55 @@ describe("removing comments", () => {
     expect(strip("a.ts", "function f() {\n  return /* a\n  b */ 1;\n}\n").text).toBe("function f() {\n  return\n1;\n}\n");
   });
 
+  it("handles YAML, keeping quoted hashes and here-documents in run blocks", () => {
+    const workflow = [
+      "# Explains the job.",
+      "name: ci",
+      "on: [push] # every push",
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - name: \"Tag #1\"",
+      "        run: |",
+      "          # say why",
+      "          echo '# kept'",
+      "          cat <<'EOF'",
+      "          # data, not a comment",
+      "          EOF",
+      "      - name: notes",
+      "        with:",
+      "          body: |",
+      "            # A heading in a string",
+      "",
+    ].join("\n");
+    expect(strip(".github/workflows/a.yml", workflow).text).toBe([
+      "name: ci",
+      "on: [push]",
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - name: \"Tag #1\"",
+      "        run: |",
+      "          echo '# kept'",
+      "          cat <<'EOF'",
+      "          # data, not a comment",
+      "          EOF",
+      "      - name: notes",
+      "        with:",
+      "          body: |",
+      "            # A heading in a string",
+      "",
+    ].join("\n"));
+  });
+
+  it("handles JSON with comments, SQL, markup and hash-commented config files", () => {
+    expect(strip("wrangler.jsonc", "{\n  // the name\n  \"name\": \"a//b\", /* why */\n  \"n\": 1,\n}\n").text).toBe("{\n  \"name\": \"a//b\",\n  \"n\": 1,\n}\n");
+    expect(strip("m.sql", "-- adds a column\nALTER TABLE t ADD c TEXT DEFAULT '--not'; -- why\n").text).toBe("ALTER TABLE t ADD c TEXT DEFAULT '--not';\n");
+    expect(strip("a.xml", "<?xml version=\"1.0\"?>\n<!-- why -->\n<a/>\n").text).toBe("<?xml version=\"1.0\"?>\n<a/>\n");
+    expect(strip("deploy/Caddyfile", "# serves the app\n:8080 {\n  respond \"#ok\"\n}\n").text).toBe(":8080 {\n  respond \"#ok\"\n}\n");
+    expect(strip("a.apparmor", "#include <tunables/global>\n# why\nprofile a {}\n").text).toBe("#include <tunables/global>\nprofile a {}\n");
+  });
+
   it("handles stylesheets and shell scripts, leaving shebangs and here-documents alone", () => {
     expect(strip("a.css", "/* card */\n.card { color: red; /* brand */ }\n/*! keep */\n").text).toBe(".card { color: red; }\n/*! keep */\n");
     const script = "#!/bin/bash\n# Explains.\nset -e\ncat <<'EOF'\n# data, not a comment\nEOF\n";

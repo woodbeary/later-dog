@@ -1,7 +1,7 @@
 name: later.dog CI
 on:
   push:
-    branches: [main]
+    branches: [main, staging, dev]
   pull_request:
 permissions:
   contents: read
@@ -34,10 +34,6 @@ jobs:
           path: .laterdog-evidence/
           retention-days: 14
   vitest:
-    # later.dog's whole vitest suite. CI once ran only the supervisor's tests and
-    # a few others, and renaming the data folder broke 132 server tests with CI
-    # still green. vitest splits the files deterministically, so a failing shard
-    # reproduces locally with the same --shard flag.
     name: vitest (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -56,13 +52,41 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Prepare Electron test runtime
-        # Electron downloads its runtime on first import; do it before the
-        # fixtures' timeouts start.
         run: node --input-type=commonjs -e "require('electron')"
       - run: pnpm exec vitest run --shard=${{ matrix.shard }}/4 --reporter=default --reporter=github-actions
       - name: Broker and Electron unit tests
         if: matrix.shard == 1
         run: pnpm broker:test && pnpm test:electron
+  ui-smoke:
+    name: renderer tests (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Let Chrome use its sandbox on this runner
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Drive the real renderer
+        env:
+          LATERDOG_UI_E2E: "1"
+          TMPDIR: ${{ runner.temp }}
+        run: pnpm exec vitest run ui.e2e.test cloud-preview.e2e.test --maxWorkers=1 --reporter=default --reporter=github-actions
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: laterdog-renderer-evidence
+          path: |
+            ${{ runner.temp }}/laterdog-verification-evidence/
+            .laterdog-scratch/verify-evidence/
+          retention-days: 14
+          if-no-files-found: ignore
   supervisor-container:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

@@ -9,6 +9,8 @@ subprocesses.
 To customize, copy `.env.example` to `.env` in the repository root.
 The `.env` file is ignored by Git. Shell environment variables take precedence.
 `LATERDOG_HTTP_PORT` changes the host port and the default public URL.
+An empty `LATERDOG_PUBLIC_URL` means `http://localhost:<LATERDOG_HTTP_PORT>`, and an
+empty `LATERDOG_WEBHOOK_PUBLIC_URL` reuses the public URL.
 Internal service ports remain fixed inside the shared network namespace.
 `ENGINES` selects space-separated npm packages; an empty value skips installation.
 The image also carries Grok Build, pinned by `GROK_VERSION` in

@@ -55,7 +55,7 @@ const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrows
     await ui("flag", "--set", "features.showToolCalls=false");
     await ui("type", "--name", "Message Pepper", "--text", "Please have Engineer check the CSV export and report back");
     await ui("press", "--keys", "Enter");
-    await expect.poll(snapshot, { timeout: 15_000 }).toContain("Teammates working");
+    await expect.poll(snapshot, { timeout: 15_000 }).toContain("Other dogs working");
     const waiting = (await api("/api/bots?messages=0")).bots.find((bot: any) => bot.id === info.botId);
     expect(waiting).toMatchObject({ busy: false, waitingForTeammates: true });
     const controls = (await ui("snapshot")).refs as Record<string, { role: string; name: string }>;

@@ -1,9 +1,4 @@
--- Remotely managed Cloudflare Tunnel metadata for one companion endpoint per
--- installation. Connector tokens and Cloudflare API credentials must never be
--- written to D1.
 CREATE TABLE installation_endpoints (
-  -- Deliberately not cascaded: a hard account/installation deletion must not
-  -- erase the Cloudflare resource IDs required for operator cleanup retries.
   installation_id TEXT PRIMARY KEY,
   hostname TEXT NOT NULL UNIQUE,
   tunnel_name TEXT NOT NULL UNIQUE,
@@ -31,8 +26,6 @@ CREATE TABLE installation_endpoints (
 CREATE INDEX installation_endpoints_status_lease_idx
   ON installation_endpoints(status, lease_expires_at, updated_at);
 
--- Endpoint mutations are installation-authenticated, so they use a separate
--- limiter from the account-scoped actions in control_action_rate_limits.
 CREATE TABLE installation_action_rate_limits (
   installation_id TEXT NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
   action TEXT NOT NULL,

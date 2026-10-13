@@ -96,15 +96,16 @@ longer shown above chat.
 
 `scripts/testing/usage-details-ui.e2e.test.ts` checks the header's **More** menu,
 usage breakdown, clipboard success and refusal, and responsive geometry at
-390, 800, 1100 and 1600 px. It checks that opening bot settings folds the sidebar
-without changing its saved density and closing settings restores it. Evidence
+390, 800, 1100 and 1600 px. The menu's **Usage** item opens Settings → Usage.
+Opening the dog's profile from the chat header folds the sidebar at 1100 px
+without changing its saved density, and closing it restores the sidebar. Evidence
 includes screenshots and a `.usage-details.json` next to the fixture log.
 These are renderer checks, not native Windows caption-button verification.
 
 It runs when an agent-browser binary resolves and is skipped with a printed
 reason otherwise; `LATERDOG_UI_E2E=1` forces the verified download. The `ui-smoke`
-job in `.github/workflows/ci.yml` runs it on Ubuntu 24.04 and uploads the
-screenshot; it is not one of the required checks.
+job in `.github/workflows/ci.yml` runs every renderer test in `scripts/testing`
+on Ubuntu 24.04 and uploads the screenshots; it is not one of the required checks.
 
 ## Thinking timer across thread switches
 

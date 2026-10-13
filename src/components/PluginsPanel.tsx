@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
 import { api, useStore, type Bot, type InstanceInfo } from "@/state/store";
+import { appIconUrl } from "@/lib/app-icons";
 import { cn } from "@/lib/cn";
 import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { t } from "@/lib/i18n";
@@ -204,7 +205,8 @@ export function onlyLatestConnectorResponses(
 }
 
 export function ServiceIcon({ card, className = "size-11" }: { card: Pick<ToolkitCard, "logo" | "domain" | "label">; className?: string }) {
-  const [stage, setStage] = useState(card.logo ? 0 : card.domain ? 1 : 2);
+  const bundled = appIconUrl(card.domain);
+  const [stage, setStage] = useState(card.logo ? 0 : bundled ? 1 : 2);
   if (stage === 0 && card.logo) {
     return (
       <img
@@ -212,14 +214,14 @@ export function ServiceIcon({ card, className = "size-11" }: { card: Pick<Toolki
         alt=""
         loading="lazy"
         className={cn("rounded-xl object-contain", className)}
-        onError={() => setStage(1)}
+        onError={() => setStage(bundled ? 1 : 2)}
       />
     );
   }
-  if (stage === 1 && card.domain) {
+  if (stage === 1 && bundled) {
     return (
       <img
-        src={`https://www.google.com/s2/favicons?domain=${card.domain}&sz=64`}
+        src={bundled}
         alt=""
         loading="lazy"
         className={cn("rounded-xl object-contain", className)}

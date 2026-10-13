@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.27 — 2026-10-13
+
+- **Your organization's tricks are back in a dog's profile.** The tricks your organization shares are listed there again, and adding one puts it on that dog, switched on.
+- **App icons come with later.dog.** Apps no longer fetches icons from Google, so which apps you look at stays on your Mac. An app without an icon shows its first letter.
+- **Claude Haiku 5.5 takes an effort level.** It offers the same effort choices as the other 5.5 models, starting at Medium, and long chats with it are no longer condensed early: later.dog now uses its full 1M-token context.
+- **Dictation keeps your sentences straight.** When Mac dictation pauses and starts listening again, a new sentence that begins like the last one ("Yes", then "Yesterday") stays its own sentence, and a fix to an earlier word ("Their" becoming "They're") replaces the old words instead of repeating them, in languages written with or without spaces.
+
 ## 0.3.26 — 2026-10-13
 
 - **Dogs use their computer.** A dog left on Auto works on its cloud computer instead of saying it has none, and it handles a sign-in with a Secure Form or a Take over card rather than refusing.

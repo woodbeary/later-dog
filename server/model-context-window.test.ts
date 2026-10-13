@@ -21,6 +21,10 @@ describe("model context window fallback", () => {
     expect(modelContextWindow("claude-opus-5-5-local")).toBe(200_000);
     expect(modelContextWindow("claude-opus-5-5garbage")).toBe(200_000);
     expect(modelContextWindow("omlx::claude-opus-5-5")).toBe(200_000);
+    expect(modelContextWindow("claude-haiku-4-5")).toBe(200_000);
+    expect(modelContextWindow("claude-haiku-5-5")).toBe(1_000_000);
+    expect(modelContextWindow("anthropic.claude-haiku-5-5")).toBe(1_000_000);
+    expect(modelContextWindow("claude-haiku-5-5-local")).toBe(200_000);
     expect(modelContextWindow("claude-opus-5[1m]")).toBe(1_000_000);
     expect(modelContextWindow("gpt-5.6-sol")).toBe(272_000);
     expect(modelContextWindow("gpt-4.1-mini")).toBe(1_000_000);

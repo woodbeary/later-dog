@@ -106,17 +106,16 @@ creation succeeds while those routes remain blocked. The dialog tests also
 check that a caller's synchronous exception or rejected promise after creation
 is reported without leaving a retryable creation dialog open.
 
-In the renderer fixture, open **App settings → General → Defaults for new bots → Edit**.
-The full creation dialog keeps its **Who can see it** selection for
-browser admins. `scripts/testing/bot-draft-visibility-ui.e2e.test.ts` selects
-**Admins only**, creates a bot, and verifies its stored audience. The initial
-POST carries that audience; it is not widened temporarily during later setup.
-The fixture injects the native select's change event for cross-platform
-headless reliability; it does not verify the operating system's select popup.
-Desktop, companion, and default-template editors do not expose that control.
+The creation dialog no longer has a **Who can see it** choice;
+`src/components/NewBotDialog.test.ts` and
+`src/components/BotSettingsDialog.simple.test.ts` check it stays gone.
+`scripts/testing/composer-drafts-ui.e2e.test.ts` opens the dialog with
+Control+N in the renderer fixture, creates a dog with **Create dog**, and checks
+that the new dog's chat opens with an empty composer while other chats keep
+their drafts.
 
-In the defaults editor:
-Open **Identity → View full**. Three successive Escape presses must close only
+In the renderer fixture, open **App settings → General → Defaults for new bots → Edit**.
+In the defaults editor, open **Identity → View full**. Three successive Escape presses must close only
 the instruction preview, then the defaults editor, then Settings. Tab navigation
 must remain inside the active editor.
 

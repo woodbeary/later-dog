@@ -1,6 +1,3 @@
--- Generated and pinned with `auth@1.7.1 generate` for Better Auth 1.7.1,
--- the Kysely adapter, SQLite dialect, emailOTP(), bearer(), and database-backed
--- rate limiting. Do not edit this migration in place after deployment.
 create table "user" ("id" text not null primary key, "name" text not null, "email" text not null unique, "emailVerified" integer not null, "image" text, "createdAt" date not null, "updatedAt" date not null);
 
 create table "session" ("id" text not null primary key, "expiresAt" date not null, "token" text not null unique, "createdAt" date not null, "updatedAt" date not null, "ipAddress" text, "userAgent" text, "userId" text not null references "user" ("id") on delete cascade);

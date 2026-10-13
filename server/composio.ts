@@ -1162,7 +1162,7 @@ export interface ToolkitCard {
   domain: string | null;
 }
 
-const CURATED: ToolkitCard[] = [
+export const CURATED_TOOLKITS: ToolkitCard[] = [
   { slug: "slack", label: "Slack", blurb: "Post updates and read channels", domain: "slack.com", logo: null },
   { slug: "github", label: "GitHub", blurb: "Issues, pull requests, and code", domain: "github.com", logo: null },
   { slug: "gmail", label: "Gmail", blurb: "Read and send email", domain: "gmail.com", logo: null },
@@ -1318,14 +1318,14 @@ export async function listToolkits(cfg: AppConfig): Promise<{ cards: ToolkitCard
       /* fall through to curated */
     }
   }
-  return { cards: CURATED, source: "curated" };
+  return { cards: CURATED_TOOLKITS, source: "curated" };
 }
 
 export async function toolkitCard(cfg: AppConfig, slug: string): Promise<ToolkitCard> {
   const normalized = canonicalToolkitSlug(slug);
   const { cards } = await listToolkits(cfg);
   return cards.find((card) => card.slug.toLowerCase() === normalized)
-    ?? CURATED.find((card) => card.slug === normalized)
+    ?? CURATED_TOOLKITS.find((card) => card.slug === normalized)
     ?? {
       slug: normalized,
       label: normalized.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
@@ -1335,4 +1335,4 @@ export async function toolkitCard(cfg: AppConfig, slug: string): Promise<Toolkit
     };
 }
 
-export const CURATED_SLUGS = CURATED.map((c) => c.slug);
+export const CURATED_SLUGS = CURATED_TOOLKITS.map((c) => c.slug);

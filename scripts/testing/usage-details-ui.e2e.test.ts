@@ -62,15 +62,13 @@ if (!enabled) console.log("skipping usage details UI: set LATERDOG_UI_E2E=1 to i
         const rect = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width }; };
         return { viewport: innerWidth, scroll: document.documentElement.scrollWidth,
           menu: rect('[role=menu][aria-label=More]'), editor: rect('.mention-editor'),
-          row: rect('[data-composer-row]'), controls: rect('[data-composer-actions]'),
-          threads: Boolean(document.querySelector('button[aria-label="All threads"]')) };
+          row: rect('[data-composer-row]'), controls: rect('[data-composer-actions]') };
       })()`);
       expect(await evaluate("document.querySelectorAll('[data-chathead-controls] > div').length")).toBeLessThan(6);
       expect(layout.scroll).toBeLessThanOrEqual(width);
       expect(layout.viewport).toBe(width);
       expect(layout.menu.left).toBeGreaterThanOrEqual(0);
       expect(layout.menu.right).toBeLessThanOrEqual(width);
-      expect(layout.threads).toBe(true);
       expect(layout.controls.width).toBeGreaterThan(0);
       if (layout.row.width < 480) {
         expect(layout.editor.width).toBeGreaterThanOrEqual(layout.row.width - 1);
@@ -87,25 +85,17 @@ if (!enabled) console.log("skipping usage details UI: set LATERDOG_UI_E2E=1 to i
     const snapshot = await ui("snapshot", "--interactive");
     const usage = Object.entries(snapshot.refs as Record<string, { name: string; role: string }>).find(([, entry]) => entry.role === "menuitem" && entry.name.startsWith("Usage"))!;
     await ui("click", "--ref", `@${usage[0]}`);
+    await expect.poll(() => evaluate("document.querySelector('[role=dialog] [data-settings-content]')?.dataset.settingsContent")).toBe("usage");
+    await ui("screenshot", "--out", `${handle.logPath}.usage-1100.png`);
+    await ui("press", "--keys", "Escape");
+    await expect.poll(() => evaluate("Boolean(document.querySelector('[data-settings-content]'))")).toBe(false);
+    await ui("click", "--name", "Open Pepper's profile");
     await expect.poll(() => evaluate("document.querySelector('[data-sidebar]').getBoundingClientRect().width")).toBe(80);
     expect(await evaluate("localStorage.getItem('laterdog.sidebarDensity')")).toBe(density);
     await ui("screenshot", "--out", `${handle.logPath}.settings-1100.png`);
     expect(await evaluate("Boolean(document.querySelector('[role=dialog]'))")).toBe(true);
     await ui("press", "--keys", "Escape");
     await expect.poll(() => evaluate("document.querySelector('[data-sidebar]').getBoundingClientRect().width")).toBe(320);
-    await ui("click", "--name", "More");
-    await ui("click", "--name", "Inspector");
-    await ui("click", "--name", "More");
-    const withInspector = await ui("snapshot", "--interactive");
-    const usageWithInspector = Object.entries(withInspector.refs as Record<string, { name: string; role: string }>).find(([, entry]) => entry.role === "menuitem" && entry.name.startsWith("Usage"))!;
-    await ui("click", "--ref", `@${usageWithInspector[0]}`);
-    await expect.poll(() => evaluate("getComputedStyle(document.querySelector('[role=dialog]')).position")).toBe("absolute");
-    expect(await evaluate("document.querySelector('main').getBoundingClientRect().width")).toBeGreaterThan(400);
-    await ui("screenshot", "--out", `${handle.logPath}.two-panels-1100.png`);
-    await agentBrowser(browser.binary, sessionEnv(browser), ["set", "viewport", "1600", "900"]);
-    await expect.poll(() => evaluate("getComputedStyle(document.querySelector('[role=dialog]')).position")).toBe("static");
-    await ui("press", "--keys", "Escape");
-    expect(await evaluate("Boolean(document.querySelector('[aria-label=Inspector]'))")).toBe(true);
     const consoleResult = await ui("console");
     expect((consoleResult.messages ?? []).filter((row: { type?: string }) => row.type === "error")).toEqual([]);
     const evidence = handle.logPath + ".usage-details.json";
