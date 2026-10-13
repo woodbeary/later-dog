@@ -21,6 +21,7 @@ export function mapClaudeTask(previous: Helper | undefined, value: unknown, now 
   if (!id) return undefined;
   const patch = fields(event.patch);
   const usage = fields(event.usage);
+  if (previous && previous.state !== "running" && patch.status === undefined && event.status === undefined) return previous;
   const status = state(patch.status ?? event.status ?? previous?.state);
   if (previous && previous.state !== "running" && status === "running") return previous;
   const flow = event.task_type === "local_workflow" || previous?.kind === "workflow";
