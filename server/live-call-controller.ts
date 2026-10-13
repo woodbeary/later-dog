@@ -670,14 +670,17 @@ export class LiveCallController {
   }
 
   private onSetupCard(call: Call, message: Message): void {
-    const { connector, secret } = message;
+    const { connector, secret, secureForm } = message;
     const waiting = message.kind === "connector"
       ? Boolean(connector && connector.status !== "connected" && !connector.dismissed && !connector.resumed)
-      : Boolean(secret && !secret.provided && !secret.dismissed && !secret.superseded && !secret.resumed);
+      : secureForm
+        ? secureForm.status === "open"
+        : Boolean(secret && !secret.provided && !secret.dismissed && !secret.superseded && !secret.resumed);
     const key = `${message.kind}:${message.id}`;
     if (!waiting || call.announced.has(key)) return;
     call.announced.add(key);
-    this.append(call, "instructions", connector ? spokenConnectorPrompt(connector.label) : spokenSecretPrompt(secret?.label ?? ""));
+    const label = secureForm ? `the sign-in details for ${secureForm.host}` : secret?.label ?? "";
+    this.append(call, "instructions", connector ? spokenConnectorPrompt(connector.label) : spokenSecretPrompt(label));
   }
 
   private onCardSettled(call: Call, requestId: string): void {

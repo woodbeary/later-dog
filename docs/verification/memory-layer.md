@@ -11,7 +11,7 @@ is off, and every memory write is a journaled, undoable row. See [the memory gui
 pnpm exec vitest run server/memory-layer.e2e.test.ts
 pnpm exec vitest run server/spend-cap-api.test.ts
 pnpm exec vitest run server/memory-entries.test.ts server/recall.test.ts server/memory-upkeep.test.ts server/workspace.test.ts
-pnpm exec vitest run src/components/bot-settings/MemorySection.test.ts src/lib/memory.test.ts server/drivers/agents-catalog-wire.test.ts
+pnpm exec vitest run src/components/bot-settings/MemorySection.test.ts src/components/bot-settings/MemorySection.page.test.ts src/components/bot-settings/SimpleMemory.test.ts src/lib/memory.test.ts server/drivers/agents-catalog-wire.test.ts
 ```
 
 The API fixture launches the shared isolated server with the fake engine. The

@@ -56,7 +56,7 @@ fi
 cd "$ROOT/dl"
 gh release download "$TAG" --repo "$REPO" \
   --pattern 'later.dog-macOS-arm64.zip' --pattern 'SHA256SUMS.txt' --pattern 'latest-mac.yml'
-shasum -a 256 -c SHA256SUMS.txt
+awk '$2 == "later.dog-macOS-arm64.zip"' SHA256SUMS.txt | shasum -a 256 -c -
 python3 -I - latest-mac.yml later.dog-macOS-arm64.zip <<'EOF'
 import base64, hashlib, re, sys
 manifest = open(sys.argv[1]).read()

@@ -1,4 +1,5 @@
 import type { EffortLevel, EngineAccess, ModelCatalog, ModelSelection, ProviderSnapshot } from "./contracts.ts";
+import { fitEffort, modelEffortLevels } from "../shared/effort.ts";
 
 export interface SelectableInstance {
   instanceId: string;
@@ -46,7 +47,12 @@ export function selectDefaultModelSelection(
       return { instanceId: "", model: "" };
     }
     const selection = { ...preferred };
-    if (selection.effort && !instance.capabilities?.effortLevels?.includes(selection.effort)) delete selection.effort;
+    const offered = instance.capabilities?.effortLevels ?? [];
+    const fitted = selection.effort && offered.includes(selection.effort)
+      ? fitEffort(modelEffortLevels(offered, instance.models.options.find((model) => model.id === selection.model)), selection.effort)
+      : undefined;
+    if (fitted) selection.effort = fitted;
+    else delete selection.effort;
     return selection;
   }
   const available = instances.filter((instance) => instance.snapshot.state === "available" && context.refusal?.(instance) === undefined);

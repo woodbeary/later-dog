@@ -3,6 +3,7 @@ import { isolatedRemoteCommand, runCommand, screenshotBoat } from "./computers.t
 import type { AppConfig } from "./config.ts";
 import { CONTROL_REFUSAL_PLAIN } from "./control-client.ts";
 import { compileToolSchema } from "./mcp-schema-validator.ts";
+import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
 
 const coordinate = { type: "integer", minimum: 0, maximum: 32767 };
 const tool = (name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []) =>
@@ -18,8 +19,10 @@ export const CLOUD_COMPUTER_TOOLS = [
   tool("scroll", "Scroll at a point on the cloud desktop.", { x: coordinate, y: coordinate, direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: { type: "integer", minimum: 1, maximum: 30 } }, ["x", "y", "direction"]),
   tool("open_url", "Request opening an HTTP or HTTPS URL in the cloud desktop browser; inspect the screen to confirm it loaded.", { url: { type: "string", pattern: "^https?://", maxLength: 2000 } }, ["url"]),
   tool("exec", "Run a shell command on the assigned cloud computer.", { command: { type: "string", minLength: 1, maxLength: 4000 } }, ["command"]),
+  ...SECURE_FORM_TOOLS,
 ];
 export const CLOUD_COMPUTER_NOT_READY = "The cloud computer is not ready. This call was not performed. Take a fresh screenshot in a moment.";
+const SECURE_FORMS_UNAVAILABLE = "Secure Forms are not available in this conversation. Ask the person with request_takeover instead.";
 const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
 const buttons: Record<string, number> = { left: 1, middle: 2, right: 3 };
 const scrollButtons: Record<string, number> = { up: 4, down: 5, left: 6, right: 7 };
@@ -85,6 +88,7 @@ export async function cloudComputerRpc(
     gate(): Promise<{ held: boolean; blockedReason?: string }>;
     assertActive(): void;
     signal: AbortSignal;
+    secureForms?: SecureFormDesk;
   },
 ): Promise<{ tools: typeof CLOUD_COMPUTER_TOOLS } | CloudComputerResult> {
   if (request?.method === "tools/list") {
@@ -96,11 +100,28 @@ export async function cloudComputerRpc(
   const args = params.arguments ?? {};
   const problem = cloudComputerCallProblem(params.name, args);
   if (problem) return { isError: true, content: [{ type: "text", text: problem }] };
+  if (params.name === "request_secure_form") {
+    deps.assertActive();
+    const desk = deps.secureForms;
+    if (!desk) return { isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] };
+    const input = parseSecureFormInput(args as Record<string, unknown>);
+    const opened = "error" in input ? input : desk.open(input);
+    if ("error" in opened) return { isError: true, content: [{ type: "text", text: opened.error }] };
+    return { content: [{ type: "text", text: secureFormRequestedText(opened.formId) }] };
+  }
   const control = await deps.gate();
   deps.assertActive();
   if (control.held) return { isError: true, content: [{ type: "text", text: control.blockedReason || CONTROL_REFUSAL_PLAIN }] };
   const boxId = deps.boxId();
   if (!boxId) return { isError: true, content: [{ type: "text", text: CLOUD_COMPUTER_NOT_READY }] };
+  if (params.name === "fill_secure_field") {
+    if (!deps.secureForms) return { isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] };
+    const filled = await fillSecureField(args as Record<string, unknown>, deps.secureForms, (command) =>
+      runCommand(deps.cfg, boxId, isolatedRemoteCommand(command), { signal: deps.signal }));
+    deps.signal.throwIfAborted();
+    deps.assertActive();
+    return { ...(filled.ok ? {} : { isError: true }), content: [{ type: "text", text: filled.text }] };
+  }
   const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal);
   deps.assertActive();
   return result;

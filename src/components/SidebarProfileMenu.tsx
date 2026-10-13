@@ -1,18 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  ArrowDownToLine,
-  Check,
-  Info,
-  HelpCircle,
-  Keyboard,
-  Loader2,
-  MessageSquare,
-  RefreshCw,
-  Settings as SettingsIcon,
-} from "lucide-react";
+import { ArrowDownToLine, Check, Loader2, LogOut, RefreshCw, Settings as SettingsIcon } from "lucide-react";
 
 import { InitialsAvatar } from "./Avatar";
-import { AboutDialog } from "./AboutDialog";
 import {
   AddProfileDialog,
   EditProfilesDialog,
@@ -25,13 +14,13 @@ import {
 } from "./ProfileSwitcher";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
-import { ShortcutHint } from "./ShortcutHint";
+import { SignOutDialog, useSignOutTargets, type SignOutTargets } from "./SignOutAll";
 import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { brand } from "../lib/brand";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { FEEDBACK_URL, HELP_CENTER_URL, openExternalLink } from "@/lib/app-links";
+import { openExternalLink } from "@/lib/app-links";
 
 export function profileInitials(profile?: { name?: string; email?: string }): string {
   const name = profile?.name?.trim();
@@ -166,7 +155,8 @@ export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
   const update = useUpdateItem();
   const profiles = useProfiles();
-  const [aboutOpen, setAboutOpen] = useState(false);
+  const signOut = useSignOutTargets();
+  const [signingOut, setSigningOut] = useState<SignOutTargets | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [page, setPage] = useState<"main" | "profiles">("main");
   const [switching, setSwitching] = useState<string | null>(null);
@@ -207,44 +197,28 @@ export function SidebarProfileMenu() {
     setSwitchError(null);
   };
 
+  const updateReady = update?.phase === "downloaded" || update?.phase === "available";
   const mainItems: SidebarMenuItem[] = [
     ...(profiles ? [profileEntryItem(() => setPage("profiles"))] : []),
     {
       key: "settings",
       label: t("sidebar.menu.settings"),
       icon: <SettingsIcon size={18} />,
-      onSelect: () => dispatch({ type: "toggleAppSettings" }),
+      attention: updateReady,
+      attentionTone: "accent",
+      note: update?.phase === "downloaded" ? t("sidebar.menu.updateReady") : updateReady ? t("sidebar.menu.updateAvailable") : undefined,
+      onSelect: () => dispatch(updateReady ? { type: "toggleAppSettings", open: true, section: "updates" } : { type: "toggleAppSettings" }),
     },
-    {
-      key: "shortcuts",
-      label: "Keyboard shortcuts",
-      icon: <Keyboard size={18} />,
-      trailing: <ShortcutHint id="shortcuts-cheat-sheet" />,
-      onSelect: () => {
-        triggerRef.current?.closest("button")?.focus();
-        dispatch({ type: "toggleShortcuts", open: true });
-      },
-    },
-    ...(update ? [update.item] : []),
-    {
-      key: "about",
-      label: t("sidebar.menu.about"),
-      icon: <Info size={18} />,
+    ...(signOut.names.length > 0 ? [{
+      key: "signOut",
+      label: t("accounts.signOut"),
+      icon: <LogOut size={18} />,
       separatorBefore: true,
-      onSelect: () => setAboutOpen(true),
-    },
-    {
-      key: "help",
-      label: t("sidebar.menu.help"),
-      icon: <HelpCircle size={18} />,
-      onSelect: () => void openExternalLink(HELP_CENTER_URL),
-    },
-    {
-      key: "feedback",
-      label: t("sidebar.menu.feedback"),
-      icon: <MessageSquare size={18} />,
-      onSelect: () => void openExternalLink(FEEDBACK_URL),
-    },
+      onSelect: () => {
+        focusTrigger();
+        setSigningOut(signOut);
+      },
+    }] : []),
   ];
   const items =
     profiles && page === "profiles"
@@ -287,7 +261,7 @@ export function SidebarProfileMenu() {
           </span>
         )}
       />
-      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      {signingOut && <SignOutDialog targets={signingOut} onClose={() => setSigningOut(null)} />}
       {profiles && profileDialog === "add" && (
         <AddProfileDialog bridge={profiles.bridge} onClose={() => setProfileDialog(null)} />
       )}

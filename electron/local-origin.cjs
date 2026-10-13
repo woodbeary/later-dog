@@ -20,6 +20,7 @@ const PROFILE_CHANNELS = new Set([
   "release-check:set",
   "screen:frame",
   "screen:preview-intent",
+  "speech:audio",
   "speech:finish",
   "speech:start",
   "speech:stop",

@@ -30,30 +30,43 @@ describe("reset distance", () => {
 });
 
 describe("Account usage presentation", () => {
-  it("shows the session as a bar with its reset and the week as a caption", () => {
+  it("shows each window as a bar of what is left, with its reset", () => {
     const html = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now: Date.now() }));
-    expect(html).toContain('role="meter"');
-    expect(html).toContain('aria-valuenow="32"');
-    expect(html).toContain("5-hour · 32% used · resets in 2h 10m");
-    expect(html).toContain("Weekly · 70% used · resets in 3d 4h");
-    expect(html).not.toContain("68% left");
+    expect(html.match(/role="meter"/g)).toHaveLength(2);
+    expect(html).toContain('aria-valuenow="68"');
+    expect(html).toContain('aria-valuenow="30"');
+    expect(html).toContain("5-hour · 68% left · resets in 2h 10m");
+    expect(html).toContain("Weekly · 30% left · resets in 3d 4h");
+    expect(html).not.toContain("% used");
     expect(html).toContain("bg-accent");
     expect(html).not.toContain("bg-danger");
   });
 
-  it("turns the bar to danger past 90% and says so when a window is not reported", () => {
+  it("turns the bar to danger when less than a tenth is left, and leaves out a window that is not reported", () => {
     const hot = provider({ fiveHour: { available: true, remainingPercent: 5, usedPercent: 95, resetsAt: null }, weekly: { available: false, remainingPercent: null, usedPercent: null, resetsAt: null } });
     const html = renderToStaticMarkup(createElement(AccountUsage, { provider: hot, now: Date.now() }));
     expect(html).toContain("bg-danger");
-    expect(html).toContain("5-hour · 95% used");
+    expect(html).toContain("5-hour · 5% left");
     expect(html).not.toContain("Weekly");
   });
 
-  it("says a resting account is resting, and shows nothing when there is nothing real to report", () => {
-    const until = new Date(Date.now() + HOUR).toISOString();
-    const resting = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now: Date.now(), resting: { until } }));
-    expect(resting).toMatch(/Resting until [^<]*\d{1,2}:\d{2}/);
+  it("puts a resting account to sleep with a line that recharges until it is back, and shows nothing when there is nothing real to report", () => {
+    const now = Date.now();
+    const rest = { since: new Date(now - HOUR).toISOString(), until: new Date(now + HOUR).toISOString() };
+    const resting = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now, resting: rest }));
+    expect(resting).toContain("Recharging");
+    expect(resting).toMatch(/Back at [^<]*\d{1,2}:\d{2}[^<]* · in 1h</);
+    expect(resting).toContain('data-sleeping-dog=""');
+    expect(resting).toContain('data-recharge="50"');
+    expect(resting).toContain('aria-valuetext="50% recharged"');
     expect(resting).not.toContain('role="meter"');
+    const rough = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now, resting: { until: rest.until, estimated: true } }));
+    expect(rough).toMatch(/Back around [^<]*\d{1,2}:\d{2}[^<]*</);
+    expect(rough).not.toContain(" · in ");
+    expect(rough).toContain('data-recharge="unknown"');
+    const over = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now, resting: { ...rest, until: new Date(now - 1).toISOString() } }));
+    expect(over).not.toContain("Recharging");
+    expect(over).toContain('role="meter"');
     const none = renderToStaticMarkup(createElement(AccountUsage, { provider: undefined, now: Date.now() }));
     expect(none).toBe("");
     const failed = renderToStaticMarkup(createElement(AccountUsage, { provider: provider({ ok: false, error: "Could not reach Claude" }), now: Date.now() }));

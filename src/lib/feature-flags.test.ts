@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { builtInBrowserEnabled, llmThreadTitlesEnabled, routinesInConversationEnabled, sharedComputersEnabled, showToolCallsEnabled, skillAuthoringEnabled } from "./feature-flags";
+import { builtInBrowserEnabled, llmThreadTitlesEnabled, routinesInConversationEnabled, sharedComputersEnabled, showToolCallsEnabled, skillAuthoringEnabled, stepUpdatesEnabled } from "./feature-flags";
 
 describe("experimental feature flags", () => {
   it("keeps skill authoring on by default, before and after the config arrives", () => {
@@ -32,6 +32,14 @@ describe("experimental feature flags", () => {
     expect(routinesInConversationEnabled(null)).toBe(false);
     expect(routinesInConversationEnabled({})).toBe(false);
     expect(routinesInConversationEnabled({ features: { routinesInConversation: true } })).toBe(true);
+  });
+
+  it("keeps dogs quiet by default and shows every step once step-by-step updates are on", () => {
+    expect(stepUpdatesEnabled(null)).toBe(false);
+    expect(stepUpdatesEnabled({ features: {} })).toBe(false);
+    expect(stepUpdatesEnabled({ features: { stepUpdates: true } })).toBe(true);
+    expect(showToolCallsEnabled({ features: { stepUpdates: true } })).toBe(true);
+    expect(showToolCallsEnabled({ features: { stepUpdates: false, showToolCalls: false } })).toBe(false);
   });
 
   it("keeps computer sharing off unless the server says it is on", () => {

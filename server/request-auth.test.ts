@@ -100,7 +100,7 @@ describe("scopes", () => {
       ["GET", "/api/attachments/a.png"], ["POST", "/api/routines"], ["POST", "/api/routines/r/run"],
       ["POST", "/api/routine-runs/seen-all"],
       ["GET", "/api/bots"], ["GET", "/api/threads/t/messages"], ["GET", "/api/search"], ["GET", "/api/events"],
-      ["GET", "/api/config"], ["GET", "/api/webhooks"], ["POST", "/api/tts/speak"],
+      ["GET", "/api/config"], ["GET", "/api/webhooks"], ["POST", "/api/tts/speak"], ["POST", "/api/voice/transcribe"],
       ["GET", "/api/auth/session"], ["POST", "/api/auth/stream-ticket"], ["POST", "/api/auth/logout"],
       ["GET", "/api/bots/x/slack-management"],
     ] as const) expect(requiredScope(method, path), `${method} ${path}`).toBe("client");
@@ -118,6 +118,7 @@ describe("scopes", () => {
       ["POST", "/api/live/session"], ["POST", "/api/live/call/end"], ["GET", "/api/live/call"], ["PATCH", "/api/live/settings"],
       ["POST", "/api/live/device-revoked"],
       ["POST", "/api/auth/pair"],
+      ["GET", "/api/voice/transcribe"],
       ["GET", "/api/something-new"],
     ] as const) expect(requiredScope(method, path), `${method} ${path}`).toBe("admin");
   });

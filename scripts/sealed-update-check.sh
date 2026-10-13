@@ -68,7 +68,7 @@ if [ -n "${LATERDOG_TRIAL_GRANT_KEY_FILE:-}" ]; then
 fi
 cd "$ROOT/dl"
 gh release download "$OLD" --repo "$REPO" --pattern 'later.dog-macOS-arm64.zip' --pattern 'SHA256SUMS.txt'
-shasum -a 256 -c SHA256SUMS.txt
+awk '$2 == "later.dog-macOS-arm64.zip"' SHA256SUMS.txt | shasum -a 256 -c -
 ditto -x -k later.dog-macOS-arm64.zip "$ROOT/run/"
 codesign --verify --deep --strict "$APP"
 version_of() { /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist" 2>/dev/null; }

@@ -84,6 +84,7 @@ export interface SendTurnInput {
   effort?: EffortLevel;
   variant?: string;
   fast?: boolean;
+  quietWork?: boolean;
   resumeCursor?: unknown;
   sessionReset?: boolean;
   startupRecovery?: boolean;
@@ -232,6 +233,8 @@ export interface ModelCatalog {
     provider?: string;
     contextWindow?: number;
     variants?: ModelVariantOption[];
+    effortLevels?: readonly EffortLevel[];
+    defaultEffort?: EffortLevel;
   }>;
 }
 

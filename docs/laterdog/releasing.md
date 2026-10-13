@@ -1,6 +1,6 @@
 # Push an update
 
-later.dog 0.3.3 and newer update themselves from the newest GitHub release of `woodbeary/later-dog`. Publishing a release is how an update reaches people. Within an hour, or at their next launch, the app downloads it and a small icon appears at the top of the sidebar. Clicking it shows what's new and **Restart to update**.
+later.dog 0.3.3 and newer update themselves from the newest GitHub release of `woodbeary/later-dog`. Publishing a release is how an update reaches people. Within an hour, or at their next launch, the app downloads it and a small icon appears at the bottom of the sidebar. Clicking it shows what's new and **Restart to update**.
 
 ## Steps
 
@@ -14,18 +14,18 @@ later.dog 0.3.3 and newer update themselves from the newest GitHub release of `w
    ```
 
    Or in GitHub: Actions → macOS preview build → Run workflow → `main` → release tag `v0.3.4`.
-5. Check that the release has three files: `later.dog-macOS-arm64.zip`, `SHA256SUMS.txt` and `latest-mac.yml`.
+5. Check that the release has four files: `later.dog-macOS-arm64.dmg`, `later.dog-macOS-arm64.zip`, `SHA256SUMS.txt` and `latest-mac.yml`. New installs use the disk image, which the Download button on later.dog serves; installed apps update from the zip.
 
 ## What the workflow refuses
 
 - A tag that doesn't match `package.json`'s version. Installed apps would be offered the same build forever.
 - Replacing a release that already exists.
 - A feed without a signing identity. macOS installs an update only when it is signed like the running app.
-- A release whose notarization Apple didn't accept. The job prints Apple's log and publishes nothing.
+- A release whose notarization Apple didn't accept, for the app or for the disk image. The job prints Apple's log and publishes nothing.
 
 ## Signing and notarization
 
-Releases are signed with later.dog's own self-signed "later.dog Developer" certificate until the Developer ID secrets exist. With them, the workflow signs with the Developer ID certificate, sends each release to Apple for notarization, and staples the ticket. People then open later.dog with no Open Anyway step. Pushes to `main` are signed but not notarized, to keep them quick.
+Releases are signed with later.dog's own self-signed "later.dog Developer" certificate until the Developer ID secrets exist. With them, the workflow signs with the Developer ID certificate, sends each release to Apple for notarization, and staples the ticket. The disk image is signed, notarized and stapled the same way. People then open later.dog with no Open Anyway step. Pushes to `main` are signed but not notarized, to keep them quick.
 
 To switch, once, on the Mac that has the Developer ID certificate:
 
@@ -51,7 +51,7 @@ A tag such as `v0.3.4-preview.1` publishes a prerelease without `latest-mac.yml`
 
 - The icon shows a ring while the update downloads, then an arrow when it's ready.
 - **Restart to update** installs it now. Otherwise it installs the next time later.dog quits. Nothing restarts by itself while a dog works.
-- **Check for updates** is in the menu under your name and in Settings, Updates.
+- **Check for updates** is in Settings, Updates.
 - 0.3.2 and earlier have no updater. People on them download the new version once.
 
 ## Careful

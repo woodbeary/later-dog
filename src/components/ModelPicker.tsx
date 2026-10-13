@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { Check, ChevronDown, ChevronLeft, ChevronRight, KeyRound, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { useStore, currentTaskBot, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
+import { fitEffort } from "../../shared/effort";
 import type { ModelVariantOption } from "../../shared/runtime-events";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
 import { configuredModelInstances, isClaudeAccount, isCustomOnly, SIGN_IN_FAMILY_LABEL, signInFamily, splitEngineRail, type SignInFamily } from "@/lib/engine-rail";
@@ -20,13 +21,13 @@ import { fastModeFits } from "@/lib/fast-mode";
 import { modelShown, useHiddenModels } from "@/lib/model-visibility";
 import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
 import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
-import { friendlyEffort, simpleEffortLevels } from "@/lib/model-friendly";
+import { effortLevelsFor, effortName, effortNote, simpleEffortLevels } from "@/lib/model-friendly";
 import { t } from "@/lib/i18n";
 import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { threadsOnOwnModel } from "../../shared/thread-model";
 import { ThreadModelsLine } from "./ThreadModelsLine";
-import { subscriptionAccounts } from "./AccountsPanel";
-import { AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
+import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
+import { AccountBadge, AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
 import { usePlanUsage, useRefreshAfterTurn } from "./PlanUsage";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
@@ -69,10 +70,6 @@ export function offersLocalModels(instance: InstanceInfo | undefined, localCount
   return localCount > 0 || (instance.driverKind === "claudeAgent" && !needsCli(instance) && !instance.policy);
 }
 
-export function effortLabel(level: EffortLevel): string {
-  return level === "xhigh" ? "X-High" : level[0].toUpperCase() + level.slice(1);
-}
-
 export function EffortRow({
   bot,
   threadId,
@@ -94,8 +91,9 @@ export function EffortRow({
   if (instance?.capabilities?.modelVariants) {
     return <ModelVariantRow bot={bot} threadId={threadId} updateBotDefault={updateBotDefault} className={className} label={label} compact={compact} />;
   }
-  const levels = instance?.capabilities?.effortLevels;
-  if (!levels?.length) return null;
+  const levels = effortLevelsFor(instance, selection.model);
+  if (!levels.length) return null;
+  const name = (level: EffortLevel) => effortName(level, instance?.driverKind);
 
   if (compact) return (
     <label className={cn("flex items-center justify-between gap-3", className)}>
@@ -105,7 +103,7 @@ export function EffortRow({
           selection: { ...selection, effort: levels.find((level) => level === event.target.value) } })}
         className="min-w-0 max-w-[65%] rounded-lg border border-hairline/40 bg-inset px-2 py-1.5 text-[12px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70">
         <option value="">Default</option>
-        {levels.map((level) => <option key={level} value={level}>{effortLabel(level)}</option>)}
+        {levels.map((level) => <option key={level} value={level}>{name(level)}</option>)}
       </select>
     </label>
   );
@@ -122,7 +120,7 @@ export function EffortRow({
             title={
               level === undefined
                 ? "Send no effort level and let the provider decide"
-                : `Ask for ${effortLabel(level)} reasoning effort`
+                : effortNote(level) ?? `Ask for ${name(level)} reasoning effort`
             }
             onClick={() => dispatch({ type: "setModel", botId: bot.id, threadId, ...(updateBotDefault ? { updateBotDefault: true } : {}), selection: { ...selection, effort: level } })}
             className={cn(
@@ -132,7 +130,7 @@ export function EffortRow({
                 : "border-hairline/40 text-ink-secondary hover:bg-control/60 hover:text-ink",
             )}
           >
-            {level === undefined ? "Default" : effortLabel(level)}
+            {level === undefined ? "Default" : name(level)}
           </button>
         ))}
       </div>
@@ -232,7 +230,10 @@ export function modelSelectionForPick(selection: ModelSelection, instance: Insta
   if (instance.instanceId === selection.instanceId) {
     if (instance.capabilities?.modelVariants) {
       if (model === selection.model && selection.variant !== undefined) next.variant = selection.variant;
-    } else if (selection.effort) next.effort = selection.effort;
+    } else {
+      const effort = fitEffort(effortLevelsFor(instance, model), selection.effort);
+      if (effort) next.effort = effort;
+    }
     if (selection.fast && fastModeFits(instance, model)) next.fast = true;
   }
   return next;
@@ -515,13 +516,17 @@ export function ModelPicker({
   const switcherAccounts = subscriptionAccounts(state.instances, battery)
     .filter((account) => pickerInstances.some((instance) => instance.instanceId === account.instanceId));
   const usage = usePlanUsage({ enabled: simpleUpdatesBotDefault && switcherAccounts.length > 0 });
+  const carryOn = useCarryOn();
   useRefreshAfterTurn(bot.busy);
   const selectedVariantLabel = selection.variant === undefined ? undefined : variantLabel(
     active?.models.options.find((option) => option.id === selection.model)?.variants?.find((option) => option.id === selection.variant)
       ?? { id: selection.variant, label: selection.variant },
   );
-  const claudeAccounts = pickerInstances.filter(isClaudeAccount);
-  const openaiAccounts = pickerInstances.filter((instance) => signInFamily(instance) === "openai");
+  const accountRank = new Map(switcherAccounts.map((account, index) => [account.instanceId, index]));
+  const byAccountOrder = (accounts: InstanceInfo[]) => [...accounts].sort((a, b) =>
+    (accountRank.get(a.instanceId) ?? accountRank.size) - (accountRank.get(b.instanceId) ?? accountRank.size));
+  const claudeAccounts = byAccountOrder(pickerInstances.filter(isClaudeAccount));
+  const openaiAccounts = byAccountOrder(pickerInstances.filter((instance) => signInFamily(instance) === "openai"));
   const openaiRailInstance = openaiAccounts.find((instance) => instance.instanceId === lastOpenaiIdRef.current)
     ?? openaiAccounts.find((instance) => instance.instanceId === selection.instanceId) ?? openaiAccounts[0];
   const multipleClaudeAccounts = state.instances.filter(isClaudeAccount).length > 1;
@@ -739,12 +744,20 @@ export function ModelPicker({
     if (model) pick(account, model, true);
   };
   const signedInNow = (instance: InstanceInfo) => !instance.policy && !needsCli(instance) && !needsSignIn(instance);
-  const accountRows: AccountMenuRow[] = simpleProviders.flatMap((provider) => {
+  const familyMembers = (provider: (typeof simpleProviders)[number]) => {
     const family = signInFamily(provider.instance);
-    const members = family === "claude" ? claudeAccounts : family === "openai" ? openaiAccounts : [provider.target];
-    return members
-      .filter((member) => signedInNow(member) || member.instanceId === selection.instanceId)
-      .map((member) => ({ instance: member, label: member.displayName, selected: member.instanceId === selection.instanceId }));
+    return family === "claude" ? claudeAccounts : family === "openai" ? openaiAccounts : [provider.target];
+  };
+  const accountRows: AccountMenuRow[] = simpleProviders.flatMap((provider) => {
+    const shown = familyMembers(provider).filter((member) => signedInNow(member) || member.instanceId === selection.instanceId);
+    const ordered = shown.filter((member) => accountRank.has(member.instanceId));
+    return shown.map((member) => ({
+      instance: member,
+      label: member.displayName,
+      selected: member.instanceId === selection.instanceId,
+      movable: carryOn.canReorder && !carryOn.saving && ordered.includes(member)
+        && ordered.filter((other) => other.driverKind === member.driverKind).length > 1,
+    }));
   });
   const chooseAccount = (account: InstanceInfo) => {
     setOpen(false);
@@ -753,23 +766,29 @@ export function ModelPicker({
       ?? account.models.options.find((option) => !option.custom)?.id ?? account.models.default;
     if (model) pick(account, model);
   };
-  const modelGroups: ModelMenuGroup[] = accountRows.flatMap((row) => {
-    const usable = !row.instance.policy && !needsCli(row.instance) && !needsSignIn(row.instance);
-    if (!usable && row.instance.instanceId !== selection.instanceId) return [];
-    const own = row.instance.models.options.filter((option) => !option.custom);
-    const models = (own.length > 0 ? own : row.instance.models.options).filter((option) =>
-      modelShown(row.instance.instanceId, option.id, hiddenModels) || (row.instance.instanceId === selection.instanceId && option.id === selection.model));
-    return models.length > 0 ? [{ instance: row.instance, label: row.label, models }] : [];
+  const modelGroups: ModelMenuGroup[] = simpleProviders.flatMap((provider) => {
+    const members = familyMembers(provider);
+    const chosen = members.find((member) => member.instanceId === selection.instanceId);
+    const instance = (chosen && signedInNow(chosen) ? chosen : undefined)
+      ?? [provider.target, ...members].find(signedInNow) ?? chosen;
+    if (!instance) return [];
+    const own = instance.models.options.filter((option) => !option.custom);
+    const models = (own.length > 0 ? own : instance.models.options).filter((option) =>
+      modelShown(instance.instanceId, option.id, hiddenModels) || (instance.instanceId === selection.instanceId && option.id === selection.model));
+    return models.length > 0 ? [{ instance, label: provider.label, models }] : [];
   });
   const showSwitcher = simpleView && shownAccounts(switcherAccounts, selection.instanceId).length > 1;
   const manage = () => {
     setOpen(false);
     dispatch({ type: "toggleAppSettings", open: true, section: "general" });
   };
-  const activeLevels = active?.capabilities?.effortLevels ?? [];
+  const activeLevels = effortLevelsFor(active, selection.model);
+  const shownEffort = fitEffort(activeLevels, selection.effort);
+  const shownEffortName = shownEffort ? effortName(shownEffort, active?.driverKind) : undefined;
   const simpleEffort = activeLevels.length > 0 ? {
-    levels: simpleEffortLevels(activeLevels, selection.effort),
-    current: selection.effort,
+    levels: simpleEffortLevels(activeLevels, shownEffort),
+    current: shownEffort,
+    driverKind: active?.driverKind,
     onPick: (level: EffortLevel) => dispatch({ type: "setModel", botId: bot.id, threadId,
       ...(threadId && simpleUpdatesBotDefault ? { updateBotDefault: true } : {}), selection: { ...selection, effort: level } }),
   } : null;
@@ -791,15 +810,17 @@ export function ModelPicker({
   const summary = active
     ? `${active.displayName} · ${modelLabel(active, selection.model)}${
         modelProvider(active, selection.model) ? ` · ${modelProvider(active, selection.model)}` : ""
-      }${selectedVariantLabel ? ` · ${selectedVariantLabel}` : selection.effort ? ` · ${effortLabel(selection.effort)} effort` : ""}`
+      }${selectedVariantLabel ? ` · ${selectedVariantLabel}` : shownEffortName ? ` · ${shownEffortName} effort` : ""}`
     : shownModel;
-  const chosenDepth = selectedVariantLabel ?? (selection.effort ? friendlyEffort(selection.effort) : undefined);
+  const chosenDepth = selectedVariantLabel ?? shownEffortName;
   const followLine = follows === true ? `\n${t("model.followsBot", { name: profile.name })}` : follows === false ? `\n${t("model.ownModel")}` : "";
   const activeProvider = usage.report?.providers.find((provider) => provider.id === active?.instanceId);
   const activeRestNow = active ? activeRest(battery?.resting, active.instanceId, usage.now) : undefined;
   const ring = active && switcherAccounts.some((account) => account.instanceId === active.instanceId)
-    ? usageRingFor(activeProvider, activeRestNow) : null;
+    ? usageRingFor(activeProvider, activeRestNow, usage.now) : null;
   const activeUsage = ring ? accountUsageLines(activeProvider, activeRestNow, usage.now) : [];
+  const activeFamily = signInFamily(active);
+  const namedAccount = (activeFamily === "claude" ? claudeAccounts : activeFamily === "openai" ? openaiAccounts : []).length > 1;
 
   const trigger = (
     <button data-tour="model"
@@ -830,9 +851,10 @@ export function ModelPicker({
       )}
       title={[`${summary}${followLine}`, ...activeUsage].join("\n")}
     >
-      {active && part !== "model" && (ring ? (
-        <UsageRing used={ring.used} tone={ring.tone}><InstanceProviderMark instance={active} size={14} /></UsageRing>
-      ) : <InstanceProviderMark instance={active} size={14} />)}
+      {active && part === "account" && namedAccount ? <AccountBadge instance={active} ring={ring} />
+        : active && part !== "model" && (ring ? (
+          <UsageRing {...ring}><InstanceProviderMark instance={active} size={14} /></UsageRing>
+        ) : <InstanceProviderMark instance={active} size={14} />)}
       {!contained && active && showActiveAccount && part === undefined && (
         <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{active.displayName}</span>
       )}
@@ -848,9 +870,9 @@ export function ModelPicker({
         </span>
         {part === "model" ? null : selectedVariantLabel !== undefined ? (
           <span data-model-variant className="max-w-[120px] truncate text-ink-secondary">· {selectedVariantLabel}</span>
-        ) : selection.effort && (
+        ) : shownEffortName && (
           <span data-model-effort className="shrink-0 text-ink-secondary">
-            · {friendlyEffort(selection.effort)}
+            · {shownEffortName}
           </span>
         )}
       </span>}
@@ -895,7 +917,7 @@ export function ModelPicker({
             <p data-model-next-reply className="shrink-0 border-b border-hairline/40 px-3 py-2 text-[12px] text-ink-secondary">{t("model.nextReply")}</p>
           )}
           {part === "account" ? (
-            <AccountMenu rows={accountRows} onPick={chooseAccount} onAdd={() => {
+            <AccountMenu rows={accountRows} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
               setOpen(false);
               dispatch({ type: "toggleAppSettings", open: true, section: "general" });
               requestAddAccount();

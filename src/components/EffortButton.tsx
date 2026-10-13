@@ -2,17 +2,14 @@ import { CircleHelp, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { friendlyEffort } from "@/lib/model-friendly";
+import { effortLevelsFor, effortName, effortNote, recommendedEffort } from "@/lib/model-friendly";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { useStore, type Bot } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
+import { fitEffort } from "../../shared/effort";
 import { fastModeFits } from "@/lib/fast-mode";
 import { useMenuMotion } from "./MenuMotion";
 import { Switch } from "./SettingsPrimitives";
-
-export function recommendedEffort(levels: readonly EffortLevel[]): EffortLevel | undefined {
-  return levels.includes("medium") ? "medium" : undefined;
-}
 
 export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string }) {
   const { state, dispatch } = useStore();
@@ -22,7 +19,9 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
   const wrapperRef = useRef<HTMLDivElement>(null);
   const selection = bot.modelSelection;
   const instance = state.instances.find((candidate) => candidate.instanceId === selection.instanceId);
-  const levels: EffortLevel[] = (instance?.capabilities?.effortLevels ?? []).filter((level) => level !== "none");
+  const levels: EffortLevel[] = effortLevelsFor(instance, selection.model).filter((level) => level !== "none");
+  const option = instance?.models?.options.find((candidate) => candidate.id === selection.model);
+  const name = (level: EffortLevel) => effortName(level, instance?.driverKind);
   const fast = fastModeFits(instance, selection.model);
   const updateBotDefault = Boolean(threadId) && (!state.config?.cloudHome || ownerOrAdmin === true);
 
@@ -43,9 +42,10 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
   if (levels.length === 0 && !fast) return null;
   const save = (next: typeof selection) => dispatch({ type: "setModel", botId: bot.id, threadId,
     ...(updateBotDefault ? { updateBotDefault: true } : {}), selection: next });
-  const current = selection.effort && levels.includes(selection.effort) ? selection.effort : undefined;
-  const recommended = recommendedEffort(levels);
-  const label = current ? friendlyEffort(current) : t("model.effort.default");
+  const current = fitEffort(levels, selection.effort);
+  const recommended = recommendedEffort(levels, option?.defaultEffort);
+  const label = current ? name(current) : t("model.effort.default");
+  const note = current ? effortNote(current) : undefined;
   const columns = { gridTemplateColumns: `repeat(${levels.length}, minmax(0, 1fr))` };
 
   return (
@@ -91,8 +91,8 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
                     type="button"
                     role="radio"
                     aria-checked={level === current}
-                    aria-label={friendlyEffort(level)}
-                    title={friendlyEffort(level)}
+                    aria-label={name(level)}
+                    title={effortNote(level) ? `${name(level)} · ${effortNote(level)}` : name(level)}
                     data-effort-level={level}
                     onClick={() => save({ ...selection, effort: level })}
                     className="flex h-5 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
@@ -112,6 +112,7 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
                   </span>
                 ))}
               </div>
+              {note && <p data-effort-note className="mt-2 text-[11px] leading-snug text-ink-tertiary">{note}</p>}
             </>
           )}
           {fast && (

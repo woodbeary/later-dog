@@ -32,14 +32,62 @@ built from the same pieces the supervisor already proved.
   programs, so the desktop session starts fresh on wake; it restores only onto the image it was taken from, so an image
   update has to carry a dog's files across another way; it is kept 30 days from creation or the last restore; it is at
   most 20 GB.
-- **Credentials:** never in the image. Sign-ins happen in the dog's own browser on that machine (the person takes over the
-  noVNC view to type them); API keys a dog needs are injected by the Worker on egress, as Cloudflare's outbound handlers
-  allow, so the container sees placeholders.
+- **Credentials:** never in the image. Sign-ins happen in the dog's own browser on that machine: the person fills a
+  Secure Form that later.dog types into the page (below), or takes over the noVNC view for anything a form cannot do;
+  API keys a dog needs are injected by the Worker on egress, as Cloudflare's outbound handlers allow, so the container
+  sees placeholders.
 - **Cost:** billed by Cloudflare per active second of memory and CPU. A 1–2 vCPU dog computer awake two hours a day is a
   few dollars a month; asleep it uses no compute (what snapshot storage costs is not checked yet). The budget page
   (`docs/laterdog/cloudflare.md`) gets a row per dog.
 - **Where it plugs in:** a new computer kind next to `vps` (server driver + `Where <dog> works` option), so
   approvals, the Computer panel and the "This PC — not ready" reasoning all apply unchanged.
+
+## Sign-ins with a Secure Form
+
+Added 2026-10-12. A dog on its cloud computer (`box`) that reaches a sign-in page asks with `request_secure_form`: a
+title, the site's host (for example `icloud.com`) and one to six fields, each text, email, password or code. The chat
+shows a small card; the person clicks **Open**, fills the fields and chooses **Continue**. The values go to `POST
+/api/bots/:botId/secure-forms/:formId/submit` and stay in the server's memory only (`server/laterdog/secure-form.ts`).
+They are never written to the chat store, logs, tool results or the prompt that wakes the dog. later.dog then wakes the
+dog, which calls `fill_secure_field` once per field with that field's position on the screen, and the server types the
+value with one shell command on the computer. The command types nothing unless:
+
+- the active window is the web browser, not a terminal or another app;
+- the browser's address, read through the address bar (ctrl+L, ctrl+C), is `https://` on the form's host or one of its
+  subdomains, after dropping any user name, port and trailing dot, so `example.com.evil.test`, `example.com@evil.test`
+  and `evil.test/?next=example.com` are refused (hosts many sites share, such as `github.io` or `co.uk`, are refused
+  when the form is made);
+- the point is inside the window and below its top 100 px, so the click cannot land in the address bar;
+- the same window still has focus after the click.
+
+It then pastes the value through the clipboard, clears the clipboard, and presses Enter only when the dog asks. A field
+can be typed at most three times. The values are wiped two minutes after the last field is typed, ten minutes after they
+are sent, when a newer form replaces the card, or when later.dog restarts (a card still waiting then shows **Not
+filled**). The dog's tool results say whether a field was typed and, if not, why; they never include the value or the
+computer's output.
+
+Limits, as of 2026-10-12:
+
+- **Tested on fakes only.** The command has run only against fake `xdotool`, `xclip` and `xprop`
+  (`server/laterdog/secure-form.test.ts`), including shell-injection and look-alike-host cases. It has not run on a live
+  cloud computer, so the address-bar copy, clipboard clearing, `mousemove --sync` and window geometry under xfwm4 are
+  unconfirmed there. Fixture success does not qualify a live computer.
+- **A hostile page can fool the address check.** The address is read through keys a page can intercept, so a page built
+  to fool the check can hand back a fake address. The check stops wrong tabs, wrong sites and look-alike hosts, not a
+  page that attacks it. Reading the address from the browser itself needs a DevTools connection on the computer, which
+  needs a computers redeploy (not done).
+- **The dog's own computer holds the value briefly.** It is in the clipboard, and base64-encoded in a shell's command
+  line, for a second or two. A dog running commands on its computer to watch for it could capture it; later.dog itself
+  never hands it to the dog.
+- **Typed text stays on the page.** Email, username and code fields show what was typed, so screenshots show them;
+  password fields are masked by the page.
+- **Main browser window only.** Popups, app windows and pages without an address bar are refused, and the dog falls back
+  to `request_takeover`.
+- **Desktop only.** The phone shows the card with "Open this chat on the host computer to fill this in." A live call
+  says the form is waiting on screen and never asks for the values aloud.
+- **Older computers.** A computer without `xclip` or `xprop` refuses to type.
+- **Internationalised hosts.** A host written in Unicode may not match the address bar's form of it; the fill is
+  refused.
 
 ## Order of work
 

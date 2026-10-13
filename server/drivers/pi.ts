@@ -30,6 +30,7 @@ import type {
   TurnImageInput,
 } from "../contracts.ts";
 import { EFFORT_LEVELS } from "../../shared/wire.ts";
+import { STANDARD_EFFORT_LEVELS } from "../../shared/effort.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { parseAskQuestions, parseChoices, questionAnswersByQuestion } from "../../shared/ask-question.ts";
 import {
@@ -1056,7 +1057,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           localComputerMcp: true,
           images: true,
           nativeImageInput: true,
-          effortLevels: EFFORT_LEVELS,
+          effortLevels: STANDARD_EFFORT_LEVELS,
           queueing: true,
         },
         sendTurn,

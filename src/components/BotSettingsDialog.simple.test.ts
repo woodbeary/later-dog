@@ -82,6 +82,8 @@ const { LocalComputerAutoWarning } = await import("./LocalComputerAutoWarning");
 const { ModelPicker } = await import("./ModelPicker");
 const { SimpleMemory } = await import("./bot-settings/SimpleMemory");
 const { RoutineEditor } = await import("./RoutinesPage");
+const { ComputerTab } = await import("./bot-settings/ComputerTab");
+const { ProfileAvatar } = await import("./bot-settings/ProfileAvatar");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -147,13 +149,14 @@ beforeEach(() => {
 });
 
 describe("the dog editor's tabs", () => {
-  it("has exactly Details and Library, and lands on Details when opened bare", () => {
-    expect(BOT_SECTIONS.map((entry) => entry.id)).toEqual(["details", "library"]);
+  it("has Details, Library and Computer, and lands on Details when opened bare", () => {
+    expect(BOT_SECTIONS.map((entry) => entry.id)).toEqual(["details", "library", "computer"]);
     const { html, nodes: tree } = dialog(makeBot());
     expect(html).toContain(">Details</button>");
     expect(html).toContain(">Library</button>");
-    expect(html).not.toContain(">Computer</button>");
+    expect(html).toContain(">Computer</button>");
     expect(html).not.toContain("Where Scout works");
+    expect(tree.some((node) => node.type === ComputerTab)).toBe(false);
     expect(find({ nodes: tree }, "data-simple-tab", "details").props["aria-selected"]).toBe(true);
     for (const gone of ["All settings", "Search settings", "SOUL.md", "Advanced", "Slack", "Who can see it", "History", "Usage"]) {
       expect(html).not.toContain(gone);
@@ -166,16 +169,46 @@ describe("the dog editor's tabs", () => {
     expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: true, section: "skills" });
   });
 
-  it("folds the old section ids onto the two tabs", () => {
+  it("folds the old section ids onto the three tabs", () => {
     expect(tabForSection("skills")).toBe("library");
     expect(tabForSection("memory")).toBe("library");
-    for (const section of ["access", "overview", "identity", "soul", "model", "permissions", "voice", "history", "usage"] as const) {
+    expect(tabForSection("access")).toBe("computer");
+    for (const section of ["overview", "identity", "soul", "model", "permissions", "voice", "history", "usage"] as const) {
       expect(tabForSection(section)).toBe("details");
     }
     openTab("memory");
     expect(find(dialog(makeBot()), "data-simple-tab", "library").props["aria-selected"]).toBe(true);
     openTab("model");
     expect(find(dialog(makeBot()), "data-simple-tab", "details").props["aria-selected"]).toBe(true);
+  });
+
+  it("shows the dog's own screen on Computer, and only there", () => {
+    const bot = makeBot();
+    openTab("access");
+    const rendered = dialog(bot);
+    expect(find(rendered, "data-simple-tab", "computer").props["aria-selected"]).toBe(true);
+    const screen = rendered.nodes.find((node) => node.type === ComputerTab)!;
+    expect(screen.props.bot).toBe(bot);
+    expect(rendered.html).not.toContain(">Look</span>");
+    expect(rendered.html).toContain("Scout&#x27;s screen");
+    click(find(rendered, "data-simple-tab", "computer"));
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: true, section: "access" });
+  });
+
+  it("puts the picture, name and label at the top, above the tabs, with the dialog still named by the dog", () => {
+    const bot = makeBot();
+    const rendered = dialog(bot);
+    const avatar = rendered.nodes.find((node) => node.type === ProfileAvatar)!;
+    expect(avatar.props.bot).toBe(bot);
+    expect(avatar.props.onPatch).toBe(patch);
+    expect(avatar.props.state).toBe("idle");
+    expect(rendered.html).toMatch(/<span id="bot-settings-title" class="sr-only">Scout<\/span>/);
+    expect(find(rendered, "id", "simple-bot-label-scout").props.placeholder).toBe("Add a label");
+    const at = (text: string) => rendered.html.indexOf(text);
+    expect(at("data-avatar-edit")).toBeLessThan(at("data-profile-name"));
+    expect(at("data-profile-name")).toBeLessThan(at("data-profile-label"));
+    expect(at("data-profile-label")).toBeLessThan(at('role="tablist"'));
+    expect(at('role="tablist"')).toBeLessThan(at(">Look</span>"));
   });
 
   it("closes from the header button and names it for screen readers", () => {
@@ -385,6 +418,32 @@ describe("Library", () => {
     expect(fixture.request).toHaveBeenCalledWith("/api/bots/scout/skills", { method: "POST", body: JSON.stringify({ source: "github:acme/skill" }) });
     expect(fixture.skills.refresh).toHaveBeenCalled();
     expect(dialog(bot).html).toContain("Imported 1. Switch it on below.");
+    expect(find(dialog(bot), "data-simple-add-skill").props.children).toBe("Done");
+  });
+
+  it("closes the teach row from its own button or with Escape, leaving the dialog open", () => {
+    const bot = makeBot();
+    const shut = (rendered: { nodes: Node[] }) => !rendered.nodes.some((node) => node.props["data-simple-teach"] !== undefined);
+    click(find(dialog(bot), "data-simple-add-skill"));
+    const open = dialog(bot);
+    expect(find(open, "data-simple-add-skill").props.children).toBe("Cancel");
+    change(find(open, "aria-label", "Teach a trick"), "half a thought");
+    click(find(dialog(bot), "data-simple-add-skill"));
+    const closed = dialog(bot);
+    expect(shut(closed)).toBe(true);
+    expect(find(closed, "data-simple-add-skill").props).toMatchObject({ "aria-expanded": false, children: "Teach a trick" });
+
+    click(find(closed, "data-simple-add-skill"));
+    const reopened = dialog(bot);
+    expect(find(reopened, "aria-label", "Teach a trick").props.value).toBe("");
+    const typing = { key: "a", preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    (find(reopened, "data-simple-teach").props.onKeyDown as (event: unknown) => void)(typing);
+    expect(shut(dialog(bot))).toBe(false);
+    const escape = { key: "Escape", preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    (find(dialog(bot), "data-simple-teach").props.onKeyDown as (event: unknown) => void)(escape);
+    expect(escape.stopPropagation).toHaveBeenCalled();
+    expect(shut(dialog(bot))).toBe(true);
+    expect(fixture.dispatch).not.toHaveBeenCalled();
   });
 
   it("teaches a trick from plain words by asking the dog, in its chat", async () => {
@@ -426,6 +485,23 @@ describe("Library", () => {
     openTab("identity");
     const details = dialog(makeBot());
     expect(details.nodes.find((node) => node.type === SimpleMemory)!.props.active).toBe(false);
+  });
+
+  it("opens Manage memory as its own page inside Library, and Back returns to the tab", () => {
+    const memory = dialog(makeBot()).nodes.find((node) => node.type === SimpleMemory)!;
+    expect(memory.props.page).toBe(false);
+    (memory.props.onPage as (open: boolean) => void)(true);
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: true, section: "memory" });
+    openTab("memory");
+    const page = dialog(makeBot());
+    const shown = page.nodes.find((node) => node.type === SimpleMemory)!;
+    expect(shown.props.page).toBe(true);
+    expect(shown.props.active).toBe(true);
+    expect(page.html).not.toContain(">Tricks<");
+    expect(page.html).toContain('data-memory-page="home"');
+    expect(page.html).not.toContain("data-simple-memory");
+    (shown.props.onPage as (open: boolean) => void)(false);
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleSettings", open: true, section: "skills" });
   });
 
   it("leaves Made in chat out until the dog has made something, then lists it", () => {

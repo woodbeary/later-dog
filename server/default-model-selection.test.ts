@@ -59,6 +59,17 @@ describe("new bot default model selection", () => {
     expect(preferred.effort).toBe("high");
   });
 
+  it("steps a saved level down to what the chosen model offers", () => {
+    const levels = ["low", "medium", "high", "xhigh", "max", "ultra"] as const;
+    const models = { default: "luna", options: [{ id: "luna", label: "Luna", effortLevels: ["low", "medium", "high", "xhigh", "max"] as const }] };
+    const engine = { ...codex, models, capabilities: { effortLevels: levels } };
+    expect(selectDefaultModelSelection([engine], { instanceId: "codex", model: "luna", effort: "ultra" }))
+      .toEqual({ instanceId: "codex", model: "luna", effort: "max" });
+    const quiet = { ...engine, models: { default: "luna", options: [{ id: "luna", label: "Luna", effortLevels: [] }] } };
+    expect(selectDefaultModelSelection([quiet], { instanceId: "codex", model: "luna", effort: "high" }))
+      .toEqual({ instanceId: "codex", model: "luna" });
+  });
+
   it("accepts the provider default even when it is not repeated in its options", () => {
     expect(selectDefaultModelSelection(
       [{ ...codex, models: { default: "codex-default", options: [] } }],

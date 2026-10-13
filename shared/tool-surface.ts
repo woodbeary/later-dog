@@ -5,7 +5,7 @@ export const SCREEN_TOUCHING_TOOLS: ReadonlySet<string> = new Set([
   "browser_select_option", "browser_back", "browser_forward", "browser_screenshot",
   "agent_browser_open", "agent_browser_click", "agent_browser_fill", "agent_browser_type", "agent_browser_press",
   "agent_browser_select", "agent_browser_check", "agent_browser_screenshot",
-  "double_click", "right_click", "drag", "hotkey", "move_cursor", "launch_app", "bring_to_front", "zoom",
+  "double_click", "right_click", "drag", "hotkey", "move_cursor", "launch_app", "bring_to_front", "zoom", "fill_secure_field",
 ]);
 
 export const TOOL_NAMESPACE = /^(?:mcp__.+?|[a-z][a-z0-9_-]{0,31})__/;

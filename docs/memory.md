@@ -3,12 +3,20 @@
 By default, bots keep notes between tasks. The notes are plain markdown files in a
 folder on the computer running later.dog — nothing is stored anywhere else,
 and you can open, edit, or delete any of it in any editor. **Bot Settings →
-Memory** shows the same files with a gauge of how much of them actually loads,
-an editor that never overwrites something the bot wrote while you were typing,
-and a journal of every change with one-click undo.
+Library → Memory** lists what the bot remembers, one line each, with an ✕ to
+forget a line. Its last row, **Manage memory ›**, opens a page with three
+groups: **Notes** (Main memory first, then each topic note, then **New note**),
+**Recent changes** (every change, with one-click undo), and **More** (Memory
+upkeep, Daily logs, Show in Finder, Open in Obsidian). Opening a note gives an
+editor that never overwrites something the bot wrote while you were typing.
+**Back**, or Escape, steps back one level. A **Needs review** tag on Manage
+memory means the memory was changed in a conversation you didn't write, so the
+bot can't use your Mac until you look; the page lists what changed and offers
+**Mark reviewed** (see [Cloud Pro](cloud-pro.md)).
 
-The **Let this bot use memory** switch is on by default. Turn it off while the
-bot is idle to stop loading `MEMORY.md` into new turns, stop automatic recall
+The **Remember things between chats** switch is on by default. It can only be
+changed while the bot is idle (it is disabled, with a tooltip saying why, while
+the bot works). Turn it off to stop loading `MEMORY.md` into new turns, stop automatic recall
 and upkeep, hide native memory tools, exclude memory files from `session_search`,
 and stop automatic daily turn logs. Existing files remain for review. A bot
 with filesystem access can still edit those files directly; use standing
@@ -29,9 +37,10 @@ instructions to forbid that when memory must stay in another source of truth.
 The folder is the bot's private workspace: the directory its file tools work in
 when it has no project folder set. It is created the first time the bot runs a
 turn. **Open in Obsidian** and **Show in Finder** (Explorer, or your file
-manager) in the Memory panel open this folder; because it is on the server's
-disk, those buttons only work from the computer running later.dog — a
-paired phone or a remote browser is shown the path instead.
+manager) under **More** on the Manage memory page open this folder; hovering
+Show in Finder shows its path. Because it is on the server's disk, those
+buttons only work from the computer running later.dog — a paired phone or a
+remote browser is shown the path in an error line instead.
 
 Files are written with owner-only permissions (`0600`), atomically (a crash
 mid-write leaves the old file intact, never a torn one), and anything that
@@ -47,10 +56,13 @@ that line loads, and the bot is only told that the file was cut off. Topic files
 and daily logs are never loaded automatically; the bot reads a topic file with
 its file tools when it decides it needs it, and logs are for you.
 
-The gauge at the top of the Memory panel is that rule made visible: lines and
-size against the budget, amber from 80%, red once anything stops loading —
-with the count of lines that are not being loaded, and always the plain
-sentence *only the first 200 lines load each turn*.
+The gauge is that rule made visible: lines and size against the budget,
+amber from 80%, red once anything stops loading — with the count of lines that
+are not being loaded, and always the plain sentence *only the first 200 lines
+load each turn*. It sits at the top of the Main memory editor. On the Manage
+memory page it appears only once main memory is almost full or too long, and
+the Main memory row says **Almost full** or **Too long**; while there is room
+the row just says *Read in every chat*.
 
 `MEMORY.md` never fills up. Every write that goes through the harness
 (`memory_update`, and capture) keeps the file within the budget in the same
@@ -105,8 +117,9 @@ through `session_search`, which discloses it. `features.autoRecall: false` in
 
 ## Memory upkeep
 
-**Bot Settings → Memory → Memory upkeep** is on for every bot unless switched
-off. It keeps the notes in shape without the bot having to decide to:
+**Bot Settings → Library → Memory → Manage memory → More → Memory upkeep** is
+on for every bot unless switched off; its row offers **Tidy up now** and says
+when the last tidy-up ran. It keeps the notes in shape without the bot having to decide to:
 
 - **Noticing facts.** When a 1:1 chat has been quiet for two minutes
   (`memory.captureQuietMs`), or after six turns, one quick model call reads those turns — the person's words and
@@ -158,23 +171,28 @@ full stop are ignored, nothing else — `Balance is -10` and `Balance is 10`,
 Every upkeep change is a journal row by **Memory upkeep** and can be undone.
 Upkeep pauses while a backup runs. The model steps need an engine with a
 one-shot text call — Claude, Grok, OpenAI-compatible, Mistral and MiniMax.
-On any other engine the panel says so and only the expiry and exact-duplicate
+On any other engine the upkeep row says so and only the expiry and exact-duplicate
 steps run.
 
 ## Editing
 
-`MEMORY.md` and every topic file can be edited in the panel. A save carries
-the hash of the text you opened; if the bot changed the file in between — it
-writes with `memory_update` during a task, or with its own file tools — the
-save is refused and the panel says so: *Scout changed this file while you were
-editing.* **Reload** shows the bot's version and keeps your draft under the
-editor so nothing you typed is lost; **Overwrite with mine** saves yours over it.
-Either way the change is in the journal and can be undone.
+`MEMORY.md` (shown as **Main memory**) and every topic note can be edited on
+the Manage memory page. A save carries the hash of the text you opened; if the
+bot changed the file in between — it writes with `memory_update` during a
+task, or with its own file tools — the save is refused and the page says so:
+*Scout changed this note while you were editing.* **Reload** shows the bot's
+version and keeps your draft under the editor so nothing you typed is lost;
+**Overwrite with mine** saves yours over it. Either way the change is in the
+journal and can be undone. Leaving a note with unsaved changes asks first.
 
-Daily logs are read-only in the panel (they are the bot's own record) but can
-be deleted. `MEMORY.md` can be emptied but never deleted — the bot expects it
-to exist. Topic names are one file name under `memory/`: letters, numbers,
-spaces, dots and dashes, ending in `.md`. Nothing nested, nothing starting
+Daily logs are read-only (they are the bot's own record) but can be deleted:
+the bin in a note's header deletes it after a confirmation, and the deletion
+can be undone under Recent changes. `MEMORY.md` can be emptied but never
+deleted — the bot expects it to exist, so Main memory has no bin. **New note**
+asks for a name and opens the note with its header (`title`, `description`,
+`aliases`) filled in; nothing is written until **Save**. Topic names are one
+file name under `memory/`: letters, numbers, spaces, dots and dashes, ending
+in `.md` (other characters become dashes). Nothing nested, nothing starting
 with a dot.
 
 The old whole-file `PUT /api/bots/:id/memory` still works for one release; it
@@ -214,7 +232,7 @@ agreed shows up in each member's next 1:1 brief.
 ## The journal
 
 Every change to a memory file that the app can see is recorded — yours from
-the panel, the bot's during a task, an import, an undo — in
+Settings, the bot's during a task, an import, an undo — in
 `~/.laterdog/memory-journal/<botId>.ndjson`. It lives *outside* the
 workspace on purpose: the bot's file tools point at the workspace, and a
 record the bot could edit would not be a record.
@@ -253,7 +271,7 @@ bot follows when it writes are:
   when the file fills up.
 - **Daily logs** under `memory/log/YYYY-MM-DD.md` are the bot's diary of what
   it did; they are never loaded into a conversation and are meant for you to
-  read in the panel or in Obsidian.
+  read under **More → Daily logs** or in Obsidian.
 - **Until dates.** A fact that stops being true on a known day ends with
   `· until YYYY-MM-DD` (`memory_update` takes an `until` field for it) and
   stops loading the day after.
@@ -264,7 +282,7 @@ bot follows when it writes are:
   which the app leaves as text. A pointer in `MEMORY.md` to a topic (`see memory/clients.md`)
   is how the bot knows the topic exists.
 
-Nothing about the panel depends on these: an older `MEMORY.md` written in
+Nothing about the Manage memory page depends on these: an older `MEMORY.md` written in
 free form, or one you rewrite by hand, works the same.
 
 ## Routes

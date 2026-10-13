@@ -18,8 +18,21 @@ export interface ModelMenuEntry {
 
 const PRIMARY = 4;
 
-export function splitModels(groups: readonly ModelMenuGroup[], currentInstanceId: string, currentModel: string): { primary: ModelMenuEntry[]; more: ModelMenuEntry[] } {
+export function distinctModels(groups: readonly ModelMenuGroup[], currentInstanceId: string, currentModel: string): ModelMenuEntry[] {
   const all = groups.flatMap((group) => group.models.map((model) => ({ instance: group.instance, id: model.id, label: model.label })));
+  const name = (entry: ModelMenuEntry) => entry.label.trim().toLowerCase();
+  const current = all.find((entry) => entry.instance.instanceId === currentInstanceId && entry.id === currentModel);
+  const seen = new Set<string>(current ? [name(current)] : []);
+  return all.filter((entry) => {
+    if (entry === current) return true;
+    if (seen.has(name(entry))) return false;
+    seen.add(name(entry));
+    return true;
+  });
+}
+
+export function splitModels(groups: readonly ModelMenuGroup[], currentInstanceId: string, currentModel: string): { primary: ModelMenuEntry[]; more: ModelMenuEntry[] } {
+  const all = distinctModels(groups, currentInstanceId, currentModel);
   const key = (entry: ModelMenuEntry) => `${entry.instance.instanceId}\u0000${entry.id}`;
   const picked = new Set<string>();
   const primary: ModelMenuEntry[] = [];

@@ -21,6 +21,6 @@ export function renamableAccount(entry: Pick<InstanceConfig, "driver" | "config"
 
 export function removableAccount(instanceId: string, entry: Pick<InstanceConfig, "driver" | "config">): AccountEditVerdict {
   if (DEFAULT_ACCOUNT_IDS.includes(instanceId)) return { ok: false, error: "The default account stays. Sign out of it instead." };
-  if (entry.driver === "claudeAgent" || chatgptPlanAccount(entry)) return { ok: true };
+  if (subscriptionAccount(entry)) return { ok: true };
   return { ok: false, error: "Only added Claude and ChatGPT accounts can be removed here." };
 }

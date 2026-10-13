@@ -15,7 +15,7 @@ jobs:
     permissions:
       contents: write
     runs-on: macos-14
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -113,13 +113,43 @@ jobs:
           xcrun stapler staple "$APP"
           xcrun stapler validate "$APP"
           spctl -a -vvv -t exec "$APP"
-          rm -f "$RUNNER_TEMP/notarize.zip" "$KEY"
+          rm -f "$RUNNER_TEMP/notarize.zip"
+      - name: Build the disk image
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          rm -f release/later.dog-macOS-arm64.dmg
+          pnpm exec electron-builder --mac dmg --arm64 --prepackaged release/mac-arm64/later.dog.app --publish never -c.dmg.artifactName=later.dog-macOS-arm64.dmg
+          hdiutil verify release/later.dog-macOS-arm64.dmg
+      - name: Sign, notarize and staple the disk image
+        if: env.LATERDOG_NOTARIZE == '1' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          DMG='release/later.dog-macOS-arm64.dmg'
+          KEY="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
+          codesign --force --sign "Developer ID Application: $LATERDOG_MAC_IDENTITY" --timestamp "$DMG"
+          codesign --verify --strict "$DMG"
+          xcrun notarytool submit "$DMG" --key "$KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary-dmg.json" || true
+          cat "$RUNNER_TEMP/notary-dmg.json"
+          ID="$(jq -r '.id // empty' "$RUNNER_TEMP/notary-dmg.json")"
+          if [ "$(jq -r '.status // empty' "$RUNNER_TEMP/notary-dmg.json")" != 'Accepted' ]; then
+            if [ -n "$ID" ]; then xcrun notarytool log "$ID" --key "$KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"; fi
+            exit 1
+          fi
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          spctl -a -vvv -t open --context context:primary-signature "$DMG"
+          rm -f "$KEY"
       - name: Zip the app for download
         run: ditto -c -k --sequesterRsrc --keepParent release/mac-arm64/later.dog.app later.dog-macOS-arm64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: later.dog-macOS-arm64
-          path: later.dog-macOS-arm64.zip
+          path: |
+            later.dog-macOS-arm64.zip
+            release/later.dog-macOS-arm64.dmg
           retention-days: 14
           if-no-files-found: error
       - name: Publish the requested release
@@ -142,8 +172,9 @@ jobs:
           fi
           mkdir -p out
           ditto -c -k --sequesterRsrc --keepParent "$APP" out/later.dog-macOS-arm64.zip
-          node scripts/laterdog-release-files.mjs --tag "$RELEASE_TAG" --zip out/later.dog-macOS-arm64.zip --out out
-          assets=(out/later.dog-macOS-arm64.zip out/SHA256SUMS.txt)
+          cp release/later.dog-macOS-arm64.dmg out/later.dog-macOS-arm64.dmg
+          node scripts/laterdog-release-files.mjs --tag "$RELEASE_TAG" --zip out/later.dog-macOS-arm64.zip --dmg out/later.dog-macOS-arm64.dmg --out out
+          assets=(out/later.dog-macOS-arm64.dmg out/later.dog-macOS-arm64.zip out/SHA256SUMS.txt)
           [[ -f out/latest-mac.yml ]] && assets+=(out/latest-mac.yml)
           prerelease=()
           [[ "$RELEASE_TAG" == *-preview.* ]] && prerelease=(--prerelease)

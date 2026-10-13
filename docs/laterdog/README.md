@@ -9,21 +9,27 @@ to paste.
 
 You need a Mac with Apple silicon.
 
-1. Download `later.dog-macOS-arm64.zip` from the [latest release](https://github.com/woodbeary/later-dog/releases/latest).
-2. Unzip it and drag **later.dog** into Applications.
-3. Open **later.dog**. It is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether
-   to open an app you downloaded from the internet.
+1. Download `later.dog-macOS-arm64.dmg` from the [latest release](https://github.com/woodbeary/later-dog/releases/latest).
+2. Open it and drag **later.dog** onto the Applications folder.
+3. Open **later.dog** from Applications. It is signed with an Apple Developer ID and notarized by Apple, so macOS only
+   asks once whether to open an app you downloaded from the internet.
+
+If you open later.dog straight from the disk image, it offers to move itself into Applications, where it stays put and
+keeps itself up to date.
 
 ## First run
 
 The welcome asks your name and lets you pick your first dog. It says hello right away on the free Kimi K2.6 model. The
-free trial lasts 7 days: chatting on Kimi K2.6 and Grok 4.3 (with a daily allowance), a voice, and a cloud computer for
-30 minutes, with no account and no card.
+free trial lasts 7 days: chatting on Kimi K2.6 and Grok 4.3 (with a daily allowance), a voice, sharper dictation, and a
+cloud computer for 30 minutes, with no account and no card.
 
 ## Make a dog
 
 Choose **New dog**, give it a name and say what it should help with. Send a message to start working. Its look,
-instructions, tricks and memory are in its profile: click its name at the top of the chat.
+instructions, tricks and memory are in its profile: click its name at the top of the chat. Click the picture there to
+switch between the dog, a picture you upload, or one generated for it (when picture generation is set up), and click the
+name or **Add a label** under it to change them. The profile's **Computer** tab shows the dog's own computer: its screen
+when it is awake, or a sleeping dog with **Wake** when it is not.
 
 Keep a dog on **Heel** and it checks with you before it runs commands or changes files. Let it go **Off-leash** and it
 acts first, then tells you. Choose with the **+** beside the message field, where you also attach files and connect
@@ -66,8 +72,9 @@ it. Codes expire after a few minutes; if one does, start the sign-in again. late
 
 You can add several Claude accounts and several ChatGPT accounts, and name each one. The button at the top of a chat
 picks the account; beside the message field you pick the model and how hard it thinks (and **Fast mode** on models that
-have it). **Settings → Models** chooses which models show there. Each account shows its usage, and **Resting until** a
-time when it has hit its limit.
+have it). **Settings → Models** chooses which models show there. Each account shows how much it has left, as a ring or
+bar that drains as you use it. An account that has hit its limit sleeps, with a line that recharges until it is **Back
+at** a time (**Back around** when the provider did not say when the limit resets).
 
 ## Usage limits
 
@@ -90,6 +97,18 @@ its screen. The free trial includes one cloud computer for 30 minutes, to use wi
 the minutes left. If another dog already has the trial's computer, later.dog offers later.dog Cloud ($10 a month), which
 gives every dog its own. When the trial ends, its computer and the files on it are deleted. You can also deploy the
 computers service to your own Cloudflare account ([deploy/laterdog/computers](../../deploy/laterdog/computers/README.md)).
+
+Settings, Computer lists every cloud computer with the dog it belongs to (asleep when its computer is). **Sleep** puts an
+awake one to sleep now instead of waiting for it to idle; **Delete** removes it and its files, after you confirm. Both
+wait while a dog is using that computer. The same page names your own computer and, under **Execution on this
+computer**, lets you set each dog to Heel or Off-leash, the same setting as in the dog's profile.
+
+When a dog needs to sign in to a site on its cloud computer, it opens the sign-in page and asks you in the chat with a
+**Secure Form**. Click **Open**, fill in what it asks for and choose **Continue**. later.dog types each value straight
+into that site's page: the dog never sees them, they never appear in the chat, and they are only typed into the site the
+form names. later.dog keeps them in memory, never on disk, and forgets them two minutes after the last one is typed, or
+ten minutes after you send them. For a CAPTCHA, a passkey or a payment, the dog hands you its screen instead. Fill
+Secure Forms in the desktop app; the phone shows that one is waiting.
 
 ## Get help
 

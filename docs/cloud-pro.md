@@ -177,7 +177,7 @@ folder of its own.
 A key that is adopted but not proven still costs something: its lines keep
 that conversation out of lending and memory, and if a turn there changes the
 bot's memory files, the bot as a whole cannot use the Mac until the owner
-reviews the change (the bot's **Memory** panel, **Mark reviewed**). Starting
+reviews the change (the bot's **Library → Memory → Manage memory**, **Mark reviewed**). Starting
 new conversations avoids it.
 
 At the first personal start the log also says to review **Settings → Remote
@@ -621,7 +621,8 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
     on a Cloud home memory is never read through one. A flagged bot's turns
     cannot use the Mac, and the bot says "This bot's memory was changed in a
     conversation you didn't write. Review it in Memory to use your Mac
-    again." The bot's **Memory** panel shows the same notice, lists the files
+    again." The bot's **Manage memory** page (Library → Memory, tagged
+    **Needs review**) shows the same notice, lists the files
     that changed, and **Mark reviewed** (one click, only from one of the
     owner's own devices, never a local process) accepts exactly what was
     shown: if anything changed since, the panel shows it again. The owner's
@@ -789,7 +790,7 @@ For each service the Admin has configured, it also sets:
 | --- | --- | --- |
 | `LATERDOG_CLOUD_BOAT_URL` | env | `https://cloud.later.dog/api/cloud/services/boat/api/box/v1`, the Admin's Boat relay. It keeps Boat's own `/api/box/v1` ending. Bots use it only for cloud computers, as a tool on their own engine; no turn runs on Boat's own agent, so nothing calls its `/prompt`, `/events`, `/prompts/{id}` or `/interrupt` routes. |
 | `LATERDOG_CLOUD_BOAT_TOKEN` | secret | This machine's Boat relay token (`box_laterdog_…`). It is not a Boat key and works only through the relay. |
-| `LATERDOG_CLOUD_VOICE_URL` | env | `https://cloud.later.dog/api/cloud/services/voice/v1`, the Admin's voice relay. |
+| `LATERDOG_CLOUD_VOICE_URL` | env | `https://cloud.later.dog/api/cloud/services/voice/v1`, the Admin's voice relay. Sharper dictation also posts finished voice notes to `<LATERDOG_CLOUD_VOICE_URL>/speech-to-text` in ElevenLabs' shape; until the relay serves that route, dictation keeps Apple's on-device text. |
 | `LATERDOG_CLOUD_VOICE_TOKEN` | secret | This machine's voice relay token (`laterdog_voice_…`). |
 | `LATERDOG_TTS_DEFAULT_VOICE` | env | An ElevenLabs voice id, used until the person picks a voice or another speech provider in Settings. |
 | `LATERDOG_CLOUD_DECIDER_URL` | env | `https://cloud.later.dog/api/cloud/services/decider`, the Admin's Jev relay. It is a Jev base URL, used as it is: the decider adds `/v1/systemone`, the relay's only route, so every included decision goes to exactly `<LATERDOG_CLOUD_DECIDER_URL>/v1/systemone`. |

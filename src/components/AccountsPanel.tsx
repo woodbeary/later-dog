@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { Loader2, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ChevronDown, GripVertical, Loader2, X } from "lucide-react";
 import { api, useStore, type ConfigStatus, type InstanceInfo } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { subscribeAddAccount } from "@/lib/add-account-request";
+import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { Switch } from "./SettingsPrimitives";
 import { ClaudeMark, CodexMark } from "./ProviderIcons";
 import { ClaudeSignIn } from "./ClaudeSignIn";
 import { DeviceSignIn } from "./DeviceSignIn";
-import { resetClock, usageLines, usageReading, usePlanUsage, type PlanProvider } from "./PlanUsage";
+import { UsageBar, usageLines, usageReading, usageTone, usePlanUsage, type PlanProvider } from "./PlanUsage";
+import { backAt, rechargeProgress, RechargeLine, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
+import { useAccountDrag, type AccountDrag } from "./account-drag";
+import { MoreProviders, ProviderKeyFields, keyProviders, keyStepTitle } from "./AddAccountProviders";
 
 type Battery = NonNullable<ConfigStatus["accountBattery"]>;
 type Rest = NonNullable<Battery["resting"]>[string];
@@ -53,8 +58,12 @@ export function removable(instance: InstanceInfo): boolean {
   return !DEFAULT_ACCOUNT_IDS.has(instance.instanceId) && instance.claudeAccount?.isDefault !== true;
 }
 
+export function addedAccount(instance: InstanceInfo): boolean {
+  return removable(instance) && (instance.driverKind === "claudeAgent" || instance.snapshot.chatgptPlan === true);
+}
+
 export function realAccount(instance: InstanceInfo): boolean {
-  return signedIn(instance) || removable(instance);
+  return signedIn(instance) || addedAccount(instance);
 }
 
 function unusedDefault(instances: readonly InstanceInfo[], kind: AccountKind): InstanceInfo | undefined {
@@ -63,13 +72,21 @@ function unusedDefault(instances: readonly InstanceInfo[], kind: AccountKind): I
     instance.instanceId === id && !signedIn(instance) && instance.authentication !== undefined);
 }
 
-function rowUsage(provider: PlanProvider | undefined, rest: Rest | undefined, now: number): { text: string; detail: string } | null {
-  if (rest && Date.parse(rest.until) > now) {
-    const text = t("accounts.resting", { time: resetClock(rest.until, now) });
-    return { text, detail: text };
-  }
+type RowUsage =
+  | { text: string; detail: string; rest: Rest }
+  | { text: string; detail: string; rest?: undefined; used: number; label: string };
+
+const USAGE_TEXT = { accent: "text-ink-secondary", warning: "text-warning", danger: "text-danger" } as const;
+
+function rowUsage(provider: PlanProvider | undefined, rest: Rest | undefined, now: number): RowUsage | null {
+  if (rest && Date.parse(rest.until) > now) return { text: backAt(rest, now), detail: restSummary(rest, now), rest };
   const reading = usageReading(provider);
-  return reading ? { text: t("planUsage.used", { used: Math.round(reading.used) }), detail: usageLines(provider, now).join("\n") } : null;
+  return reading ? {
+    text: t("planUsage.left", { left: usageLeft(reading.used) }),
+    detail: usageLines(provider, now).join("\n"),
+    used: reading.used,
+    label: reading.label,
+  } : null;
 }
 
 function useListedAccounts(accounts: readonly InstanceInfo[]) {
@@ -148,12 +165,13 @@ function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {
   return kind === "codex" ? <CodexMark size={size} /> : <ClaudeMark size={size} />;
 }
 
-function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
+function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGone }: {
   instance: InstanceInfo;
   provider: PlanProvider | undefined;
   rest: Rest | undefined;
   now: number;
   only: boolean;
+  drag: AccountDrag;
   onSignIn: () => void;
   onGone: () => void;
 }) {
@@ -172,6 +190,7 @@ function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
   const usage = isSignedIn ? rowUsage(provider, rest, now) : null;
   const name = instance.displayName;
   const id = encodeURIComponent(instance.instanceId);
+  const dragRow = drag.row(instance.instanceId);
 
   useEffect(() => {
     if (asking || !refocus.current) return;
@@ -224,7 +243,25 @@ function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
   };
 
   return (
-    <li data-account={instance.instanceId}>
+    <li
+      data-account={instance.instanceId}
+      {...dragRow}
+      draggable={draft === null && !asking ? dragRow.draggable : undefined}
+      className={cn("group relative", drag.dragging === instance.instanceId && "opacity-50")}
+    >
+      {drag.movable(instance.instanceId) && !asking && (
+        <button
+          type="button"
+          data-account-grip
+          aria-label={t("accounts.move", { name })}
+          aria-keyshortcuts="ArrowUp ArrowDown"
+          title={t("accounts.dragHint")}
+          onKeyDown={(event) => drag.step(event, instance.instanceId, true)}
+          className="absolute inset-y-0 left-0 flex w-4 cursor-grab items-center justify-center rounded-md text-ink-tertiary opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus touch:opacity-100"
+        >
+          <GripVertical size={12} />
+        </button>
+      )}
       <div data-account-row className={ROW}>
         <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
           <AccountMark kind={instance.driverKind} />
@@ -245,7 +282,7 @@ function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
           </div>
         ) : (
           <>
-            <div data-account-text className="min-w-0 flex-1">
+            <div data-account-text className="relative min-w-0 flex-1">
               <div className="flex h-5 items-center">
                 {draft === null ? (
                   <button
@@ -272,9 +309,20 @@ function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
               <p className="h-4 truncate text-[12px] leading-4 text-ink-secondary">
                 {isSignedIn ? [email, plan].filter(Boolean).join(" · ") || t("accounts.signedIn") : t("accounts.signedOut")}
               </p>
+              <div data-account-meter className="absolute inset-x-0 top-full mt-1">
+                {usage?.rest ? <RechargeLine progress={rechargeProgress(usage.rest, now)} />
+                  : usage && <UsageBar used={usage.used} label={usage.label} />}
+              </div>
             </div>
             {usage && (
-              <span data-account-usage title={usage.detail} className="shrink-0 text-[12px] tabular-nums text-ink-secondary">{usage.text}</span>
+              <span
+                data-account-usage
+                title={usage.detail}
+                className={cn("flex shrink-0 items-center gap-1.5 text-[12px] tabular-nums", usage.rest ? "text-ink-secondary" : USAGE_TEXT[usageTone(usage.used)])}
+              >
+                {usage.rest && <SleepingDog size={16} />}
+                {usage.text}
+              </span>
             )}
             {!isSignedIn && (
               <button type="button" disabled={busy !== null} onClick={onSignIn} className={pill}>{t("accounts.signIn")}</button>
@@ -301,9 +349,10 @@ function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
 }
 
 export type SheetStep =
-  | { step: "pick" }
+  | { step: "pick"; more?: boolean }
   | { step: "name"; kind: AccountKind }
-  | { step: "signIn"; instanceId: string };
+  | { step: "signIn"; instanceId: string }
+  | { step: "key"; instanceId: string };
 
 export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn }: {
   sheet: SheetStep;
@@ -313,11 +362,19 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
   onSignedIn: (instanceId: string) => void;
 }) {
   const { dispatch } = useStore();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useModalDialog(dialogRef, onClose);
+  const stepKey = sheet.step === "pick" ? `pick:${sheet.more === true}` : sheet.step === "name" ? `name:${sheet.kind}` : `${sheet.step}:${sheet.instanceId}`;
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.contains(document.activeElement)) dialog.focus();
+  }, [stepKey]);
   const engine = sheet.step === "name" ? ACCOUNT_ENGINES.find((candidate) => candidate.kind === sheet.kind) : undefined;
-  const instance = sheet.step === "signIn" ? instances.find((candidate) => candidate.instanceId === sheet.instanceId) : undefined;
+  const instance = sheet.step === "signIn" || sheet.step === "key" ? instances.find((candidate) => candidate.instanceId === sheet.instanceId) : undefined;
+  const providers = keyProviders(instances);
 
   const create = async (event: FormEvent) => {
     event.preventDefault();
@@ -338,10 +395,11 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
 
   const title = sheet.step === "pick" ? t("accounts.sheet.title")
     : sheet.step === "name" ? t("accounts.sheet.nameTitle", { engine: engine?.name ?? "" })
+    : sheet.step === "key" ? keyStepTitle(instance)
     : t("accounts.sheet.signInTitle", { name: instance?.displayName ?? "" });
 
-  return (
-    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" onClick={onClose}>
+  return createPortal(
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 outline-none sm:items-center" onClick={onClose}>
       <div className="w-full max-w-sm rounded-2xl bg-panel p-5 text-ink shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <h2 className="text-[15px] font-semibold">{title}</h2>
         {sheet.step === "pick" && (
@@ -351,19 +409,44 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
                 <button
                   key={candidate.kind}
                   type="button"
+                  data-account-engine={candidate.kind}
                   onClick={() => {
                     const unused = unusedDefault(instances, candidate.kind);
                     onStep(unused ? { step: "signIn", instanceId: unused.instanceId } : { step: "name", kind: candidate.kind });
                   }}
-                  className="flex flex-col items-center gap-2 rounded-xl bg-card px-3 py-4 text-[13px] font-medium text-ink hover:bg-raised-hover"
+                  className="flex flex-col items-center gap-2 rounded-xl bg-card px-3 py-4 text-[13px] font-medium text-ink ring-1 ring-inset ring-hairline/30 transition-colors hover:bg-raised-hover hover:ring-hairline/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none"
                 >
                   <AccountMark kind={candidate.kind} size={28} />
                   {candidate.name}
                 </button>
               ))}
             </div>
-            <div className="flex justify-end">
+            {sheet.more && providers.length > 0 && (
+              <MoreProviders providers={providers} onPick={(provider) => onStep({ step: "key", instanceId: provider.instanceId })} />
+            )}
+            <div className="flex items-center justify-between gap-3">
+              {providers.length > 0 ? (
+                <button
+                  type="button"
+                  data-more-providers-toggle
+                  aria-expanded={sheet.more === true}
+                  onClick={() => onStep({ step: "pick", more: !sheet.more })}
+                  className="-ml-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 text-[12.5px] text-ink-tertiary transition-colors hover:bg-raised-hover hover:text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none"
+                >
+                  {t("accounts.sheet.more")}
+                  <ChevronDown size={13} aria-hidden="true" className={cn("transition-transform motion-reduce:transition-none", sheet.more && "rotate-180")} />
+                </button>
+              ) : <span />}
               <button type="button" onClick={onClose} className={pill}>{t("common.cancel")}</button>
+            </div>
+          </div>
+        )}
+        {sheet.step === "key" && (
+          <div className="mt-4 flex flex-col gap-4">
+            {instance ? <ProviderKeyFields instance={instance} /> : <p role="alert" className="text-[13px] text-danger">{t("accounts.sheet.gone")}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => onStep({ step: "pick", more: true })} className={pill}>{t("accounts.sheet.back")}</button>
+              <button type="button" onClick={onClose} className={primary}>{t("accounts.sheet.done")}</button>
             </div>
           </div>
         )}
@@ -409,7 +492,8 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -450,6 +534,15 @@ export function AccountsPanel() {
   const { report, now } = usePlanUsage();
   const [sheet, setSheet] = useState<SheetStep | null>(null);
   const carryOn = useCarryOn();
+  const drag = useAccountDrag(
+    accounts.map((instance) => ({
+      id: instance.instanceId,
+      kind: instance.driverKind,
+      movable: carryOn.canReorder && accounts.filter((other) => other.driverKind === instance.driverKind).length > 1,
+    })),
+    (ids) => void carryOn.reorder(ids),
+  );
+  const rows = drag.order.flatMap((id) => accounts.filter((instance) => instance.instanceId === id));
   const instancesRef = useRef(state.instances);
   instancesRef.current = state.instances;
 
@@ -490,8 +583,8 @@ export function AccountsPanel() {
             <p className="min-w-0 text-[13px] leading-5 text-ink-secondary">{t("accounts.empty")}</p>
           </div>
         ) : (
-          <ul className="divide-y divide-hairline/40">
-            {accounts.map((instance) => (
+          <ul className="divide-y divide-hairline/40" {...drag.list}>
+            {rows.map((instance) => (
               <AccountRow
                 key={instance.instanceId}
                 instance={instance}
@@ -499,6 +592,7 @@ export function AccountsPanel() {
                 rest={battery?.resting?.[instance.instanceId]}
                 now={now}
                 only={signedIn(instance) && signedInCount === 1}
+                drag={drag}
                 onSignIn={() => setSheet({ step: "signIn", instanceId: instance.instanceId })}
                 onGone={() => forget(instance.instanceId)}
               />

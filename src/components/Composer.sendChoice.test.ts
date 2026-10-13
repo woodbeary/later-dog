@@ -110,7 +110,7 @@ describe("an account that isn't signed in yet", () => {
     const textarea = host.querySelector("textarea")!;
     await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
     expect(sends()).toHaveLength(0);
-    expect(host.textContent).toContain("Sign in to Claude");
+    expect(document.body.textContent).toContain("Sign in to Claude");
     expect(textarea.value).toBe("check the tests");
   });
 
@@ -120,6 +120,6 @@ describe("an account that isn't signed in yet", () => {
     const textarea = host.querySelector("textarea")!;
     await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
     expect(sends()).toHaveLength(1);
-    expect(host.textContent).not.toContain("Sign in to Claude");
+    expect(document.body.textContent).not.toContain("Sign in to Claude");
   });
 });

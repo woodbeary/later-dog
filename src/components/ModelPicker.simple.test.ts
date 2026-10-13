@@ -61,6 +61,8 @@ const { AccountSwitcher, UsageRing } = await import("./AccountSwitcher");
 const { SimpleModelPane } = await import("./SimpleModelPane");
 const { EngineSetup } = await import("./EngineSetup");
 const { InstanceProviderMark } = await import("./ProviderIcons");
+const { AccountMenu } = await import("./AccountMenu");
+const { ModelMenu } = await import("./ModelMenu");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -190,8 +192,8 @@ describe("the model picker in Simple mode", () => {
     expect(opened.nodes.some((node) => node.type === ModelEngineRail)).toBe(false);
     expect(html).toContain("Claude");
     expect(html).toContain("Opus 5.5");
-    for (const step of ["Quick", "Balanced", "Deep", "Max"]) expect(html).toContain(`>${step}</button>`);
-    expect(html).not.toContain(">Deeper</button>");
+    for (const step of ["Low", "Medium", "High", "Max"]) expect(html).toContain(`>${step}</button>`);
+    expect(html).not.toContain(">xHigh</button>");
     expect(html).not.toContain("new chats too");
   });
 
@@ -221,10 +223,10 @@ describe("the model picker in Simple mode", () => {
     const list = region(html, "data-simple-models", "data-simple-effort-band");
     expect(list).toContain("Opus 5.5");
     expect(list).toContain("Sonnet 5.5");
-    expect(list).not.toContain(">Deep</button>");
+    expect(list).not.toContain(">High</button>");
 
     const bottom = region(html, "data-simple-effort-band");
-    expect(bottom).toContain(">Deep</button>");
+    expect(bottom).toContain(">High</button>");
     expect(bottom).not.toContain("new chats too");
     expect(bottom).toContain("Manage AI accounts");
   });
@@ -437,8 +439,9 @@ describe("the model picker in Simple mode", () => {
     expect(region(html, "data-simple-effort-band")).toContain('aria-label="Reasoning effort"');
   });
 
-  it("names the effort in plain words on the header chip", () => {
-    expect(render(bot("high")).html).toContain("· Deep");
+  it("names the effort the provider's way on the header chip", () => {
+    expect(render(bot("high")).html).toContain("· High");
+    expect(render(bot("xhigh")).html).toContain("· xHigh");
   });
 
   it("makes every pick the bot's default too, so new threads start on it, with no checkbox", () => {
@@ -642,8 +645,8 @@ describe("the model picker in Simple mode", () => {
     expect(switcher(opened)!.props.currentId).toBe("claude");
     const html = menu(opened.html);
     const list = text(region(html, "data-account-switcher", "data-model-line"));
-    expect(list).toContain("62% used");
-    expect(list).toContain("95% used");
+    expect(list).toContain("38% left");
+    expect(list).toContain("5% left");
     expect(list).not.toContain("resets in");
     expect(html).not.toContain("data-simple-providers");
     expect(html).not.toContain("data-simple-account");
@@ -669,7 +672,7 @@ describe("the model picker in Simple mode", () => {
     const accounts = openAccounts(forBot);
     const line = text(region(menu(accounts.html), "data-model-line", "data-model-manage"));
     expect(line).toContain("Model");
-    expect(line).toContain("Opus 5.5 · Deep");
+    expect(line).toContain("Opus 5.5 · High");
     expect(marked(accounts, "data-model-line")!.props.autoFocus).toBe(false);
     expect(marked(accounts, "data-model-back")).toBeUndefined();
 
@@ -722,7 +725,7 @@ describe("the model picker in Simple mode", () => {
     expect(pane(opened)).toBeDefined();
     expect(marked(opened, "data-model-back")).toBeUndefined();
     expect(fixture.usageEnabled).toBe(true);
-    expect(opened.html).toContain('data-usage-ring="30"');
+    expect(opened.html).toContain('data-usage-ring="70"');
   });
 
   it("does not count a signed-out second account, so it still opens on the models", () => {
@@ -802,24 +805,24 @@ describe("the model picker in Simple mode", () => {
     expect(pane(render(forBot))!.props.needsSetup).toEqual({ name: "Codex", signIn: true });
   });
 
-  it("rings the chip with the binding limit and adds every window to its tooltip", () => {
+  it("rings the chip with what the binding limit leaves, refills it while the account rests, and adds every window to its tooltip", () => {
     fixture.instances = [claude(), grok];
     fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 80, 30)] };
     const closed = render(bot());
     const trigger = closed.nodes.find((node) => node.props["data-tour"] === "model")!;
     const ring = closed.nodes.find((node) => node.type === UsageRing)!;
-    expect(ring.props).toEqual(expect.objectContaining({ used: 80, tone: "warning" }));
-    expect(closed.html).toContain('data-usage-ring="80"');
+    expect(ring.props).toEqual(expect.objectContaining({ level: 20, tone: "warning" }));
+    expect(closed.html).toContain('data-usage-ring="20"');
     expect(String(trigger.props.title).split("\n")).toEqual([
       "Claude · Opus 5.5",
-      "5-hour · 80% used · resets in 1h 20m",
-      "Weekly · 30% used · resets in 3d",
+      "5-hour · 20% left · resets in 1h 20m",
+      "Weekly · 70% left · resets in 3d",
     ]);
 
-    fixture.battery = { enabled: true, order: {}, resting: { claude: { until: new Date(NOW + 3_600_000).toISOString() } } };
+    fixture.battery = { enabled: true, order: {}, resting: { claude: { since: new Date(NOW - 3_600_000).toISOString(), until: new Date(NOW + 3_600_000).toISOString() } } };
     const resting = render(bot());
-    expect(resting.nodes.find((node) => node.type === UsageRing)!.props).toEqual(expect.objectContaining({ used: 100, tone: "danger" }));
-    expect(String(resting.nodes.find((node) => node.props["data-tour"] === "model")!.props.title)).toContain("\nResting until ");
+    expect(resting.nodes.find((node) => node.type === UsageRing)!.props).toEqual(expect.objectContaining({ level: 50, tone: "accent", charging: true }));
+    expect(String(resting.nodes.find((node) => node.props["data-tour"] === "model")!.props.title)).toMatch(/\nBack at [^\n]+ · in 1h$/);
 
     expect(render(bot(undefined, "grok", "grok-5")).html).not.toContain("data-usage-ring");
     fixture.battery = undefined;
@@ -914,7 +917,7 @@ describe("the model picker in Simple mode", () => {
     expect(select).not.toContain("max-w-[65%]");
     expect(bottom.indexOf(">Reasoning</span>")).toBeGreaterThan(-1);
     expect(bottom.indexOf(">Reasoning</span>")).toBeLessThan(bottom.indexOf("<select"));
-    expect(bottom).not.toContain(">Quick</button>");
+    expect(bottom).not.toContain(">Low</button>");
     expect(bottom).not.toContain("How hard should");
   });
 });
@@ -990,5 +993,66 @@ describe("a thread's picker and its bot's model", () => {
     const forBot = scout(null, [{ threadId: "follows", model: null }]);
     pane(open(forBot))!.props.onPick("claude-sonnet-5-5");
     expect(render(forBot).html).not.toContain("data-thread-models-notice");
+  });
+});
+
+describe("the chat header's account chip and the message field's model menu", () => {
+  const work = (authenticated = true): InstanceInfo => ({ ...claude(authenticated), instanceId: "claude-work", displayName: "Work Plan" });
+  function renderPart(forBot: Bot, part: "account" | "model") {
+    fixture.values.length = Math.min(fixture.values.length, fixture.own);
+    let tree: ReactNode = null;
+    function Capture() {
+      fixture.index = 0;
+      tree = ModelPicker({ bot: forBot, threadId: forBot.threadId, part });
+      fixture.own = fixture.index;
+      return tree;
+    }
+    const html = renderToStaticMarkup(createElement(Capture));
+    return { html, nodes: nodes(tree) };
+  }
+  const openPart = (forBot: Bot, part: "account" | "model") => {
+    click(renderPart(forBot, part).nodes.find((node) => node.props["data-tour"] === "model"));
+    return renderPart(forBot, part);
+  };
+  const modelMenu = (rendered: ReturnType<typeof renderPart>) =>
+    rendered.nodes.find((node) => node.type === ModelMenu) as ReactElement<ComponentProps<typeof ModelMenu>> | undefined;
+  const accountMenu = (rendered: ReturnType<typeof renderPart>) =>
+    rendered.nodes.find((node) => node.type === AccountMenu) as ReactElement<ComponentProps<typeof AccountMenu>> | undefined;
+
+  it("lists Claude's models once, from the account in use, so picking one never switches account", () => {
+    fixture.instances = [claude(), work(), codex];
+    const forBot = bot(undefined, "claude-work", "claude-sonnet-5-5");
+    const opened = openPart(forBot, "model");
+    const groups = modelMenu(opened)!.props.groups;
+    expect(groups.map((group) => group.instance.instanceId)).toEqual(["claude-work", "codex"]);
+    expect(menu(opened.html).match(/Opus 5\.5/g)).toHaveLength(1);
+    expect(menu(opened.html).match(/Sonnet 5\.5/g)).toHaveLength(1);
+    modelMenu(opened)!.props.onPick(groups[0]!.instance, "claude-opus-5-5");
+    expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "setModel", selection: expect.objectContaining({ instanceId: "claude-work", model: "claude-opus-5-5" }),
+    }));
+  });
+
+  it("lists the models of a ready account when the one in use is signed out", () => {
+    fixture.instances = [claude(false), work()];
+    const opened = openPart(bot(), "model");
+    expect(modelMenu(opened)!.props.groups.map((group) => group.instance.instanceId)).toEqual(["claude-work"]);
+  });
+
+  it("shows the initials of the account in use on the header chip once there is more than one", () => {
+    fixture.instances = [claude(), work()];
+    expect(renderPart(bot(undefined, "claude-work", "claude-sonnet-5-5"), "account").html).toContain('data-account-initials="WP"');
+    fixture.instances = [claude()];
+    expect(renderPart(bot(), "account").html).not.toContain("data-account-initials");
+  });
+
+  it("lets the header's account menu reorder accounts once the server keeps an order", () => {
+    fixture.instances = [claude(), work(), codex];
+    const rows = () => accountMenu(renderPart(bot(), "account"))!.props.rows.map((row) => [row.instance.instanceId, row.movable]);
+    openPart(bot(), "account");
+    expect(rows()).toEqual([["claude", false], ["claude-work", false], ["codex", false]]);
+    fixture.battery = { enabled: false, order: { claudeAgent: ["claude-work", "claude"], codex: ["codex"] }, resting: {} };
+    expect(rows()).toEqual([["claude-work", true], ["claude", true], ["codex", false]]);
+    expect(accountMenu(renderPart(bot(), "account"))!.props.onReorder).toBeTypeOf("function");
   });
 });

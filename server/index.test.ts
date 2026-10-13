@@ -8206,7 +8206,7 @@ describe("harness HTTP API", () => {
   it("keeps skill authoring on by default and persists an explicit opt-out", async () => {
     const before = await api("GET", "/api/config");
     expect(before.status).toBe(200);
-    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, routinesInConversation: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true });
+    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, stepUpdates: false, routinesInConversation: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true });
     const untouched = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(untouched.features?.skillAuthoring).toBeUndefined();
     expect(untouched.features?.sharedComputers).toBeUndefined();
@@ -8215,14 +8215,14 @@ describe("harness HTTP API", () => {
       features: { skillAuthoring: false },
     });
     expect(saved.status).toBe(200);
-    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, routinesInConversation: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true });
+    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, stepUpdates: false, routinesInConversation: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true });
 
     const disk = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(disk.features).toEqual({ ...untouched.features, skillAuthoring: false });
 
     const tools = await api("PATCH", "/api/config", { features: { showToolCalls: true } });
     expect(tools.status).toBe(200);
-    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, routinesInConversation: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true });
+    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, stepUpdates: false, routinesInConversation: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true });
 
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {
@@ -8238,6 +8238,61 @@ describe("harness HTTP API", () => {
     }
 
     await api("PATCH", "/api/config", { features: { skillAuthoring: true, showToolCalls: false } });
+  });
+
+  it("keeps dogs quiet by default and brings step-by-step updates back when asked", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Hush" })).body.bot;
+    const updates = async () => ((await api("GET", `/api/bots/${bot.id}/system-prompt`)).body.sections as Array<{ id: string; text: string }>)
+      .find((section) => section.id === "updates")?.text ?? "";
+    const turn = async (text: string) => {
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      await expect.poll(async () => (await api("GET", "/api/bots?messages=0")).body.bots
+        .find((candidate: { id: string }) => candidate.id === bot.id)?.busy === true, { timeout: 5_000 }).toBe(false);
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
+      return readJsonFileWhenReady<{ systemPrompt: string; env: Record<string, string> }>(fakeClaudeDump, 15_000);
+    };
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      expect(await updates()).toContain("Work quietly");
+      const quiet = await turn("plan my week");
+      expect(quiet.systemPrompt).toContain("do not narrate your steps");
+      expect(quiet.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
+
+      const on = await api("PATCH", "/api/config", { features: { stepUpdates: true } });
+      expect(on.status).toBe(200);
+      expect(on.body.features.stepUpdates).toBe(true);
+      expect(await updates()).toContain("step-by-step updates");
+      const chatty = await turn("and next week");
+      expect(chatty.systemPrompt).toContain("before each meaningful step");
+      expect(chatty.systemPrompt).not.toContain("Work quietly");
+      expect(chatty.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBeUndefined();
+    } finally {
+      await api("PATCH", "/api/config", { features: { stepUpdates: false } });
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("cleans up a finished dictation only when Sharper dictation is on and something can transcribe it", async () => {
+    const note = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 65, 86, 69]);
+    const send = async (type = "audio/wav") => {
+      const res = await fetch(`${BASE}/api/voice/transcribe?language=en`, { method: "POST", headers: { "content-type": type }, body: note });
+      return { status: res.status, body: await res.json() as any };
+    };
+    expect((await api("GET", "/api/config")).body.features.cloudDictation).toBe(true);
+    expect(await send()).toEqual({ status: 409, body: { error: expect.stringContaining("No transcription service"), reason: "no-service" } });
+    try {
+      const off = await api("PATCH", "/api/config", { features: { cloudDictation: false } });
+      expect(off.status).toBe(200);
+      expect(off.body.features.cloudDictation).toBe(false);
+      expect(await send()).toEqual({ status: 409, body: { error: "Sharper dictation is turned off.", reason: "off" } });
+    } finally {
+      await api("PATCH", "/api/config", { features: { cloudDictation: true } });
+    }
+    expect((await api("GET", "/api/config")).body.features.cloudDictation).toBe(true);
   });
 
   it("refuses to delete a bot while it owns an active channel turn", async () => {

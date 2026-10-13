@@ -80,6 +80,25 @@ describe("readCodexModelCatalog", () => {
     });
   });
 
+  it("keeps each model's own reasoning levels and default from the app-server", async () => {
+    chmodSync(FAKE_CLI, 0o755);
+    const catalog = await readCodexModelCatalog(
+      { HOME: join(tmpdir(), "laterdog-codex-app-server-efforts"), PATH: process.env.PATH, FAKE_CODEX_ASTRA: "1" },
+      fetch,
+      FAKE_CLI,
+    );
+
+    expect(catalog.default).toBe("gpt-6-astra");
+    expect(catalog.options.slice(0, 2)).toEqual([
+      { id: "gpt-6-astra", label: "GPT-6 Astra", effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultEffort: "medium" },
+      { id: "gpt-fake-default", label: "GPT Fake Default" },
+    ]);
+  });
+
+  it("never offers the top level from the offline fallback", () => {
+    for (const option of STATIC_CODEX_MODELS.options) expect(option.effortLevels ?? []).not.toContain("ultra");
+  });
+
   it("appends the configured local model and cached catalog slugs as custom", async () => {
     const home = scratchHome({
       "config.toml": `

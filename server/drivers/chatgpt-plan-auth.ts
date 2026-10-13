@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from "jose";
 import { writeFileAtomic } from "../atomic.ts";
 import type { ModelCatalog, ProviderAuthenticationStart, ProviderAuthenticationStatus, ProviderSnapshot } from "../contracts.ts";
+import { modelEffort } from "../../shared/effort.ts";
 
 const ISSUER = "https://auth.openai.com";
 const RESOURCE = "https://api.openai.com/v1";
@@ -358,7 +359,7 @@ export class ChatGptPlanAuthController {
       if (!entry || typeof entry !== "object") continue;
       const row = entry as Record<string, unknown>;
       if (row.visibility !== "list" || !string(row.slug, 256) || /[\s\p{Cc}]/u.test(row.slug) || !string(row.display_name, 256) || options.some((item) => item.id === row.slug)) continue;
-      options.push({ id: row.slug, label: row.display_name });
+      options.push({ id: row.slug, label: row.display_name, ...modelEffort(row.supported_reasoning_levels, "effort", row.default_reasoning_level) });
     }
     return { default: options[0]?.id ?? "", options };
   }

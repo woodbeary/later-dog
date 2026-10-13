@@ -200,6 +200,6 @@ function CustomProviderMark({ dataUrl, driverKind, size = 16, className }: IconP
   const [failed, setFailed] = useState(false);
   return failed
     ? <ProviderMark driverKind={driverKind} size={size} className={className} />
-    : <img src={dataUrl} alt="" width={size} height={size} onError={() => setFailed(true)}
+    : <img src={dataUrl} alt="" width={size} height={size} draggable={false} onError={() => setFailed(true)}
         className={cn("rounded-[22%] object-cover", className)} />;
 }

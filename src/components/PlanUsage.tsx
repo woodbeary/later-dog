@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "@/state/store";
-import { activeLocale, t } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { resetDistance } from "@/lib/reset-time";
+import { RestCharge, usageLeft, type AccountRest } from "./AccountCharge";
+
+export { resetClock, resetDistance } from "@/lib/reset-time";
 
 export interface PlanWindow {
   available: boolean;
@@ -38,27 +42,6 @@ export interface PlanProvider {
 export interface PlanUsageReport {
   fetchedAt: string;
   providers: PlanProvider[];
-}
-
-export function resetDistance(resetsAt: string | null | undefined, now: number): string | null {
-  if (!resetsAt) return null;
-  const at = Date.parse(resetsAt);
-  if (!Number.isFinite(at) || at <= now) return null;
-  const minutes = Math.floor((at - now) / 60_000);
-  if (minutes < 1) return t("planUsage.lessThanMinute");
-  const days = Math.floor(minutes / 1440);
-  const hours = Math.floor((minutes % 1440) / 60);
-  const mins = minutes % 60;
-  if (days > 0) return hours > 0 ? t("planUsage.daysHours", { days, hours }) : t("planUsage.days", { days });
-  if (hours > 0) return mins > 0 ? t("planUsage.hoursMinutes", { hours, minutes: mins }) : t("planUsage.hours", { hours });
-  return t("planUsage.minutes", { minutes: mins });
-}
-
-export function resetClock(until: string, now: number): string {
-  const at = new Date(until);
-  return at.toDateString() === new Date(now).toDateString()
-    ? at.toLocaleTimeString(activeLocale(), { hour: "numeric", minute: "2-digit" })
-    : at.toLocaleString(activeLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function dueResetDeadlines(report: PlanUsageReport, now: number, seen: Set<string>): string[] {
@@ -209,18 +192,19 @@ export function usageTone(used: number): UsageTone {
 
 const BAR_TONE: Record<UsageTone, string> = { accent: "bg-accent", warning: "bg-warning", danger: "bg-danger" };
 
-export function UsageBar({ used, label }: { used: number; label: string }) {
-  const clamped = Math.round(Math.min(100, Math.max(0, used)));
+export function UsageBar({ used, label, className }: { used: number; label: string; className?: string }) {
+  const left = usageLeft(used);
   return (
     <span
-      className="block h-1 w-full overflow-hidden rounded-full bg-control"
+      className={cn("block h-1 w-full overflow-hidden rounded-full bg-control", className)}
       role="meter"
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={clamped}
+      aria-valuenow={left}
+      aria-valuetext={t("planUsage.left", { left })}
     >
-      <span className={cn("block h-full rounded-full", BAR_TONE[usageTone(clamped)])} style={{ width: `${clamped}%` }} />
+      <span className={cn("block h-full rounded-full", BAR_TONE[usageTone(100 - left)])} style={{ width: `${left}%` }} />
     </span>
   );
 }
@@ -228,7 +212,7 @@ export function UsageBar({ used, label }: { used: number; label: string }) {
 function windowLine(label: string, window: PlanWindow, now: number): string | null {
   if (!window.available || window.usedPercent == null) return null;
   const when = resetDistance(window.resetsAt, now);
-  return [label, t("planUsage.used", { used: Math.round(window.usedPercent) }), when ? t("planUsage.resetsIn", { when }) : null].filter(Boolean).join(" · ");
+  return [label, t("planUsage.left", { left: usageLeft(window.usedPercent) }), when ? t("planUsage.resetsIn", { when }) : null].filter(Boolean).join(" · ");
 }
 
 export interface UsageReading {
@@ -257,26 +241,25 @@ export function AccountUsage({ provider, now, loading = false, resting }: {
   provider: PlanProvider | undefined;
   now: number;
   loading?: boolean;
-  resting?: { until: string } | undefined;
+  resting?: AccountRest | undefined;
 }) {
   const quiet = "text-[12px] text-ink-secondary";
-  if (resting && Date.parse(resting.until) > now) {
-    return <p className={cn(quiet, "text-warning")}>{t("accounts.resting", { time: resetClock(resting.until, now) })}</p>;
-  }
+  if (resting && Date.parse(resting.until) > now) return <RestCharge rest={resting} now={now} />;
   if (!provider) return loading ? <p className={quiet}>{t("planUsage.loading")}</p> : null;
   if (!provider.ok) return null;
-  const session = windowLine(t("planUsage.fiveHour"), provider.fiveHour, now);
-  const weekly = windowLine(t("planUsage.weekly"), provider.weekly, now);
-  if (!session && !weekly) return null;
+  const windows = ([[t("planUsage.fiveHour"), provider.fiveHour], [t("planUsage.weekly"), provider.weekly]] as const).flatMap(([label, window]) => {
+    const line = windowLine(label, window, now);
+    return line && window.usedPercent != null ? [{ label, line, used: window.usedPercent }] : [];
+  });
+  if (windows.length === 0) return null;
   return (
-    <div className="flex flex-col gap-1">
-      {session && provider.fiveHour.usedPercent != null && (
-        <>
-          <UsageBar used={provider.fiveHour.usedPercent} label={t("planUsage.fiveHour")} />
-          <p className={cn(quiet, "tabular-nums")}>{session}</p>
-        </>
-      )}
-      {weekly && <p className={cn(quiet, "tabular-nums")}>{weekly}</p>}
+    <div className="flex flex-col gap-2.5">
+      {windows.map((window) => (
+        <div key={window.label} className="flex flex-col gap-1">
+          <UsageBar used={window.used} label={window.label} className="h-1.5" />
+          <p className={cn(quiet, "tabular-nums")}>{window.line}</p>
+        </div>
+      ))}
     </div>
   );
 }

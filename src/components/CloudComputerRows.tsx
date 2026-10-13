@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
-import { useStore } from "@/state/store";
+import { Loader2, Monitor } from "lucide-react";
+import { useStore, type Bot } from "@/state/store";
 import { t } from "@/lib/i18n";
+import { SleepingDog } from "./AccountCharge";
 import { CloudComputersRow } from "./ApiKeys";
+import { BotAvatar } from "./Avatar";
 import { CloudTrialRow } from "./CloudTrial";
 import { pillButton } from "./LocalVmRows";
 import { SettingRow } from "./SettingsPrimitives";
@@ -25,13 +27,15 @@ export interface CloudComputerList {
 }
 
 const DELETE_RECHECKS_MS = [1_000, 2_000, 4_000] as const;
+const ASLEEP = ["archived", "stopped"];
+const AWAKE = ["idle", "ready", "running"];
 
 export function cloudComputerState(computer: CloudComputer): string {
   if (computer.inUse) return t("vm.state.inUse");
   if (computer.state === "removing") return t("vm.state.removing");
-  if (["archived", "stopped"].includes(computer.state)) return t("vm.state.sleeping");
+  if (ASLEEP.includes(computer.state)) return t("vm.state.sleeping");
   if (["archiving", "stopping"].includes(computer.state)) return t("vm.state.goingToSleep");
-  if (["idle", "ready", "running"].includes(computer.state)) return t("vm.state.running");
+  if (AWAKE.includes(computer.state)) return t("vm.state.running");
   if (["init", "provisioning", "provisioned", "cloning", "starting"].includes(computer.state)) return t("vm.state.starting");
   return t("vm.state.attention");
 }
@@ -44,15 +48,22 @@ export function mergeCloudComputers(list: CloudComputerList, previous: CloudComp
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
+function ComputerOwner({ computer, owner }: { computer: CloudComputer; owner: Bot | undefined }) {
+  if (!owner) return <Monitor size={18} aria-hidden="true" className="w-7 shrink-0 text-ink-tertiary" />;
+  if (ASLEEP.includes(computer.state) && !computer.inUse) return <SleepingDog size={28} color={owner.color} bodyId={owner.mascotBody ?? undefined} />;
+  return <BotAvatar bot={owner} size={28} label="" trackPointer={false} />;
+}
+
 export function CloudComputerRows() {
-  const keyConfigured = useStore().state.config?.box?.configured === true;
+  const { state } = useStore();
+  const keyConfigured = state.config?.box?.configured === true;
   const soon = !keyConfigured && <SettingRow title={t("settings.cloud.soon")} subtitle={t("settings.cloud.soonHint")}>{null}</SettingRow>;
   const [computers, setComputers] = useState<CloudComputer[]>([]);
   const [listed, setListed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ boxId: string; action: "sleep" | "delete" } | null>(null);
   const latest = useRef<CloudComputer[]>([]);
   const deleting = useRef(new Set<string>());
 
@@ -81,7 +92,7 @@ export function CloudComputerRows() {
   const remove = async (computer: CloudComputer) => {
     const subject = computer.orphaned ? t("vm.confirm.orphanCloud") : t("vm.confirm.ownedCloud", { name: computer.ownerName ?? "" });
     if (!window.confirm(t("vm.confirm.deleteCloud", { subject }))) return;
-    setPending(computer.boxId);
+    setPending({ boxId: computer.boxId, action: "delete" });
     setError(null);
     try {
       const response = await fetch(`/api/computers/boxes/${encodeURIComponent(computer.boxId)}/delete`, {
@@ -108,6 +119,28 @@ export function CloudComputerRows() {
     }
   };
 
+  const sleep = async (computer: CloudComputer) => {
+    setPending({ boxId: computer.boxId, action: "sleep" });
+    setError(null);
+    try {
+      const response = await fetch(`/api/computers/boxes/${encodeURIComponent(computer.boxId)}/sleep`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? t("vm.cloud.sleepError"));
+      await refresh().catch(() => {});
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const spinning = (computer: CloudComputer, action: "sleep" | "delete") =>
+    pending?.boxId === computer.boxId && pending.action === action && <Loader2 size={12} className="animate-spin" />;
+
   return (
     <div data-cloud-computer-rows="" className="rounded-xl bg-card px-4">
       <CloudComputersRow />
@@ -120,25 +153,53 @@ export function CloudComputerRows() {
         <p className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary">{problem}</p>
       ) : listed && computers.length === 0 ? (
         <p className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary">{t("vm.cloud.noneFound")}</p>
-      ) : computers.map((computer) => (
-        <SettingRow
-          key={computer.boxId}
-          title={computer.orphaned ? t("vm.cloud.orphan") : computer.ownerName ?? computer.name}
-          subtitle={computer.inUse ? `${cloudComputerState(computer)} · ${t("vm.cloud.stopFirst")}` : cloudComputerState(computer)}
-        >
-          <button
-            type="button"
-            data-cloud-computer-delete={computer.boxId}
-            onClick={() => void remove(computer)}
-            disabled={pending !== null || computer.inUse || computer.state === "removing"}
-            title={t("vm.cloud.deleteTitle")}
-            className={`${pillButton} flex items-center gap-1.5 text-danger`}
+      ) : computers.map((computer) => {
+        const title = computer.orphaned ? t("vm.cloud.orphan") : computer.ownerName ?? computer.name;
+        const held = pending !== null || computer.inUse || computer.state === "removing";
+        return (
+          <div
+            key={computer.boxId}
+            role="group"
+            aria-label={title}
+            data-cloud-computer={computer.boxId}
+            className="flex min-h-14 items-center gap-3 border-t border-hairline/40 py-3 first:border-t-0"
           >
-            {pending === computer.boxId && <Loader2 size={12} className="animate-spin" />}
-            {t("common.delete")}
-          </button>
-        </SettingRow>
-      ))}
+            <ComputerOwner computer={computer} owner={computer.ownerBotId ? state.bots.find((bot) => bot.id === computer.ownerBotId) : undefined} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[14px] font-medium text-ink">{title}</div>
+              <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
+                {computer.inUse ? `${cloudComputerState(computer)} · ${t("vm.cloud.stopFirst")}` : cloudComputerState(computer)}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {AWAKE.includes(computer.state) && (
+                <button
+                  type="button"
+                  data-cloud-computer-sleep={computer.boxId}
+                  onClick={() => void sleep(computer)}
+                  disabled={held}
+                  title={t("vm.cloud.sleepTitle")}
+                  className={`${pillButton} flex items-center gap-1.5`}
+                >
+                  {spinning(computer, "sleep")}
+                  {t("vm.cloud.sleep")}
+                </button>
+              )}
+              <button
+                type="button"
+                data-cloud-computer-delete={computer.boxId}
+                onClick={() => void remove(computer)}
+                disabled={held}
+                title={t("vm.cloud.deleteTitle")}
+                className={`${pillButton} flex items-center gap-1.5 text-danger`}
+              >
+                {spinning(computer, "delete")}
+                {t("common.delete")}
+              </button>
+            </div>
+          </div>
+        );
+      })}
       {error && <p role="alert" className="border-t border-hairline/40 py-3 text-[12px] text-danger">{error}</p>}
     </div>
   );

@@ -65,7 +65,7 @@ describe("official ChatGPT plan OAuth", () => {
       if (request.url === "/.well-known/openid-configuration") { response.end(JSON.stringify({ issuer: origin, revocation_endpoint: `${origin}/revoke` })); return; }
       if (request.url === "/revoke") { response.statusCode = mode === "revoke-fails" ? 503 : 200; response.end(); return; }
       if (request.url === "/v1/models") {
-        response.end(JSON.stringify({ models: [{ slug: "gpt-6.1-sol", display_name: "GPT-6.1 Sol", visibility: "list" }, { slug: "hidden", display_name: "Hidden", visibility: "hide" }, { slug: "gpt-fixture", display_name: "Fixture", visibility: "list" }] })); return;
+        response.end(JSON.stringify({ models: [{ slug: "gpt-6.1-sol", display_name: "GPT-6.1 Sol", visibility: "list" }, { slug: "hidden", display_name: "Hidden", visibility: "hide" }, { slug: "gpt-fixture", display_name: "Fixture", visibility: "list", default_reasoning_level: "medium", supported_reasoning_levels: [{ effort: "low", description: "Fast" }, { effort: "medium", description: "Balanced" }, { effort: "ultra", description: "Splits work" }] }] })); return;
       }
       if (request.url !== "/api/accounts/oauth/token") { response.statusCode = 404; response.end("{}"); return; }
       if (mode === "used-code") { response.statusCode = 400; response.end(JSON.stringify({ error: "invalid_grant" })); return; }
@@ -118,7 +118,7 @@ describe("official ChatGPT plan OAuth", () => {
     expect(new URL(exchange.params.get("redirect_uri")!).hostname).toBe("127.0.0.1");
     expect(createHash("sha256").update(exchange.params.get("code_verifier")!).digest("base64url")).toBe(authorization.searchParams.get("code_challenge"));
     expect(await controller.accessToken()).toBe("fixture-access-private");
-    expect(await controller.models()).toEqual({ default: "gpt-6.1-sol", options: [{ id: "gpt-6.1-sol", label: "GPT-6.1 Sol" }, { id: "gpt-fixture", label: "Fixture" }] });
+    expect(await controller.models()).toEqual({ default: "gpt-6.1-sol", options: [{ id: "gpt-6.1-sol", label: "GPT-6.1 Sol" }, { id: "gpt-fixture", label: "Fixture", effortLevels: ["low", "medium", "ultra"], defaultEffort: "medium" }] });
     expect(calls.at(-1)?.authorization).toBe("Bearer fixture-access-private");
     expect(await controller.snapshot()).toMatchObject({ authenticated: true, account: { email: "fixture@example.invalid", method: "login" } });
     expect(JSON.stringify(await controller.snapshot())).not.toContain("fixture-access");

@@ -1773,7 +1773,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         browserMcp: true,
         images: true,
         nativeImageInput: true,
-        effortLevels: ["low", "medium", "high", "xhigh", "max"],
+        effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
         strictResume: true,
       },
       sendTurn,

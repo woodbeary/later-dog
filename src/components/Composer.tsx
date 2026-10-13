@@ -1,7 +1,7 @@
 import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ModelPicker } from "./ModelPicker";
-import { ArrowUp, BookOpen, Clock, Mic, Square, Target, Users, X } from "lucide-react";
+import { ArrowUp, BookOpen, Clock, Loader2, Mic, Square, Target, Users, X } from "lucide-react";
 import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
 import { waitingOnPerson } from "@/components/onboarding/GuidedTour";
 import { cn } from "@/lib/cn";
@@ -76,7 +76,8 @@ import {
   doubleEnterSteerWindowExpiresAt,
   doubleEnterSteersQueue,
 } from "./ComposerQueuedMessages";
-import { skillAuthoringEnabled } from "@/lib/feature-flags";
+import { cloudDictationEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
+import { sharperTranscript } from "@/lib/sharper-dictation";
 import { mentionChoicesForQuery } from "@/lib/mentions";
 import { serializeThreadRefs, threadTokenFromPaste, threadTokenSpacing } from "@/lib/thread-refs";
 import {
@@ -213,6 +214,8 @@ export function Composer({
   const retryFile = useRef<string | null>(null);
   const listening = recording || retryingNote !== null;
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [sharpening, setSharpening] = useState(0);
+  const sharpenOnStop = useRef(false);
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
@@ -259,6 +262,34 @@ export function Composer({
   }, [replyToId]);
   const mentionListRef = useRef<HTMLDivElement>(null);
   const baseText = useRef("");
+  const textNow = useRef(text);
+  textNow.current = text;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const sharpenLater = useRef<() => ((recording: string | undefined) => Promise<boolean>) | null>(() => null);
+  sharpenLater.current = () => {
+    if (!cloudDictationEnabled(state.config) || !window.laterdog?.speechAudio) return null;
+    const id = draftId;
+    const heard = text;
+    const revision = draftRevision(id);
+    const base = baseText.current;
+    const write = editText;
+    return async (recording) => {
+      if (!recording) return false;
+      setSharpening((count) => count + 1);
+      const said = await sharperTranscript(recording, window.laterdog, navigator.language);
+      if (!mounted.current) return false;
+      setSharpening((count) => count - 1);
+      if (!said || draftIdRef.current !== id || textNow.current !== heard || draftRevision(id) !== revision) return false;
+      write(base ? `${base} ${said}` : said);
+      return true;
+    };
+  };
 
   const botSupportsImages = (candidate?: Bot) =>
     Boolean(
@@ -613,6 +644,8 @@ export function Composer({
       });
       track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && (delivery ? waitsForTurn(delivery) : !canSteer), delivery });
     }
+    setRecording(false);
+    setRetryingNote(null);
     setText("");
     setAttachments([]);
     setAttachmentNotice(null);
@@ -695,6 +728,7 @@ export function Composer({
       return;
     }
     const file = retryFile.current;
+    sharpenOnStop.current = false;
     setSpeechError(null);
     const offTranscript = bridge.onSpeechTranscript((line) => {
       if (typeof line.text === "string") {
@@ -706,24 +740,35 @@ export function Composer({
       setRecording(false);
       setRetryingNote(null);
       retryFile.current = null;
-      setVoiceNote(code === 1 && saved ? saved : null);
-      if (code === 2) {
-        setSpeechError(t("composer.dictation.macOnly"));
-      } else if (code === 1) {
-        setSpeechError(t(
-          reason === "dictation-disabled"
-            ? "composer.dictation.disabled"
-            : reason === "speech-not-authorized"
-              ? "composer.dictation.permission"
-              : "composer.dictation.failed",
-        ));
-      }
+      const keep = () => {
+        setVoiceNote(code === 1 && saved ? saved : null);
+        if (code === 2) {
+          setSpeechError(t("composer.dictation.macOnly"));
+        } else if (code === 1) {
+          setSpeechError(t(
+            reason === "dictation-disabled"
+              ? "composer.dictation.disabled"
+              : reason === "speech-not-authorized"
+                ? "composer.dictation.permission"
+                : "composer.dictation.failed",
+          ));
+        }
+      };
+      const sharpen = !file && saved ? sharpenLater.current() : null;
+      if (!sharpen) return keep();
+      setVoiceNote(null);
+      void sharpen(saved).then((replaced) => {
+        if (!replaced && code === 1 && mounted.current) keep();
+      });
     });
     void bridge.speechStart(file ? { file } : undefined);
     return () => {
       offTranscript();
       offEnd();
-      void bridge.speechStop();
+      const stopped = Promise.resolve(bridge.speechStop());
+      const sharpen = sharpenOnStop.current ? sharpenLater.current() : null;
+      sharpenOnStop.current = false;
+      if (sharpen) void stopped.then((result) => sharpen(result?.recording));
     };
   }, [listening, editText]);
 
@@ -734,13 +779,19 @@ export function Composer({
     setRetryingNote(voiceNote);
   };
 
+  const stopDictation = () => {
+    sharpenOnStop.current = true;
+    setRecording(false);
+  };
+
   const toggleMic = () => {
     if (!capabilities.dictation.available || !window.laterdog) {
       setSpeechError(t("composer.dictation.unavailable"));
       return;
     }
+    if (recording) return stopDictation();
     baseText.current = text.trim();
-    setRecording((r) => !r);
+    setRecording(true);
   };
 
   return (
@@ -1062,7 +1113,7 @@ export function Composer({
               }
               send();
             }
-            if (e.key === "Escape" && recording) setRecording(false);
+            if (e.key === "Escape" && recording) stopDictation();
           }}
           disabled={Boolean(approval) || locked}
           aria-busy={bot?.awaitingThreadSnapshot || undefined}
@@ -1108,8 +1159,12 @@ export function Composer({
             <Square size={14} className="fill-current" />
           </button>
         )}
-        {!locked && !busy && !hasContent && capabilities.dictation.available && (
+        {!locked && capabilities.dictation.available && (recording || (!busy && !retryingNote)) && (
           <button
+            type="button"
+            data-composer-mic
+            aria-pressed={recording}
+            aria-busy={(sharpening > 0 && !recording) || undefined}
             onClick={toggleMic}
             aria-label={recording ? t("composer.dictation.stop") : t("composer.dictation.start")}
             className={cn(
@@ -1118,16 +1173,18 @@ export function Composer({
                 ? "animate-pulse bg-danger/20 text-danger"
                 : "text-ink-secondary hover:bg-raised hover:text-ink",
             )}
-            title={recording ? t("composer.dictation.stopHint") : t("composer.dictation.hint")}
+            title={recording ? t("composer.dictation.stopHint") : sharpening > 0 ? t("composer.dictation.transcribing") : t("composer.dictation.hint")}
           >
-            <Mic size={18} />
+            {sharpening > 0 && !recording ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
           </button>
         )}
         {bot && !group && voiceOn && <CallButton bot={bot} placement="composer" />}
-        {hasContent && !locked && (
+        {!locked && (hasContent || !busy) && (
           <button
+            type="button"
+            data-composer-send
             onClick={() => send()}
-            disabled={attachmentPending}
+            disabled={attachmentPending || !hasContent}
             aria-label={
               busy && canSteer
                   ? t("composer.send.steer")
@@ -1143,8 +1200,10 @@ export function Composer({
                     : t("chat.send")
             }
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full text-white",
-              busy && !canSteer
+              "flex size-8 shrink-0 items-center justify-center rounded-full text-white transition-colors",
+              !hasContent
+                ? "cursor-default bg-raised text-ink-tertiary"
+                : busy && !canSteer
                   ? "bg-raised text-ink-secondary hover:bg-raised-hover"
                   : "bg-accent hover:brightness-110",
             )}

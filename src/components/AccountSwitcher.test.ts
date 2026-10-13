@@ -17,7 +17,7 @@ vi.mock("./AccountsPanel", async (importOriginal) => ({
   useCarryOn: () => fixture.carryOn,
 }));
 
-const { ACCOUNT_DRAG_TYPE, AccountSwitcher, movedTo, UsageRing, usageRingFor } = await import("./AccountSwitcher");
+const { ACCOUNT_DRAG_TYPE, AccountBadge, accountInitials, AccountSwitcher, movedTo, UsageRing, usageRingFor } = await import("./AccountSwitcher");
 
 const NOW = Date.UTC(2026, 9, 9, 12);
 const account = (instanceId: string, displayName: string, driverKind = "claudeAgent", authenticated = true) => ({
@@ -81,12 +81,14 @@ describe("the account list", () => {
   it("gives each account one line with a usage ring, leaves the detail to the tooltip, and checks the one in use", async () => {
     await show();
     expect(order()).toEqual(["claude", "claude-work", "codex"]);
-    expect(row("claude")!.textContent).toBe("Personal62% used");
-    expect(ring("claude")!.getAttribute("data-usage-ring")).toBe("62");
-    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("95");
+    expect(row("claude")!.textContent).toBe("Personal38% left");
+    expect(ring("claude")!.getAttribute("data-usage-ring")).toBe("38");
+    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("5");
     expect(ring("claude-work")!.querySelectorAll("circle")[1].getAttribute("class")).toBe("text-danger");
+    expect(ring("claude-work")!.hasAttribute("data-charging")).toBe(false);
     expect(document.querySelector('[role="meter"]')).toBeNull();
-    expect(row("claude-work")!.title).toBe("Work\n5-hour · 10% used · resets in 1h 20m\nWeekly · 95% used · resets in 3d");
+    expect(document.querySelector("[data-sleeping-dog]")).toBeNull();
+    expect(row("claude-work")!.title).toBe("Work\n5-hour · 90% left · resets in 1h 20m\nWeekly · 5% left · resets in 3d");
     expect(row("codex")!.textContent).toBe("Codex");
     expect(ring("codex")).toBeNull();
     expect(row("claude")!.getAttribute("aria-pressed")).toBe("true");
@@ -104,17 +106,28 @@ describe("the account list", () => {
     expect(row("claude-old")!.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("rings a resting account full and says when it is back", async () => {
-    await show({ resting: { "claude-work": { until: new Date(NOW + 3_600_000).toISOString() } } });
-    expect(row("claude-work")!.textContent).toContain("Resting until");
-    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("100");
-    expect(row("claude-work")!.title).toMatch(/^Work\nResting until /);
+  it("puts a resting account to sleep, rings how far it has recharged, and says when it is back", async () => {
+    await show({ resting: { "claude-work": { since: new Date(NOW - 3_600_000).toISOString(), until: new Date(NOW + 3_600_000).toISOString() } } });
+    expect(row("claude-work")!.textContent).toMatch(/^WorkBack at \d{1,2}:\d{2}/);
+    expect(row("claude-work")!.querySelector("[data-sleeping-dog]")!.textContent).toBe("");
+    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("50");
+    expect(ring("claude-work")!.getAttribute("data-charging")).toBe("true");
+    expect(ring("claude-work")!.querySelectorAll("circle")[1].getAttribute("class")).toBe("text-accent recharge-pulse");
+    expect(row("claude-work")!.title).toMatch(/^Work\nBack at [^\n]+ · in 1h$/);
+  });
+
+  it("says only roughly when a rest without a known reset ends", async () => {
+    await show({ resting: { "claude-work": { until: new Date(NOW + 3_600_000).toISOString(), estimated: true } } });
+    expect(row("claude-work")!.textContent).toContain("Back around");
+    expect(ring("claude-work")!.getAttribute("data-usage-ring")).toBe("0");
+    expect(row("claude-work")!.title).not.toContain(" · in ");
   });
 
   it("forgets a rest that is over", async () => {
     await show({ resting: { "claude-work": { until: new Date(NOW - 1).toISOString() } } });
-    expect(row("claude-work")!.textContent).not.toContain("Resting until");
-    expect(row("claude-work")!.textContent).toContain("95% used");
+    expect(row("claude-work")!.textContent).not.toContain("Back at");
+    expect(row("claude-work")!.textContent).toContain("5% left");
+    expect(row("claude-work")!.querySelector("[data-sleeping-dog]")).toBeNull();
   });
 
   it("switches account on a tap", async () => {
@@ -205,23 +218,49 @@ describe("reordering accounts", () => {
 });
 
 describe("the usage ring", () => {
-  it("fills to the tighter limit in its tone, and full red while the account rests", () => {
-    expect(usageRingFor(usage("claude", 80, 30), undefined)).toEqual({ used: 80, tone: "warning" });
-    expect(usageRingFor(usage("claude", 20, 95), undefined)).toEqual({ used: 95, tone: "danger" });
-    expect(usageRingFor(usage("claude", 20, 30), { until: new Date(NOW + 1).toISOString() })).toEqual({ used: 100, tone: "danger" });
-    expect(usageRingFor(undefined, undefined)).toBeNull();
-    expect(usageRingFor({ ...usage("claude", 20, 30), ok: false }, undefined)).toBeNull();
+  it("drains to what the tighter limit leaves, in its tone, and refills while the account rests", () => {
+    expect(usageRingFor(usage("claude", 80, 30), undefined, NOW)).toEqual({ level: 20, tone: "warning" });
+    expect(usageRingFor(usage("claude", 20, 95), undefined, NOW)).toEqual({ level: 5, tone: "danger" });
+    const rest = { since: new Date(NOW - 1_200_000).toISOString(), until: new Date(NOW + 3_600_000).toISOString() };
+    expect(usageRingFor(usage("claude", 20, 30), rest, NOW)).toEqual({ level: 25, tone: "accent", charging: true });
+    expect(usageRingFor(usage("claude", 20, 30), { until: rest.until }, NOW)).toEqual({ level: 0, tone: "accent", charging: true });
+    expect(usageRingFor(undefined, undefined, NOW)).toBeNull();
+    expect(usageRingFor({ ...usage("claude", 20, 30), ok: false }, undefined, NOW)).toBeNull();
   });
 
-  it("draws an arc only for usage above zero", async () => {
+  it("draws an arc only while something is left", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    await act(async () => root!.render(createElement(UsageRing, { used: 40, tone: "accent", children: createElement("i") })));
+    await act(async () => root!.render(createElement(UsageRing, { level: 40, tone: "accent", children: createElement("i") })));
     expect(container.querySelector("[data-usage-ring]")!.getAttribute("data-usage-ring")).toBe("40");
     expect(container.querySelectorAll("circle")).toHaveLength(2);
     expect(container.querySelectorAll("circle")[1].getAttribute("class")).toBe("text-accent");
-    await act(async () => root!.render(createElement(UsageRing, { used: 0, tone: "accent", children: createElement("i") })));
+    await act(async () => root!.render(createElement(UsageRing, { level: 0, tone: "accent", children: createElement("i") })));
     expect(container.querySelectorAll("circle")).toHaveLength(1);
+  });
+});
+
+describe("an account's initials", () => {
+  it("takes the first letter of up to two words in any script, and never comes back empty", () => {
+    expect(accountInitials("Personal")).toBe("P");
+    expect(accountInitials("work plan")).toBe("WP");
+    expect(accountInitials("  Ada   Lovelace  Byron ")).toBe("AL");
+    expect(accountInitials("émile zola")).toBe("ÉZ");
+    expect(accountInitials("🐶 Dog")).toBe("🐶D");
+    expect(accountInitials("   ")).toBe("?");
+  });
+
+  it("wears them on a badge with the provider's mark, inside the usage ring when there is one", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root!.render(createElement(AccountBadge, { instance: work, ring: null })));
+    expect(container.querySelector("[data-account-initials]")!.getAttribute("data-account-initials")).toBe("W");
+    expect(container.querySelector("[data-usage-ring]")).toBeNull();
+    expect(container.querySelector("svg")).not.toBeNull();
+    await act(async () => root!.render(createElement(AccountBadge, { instance: work, ring: { level: 40, tone: "accent" } })));
+    expect(container.querySelector("[data-usage-ring]")!.getAttribute("data-usage-ring")).toBe("40");
+    expect(container.querySelector("[data-usage-ring]")!.textContent).toBe("W");
   });
 });

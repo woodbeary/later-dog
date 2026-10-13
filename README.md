@@ -15,11 +15,11 @@ there are no API keys to paste. New to later.dog? Start with the [user guide](do
 
 ## Install (macOS, Apple silicon)
 
-1. Download `later.dog-macOS-arm64.zip` from the [latest release](https://github.com/woodbeary/later-dog/releases/latest).
-2. Unzip and drag **later.dog** into Applications.
-3. Open **later.dog**. It is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether
-   to open an app downloaded from the internet. The keychain access and the Accessibility and Screen Recording
-   permissions you grant carry over to later versions.
+1. Download `later.dog-macOS-arm64.dmg` from the [latest release](https://github.com/woodbeary/later-dog/releases/latest).
+2. Open it and drag **later.dog** onto the Applications folder.
+3. Open **later.dog** from Applications. It is signed with an Apple Developer ID and notarized by Apple, so macOS only
+   asks once whether to open an app downloaded from the internet. The keychain access and the Accessibility and Screen
+   Recording permissions you grant carry over to later versions.
 4. The welcome asks your name and lets you pick a dog. Your first dog starts chatting right away on the free
    **Kimi K2.6** and **Grok 4.3** models, with no account. Sign in to **Claude** or **ChatGPT** whenever you like: one
    button in Settings, General, Add account, and the sign-in finishes in your browser.

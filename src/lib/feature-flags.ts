@@ -1,7 +1,7 @@
 import { t } from "./i18n";
 
 export interface FeatureFlagConfig {
-  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; routinesInConversation?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean };
+  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; routinesInConversation?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean };
   browserEngine?: { kind: "engine" | "unavailable"; reason?: string; installable?: boolean; installing?: boolean; installError?: string };
 }
 
@@ -24,8 +24,16 @@ export function builtInBrowserEnabled(config: FeatureFlagConfig | null | undefin
   return config?.features?.browser === true;
 }
 
+export function cloudDictationEnabled(config: FeatureFlagConfig | null | undefined): boolean {
+  return config?.features?.cloudDictation !== false;
+}
+
+export function stepUpdatesEnabled(config: FeatureFlagConfig | null | undefined): boolean {
+  return config?.features?.stepUpdates === true;
+}
+
 export function showToolCallsEnabled(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.showToolCalls === true;
+  return config?.features?.showToolCalls === true || stepUpdatesEnabled(config);
 }
 
 export function routinesInConversationEnabled(config: FeatureFlagConfig | null | undefined): boolean {

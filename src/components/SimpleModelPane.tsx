@@ -4,7 +4,7 @@ import type { InstanceInfo } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
 import { InstanceProviderMark } from "./ProviderIcons";
 import type { RailProvider } from "./ModelPicker";
-import { friendlyEffort, modelBlurb } from "@/lib/model-friendly";
+import { effortName, effortNote, modelBlurb } from "@/lib/model-friendly";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 
@@ -63,7 +63,7 @@ export function SimpleModelPane({
   currentModelId?: string;
   botModelId?: string;
   onPick: (modelId: string) => void;
-  effort?: { levels: EffortLevel[]; current?: EffortLevel; onPick: (level: EffortLevel) => void } | null;
+  effort?: { levels: EffortLevel[]; current?: EffortLevel; driverKind?: string; onPick: (level: EffortLevel) => void } | null;
   variantsRow?: ReactNode;
   onManage: () => void;
 }) {
@@ -226,13 +226,14 @@ export function SimpleModelPane({
                 key={level}
                 type="button"
                 aria-pressed={effort.current === level}
+                title={effortNote(level)}
                 onClick={() => effort.onPick(level)}
                 className={cn(
                   "truncate rounded-lg px-1 py-1.5 text-[12.5px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
                   effort.current === level ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
                 )}
               >
-                {friendlyEffort(level)}
+                {effortName(level, effort.driverKind)}
               </button>
             ))}
           </div>

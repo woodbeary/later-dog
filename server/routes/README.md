@@ -13,5 +13,8 @@ lower its number in that test.
 - `handleRequest` runs the table right after the auth gate, so handlers are already authenticated.
   Scope rules stay keyed by path in `server/request-auth.ts`.
 - `RouteContext` carries `req`, `res`, `url`, `path`, `method`, `auth`, `json`, `readBody`; the rest is `deps`.
+- Routes under `/api/internal/` go in `INTERNAL_ROUTES` (`internal.ts`). `index.ts` runs that table only after it has
+  checked the turn's capability, so a handler gets the calling `sender`, its `threadId` and a `readBody()` that keeps
+  those checks.
 - Type-only imports must be `import type` (or an inline `type`): the server runs on type stripping, so
   a bare type import passes `tsc` and crashes at boot.

@@ -24,6 +24,7 @@ import type { ModelRequestCardData } from "../../shared/model-request";
 import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { GroupGoalRunCardData } from "../../shared/group-goal-run";
+import type { SecureFormCardData } from "../../shared/secure-form";
 import type { PlaceRow } from "../../shared/place-view";
 import type { FailedTurnQuota } from "../../shared/failed-turn";
 import type { SendDelivery } from "../../shared/send-delivery";
@@ -98,6 +99,7 @@ export interface OptionCardData {
   modelRequest?: ModelRequestCardData;
   teamSetupRequest?: import("../../shared/team-setup").TeamSetupRequest;
   questionRequest?: QuestionRequestCardData;
+  takeoverRequest?: import("../../shared/takeover").TakeoverRequestCardData;
 }
 
 export interface ConnectorCardData {
@@ -137,6 +139,7 @@ export interface Message {
   card?: OptionCardData;
   connector?: ConnectorCardData;
   secret?: SecretRequestCardData;
+  secureForm?: SecureFormCardData;
   routineRun?: RoutineRunCardData;
   goalRun?: GroupGoalRunCardData;
   channelMode?: "chat" | "goal";
@@ -456,7 +459,7 @@ export interface ConfigStatus {
   accountBattery?: {
     enabled: boolean;
     order: Record<string, string[]>;
-    resting?: Record<string, { until: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
+    resting?: Record<string, { until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
     waiting?: Record<string, string>;
   };
   localVm: { mode: "shared" | "per-bot" | "pool"; maxInstances: number; idleTimeoutMinutes?: number };
@@ -491,7 +494,7 @@ export interface ConfigStatus {
   };
   profile?: { name: string; email: string; aboutMe?: string };
   language?: string;
-  features?: { skillAuthoring: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean };
+  features?: { skillAuthoring: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean };
   onboarding?: OnboardingStatus;
   browserEngine?: BrowserEngineSummary;
   browserProfiles?: BrowserProfile[];
@@ -604,7 +607,7 @@ export interface InstanceInfo {
       message: string;
     };
   };
-  models: { default: string; options: Array<{ id: string; label: string; custom?: boolean; loaded?: boolean; provider?: string; variants?: ModelVariantOption[] }> };
+  models: { default: string; options: Array<{ id: string; label: string; custom?: boolean; loaded?: boolean; provider?: string; variants?: ModelVariantOption[]; effortLevels?: readonly EffortLevel[]; defaultEffort?: EffortLevel }> };
   capabilities?: {
     computerMcp?: boolean;
     agentsMcp?: boolean;
@@ -695,6 +698,7 @@ export interface AppState {
   computerStarts: Record<string, ComputerStart>;
   deletingBots: Record<string, true>;
   computerControl: Record<string, { held: boolean; helpReason: string | null }>;
+  takeoverIntent: { botId: string; at: number } | null;
   focusMessage: { threadId: string; messageId: string; matchText?: string; nonce: number; consumed: boolean } | null;
   connected: boolean;
   hydrated?: boolean;
@@ -902,6 +906,7 @@ export type Action =
   | { type: "optimisticMessageRemoved"; threadId: string; sendId: string; restoreLeafId?: string | null }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
+  | { type: "takeoverIntent"; intent: { botId: string; at: number } | null }
   | { type: "modelVariantRuntime"; event: RuntimeEvent }
   | { type: "setModel"; botId: string; selection: ModelSelection; threadId?: string; updateBotDefault?: boolean; resetApprovalToAsk?: boolean }
   | { type: "interrupt"; botId: string; threadId?: string; onError?: () => void }
@@ -1570,6 +1575,8 @@ export function reducer(state: AppState, action: Action): AppState {
           [action.botId]: { held: action.held, helpReason: action.helpReason },
         },
       };
+    case "takeoverIntent":
+      return state.takeoverIntent === action.intent ? state : { ...state, takeoverIntent: action.intent };
     case "modelVariantRuntime": {
       const event = action.event;
       if (!event.turnId) return state;
@@ -1695,6 +1702,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         computerOpen: open,
         cloudTaskId: null,
+        takeoverIntent: open ? state.takeoverIntent : null,
         settingsOpen: open ? false : state.settingsOpen,
         inspectorOpen: open ? false : state.inspectorOpen,
         activityOpen: open ? false : state.activityOpen,
@@ -2079,6 +2087,7 @@ export const initialState: AppState = {
   computerStarts: {},
   deletingBots: {},
   computerControl: {},
+  takeoverIntent: null,
   focusMessage: null,
   connected: false,
   error: null,

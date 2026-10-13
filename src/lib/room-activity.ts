@@ -8,3 +8,9 @@ export function roomActivityVisible(message: Message, showToolCalls: boolean): b
   if (message.comm || message.threadRef || message.cloudTask || isStatusActivity(message)) return true;
   return tool.ok === false || failedTurnCause(tool.name) !== null || showToolCalls;
 }
+
+export function transcriptRowShown(message: Message, showToolCalls: boolean): boolean {
+  if (message.kind === "digest") return showToolCalls;
+  if (message.kind !== "activity") return true;
+  return roomActivityVisible(message, showToolCalls);
+}

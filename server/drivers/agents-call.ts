@@ -8,6 +8,7 @@ import { catalogProfileFromEnv, SHARED_COMPUTER_TOOL_NAMES, WEEKDAYS } from "./a
 import { harnessClientFromEnv } from "./agents-client.ts";
 import type { HarnessClient, Json } from "./agents-client.ts";
 import { boundedAgentResult } from "./agents-result.ts";
+import { parseTakeoverInput, takeoverRequestedText } from "../laterdog/takeover.ts";
 
 export interface ToolCallContext {
   botId: string;
@@ -788,6 +789,16 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     return {
       text: `A secure ${r.label ?? CREDENTIAL_TARGETS[credentialId].label} request is ready. The desktop app and a freshly QR-paired mobile app show its secure entry card; older mobile pairings explain how to pair again or finish on the computer. End this turn; later.dog will resume the task after the user saves or declines. Never ask them to paste the key into chat.`,
     };
+  }
+  if (name === "request_takeover") {
+    const input = parseTakeoverInput(args);
+    if (!input) return { text: "request_takeover needs step: what the person should do on your screen, in a few plain words.", isError: true };
+    const { ok, body } = await apiResponse("/api/internal/request-takeover", {
+      method: "POST",
+      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, ...input }),
+    });
+    if (!ok) return { text: String(body.error ?? "The take-over card could not be shown."), isError: true };
+    return { text: takeoverRequestedText(input.step, body.status === "in-control") };
   }
   if (name === "send_voice_note") {
     if (typeof args.text !== "string" || !args.text.trim()) {

@@ -1,5 +1,6 @@
 import { CREDENTIAL_TARGETS } from "../../shared/credential-request.ts";
 import { OPTIONS_CARD_LIMITS, WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared/options-card.ts";
+import { TAKEOVER_REASONS } from "../../shared/takeover.ts";
 import { agentToolAnnotations } from "../agent-tool-policy.ts";
 
 export interface CatalogProfile {
@@ -506,6 +507,20 @@ const toolDefinitions = (externalRuntime: boolean) => [
         },
       },
       required: ["credential_id"],
+    },
+  },
+  {
+    name: "request_takeover",
+    description:
+      "Hand your screen to the person for a step only they can do on it: signing in (including a verification code), a CAPTCHA, a payment, or a final yes. First open the exact page and do everything else yourself, then call this. Never refuse or stop a task because a sign-in is needed, and never ask for passwords or codes in chat. The person gets a needs-you card with Take over and Skip. After calling, end the turn with one short line; later.dog wakes you when they hand the screen back, skip, or reply.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        step: { type: "string", maxLength: 200, description: "What they should do, in a few plain words, for example \"Sign in to iCloud\"." },
+        reason: { type: "string", enum: [...TAKEOVER_REASONS] },
+      },
+      required: ["step"],
     },
   },
   {

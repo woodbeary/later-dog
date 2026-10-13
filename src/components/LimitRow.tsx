@@ -1,12 +1,15 @@
 import { useEffect, useId, useState } from "react";
-import { Hourglass, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { api, useStore, type InstanceInfo, type Message } from "@/state/store";
 import { t } from "@/lib/i18n";
+import { dogTint } from "@/lib/mascot";
 import { failedTurnCause } from "@/lib/failed-turn";
 import { requestAddAccount } from "@/lib/add-account-request";
 import { Switch } from "./SettingsPrimitives";
 import { pill, signedIn, subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { resetClock, resetDistance } from "./PlanUsage";
+import { rechargeProgress, RechargeLine, SleepingDog } from "./AccountCharge";
+import { DogAvatar } from "./Avatar";
 
 function limitHeadline(kind: string | undefined, name: string): string {
   switch (kind) {
@@ -53,7 +56,9 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   const cause = failedTurnCause(tool.name) ?? tool.name;
   const actionable = Boolean(onRetry && botId && threadId);
 
-  const model = state.bots.find((bot) => bot.id === botId)?.modelSelection.model;
+  const bot = state.bots.find((candidate) => candidate.id === botId);
+  const model = bot?.modelSelection.model;
+  const recharge = rest && !rest.estimated && !over ? rechargeProgress(rest, now) : null;
   const offers = (account: InstanceInfo) => !model || !limited?.models.options.some((option) => option.id === model)
     || account.models.options.some((option) => option.id === model);
   const resting = (account: InstanceInfo) => {
@@ -92,8 +97,10 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
     <div className="flex justify-start" data-limit-row="">
       <div className="w-fit max-w-[min(42rem,78%)] rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-2.5 text-[13.5px] text-ink">
         <div className="flex items-start gap-2">
-          <Hourglass size={15} className="mt-0.5 shrink-0 text-warning" />
-          <div className="min-w-0">
+          {over ? (
+            <span aria-hidden="true" className="shrink-0"><DogAvatar color={dogTint(bot?.color)} bodyId={bot?.mascotBody ?? undefined} state="waking" size={20} trackPointer={false} /></span>
+          ) : <SleepingDog size={20} color={dogTint(bot?.color)} bodyId={bot?.mascotBody ?? undefined} />}
+          <div className="min-w-0 flex-1">
             <p className="break-words font-medium">{limitHeadline(quota.kind, instance?.displayName || t("chat.limit.thisAccount"))}</p>
             {actionable && (
               <p className="text-[12.5px] text-ink-secondary">
@@ -102,6 +109,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
                   : t("chat.limit.resetUnknown")}
               </p>
             )}
+            {actionable && recharge !== null && <RechargeLine progress={recharge} className="mt-1.5 max-w-56" />}
           </div>
         </div>
         {actionable && (over || !limited ? (

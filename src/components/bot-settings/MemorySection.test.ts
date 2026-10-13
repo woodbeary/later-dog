@@ -8,7 +8,7 @@ vi.mock("../DesktopCapabilities", () => ({
   useDesktopCapabilities: () => ({ capabilities: { host: { homeDir: undefined, platform: "other" } } }),
 }));
 
-const { ConflictNotice, LendingReviewNotice, MemoryFileRows, MemoryGauge, MemoryJournalList, MemoryUpkeepCard } = await import("./MemorySection");
+const { ConflictNotice, LendingReviewNotice, MemoryGauge, MemoryJournalList, MemoryLogs, MemoryNotes, MemoryUpkeepRows, noteLabel, topicTemplate } = await import("./MemorySection");
 
 function render(element: Parameters<typeof renderToStaticMarkup>[0]): string {
   return renderToStaticMarkup(element).replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
@@ -35,6 +35,13 @@ describe("MemoryGauge", () => {
     expect(markup).not.toContain("bg-danger");
   });
 
+  it("warns early, in one short line, when main memory is almost full", () => {
+    const markup = render(createElement(MemoryGauge, { index: index({ lines: 170, loadedLines: 170 }) }));
+    expect(markup).toContain("Almost full. Move details into a note to keep room.");
+    expect(markup).toContain("bg-warning");
+    expect(markup).not.toContain("bg-danger");
+  });
+
   it("turns red and says how many lines are not being loaded", () => {
     const markup = render(createElement(MemoryGauge, { index: index({ lines: 260, loadedLines: 200, truncated: true }) }));
     expect(markup).toContain("60 lines are not being loaded");
@@ -47,28 +54,66 @@ describe("MemoryGauge", () => {
 describe("ConflictNotice", () => {
   it("names the bot, promises nothing was saved, and offers both ways out", () => {
     const markup = render(createElement(ConflictNotice, { botName: "Scout", busy: false, onReload: vi.fn(), onOverwrite: vi.fn() }));
-    expect(markup).toContain("Scout changed this file while you were editing.");
+    expect(markup).toContain("Scout changed this note while you were editing.");
     expect(markup).toContain("Nothing has been saved.");
     expect(markup).toContain(">Reload<");
     expect(markup).toContain(">Overwrite with mine<");
   });
 });
 
-describe("MemoryFileRows", () => {
-  const files: MemoryFileInfo[] = [
-    { path: "memory/clients.md", name: "clients.md", bytes: 120, modifiedAt: Date.now() - 3 * 60_000 },
+describe("MemoryNotes", () => {
+  const now = Date.UTC(2026, 8, 10, 12, 0, 0);
+  const topics: MemoryFileInfo[] = [
+    { path: "memory/clients.md", name: "clients.md", bytes: 120, modifiedAt: now - 3 * 60_000 },
   ];
+  const notes = (capacity: MemoryCapacity, files: MemoryFileInfo[] = topics) =>
+    render(createElement(MemoryNotes, { index: capacity, topics: files, now, onOpen: vi.fn(), onCreate: vi.fn(() => true) }));
 
-  it("lists files with size and age, and a delete control per row", () => {
-    const markup = render(createElement(MemoryFileRows, { title: "Topic files", hint: "hint", files, onOpen: vi.fn(), onDelete: vi.fn() }));
-    expect(markup).toContain("clients.md");
-    expect(markup).toContain("120 B");
+  it("puts main memory first, then each note by name and age, then a way to add one", () => {
+    const markup = notes(index());
+    expect(markup.indexOf("Main memory")).toBeLessThan(markup.indexOf(">clients<"));
+    expect(markup).toContain("Read in every chat");
     expect(markup).toContain("3 min ago");
-    expect(markup).toContain('aria-label="Delete clients.md"');
+    expect(markup).toContain("New note");
+    expect(markup).not.toContain("clients.md<");
+    expect(markup).not.toContain("120 B");
   });
 
-  it("says None yet for an empty list", () => {
-    expect(render(createElement(MemoryFileRows, { title: "Daily logs", hint: "", files: [], onOpen: vi.fn(), onDelete: vi.fn() }))).toContain("None yet.");
+  it("flags main memory when it is almost full or too long", () => {
+    expect(notes(index({ lines: 170, loadedLines: 170 }))).toContain(">Almost full<");
+    const over = notes(index({ lines: 260, loadedLines: 200, truncated: true }));
+    expect(over).toContain(">Too long<");
+    expect(over).not.toContain("Read in every chat");
+  });
+
+  it("shows the first few notes and offers the rest", () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ path: `memory/n${i}.md`, name: `n${i}.md`, bytes: 1, modifiedAt: now }));
+    const markup = notes(index(), many);
+    expect(markup.match(/data-memory-note="memory\//g)).toHaveLength(6);
+    expect(markup).toContain("Show all 9");
+  });
+});
+
+describe("MemoryLogs", () => {
+  it("says what the daily logs are and labels each by its day", () => {
+    const logs: MemoryFileInfo[] = [{ path: "memory/log/2026-09-08.md", name: "2026-09-08.md", bytes: 10, modifiedAt: 0 }];
+    const markup = render(createElement(MemoryLogs, { logs, botName: "Scout", onOpen: vi.fn() }));
+    expect(markup).toContain("What Scout did each day. Read-only, and never loaded into chats.");
+    expect(markup).toContain(new Date(2026, 8, 8).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }));
+    expect(render(createElement(MemoryLogs, { logs: [], botName: "Scout", onOpen: vi.fn() }))).toContain("None yet.");
+  });
+});
+
+describe("note names", () => {
+  it("reads as a person would say them", () => {
+    expect(noteLabel("MEMORY.md")).toBe("Main memory");
+    expect(noteLabel("memory/clients.md")).toBe("clients");
+    expect(noteLabel("memory/log/2026-09-08.md")).toBe(new Date(2026, 8, 8).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }));
+    expect(noteLabel("memory/log/notes.md")).toBe("notes");
+  });
+
+  it("starts a new note with the header the dog uses to find it", () => {
+    expect(topicTemplate("clients.md")).toBe("---\ntitle: clients\ndescription: \naliases: []\n---\n\n");
   });
 });
 
@@ -135,17 +180,18 @@ describe("MemoryJournalList", () => {
   });
 });
 
-describe("MemoryUpkeepCard", () => {
+describe("MemoryUpkeepRows", () => {
   const noop = () => undefined;
-  it("explains the switch and hides the tidy button while off", () => {
-    const markup = render(createElement(MemoryUpkeepCard, { enabled: false, status: null, tidying: false, onToggle: noop, onTidy: noop }));
+  it("says in one line what upkeep does and hides the tidy button while off", () => {
+    const markup = render(createElement(MemoryUpkeepRows, { enabled: false, status: null, tidying: false, onToggle: noop, onTidy: noop }));
     expect(markup).toContain("Memory upkeep");
-    expect(markup).toContain("you can remove any");
+    expect(markup).toContain("About me");
+    expect(markup).toContain('role="switch"');
     expect(markup).not.toContain("Tidy up now");
   });
 
   it("shows the last tidy-up and says when the engine cannot run the model steps", () => {
-    const markup = render(createElement(MemoryUpkeepCard, {
+    const markup = render(createElement(MemoryUpkeepRows, {
       enabled: true,
       status: { enabled: true, modelSteps: false, lastTidy: { at: Date.now() - 60_000, expired: 1, duplicates: 2, superseded: 0, deferred: 0, contradictionsChecked: false } },
       tidying: false,
@@ -154,9 +200,11 @@ describe("MemoryUpkeepCard", () => {
     }));
     expect(markup).toContain("Tidy up now");
     expect(markup).toContain("archived 1 expired note, merged 2 duplicates");
-    expect(markup).toContain("can't make the quick background model call");
-    const noticed = render(createElement(MemoryUpkeepCard, { enabled: true, status: { enabled: true, modelSteps: true, lastCapture: { at: Date.now() - 60_000, added: 1, topics: 2, aboutMe: 1 } }, tidying: false, onToggle: noop, onTidy: noop }));
+    expect(markup).toContain("can only archive expired notes");
+    const noticed = render(createElement(MemoryUpkeepRows, { enabled: true, status: { enabled: true, modelSteps: true, lastCapture: { at: Date.now() - 60_000, added: 1, topics: 2, aboutMe: 1 } }, tidying: false, onToggle: noop, onTidy: noop }));
     expect(noticed).toContain("Last noticed 3 facts");
+    expect(noticed).toContain("Not tidied yet.");
+    expect(noticed).not.toContain("can only archive");
   });
 });
 

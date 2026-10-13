@@ -1,11 +1,13 @@
 import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "./config.ts";
+import type { SecureFormDesk } from "./laterdog/secure-form.ts";
 
 const jpeg = "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD8qqKKKAP/2Q==";
 let server: Server;
 let tools: typeof import("./cloud-computer-tools.ts");
 let holdCommand = false;
+let commandReply: Record<string, unknown> = {};
 let commandStarted: (() => void) | undefined;
 const calls: Array<{ path: string; body: any; authorization?: string }> = [];
 const cfg: AppConfig = { box: { token: "synthetic-box-key" } } as AppConfig;
@@ -18,7 +20,7 @@ beforeAll(async () => {
     calls.push({ path, body: body ? JSON.parse(body) : null, authorization: req.headers.authorization });
     if (path.endsWith("/commands")) {
       commandStarted?.();
-      if (!holdCommand) res.end(JSON.stringify({ exitCode: 0, stdout: "captured", stderr: "" }));
+      if (!holdCommand) res.end(JSON.stringify(commandReply));
       return;
     }
     if (path.includes("/artifacts?")) { res.end(Buffer.from(jpeg, "base64")); return; }
@@ -31,25 +33,27 @@ beforeAll(async () => {
   vi.stubEnv("LATERDOG_CLOUD_BOAT_TOKEN", undefined);
   tools = await import("./cloud-computer-tools.ts");
 });
-beforeEach(() => { calls.length = 0; holdCommand = false; commandStarted = undefined; });
+beforeEach(() => { calls.length = 0; holdCommand = false; commandStarted = undefined; commandReply = { exitCode: 0, stdout: "captured", stderr: "" }; });
 afterAll(async () => { vi.unstubAllEnvs(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
 
-const rpc = (request: unknown, gate: { held: boolean; blockedReason?: string } = { held: false }, signal = new AbortController().signal) => {
+const rpc = (request: unknown, gate: { held: boolean; blockedReason?: string } = { held: false }, signal = new AbortController().signal, secureForms?: SecureFormDesk) => {
   let gated = 0;
   let checks = 0;
   const done = tools.cloudComputerRpc(request as never, {
     cfg, boxId: () => "bx_23456789", signal,
     gate: async () => { gated++; return gate; },
     assertActive: () => { checks++; },
+    secureForms,
   });
   return { done, gated: () => gated, checks: () => checks };
 };
 
 describe("cloud computer tools", () => {
-  it("lists the same ten tools for every engine", async () => {
+  it("lists the same twelve tools for every engine", async () => {
     const listed = await rpc({ method: "tools/list", params: {} }).done as { tools: Array<{ name: string }> };
     expect(listed.tools.map(tool => tool.name)).toEqual([
       "screenshot", "get_screen_size", "click", "move", "drag", "type_text", "key_press", "scroll", "open_url", "exec",
+      "request_secure_form", "fill_secure_field",
     ]);
     expect(calls).toEqual([]);
   });
@@ -145,6 +149,73 @@ describe("cloud computer tools", () => {
     })).rejects.toThrow("expired");
     expect(calls).toHaveLength(0);
     await expect(rpc({ method: "resources/read" }).done).rejects.toMatchObject({ status: 400 });
+  });
+
+  describe("Secure Forms", () => {
+    const SECURE_FORMS_UNAVAILABLE = "Secure Forms are not available in this conversation. Ask the person with request_takeover instead.";
+    const request = (site: string) => ({
+      method: "tools/call",
+      params: { name: "request_secure_form", arguments: { title: "Sign in to Example", site, fields: [{ id: "password", label: "Password", type: "password" }] } },
+    });
+    const fill = { method: "tools/call", params: { name: "fill_secure_field", arguments: { form_id: "form-1", field_id: "password", x: 640, y: 400, submit: true } } };
+    const desk = (value = "correct horse 'battery' $(staple)") => ({
+      open: vi.fn<SecureFormDesk["open"]>(() => ({ formId: "form-1" })),
+      field: vi.fn<SecureFormDesk["field"]>(() => ({ ok: true, host: "example.com", label: "Password", value })),
+      typed: vi.fn<SecureFormDesk["typed"]>(() => ({ last: true })),
+    });
+
+    it("opens a form without the control gate or the Boat", async () => {
+      const forms = desk();
+      const call = rpc(request("https://www.example.com/login"), { held: true }, undefined, forms);
+      const result = await call.done as { isError?: boolean; content: Array<{ text: string }> };
+      expect(result.isError).not.toBe(true);
+      expect(result.content[0].text).toContain("form_id \"form-1\"");
+      expect(forms.open).toHaveBeenCalledWith({ title: "Sign in to Example", host: "example.com", fields: [{ id: "password", label: "Password", type: "password" }] });
+      expect(call.gated()).toBe(0);
+      expect(call.checks()).toBe(1);
+      expect(calls).toEqual([]);
+    });
+
+    it("refuses a form where the conversation cannot show one, or for a shared address", async () => {
+      expect(await rpc(request("example.com")).done).toEqual({ isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] });
+      const forms = desk();
+      expect(await rpc(request("github.io"), { held: false }, undefined, forms).done)
+        .toMatchObject({ isError: true, content: [{ text: expect.stringContaining("shared by many sites") }] });
+      expect(forms.open).not.toHaveBeenCalled();
+      expect(calls).toEqual([]);
+    });
+
+    it("types a value through the gate as base64 and never reports it back", async () => {
+      const forms = desk();
+      const call = rpc(fill, { held: false }, undefined, forms);
+      const result = await call.done as { isError?: boolean; content: Array<{ text: string }> };
+      expect(result.isError).not.toBe(true);
+      expect(result.content[0].text).toContain("Typed Password into the page on example.com and pressed Enter.");
+      expect(JSON.stringify(result)).not.toMatch(/captured|staple/);
+      expect(call.gated()).toBe(1);
+      expect(calls.map(entry => entry.path)).toEqual(["/boxes/bx_23456789/commands"]);
+      expect(calls[0].body.command).toContain("exec env -i");
+      expect(calls[0].body.command).toContain(Buffer.from("correct horse 'battery' $(staple)").toString("base64"));
+      expect(calls[0].body.command).not.toContain("staple");
+      expect(forms.typed).toHaveBeenCalledWith("form-1", "password");
+    });
+
+    it("types nothing while a person holds the computer or the conversation has no forms", async () => {
+      const forms = desk();
+      expect(await rpc(fill, { held: true }, undefined, forms).done).toMatchObject({ isError: true });
+      expect(forms.field).not.toHaveBeenCalled();
+      expect(await rpc(fill).done).toEqual({ isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] });
+      expect(calls).toEqual([]);
+    });
+
+    it("tells the dog why a value was not typed, without counting it", async () => {
+      commandReply = { exitCode: 7, stdout: "HOST=evil.test\n", stderr: "" };
+      const forms = desk();
+      const result = await rpc(fill, { held: false }, undefined, forms).done as { isError?: boolean; content: Array<{ text: string }> };
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("The browser is on evil.test, not example.com, so nothing was typed.");
+      expect(forms.typed).not.toHaveBeenCalled();
+    });
   });
 
   it("aborts an in-flight Boat command without retrying it", async () => {

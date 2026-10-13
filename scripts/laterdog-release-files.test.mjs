@@ -31,6 +31,7 @@ const CHANGELOG = [
   "",
 ].join("\n");
 const ZIP = Buffer.from("not really a zip, but bytes all the same");
+const DMG = Buffer.from("not really a disk image either");
 
 const directories = [];
 afterEach(() => {
@@ -103,6 +104,18 @@ describe("releaseFiles", () => {
     expect(files["NOTES.md"]).toContain("### What's new\n\n### Fixes\n- **Pictures**");
   });
 
+  it("lists the disk image beside the zip and tells new installs to open it, while updates keep reading the zip", () => {
+    const files = releaseFiles({ ...base, diskImageName: "later.dog-macOS-arm64.dmg", diskImageBytes: DMG });
+    const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+    expect(files["SHA256SUMS.txt"]).toBe(`${sha256(DMG)}  later.dog-macOS-arm64.dmg\n${sha256(ZIP)}  later.dog-macOS-arm64.zip\n`);
+    expect(parse(files["latest-mac.yml"]).path).toBe("https://github.com/woodbeary/later-dog/releases/download/v0.3.4/later.dog-macOS-arm64.zip");
+    expect(files["NOTES.md"]).toContain("**New install:** open **later.dog-macOS-arm64.dmg**, drag **later.dog** into Applications");
+    expect(files["NOTES.md"]).toContain("The disk image's and the zip's SHA-256 are in `SHA256SUMS.txt`.");
+    expect(files["NOTES.md"]).not.toContain("unzip");
+    expect(releaseFiles({ ...base, notarized: true, diskImageName: "later.dog-macOS-arm64.dmg", diskImageBytes: DMG })["NOTES.md"]).toContain("**New install:** open **later.dog-macOS-arm64.dmg**, drag **later.dog** into Applications, then open it. It is signed");
+    expect(releaseFiles(base)["NOTES.md"]).toContain("**New install:** unzip, drag **later.dog** into Applications");
+  });
+
   it("gives a preview release no feed file, so nobody is offered it", () => {
     const files = releaseFiles({ ...base, tag: "v0.3.3-preview.1", packageVersion: "0.3.3" });
     expect(files["latest-mac.yml"]).toBeUndefined();
@@ -148,6 +161,16 @@ describe("the release files command", () => {
     expect(signed).toContain("**On an older later.dog?** Download this once");
     expect(signed).toContain("**Already on later.dog 0.3.11 or newer?** It updates itself.");
     expect(signed).not.toContain("Open Anyway");
+
+    const dmg = path.join(directory, "later.dog-macOS-arm64.dmg");
+    fs.writeFileSync(dmg, DMG);
+    const imageOut = path.join(directory, "image");
+    const withImage = spawnSync(process.execPath, [SCRIPT, "--tag", "v0.3.4", "--zip", zip, "--dmg", dmg, "--out", imageOut, "--repository", "woodbeary/later-dog", "--changelog", path.join(directory, "CHANGELOG.md"), "--package", path.join(directory, "package.json")], { encoding: "utf8", env: { ...process.env, LATERDOG_NOTARIZE: "1" } });
+    expect(withImage.status, withImage.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(imageOut, "SHA256SUMS.txt"), "utf8").split("\n").filter(Boolean).map((line) => line.split("  ")[1])).toEqual(["later.dog-macOS-arm64.dmg", "later.dog-macOS-arm64.zip"]);
+    expect(fs.readFileSync(path.join(imageOut, "NOTES.md"), "utf8")).toContain("open **later.dog-macOS-arm64.dmg**");
+    const missing = spawnSync(process.execPath, [SCRIPT, "--tag", "v0.3.4", "--zip", zip, "--dmg", path.join(directory, "nope.dmg"), "--out", imageOut, "--repository", "woodbeary/later-dog", "--changelog", path.join(directory, "CHANGELOG.md"), "--package", path.join(directory, "package.json")], { encoding: "utf8" });
+    expect(missing.status).not.toBe(0);
 
     const refused = spawnSync(process.execPath, [SCRIPT, "--tag", "v0.3.4", "--zip", zip, "--out", out, "--repository", "not a repo", "--changelog", path.join(directory, "CHANGELOG.md"), "--package", path.join(directory, "package.json")], { encoding: "utf8" });
     expect(refused.status).not.toBe(0);

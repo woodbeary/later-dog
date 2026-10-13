@@ -7,6 +7,8 @@ import {
   followWindowStart,
   resolveTranscriptWindow,
   tailWindowStart,
+  windowEndAfter,
+  windowStartBefore,
 } from "./transcript-window";
 
 const thread = (total: number): number[] => Array.from({ length: total }, (_, i) => i);
@@ -164,5 +166,51 @@ describe("focusWindowRange", () => {
 
   it("uses the full short transcript", () => {
     expect(focusWindowRange(20, 10)).toEqual({ start: 0, end: 20 });
+  });
+});
+
+describe("a window that counts only the rows a person can see", () => {
+  type Row = { id: string; role: string; shown: boolean };
+  const shown = (row: Row) => row.shown;
+  const steps = (count: number, prefix: string): Row[] =>
+    Array.from({ length: count }, (_, i) => ({ id: `${prefix}${i}`, role: "bot", shown: false }));
+  const said = (id: string, role = "bot"): Row => ({ id, role, shown: true });
+
+  it("keeps the dog's notes in view when hidden tool steps pile up after them", () => {
+    const messages: Row[] = [said("old"), said("asked", "user"), said("note-1"), ...steps(400, "a"), said("note-2"), ...steps(400, "b"), said("mid", "user")];
+    const start = windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, shown);
+    expect(start).toBe(0);
+    const window = resolveTranscriptWindow(messages, start, TRANSCRIPT_WINDOW_SIZE, null, shown);
+    expect(window.visible.map((row) => row.id)).toContain("note-1");
+    expect(window.hiddenCount).toBe(0);
+  });
+
+  it("folds by visible rows and reports how many visible rows sit above", () => {
+    const messages: Row[] = Array.from({ length: 10 }, (_, i) => [said(`m${i}`), ...steps(5, `s${i}-`)]).flat();
+    const start = windowStartBefore(messages, messages.length, 3, shown);
+    expect(messages[start]?.id).toBe("m7");
+    const window = resolveTranscriptWindow(messages, start, 3, null, shown);
+    expect(window.hiddenCount).toBe(7);
+    expect(window.visible.filter(shown).map((row) => row.id)).toEqual(["m7", "m8", "m9"]);
+    expect(windowStartBefore(messages, start, 3, shown)).toBe(messages.findIndex((row) => row.id === "m4"));
+  });
+
+  it("follows a long turn without dropping the message that started it", () => {
+    const messages: Row[] = [...Array.from({ length: 200 }, (_, i) => said(`old${i}`)), said("asked", "user"), ...steps(600, "t"), said("note")];
+    const start = followWindowStart(messages, 0, shown);
+    expect(start).toBeLessThan(messages.findIndex((row) => row.id === "asked"));
+    expect(resolveTranscriptWindow(messages, start, TRANSCRIPT_WINDOW_SIZE, null, shown).visible.filter(shown)).toHaveLength(TRANSCRIPT_WINDOW_SIZE);
+  });
+
+  it("shows later rows a visible window at a time", () => {
+    const messages: Row[] = Array.from({ length: 6 }, (_, i) => [said(`m${i}`), ...steps(3, `s${i}-`)]).flat();
+    expect(messages[windowEndAfter(messages, 0, 2, shown) - 1]?.id).toBe("m1");
+    expect(windowEndAfter(messages, 0, 50, shown)).toBe(messages.length);
+  });
+
+  it("counts every row the old way when no rule is given", () => {
+    expect(windowStartBefore(thread(300), 300)).toBe(180);
+    expect(windowEndAfter(thread(300), 100)).toBe(220);
+    expect(resolveTranscriptWindow(thread(300), 180).hiddenCount).toBe(180);
   });
 });

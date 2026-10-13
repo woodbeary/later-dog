@@ -141,6 +141,8 @@ function readPanelWidth(): number {
   return PANEL_DEFAULT_WIDTH;
 }
 
+const TAKEOVER_INTENT_MS = 60_000;
+
 export function ComputerPanel({
   bot: profileBot,
 }: {
@@ -853,7 +855,10 @@ export function ComputerPanel({
       if (!viewerUrl) throw new LocalizedPanelError("computer.err.noDesktopLink");
 
       if (window.laterdog?.desktopViewer) {
-        const opened = await window.laterdog.desktopViewer.open(viewerUrl, t("computer.viewerTitle", { name: bot.name }), bot.id);
+        const opened = await window.laterdog.desktopViewer.open(viewerUrl, t("computer.viewerTitle", { name: bot.name }), bot.id, {
+          label: t("takeover.inControl"),
+          done: t("computer.handBack"),
+        });
         if (!opened) throw new LocalizedPanelError("computer.err.openDesktop");
       } else if (fallbackTab) {
         fallbackTab.location.replace(viewerUrl);
@@ -878,6 +883,24 @@ export function ComputerPanel({
       }
     }
   };
+
+  const takeoverIntent = state.takeoverIntent?.botId === bot.id ? state.takeoverIntent : null;
+  useEffect(() => {
+    if (!takeoverIntent) return;
+    const clear = () => dispatch({ type: "takeoverIntent", intent: null });
+    const left = takeoverIntent.at + TAKEOVER_INTENT_MS - Date.now();
+    if (left <= 0 || viewerOpen) {
+      clear();
+      return;
+    }
+    if (!previewOpensDesktop || !control.held || pending || controlPending) {
+      const timer = window.setTimeout(clear, left);
+      return () => window.clearTimeout(timer);
+    }
+    clear();
+    void openDesktop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takeoverIntent, previewOpensDesktop, control.held, viewerOpen, pending, controlPending]);
 
   const run = (kind: "sleep" | "provision") => {
     setPending(kind);

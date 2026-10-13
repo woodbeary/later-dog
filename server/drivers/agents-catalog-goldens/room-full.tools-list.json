@@ -650,6 +650,33 @@
       }
     },
     {
+      "name": "request_takeover",
+      "description": "Hand your screen to the person for a step only they can do on it: signing in (including a verification code), a CAPTCHA, a payment, or a final yes. First open the exact page and do everything else yourself, then call this. Never refuse or stop a task because a sign-in is needed, and never ask for passwords or codes in chat. The person gets a needs-you card with Take over and Skip. After calling, end the turn with one short line; later.dog wakes you when they hand the screen back, skip, or reply.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "What they should do, in a few plain words, for example \"Sign in to iCloud\"."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "sign-in",
+              "captcha",
+              "payment",
+              "other"
+            ]
+          }
+        },
+        "required": [
+          "step"
+        ]
+      }
+    },
+    {
       "name": "send_voice_note",
       "description": "Send the user a voice note: a short spoken message synthesized with your configured voice, stored as audio, and attached to your reply when the turn ends. Write the note as speakable words, exactly as it should be said — no lists, links or markdown meant for screens. The same text becomes the note's visible caption and transcript, so the person can read or listen. Use it for warmth, tone or emphasis a written line cannot carry; use ordinary text otherwise.",
       "inputSchema": {

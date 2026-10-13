@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.25 — 2026-10-13
+
+- **When a step needs you, the dog hands you the screen.** For a sign-in, a code, a CAPTCHA or a payment, the dog does the legwork first, then a Take over card puts you on its computer with one tap. Press Done and it carries on. A sign-in is never a reason for it to stop.
+- **Secure Form.** When a dog needs sign-in details, it asks in a sealed card. What you type is never shown in chat; it is only typed into the site the card names.
+- **A new dog answers straight away.** You no longer have to pick one of the intro options before it replies.
+- **Quiet by default.** Dogs work without posting a line before every step and only write when it matters. Turn on Step-by-step updates in Settings if you like the play-by-play. A "New" divider marks where your unread messages start.
+- **The green dot is back** while a dog is thinking or working.
+- **Earlier messages stay put.** Messages no longer hide, and thinking no longer pushes the conversation up.
+- **Voice notes that hear you, for less.** Sharper dictation now runs on Whisper large-v3-turbo through later.dog. With your own ElevenLabs key it uses Scribe v2. The send button stays visible while you record.
+- **The account picker shows who's signed in,** with that account's initials, and changing the model no longer switches the account.
+- **One choice per model,** with each provider's own names for its reasoning levels (such as Max, Ultra and Ultracode).
+- **Only your accounts.** Lists show the accounts you added, and you can drag them into the order you want, in Settings or at the top of a chat.
+- **Add any account.** Besides Claude and ChatGPT, Add account offers the other providers and any OpenAI-compatible service, including OpenRouter.
+- **See what's left.** Usage shows "% left" and when it recharges, with a sleeping dog when an account is resting.
+- **A simpler dog profile.** The dog's computer lives in its profile, and the dog naps when it's idle. Memory is one "Manage memory" row, and Teach a trick can be closed.
+- **Settings → Computer, redone**, to show the dog's computer and its choices at a glance.
+- **A shorter profile menu:** Switch profile, Settings and Sign out. Everything else is in Settings.
+- **later.dog lives in Applications.** New installs come as a disk image you drag into Applications. If you open later.dog straight from Downloads, it offers to move itself there, where it stays put and keeps itself up to date.
+
 ## 0.3.24 — 2026-10-12
 
 - **When you say no, the dog says so.** If you don't allow a step, a Kimi or Grok dog is told you said no: it stops looking for another way in and tells you the step wasn't allowed, instead of blaming missing permissions.

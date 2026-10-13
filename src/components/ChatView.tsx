@@ -57,10 +57,12 @@ import { failedTurnCause, signedOutEngine } from "@/lib/failed-turn";
 import { openPlaceAction, placeRowViewFor, usePlaceSeat, worksOnSimpleLabel } from "@/lib/place-view";
 import type { PlaceRow } from "../../shared/place-view";
 import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_URL } from "../../shared/provider-safety";
+import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { transcriptRowShown } from "@/lib/room-activity";
 import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
@@ -83,6 +85,8 @@ import { ChatFindBar } from "./ChatFindBar";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
+import { SecureFormCard } from "./SecureFormCard";
+import { TakeoverCard } from "./TakeoverCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { AttachmentGallery, collectMessageFiles, splitMessageAttachments } from "./AttachmentGallery";
 import { ScreenFrame } from "./ScreenFrame";
@@ -107,6 +111,8 @@ import { effectivePlace, toolPlace, type EffectivePlace } from "@/lib/place";
 import { cn } from "@/lib/cn";
 import { activeLocale, t } from "@/lib/i18n";
 import { groupTranscript, isStatusActivity } from "@/lib/activity-runs";
+import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
+import { UnreadDivider } from "./UnreadDivider";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
 import { ActivityRun } from "./ActivityRun";
 import { TurnNarrationRun } from "./TurnNarrationRun";
@@ -785,6 +791,13 @@ const MessagesList = memo(function MessagesList({
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
   const items = useMemo(() => groupTranscript(messages), [messages, locale]);
+  const unreadSince = useUnreadBoundary(`${botId}/${threadId}`, messages);
+  let unreadPlaced = false;
+  const unreadDivider = (rows: readonly Message[]) => {
+    if (unreadPlaced || !rows.some((row) => isUnread(row, unreadSince))) return null;
+    unreadPlaced = true;
+    return <UnreadDivider />;
+  };
   const newestMessageId = messages.at(-1)?.id;
   let newestUserMessageId: string | undefined;
   for (let i = messages.length - 1; i >= 0 && !newestUserMessageId; i--) {
@@ -802,6 +815,7 @@ const MessagesList = memo(function MessagesList({
           return (
             <div key={item.id} className="contents">
               {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
               <TurnNarrationRun
                 label={item.label}
                 forceOpen={item.messages.some((message) => message.id === focusedId)}
@@ -829,6 +843,7 @@ const MessagesList = memo(function MessagesList({
           return (
             <div key={item.id} className="contents">
               {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
               <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
                 {item.messages.map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id} data-arriving={arriving(step.id) ? "" : undefined}>
@@ -843,11 +858,15 @@ const MessagesList = memo(function MessagesList({
         const row = (() => {
           switch (m.kind) {
             case "secret":
-              return m.secret ? <SecretRequestCard botId={botId} threadId={threadId} message={m} /> : null;
+              return m.secureForm ? (
+                <SecureFormCard botId={botId} botName={botName} threadId={threadId} message={m} />
+              ) : m.secret ? <SecretRequestCard botId={botId} threadId={threadId} message={m} /> : null;
             case "connector":
               return m.connector ? <ConnectorCard botId={botId} threadId={threadId} message={m} /> : null;
             case "options": {
-              const card = m.card?.requestId && m.card.questionRequest ? (
+              const card = m.card?.takeoverRequest ? (
+                <TakeoverCard botId={botId} botName={botName} threadId={threadId} message={m} />
+              ) : m.card?.requestId && m.card.questionRequest ? (
                 <QuestionCard threadId={threadId} bot={{ name: botName }} message={m} />
               ) : m.card?.requestId && m.card.tool ? (
                 <ApprovalCard bot={{ name: botName }} message={m} threadId={threadId} />
@@ -910,6 +929,7 @@ const MessagesList = memo(function MessagesList({
         return (
           <div key={m.id} className="contents" data-mid={m.id} data-arriving={arrives ? "" : undefined}>
             {newDay && <DaySeparator at={m.at} today={today} />}
+            {unreadDivider([m])}
             {row}
           </div>
         );
@@ -963,7 +983,22 @@ function PinnedBanner({
   );
 }
 
-const CHATHEAD_PILL = "flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-ink/10 bg-composer py-1.5 pl-1.5 text-ink shadow-[0_4px_12px_-1px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.06)]";
+function HeaderStatusDot({ bot }: { bot: Bot }) {
+  const waiting = bot.activity === "waiting-on-you";
+  if (!waiting && !bot.busy) return null;
+  const label = waiting ? t("sidebar.preview.waiting") : t("chat.activity.working");
+  return (
+    <span
+      data-testid={waiting ? "waiting-dot" : "working-dot"}
+      role="status"
+      aria-label={label}
+      title={label}
+      className={cn("animate-dot-in absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-composer", waiting ? "bg-warning" : "bg-success")}
+    />
+  );
+}
+
+const CHATHEAD_PILL ="flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-ink/10 bg-composer py-1.5 pl-1.5 text-ink shadow-[0_4px_12px_-1px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.06)]";
 
 function chiefOfStaffBadge(bot: Bot) {
   if (!bot.chiefOfStaff) return null;
@@ -1005,6 +1040,12 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const { messages: allMessages, activeLeafId } = bot;
   const messages = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
+  const takeoverOpen = useMemo(
+    () => messages.some((m) => m.kind === "options" && m.card?.takeoverRequest && isOpenTakeover(m.card.takeoverRequest.status)),
+    [messages],
+  );
+  const showToolCalls = showToolCallsEnabled(state.config);
+  const countsInWindow = useCallback((message: Message) => transcriptRowShown(message, showToolCalls), [showToolCalls]);
   const {
     scrollRef,
     transcriptRef,
@@ -1024,6 +1065,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     threadId: bot.threadId,
     messages,
     pinOn: [bot.busy, composerDock.pad],
+    counts: countsInWindow,
   });
 
   const lastBotTextId = useMemo(
@@ -1034,7 +1076,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const bots = useDrawnBots(state.bots);
   const mentionPeers = useMemo(() => bots.filter((peer) => peer.id !== bot.id), [bots, bot.id]);
   const focus = state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null;
-  const showToolCalls = showToolCallsEnabled(state.config);
   const tts = state.config?.tts;
   const localVoice = localSystemVoiceActive();
   const locale = activeLocale();
@@ -1148,7 +1189,10 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             aria-label={t("chat.openProfileAria", { name: bot.name })}
             className={cn(CHATHEAD_PILL, "pr-3.5 hover:bg-raised-hover")}
           >
-            <BotAvatar bot={bot} state={restingStateForBot(bot)} size={24} animated={false} />
+            <span className="relative flex shrink-0">
+              <BotAvatar bot={bot} state={restingStateForBot(bot)} size={24} animated={false} />
+              <HeaderStatusDot bot={bot} />
+            </span>
             <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
             {chiefOfStaffBadge(bot)}
           </button>
@@ -1322,7 +1366,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
       <div ref={composerDockRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]">
       <LiveCallBar bot={bot} />
-      <NeedsYouRow botId={bot.id} name={bot.name} />
+      {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
       {canWrite === false ? (
         <NewConversationInstead onNew={() => dispatch({ type: "newTask", botId: bot.id })} />
       ) : (

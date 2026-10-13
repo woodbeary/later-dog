@@ -59,8 +59,9 @@ quiet; it finalizes only after its audio stream ends. Call mode therefore starts
 the native helper with a silence timeout. Once a non-empty transcript stops
 changing for 850ms, the helper stops capture and calls `endAudio()`, which
 produces the final transcript sent to the renderer. Composer dictation omits the
-timeout and keeps its press-to-stop behavior. No cloud STT or bundled VAD model
-is involved.
+timeout and keeps its press-to-stop behavior. Turn detection involves no cloud
+STT or bundled VAD model; Sharper dictation (below) only rewrites a finished
+composer note.
 
 **Narration is what makes it bearable.** An agent turn is 5–60 seconds of tool
 calls, and silence that long reads as a dropped call. Every activity chip the
@@ -80,6 +81,35 @@ call behind an invisible card.
 voice choice is a quality decision, not a latency one. The way to make a call
 feel conversational is to put the bot you call on a fast model and let it
 delegate real work to specialists over `ask_bot` — no new machinery required.
+
+## Sharper dictation
+
+Apple Speech is quick but loose with names, numbers and accents. With the
+Sharper dictation switch on (Settings → General → System, Mac only, on by
+default), the composer still shows Apple's live text, and once you stop — the
+mic button or Escape — the app swaps it for a cloud transcription of the same
+recording:
+
+1. The native helper already keeps each dictation as a voice note
+   (`electron/speech.mjs`); `speech:stop` and a finished `speech:end` now
+   carry that file.
+2. `speech:audio` converts it with `/usr/bin/afconvert` to 16 kHz mono 16-bit
+   WAV in a temporary folder and returns the bytes.
+3. The renderer posts them to `POST /api/voice/transcribe`, with a language
+   hint from the system language (`src/lib/sharper-dictation.ts`).
+4. The harness (`server/laterdog/transcribe.ts`) sends the note on with the
+   credential that pays for voice: the person's own ElevenLabs key uses
+   Scribe v2 (`scribe_v2`); the free trial's included voice uses Whisper
+   large-v3 turbo on Workers AI, through `POST /v1/voice/speech-to-text` on
+   `deploy/laterdog/computers` and the AI Gateway with logging off.
+5. The draft is replaced only if it is still the same draft with the same,
+   unedited text. A typed edit, a send, another thread, or a failed or slow
+   service keeps Apple's text and shows nothing.
+
+If Apple drops a note (the saved bar with Retry), the cloud gets the first try
+and the bar appears only when that fails too. The included service takes only
+16-bit PCM WAV, at most 5 minutes and 10 MB per note, 1 hour of audio per
+installation per day and 100 hours across all installations per day.
 
 ## Rejected
 
@@ -104,6 +134,12 @@ delegate real work to specialists over `ask_bot` — no new machinery required.
 - **No spend meter.** ElevenLabs bills per character. Auto-speak is off by
   default partly for that reason, but the app should eventually show usage.
 - **No voice barge-in** — see half-duplex above.
+- **Sharper dictation still needs Apple Speech.** The recording comes from the
+  native helper, so the Microphone and Speech Recognition grants are required,
+  and the phone apps don't use it yet. A Mac remote client sends the
+  finished WAV to its host, which transcribes it. Pro's voice relay
+  (`LATERDOG_CLOUD_VOICE_URL`) is asked for `/speech-to-text` too; until the
+  Admin serves that route, Cloud homes keep Apple's text.
 
 ## Failure boundaries
 

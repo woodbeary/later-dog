@@ -120,6 +120,15 @@ export class ComputerControl {
     return { snapshot: this.changed(botId), requestId: entry.helpRequestId! };
   }
 
+  restateHelpLease(botId: string, reason: unknown): { snapshot: ControlSnapshot; requestId: string } {
+    const text = typeof reason === "string" ? reason.trim().slice(0, MAX_REASON_CHARS) : "";
+    const entry = this.entries.get(botId);
+    if (!entry || entry.helpReason === null || entry.helpRequestId === null) return this.requestHelpLease(botId, reason);
+    if (!text || text === entry.helpReason) return { snapshot: this.snapshot(botId), requestId: entry.helpRequestId };
+    entry.helpReason = text;
+    return { snapshot: this.changed(botId), requestId: entry.helpRequestId };
+  }
+
   dismissHelp(botId: string): ControlSnapshot {
     const entry = this.entries.get(botId);
     if (!entry || entry.helpReason === null) return this.snapshot(botId);

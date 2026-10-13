@@ -63,7 +63,7 @@ function renderEffort(instances: InstanceInfo[], effort?: EffortLevel): string {
 }
 
 describe("EffortRow", () => {
-  it("uses a compact dropdown without changing scope or conflating None with Default", () => {
+  it("uses a compact dropdown without changing scope or conflating Off with Default", () => {
     fixture.instances = [engine(["none", "low", "high"])];
     const row = EffortRow({ bot: bot("high"), threadId: "independent-thread", updateBotDefault: true, compact: true })!;
     const select = Children.toArray(row.props.children).at(-1) as ReactElement<{ value: string; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }>;
@@ -77,7 +77,7 @@ describe("EffortRow", () => {
     const markup = renderToStaticMarkup(createElement(EffortRow, { bot: bot(), compact: true }));
     expect(markup).toContain('aria-label="Reasoning effort"');
     expect(markup).not.toContain("<button");
-    expect([...markup.matchAll(/<option[^>]*>([^<]+)</g)].map((match) => match[1])).toEqual(["Default", "None", "Low", "High"]);
+    expect([...markup.matchAll(/<option[^>]*>([^<]+)</g)].map((match) => match[1])).toEqual(["Default", "Off", "Low", "High"]);
   });
   it("can apply effort to the pinned thread and bot default together", () => {
     fixture.instances = [engine(["high"])];
@@ -105,14 +105,14 @@ describe("EffortRow", () => {
     const markup = renderEffort([engine(["low", "medium", "high"])]);
 
     expect(levelButtons(markup).map((button) => button.label)).toEqual(["Default", "Low", "Medium", "High"]);
-    expect(markup).not.toContain(">X-High<");
+    expect(markup).not.toContain(">Extra high<");
     expect(markup).not.toContain(">Max<");
   });
 
-  it("keeps Default and None apart — Default sends no level, None sends one", () => {
+  it("keeps Default and Off apart — Default sends no level, Off sends one", () => {
     const markup = renderEffort([engine(["none", "low"])]);
 
-    expect(levelButtons(markup).map((button) => button.label)).toEqual(["Default", "None", "Low"]);
+    expect(levelButtons(markup).map((button) => button.label)).toEqual(["Default", "Off", "Low"]);
   });
 
   it("marks the active level, and Default when the bot carries no level", () => {
@@ -122,8 +122,9 @@ describe("EffortRow", () => {
     expect(pressed(renderEffort([engine(["low", "high"])]))).toBe("Default");
   });
 
-  it("renames xhigh, the one level that does not capitalize cleanly", () => {
-    expect(renderEffort([engine(["xhigh"])])).toContain(">X-High<");
+  it("names the step above high the way each provider does", () => {
+    expect(renderEffort([engine(["xhigh"])])).toContain(">Extra high<");
+    expect(renderEffort([{ ...engine(["xhigh"]), driverKind: "claudeAgent" }])).toContain(">xHigh<");
   });
 });
 
@@ -247,6 +248,19 @@ describe("OpenCode model variants", () => {
     expect(modelSelectionForPick({ ...selection, effort: "high" }, opencode(), "provider/other")).not.toHaveProperty("effort");
     expect(modelSelectionForPick(bot("high").modelSelection, engine(["high"]), "other")).toEqual({ instanceId: "codex", model: "other", effort: "high" });
   });
+
+  it("steps the effort down to what the newly picked model offers", () => {
+    const levels: EffortLevel[] = ["low", "medium", "high", "xhigh", "max", "ultra"];
+    const codex: InstanceInfo = { ...engine(levels), models: { default: "astra", options: [
+      { id: "astra", label: "Astra", effortLevels: levels },
+      { id: "luna", label: "Luna", effortLevels: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "plain", label: "Plain", effortLevels: [] },
+    ] } };
+    const ultra = { instanceId: "codex", model: "astra", effort: "ultra" as const };
+    expect(modelSelectionForPick(ultra, codex, "astra")).toEqual(ultra);
+    expect(modelSelectionForPick(ultra, codex, "luna")).toEqual({ instanceId: "codex", model: "luna", effort: "max" });
+    expect(modelSelectionForPick(ultra, codex, "plain")).toEqual({ instanceId: "codex", model: "plain" });
+  });
 });
 
 describe("ModelPicker trigger", () => {
@@ -282,7 +296,7 @@ describe("ModelPicker trigger", () => {
     const markup = renderTrigger("high");
 
     expect(markup).toContain("GPT-5.6");
-    expect(effortChip(markup)).toBe("· Deep");
+    expect(effortChip(markup)).toBe("· High");
     expect(markup).toContain("Codex · GPT-5.6 · High effort");
   });
 

@@ -3034,7 +3034,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
   it("declares the effort levels the app-server accepts", async () => {
     await create();
     expect(instance.adapter.capabilities.effortLevels).toEqual([
-      "low", "medium", "high", "xhigh", "max",
+      "low", "medium", "high", "xhigh", "max", "ultra",
     ]);
   });
 

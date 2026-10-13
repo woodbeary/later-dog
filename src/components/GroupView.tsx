@@ -22,8 +22,10 @@ import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
+import { UnreadDivider } from "./UnreadDivider";
 import { CompactionChip, DigestChip } from "./DigestChip";
-import { roomActivityVisible } from "@/lib/room-activity";
+import { roomActivityVisible, transcriptRowShown } from "@/lib/room-activity";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
 import { normalizeState } from "@/lib/mascot";
 import { defaultResponderName, effectiveDefaultResponder, groupResponseHint, jevRoomRoutingOn } from "@/lib/group-routing";
@@ -40,6 +42,8 @@ import { ExportTranscriptMenu } from "./ExportTranscriptMenu";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
+import { SecureFormCard } from "./SecureFormCard";
+import { TakeoverCard } from "./TakeoverCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { GoalRunCard } from "./GoalRunCard";
 import { AttachmentGallery, MessageAttachmentGallery } from "./AttachmentGallery";
@@ -181,6 +185,13 @@ export const Transcript = memo(function Transcript({
     message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), [messages, showToolCalls]);
   const newestMessageId = messages.at(-1)?.id;
   const newestUserMessageId = [...messages].reverse().find((message) => message.role === "user")?.id;
+  const unreadSince = useUnreadBoundary(`room/${group.id}/${group.threadId}`, messages);
+  let unreadPlaced = false;
+  const unreadDivider = (rows: readonly Message[]) => {
+    if (unreadPlaced || !rows.some((row) => isUnread(row, unreadSince))) return null;
+    unreadPlaced = true;
+    return <UnreadDivider />;
+  };
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
   return (
@@ -200,6 +211,7 @@ export const Transcript = memo(function Transcript({
                   {dayLabel(first.at)} {formatTime(first.at)}
                 </div>
               )}
+              {unreadDivider(item.messages)}
               {first.from && cluster && (
                 <ClusterLabel bot={memberOf(first.from.botId)} name={first.from.name} color={first.from.color} />
               )}
@@ -214,7 +226,7 @@ export const Transcript = memo(function Transcript({
           );
         }
         const m = item.message;
-        if (cloudWakeupOf(m)) return <div key={m.id} className="contents" data-mid={m.id}><CloudTaskUpdateRow message={m} /></div>;
+        if (cloudWakeupOf(m)) return <div key={m.id} className="contents" data-mid={m.id}>{unreadDivider([m])}<CloudTaskUpdateRow message={m} /></div>;
         const user = m.role === "user";
         const cited = user && m.text ? splitTranscriptCitations(m.text) : null;
         const attachments = user && m.text ? splitTranscriptAttachments(cited?.display ?? m.text) : null;
@@ -231,10 +243,14 @@ export const Transcript = memo(function Transcript({
           ? { botId: routineOwner.id, threadId: routineExecutionThreadId }
           : undefined;
         const row =
-          m.kind === "secret" && m.secret && m.from?.botId ? (
+          m.kind === "secret" && m.secureForm && m.from?.botId ? (
+            <SecureFormCard botId={m.from.botId} botName={memberOf(m.from.botId)?.name ?? m.from.name} threadId={group.threadId} message={m} />
+          ) : m.kind === "secret" && m.secret && m.from?.botId ? (
             <SecretRequestCard botId={m.from.botId} threadId={group.threadId} message={m} />
           ) : m.kind === "connector" && m.connector && m.from?.botId ? (
             <ConnectorCard botId={m.from.botId} threadId={group.threadId} message={m} />
+          ) : m.kind === "options" && m.card?.takeoverRequest && m.from?.botId ? (
+            <TakeoverCard botId={m.from.botId} botName={memberOf(m.from.botId)?.name ?? m.from.name} threadId={group.threadId} message={m} />
           ) : m.kind === "options" && m.card?.requestId && m.card.questionRequest ? (
             <div className="flex justify-start">
               <QuestionCard threadId={group.threadId} bot={memberOf(m.from?.botId)} message={m} />
@@ -383,6 +399,7 @@ export const Transcript = memo(function Transcript({
                 {dayLabel(m.at)} {formatTime(m.at)}
               </div>
             )}
+            {unreadDivider([m])}
             {!user && m.from && newCluster && !(m.kind === "activity" && m.comm) && (
               <ClusterLabel bot={memberOf(m.from.botId)} name={m.from.name} color={m.from.color} />
             )}
@@ -941,6 +958,8 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
 }
 export function GroupView({ group }: { group: Group }) {
   const { state, dispatch } = useStore();
+  const showToolCalls = showToolCallsEnabled(state.config);
+  const countsInWindow = useCallback((message: Message) => transcriptRowShown(message, showToolCalls), [showToolCalls]);
   const remoteClient = window.laterdog?.remoteClient?.active === true;
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
@@ -1056,6 +1075,7 @@ export function GroupView({ group }: { group: Group }) {
     messages: group.messages,
     pinOn: [group.busyBotId, group.working, composerDock.pad],
     transcriptShown: !setupPending,
+    counts: countsInWindow,
   });
 
   useEffect(() => setBulletinDraft(group.bulletin), [group.id, group.bulletin]);

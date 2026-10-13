@@ -8,6 +8,13 @@ only where a dog already uses them. A native tool request that reaches you is on
 the provider left for you. In Full Access, later.dog also applies its own
 configuration tools without another approval.
 
+You set a dog's level in its profile, or every dog's at once under Settings →
+Computer → **Execution on this computer** in the desktop app. Both change the
+same default and follow the same rules: a dog that uses this computer shows the
+Off-leash warning first, a dog that is working keeps its level until its turn
+stops, and Full access and Custom are only shown there for a dog that already
+has them. The list is not shown on a paired remote client or in a browser.
+
 Engines with no reviewer of their own (the free Kimi and Grok models, and other
 OpenAI-compatible chat engines) get one app-side rule: Off-leash runs the tools of
 the dog's own computer (its cloud computer, a Local VM or its own server) and

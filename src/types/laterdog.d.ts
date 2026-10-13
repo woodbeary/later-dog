@@ -207,8 +207,9 @@ const __APP_VERSION__: string;
         input(serial: string, payload: AndroidDeviceInput): Promise<void>;
       };
       speechStart(options?: { endpointMs?: number; file?: string }): Promise<void>;
-      speechStop(): Promise<void>;
+      speechStop(): Promise<{ recording?: string } | undefined>;
       speechFinish?(): Promise<void>;
+      speechAudio?(file: string): Promise<Uint8Array<ArrayBuffer> | null>;
       onSpeechTranscript(
         cb: (line: { partial?: boolean; text?: string; error?: string }) => void,
       ): () => void;
@@ -234,7 +235,7 @@ const __APP_VERSION__: string;
       onOpenAppSettings?(cb: (section?: "organization" | "cloud" | "cloud-settings") => void): () => void;
       setUnreadCount?(count: number): void;
       desktopViewer?: {
-        open(url: string, title: string, contextId: string): Promise<boolean>;
+        open(url: string, title: string, contextId: string, pill?: { label: string; done: string }): Promise<boolean>;
         close(contextId: string): Promise<boolean>;
         currentState(): Promise<{ open: boolean; contextId: string | null }>;
         onState(cb: (state: { open: boolean; contextId: string | null }) => void): () => void;

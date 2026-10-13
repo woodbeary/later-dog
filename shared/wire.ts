@@ -13,6 +13,8 @@ import type { FailedTurnQuota } from "./failed-turn.ts";
 import type { ModelRequestCardData } from "./model-request.ts";
 import type { SkillRequestCardData } from "./skill-request.ts";
 import type { QuestionRequestCardData } from "./ask-question.ts";
+import type { TakeoverRequestCardData } from "./takeover.ts";
+import type { SecureFormCardData } from "./secure-form.ts";
 import type { RoutineRunCardData } from "./routine-run.ts";
 import type { GroupGoalRunCardData } from "./group-goal-run.ts";
 import type { RuntimeEvent } from "./runtime-events.ts";
@@ -20,7 +22,7 @@ import type { Notification } from "./notification.ts";
 import type { Routine, RoutineRun } from "./routines.ts";
 import type { WebhookAttempt, WebhookTrigger } from "./webhooks.ts";
 
-export const EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
+export const EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
 export function isEffortLevel(value: unknown): value is EffortLevel {
@@ -242,6 +244,7 @@ export interface WireMessage {
   card?: OptionCardData;
   connector?: ConnectorCardData;
   secret?: SecretRequestCardData;
+  secureForm?: SecureFormCardData;
   routineRun?: RoutineRunCardData;
   goalRun?: GroupGoalRunCardData;
   tool?: {
@@ -311,6 +314,7 @@ export interface OptionCardData {
   teamSetupRequest?: TeamSetupRequest;
   skillRequest?: SkillRequestCardData;
   questionRequest?: QuestionRequestCardData;
+  takeoverRequest?: TakeoverRequestCardData;
 }
 
 export type LiveClient = "desktop" | "web" | "ios" | "android";

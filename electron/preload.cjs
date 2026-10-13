@@ -34,7 +34,7 @@ function profilePageOffered() {
 const isProfilePage = !isLocalPage && profilePageOffered();
 const PROFILE_KEYS = new Set([
   "platform", "workspaces", "getCapabilities", "onCapabilitiesChanged", "approvals",
-  "beginScreenPreviewIntent", "screenFrame", "speechStart", "speechStop", "speechFinish", "onSpeechTranscript", "onSpeechEnd",
+  "beginScreenPreviewIntent", "screenFrame", "speechStart", "speechStop", "speechFinish", "speechAudio", "onSpeechTranscript", "onSpeechEnd",
   "onOpenAppSettings", "getPathForFile", "permStatus", "permRequestMic", "permOpenSettings", "permissions",
   "relaunch", "openInstallTerminal", "copyText", "openExternal", "applySkin", "windowControls", "onPackageInstall", "setUnreadCount",
   "pickFolder", "exportDiagnostics", "saveFile", "revealInFolder", "setCredential", "updater", "releaseCheck", "confirm", "profiles",
@@ -127,6 +127,7 @@ const bridge = {
   speechStart: (options) => ipcRenderer.invoke("speech:start", options),
   speechStop: () => ipcRenderer.invoke("speech:stop"),
   speechFinish: () => ipcRenderer.invoke("speech:finish"),
+  speechAudio: (file) => ipcRenderer.invoke("speech:audio", file),
   onSpeechTranscript: (cb) => {
     const handler = (_event, line) => cb(line);
     ipcRenderer.on("speech:transcript", handler);
@@ -186,7 +187,7 @@ const bridge = {
   },
   setUnreadCount: (count) => ipcRenderer.send("desktop:unread-count", count),
   desktopViewer: {
-    open: (url, title, contextId) => ipcRenderer.invoke("desktop-viewer:open", url, title, contextId),
+    open: (url, title, contextId, pill) => ipcRenderer.invoke("desktop-viewer:open", url, title, contextId, pill),
     close: (contextId) => ipcRenderer.invoke("desktop-viewer:close", contextId),
     currentState: () => ipcRenderer.invoke("desktop-viewer:state-now"),
     onState: (cb) => {

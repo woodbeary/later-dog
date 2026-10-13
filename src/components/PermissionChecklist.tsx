@@ -18,7 +18,7 @@ import type { LocaleKey } from "@/locales";
 const ICONS: Record<DesktopPermission, typeof Mic> = { microphone: Mic, accessibility: Accessibility, screen: MonitorDot };
 
 const DETAIL: Record<DesktopPermission, LocaleKey> = {
-  microphone: "onboarding.perms.micDetail",
+  microphone: "permissions.micDetail",
   accessibility: "permissions.accessibilityDetail",
   screen: "permissions.screenDetail",
 };

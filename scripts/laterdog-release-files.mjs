@@ -63,21 +63,22 @@ export function macUpdateYaml({ version, url, sha512, size, releaseDate, notes }
   return `${lines.join("\n")}\n`;
 }
 
-const UPDATES_ITSELF = "It updates itself. The update downloads in the background, and a small icon at the top of the sidebar appears when it is ready. Click it, then **Restart to update**.";
+const UPDATES_ITSELF = "It updates itself. The update downloads in the background, and a small icon at the bottom of the sidebar appears when it is ready. Click it, then **Restart to update**.";
 
-export function releaseNotesMarkdown({ version, notes, notarized = false }) {
+export function releaseNotesMarkdown({ version, notes, notarized = false, diskImage = "" }) {
+  const open = diskImage ? `open **${diskImage}**` : "unzip";
   const install = notarized
     ? [
       `**Already on later.dog ${FIRST_DEVELOPER_ID_VERSION} or newer?** ${UPDATES_ITSELF}`,
       "",
       `**On an older later.dog?** Download this once and drag it over the old app. Releases are now signed with an Apple Developer ID instead of later.dog's own certificate, so older versions can't install it by themselves. Your dogs, chats and settings stay where they are. macOS may ask once for your password so the new app can open later.dog's keychain item, and Accessibility or Screen Recording may need to be switched on again.`,
       "",
-      "**New install:** unzip, drag **later.dog** into Applications, then open it. It is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether to open an app downloaded from the internet.",
+      `**New install:** ${open}, drag **later.dog** into Applications, then open it. It is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether to open an app downloaded from the internet.`,
     ]
     : [
       `**Already on later.dog ${FIRST_SELF_UPDATING_VERSION} or newer?** ${UPDATES_ITSELF}`,
       "",
-      "**New install:** unzip, drag **later.dog** into Applications, then open it once. macOS will say it can't check the app, so go to System Settings → Privacy & Security and click **Open Anyway**. The app is signed with later.dog's own certificate, not Apple's, so macOS asks once. Every release carries the same signature, so updates keep your keychain access and the Accessibility and Screen Recording permissions you granted.",
+      `**New install:** ${open}, drag **later.dog** into Applications, then open it once. macOS will say it can't check the app, so go to System Settings → Privacy & Security and click **Open Anyway**. The app is signed with later.dog's own certificate, not Apple's, so macOS asks once. Every release carries the same signature, so updates keep your keychain access and the Accessibility and Screen Recording permissions you granted.`,
     ];
   return [
     `## later.dog ${version} for macOS (Apple silicon)`,
@@ -88,12 +89,12 @@ export function releaseNotesMarkdown({ version, notes, notarized = false }) {
     "",
     notes || "Small fixes.",
     "",
-    "The zip's SHA-256 is in `SHA256SUMS.txt`.",
+    diskImage ? "The disk image's and the zip's SHA-256 are in `SHA256SUMS.txt`." : "The zip's SHA-256 is in `SHA256SUMS.txt`.",
     "",
   ].join("\n");
 }
 
-export function releaseFiles({ tag, packageVersion, changelog, zipName, zipBytes, repository, releaseDate, notarized = false }) {
+export function releaseFiles({ tag, packageVersion, changelog, zipName, zipBytes, diskImageName, diskImageBytes, repository, releaseDate, notarized = false }) {
   const { version, prerelease } = releaseTag(tag, packageVersion);
   const section = changelogSection(changelog, version);
   if (!section) throw new Error(`CHANGELOG.md has no "## ${version}" section.`);
@@ -101,9 +102,11 @@ export function releaseFiles({ tag, packageVersion, changelog, zipName, zipBytes
     throw new Error(`CHANGELOG.md still calls ${version} unreleased. Date its heading before publishing it.`);
   }
   const digest = fileDigest(zipBytes);
+  const diskImage = diskImageBytes ? diskImageName : "";
+  const sums = [...(diskImage ? [`${fileDigest(diskImageBytes).sha256}  ${diskImage}`] : []), `${digest.sha256}  ${zipName}`];
   const files = {
-    "NOTES.md": releaseNotesMarkdown({ version, notes: section.body, notarized }),
-    "SHA256SUMS.txt": `${digest.sha256}  ${zipName}\n`,
+    "NOTES.md": releaseNotesMarkdown({ version, notes: section.body, notarized, diskImage }),
+    "SHA256SUMS.txt": `${sums.join("\n")}\n`,
   };
   if (!prerelease) {
     files["latest-mac.yml"] = macUpdateYaml({
@@ -123,22 +126,26 @@ function main() {
     options: {
       tag: { type: "string" },
       zip: { type: "string" },
+      dmg: { type: "string" },
       out: { type: "string" },
       repository: { type: "string", default: process.env.GITHUB_REPOSITORY || "woodbeary/later-dog" },
       changelog: { type: "string", default: "CHANGELOG.md" },
       package: { type: "string", default: "package.json" },
     },
   });
-  if (!values.tag || !values.zip || !values.out) throw new Error("Usage: laterdog-release-files.mjs --tag vX.Y.Z --zip later.dog-macOS-arm64.zip --out out");
+  if (!values.tag || !values.zip || !values.out) throw new Error("Usage: laterdog-release-files.mjs --tag vX.Y.Z --zip later.dog-macOS-arm64.zip [--dmg later.dog-macOS-arm64.dmg] --out out");
   if (!/^[\w.-]+\/[\w.-]+$/.test(values.repository)) throw new Error(`Not a GitHub repository: ${values.repository}`);
   const zipPath = resolve(values.zip);
   if (!statSync(zipPath).isFile()) throw new Error(`Not a file: ${zipPath}`);
+  const diskImagePath = values.dmg ? resolve(values.dmg) : null;
+  if (diskImagePath && !statSync(diskImagePath).isFile()) throw new Error(`Not a file: ${diskImagePath}`);
   const files = releaseFiles({
     tag: values.tag,
     packageVersion: JSON.parse(readFileSync(values.package, "utf8")).version,
     changelog: readFileSync(values.changelog, "utf8"),
     zipName: basename(zipPath),
     zipBytes: readFileSync(zipPath),
+    ...(diskImagePath ? { diskImageName: basename(diskImagePath), diskImageBytes: readFileSync(diskImagePath) } : {}),
     repository: values.repository,
     releaseDate: new Date().toISOString(),
     notarized: process.env.LATERDOG_NOTARIZE === "1",

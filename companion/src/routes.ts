@@ -132,6 +132,7 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "GET", path: /^\/api\/tts\/voices$/ },
   { method: "POST", path: /^\/api\/tts\/prepare$/ },
   { method: "POST", path: /^\/api\/tts\/speak$/ },
+  { method: "POST", path: /^\/api\/voice\/transcribe$/ },
 
   { method: "POST", path: /^\/api\/live\/session$/ },
   { method: "POST", path: /^\/api\/live\/call\/end$/ },

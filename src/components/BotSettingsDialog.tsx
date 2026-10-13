@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { FileText, Image as ImageIcon, X } from "lucide-react";
 
 import { useStore, type Bot } from "@/state/store";
@@ -13,7 +13,7 @@ import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 import { DEFAULT_MASCOT_BODY, MASCOT_BODIES, MASCOT_BODY_IDS } from "../../shared/mascot-bodies";
 import type { ApprovalMode } from "../../shared/approval-mode";
 import { approvalModeOptionsFor } from "./ApprovalModeSelector";
-import { BotAvatar, DogAvatar } from "./Avatar";
+import { DogAvatar } from "./Avatar";
 import { isDogBreed } from "./DogAvatar";
 import { useCaptionChrome } from "./DesktopCapabilities";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
@@ -26,6 +26,8 @@ import { TreatCount } from "./TreatCount";
 import { useBotEditor } from "./bot-settings/BotEditorContext";
 import { botLibraryItems } from "./bot-settings/library";
 import { SimpleMemory } from "./bot-settings/SimpleMemory";
+import { ComputerTab } from "./bot-settings/ComputerTab";
+import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
 import { TEACH_TRICK_LINE } from "../../shared/learn-request";
 import { BOT_SECTIONS, tabForSection } from "./bot-settings/sections";
 import { SkillReviewDialog, useManagedSkills } from "./bot-settings/SkillsSection";
@@ -37,8 +39,7 @@ const groupLabelCls = "mb-1.5 block px-1 text-[12px] font-medium text-ink-second
 const cardCls = "rounded-xl bg-card";
 const rowCls = "px-4 py-3";
 const dividedRowCls = "border-t border-hairline/40 px-4 py-3";
-const rowLabelCls = "block text-[12px] text-ink-secondary";
-const rowInputCls = "mt-1 w-full bg-transparent text-[14px] text-ink placeholder:text-ink-tertiary focus:outline-none";
+const profileInputCls = "w-full max-w-[18rem] rounded-lg bg-transparent px-2 py-0.5 text-center placeholder:text-ink-tertiary transition-colors hover:bg-control/60 focus:bg-inset focus:outline-none focus-visible:ring-1 focus-visible:ring-focus motion-reduce:transition-none";
 const pillCls = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-raised-hover disabled:opacity-45";
 const itemTextCls = "min-w-0 flex-1";
 
@@ -57,6 +58,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const dialogRef = useRef<HTMLElement | null>(null);
   const { padClass } = useCaptionChrome();
   const tab = state.botSettingsExpandAccordion ? tabForSection(state.botSettingsSection) : "details";
+  const memoryPage = tab === "library" && state.botSettingsSection === "memory";
   const skills = useManagedSkills(bot);
   const libraryOn = skillsLibraryEnabled(state.config);
   const [localAutoWarning, setLocalAutoWarning] = useState<string | null>(null);
@@ -64,6 +66,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const [source, setSource] = useState("");
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const teachButton = useRef<HTMLButtonElement | null>(null);
   const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
 
   const displayedApprovalMode = engine?.driverKind === "antigravityAgent" && approvalMode === "auto" ? "ask" : approvalMode;
@@ -78,6 +81,19 @@ export function BotSettingsDialog({ bot, overlay = false }: {
     patch({ approvalMode: mode });
   };
   const customMode = displayedApprovalMode !== "ask" && displayedApprovalMode !== "auto";
+
+  const stopTeaching = () => {
+    setTeaching(false);
+    setSource("");
+    setImportMessage("");
+  };
+  const escapeTeaching = (event: ReactKeyboardEvent) => {
+    if (event.key !== "Escape" || !teaching || importing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    stopTeaching();
+    teachButton.current?.focus();
+  };
 
   const importSkill = async () => {
     const trimmed = source.trim();
@@ -154,8 +170,8 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             : "md:static md:z-auto md:w-[min(420px,42vw)] md:shrink-0",
         )}
       >
-        <div className={cn("flex shrink-0 items-center justify-between px-4 py-3", padClass)}>
-          <span id="bot-settings-title" className="truncate text-[15px] font-semibold text-ink">
+        <div className={cn("flex shrink-0 items-center justify-end px-4 py-3", padClass)}>
+          <span id="bot-settings-title" className="sr-only">
             {bot.name}
           </span>
           <button
@@ -170,9 +186,31 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-6">
-          <div className="flex flex-col items-center gap-2">
-            <BotAvatar bot={bot} size={112} state={derived.activeState} />
-            <TreatCount botId={bot.id} />
+          <div data-profile-header className="flex flex-col items-center">
+            <ProfileAvatar bot={bot} state={derived.activeState} onPatch={patch} />
+            <label htmlFor={`simple-bot-name-${bot.id}`} className="sr-only">{t("botSettings.simple.name")}</label>
+            <input
+              id={`simple-bot-name-${bot.id}`}
+              data-profile-name
+              className={cn(profileInputCls, "mt-3 text-[20px] font-semibold text-ink")}
+              maxLength={BOT_PROFILE_LIMITS.name}
+              placeholder={t("botSettings.simple.name")}
+              value={bot.name}
+              onChange={(e) => patch({ name: e.target.value })}
+            />
+            <label htmlFor={`simple-bot-label-${bot.id}`} className="sr-only">{t("botSettings.simple.label")}</label>
+            <input
+              id={`simple-bot-label-${bot.id}`}
+              data-profile-label
+              className={cn(profileInputCls, "text-[13px] text-ink-secondary")}
+              maxLength={BOT_PROFILE_LIMITS.title}
+              placeholder={t("botSettings.simple.label")}
+              value={bot.title}
+              onChange={(e) => patch({ title: e.target.value })}
+            />
+            <div className="mt-1.5">
+              <TreatCount botId={bot.id} />
+            </div>
           </div>
 
           <div className="mt-4 flex justify-center">
@@ -247,27 +285,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                 <span className={groupLabelCls}>{t("botSettings.simple.about")}</span>
                 <div className={cardCls}>
                   <div className={rowCls}>
-                    <label htmlFor={`simple-bot-name-${bot.id}`} className={rowLabelCls}>{t("botSettings.simple.name")}</label>
-                    <input
-                      id={`simple-bot-name-${bot.id}`}
-                      className={rowInputCls}
-                      maxLength={BOT_PROFILE_LIMITS.name}
-                      value={bot.name}
-                      onChange={(e) => patch({ name: e.target.value })}
-                    />
-                  </div>
-                  <div className={dividedRowCls}>
-                    <label htmlFor={`simple-bot-label-${bot.id}`} className={rowLabelCls}>{t("botSettings.simple.label")}</label>
-                    <input
-                      id={`simple-bot-label-${bot.id}`}
-                      className={rowInputCls}
-                      maxLength={BOT_PROFILE_LIMITS.title}
-                      placeholder={t("botSettings.simple.labelPlaceholder")}
-                      value={bot.title}
-                      onChange={(e) => patch({ title: e.target.value })}
-                    />
-                  </div>
-                  <div className={dividedRowCls}>
                     <SoulField bot={bot} onPatch={patch} />
                   </div>
                 </div>
@@ -349,25 +366,28 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             </div>
           )}
 
-          {tab === "library" && (
+          {tab === "library" && !memoryPage && (
             <div role="tabpanel" className="mt-5 flex flex-col gap-5">
               <div>
                 <div className="mb-1.5 flex items-center justify-between gap-3 px-1">
                   <span className="text-[12px] font-medium text-ink-secondary">{t("botSettings.simple.skills")}</span>
                   <button
+                    ref={teachButton}
                     type="button"
                     data-simple-add-skill
                     aria-expanded={teaching}
-                    onClick={() => setTeaching((open) => !open)}
+                    disabled={importing}
+                    onKeyDown={escapeTeaching}
+                    onClick={() => (teaching ? stopTeaching() : setTeaching(true))}
                     className={pillCls}
                   >
-                    {t("botSettings.simple.addSkill")}
+                    {!teaching ? t("botSettings.simple.addSkill") : importMessage ? t("botSettings.simple.teachDone") : t("common.cancel")}
                   </button>
                 </div>
                 <div className={cardCls}>
                   {teaching && (
                     libraryOn ? (
-                      <div className={cn(rowCls, "flex items-center gap-2")} data-simple-teach>
+                      <div className={cn(rowCls, "flex items-center gap-2")} data-simple-teach onKeyDown={escapeTeaching}>
                         {skills.libraryPool.length > 0 ? (
                           <>
                             <select
@@ -399,6 +419,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                       <form
                         className={cn(rowCls, "flex flex-col gap-2")}
                         data-simple-teach
+                        onKeyDown={escapeTeaching}
                         onSubmit={(e) => {
                           e.preventDefault();
                           void importSkill();
@@ -406,6 +427,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                       >
                         <div className="flex items-center gap-2">
                           <input
+                            autoFocus
                             aria-label={t("botSettings.simple.addSkill")}
                             placeholder={t("botSettings.simple.teachPlaceholder", { name: bot.name })}
                             value={source}
@@ -475,8 +497,16 @@ export function BotSettingsDialog({ bot, overlay = false }: {
           )}
 
           <div hidden={tab !== "library"} className="mt-5">
-            <SimpleMemory bot={bot} active={tab === "library"} onToggle={(enabled) => patch({ memoryEnabled: enabled })} />
+            <SimpleMemory
+              bot={bot}
+              active={tab === "library"}
+              page={memoryPage}
+              onPage={(open) => dispatch({ type: "toggleSettings", open: true, section: open ? "memory" : "skills" })}
+              onToggle={(enabled) => patch({ memoryEnabled: enabled })}
+            />
           </div>
+
+          {tab === "computer" && <ComputerTab bot={bot} />}
 
         </div>
       </aside>

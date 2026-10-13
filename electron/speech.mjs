@@ -34,6 +34,8 @@ const BIN = app.isPackaged
 let child = null;
 
 const VOICE_NOTES_KEPT = 10;
+const STOP_WAIT_MS = 3_000;
+const CONVERT_TIMEOUT_MS = 30_000;
 export function voiceNotesDir() {
   return path.join(app.getPath("userData"), "voice-notes");
 }
@@ -128,7 +130,11 @@ export function startSpeech(win, options = {}) {
     return;
   }
 
-  const speechSession = { proc, outputPath, errorPath, stopPath, finishPath, sessionDir };
+  let settleClosed = () => {};
+  const closed = new Promise((resolve) => {
+    settleClosed = resolve;
+  });
+  const speechSession = { proc, outputPath, errorPath, stopPath, finishPath, sessionDir, closed };
   child = speechSession;
   let buf = "";
   let offset = 0;
@@ -172,19 +178,21 @@ export function startSpeech(win, options = {}) {
   proc.on("close", (code) => {
     drain();
     cleanup();
+    const kept = note && existsSync(note) ? { recording: note } : {};
+    settleClosed(kept);
     if (child !== speechSession) return;
     child = null;
-    const kept = note && existsSync(note) ? { recording: note } : {};
     if (reportedError) {
       sendEnd(win, { code: 1, reason: reportedError, ...kept });
     } else if (completed && code === 0) {
-      sendEnd(win, { code: 0, reason: "completed" });
+      sendEnd(win, { code: 0, reason: "completed", ...kept });
     } else {
       sendEnd(win, { code: 1, reason: "helper-exited", ...kept });
     }
   });
   proc.on("error", () => {
     cleanup();
+    settleClosed({});
     if (child !== speechSession) return;
     child = null;
     sendEnd(win, { code: 1, reason: "helper-start-failed" });
@@ -192,12 +200,51 @@ export function startSpeech(win, options = {}) {
 }
 
 export function stopSpeech() {
-  if (!child) return;
+  if (!child) return Promise.resolve({});
   const speechSession = child;
   child = null;
   try {
     writeFileSync(speechSession.stopPath, "stop");
   } catch {}
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({}), STOP_WAIT_MS);
+    timer.unref?.();
+    void speechSession.closed.then((kept) => {
+      clearTimeout(timer);
+      resolve(kept);
+    });
+  });
+}
+
+export async function voiceNoteAudio(file) {
+  if (process.platform !== "darwin" || !isVoiceNote(file)) return null;
+  const dir = mkdtempSync(path.join(app.getPath("temp"), "laterdog-voice-"));
+  const out = path.join(dir, "voice-note.wav");
+  try {
+    const converted = await new Promise((resolve) => {
+      const proc = spawn(
+        "/usr/bin/afconvert",
+        ["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", path.resolve(file), out],
+        { stdio: "ignore" },
+      );
+      const timer = setTimeout(() => proc.kill(), CONVERT_TIMEOUT_MS);
+      proc.on("error", () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+      proc.on("close", (code) => {
+        clearTimeout(timer);
+        resolve(code === 0);
+      });
+    });
+    if (!converted) return null;
+    const audio = readFileSync(out);
+    return audio.byteLength > 44 ? audio : null;
+  } catch {
+    return null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 export function finishSpeech() {

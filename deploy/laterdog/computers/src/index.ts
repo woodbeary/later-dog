@@ -29,6 +29,7 @@ import { type PlanRow, planPolicy, trials } from "./trial-registry";
 import { cancelSubscription, createPlanLink, customerPlan, orderCustomer, paidThrough, squareConfigured, subscription } from "./square";
 import { messagePage, newNonce } from "./viewer";
 import { VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, elevenLabsRequest, includedVoices, speechRequest, voiceInput } from "./voice";
+import { TRANSCRIBE_MAX_BYTES, TRANSCRIBE_MODEL, TRANSCRIBE_SECONDS_PER_DAY, TRANSCRIBE_SECONDS_TOTAL_PER_DAY, transcribeInput, transcriptFrom, transcriptionRequest } from "./transcribe";
 
 export { DogComputer } from "./computer";
 export { ComputerRegistry } from "./registry";
@@ -472,6 +473,26 @@ async function readBody(request: Request, limit: number): Promise<{ ok: true; va
   }
 }
 
+async function readForm(request: Request, limit: number): Promise<{ ok: true; value: FormData } | { ok: false; response: Response }> {
+  const type = request.headers.get("content-type") ?? "";
+  if (!/^multipart\/form-data\s*;/i.test(type)) {
+    await request.body?.cancel().catch(() => {});
+    return { ok: false, response: apiError({ status: 415, code: "unsupported_media_type", message: "Send the audio as multipart/form-data." }) };
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = await readLimited(request.body, limit);
+  } catch (error) {
+    if (error instanceof TooLarge) return { ok: false, response: apiError({ status: 413, code: "too_large", message: error.message }) };
+    throw error;
+  }
+  try {
+    return { ok: true, value: await new Response(bytes, { headers: { "content-type": type } }).formData() };
+  } catch {
+    return { ok: false, response: apiError({ status: 400, code: "invalid_form", message: "The body is not a valid form." }) };
+  }
+}
+
 async function decideRequest(request: Request, env: Env): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   const token = includedKey(request);
@@ -528,6 +549,28 @@ async function speakRequest(request: Request, env: Env, url: URL, voiceId: strin
     return new Response(bytes, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
   } catch (error) {
     console.error(`laterdog computers: speech failed: ${error instanceof Error ? error.message : String(error)}`);
+    return apiError(INCLUDED_FAILED);
+  }
+}
+
+async function transcribeRequest(request: Request, env: Env): Promise<Response> {
+  if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+  const token = includedKey(request);
+  if (!token) return apiError(NO_TRIAL, CHALLENGE);
+  const keySha256 = await sha256Hex(token);
+  if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
+  const form = await readForm(request, TRANSCRIBE_MAX_BYTES + 64 * 1024);
+  if (!form.ok) return form.response;
+  const parsed = await transcriptionRequest(form.value);
+  if (!parsed.ok) return apiError(parsed.refusal);
+  if (!env.AI) return apiError(NOT_INCLUDED);
+  const allowance = await trials(env).allowUsage({ keySha256, kind: "transcribe_seconds", amount: parsed.request.seconds, perKey: TRANSCRIBE_SECONDS_PER_DAY, total: TRANSCRIBE_SECONDS_TOTAL_PER_DAY });
+  if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
+  try {
+    const transcript = transcriptFrom(await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(TRANSCRIBE_MODEL, transcribeInput(parsed.request), aiGateway(env)));
+    return transcript ? json(transcript) : apiError(INCLUDED_FAILED);
+  } catch (error) {
+    console.error(`laterdog computers: transcription failed: ${error instanceof Error ? error.message : String(error)}`);
     return apiError(INCLUDED_FAILED);
   }
 }
@@ -646,6 +689,8 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return await chatRequestHandler(request, env, (work) => (ctx ? ctx.waitUntil(work) : void work));
       case "speak":
         return await speakRequest(request, env, url, target.voiceId);
+      case "transcribe":
+        return await transcribeRequest(request, env);
       case "trial_start":
         return await startTrialFromApp(request, env);
       case "trial":

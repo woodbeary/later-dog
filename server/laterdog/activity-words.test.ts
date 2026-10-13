@@ -27,6 +27,8 @@ describe("what the working line says", () => {
     expect(dogActivityWords("Grep", undefined, nameOf)).toBe("sniffing around");
     expect(dogActivityWords("WebSearch", undefined, nameOf)).toBe("sniffing around the web");
     expect(dogActivityWords("mcp__computer__computer_batch", undefined, nameOf)).toBe("clicking around");
+    expect(dogActivityWords("mcp__computer__request_secure_form", undefined, nameOf)).toBe("needs your input");
+    expect(dogActivityWords("mcp__computer__fill_secure_field", undefined, nameOf)).toBe("signing in");
     expect(dogActivityWords("mcp__claude_ai_Gmail__search_threads", undefined, nameOf)).toBe("working in Gmail");
     expect(dogActivityWords("mcp__claude_ai_Google_Calendar__list_events", undefined, nameOf)).toBe("working in Google Calendar");
     expect(dogActivityWords("mcp__composio__GMAIL_SEND_EMAIL", undefined, nameOf)).toBe("working in Gmail");

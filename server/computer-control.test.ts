@@ -94,6 +94,27 @@ describe("computer control", () => {
     expect(control.requestHelp("b1", "second").helpReason).toBe("first");
   });
 
+  it("lets the dog reword its own open plea without starting a new one", () => {
+    const { control, changes } = tracked();
+    const first = control.requestHelpLease("b1", "Sign in");
+    const reworded = control.restateHelpLease("b1", "Sign in to Tesco");
+    expect(reworded).toEqual({ snapshot: expect.objectContaining({ helpReason: "Sign in to Tesco" }), requestId: first.requestId });
+    expect(changes).toHaveLength(2);
+    expect(control.restateHelpLease("b1", "Sign in to Tesco").requestId).toBe(first.requestId);
+    expect(control.restateHelpLease("b1", "  ").snapshot.helpReason).toBe("Sign in to Tesco");
+    expect(changes).toHaveLength(2);
+    control.take("b1");
+    expect(control.restateHelpLease("b1", "Enter the code").snapshot).toMatchObject({ held: true, helpReason: "Enter the code" });
+  });
+
+  it("restating with nothing open opens a fresh plea", () => {
+    const { control } = tracked();
+    const opened = control.restateHelpLease("b1", "Solve the puzzle");
+    expect(opened.snapshot.helpReason).toBe("Solve the puzzle");
+    control.dismissHelp("b1");
+    expect(control.restateHelpLease("b1", "Solve the puzzle").requestId).not.toBe(opened.requestId);
+  });
+
   it("expires only the help request that owns the timeout", () => {
     const { control, changes } = tracked();
     const first = control.requestHelpLease("b1", "first");

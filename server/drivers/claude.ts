@@ -13,6 +13,7 @@ import { ClaudeLoginController } from "./claude-login-auth.ts";
 
 import type {
   DriverCreateInput,
+  EffortLevel,
   ModelCatalog,
   ProviderDriver,
   ProviderInstance,
@@ -43,6 +44,9 @@ import { claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdo
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { laterdogPreallowedTools } from "../laterdog/own-tools.ts";
+import { claudeEffortArg, claudeEffortLevels } from "../laterdog/effort-levels.ts";
+import { machineClaudeMemoryExcludes } from "../laterdog/claude-memory-isolation.ts";
+import { quietWorkEnvironment } from "../laterdog/work-updates.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
 import {
   ASK_USER_QUESTION_TOOL,
@@ -292,16 +296,18 @@ export interface ClaudeConfig {
   requireApiKey?: boolean;
 }
 
+const CLAUDE_5_EFFORT: readonly EffortLevel[] = ["low", "medium", "high", "xhigh", "max", "ultra"];
+
 export const STATIC_CLAUDE_MODELS: ModelCatalog = {
   default: "claude-sonnet-5",
   options: [
-    { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
-    { id: "claude-fable-5", label: "Claude Fable 5" },
-    { id: "claude-opus-5-5", label: "Claude Opus 5.5", contextWindow: 1_000_000 },
-    { id: "claude-opus-5", label: "Claude Opus 5" },
-    { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", contextWindow: 1_000_000 },
-    { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    { id: "claude-fable-5-1", label: "Claude Fable 5.1", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-fable-5", label: "Claude Fable 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-opus-5-5", label: "Claude Opus 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
+    { id: "claude-opus-5", label: "Claude Opus 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
+    { id: "claude-sonnet-5", label: "Claude Sonnet 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", effortLevels: [] },
   ],
 };
 
@@ -1066,7 +1072,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const turnModel = config.managed ? turn.model : await resolveClaudeTurnModel(turn.model, turnEnvironment);
       const injected = config.managed ? { model: turnModel ?? null, injected: false } : applyClaudeInject({ ...turnEnvironment }, turnModel);
       if (injected.model) args.push("--model", injected.model);
-      if (turn.effort) args.push("--effort", turn.effort);
+      if (turn.effort) args.push("--effort", claudeEffortArg(turn.effort));
 
       let systemPromptPath: string | null = null;
 
@@ -1160,6 +1166,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = "1";
       }
       const settings: Record<string, unknown> = { ...authSettings };
+      if (isolated) settings.claudeMdExcludes = machineClaudeMemoryExcludes(env);
       if (hooks) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH);
       if (turn.guestConfined) settings.permissions = GUEST_CLAUDE_PERMISSIONS;
       if (turn.fast) settings.fastMode = true;
@@ -1167,6 +1174,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         ? join(dirname(mcpConfigPath), "auth-settings.json") : null;
       if (authSettingsPath) args.push("--settings", authSettingsPath);
       env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1";
+      Object.assign(env, quietWorkEnvironment(turn.quietWork));
       const cwd = turn.cwd ?? homedir();
       const commandCwd = permissionLaunchCwd(cwd);
       const privateFileFlags = new Set(["--mcp-config", "--settings"]);
@@ -1181,6 +1189,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         configDir: env.CLAUDE_CONFIG_DIR ?? null,
         hooks: Boolean(hooks),
         fast: Boolean(turn.fast),
+        quiet: Boolean(turn.quietWork),
         auth: createHash("sha256").update(JSON.stringify({
           settings: authSettings,
           env: Object.fromEntries(CLAUDE_ACCOUNT_ENV_KEYS.map((key) => [key, env[key]])),
@@ -1960,7 +1969,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           browserMcp: true,
           images: true,
           nativeImageInput: true,
-          effortLevels: ["low", "medium", "high", "xhigh", "max"],
+          get effortLevels() {
+            return claudeEffortLevels(cliVersionChecked ? cliVersion : null);
+          },
           fastMode: true,
           queueing: true,
           steerImages: true,

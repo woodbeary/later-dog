@@ -135,6 +135,16 @@ dmg:
   # the arm64 one when both arches build (this section overrides both the
   # top-level and mac-level artifactName, so it must carry the arch itself)
   artifactName: laterdog-${version}-${arch}.dmg
+  title: later.dog
+  iconSize: 100
+  contents:
+    - x: 140
+      y: 180
+      type: file
+    - x: 400
+      y: 180
+      type: link
+      path: /Applications
 
 win:
   target:

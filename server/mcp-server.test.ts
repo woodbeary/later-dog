@@ -444,6 +444,29 @@ describe("MCP tool execution", () => {
     expect(result).toMatchObject({ status: "needs-user", messages: [{ text: "Approve?" }] });
   });
 
+  it("counts a take-over card as needing the person until they hand the screen back", async () => {
+    let status = "waiting";
+    const fetcher = vi.fn(async (path: string) => {
+      if (path === "/api/bots?messages=0") return {
+        bots: [{ id: "bot-1", name: "Mira", busy: false, activity: "idle", threadId: "task-1", tasks: [] }],
+      };
+      if (path === "/api/threads/task-1/messages?limit=10") return { messages: [{ id: "m1", at: 1, role: "bot", kind: "options", card: {
+        title: "Sign in to Tesco", subtitle: "", options: [],
+        takeoverRequest: { step: "Sign in to Tesco", reason: "sign-in", helpRequestId: "bot-1-1", status, place: "cloud" },
+      } }] };
+      throw new Error(`unexpected path ${path}`);
+    });
+    const wait = () => handleToolCall("wait_for_conversation", { target_type: "bot", target_id: "bot-1", timeout_seconds: 1 }, fetcher) as Promise<any>;
+    const waiting = await wait();
+    expect(waiting.status).toBe("needs-user");
+    expect(waiting.messages[0].card.takeover).toEqual({ step: "Sign in to Tesco", status: "waiting" });
+    expect(waiting.messages[0].card).not.toHaveProperty("takeoverRequest");
+    status = "in-control";
+    expect((await wait()).status).toBe("needs-user");
+    status = "done";
+    expect((await wait()).status).toBe("settled");
+  });
+
   it("changes an idle task model while another task of the same bot works", async () => {
     const modelSelection = { instanceId: "codex", model: "gpt-5.6-sol" };
     const fetcher = vi.fn(async (path: string, options?: RequestInit) => {

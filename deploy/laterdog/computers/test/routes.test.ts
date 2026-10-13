@@ -80,6 +80,16 @@ describe("free trial routes", () => {
   });
 });
 
+describe("included service routes", () => {
+  it("routes the voices, speech and transcription", () => {
+    expect(route("GET", "/v1/voice/voices")).toEqual({ kind: "voices" });
+    expect(route("POST", "/v1/voice/text-to-speech/JBFqnCBsd6RMkjVDRZzb")).toEqual({ kind: "speak", voiceId: "JBFqnCBsd6RMkjVDRZzb" });
+    expect(route("POST", "/v1/voice/speech-to-text")).toEqual({ kind: "transcribe" });
+    expect(route("GET", "/v1/voice/speech-to-text")).toEqual({ kind: "method_not_allowed", allow: ["POST"] });
+    expect(route("POST", "/v1/voice/speech-to-text/")).toEqual({ kind: "not_found", api: true });
+  });
+});
+
 describe("desktop routes", () => {
   const base = `/desktop/${ID}/${TOKEN}`;
 

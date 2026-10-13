@@ -11,7 +11,7 @@ app.setPath("userData", path.join(app.getPath("appData"), "later.dog"));
 import { startCua, stopCua, registerCuaIpc, setCuaStateListener } from "./cua.mjs";
 import { startLaterDogSupervisor } from "./laterdog-supervisor.mjs";
 import { createAndroidDeviceController } from "./android-device.mjs";
-import { finishSpeech, startSpeech, stopSpeech } from "./speech.mjs";
+import { finishSpeech, startSpeech, stopSpeech, voiceNoteAudio } from "./speech.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { pasteMenuItem } from "./paste-menu-item.mjs";
 import { attachUpdaterWindow, startUpdater, registerUpdaterIpc, sendUpdaterState, setReleaseCheckEnabled } from "./updater.mjs";
@@ -33,6 +33,7 @@ import { packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-lin
 import { createOrganizationEntry, isOrganizationDeepLink, takeOrganizationDeepLink, organizationRestartIntent, withOrganizationRestartIntent, withoutOrganizationRestartIntent } from "./organization-entry.mjs";
 import { windowChromeOptions } from "./window-chrome.mjs";
 import { createAllWindowsClosedQuit } from "./window-all-closed.mjs";
+import { offerMoveToApplications } from "./move-to-applications.mjs";
 import { createStartupScreen } from "./startup-screen.mjs";
 import { createSystemTray } from "./system-tray.mjs";
 import { createLendingIndicator } from "./lending-indicator.mjs";
@@ -108,6 +109,7 @@ const { createDisplayMediaGuard, invokeDisplayMediaCallback, selectCaptureSource
 );
 const { STAGE_PREFIX: APPIMAGE_CUA_STAGE_PREFIX } = require("./cua-linux-bundle.cjs");
 const { desktopViewerUrl, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
+const { attachDesktopViewerPill, desktopViewerPill } = require("./desktop-viewer-pill.cjs");
 const { createDesktopWorkspaceManager } = require("./desktop-workspace.cjs");
 const { createTrustedApprovalModeCoordinator } = require("./approval-trusted-mode.cjs");
 const { DESKTOP_MUTATION_HEADER, desktopServerHeaders } = require("./desktop-server-auth.cjs");
@@ -1336,7 +1338,7 @@ function desktopViewerErrorPage(message, retryUrl) {
   );
 }
 
-function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
+function openDesktopViewer(owner, rawUrl, rawTitle, contextId, rawPill) {
   if (!owner || owner.isDestroyed()) throw new Error("The later.dog window is unavailable");
   const url = desktopViewerUrl(rawUrl);
   const titleCandidate = Object.prototype.toString.call(rawTitle) === "[object String]" ? rawTitle.trim() : "";
@@ -1382,6 +1384,8 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId) {
   });
   desktopViewerWindow = viewer;
   const viewerOrigin = url.origin;
+  const pill = desktopViewerPill(rawPill);
+  if (pill) attachDesktopViewerPill({ viewer, pill, createView: (options) => new WebContentsView(options) });
 
   viewer.webContents.session.setPermissionCheckHandler((_webContents, permission, requestingOrigin) =>
     desktopViewerPermissionAllowed(permission, requestingOrigin, viewerOrigin),
@@ -2382,9 +2386,9 @@ ipcMain.handle("desktop:open-external", localOnly("desktop:open-external", async
   return true;
 }));
 
-ipcMain.handle("desktop-viewer:open", localOnly("desktop-viewer:open", (event, rawUrl, title, contextId) => {
+ipcMain.handle("desktop-viewer:open", localOnly("desktop-viewer:open", (event, rawUrl, title, contextId, pill) => {
   const owner = BrowserWindow.fromWebContents(event.sender);
-  return openDesktopViewer(owner, rawUrl, title, contextId);
+  return openDesktopViewer(owner, rawUrl, title, contextId, pill);
 }));
 
 ipcMain.handle("desktop-workspace:open", localOnly("desktop-workspace:open", (event, input) =>
@@ -2481,9 +2485,8 @@ ipcMain.handle("speech:start", localOnly("speech:start", (event, options) => {
     ? { endpointMs: options.endpointMs, ...(typeof options.file === "string" ? { file: options.file } : {}) }
     : undefined);
 }));
-ipcMain.handle("speech:stop", localOnly("speech:stop", () => {
-  if (nativeActions.appleSpeech) stopSpeech();
-}));
+ipcMain.handle("speech:stop", localOnly("speech:stop", () => (nativeActions.appleSpeech ? stopSpeech() : {})));
+ipcMain.handle("speech:audio", localOnly("speech:audio", (_event, file) => (nativeActions.appleSpeech ? voiceNoteAudio(file) : null)));
 ipcMain.handle("speech:finish", localOnly("speech:finish", () => {
   if (nativeActions.appleSpeech) finishSpeech();
 }));
@@ -3035,6 +3038,7 @@ setCuaStateListener((connection) => {
 });
 
 app.whenReady().then(async () => {
+  if (await offerMoveToApplications({ app, dialog, log: slog })) return;
   await evictStartupCacheOnce({
     userData: app.getPath("userData"),
     currentVersion: app.getVersion(),

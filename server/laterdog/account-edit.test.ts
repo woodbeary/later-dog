@@ -14,13 +14,13 @@ describe("Settings → Accounts edits", () => {
     expect(renamableAccount(grok).ok).toBe(false);
   });
 
-  it("removes only added accounts, never a default", () => {
+  it("removes added and leftover Claude or Codex logins, never a default", () => {
     expect(removableAccount("claude-1111", claude)).toEqual({ ok: true });
     expect(removableAccount("chatgpt-2222", chatgpt)).toEqual({ ok: true });
     expect(removableAccount("claude", claude)).toMatchObject({ ok: false, error: expect.stringContaining("default") });
     expect(removableAccount("chatgpt", chatgpt).ok).toBe(false);
     expect(removableAccount("codex", codexCli).ok).toBe(false);
-    expect(removableAccount("codex-extra", codexCli).ok).toBe(false);
+    expect(removableAccount("codex-2", codexCli)).toEqual({ ok: true });
     expect(removableAccount("grok", grok).ok).toBe(false);
   });
 

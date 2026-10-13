@@ -111,6 +111,7 @@ import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
 import { isEffortLevel, type BotVisibility, type CardAnswerer, type ResolvedSender, type SteerQueueReason, type WireBot, type WireGroup, type WireTask } from "../shared/wire.ts";
+import { engineRefusesEffort, fittedEffort, offeredEffortLevels } from "./laterdog/effort-levels.ts";
 import { isPersistentQuestionCard, shouldSettleRequestCard } from "../shared/ask-question.ts";
 import { parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import type { TeamComputersPayload } from "../shared/team-computer.ts";
@@ -167,6 +168,7 @@ import {
   threadEventLogRetentionDays,
   saveConfig,
   showToolCallsEnabled,
+  stepUpdatesEnabled,
   routinesInConversationEnabled,
   claudeUserMcpEnabled,
   skillAuthoringEnabled,
@@ -188,6 +190,7 @@ import {
   browserEngineAttachCdpUrl,
   DATA_DIR,
   skillsLibraryEnabled,
+  cloudDictationEnabled,
   EVENTS_DIR,
   NATIVE_DIR,
   customMcpServers,
@@ -318,7 +321,7 @@ import {
 import { CLOUD_PERSONAL_REFUSAL, settleCloudOwnership, type CloudOwnership } from "./cloud-owner.ts";
 import { createCloudMoveRoutes, workspaceShared } from "./cloud-move-http.ts";
 import { RESTART_EXIT_CODE } from "./restart.ts";
-import { holdIncludedServices } from "./included-services.ts";
+import { holdIncludedServices, voiceCredential } from "./included-services.ts";
 import type { ProviderInstance } from "./contracts.ts";
 import { selectDefaultModelSelection, withNewBotEffort } from "./default-model-selection.ts";
 import { threadModelFallback, type ThreadEngine } from "./thread-model.ts";
@@ -640,6 +643,12 @@ import { LimitHold } from "./laterdog/limit-hold.ts";
 import { latestTurnAnswer, postTurnImage } from "./laterdog/turn-images.ts";
 import { steerWords } from "./laterdog/steer-images.ts";
 import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts";
+import { openQuestion, typedReplyAnswer } from "./laterdog/typed-answer.ts";
+import { finishTakeover, TakeoverWaits, takeoverResumePrompt, type TakeoverCards, type TakeoverWait } from "./laterdog/takeover.ts";
+import { SecureForms, secureFormMessageText } from "./laterdog/secure-form.ts";
+import { transcribeRoute } from "./laterdog/transcribe.ts";
+import { workUpdatesPrompt } from "./laterdog/work-updates.ts";
+import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
@@ -651,6 +660,10 @@ import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
+import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
+import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
+import { createSecureFormRoutes } from "./routes/secure-forms.ts";
+import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
 import { localDesktopTarget, localVmViewerStatus, viewerTargetId } from "./desktop-viewer-targets.ts";
 import { createAntigravityLeftoverRoutes } from "./routes/antigravity-leftovers.ts";
@@ -2613,6 +2626,7 @@ function connectedAppsIntegration(bot: Pick<BotRecord, "id" | "connectorTools">,
 }
 
 const computerControlRevision = new Map<string, number>();
+const takeoverWaits = new TakeoverWaits();
 const computerControl = new ComputerControl((key, snapshot) => {
   const members = key.startsWith("computer_")
     ? store.bots.filter(bot => inheritedTeamComputer(bot)?.id === key.slice("computer_".length)).map(bot => bot.id)
@@ -2624,6 +2638,7 @@ const computerControl = new ComputerControl((key, snapshot) => {
   }
   broadcast({ kind: "computer-control", botId, held: snapshot.held, helpReason: snapshot.helpReason });
   }
+  settleTakeoverWaits(key, snapshot);
 });
 const controlLeaseIdSchema = z.string().min(16).max(120).regex(/^[A-Za-z0-9_-]+$/);
 const routineRequestSourceSchema = {
@@ -2774,7 +2789,7 @@ const giveFirstEngine = firstEngine({
   bots: () => store.bots,
   pick: () => hostedModels ? Promise.resolve({ instanceId: "", model: "" }) : defaultSelection(),
   assign: (botId, selection) => {
-    store.patchBot(botId, { modelSelection: withNewBotEffort(selection, cfg.newBots?.effort, registry.get(selection.instanceId)?.adapter.capabilities.effortLevels) });
+    store.patchBot(botId, { modelSelection: withNewBotEffort(selection, cfg.newBots?.effort, offeredEffortLevels(registry.get(selection.instanceId), selection.model)) });
   },
 });
 
@@ -2849,6 +2864,11 @@ function checkedModelSelection(
   const allowed: readonly string[] = target?.adapter.capabilities.effortLevels ?? [];
   if (target && selection.effort !== undefined && !allowed.includes(selection.effort)) {
     return { ok: false, status: 400, error: `effort "${selection.effort}" is not offered by this dog's engine` };
+  }
+  if (target && selection.effort !== undefined) {
+    const fitted = fittedEffort(target, selection.model, selection.effort);
+    if (fitted) selection.effort = fitted;
+    else delete selection.effort;
   }
   if (target && selection.variant !== undefined && !target.adapter.capabilities.modelVariants) {
     return { ok: false, status: 400, error: "model variants are not offered by this dog's engine" };
@@ -3110,7 +3130,7 @@ let enginesRead: Promise<void> | null = null;
 const presetStore = createPresetStore();
 const store = new Store(
   () => bootSelection,
-  (selection) => withNewBotEffort(selection, cfg.newBots?.effort, registry.get(selection.instanceId)?.adapter.capabilities.effortLevels),
+  (selection) => withNewBotEffort(selection, cfg.newBots?.effort, offeredEffortLevels(registry.get(selection.instanceId), selection.model)),
   (instanceId) => registry.cliTarget(instanceId)?.driverKind,
 );
 const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), ENVIRONMENT_ID);
@@ -3239,6 +3259,7 @@ function previewSystemPrompt(bot: BotRecord) {
     { id: "credential", label: "Credentials", text: agentsMounted ? CREDENTIAL_PROMPT : "" },
     { id: "routine", label: "Routines", text: agentsMounted ? ROUTINE_PROMPT : "" },
     { id: "profile", label: "Profile changes", text: agentsMounted ? PROFILE_PROMPT : "" },
+    { id: "updates", label: "Progress updates", text: workUpdatesPrompt(stepUpdatesEnabled(cfg)) },
     { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
     { id: "team-memory", label: "Team memory", text: teamMemory.systemPrompt(bot.section) + (agentsMounted ? TEAM_MEMORY_PROMPT : "") },
     teamAvailabilityPart(agentsMounted && coordination ? peers : []),
@@ -5090,6 +5111,7 @@ const watchdog = new TurnWatchdog({
         drainConnectorResumes();
         drainComputerResumes();
         drainSecretResumes();
+        drainTakeoverResumes();
         drainTeamSetupResumes();
       }
     };
@@ -6598,6 +6620,7 @@ bus.subscribe((event: RuntimeEvent) => {
             drainConnectorResumes();
             drainComputerResumes();
             drainSecretResumes();
+            drainTakeoverResumes();
             drainTeamSetupResumes();
             drainDelegationWakes();
           }
@@ -7416,10 +7439,11 @@ async function acceptDirectSend(
     via?: "call";
     personPresent: boolean;
     deliver?: SendDelivery;
+    answerer?: CardAnswerer;
   },
   guardedStart?: (currentAtStart: BotRecord) => Promise<DirectSendReceipt>,
 ): Promise<DirectSendReceipt> {
-  const { botId, threadId, text, sendId, replyTo, sender, trigger, via, personPresent, deliver } = input;
+  const { botId, threadId, text, sendId, replyTo, sender, trigger, via, personPresent, deliver, answerer } = input;
   const refused = directSendRefusal(botId, threadId);
   if (refused) throw refused;
   return sendSequencer.run(
@@ -7458,6 +7482,7 @@ async function acceptDirectSend(
       if (!store.taskByThread(currentAtStart.id, threadId)) {
         throw Object.assign(new Error("the target task no longer exists"), { status: 409 });
       }
+      if (personPresent) answerTakeoverByTyping(currentAtStart.id, threadId);
 
       if (guardedStart) return guardedStart(currentAtStart);
 
@@ -7465,6 +7490,23 @@ async function acceptDirectSend(
         const instance = runningTurnInstance(currentAtStart, threadId);
         let steered: SteerOutcome = "refused";
         const carriesImages = extractTurnImages(text).images.length > 0;
+        const question = !answerer || waitsForTurn(deliver) || carriesImages ? undefined
+          : openQuestion(store.messagesFor(threadId), (requestId) => askMessageByRequest.has(`${threadId}:${requestId}`));
+        const requestId = question?.card?.requestId;
+        if (answerer && question && requestId) {
+          const reply = promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User");
+          if (CLOUD_HOME) cloudCardAnswersInFlight.set(requestId, answerer.kind === "session" ? answerer.person : undefined);
+          const outcome = await answerRequest(threadId, currentAtStart.modelSelection.instanceId, requestId, "answer",
+            typedReplyAnswer(reply, question.card?.questionRequest?.questions), { id: currentAtStart.id, name: currentAtStart.name })
+            .finally(() => { if (CLOUD_HOME) cloudCardAnswersInFlight.delete(requestId); });
+          if (outcome === "answered") {
+            const latest = store.messagesFor(threadId).find((candidate) => candidate.id === question.id)?.card;
+            if (latest) store.patchMessage(threadId, question.id, { card: { ...latest, answered: latest.answered ?? "answer", dismissed: true, answeredBy: latest.answeredBy ?? answerer } });
+            if (personPresent) clearUnattended(threadId);
+            const message = store.appendMessage(threadId, { role: "user", kind: "text", text, replyToId: replyTo?.id, sendId, sender, ...(via ? { via } : {}) });
+            return { ok: true as const, threadId, message };
+          }
+        }
         const steerTarget = handoffs.current(threadId);
         const busyAdmission = admit("direct-busy", {
           waitsForTurn: waitsForTurn(deliver),
@@ -7895,16 +7937,17 @@ async function startTurn(
     throw Object.assign(new Error("this provider account is being updated — try again shortly"), { status: 409 });
   }
   const model = bot.modelSelection.model;
-  const effort = bot.modelSelection.effort;
+  const chosenEffort = bot.modelSelection.effort;
   const variant = bot.modelSelection.variant;
   const fast = bot.modelSelection.fast === true && instance.adapter.capabilities.fastMode === true;
-  assertModelVariantSupported({ variant, effort }, instance.adapter.capabilities);
-  if (effort && !instance.adapter.capabilities.effortLevels?.includes(effort)) {
+  assertModelVariantSupported({ variant, effort: chosenEffort }, instance.adapter.capabilities);
+  if (engineRefusesEffort(instance, chosenEffort)) {
     throw Object.assign(
-      new Error(`effort "${effort}" is not offered by this dog's engine — choose another level in settings`),
+      new Error(`effort "${chosenEffort}" is not offered by this dog's engine — choose another level in settings`),
       { status: 409 },
     );
   }
+  const effort = fittedEffort(instance, model, chosenEffort);
 
   let userMessage = opts?.userMessage;
   if (opts?.editedMessageId) {
@@ -8020,6 +8063,7 @@ async function startTurn(
         drainConnectorResumes();
         drainComputerResumes();
         drainSecretResumes();
+        drainTakeoverResumes();
         drainTeamSetupResumes();
         drainDelegationWakes();
         return;
@@ -8563,6 +8607,7 @@ async function startTurn(
         { id: "routine-execution", label: "Routine execution", text: opts?.automationSource === "schedule" || opts?.automationSource === "manual" ? ROUTINE_EXECUTION_PROMPT : "" },
         { id: "profile", label: "Profile changes", text: profilePrompt },
         { id: "learn", label: "Skill authoring", text: learnPrompt },
+        { id: "updates", label: "Progress updates", text: workUpdatesPrompt(stepUpdatesEnabled(cfg)) },
         { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
         { id: "team-memory", label: "Team memory", text: teamMemory.systemPrompt(bot.section) + (integrations.agents ? TEAM_MEMORY_PROMPT : "") },
         teamAvailabilityPart(coordinationPrompt ? sectionPeers : []),
@@ -8597,6 +8642,7 @@ async function startTurn(
         effort,
         variant,
         ...(fast ? { fast: true } : {}),
+        ...(stepUpdatesEnabled(cfg) ? {} : { quietWork: true }),
         resumeCursor: dispatchContext.resumeCursor,
         sessionReset: dispatchContext.sessionReset,
         ...(dispatchContext.recoveryText !== undefined ? { recoveryText: dispatchContext.recoveryText } : {}),
@@ -8651,6 +8697,7 @@ async function startTurn(
         drainConnectorResumes();
         drainComputerResumes();
         drainSecretResumes();
+        drainTakeoverResumes();
         drainTeamSetupResumes();
         drainDelegationWakes();
       }
@@ -8692,6 +8739,7 @@ async function startTurn(
           drainConnectorResumes();
           drainComputerResumes();
           drainSecretResumes();
+          drainTakeoverResumes();
           drainTeamSetupResumes();
           drainDelegationWakes();
         }
@@ -8719,6 +8767,7 @@ async function startTurn(
         drainConnectorResumes();
         drainComputerResumes();
         drainSecretResumes();
+        drainTakeoverResumes();
         drainTeamSetupResumes();
         drainDelegationWakes();
         return;
@@ -8787,6 +8836,7 @@ async function startTurn(
       drainConnectorResumes();
       drainComputerResumes();
       drainSecretResumes();
+      drainTakeoverResumes();
       drainTeamSetupResumes();
       drainDelegationWakes();
     }
@@ -10562,6 +10612,7 @@ async function runGroupMemberTurn(
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     teamAvailabilityPart(outsideRoom),
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
+    { id: "updates", label: "Progress updates", text: workUpdatesPrompt(stepUpdatesEnabled(cfg)) },
     { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
     { id: "team-memory", label: "Team memory", text: teamMemory.systemPrompt(bot.section) + (integrations.agents ? TEAM_MEMORY_PROMPT : "") },
     { id: "memory", label: "Memory", text: roomMemory ? `\n${roomMemory.trim()}` : "" },
@@ -10666,6 +10717,7 @@ async function runGroupMemberTurn(
         approvalMode: roomTurnApprovalMode(readyBot, threadId, orchestration),
         toolScope: toolScopeForTurn(readyBot.id),
         ...(roomGuestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
+        ...(stepUpdatesEnabled(cfg) ? {} : { quietWork: true }),
         system: roomSystem.text,
         systemStable: roomSystem.stable,
         systemVolatile: roomSystem.volatile,
@@ -10735,6 +10787,7 @@ async function runGroupMemberTurn(
     drainConnectorResumes();
     drainComputerResumes();
     drainSecretResumes();
+    drainTakeoverResumes();
     drainTeamSetupResumes();
     return false;
   }
@@ -10761,6 +10814,7 @@ async function runGroupMemberTurn(
         drainConnectorResumes();
         drainComputerResumes();
         drainSecretResumes();
+        drainTakeoverResumes();
         drainTeamSetupResumes();
       }
     };
@@ -10783,6 +10837,7 @@ async function runGroupMemberTurn(
     drainConnectorResumes();
     drainComputerResumes();
     drainSecretResumes();
+    drainTakeoverResumes();
     drainTeamSetupResumes();
   }
   if (outcome === "provider_failed" || outcome === "parked") {
@@ -10896,6 +10951,7 @@ async function runGroupMemberTurn(
       drainConnectorResumes();
       drainComputerResumes();
       drainSecretResumes();
+      drainTakeoverResumes();
       drainTeamSetupResumes();
     }
   }
@@ -12408,12 +12464,159 @@ function drainSecretResumes() {
   }
 }
 
+type TakeoverResumeEntry = TakeoverWait & { prompt: string };
+const pendingTakeoverResumes = new Map<string, TakeoverResumeEntry>();
+
+function takeoverMessage(wait: TakeoverWait): Message | null {
+  const owner = connectorThread(wait.botId, wait.threadId);
+  if (!owner) return null;
+  const message = store.activePath(wait.threadId).find((candidate) => candidate.id === wait.messageId);
+  if (owner.group && message?.from?.botId !== wait.botId) return null;
+  return message?.kind === "options" && message.card?.takeoverRequest ? message : null;
+}
+
+const takeoverCards: TakeoverCards = {
+  read: (wait) => takeoverMessage(wait)?.card?.takeoverRequest ?? null,
+  write: (wait, next) => {
+    const message = takeoverMessage(wait);
+    if (message?.card) store.patchMessage(wait.threadId, message.id, { card: { ...message.card, takeoverRequest: next } });
+  },
+};
+
+function settleTakeoverWaits(key: string, snapshot: { held: boolean; helpReason: string | null }): void {
+  for (const settled of takeoverWaits.settle(key, { held: snapshot.held, helpOpen: snapshot.helpReason !== null }, takeoverCards)) {
+    queueMicrotask(() => dispatchTakeoverResume({ ...settled.wait, prompt: takeoverResumePrompt(settled.outcome, settled.step) }));
+  }
+}
+
+function endTakeover(wait: TakeoverWait, outcome: "done" | "skipped" | "replied", controlKey: string): TakeoverRequestCardData | null {
+  const card = takeoverCards.read(wait);
+  const next = card && finishTakeover(card, outcome);
+  if (!card || !next) return null;
+  takeoverCards.write(wait, next);
+  takeoverWaits.remove(wait);
+  const control = computerControl.snapshot(controlKey);
+  if (control.held && outcome !== "replied") computerControl.release(controlKey);
+  else if (control.helpReason !== null && !control.held) computerControl.dismissHelp(controlKey);
+  if (outcome !== "replied") dispatchTakeoverResume({ ...wait, prompt: takeoverResumePrompt(outcome, card.step) });
+  return next;
+}
+
+function answerTakeoverByTyping(botId: string, threadId: string): void {
+  const bot = store.bot(botId);
+  if (!bot) return;
+  for (const message of store.activePath(threadId)) {
+    const request = message.kind === "options" ? message.card?.takeoverRequest : undefined;
+    if (request?.status !== "waiting") continue;
+    endTakeover({ botId: message.from?.botId ?? botId, threadId, messageId: message.id }, "replied", botComputerControlKey(store.bot(message.from?.botId ?? botId) ?? bot));
+  }
+}
+
+function markTakeoverResumeFailed(entry: TakeoverWait, error: string): void {
+  const owner = connectorThread(entry.botId, entry.threadId);
+  if (!owner) return;
+  store.appendMessage(entry.threadId, {
+    role: "bot", kind: "activity",
+    ...(owner.group ? { from: { botId: owner.bot.id, name: owner.bot.name, color: owner.bot.color } } : {}),
+    tool: { name: `Could not pick the task back up: ${error.slice(0, 160)}`, ok: false },
+  });
+}
+
+function dispatchTakeoverResume(entry: TakeoverResumeEntry): void {
+  const owner = connectorThread(entry.botId, entry.threadId);
+  if (!owner) return;
+  const key = `${entry.threadId}:${entry.messageId}`;
+  if (!canAdmitDirectTurn(entry.botId, entry.threadId)) {
+    pendingTakeoverResumes.set(key, entry);
+    return;
+  }
+  if (owner.group) {
+    const groupId = owner.group.id;
+    const operation = beginGroupTurnOperation(groupId, entry.threadId, [entry.botId]);
+    const previous = groupQueues.get(groupId) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      if (operation.cancelled) return;
+      const current = connectorThread(entry.botId, entry.threadId);
+      if (!current?.group) return;
+      if (current.bot.busy) {
+        pendingTakeoverResumes.set(key, entry);
+        return;
+      }
+      await runGroupMemberTurn(
+        current.group.id,
+        entry.threadId,
+        entry.botId,
+        0,
+        new Set(),
+        entry.prompt,
+        (message) => markTakeoverResumeFailed(entry, message),
+        () => operation.cancelled,
+        () => groupProviderHandshakeStarted(operation),
+        () => groupProviderHandshakeSettled(operation),
+      );
+    });
+    const tracked = next.finally(() => finishGroupTurnOperation(groupId, operation));
+    groupQueues.set(
+      groupId,
+      tracked.catch((error) => markTakeoverResumeFailed(entry, error instanceof Error ? error.message : String(error))),
+    );
+    return;
+  }
+  void startTurn(entry.botId, entry.prompt, {
+    threadId: entry.threadId,
+    cardContinuation: true,
+    onDispatchError: (message) => markTakeoverResumeFailed(entry, message),
+  }).catch((error) => {
+    if (isTurnAdmissionBlocked(error)) pendingTakeoverResumes.set(key, entry);
+    else markTakeoverResumeFailed(entry, error instanceof Error ? error.message : String(error));
+  });
+}
+
+function drainTakeoverResumes(): void {
+  for (const [key, entry] of pendingTakeoverResumes) {
+    if (!connectorThread(entry.botId, entry.threadId)) {
+      pendingTakeoverResumes.delete(key);
+      continue;
+    }
+    if (!canAdmitDirectTurn(entry.botId, entry.threadId)) continue;
+    pendingTakeoverResumes.delete(key);
+    dispatchTakeoverResume(entry);
+  }
+}
+
+const secureForms = new SecureForms({
+  inThread: (botId, threadId) => {
+    const owner = connectorThread(botId, threadId);
+    return owner ? { group: Boolean(owner.group) } : null;
+  },
+  messages: (threadId) => store.activePath(threadId),
+  append: (botId, threadId, card) => {
+    const owner = connectorThread(botId, threadId);
+    if (!owner) throw new Error("This conversation is not available for a Secure Form.");
+    const { bot, group } = owner;
+    const message = store.appendMessage(threadId, {
+      role: "bot",
+      kind: "secret",
+      text: secureFormMessageText(card),
+      ...(group ? { from: { botId: bot.id, name: bot.name, color: bot.color } } : {}),
+      secureForm: card,
+    });
+    notify(buildNotification("takeover", bot, threadId, secureFormMessageText(card), {
+      group: group ? { id: group.id, name: group.name } : undefined,
+    }));
+    return message.id;
+  },
+  patch: (threadId, messageId, card) => store.patchMessage(threadId, messageId, { secureForm: card }),
+  resume: (entry) => dispatchTakeoverResume(entry),
+});
+
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.completed") {
     drainConnectorResumes();
     drainComputerResumes();
     drainSecretResumes();
+    drainTakeoverResumes();
     drainTeamSetupResumes();
   }
 });
@@ -12598,12 +12801,14 @@ function configStatus() {
       skillAuthoring: skillAuthoringEnabled(cfg),
       skillsLibrary: skillsLibraryEnabled(cfg),
       showToolCalls: showToolCallsEnabled(cfg),
+      stepUpdates: stepUpdatesEnabled(cfg),
       routinesInConversation: routinesInConversationEnabled(cfg),
       browser: builtInBrowserEnabled(cfg),
       sharedComputers: sharedComputersEnabled(cfg),
       claudeUserMcp: claudeUserMcpEnabled(cfg),
       autoRecall: autoRecallEnabled(cfg),
       llmThreadTitles: llmThreadTitlesEnabled(cfg),
+      cloudDictation: cloudDictationEnabled(cfg),
     },
     onboarding: {
       completedAt: cfg.onboarding?.completedAt ?? "",
@@ -12834,6 +13039,7 @@ async function reloadProviders() {
   drainConnectorResumes();
   drainComputerResumes();
   drainSecretResumes();
+  drainTakeoverResumes();
   drainTeamSetupResumes();
 }
 
@@ -12990,6 +13196,37 @@ ROUTES.push(createUndoRoutes({
   refusal: (auth, threadId, requestId) => cardAnswerRefusal(auth, threadId, requestId, "allow"),
   undo: (auth, res, threadId, requestId) => withDecisionActor(decisionActorFor(auth), () => undoAppliedChange(res, threadId, requestId)),
 }));
+ROUTES.push(createVoiceTranscribeRoutes({
+  transcribe: (req, url) => transcribeRoute(req, url, cloudDictationEnabled(cfg), voiceCredential(cfg.tts?.key)),
+}));
+const takeoverLease = {
+  controlKey: botComputerControlKey,
+  restateHelp: (controlKey: string, step: string) => {
+    const { snapshot, requestId } = computerControl.restateHelpLease(controlKey, step);
+    return { held: snapshot.held, requestId };
+  },
+  waitFor: (controlKey: string, wait: TakeoverWait) => takeoverWaits.add(controlKey, wait),
+};
+ROUTES.push(createTakeoverRoutes({
+  ...takeoverLease,
+  bot: (id) => store.bot(id),
+  cards: takeoverCards,
+  computerChanging: (bot, controlKey) => boatLifecycleBusyBots.has(bot.id) || boatLifecycleBusyBots.has(controlKey),
+  take: (controlKey) => computerControl.take(controlKey),
+  end: endTakeover,
+}));
+ROUTES.push(createSecureFormRoutes({ forms: secureForms }));
+INTERNAL_ROUTES.push(createTakeoverRequestRoute({
+  ...takeoverLease,
+  owner: connectorThread,
+  place: (sender, threadId) => {
+    const threadBot = botForThread(sender.id, threadId) ?? sender;
+    const screen = screenPollers.get(threadId);
+    return store.taskByThread(sender.id, threadId)?.surface ?? threadBot.computer ?? (screen?.surface === "browser" ? "browser" : undefined);
+  },
+  messages: store,
+  notify: (sender, threadId, detail, room) => notify(buildNotification("takeover", sender, threadId, detail, { group: room })),
+}));
 ROUTES.push(createAntigravityLeftoverRoutes({
   hosted: Boolean(hostedModels),
   isAntigravity: (instanceId) => registry.get(instanceId)?.driverKind === "antigravityAgent",
@@ -13055,6 +13292,7 @@ const liveCalls = new LiveCallController({
       trigger: usageTriggerFor(auth),
       via: "call",
       personPresent: true,
+      answerer: { ...cardAnswererFor(auth), via: "call" },
     });
     if ("queued" in receipt) return { kind: "queued", queueId: receipt.queueId };
     return { kind: receipt.steered ? "steered" : "started", messageId: receipt.message.id };
@@ -13574,6 +13812,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         task: store.taskByThread(internalSender.id, internalCapability.threadId),
         threadId: internalCapability.threadId,
       });
+      if (await dispatchInternalRoutes(INTERNAL_ROUTES, {
+        req, res, url, path, method, json, sender: internalSender, threadId: internalCapability.threadId, readBody: readInternalBody,
+      })) return;
       if (path === "/api/internal/computer/select" && (method === "GET" || method === "POST")) {
         const source = computerSelectionTurns.get(internalCapability.threadId);
         const bot = store.projectBotForTask(internalSender.id, internalCapability.threadId);
@@ -13707,6 +13948,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           boxId: () => internalCapability.boxId ?? claimedBoatId(internalCapability),
           gate: () => computerCallGate(internalCapability),
           assertActive: requireActiveInternalCapability,
+          secureForms: secureForms.desk(internalSender.id, internalCapability.threadId),
         }) });
       }
       if (method === "POST" && path === "/api/internal/phone/claim") {
@@ -18591,6 +18833,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           botId: bot.id, threadId, text, sendId, replyTo, sender, trigger,
           personPresent: auth.kind === "session" || DESKTOP_MANAGED,
           deliver: deliver.data,
+          answerer: cardAnswererFor(auth),
         }, guardedStart);
         return json(res, 202, receipt);
       } catch (error) {
@@ -20751,6 +20994,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             drainConnectorResumes();
             drainComputerResumes();
             drainSecretResumes();
+            drainTakeoverResumes();
             drainTeamSetupResumes();
           }
           if (mandatoryError) throw mandatoryError;

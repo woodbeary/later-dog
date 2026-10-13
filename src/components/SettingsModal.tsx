@@ -3,7 +3,8 @@ import { modelShown, setModelShown, useHiddenModels } from "@/lib/model-visibili
 import { needsCli, needsSignIn } from "./EngineSetup";
 import { setVoiceMode, useVoiceMode } from "@/lib/voice-mode";
 import { Boxes, Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
-import { useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
+import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
+import { cloudDictationEnabled, stepUpdatesEnabled } from "@/lib/feature-flags";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { analyticsConfigured } from "@/lib/laterdog-analytics";
 import { checklistHost, COMPUTER_PERMISSIONS, type DesktopPermission } from "@/lib/desktop-permissions";
@@ -17,7 +18,9 @@ import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck"
 import { AboutMeSettings } from "./AboutMeSettings";
 import { AccountsPanel } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
+import { HelpRows } from "./SettingsHelp";
 import { CloudComputerRows } from "./CloudComputerRows";
+import { ExecutionRows, ThisComputerRow } from "./ComputerSettings";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, Switch } from "./SettingsPrimitives";
 import { shortcutLabel } from "./ShortcutHint";
@@ -201,6 +204,71 @@ function VoiceModeRow() {
   );
 }
 
+function FeatureSwitchRow({ feature, on, title, hint, error }: {
+  feature: "stepUpdates" | "cloudDictation";
+  on: boolean;
+  title: string;
+  hint: string;
+  error: string;
+}) {
+  const { dispatch } = useStore();
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const toggle = async () => {
+    if (saving) return;
+    setSaving(true);
+    setFailed(false);
+    try {
+      const config: ConfigStatus = await api("/api/config", {
+        method: "PATCH",
+        body: JSON.stringify({ features: { [feature]: !on } }),
+      });
+      dispatch({ type: "configStatus", config });
+    } catch {
+      setFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SettingRow
+      title={title}
+      subtitle={hint}
+      message={failed && <span role="alert" className="text-danger">{error}</span>}
+    >
+      <Switch checked={on} disabled={saving} aria-label={title} onClick={() => void toggle()} />
+    </SettingRow>
+  );
+}
+
+export function StepUpdatesRow() {
+  const { state } = useStore();
+  return (
+    <FeatureSwitchRow
+      feature="stepUpdates"
+      on={stepUpdatesEnabled(state.config)}
+      title={t("settings.stepUpdates.title")}
+      hint={t("settings.stepUpdates.hint")}
+      error={t("settings.stepUpdates.error")}
+    />
+  );
+}
+
+export function CloudDictationRow() {
+  const { state } = useStore();
+  return (
+    <FeatureSwitchRow
+      feature="cloudDictation"
+      on={cloudDictationEnabled(state.config)}
+      title={t("settings.cloudDictation.title")}
+      hint={t("settings.cloudDictation.hint")}
+      error={t("settings.cloudDictation.error")}
+    />
+  );
+}
+
 function NotificationSoundsRow() {
   const enabled = useNotificationSounds();
   return (
@@ -264,18 +332,23 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <LanguageRow />
           <NotificationSoundsRow />
           <VoiceModeRow />
+          <StepUpdatesRow />
         </SettingsRows>
       </SettingsGroup>
       {(mac || analytics) && (
         <SettingsGroup label={t("settings.group.system")} testId="system">
           {mac && <MacPermissions permissions={["microphone"]} />}
-          {analytics && (
-            <SettingsRows>
-              <AnalyticsRow />
-            </SettingsRows>
-          )}
+          <SettingsRows>
+            {mac && <CloudDictationRow />}
+            {analytics && <AnalyticsRow />}
+          </SettingsRows>
         </SettingsGroup>
       )}
+      <SettingsGroup label={t("settings.group.help")} testId="help">
+        <SettingsRows>
+          <HelpRows />
+        </SettingsRows>
+      </SettingsGroup>
     </>
   );
 }
@@ -326,11 +399,20 @@ function ModelsPage() {
 }
 
 function ComputerPage({ mac, remoteActive }: { mac: boolean; remoteActive: boolean }) {
+  const desktop = !remoteActive && Boolean(window.laterdog);
   return (
     <>
-      {mac && (
-        <SettingsGroup label={t("settings.group.thisMac")} testId="this-mac">
-          <MacPermissions permissions={COMPUTER_PERMISSIONS} intro={t("settings.computer.macIntro", { app: brand().name })} />
+      {desktop && (
+        <SettingsGroup label={t("settings.group.yourComputer")} testId="your-computer">
+          <SettingsRows>
+            <ThisComputerRow />
+          </SettingsRows>
+          {mac && <MacPermissions permissions={COMPUTER_PERMISSIONS} intro={t("settings.computer.macIntro", { app: brand().name })} />}
+        </SettingsGroup>
+      )}
+      {desktop && (
+        <SettingsGroup label={t("settings.group.execution")} testId="execution">
+          <ExecutionRows />
         </SettingsGroup>
       )}
       {!remoteActive && (
@@ -379,6 +461,8 @@ export function SettingsModal() {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || (dialog && [...dialog.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]')]
         .some(child => child.getClientRects().length))) return;
+      if ([...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')]
+        .some(other => other !== dialog && !other.contains(dialog) && other.getClientRects().length)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         dispatch({ type: "toggleAppSettings", open: false });

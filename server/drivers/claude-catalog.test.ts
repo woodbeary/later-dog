@@ -14,24 +14,30 @@ afterEach(() => {
 describe("readClaudeModelCatalog", () => {
   it("returns the official models when settings are missing", () => {
     expect(readClaudeModelCatalog({ HOME: join(tmpdir(), "laterdog-claude-missing-home") })).toEqual(STATIC_CLAUDE_MODELS);
+    const effortLevels = ["low", "medium", "high", "xhigh", "max", "ultra"];
     expect(STATIC_CLAUDE_MODELS.options.slice(0, 2)).toEqual([
-      { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
-      { id: "claude-fable-5", label: "Claude Fable 5" },
+      { id: "claude-fable-5-1", label: "Claude Fable 5.1", effortLevels, defaultEffort: "high" },
+      { id: "claude-fable-5", label: "Claude Fable 5", effortLevels, defaultEffort: "high" },
     ]);
     const ids = STATIC_CLAUDE_MODELS.options.map((option) => option.id);
     expect(STATIC_CLAUDE_MODELS.options[ids.indexOf("claude-opus-5-5")]).toEqual({
       id: "claude-opus-5-5",
       label: "Claude Opus 5.5",
       contextWindow: 1_000_000,
+      effortLevels,
+      defaultEffort: "medium",
     });
     expect(ids.indexOf("claude-opus-5-5")).toBe(ids.indexOf("claude-opus-5") - 1);
     expect(STATIC_CLAUDE_MODELS.options[ids.indexOf("claude-sonnet-5-5")]).toEqual({
       id: "claude-sonnet-5-5",
       label: "Claude Sonnet 5.5",
       contextWindow: 1_000_000,
+      effortLevels,
+      defaultEffort: "medium",
     });
     expect(ids.indexOf("claude-sonnet-5-5")).toBe(ids.indexOf("claude-sonnet-5") - 1);
     expect(STATIC_CLAUDE_MODELS.default).toBe("claude-sonnet-5");
+    expect(STATIC_CLAUDE_MODELS.options[ids.indexOf("claude-haiku-4-5")]?.effortLevels).toEqual([]);
   });
 
   it("lists ANTHROPIC_MODEL from the instance environment when settings are missing", () => {

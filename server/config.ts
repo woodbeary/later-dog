@@ -244,6 +244,7 @@ const browserProfilesSchema = z.array(browserProfileSchema).max(20).superRefine(
 const featureConfigSchema = z.object({
   skillAuthoring: z.boolean().optional(),
   showToolCalls: z.boolean().optional(),
+  stepUpdates: z.boolean().optional(),
   routinesInConversation: z.boolean().optional(),
   browser: z.boolean().optional(),
   sharedComputers: z.boolean().optional(),
@@ -251,6 +252,7 @@ const featureConfigSchema = z.object({
   llmThreadTitles: z.boolean().optional(),
   autoRecall: z.boolean().optional(),
   skillsLibrary: z.boolean().optional(),
+  cloudDictation: z.boolean().optional(),
 });
 const onboardingConfigSchema = z.object({
   completedAt: z.string().trim().max(40).optional(),
@@ -478,7 +480,7 @@ export interface AppConfig {
   context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean };
   memory?: { captureQuietMs?: number; tidyHour?: number };
   localVm?: { mode?: "shared" | "per-bot" | "pool"; maxInstances?: number; idleTimeoutMinutes?: number };
-  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; autoRecall?: boolean; routinesInConversation?: boolean; skillsLibrary?: boolean };
+  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; autoRecall?: boolean; routinesInConversation?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean };
   onboarding?: { completedAt?: string; version?: number; reelSeen?: boolean; hintsSeen?: string[]; firstTurnAt?: string };
   browserProfiles?: BrowserProfile[];
   browserEngine?: { attachCdpUrl?: string };
@@ -664,6 +666,10 @@ export function showToolCallsEnabled(cfg: AppConfig): boolean {
   return cfg.features?.showToolCalls === true;
 }
 
+export function stepUpdatesEnabled(cfg: AppConfig): boolean {
+  return cfg.features?.stepUpdates === true;
+}
+
 export function routinesInConversationEnabled(cfg: AppConfig): boolean {
   return cfg.features?.routinesInConversation === true;
 }
@@ -687,6 +693,10 @@ export function llmThreadTitlesEnabled(cfg: AppConfig): boolean {
 export function skillsLibraryEnabled(cfg: AppConfig): boolean {
   return cfg.features?.skillsLibrary === true;
  }
+
+export function cloudDictationEnabled(cfg: AppConfig): boolean {
+  return cfg.features?.cloudDictation !== false;
+}
 
 export const FLEET_NEUTRAL_KEYS: ReadonlySet<string> = new Set([
   "profile",

@@ -2,22 +2,26 @@ import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
-import type { ModelCatalog } from "../contracts.ts";
+import type { EffortLevel, ModelCatalog } from "../contracts.ts";
 import { qualifiedModelLabel } from "../contracts.ts";
+import { modelEffort } from "../../shared/effort.ts";
 import { killCliTree, spawnCli } from "../procs.ts";
 import { codexHome } from "./codex-identity.ts";
 import { mergeLocalInject } from "./local-inject.ts";
 
+const UP_TO_MAX: readonly EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
+const UP_TO_XHIGH: readonly EffortLevel[] = ["low", "medium", "high", "xhigh"];
+
 export const STATIC_CODEX_MODELS: ModelCatalog = {
   default: "gpt-5.6-sol",
   options: [
-    { id: "gpt-6-astra", label: "GPT-6 Astra (availability unverified)" },
+    { id: "gpt-6-astra", label: "GPT-6 Astra (availability unverified)", effortLevels: UP_TO_MAX, defaultEffort: "medium" },
     { id: "gpt-6-sol", label: "GPT-6 Sol (availability unverified)" },
     { id: "gpt-6-luna", label: "GPT-6 Luna (availability unverified)" },
-    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
-    { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
-    { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
-    { id: "gpt-5.5", label: "GPT-5.5" },
+    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol", effortLevels: UP_TO_MAX, defaultEffort: "low" },
+    { id: "gpt-5.6-terra", label: "GPT-5.6 Terra", effortLevels: UP_TO_MAX, defaultEffort: "medium" },
+    { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", effortLevels: UP_TO_MAX, defaultEffort: "medium" },
+    { id: "gpt-5.5", label: "GPT-5.5", effortLevels: UP_TO_XHIGH, defaultEffort: "medium" },
     { id: "gpt-5.4", label: "GPT-5.4" },
     { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
     { id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
@@ -51,6 +55,8 @@ interface CodexAppServerModel {
   displayName?: unknown;
   hidden?: unknown;
   isDefault?: unknown;
+  supportedReasoningEfforts?: unknown;
+  defaultReasoningEffort?: unknown;
 }
 
 export function readCodexAppServerModelCatalog(
@@ -143,6 +149,7 @@ export function readCodexAppServerModelCatalog(
           options.push({
             id: row.id,
             label: typeof row.displayName === "string" && row.displayName.trim() ? row.displayName : row.id,
+            ...modelEffort(row.supportedReasoningEfforts, "reasoningEffort", row.defaultReasoningEffort),
           });
           if (row.isDefault === true) defaultModel = row.id;
         }

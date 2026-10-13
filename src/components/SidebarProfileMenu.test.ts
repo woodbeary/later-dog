@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SidebarMenuItem } from "./SidebarPopoverMenu";
 
-const menu = vi.hoisted(() => ({ items: [] as SidebarMenuItem[] }));
+const menu = vi.hoisted(() => ({ items: [] as SidebarMenuItem[], instances: [] as InstanceInfo[], dispatch: vi.fn(), updater: null as UpdaterState | null }));
 vi.mock("./SidebarPopoverMenu", () => ({
   SidebarPopoverMenu: ({ items }: { items: SidebarMenuItem[] }) => {
     menu.items = items;
@@ -13,8 +13,12 @@ vi.mock("./SidebarPopoverMenu", () => ({
 }));
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
-  return { ...original, useStore: () => ({ state: { ...original.initialState, config: { profile: { name: "Anthony" } } }, dispatch: vi.fn() }) };
+  return {
+    ...original,
+    useStore: () => ({ state: { ...original.initialState, instances: menu.instances, config: { profile: { name: "Anthony" } } }, dispatch: menu.dispatch }),
+  };
 });
+vi.mock("@/lib/updater", () => ({ useUpdaterState: () => menu.updater }));
 
 import {
   profileInitials,
@@ -26,6 +30,7 @@ import {
 } from "./SidebarProfileMenu";
 import { APP_REPOSITORY, DOCS_URL, FEEDBACK_URL, HELP_CENTER_URL, platformLabel } from "@/lib/app-links";
 import type { UpdaterState } from "@/lib/updater";
+import type { InstanceInfo } from "@/state/store";
 
 const state = (patch: Partial<UpdaterState>): UpdaterState => ({ status: "idle", ...patch }) as UpdaterState;
 
@@ -152,8 +157,13 @@ describe("outward links", () => {
 });
 
 describe("the menu under your name", () => {
-  const open = () => {
-    vi.stubGlobal("window", { addEventListener: () => {}, removeEventListener: () => {} });
+  const claude = {
+    instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude",
+    snapshot: { state: "available", authenticated: true }, models: { default: "", options: [] },
+    authentication: { method: "paste-code", signOut: true },
+  } as InstanceInfo;
+  const open = (laterdog?: Record<string, unknown>) => {
+    vi.stubGlobal("window", { addEventListener: () => {}, removeEventListener: () => {}, ...(laterdog ? { laterdog } : {}) });
     try {
       renderToStaticMarkup(createElement(SidebarProfileMenu));
       return menu.items;
@@ -162,9 +172,43 @@ describe("the menu under your name", () => {
     }
   };
 
-  it("keeps to Settings, Keyboard shortcuts, About, Help and Feedback, with nothing about phones", () => {
+  beforeEach(() => {
+    menu.instances = [];
+    menu.updater = null;
+    menu.dispatch.mockReset();
+  });
+
+  it("keeps to Settings when nothing here is signed in, with nothing about phones", () => {
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["settings", "shortcuts", "about", "help", "feedback"]);
+    expect(items.map((item) => item.key)).toEqual(["settings"]);
     expect(items.map((item) => item.label).join(" ")).not.toMatch(/phone/i);
+    items[0]!.onSelect();
+    expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
+  });
+
+  it("ends with Sign out, under a line, once an account here is signed in", () => {
+    menu.instances = [claude, { ...claude, instanceId: "claude-api", authentication: { method: "paste-code" } } as InstanceInfo];
+    const items = open();
+    expect(items.map((item) => item.key)).toEqual(["settings", "signOut"]);
+    expect(items[1]).toMatchObject({ label: "Sign out", separatorBefore: true });
+    menu.instances = [{ ...claude, snapshot: { state: "available", authenticated: false } } as InstanceInfo];
+    expect(open().map((item) => item.key)).toEqual(["settings"]);
+  });
+
+  it("marks Settings and opens it at Updates when an update is waiting, and stays quiet otherwise", () => {
+    const updater = { updater: { check: vi.fn(), install: vi.fn(), onState: vi.fn() } };
+    menu.updater = { status: "downloaded", version: "0.2.0" } as UpdaterState;
+    const [ready] = open(updater);
+    expect(ready).toMatchObject({ key: "settings", attention: true, attentionTone: "accent", note: "Update ready" });
+    ready!.onSelect();
+    expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "updates" });
+
+    menu.updater = { status: "idle", releaseCheck: "on", available: { version: "0.2.0", url: "https://example.test" } } as UpdaterState;
+    expect(open(updater)[0]).toMatchObject({ attention: true, note: "Update available" });
+
+    menu.updater = { status: "error", message: "offline" } as UpdaterState;
+    expect(open(updater)[0]).toMatchObject({ attention: false, note: undefined });
+    menu.updater = { status: "idle" } as UpdaterState;
+    expect(open(updater)[0]).toMatchObject({ attention: false, note: undefined });
   });
 });

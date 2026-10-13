@@ -203,7 +203,7 @@ posixOnly("usage attribution e2e", () => {
     expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "owner's codex turn" })).status).toBe(202);
     await waitFor(async () => (await getBot(bot.id)).messages.some((m: any) => m.card), "the question card");
     const asPaired = await asPerson();
-    const queued = await asPaired("POST", `/api/bots/${bot.id}/messages`, { text: "steer these words" });
+    const queued = await asPaired("POST", `/api/bots/${bot.id}/messages`, { text: "steer these words", deliver: "queue" });
     expect(queued.body.queued).toBe(true);
     rmSync(codexSteerGate, { force: true });
     const steered = await asPaired("POST", `/api/bots/${bot.id}/queue/${queued.body.queueId}/steer`, { threadId: bot.threadId });

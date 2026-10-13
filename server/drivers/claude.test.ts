@@ -1393,6 +1393,23 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv).not.toContain("--strict-mcp-config");
     expect(seen.argv).not.toContain("--setting-sources");
+    expect(seen.settings?.claudeMdExcludes).toBeUndefined();
+  });
+
+  it("keeps the person's own CLAUDE.md out of an isolated dog while its working folder's stays", async () => {
+    const home = join(scratch, "home");
+    const work = join(home, "work", "dog");
+    mkdirSync(work, { recursive: true });
+    const dump = join(scratch, "memory.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, HOME: home, USERPROFILE: home });
+
+    await instance.adapter.sendTurn({ threadId: "t-memory", text: "hi", cwd: work });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const excludes: string[] = JSON.parse(readFileSync(dump, "utf8")).settings.claudeMdExcludes;
+    const unix = (path: string) => path.replaceAll("\\", "/");
+    expect(excludes).toEqual(expect.arrayContaining([`${unix(home)}/.claude/CLAUDE.md`, `${unix(home)}/CLAUDE.md`, `${unix(home)}/.claude/rules/**`]));
+    expect(excludes.some((pattern) => pattern.startsWith(`${unix(home)}/work`))).toBe(false);
   });
 
   it("loads the machine's own MCP servers when the turn asks, keeping the rest isolated", async () => {
@@ -1454,7 +1471,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-auth-settings", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
     const seen = JSON.parse(readFileSync(dump, "utf8"));
-    expect(seen.settings).toEqual({ apiKeyHelper: settings.apiKeyHelper, env: { ANTHROPIC_BASE_URL: settings.env.ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN: "synthetic-token" } });
+    expect(seen.settings).toEqual({ apiKeyHelper: settings.apiKeyHelper, env: { ANTHROPIC_BASE_URL: settings.env.ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN: "synthetic-token" }, claudeMdExcludes: expect.any(Array) });
     expect(seen.argv[seen.argv.indexOf("--setting-sources") + 1]).toBe("project");
     expect(JSON.stringify(seen.argv)).not.toContain("synthetic");
     const settingsPath = seen.argv[seen.argv.indexOf("--settings") + 1];
@@ -1476,6 +1493,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-slow", text: "hi", model: "claude-opus-5-5" });
     await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-slow");
     expect(JSON.parse(readFileSync(dump, "utf8")).settings?.fastMode).toBeUndefined();
+  });
+
+  it("stops Claude Code nudging a quiet dog into progress notes, and only for quiet turns", async () => {
+    const dump = join(scratch, "quiet.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    const env = () => JSON.parse(readFileSync(dump, "utf8")).env;
+    const quiet = await instance.adapter.sendTurn({ threadId: "t-quiet", text: "hi", quietWork: true });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === quiet.turnId);
+    expect(env().CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
+    const chatty = await instance.adapter.sendTurn({ threadId: "t-quiet", text: "again" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === chatty.turnId);
+    expect(env().CLAUDE_CODE_SILENT_TURN_REMINDER).toBeUndefined();
   });
 
   it("restarts a retained session when the selected account's auth changes", async () => {
@@ -1505,7 +1534,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-auth-explicit", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
     const seen = JSON.parse(readFileSync(dump, "utf8"));
-    expect(seen.settings).toBe(null);
+    expect(seen.settings).toEqual({ claudeMdExcludes: expect.any(Array) });
     expect(seen.env.ANTHROPIC_API_KEY).toBe("workspace-key");
     expect(seen.env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(readClaudeAuthSettings({ HOME: scratch, CLAUDE_CONFIG_DIR: join(scratch, "other-account") })).toEqual({});
@@ -3259,6 +3288,27 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).toContain("--effort");
     expect(seen.argv[seen.argv.indexOf("--effort") + 1]).toBe("xhigh");
     expect(seen.argv.filter((a: string) => a === "--effort")).toHaveLength(1);
+  });
+
+  it("offers Ultracode on a new enough CLI and sends it by its own name", async () => {
+    await create(undefined, { FAKE_CLAUDE_VERSION: "2.1.293" });
+    const dump = join(scratch, "ultracode.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-ultracode", text: "hi", effort: "ultra" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv[seen.argv.indexOf("--effort") + 1]).toBe("ultracode");
+    expect(instance.adapter.capabilities.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
+  });
+
+  it("keeps Ultracode off an older CLI", async () => {
+    await create(undefined, { FAKE_CLAUDE_VERSION: "2.1.292" });
+    await instance.adapter.sendTurn({ threadId: "t-older", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(instance.adapter.capabilities.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
   it("adds no effort flag when the turn has none", async () => {

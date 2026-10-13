@@ -8,9 +8,11 @@ import type { CloudComputer, CloudComputerList } from "./CloudComputerRows";
 const fixture = vi.hoisted(() => ({
   lists: [] as Array<CloudComputerList | { error: string; status: number }>,
   posts: [] as Array<{ url: string; body: unknown }>,
+  postReply: null as { status: number; body: Record<string, unknown> } | null,
   confirm: true,
+  bots: [] as Array<{ id: string; name: string; color: string }>,
 }));
-vi.mock("@/state/store", () => ({ useStore: () => ({ state: { config: { box: { configured: true } } } }) }));
+vi.mock("@/state/store", () => ({ useStore: () => ({ state: { config: { box: { configured: true } }, bots: fixture.bots } }) }));
 vi.mock("./ApiKeys", () => ({ CloudComputersRow: () => createElement("div", { "data-key-row": "" }) }));
 vi.mock("./CloudTrial", () => ({ CloudTrialRow: () => null }));
 
@@ -39,15 +41,20 @@ const mount = async () => {
 };
 const text = () => document.body.textContent ?? "";
 const deleteButton = (boxId: string) => document.querySelector<HTMLButtonElement>(`[data-cloud-computer-delete="${boxId}"]`);
+const sleepButton = (boxId: string) => document.querySelector<HTMLButtonElement>(`[data-cloud-computer-sleep="${boxId}"]`);
+const row = (boxId: string) => document.querySelector<HTMLElement>(`[data-cloud-computer="${boxId}"]`)!;
 
 beforeEach(() => {
   fixture.lists = [];
   fixture.posts = [];
+  fixture.postReply = null;
   fixture.confirm = true;
+  fixture.bots = [];
   vi.stubGlobal("confirm", () => fixture.confirm);
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
       fixture.posts.push({ url, body: JSON.parse(String(init.body)) });
+      if (fixture.postReply) return new Response(JSON.stringify(fixture.postReply.body), { status: fixture.postReply.status });
       return new Response(JSON.stringify({ ok: true }), { status: 202 });
     }
     const next = fixture.lists.length > 1 ? fixture.lists.shift()! : fixture.lists[0];
@@ -147,5 +154,74 @@ describe("Settings → Computer → Cloud computers", () => {
     await flush();
     expect(fixture.posts).toEqual([]);
     expect(text()).toContain("ScoutSleeping");
+  });
+});
+
+describe("putting a cloud computer to sleep from Settings", () => {
+  it("offers Sleep only on an awake computer, and holds it while a dog is using it", async () => {
+    fixture.lists = [list([
+      computer({ state: "running" }),
+      computer({ boxId: "box-2", ownerName: "Bo", state: "running", inUse: true }),
+      computer({ boxId: "box-3", ownerName: "Ada", state: "archived" }),
+      computer({ boxId: "box-4", ownerName: "Cy", state: "provisioning" }),
+    ])];
+    await mount();
+    expect(sleepButton("box-1")!.disabled).toBe(false);
+    expect(sleepButton("box-1")!.textContent).toBe("Sleep");
+    expect(sleepButton("box-2")!.disabled).toBe(true);
+    expect(sleepButton("box-3")).toBeNull();
+    expect(sleepButton("box-4")).toBeNull();
+  });
+
+  it("asks the server to put it to sleep, without a confirm, and reads Sleeping once the list does", async () => {
+    fixture.lists = [list([computer({ state: "running" })]), list([computer({ state: "archived" })])];
+    fixture.confirm = false;
+    await mount();
+    flushSync(() => sleepButton("box-1")!.click());
+    await flush();
+    expect(fixture.posts).toEqual([{ url: "/api/computers/boxes/box-1/sleep", body: {} }]);
+    expect(text()).toContain("ScoutSleeping");
+    expect(sleepButton("box-1")).toBeNull();
+    expect(deleteButton("box-1")!.disabled).toBe(false);
+  });
+
+  it("says why when the server refuses, and leaves the computer as it was", async () => {
+    fixture.lists = [list([computer({ state: "running" })])];
+    fixture.postReply = { status: 409, body: { error: "Scout is using its computer right now." } };
+    await mount();
+    flushSync(() => sleepButton("box-1")!.click());
+    await flush();
+    expect(document.querySelector('[role="alert"]')!.textContent).toBe("Scout is using its computer right now.");
+    expect(text()).toContain("ScoutRunning");
+    expect(sleepButton("box-1")!.disabled).toBe(false);
+  });
+
+  it("falls back to its own words when the refusal has none", async () => {
+    fixture.lists = [list([computer({ state: "running" })])];
+    fixture.postReply = { status: 502, body: {} };
+    await mount();
+    flushSync(() => sleepButton("box-1")!.click());
+    await flush();
+    expect(document.querySelector('[role="alert"]')!.textContent).toBe("Could not put this cloud computer to sleep");
+  });
+});
+
+describe("whose computer it is", () => {
+  it("shows the dog that owns it, asleep while its computer sleeps, and a plain screen for a left-over one", async () => {
+    fixture.bots = [{ id: "scout", name: "Scout", color: "amber" }, { id: "bo", name: "Bo", color: "sky" }];
+    fixture.lists = [list([
+      computer(),
+      computer({ boxId: "box-2", ownerBotId: "bo", ownerName: "Bo", state: "running" }),
+      computer({ boxId: "box-3", name: "laterdog-old", ownerBotId: null, ownerName: null, orphaned: true, state: "stopped" }),
+    ])];
+    await mount();
+    expect(row("box-1").querySelector("[data-sleeping-dog]")).not.toBeNull();
+    expect(row("box-1").querySelector(".lucide-monitor")).toBeNull();
+    expect(row("box-2").querySelector("[data-sleeping-dog]")).toBeNull();
+    expect(row("box-2").querySelector(".lucide-monitor")).toBeNull();
+    expect(row("box-3").querySelector("[data-sleeping-dog]")).toBeNull();
+    expect(row("box-3").querySelector(".lucide-monitor")).not.toBeNull();
+    expect(row("box-1").getAttribute("aria-label")).toBe("Scout");
+    expect(row("box-3").getAttribute("aria-label")).toBe("Left over from a removed dog");
   });
 });

@@ -117,7 +117,7 @@ const CREDENTIALS: Record<
   },
 };
 
-function credentialCopy(section: ConfigSection) {
+export function credentialCopy(section: ConfigSection) {
   const entry = CREDENTIALS[section];
   return {
     ...entry,
@@ -237,11 +237,13 @@ export function ComposioKeyNotice({ remote, onSaved }: { remote: boolean; onSave
 export function ApiKeyRow({
   section,
   bare = false,
+  autoFocus = bare,
   onSaved,
   testProvider,
 }: {
   section: ConfigSection;
   bare?: boolean;
+  autoFocus?: boolean;
   onSaved?: (configured: boolean) => void;
   testProvider?: TestableProvider;
 }) {
@@ -341,7 +343,7 @@ export function ApiKeyRow({
             placeholder={configured ? t("keys.replace") : credential.placeholder}
             aria-label={credential.label}
             autoComplete="off"
-            autoFocus={bare}
+            autoFocus={autoFocus}
             className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 pr-8 text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
           />
           {(saving || testing) && (
@@ -588,7 +590,7 @@ export function VpsConnection() {
   );
 }
 
-export function OpenAiCompatUrl() {
+export function OpenAiCompatUrl({ autoFocus = false }: { autoFocus?: boolean }) {
   const { state, dispatch } = useStore();
   const saved = state.config?.openaiCompat?.url ?? "";
   const [value, setValue] = useState(saved);
@@ -622,6 +624,7 @@ export function OpenAiCompatUrl() {
           placeholder="https://api.groq.com/openai/v1"
           aria-label={t("keys.openaiCompat.url")}
           spellCheck={false}
+          autoFocus={autoFocus}
           className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 pr-8 font-mono text-[12px] text-ink placeholder:text-ink-secondary focus:outline-none"
         />
         {saving && (

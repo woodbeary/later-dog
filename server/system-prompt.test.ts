@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { soulSystemPrompt } from "./bot-folder.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
+import { SECURE_FORM_PROMPT } from "./laterdog/secure-form.ts";
 import {
   buildSystemPrompt,
   CLOUD_HOME_PLACE,
@@ -48,11 +49,18 @@ describe("computerPrompt", () => {
     };
     for (const [kind, distinct] of Object.entries(paragraphs)) {
       const prompt = computerPrompt(kind as ComputerPromptKind);
-      expect(prompt.endsWith(SIGN_IN_PROMPT)).toBe(true);
+      expect(prompt.endsWith(kind === "box" ? SIGN_IN_PROMPT + SECURE_FORM_PROMPT : SIGN_IN_PROMPT)).toBe(true);
       expect(prompt).toContain(distinct);
     }
     expect(new Set(Object.keys(paragraphs).map((kind) => computerPrompt(kind as ComputerPromptKind))).size)
       .toBe(Object.keys(paragraphs).length);
+  });
+
+  it("offers the Secure Form only where its tools exist, the cloud computer", () => {
+    expect(computerPrompt("box")).toContain("request_secure_form");
+    for (const kind of ["vm-private", "vm-shared", "vps", "local"] as const) {
+      expect(computerPrompt(kind)).not.toContain("request_secure_form");
+    }
   });
 });
 
@@ -153,7 +161,7 @@ describe("computerPrompt", () => {
     expect(computerPrompt("vps")).toContain("self-hosted remote Linux computer");
     expect(computerPrompt("local")).toContain("act on the user's computer");
     for (const kind of ["vm-private", "vm-shared", "box", "vps", "local"] as const) {
-      expect(computerPrompt(kind).endsWith(SIGN_IN_PROMPT)).toBe(true);
+      expect(computerPrompt(kind).endsWith(kind === "box" ? SIGN_IN_PROMPT + SECURE_FORM_PROMPT : SIGN_IN_PROMPT)).toBe(true);
       expect(computerPrompt(kind).startsWith(" ")).toBe(true);
     }
     expect(BUILT_IN_BROWSER_SYSTEM_PROMPT.endsWith(SIGN_IN_PROMPT)).toBe(true);

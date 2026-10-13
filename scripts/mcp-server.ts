@@ -627,6 +627,9 @@ function projectMessage(message: Record<string, any>) {
         answered: message.card.answered,
         dismissed: message.card.dismissed,
         expired: message.card.expired,
+        ...(isRecord(message.card.takeoverRequest)
+          ? { takeover: { step: message.card.takeoverRequest.step, status: message.card.takeoverRequest.status } }
+          : {}),
       }
     : undefined;
   const tool = isRecord(message.tool)
@@ -691,7 +694,9 @@ function messageNeedsInput(message: Record<string, any>): boolean {
     !message.connector.resumed &&
     message.connector.status !== "connected";
   const secret = isRecord(message.secret) && !message.secret.provided && !message.secret.dismissed && !message.secret.superseded;
-  return Boolean(card || connector || secret);
+  const takeover = isRecord(message.card) && isRecord(message.card.takeoverRequest) &&
+    (message.card.takeoverRequest.status === "waiting" || message.card.takeoverRequest.status === "in-control");
+  return Boolean(card || connector || secret || takeover);
 }
 
 function dispatchFailedAfterLatestUser(messages: Array<Record<string, any>>): boolean {

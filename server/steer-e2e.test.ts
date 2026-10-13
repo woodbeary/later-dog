@@ -33,6 +33,10 @@ posixOnly("mid-turn steering e2e", () => {
     return { status: res.status, body: await res.json() };
   };
   const getBot = async (id: string) => (await api("GET", "/api/bots")).body.bots.find((b: any) => b.id === id);
+  const answerQuestion = async (botId: string, threadId: string) => {
+    const requestId = (await getBot(botId)).messages.find((m: any) => m.card?.questionRequest)?.card.requestId;
+    expect((await api("POST", `/api/threads/${threadId}/respond`, { requestId, behavior: "answer", message: "Yes" })).status).toBe(200);
+  };
   const PAIRED = { name: "Safari on Mac", id: expect.stringMatching(/^p_[\w-]{22}$/) };
   const asPairedPerson = async () => {
     const opened = await api("POST", "/api/auth/pairing", {});
@@ -479,6 +483,7 @@ posixOnly("mid-turn steering e2e", () => {
       async () => (await getBot(created.id)).messages.some((m: any) => m.card),
       "the codex question card",
     );
+    await answerQuestion(created.id, created.threadId);
 
     const second = await api("POST", `/api/bots/${created.id}/messages`, { text: "and also this" });
     expect(second.status).toBe(202);
@@ -514,6 +519,7 @@ posixOnly("mid-turn steering e2e", () => {
       async () => (await getBot(created.id)).messages.some((m: any) => m.card),
       "the gated question card",
     );
+    await answerQuestion(created.id, created.threadId);
 
     const person = await asPairedPerson();
     const queued = await person("POST", `/api/bots/${created.id}/messages`, { text: "steer these queued words" });

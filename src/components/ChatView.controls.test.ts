@@ -102,13 +102,19 @@ describe("a working dog in the header and the chat", () => {
   const pill = (markup: string) => markup.match(/<button[^>]*data-chathead-pill="true"[^>]*>[\s\S]*?<\/button>/)?.[0] ?? "";
   const moods = (markup: string) => [...markup.matchAll(/data-mood="([a-z]+)"/g)].map((match) => match[1]);
 
-  it("holds a still face in the header with no status dot, and leaves Stop to the composer", () => {
+  it("holds a still face in the header with a green working dot, and leaves Stop to the composer", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: working() }));
-    expect(pill(markup)).not.toContain('data-testid="working-dot"');
+    expect(pill(markup)).toContain('data-testid="working-dot"');
     expect(pill(markup)).toContain("data-paused");
     expect(pill(markup)).not.toContain("animate-status-pulse");
     expect(markup.match(/Stop this turn/g)).toHaveLength(1);
     expect(pill(renderToStaticMarkup(createElement(ChatView, { bot })))).not.toContain("working-dot");
+  });
+
+  it("turns the header dot amber while the dog waits on you", () => {
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot: inThread({ busy: true, activity: "waiting-on-you" }) }));
+    expect(pill(markup)).toContain('data-testid="waiting-dot"');
+    expect(pill(markup)).not.toContain('data-testid="working-dot"');
   });
 
   it("stops a wait on other dogs from the composer as well", () => {
