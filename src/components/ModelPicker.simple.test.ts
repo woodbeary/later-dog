@@ -560,7 +560,7 @@ describe("the model picker in Simple mode", () => {
     expect(pane(open(bot("xhigh")))!.props.effort!.levels).toContain("xhigh");
   });
 
-  it("sends Claude, before sign-in, to Settings' sign-in with one button", async () => {
+  it("opens Claude's sign-in right where you are, before sign-in, with one button", async () => {
     const { subscribeAddAccount } = await import("@/lib/add-account-request");
     fixture.instances = [claude(false)];
     const opened = open(bot());
@@ -570,12 +570,12 @@ describe("the model picker in Simple mode", () => {
     const list = region(html, "data-simple-models", "data-simple-effort-band");
     expect(list).not.toContain("needs to be set up");
     expect(list).toContain(">Sign in to Claude</button>");
-    const asked: Array<string | undefined> = [];
-    const stop = subscribeAddAccount((kind) => asked.push(kind));
+    const asked: unknown[] = [];
+    const stop = subscribeAddAccount((request) => asked.push(request));
     click(inside(opened).find((node) => node.props["data-simple-set-up"] !== undefined));
     stop();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
-    expect(asked).toEqual(["claudeAgent"]);
+    expect(fixture.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "toggleAppSettings" }));
+    expect(asked).toEqual([{ instanceId: "claude" }]);
     expect(list).not.toContain("Opus 5.5");
     expect(region(html, "data-simple-providers", "data-simple-models")).toContain(">Claude</span>");
   });

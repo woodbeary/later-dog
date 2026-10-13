@@ -4,7 +4,7 @@ import { ChevronDown, GripVertical, Loader2, X } from "lucide-react";
 import { api, useStore, type ConfigStatus, type InstanceInfo } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { subscribeAddAccount } from "@/lib/add-account-request";
+import { requestAccountSignIn, requestAddAccount } from "@/lib/add-account-request";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { Switch } from "./SettingsPrimitives";
 import { ClaudeMark, CodexMark } from "./ProviderIcons";
@@ -66,7 +66,7 @@ export function realAccount(instance: InstanceInfo): boolean {
   return signedIn(instance) || addedAccount(instance);
 }
 
-function unusedDefault(instances: readonly InstanceInfo[], kind: AccountKind): InstanceInfo | undefined {
+export function unusedDefault(instances: readonly InstanceInfo[], kind: AccountKind): InstanceInfo | undefined {
   const id = ACCOUNT_ENGINES.find((engine) => engine.kind === kind)?.defaultId;
   return subscriptionAccounts(instances, undefined).find((instance) =>
     instance.instanceId === id && !signedIn(instance) && instance.authentication !== undefined);
@@ -524,13 +524,12 @@ function InstallFirst({ instance, onCancel }: { instance: InstanceInfo; onCancel
 }
 
 export function AccountsPanel() {
-  const { state, dispatch } = useStore();
+  const { state } = useStore();
   const battery = state.config?.accountBattery;
   const { listed: accounts, forget } = useListedAccounts(subscriptionAccounts(state.instances, battery));
   const loaded = state.instances.length > 0;
   const signedInCount = accounts.filter(signedIn).length;
   const { report, now } = usePlanUsage();
-  const [sheet, setSheet] = useState<SheetStep | null>(null);
   const carryOn = useCarryOn();
   const drag = useAccountDrag(
     accounts.map((instance) => ({
@@ -541,29 +540,6 @@ export function AccountsPanel() {
     (ids) => void carryOn.reorder(ids),
   );
   const rows = drag.order.flatMap((id) => accounts.filter((instance) => instance.instanceId === id));
-  const instancesRef = useRef(state.instances);
-  instancesRef.current = state.instances;
-
-  useEffect(() => subscribeAddAccount((kind) => {
-    if (!kind) { setSheet({ step: "pick" }); return; }
-    const unused = unusedDefault(instancesRef.current, kind);
-    setSheet(unused ? { step: "signIn", instanceId: unused.instanceId } : { step: "name", kind });
-  }), []);
-
-  const finished = async (instanceId: string) => {
-    const isSignedIn = (instances: readonly InstanceInfo[]) => instances.some((candidate) => candidate.instanceId === instanceId && signedIn(candidate));
-    const fetchSignedIn = async () => {
-      try {
-        const { instances } = await api<{ instances: InstanceInfo[] }>("/api/instances");
-        dispatch({ type: "instances", instances });
-        return isSignedIn(instances);
-      } catch {
-        return false;
-      }
-    };
-    await pollSignedIn(() => isSignedIn(instancesRef.current), fetchSignedIn);
-    setSheet(null);
-  };
 
   return (
     <section className="flex flex-col" data-accounts-panel>
@@ -591,14 +567,14 @@ export function AccountsPanel() {
                 now={now}
                 only={signedIn(instance) && signedInCount === 1}
                 drag={drag}
-                onSignIn={() => setSheet({ step: "signIn", instanceId: instance.instanceId })}
+                onSignIn={() => requestAccountSignIn(instance.instanceId)}
                 onGone={() => forget(instance.instanceId)}
               />
             ))}
           </ul>
         )}
         <div className="flex items-center gap-3 border-t border-hairline/40 px-4 py-3">
-          <button type="button" onClick={() => setSheet({ step: "pick" })} className={pill}>{t("accounts.add")}</button>
+          <button type="button" data-accounts-add onClick={() => requestAddAccount()} className={pill}>{t("accounts.add")}</button>
         </div>
         {(signedInCount >= 2 || carryOn.on) && (
           <div className="flex items-center justify-between gap-3 border-t border-hairline/40 px-4 py-3">
@@ -611,9 +587,6 @@ export function AccountsPanel() {
         )}
         {carryOn.error && <p role="alert" className="px-4 pb-3 text-[12px] text-danger">{carryOn.error}</p>}
       </div>
-      {sheet && (
-        <AddAccountSheet sheet={sheet} instances={state.instances} onStep={setSheet} onClose={() => setSheet(null)} onSignedIn={(instanceId) => void finished(instanceId)} />
-      )}
     </section>
   );
 }

@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { repeatedModelLabels, SimpleModelPane } from "./SimpleModelPane";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
-import { requestAddAccount } from "@/lib/add-account-request";
+import { requestAccountSignIn, requestAddAccount } from "@/lib/add-account-request";
 import { fastModeFits } from "@/lib/fast-mode";
 import { modelShown, useHiddenModels } from "@/lib/model-visibility";
 import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
@@ -930,7 +930,6 @@ export function ModelPicker({
               )}
               <AccountMenu rows={accountRows} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
                 setOpen(false);
-                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
                 requestAddAccount();
               }} />
             </>
@@ -984,10 +983,9 @@ export function ModelPicker({
               needsSetup={part !== "model" && railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: simpleFamily !== undefined && !railInstance.policy } : null}
               signIn={part !== "model" && railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
               onSignIn={() => {
-                if (!simpleFamily) return;
+                if (!simpleFamily || !railInstance) return;
                 setOpen(false);
-                dispatch({ type: "toggleAppSettings", open: true, section: "general" });
-                requestAddAccount(simpleFamily === "claude" ? "claudeAgent" : "codex");
+                requestAccountSignIn(railInstance.instanceId);
               }}
               onSetUp={() => {
                 if (simpleSignIn && hasOfficialModels) setPane("main");

@@ -132,6 +132,7 @@ function LetterMark({ driverKind, size = 16, className }: IconProps & { driverKi
   return (
     <span
       aria-hidden="true"
+      data-letter-mark=""
       className={cn("inline-flex shrink-0 items-center justify-center rounded-[22%] bg-control font-semibold leading-none tracking-tight text-ink-secondary", className)}
       style={{ width: size, height: size, fontSize: Math.max(7, Math.round(size * 0.6)) }}
     >

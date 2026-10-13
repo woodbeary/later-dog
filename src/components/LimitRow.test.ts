@@ -205,16 +205,16 @@ describe("the limit message", () => {
     expect(button("Continue on Work")?.disabled).toBe(false);
   });
 
-  it("asks for another account when there is none, and opens Add account", async () => {
+  it("asks for another account when there is none, and opens Add account right here", async () => {
     publish({ instances: [claude("claude", "Personal"), chatgpt("chatgpt", "ChatGPT")] });
     await render(limit({ kind: "session" }));
     expect(words()).toContain("Add another account to keep going.");
     expect(toggle()?.getAttribute("aria-checked")).toBe("false");
     await click(button("Add account"));
-    expect(fixture.dispatched).toContainEqual({ type: "toggleAppSettings", open: true, section: "general" });
+    expect(fixture.dispatched.filter((action) => action.type === "toggleAppSettings")).toEqual([]);
     const open = vi.fn();
     subscribeAddAccount(open)();
-    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith({});
   });
 
   it("says the other accounts can't take over when they are resting or signed out", async () => {

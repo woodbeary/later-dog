@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConfigStatus, InstanceInfo } from "@/state/store";
@@ -57,6 +57,8 @@ vi.mock("./DeviceSignIn", () => ({
 
 const { AccountsPanel, accountOrder, pollSignedIn, realAccount, removable, shownOrder, subscriptionAccounts, useCarryOn } = await import("./AccountsPanel");
 const { requestAddAccount } = await import("@/lib/add-account-request");
+const { AddAccountHost } = await import("./AddAccountHost");
+const Settings = () => createElement(Fragment, null, createElement(AccountsPanel), createElement(AddAccountHost));
 
 const claude = (instanceId: string, displayName: string, snapshot: Partial<InstanceInfo["snapshot"]> = {}): InstanceInfo => ({
   instanceId, driverKind: "claudeAgent", displayName, access: "subscription",
@@ -129,7 +131,7 @@ const remount = async (next: Partial<State>) => {
   await act(async () => root.unmount());
   fixture.state = { ...fixture.state, ...next };
   root = createRoot(host);
-  await act(async () => root.render(createElement(AccountsPanel)));
+  await act(async () => root.render(createElement(Settings)));
 };
 
 beforeEach(async () => {
@@ -151,7 +153,7 @@ beforeEach(async () => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root.render(createElement(AccountsPanel)));
+  await act(async () => root.render(createElement(Settings)));
 });
 afterEach(async () => {
   await act(async () => root.unmount());

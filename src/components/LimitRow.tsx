@@ -38,7 +38,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   botId?: string;
   threadId?: string;
 }) {
-  const { state, dispatch } = useStore();
+  const { state } = useStore();
   const now = useNow();
   const carryOn = useCarryOn();
   const pickId = useId();
@@ -88,10 +88,6 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
     }
   };
 
-  const addAccount = () => {
-    dispatch({ type: "toggleAppSettings", open: true, section: "general" });
-    requestAddAccount();
-  };
 
   return (
     <div className="flex justify-start" data-limit-row="">
@@ -141,7 +137,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
               {picksUpAt ? t("chat.limit.carriesOn", { time: resetClock(picksUpAt, now) })
                 : others.length > 0 ? t("chat.limit.noneFree") : t("chat.limit.noOther")}
             </span>
-            <button type="button" onClick={addAccount} className={pill}>{t("accounts.add")}</button>
+            <button type="button" onClick={() => requestAddAccount()} className={pill}>{t("accounts.add")}</button>
           </div>
         ))}
         {actionable && limited && (
