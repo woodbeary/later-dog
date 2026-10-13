@@ -47,6 +47,8 @@ import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
+import { receiveHelperEvent, receiveHelpersSnapshot } from "@/lib/helpers-state";
+import { receiveReasoningEvent } from "@/lib/turn-reasoning";
 
 const MAX_ROUTINE_RUNS = 2_000;
 const ACTIVE_ROUTINE_RUN_STATUSES = new Set<RoutineRun["status"]>(["queued", "running", "waiting"]);
@@ -3148,7 +3150,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    type PeripheralKey = "instances" | "config" | "routines" | "webhooks";
+    type PeripheralKey = "instances" | "config" | "routines" | "webhooks" | "helpers";
     type PeripheralPart = {
       key: PeripheralKey;
       request: () => Promise<() => void>;
@@ -3188,6 +3190,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         request: async () => {
           const { routines, runs } = await api("/api/routines");
           return () => rawDispatch({ type: "routinesHydrated", routines, runs });
+        },
+      },
+      {
+        key: "helpers",
+        request: async () => {
+          const snapshot = await api<unknown>("/api/helpers").catch((error: unknown) => {
+            if (error instanceof ApiError && error.status === 404) return null;
+            throw error;
+          });
+          return () => receiveHelpersSnapshot(snapshot);
         },
       },
       ...(window.laterdog?.remoteClient?.active ? [] : [{
@@ -3402,6 +3414,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "webhookDeleted", webhookId: frame.webhookId });
           break;
         case "runtime": {
+          if (receiveHelperEvent(frame.event)) bumpPeripheralVersion("helpers");
+          receiveReasoningEvent(frame.event);
           const action = runtimeFrameAction(frame.event);
           if (action) rawDispatch(action);
           break;
