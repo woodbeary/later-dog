@@ -1,4 +1,5 @@
-export const CLEF_IMAGE_MAX_BYTES = 190 * 1024;
+export const CLEF_IMAGE_MAX_BASE64_CHARS = 190_000;
+export const CLEF_IMAGE_MAX_BYTES = Math.floor((CLEF_IMAGE_MAX_BASE64_CHARS * 3) / 4);
 export const CLEF_IMAGE_MAX_COUNT = 4;
 
 const MIME_OF_FORMAT: Record<string, string> = {

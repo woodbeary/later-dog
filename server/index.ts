@@ -6391,6 +6391,20 @@ const clef = createClef({
     store.appendMessage(threadId, { role: "bot", kind: "activity", ...(speaker ? { from: speaker } : {}), tool: { name: text, ok } });
   },
   record: (row) => appendDecision(DATA_DIR, { ...row, source: "auto-review" }),
+  dataDir: DATA_DIR,
+  hasBudget: () => {
+    try { assertWithinBudget(cfg, DATA_DIR); return true; } catch { return false; }
+  },
+  accountAvailable: ({ botId, threadId }) => {
+    const selection = store.projectBotForTask(botId, threadId)?.modelSelection;
+    return Boolean(selection) && !limitHold.holds(threadId) && !batteryContinuationPending(threadId) &&
+      accountBattery.readyAt(selection!, batteryAccounts(), threadId) === undefined;
+  },
+  canStart: ({ botId, threadId }) => !threadBusy(botId, threadId) && !botAtThreadCapacity(botId) && !activeGroupTurnForBot(botId) &&
+    !hasQueuedSteeredMessages(botId, threadId) && !parksBehindCoordination(botId, threadId),
+  nudge: async ({ botId, threadId }, text) => {
+    await startTurn(botId, text, { threadId, cardContinuation: true, requestMessageId: directRequestOwners.get(threadId)?.messageId });
+  },
 });
 
 const onProviderEvent = guardTurnEnd((event: RuntimeEvent) => {
@@ -6844,6 +6858,12 @@ const onProviderEvent = guardTurnEnd((event: RuntimeEvent) => {
             drainDelegationWakes();
           }
           settleTrackedRequest(event.threadId);
+          if (resumeQueued) void clef.turnEnd.afterTurn({
+            threadId: event.threadId, botId: bot.id, ok: event.ok, reply, path: store.activePath(event.threadId), isCurrent,
+            stoppedByPerson: event.stopReason === "interrupted" || directRequestOwners.get(event.threadId)?.stopped === true,
+            usageLimited: event.stopReason === "usage_limit" || limitHold.holds(event.threadId),
+            skip: Boolean(internal || routineRun || carryingOn || nextAccount),
+          });
         };
         const tokens = event.usage ?? lastReported;
         const contextModel = store.taskByThread(bot.id, event.threadId)?.modelSelection?.model ?? bot.modelSelection.model;

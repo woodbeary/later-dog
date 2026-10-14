@@ -6,6 +6,8 @@ import type { RequestOutcome } from "../contracts.ts";
 import { deciderReady, type Decider } from "../decider/index.ts";
 import { createAutoReview, type ReviewContext } from "./clef-auto-review.ts";
 import { autoReviewRules } from "./clef-config.ts";
+import { appendClefLog } from "./clef-log.ts";
+import { createTurnEndWatcher, type TurnEndInput } from "./clef-turn-end.ts";
 
 type Opened = Extract<RuntimeEvent, { type: "request.opened" }>;
 
@@ -26,6 +28,11 @@ export interface ClefDeps {
   asker(event: Opened): ClefAsker | null;
   respond(event: Opened, behavior: "allow" | "deny", message?: string): Promise<RequestOutcome | "failed">;
   note(threadId: string, text: string, ok: boolean): void;
+  dataDir: string;
+  hasBudget(): boolean;
+  accountAvailable(input: TurnEndInput): boolean;
+  canStart(input: TurnEndInput): boolean;
+  nudge(input: TurnEndInput, text: string): Promise<void>;
   record(row: {
     threadId: string;
     requestId?: string;
@@ -72,5 +79,14 @@ export function createClef(deps: ClefDeps) {
       rule,
     }),
   });
-  return { review };
+  const turnEnd = createTurnEndWatcher({
+    decider: deps.decider,
+    enabled: () => deciderReady(deps.config(), "turnEnd"),
+    hasBudget: deps.hasBudget,
+    accountAvailable: deps.accountAvailable,
+    canStart: deps.canStart,
+    nudge: deps.nudge,
+    record: (row) => appendClefLog(deps.dataDir, row),
+  });
+  return { review, turnEnd };
 }

@@ -3,6 +3,7 @@ import type { Decider } from "../decider/index.ts";
 import type { ChoiceAnswer, ChoiceQuestion } from "../decider/types.ts";
 import type { RuntimeEvent } from "../../shared/runtime-events.ts";
 import { toolPhrase } from "../../shared/live-approval.ts";
+import { redactSecretsInText } from "../../shared/redact.ts";
 import { fastDecide } from "./clef-fast-decide.ts";
 import type { AutoReviewRules } from "./clef-config.ts";
 
@@ -29,7 +30,7 @@ export interface ReviewOptions {
   budgetMs?: number;
 }
 
-const flat = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, DETAIL_MAX);
+const flat = (text: string) => redactSecretsInText(text).replace(/\s+/g, " ").trim().slice(0, DETAIL_MAX);
 
 function ruleQuestion(verb: "permits" | "forbids", rules: readonly string[]): { question: ChoiceQuestion; ids: Map<string, string> } {
   const options: Record<string, string> = { [NONE]: `No rule clearly ${verb} this action.` };
