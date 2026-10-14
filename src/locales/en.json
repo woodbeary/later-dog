@@ -455,7 +455,7 @@
   "settings.autoReview.block": "Stop and ask first when",
   "settings.autoReview.allowPlaceholder": "For example: reading files inside my project is fine",
   "settings.autoReview.blockPlaceholder": "For example: deleting anything outside my project folder",
-  "settings.autoReview.hidden": "Auto-review rules are kept private to the owner and paired devices. This workspace has {allow} go-ahead and {block} ask-first rules.",
+  "settings.autoReview.hidden": "Auto-review rules are kept private to the owner and paired devices. There are {allow} go-ahead and {block} ask-first rules.",
   "settings.autoReview.add": "Add a rule",
   "settings.autoReview.remove": "Remove this rule",
   "settings.autoReview.unavailable": "Rules take effect once Auto-review is switched on below and a decision model is set up. Until then your dogs ask as usual.",
