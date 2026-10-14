@@ -643,7 +643,7 @@ import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -831,6 +831,11 @@ registerNativeBinDir();
 const accountBattery = new AccountBattery({
   config: () => cfg.accountBattery,
   accounts: batteryAccounts,
+  preferred: (threadId) => {
+    if (!threadId) return undefined;
+    const bot = store.botByThread(threadId) ?? store.bot(groupBatteryTurns.get(threadId)?.botId ?? "");
+    return bot?.fallback;
+  },
   file: join(DATA_DIR, "account-battery.json"),
   planReset: async (instanceId, kind) => {
     const account = planAccountsFromInstances(instanceConfigs(cfg)).find((candidate) => candidate.id === instanceId);
@@ -6034,7 +6039,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
     const toolRan = path.some((message) => message.kind === "activity" && message.turnId === turnId && Boolean(message.tool?.itemId));
     const newerWords = path.slice(at + 1).some((message) => message.role === "user");
     const name = (account: BatteryRerun["to"]) => account.displayName || account.instanceId;
-    const notice = { name: `recovery: ${switchNotice({ to: name(next.to), from: name(next.from), rest: next.rest, now: Date.now() })}`,
+    const notice = { name: `recovery: ${crossEngineNotice(next.from, next.to, "Continuing") ?? switchNotice({ to: name(next.to), from: name(next.from), rest: next.rest, now: Date.now() })}`,
       ok: true, carry: { from: next.from.instanceId, to: next.to.instanceId } };
     const limitRow = limitRowToReplace(path, turn.requestMessageId) ?? path.findLast((message) => message.tool?.quota);
     if (limitRow) store.patchMessage(threadId, limitRow.id, { tool: notice });
@@ -10942,7 +10947,7 @@ async function runGroupMemberTurn(
     const routed = accountBattery.route(batteryTurn.selection, batteryAccounts(), threadId);
     const to = batteryAccounts().find((account) => account.instanceId === routed.instanceId);
     if (!from || !to) return false;
-    const notice = { name: `recovery: ${waited ? carryOnNotice(to.displayName || to.instanceId) : switchNotice({
+    const notice = { name: `recovery: ${waited ? carryOnNotice(to.displayName || to.instanceId) : crossEngineNotice(from, to, "Continuing") ?? switchNotice({
       to: to.displayName || to.instanceId, from: from.displayName || from.instanceId,
       rest: accountBattery.restOf(from, batteryAccounts(), bot.modelSelection.model), now: Date.now(),
     })}`, ok: true, carry: { from: from.instanceId, to: to.instanceId } };

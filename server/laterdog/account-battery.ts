@@ -154,6 +154,7 @@ interface PickInput {
   resting: Readonly<Record<string, Rest>>;
   now: number;
   usage?: PlanReading;
+  preferred?: readonly ModelSelection[];
 }
 
 export function percentLeft(row: PlanProviderRow | undefined, now: number): number | undefined {
@@ -202,11 +203,39 @@ export function batterySequence(input: Omit<PickInput, "selection">): string[] {
     ? rankOrder({ all: sequence }, input).all! : sequence;
 }
 
-export function selectionOnAccount(selection: ModelSelection, account: BatteryAccount, accounts: readonly BatteryAccount[]): ModelSelection {
+export function chosenModelOn(account: BatteryAccount, accounts: readonly BatteryAccount[], preferred: readonly ModelSelection[] | undefined): string | undefined {
+  const offers = (model: string) => account.models.length === 0 || account.models.includes(model);
+  const exact = preferred?.find((entry) => entry.instanceId === account.instanceId && offers(entry.model));
+  if (exact) return exact.model;
+  return preferred?.find((entry) => accounts.find((candidate) => candidate.instanceId === entry.instanceId)?.driverKind === account.driverKind &&
+    account.models.includes(entry.model))?.model;
+}
+
+export function selectionOnAccount(
+  selection: ModelSelection,
+  account: BatteryAccount,
+  accounts: readonly BatteryAccount[],
+  preferred?: readonly ModelSelection[],
+): ModelSelection {
   const from = accounts.find((candidate) => candidate.instanceId === selection.instanceId);
   return from?.driverKind === account.driverKind
     ? { ...selection, instanceId: account.instanceId }
-    : { instanceId: account.instanceId, model: account.defaultModel ?? account.models[0] ?? selection.model };
+    : { instanceId: account.instanceId, model: chosenModelOn(account, accounts, preferred) ?? account.defaultModel ?? account.models[0] ?? selection.model };
+}
+
+const ENGINE_NAMES: Readonly<Record<string, string>> = { claudeAgent: "Claude", codex: "Codex" };
+
+export function engineName(driverKind: string): string {
+  return ENGINE_NAMES[driverKind] ?? driverKind;
+}
+
+export function crossEngineNotice(
+  from: BatteryAccount | undefined,
+  to: BatteryAccount | undefined,
+  verb: "Continuing" | "Running",
+): string | undefined {
+  if (!from || !to || from.driverKind === to.driverKind) return undefined;
+  return `${engineName(from.driverKind)} is recharging. ${verb} on ${engineName(to.driverKind)}.`;
 }
 
 function canTake(account: BatteryAccount | undefined, input: Omit<PickInput, "config">, listed: boolean): account is BatteryAccount {
@@ -214,7 +243,7 @@ function canTake(account: BatteryAccount | undefined, input: Omit<PickInput, "co
   const own = input.accounts.find((candidate) => candidate.instanceId === input.selection.instanceId);
   if (account.driverKind === own?.driverKind && listed && !account.models.includes(input.selection.model)) return false;
   if (account.driverKind !== own?.driverKind && !account.defaultModel && !account.models.length) return false;
-  return !activeRest(account, selectionOnAccount(input.selection, account, input.accounts).model, input.accounts, input.resting, input.now);
+  return !activeRest(account, selectionOnAccount(input.selection, account, input.accounts, input.preferred).model, input.accounts, input.resting, input.now);
 }
 
 export function pickAccount(input: PickInput): BatteryAccount | undefined {
@@ -235,7 +264,7 @@ export function routeSelection(input: Parameters<typeof pickAccount>[0]): ModelS
   const account = pickAccount(input);
   return !account || account.instanceId === input.selection.instanceId
     ? input.selection
-    : selectionOnAccount(input.selection, account, input.accounts);
+    : selectionOnAccount(input.selection, account, input.accounts, input.preferred);
 }
 
 export function checkBatteryConfig(
@@ -351,6 +380,7 @@ export function carryOnNotice(name: string): string {
 export interface AccountBatteryOptions {
   config: () => AccountBatteryConfig | undefined;
   accounts?: () => readonly BatteryAccount[];
+  preferred?: (threadId: string | undefined) => readonly ModelSelection[] | undefined;
   file?: string;
   now?: () => number;
   planReset?: (instanceId: string, kind: string | undefined) => Promise<string | undefined>;
@@ -379,10 +409,15 @@ export class AccountBattery {
     return this.enabled || Boolean(threadId && this.state.away[threadId]?.to);
   }
 
+  preferredFor(threadId: string | undefined): readonly ModelSelection[] | undefined {
+    return this.options.preferred?.(threadId);
+  }
+
   route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): ModelSelection {
+    const preferred = this.preferredFor(threadId);
     const chosen = threadId ? this.chosen(threadId, selection, accounts) : undefined;
-    if (chosen) return selectionOnAccount(selection, accounts.find((account) => account.instanceId === chosen)!, accounts);
-    const input = { selection, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage };
+    if (chosen) return selectionOnAccount(selection, accounts.find((account) => account.instanceId === chosen)!, accounts, preferred);
+    const input = { selection, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage, ...(preferred ? { preferred } : {}) };
     const own = accounts.find((account) => account.instanceId === selection.instanceId);
     if (!own?.eligible || canTake(own, input, false)) return selection;
     return routeSelection({ config: this.options.config(), ...input });
@@ -403,8 +438,9 @@ export class AccountBattery {
     const to = find(away.to);
     if (!own?.eligible || !ranOut || !to?.eligible || !to.enabled || to.signedIn === false) return undefined;
     if (to.driverKind === own.driverKind && own.models.includes(selection.model) && !to.models.includes(selection.model)) return undefined;
-    if (!this.restOf(ranOut, accounts, selectionOnAccount(selection, ranOut, accounts).model) ||
-        this.restOf(to, accounts, selectionOnAccount(selection, to, accounts).model)) return undefined;
+    const preferred = this.preferredFor(threadId);
+    if (!this.restOf(ranOut, accounts, selectionOnAccount(selection, ranOut, accounts, preferred).model) ||
+        this.restOf(to, accounts, selectionOnAccount(selection, to, accounts, preferred).model)) return undefined;
     return to.instanceId;
   }
 
@@ -473,8 +509,9 @@ export class AccountBattery {
     ].map(find).filter((account): account is BatteryAccount => Boolean(account && account !== own && account.eligible && account.enabled &&
       account.signedIn !== false && (account.driverKind !== own.driverKind ? Boolean(account.defaultModel || account.models.length) : !listed || account.models.includes(selection.model))));
     let soonest = Infinity;
+    const preferred = this.preferredFor(threadId);
     for (const account of [own, ...others]) {
-      const rest = this.restOf(account, accounts, selectionOnAccount(selection, account, accounts).model);
+      const rest = this.restOf(account, accounts, selectionOnAccount(selection, account, accounts, preferred).model);
       if (!rest) return undefined;
       soonest = Math.min(soonest, Date.parse(rest.until));
     }
@@ -542,8 +579,10 @@ export class AccountBattery {
     const turn = this.turns.get(input.threadId);
     if (!turn?.rerun || turn.generation !== input.generation) return null;
     const from = input.accounts.find((account) => account.instanceId === (input.ranOn ?? turn.instanceId));
+    const preferred = this.preferredFor(input.threadId);
     const to = pickAccount({
       config: this.options.config(), selection: input.selection, accounts: input.accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage,
+      ...(preferred ? { preferred } : {}),
     });
     if (!from || !to || to.instanceId === from.instanceId) return null;
     return { turn, from, to, rest: this.restOf(from, input.accounts, input.selection.model) };
@@ -586,8 +625,10 @@ export class AccountBattery {
       : { from: selection.instanceId, at: new Date(this.now()).toISOString(), on: ranOn };
     this.save();
     const from = find(selection.instanceId);
-    return routedNotice({
-      to: name(ranOn), from: name(selection.instanceId), rest: from ? this.restOf(from, accounts, selection.model) : undefined,
+    const rest = from ? this.restOf(from, accounts, selection.model) : undefined;
+    const engines = rest && Date.parse(rest.until) > this.now() ? crossEngineNotice(from, find(ranOn), "Running") : undefined;
+    return engines ?? routedNotice({
+      to: name(ranOn), from: name(selection.instanceId), rest,
       why: from?.signedIn === false ? "signedOut" : from && !from.enabled ? "off" : undefined, now: this.now(),
     });
   }

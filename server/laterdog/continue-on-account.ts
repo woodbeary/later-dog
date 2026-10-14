@@ -1,6 +1,6 @@
 import type { ModelSelection } from "../../shared/wire.ts";
 import { failedTurnTool, type FailedTurnTool } from "../../shared/failed-turn.ts";
-import { CONTINUE_AFTER_SWITCH, switchNotice, selectionOnAccount, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
+import { CONTINUE_AFTER_SWITCH, crossEngineNotice, switchNotice, selectionOnAccount, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
 
 export interface PathMessage {
   id: string;
@@ -75,7 +75,7 @@ export function continueOnAccount(input: {
   const limit = latestLimit(path);
   const check = checkContinueOn({
     accounts, selection, from: limit?.tool?.quota?.instanceId ?? selection.instanceId, to: input.instanceId,
-    resting: (account) => Boolean(battery.restOf(account, accounts, selectionOnAccount(selection, account, accounts).model)),
+    resting: (account) => Boolean(battery.restOf(account, accounts, selectionOnAccount(selection, account, accounts, battery.preferredFor(input.threadId)).model)),
   });
   if (!check.ok) return { status: check.status, body: { error: check.error } };
   const { from, to } = check;
@@ -84,7 +84,8 @@ export function continueOnAccount(input: {
   const at = path.findIndex((message) => message.id === turn?.requestMessageId);
   if (!turn?.rerun || (turn.requestMessageId && at === -1)) return { status: 200, body: { continued: false } };
   const rest = battery.restOf(from, accounts, selection.model);
-  input.write({ name: `recovery: ${switchNotice({ to: accountName(to), from: accountName(from), rest, now: input.now ?? Date.now() })}`, ok: true, carry: { from: from.instanceId, to: to.instanceId } }, limit?.id);
+  const notice = crossEngineNotice(from, to, "Continuing") ?? switchNotice({ to: accountName(to), from: accountName(from), rest, now: input.now ?? Date.now() });
+  input.write({ name: `recovery: ${notice}`, ok: true, carry: { from: from.instanceId, to: to.instanceId } }, limit?.id);
   const toolRan = path.slice(at + 1).some((message) => message.kind === "activity" && Boolean(message.tool?.itemId));
   void turn.rerun(toolRan || path.slice(at + 1).some((message) => message.role === "user") ? CONTINUE_AFTER_SWITCH : null).catch((error: unknown) => {
     input.write(failedTurnTool(`Could not continue on ${accountName(to)}: ${error instanceof Error ? error.message : String(error)}`));
