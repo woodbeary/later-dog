@@ -72,9 +72,19 @@ async function waitFor(id, wanted, limitMs) {
     last = data?.computer?.state ?? `HTTP ${status}`;
     if (last === wanted) return data.computer;
     if (last === "error") throw new Error(`computer entered error: ${data.computer.error}`);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`still ${last} after ${limitMs} ms`);
+}
+
+async function waitDesktop(id, limitMs) {
+  const started = Date.now();
+  while (Date.now() - started < limitMs) {
+    const { data } = await call("GET", `/computers/${id}`);
+    if (data?.computer?.state === "running" && data.computer.desktopAvailable === true) return data.computer;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`the desktop was not available after ${limitMs} ms`);
 }
 
 async function exec(id, command, extra = {}) {
@@ -190,6 +200,8 @@ try {
   const createdAt = Date.now();
   await timed("boot_to_running", () => waitFor(id, "running", 6 * 60_000));
   timings.boot_from_create_ms = Date.now() - createdAt;
+  await timed("running_to_desktop_available", () => waitDesktop(id, 60_000));
+  timings.desktop_from_create_ms = Date.now() - createdAt;
 
   log("exec");
   const hello = await timed("exec_uname_whoami_display", () => exec(id, "uname -a && whoami && echo $DISPLAY"));
@@ -235,9 +247,12 @@ try {
   const viewerUrl = link.data.url;
   const page = await timed("viewer_page", () => fetch(viewerUrl));
   const html = await page.text();
-  check(page.status === 200 && html.includes('import RFB from "./core/rfb.js"'), `viewer page -> ${page.status}`);
-  const module = await fetch(new URL("core/rfb.js", viewerUrl));
-  check(module.status === 200 && (await module.text()).includes("export default class RFB"), `core/rfb.js through the signed path -> ${module.status}`);
+  check(page.status === 200 && /import RFB from "\/novnc\/[0-9.]+\/core\/rfb\.js"/.test(html), `viewer page -> ${page.status}`);
+  const entry = html.match(/import RFB from "([^"]+)"/)?.[1] ?? "/novnc/missing/core/rfb.js";
+  const module = await fetch(new URL(entry, viewerUrl));
+  check(module.status === 200 && (await module.text()).includes("export default class RFB"), `${entry} as a static asset -> ${module.status}`);
+  const cacheControl = module.headers.get("cache-control") ?? "";
+  check(cacheControl.includes("immutable") && cacheControl.includes("max-age=31536000"), `${entry} is cached for a year: ${cacheControl}`);
   const status = await fetch(new URL("status", viewerUrl)).then((r) => r.json());
   check(status.state === "running", `viewer status -> ${JSON.stringify(status)}`);
   const socketUrl = new URL("websockify", viewerUrl);
@@ -273,11 +288,13 @@ try {
   check(woke.status === 200 && woke.data.computer?.state === "starting", `wake -> ${woke.data.computer?.state}`);
   await timed("wake_to_running", () => waitFor(id, "running", 6 * 60_000));
   timings.wake_total_ms = Date.now() - wakeStarted;
+  await timed("wake_running_to_desktop_available", () => waitDesktop(id, 60_000));
+  timings.wake_to_desktop_ms = Date.now() - wakeStarted;
   const again = await call("GET", `/computers/${id}/files?path=${encodeURIComponent("/home/dog/smoke/hello.txt")}`, { raw: true });
   check(again.status === 200 && (await again.text()) === content, "the file survived sleep and wake");
   check((await fetch(viewerUrl)).status === 403, "the old desktop link died with the old boot -> 403");
   const drawn = await exec(id, "xdotool search --onlyvisible --class '^xfce4-panel$' >/dev/null && xdotool search --onlyvisible --class '^xfdesktop$' >/dev/null && echo drawn");
-  check(drawn.stdout.trim() === "drawn", "the desktop (panel and wallpaper) is drawn as soon as the computer is running again");
+  check(drawn.stdout.trim() === "drawn", "the desktop (panel and wallpaper) is drawn once the computer reports desktopAvailable after a wake");
   const after = await call("GET", `/computers/${id}/screenshot`, { raw: true });
   const afterPath = join(outDir, `${id}-after-wake.jpg`);
   await writeFile(afterPath, new Uint8Array(await after.arrayBuffer()));

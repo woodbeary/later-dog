@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Browser
+GenericName=Web Browser
+Comment=Browse the web
+Exec=chromium
+Icon=chromium
+Terminal=false
+StartupNotify=false
+Categories=Network;WebBrowser;

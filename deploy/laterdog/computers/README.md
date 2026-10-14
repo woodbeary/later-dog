@@ -30,8 +30,8 @@ run in a real browser. Times are from the client unless marked "inside": those c
 | Screenshot (1280×800 JPEG, about 84 KB) | 140 to 270 ms |
 | Viewer WebSocket to the VNC greeting | 0.3 to 0.5 s |
 
-`running` means the desktop is drawn: the XFCE panel and wallpaper are on screen. The first smoke run (18.6 s) was
-measured before readiness waited for that, which adds about a second.
+Those numbers are from before the readiness change below. `running` then meant the XFCE panel and wallpaper were on
+screen. Now it means the screen answers (see Waking and readiness).
 
 The idle run used a temporary deploy with `IDLE_SLEEP_MINUTES=1`. A viewer with a finished VNC handshake stayed open for
 104 s, sending nothing, and the computer stayed awake. 68 s after the viewer closed, the computer snapshotted itself
@@ -54,11 +54,13 @@ person's browser ──/desktop/<id>/<token>/──▶ Worker ──fetch──�
 - `src/trial.ts`, `src/trial-page.ts` and `src/trial-registry.ts`: free trials (see Free trials). `TrialRegistry` is
   one Durable Object, named `trials`. It starts trials, limits them per network and per day, keeps their minutes and
   deletes their computers when they expire. Each trial lists its computers in its own `ComputerRegistry`.
-- `src/viewer.ts`: the viewer page. It loads noVNC from the same signed path and scales the screen to the window. The
-  person can use the mouse and keyboard as soon as the screen appears.
-- `container/`: the image. Debian trixie (`node:24-trixie-slim`), Xvfb at 1280×800, XFCE, x11vnc on localhost,
-  websockify and noVNC on port 6080, Chromium, `xdotool`, `scrot`, `xclip`, `git`, `gh`, Node 24. The user is `dog`
-  (uid 1000) with passwordless `sudo`.
+- `src/viewer.ts`: the viewer page. It loads noVNC from the static path `/novnc/<version>/` (see noVNC as static
+  assets) and scales the screen to the window. The person can use the mouse and keyboard as soon as the screen appears.
+- `src/ready.ts`: what "the screen answers" and "the desktop is drawn" mean, and the viewer's wait for a starting computer.
+- `container/`: the image. Debian trixie (`node:24-trixie-slim`), Xvfb at 1280×800, XFCE (window manager, panel,
+  desktop and settings daemon, started directly: no session manager), x11vnc on localhost, websockify and noVNC on
+  port 6080, Chromium, `xdotool`, `scrot`, `xclip`, `git`, `gh`, Node 24. The user is `dog` (uid 1000) with
+  passwordless `sudo`.
 
 ## API
 
@@ -76,13 +78,14 @@ Errors are JSON `{ "error": { "code": "…", "message": "…" } }` with a matchi
 A computer looks like:
 
 ```json
-{ "id": "cmp_k3v9q2m7x4ab", "name": "Rex", "size": "standard", "state": "running",
+{ "id": "cmp_k3v9q2m7x4ab", "name": "Rex", "size": "standard", "state": "running", "desktopAvailable": true,
   "createdAt": "2026-10-08T19:02:11.412Z", "lastActiveAt": "2026-10-08T19:05:40.003Z",
   "snapshotAt": "2026-10-08T18:40:02.950Z" }
 ```
 
 `state` is `starting`, `running`, `sleeping`, `stopping` or `error` (then `error` says why). `snapshotAt` appears once
-the computer has slept.
+the computer has slept. `desktopAvailable` is `true` once the desktop is drawn: a `running` computer whose desktop is
+still drawing has it `false` (see Waking and readiness).
 
 | Request | Answer |
 | --- | --- |
@@ -97,7 +100,7 @@ the computer has slept.
 | `GET /computers/:id/files?path=` | The file's bytes, 404 if missing, 413 over 16 MB. Relative paths start at `/home/dog`. |
 | `PUT /computers/:id/files?path=` raw body | `{ ok: true }`. Up to 16 MB. Creates missing folders. New files and folders belong to `dog`. |
 | `GET /computers/:id/screenshot` | `image/jpeg` of the whole screen, pointer included. |
-| `POST /computers/:id/desktop` | `{ url, expiresAt }`: a viewer link valid for 2 hours. It is signed (HMAC-SHA256, secret `DESKTOP_SIGNING_KEY`) over the id, the expiry and the boot count, so it also dies when the computer sleeps. Anyone holding it can watch and take over: share it only with the person. 409 `asleep` unless `running`. |
+| `POST /computers/:id/desktop` | `{ url, expiresAt }`: a viewer link valid for 2 hours. It is signed (HMAC-SHA256, secret `DESKTOP_SIGNING_KEY`) over the id, the expiry and the boot count, so it also dies when the computer sleeps. Anyone holding it can watch and take over: share it only with the person. Works while the computer is `starting` too: the page shows "Connecting…" and the screen connects as soon as it answers. 409 `asleep` unless `running` or `starting`. |
 
 ### MCP
 
@@ -160,6 +163,116 @@ Commands see the desktop's display and session bus, so ordinary X tools work: `x
 `xdotool type 'hello'`, `xdotool key ctrl+l`, `xdotool getactivewindow getwindowname`, `xclip -selection clipboard -o`.
 Start long-running apps detached, with their output redirected: `setsid -f chromium https://example.com >/dev/null 2>&1`.
 A background app that keeps the command's output open is killed when the command's timeout ends.
+
+## Waking and readiness
+
+A computer goes `starting` → `running` → `desktopAvailable: true`:
+
+1. **`starting`**: the container was placed. The Durable Object's alarm polls every 250 ms. A poll opens a WebSocket to
+   websockify on port 6080 and waits for the RFB banner (`RFB 003.008`). That proves the display, x11vnc and websockify
+   are all up, and it costs one short connection instead of a `bash` exec.
+2. **`running`**: the screen answers. A viewer can connect and the API accepts commands. `desktopAvailable` is `false`.
+3. **`desktopAvailable: true`**: the desktop is drawn. `src/ready.ts` (`DESKTOP_SCRIPT`) runs one short command as `dog`
+   every 250 ms: the panel and desktop windows are visible, the panel windows hold pixels, and the middle of the
+   screen is not a flat colour (a crop through `scrot` is larger than a threshold). A window that is mapped but not yet
+   painted shows a black strip, which is what the old check (windows only) let through. If the windows are up but never
+   paint, it gives up after 3 seconds; if they never appear (a dog changed the panel), after 30 seconds from `running`.
+   Both are logged.
+
+What waits for the desktop: `computer_wake` (MCP) keeps polling until `desktopAvailable` is true (30 s, then
+`ready: false`), and a screenshot, over the API or MCP, waits up to the same 30 s so a dog never sees a half-painted
+screen. Commands (`exec`), files and the viewer do not wait: shell work does not need the desktop, and the viewer is
+the person's own view of it. The API list (`GET /computers`) comes from the registry and does not carry
+`desktopAvailable`; read the computer itself.
+
+A desktop link can be made while the computer is `starting`. The viewer page loads (it shows "Connecting…"), and the
+WebSocket upgrade is held, retrying every 250 ms for up to 20 s, until the screen answers, instead of failing with 409.
+
+Measured locally on 2026-10-14 (Colima VM on an M-series Mac, the container limited to 1 and to 0.5 CPU, `docker run`
+to each step, medians of 7 boots with a warm image, milliseconds from the container starting). Cloudflare's `standard-1`
+is ½ vCPU and `standard-2` is 1 vCPU, but this is not their hardware or their image pull: see Limitations.
+
+| Step | before, 1 CPU | after, 1 CPU | before, ½ CPU | after, ½ CPU |
+| --- | --- | --- | --- | --- |
+| websockify answers HTTP | 1732 | 362 | 2336 | 663 |
+| First RFB banner through the WebSocket (`running`) | 2403 | 1289 | 3620 | 2077 |
+| Window manager up | 2648 | 1941 | 3465 | 3650 |
+| Panel window mapped | 3248 | 1953 | 4431 | 3691 |
+| Panel painted (`desktopAvailable`) | 4343 | 2028 | 5829 | 4685 |
+
+Before, `running` meant the panel window was mapped (3248 ms at 1 CPU), but its content was painted 1.1 s later, so a
+viewer that connected at once saw a black strip. The two changes that matter: websockify no longer imports numpy
+(`container/laterdog-websockify`; its answer drops from 1.7 s to 0.36 s), and the shell starts the window manager,
+panel and desktop directly instead of through `xfce4-session`, with the panel, desktop and settings daemon at `nice 10`
+so the VNC path gets the CPU first. The rest is XFCE itself: at 1 CPU the window manager, panel and desktop cost about
+0.9 s of CPU between them.
+
+The Worker side of the wake path did three things. The poll went from 1000 ms to 250 ms, so a boot is noticed on
+average 375 ms sooner. The poll is one WebSocket instead of a `bash` exec plus an HTTP fetch (about 150 ms of the
+README's measured exec round trip per poll). And `running` no longer waits for the painted desktop. Modelled from the
+timeline above, not measured through the Worker: at 1 CPU the old check said `running` at the first 1 s tick after the
+panel window appeared, about 4.0 to 4.3 s after start; the new one says `running` at about 1.3 + 0.25 s, and
+`desktopAvailable` at about 2.0 + 0.25 s.
+
+## noVNC as static assets
+
+The viewer page imports noVNC from `/novnc/1.6.0/core/rfb.js`, served by Workers Static Assets from
+`third_party/novnc/public` (`assets.directory` in `wrangler.jsonc`), not through the Durable Object and the container.
+The path has no token and the version is in it, so `public/_headers` gives every file `Cache-Control: public,
+max-age=31536000, immutable`, and the page lists all 52 modules in `<link rel="modulepreload">` so the five levels of
+imports load in one round trip. The files are Debian's noVNC 1.6.0, unmodified, with their licence notices;
+`test/novnc.test.ts` checks that the list in `src/novnc.ts` is exactly the import graph of `rfb.js`. The container still
+serves its own copy on port 6080 for `http://localhost:6080/vnc.html` in local tests. The old route
+`/desktop/<id>/<token>/core/...` is gone.
+
+## The desktop
+
+A computer starts with a normal XFCE desktop: a panel at the top (Applications menu, window list, tray, clock) and a
+dock at the bottom, always visible, with three launchers: **Browser** (Chromium, first, with its own icon and the name
+"Browser"), **File Manager** and **Terminal**. The terminal, files and the Applications menu are all there.
+
+Nothing in the desktop can end the session or take the screen away. Each of these is a choice, listed so it can be
+undone:
+
+- No session manager. `xfce4-session` is not installed, so there is no Log Out, Shut Down, Restart, Suspend, Hibernate
+  or Lock to reach: `xfce4-session-logout` and `xflock4` do not exist. The window manager, settings daemon, panel and
+  desktop are started by `container/start-desktop.sh` and restarted if they exit.
+- The panel's Actions menu (log out, shut down) is not on the panel. The stock dock's Show Desktop, application finder
+  and directory menu are not on the dock; the workspace pager is not on the top panel (there is one workspace).
+- The keyboard shortcuts Ctrl+Alt+Delete (log out), Ctrl+Alt+L (lock) and Super+P and the display key (display
+  settings) are removed (`container/xfce-system/xfce4-keyboard-shortcuts.xml`, the stock file minus those lines).
+- Display Settings is not in the Settings menu or the Settings Manager (`xfce-display-settings.desktop` is deleted),
+  because changing the resolution of the virtual screen can break the viewer, which expects 1280×800. There is no screensaver, lock or power manager
+  package. Xvfb runs with `-s 0 -dpms` so the screen never blanks.
+- The x11vnc launcher is not in the menu (starting a second VNC server would not help anyone).
+- Not restricted: the terminal, `sudo`, the file manager, the other settings (appearance, keyboard, mouse, panel, window
+  manager and its tweaks, the settings editor), and Chromium. Window Manager Tweaks has a compositor switch; xfwm4 is
+  started with compositing off and nothing stops someone turning it on.
+
+The dogs' tools do not depend on any of it: `exec` runs `bash -lc` as `dog` and talks to the X server directly (`xdotool`,
+`scrot`, `xclip`), and the readiness and screenshot commands need only the panel, the desktop and Xvfb.
+
+## What survives sleep and wake
+
+Sleep takes a snapshot of the disk, not of memory; wake starts the container from it, so the desktop starts fresh.
+Checked locally with `docker commit` of a running computer, which is the same kind of disk-only snapshot (nothing was
+closed first), then a new container from it:
+
+- Files in `/home/dog` and everywhere else on the disk survive.
+- Open windows do not: Chromium, the terminal and the file manager are all closed after a wake, and nothing reopens
+  them. The Browser icon opens Chromium with a new tab, not the old tabs.
+- Chromium's profile survives (`~/.config/chromium`: cookies, logins, history, preferences, and the session files).
+  Started with `chromium --restore-last-session`, the two tabs that were open came back, and a page saw both the
+  persistent cookie and the session cookie. Plain `chromium` does not restore them.
+- Chromium writes cookies to disk about every 30 seconds. A cookie set 8 seconds before the snapshot was not in the
+  profile after the wake; one set 40 seconds before was. So a login made in the last half minute before sleeping is
+  lost, because the snapshot does not ask Chromium to flush first.
+
+To make "remembers where you left off" true for the browser, two small changes would do it, and neither is in this
+change: a Chromium policy `RestoreOnStartup` = 1 in `/etc/chromium/policies/managed/` so the Browser icon (and any
+`chromium` a dog starts) restores the last session; and, in `DogComputer.sleep()`, a graceful `kill -TERM` of Chromium
+and a short wait before `sync` so its cookies and session are flushed. Reopening a terminal or the file manager at the
+same place would need an XFCE session manager saving its session, which this desktop deliberately does not have.
 
 ## The idle policy (cost is the point)
 
@@ -343,6 +456,9 @@ ones with `wrangler containers images delete <image:tag>`.
   output capture, the idle policy and the free-trial rules. `test/exec-env.test.ts` covers exec's `env` (the rules,
   the merge, and that values stay out of the record, the logs and error bodies) and the `xlarge` size;
   `test/entrypoint.test.ts` covers the `ComputersApi` entrypoint and that the public route still needs the key.
+  `test/ready.test.ts` and `test/wake-readiness.test.ts` cover the screen answering, the desktop being drawn (and the two
+  grace periods), screenshots waiting for it, and a desktop link while starting; `test/novnc.test.ts` checks the vendored
+  noVNC against the import graph.
   `test/trial-flow.test.ts`, `test/trial-registry.test.ts` and those two also run the Worker's own request handling and Durable Object classes against in-memory stand-ins (`test/fakes.ts`:
   SQLite from `node:sqlite`, a fake container and a clock that fires alarms). The stand-ins are not Cloudflare, so
   passing them says nothing about the live platform.
@@ -350,7 +466,8 @@ ones with `wrangler containers images delete <image:tag>`.
 - `pnpm exec oxlint --deny-warnings deploy/laterdog/computers`, from the repository root.
 - `pnpm run dry-run`: `wrangler deploy --dry-run`. This builds the image too.
 - Local image smoke test (native arch): `docker build -t laterdog-computer:dev container && docker run --rm -p 6080:6080 laterdog-computer:dev`,
-  then open http://localhost:6080/vnc.html.
+  then open http://localhost:6080/vnc.html. Chromium shows a "--no-sandbox" bar there when the Docker engine refuses
+  user namespaces (`container/chromium-flags` adds the flag only then); Cloudflare allows them.
 - `pnpm run smoke`: `scripts/smoke.mjs` against the deployed Worker, 34 checks. Auth; create and boot; exec as `dog` on
   `:0`; files; Chromium; screenshot; the viewer page and noVNC through the signed path; the raw WebSocket upgrade (HTTP
   101, then the `RFB 003.008` greeting as a binary frame, then a round trip to the VNC server); a forged link; exec
@@ -408,7 +525,11 @@ charges the trial back while it waits, and what the snapshots of trial computers
 - A desktop link gives full control until it expires or the computer sleeps. An open viewer keeps the computer awake,
   up to `MAX_AWAKE_HOURS`.
 - Some boots are slower: 15 to 18 s instead of about 6 s, in two of eight boots. The likely cause is a host fetching
-  the image; that is not confirmed.
+  the image; that is not confirmed. The image is 526 MB compressed (539 MB before the desktop change; arm64, as built
+  locally; the amd64 image Cloudflare runs was not built), and its pull is not something the startup script can change.
+- The timings in Waking and readiness are from a local Docker VM, not Cloudflare. How long the platform takes to place
+  and pull is outside them. Not seen live: the 250 ms poll, `desktopAvailable`, the held WebSocket upgrade, the static
+  assets and their cache headers, and the new image's dock.
 - Free trials are limited per network, not per person. Everyone behind one IPv4 address (an office, a campus, a
   carrier-grade NAT) shares one trial per window. Someone with many networks (VPNs, proxies, IPv6 ranges) can start
   more; Turnstile and `TRIALS_PER_DAY` bound that. Whoever takes a day's trials leaves none for others that day.
