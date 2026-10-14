@@ -1,7 +1,19 @@
 # Changelog
 
-## 0.3.28 — 2026-10-13
+## 0.3.28 — 2026-10-14
 
+- **Keep going on your other accounts.** When an account runs out, your dog carries on with the next account that has room, and a line in the chat says so, for example "Claude is recharging. Continuing on Codex." It keeps the model you chose for that engine.
+- **Honest handoffs.** Work passed between dogs keeps going while it makes progress. It stops after 20 quiet minutes or 4 hours in all, says "Ran out of time" instead of "Stopped by you", and a Continue button picks up only what is unfinished.
+- **One chat per teammate.** A dog talks to each teammate in one ongoing thread instead of opening a new one every time, and says so plainly when it reaches its limit.
+- **Dogs find each other across packs.** A dog can reach and work with dogs in your other packs, within the teammates it is allowed to talk to.
+- **Questions one at a time.** A card with several questions shows one at a time with Next and Back, options are lettered, and a single choice moves on by itself. Answered cards fold to one line with your answer.
+- **See what helpers are doing.** A progress panel shows each helper dog's progress while it works.
+- **A picture for every dog.** Make a profile picture for a dog from its settings or the chat.
+- **Tap the sleeping dog** to wake a dog's computer.
+- **Saving a key works again after a Keychain hiccup.** If the Keychain couldn't be read when later.dog started, it now recovers, keeps the key you typed if saving fails, and offers Try again.
+- **Dogs say "you".** Dogs and later.dog talk to you by name, never about "the user".
+- **Plain words when your Mac is full.** If later.dog can't save part of a chat because the disk is full, you get one calm note instead of errors.
+- **Deleting a dog frees its trial computer.**
 - **Thinking time starts when work resumes.** Time spent answering a question or approving a step no longer makes your dog look slow. The timer also stays right when you return to a chat.
 - **The tour keeps Apps search clear.** Hints fit the available space, including longer translations and smaller windows, and scroll when needed.
 - **Recent desktop updates in your language.** The launch updates now have translations in German, Spanish, French, Hindi, Japanese, Brazilian Portuguese, Ukrainian, and Simplified and Traditional Chinese.
