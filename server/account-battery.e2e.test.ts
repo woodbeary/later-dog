@@ -36,7 +36,7 @@ async function withBatteryFixture(
   const gate = join(dataDir, "account-1-out-of-usage");
   const firstFile = join(dataDir, "account-1-prompts.jsonl");
   const thirdFile = join(dataDir, "account-3-prompts.jsonl");
-  const codexDump = join(dataDir, "codex-calls.json");
+  const codexLog = join(dataDir, "codex-calls.jsonl");
   const release = join(dataDir, "usage-limit-release");
   const roomPlan = options.scripted ? { FAKE_CLAUDE_ROOM_PLAN: join(dataDir, "room-plan.json") } : {};
   const secondFile = join(dataDir, "account-2-prompts.jsonl");
@@ -90,7 +90,7 @@ async function withBatteryFixture(
     if (options.crossProvider) config.instances["codex-last"] = {
       driver: "codex", displayName: "Codex final account",
       config: { cli: fileURLToPath(new URL("./testing/fake-codex-app-server.ts", import.meta.url)) },
-      environment: { FAKE_CODEX_MODE: "resume", FAKE_CODEX_PROMPTS: thirdFile, FAKE_CODEX_DUMP: codexDump, FAKE_CODEX_REPLY: "Finished on Codex", FAKE_CODEX_ACCOUNT_EMAIL: "codex@example.test" },
+      environment: { FAKE_CODEX_MODE: "resume", FAKE_CODEX_PROMPTS: thirdFile, FAKE_CODEX_CALLS_LOG: codexLog, FAKE_CODEX_REPLY: "Finished on Codex", FAKE_CODEX_ACCOUNT_EMAIL: "codex@example.test" },
     };
     config.accountBattery = { enabled: options.enabled !== false, order: { claudeAgent: ["claude", "claude-two"] } };
     if (options.defaultEnabled) delete config.accountBattery;
@@ -106,7 +106,7 @@ async function withBatteryFixture(
     }, { timeout: 20_000 }).toBe(true);
     const bookedTo = (threadId: string) => readUsage(dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) })
       .filter((row) => row.threadId === threadId).map((row) => row.instanceId);
-    const codexCalls = () => existsSync(codexDump) ? (JSON.parse(readFileSync(codexDump, "utf8")).calls ?? []) : [];
+    const codexCalls = () => jsonLines(codexLog);
     await check({ api, control, release, dataDir, thirdPrompts: () => jsonLines(thirdFile), codexCalls, firstPrompts: () => jsonLines(firstFile), secondPrompts: () => jsonLines(secondFile), gate, bookedTo, evidence });
   } finally {
     evidence.push({ firstPrompts: jsonLines(firstFile), secondPrompts: jsonLines(secondFile) });
