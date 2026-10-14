@@ -36,7 +36,7 @@ it("creates and manages an own-section room through the mounted MCP proxy, for a
     for (const name of ["Fixture Chief", "Fixture Peer", "Fixture Second", "Foreign Peer"]) {
       const { bot } = await control(["new-bot", "--name", name]) as { bot: Bot };
       bots.push(bot);
-      await api("PATCH", `/api/bots/${bot.id}`, { section: name === "Foreign Peer" ? "Private" : "Room verification" });
+      await api("PATCH", `/api/bots/${bot.id}`, name === "Foreign Peer" ? { section: "Private", hidden: true } : { section: "Room verification" });
     }
     const [chief, peer, second, foreign] = bots;
     await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true });
