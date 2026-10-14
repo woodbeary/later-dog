@@ -22,17 +22,17 @@ export interface Shot {
   format: string;
 }
 
-const LOADING: YesNoQuestion = {
+export const LOADING_QUESTION: YesNoQuestion = {
   type: "yesno",
   instructions: "Is the last image still loading, for example a spinner, a progress bar, a blank page or a half-drawn window?",
 };
 
-const CHANGED: YesNoQuestion = {
+export const CHANGED_QUESTION: YesNoQuestion = {
   type: "yesno",
   instructions: "Compared with the first image, did the last image change in the way `last_action` was meant to change it?",
 };
 
-const SHOWING: ChoiceQuestion<ScreenShowing> = {
+export const SHOWING_QUESTION: ChoiceQuestion<ScreenShowing> = {
   type: "choice",
   instructions: "What, if anything, is blocking the last image?",
   options: {
@@ -126,9 +126,9 @@ export function createScreenCheck(deps: ScreenCheckDeps) {
     const compare = Boolean(before && action);
     const images = [...(compare ? [{ data: before!.png, format: before!.format }] : []), { data: shot.png, format: shot.format }];
     const questions = {
-      loading: LOADING,
-      showing: SHOWING,
-      ...(compare ? { changed: CHANGED } : {}),
+      loading: LOADING_QUESTION,
+      showing: SHOWING_QUESTION,
+      ...(compare ? { changed: CHANGED_QUESTION } : {}),
     };
     const decided = await fastDecide(deps.decider, "screenCheck", { last_action: action ?? "none" }, questions, {
       budgetMs: deps.budgetMs ?? SCREEN_CHECK_BUDGET_MS,

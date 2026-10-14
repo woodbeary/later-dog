@@ -9,6 +9,7 @@ import { autoReviewRules } from "./clef-config.ts";
 import { sipsShrinker } from "./clef-image-shrink.ts";
 import { appendClefLog } from "./clef-log.ts";
 import { createScreenCheck } from "./clef-screen-check.ts";
+import { createScreenshotFilter } from "./clef-screenshot-filter.ts";
 import { createTurnEndWatcher, type TurnEndInput } from "./clef-turn-end.ts";
 
 type Opened = Extract<RuntimeEvent, { type: "request.opened" }>;
@@ -96,5 +97,11 @@ export function createClef(deps: ClefDeps) {
     record: (row) => appendClefLog(deps.dataDir, row),
     shrink: sipsShrinker(),
   });
-  return { review, turnEnd, screen };
+  const screenshots = createScreenshotFilter({
+    decider: deps.decider,
+    enabled: () => deciderImagesReady(deps.config(), "screenshotFilter"),
+    record: (row) => appendClefLog(deps.dataDir, row),
+    shrink: sipsShrinker(),
+  });
+  return { review, turnEnd, screen, screenshots };
 }

@@ -11,8 +11,8 @@ export interface FakeCall {
 }
 
 export type FakeReply =
-  | { answers: Record<string, DeciderAnswer>; delayMs?: number }
-  | { fail: DeciderFailure; delayMs?: number }
+  | { answers: Record<string, DeciderAnswer>; delayMs?: number; reportedMs?: number }
+  | { fail: DeciderFailure; delayMs?: number; reportedMs?: number }
   | { hang: true };
 
 export type FakeScript = (call: FakeCall, index: number) => FakeReply;
@@ -54,8 +54,8 @@ export function fakeDecider(script: FakeScript): FakeDecider {
         return { ok: false, provider: "jev", reason: "timeout", latencyMs: budget };
       }
       if (reply.delayMs) await new Promise((resolve) => setTimeout(resolve, reply.delayMs));
-      if ("fail" in reply) return { ok: false, provider: "jev", reason: reply.fail, latencyMs: reply.delayMs ?? 0 };
-      return { ok: true, provider: "jev", answers: reply.answers as Answers<Qs>, latencyMs: reply.delayMs ?? 0 };
+      if ("fail" in reply) return { ok: false, provider: "jev", reason: reply.fail, latencyMs: reply.reportedMs ?? reply.delayMs ?? 0 };
+      return { ok: true, provider: "jev", answers: reply.answers as Answers<Qs>, latencyMs: reply.reportedMs ?? reply.delayMs ?? 0 };
     },
   };
 }

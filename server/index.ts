@@ -6932,8 +6932,8 @@ const onProviderEvent = guardTurnEnd((event: RuntimeEvent) => {
           const screenSettled = Promise.race([
             finalScreenFrame(bot.id, event.threadId),
             new Promise<null>((resolve) => { timeout = setTimeout(() => resolve(null), SCREEN_SETTLE_TIMEOUT_MS); }),
-          ]).then((frame) => {
-            if (frame && isCurrent()) {
+          ]).then(async (frame) => {
+            if (frame && isCurrent() && (await clef.screenshots.shouldPost({ threadId: event.threadId, frame: { png: frame.png, mime: frame.mime }, task: store.activePath(event.threadId).findLast((m) => m.role === "user" && m.kind === "text")?.text ?? "", reply })).post && isCurrent()) {
               store.insertMessageAfter(event.threadId, settleLeafId, { role: "bot", kind: "screen", png: frame.png, mime: frame.mime });
             }
           }).catch(() => {}).finally(() => {
