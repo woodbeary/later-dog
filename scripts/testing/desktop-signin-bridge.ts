@@ -102,7 +102,7 @@ async function control(h: Harness, body: Record<string, any>) {
   if (body.refresh) await h.client.refresh();
   if (body.otp) h.accounts.otp = body.otp;
   if (body.failSend !== undefined) h.accounts.failSend = body.failSend;
-  return { ok: true, sent: h.accounts.sent, signedOut: h.accounts.signedOut.length, requests: h.accounts.requests.map((row: { route: string }) => row.route) };
+  return { ok: true, sent: h.accounts.sent, signedOut: h.accounts.signedOut.length, requests: h.accounts.requests.map((row) => row.route) };
 }
 
 export function desktopSigninRoutes(): PreviewRoute[] {
