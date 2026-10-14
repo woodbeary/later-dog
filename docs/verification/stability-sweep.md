@@ -104,8 +104,6 @@ Failed-turn rows seen on the fixture: the usage limit, "Not logged in" and an ov
 2. The raw message after "Could not continue on …".
 3. No jitter on the hourly update check.
 
-Also seen, not part of the checklist: `server/index.test.ts` "ends a Chief of Staff's team section at the roster" fails on `laterdog/checkpoint` without these changes (the roster is not the last thing in the section). Not caused or touched here; it needs the person who changed that prompt.
-
 Also seen while probing the API, with the smallest fix:
 
 - A routine with no prompt, name or dog answers with a plain sentence but status 500, and so do the other checks in `sanitizeInput` (`server/routines.ts:661`) and "This interval has no future runs". They are the person's mistakes, so 400: throw them with `status: 400`.
