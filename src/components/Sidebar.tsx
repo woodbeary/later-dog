@@ -41,7 +41,7 @@ import { llmThreadTitlesEnabled } from "@/lib/feature-flags";
 import { BotAvatar, InitialsAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { cn } from "@/lib/cn";
-import { searchMatchesThreads, useSearchDisclosure } from "@/lib/search-disclosure";
+import { disclosureChoice, searchMatchesThreads, useSearchDisclosure } from "@/lib/search-disclosure";
 import { useHeldMenuMotion, useMenuMotion } from "./MenuMotion";
 import { UpdateButton } from "./UpdateButton";
 import { lastNonReceipt } from "@/lib/receipts";
@@ -125,6 +125,7 @@ import { citationPreviewText } from "@/lib/citations";
 import { markdownPreview } from "../../shared/markdown-preview";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
 import { StatusDot } from "./StatusDot";
+import { Collapsible } from "./Collapsible";
 import { copyConversationId } from "@/lib/copy-conversation-id";
 import { dogStatusKind } from "@/lib/dog-status";
 
@@ -306,7 +307,7 @@ export function GroupListItem({
       onClick={() => { setThreadsOpen(true); dispatch({ type: "newGroupTask", groupId: group.id }); }}
       className="pointer-events-none absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-ink-secondary opacity-0 hover:bg-raised hover:text-ink disabled:opacity-40 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 max-md:pointer-events-auto max-md:opacity-70 touch:pointer-events-auto touch:opacity-70 touch:disabled:opacity-40"><Plus size={14} /></button>}
     </div>
-    {expanded && <GroupThreadList group={group} selected={selected} density={density} query={group.name.toLowerCase().includes(query.toLowerCase()) ? "" : query} />}
+    <Collapsible open={expanded}><GroupThreadList group={group} selected={selected} density={density} query={group.name.toLowerCase().includes(query.toLowerCase()) ? "" : query} /></Collapsible>
     </>
   );
 }
@@ -1301,6 +1302,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
   const [renaming, setRenaming] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [threadsOpen, setThreadsOpen] = useSearchDisclosure(`bot:${bot.id}`, showThreads ? query : "", searchMatchesThreads(query, bot.tasks, bot.projects));
+  const collapsedByYou = !threadsOpen && !query.trim() && disclosureChoice(`bot:${bot.id}`) === false;
   useEffect(() => { if (reveal && showThreads) setThreadsOpen(true); }, [reveal, showThreads]);
   const hasThreadList = (bot.tasks?.filter((task) => !task.routineRunId).length ?? 1) > 1 || (bot.projects?.length ?? 0) > 0 || Boolean(query);
   const iconOnly = density === "icons";
@@ -1484,10 +1486,10 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
         </span>
       )}
     </div>
-    {!iconOnly && threadsOpen && hasThreadList && <BotThreadList {...props} hidden={!showThreads}
+    <Collapsible open={!iconOnly && threadsOpen && hasThreadList}><BotThreadList {...props} hidden={!showThreads}
       activityLabel={liveActivityLabel(last)}
-      query={bot.name.toLowerCase().includes(query.toLowerCase()) || bot.title.toLowerCase().includes(query.toLowerCase()) ? "" : query} />}
-    {!expanded && <SidebarBotActivity bot={bot} density={density} pendingQueued={pendingQueued} dispatch={dispatch} />}
+      query={bot.name.toLowerCase().includes(query.toLowerCase()) || bot.title.toLowerCase().includes(query.toLowerCase()) ? "" : query} /></Collapsible>
+    {!expanded && <SidebarBotActivity bot={bot} density={density} pendingQueued={pendingQueued} dispatch={dispatch} onlyWaiting={collapsedByYou} />}
     {showThreads && creatingProject && <BotProjectDialog bot={bot} onClose={() => setCreatingProject(false)} />}
     </>
   );
@@ -2354,7 +2356,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
                 {collapsed && queued.length > 0 && <button type="button" onClick={() => toggleSection(id)}
                   title={`${t("task.queued")} · ${queued.join(", ")}`} aria-label={`${t("sidebar.section.expand", { name: sectionLabel(id) })} · ${t("task.queued")} · ${queued.join(", ")}`}
                   className="mx-3 mb-1 self-start rounded bg-raised/50 px-2 py-0.5 text-[10px] text-ink-secondary hover:text-ink">{t("task.queued")} · {queued.length}</button>}
-                {!collapsed && (
+                <Collapsible open={!collapsed} className="flex flex-col gap-0.5">
                   <>
                     {sectionChiefItems.map((bot) => <BotListItem key={bot.id} {...botRow(bot)} />)}
                     {sectionGroupItems.map((group) => (
@@ -2382,7 +2384,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
                       </button>
                     )}
                   </>
-                )}
+                </Collapsible>
                 {dropTarget?.id === id && dropTarget.place === "after" && draggingSectionId !== id && (
                   <div className="mx-2 h-0.5 rounded-full bg-accent" />
                 )}

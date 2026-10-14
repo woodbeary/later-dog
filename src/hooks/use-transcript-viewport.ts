@@ -23,6 +23,18 @@ import {
 } from "@/lib/transcript-window";
 import { useStore } from "@/state/store";
 
+export function scrollBehavior(): ScrollBehavior {
+  if (typeof document !== "undefined" && document.documentElement.dataset.reducedMotion === "true") return "auto";
+  return globalThis.window?.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
+export function endKeyScrolls(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "defaultPrevented">, target: EventTarget | null): boolean {
+  if (event.key !== "End" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return false;
+  if (target instanceof HTMLTextAreaElement) return target.value.length === 0;
+  return !(target instanceof HTMLElement && target.isContentEditable);
+}
+
 export function useTranscriptViewport<T extends { id: string; role?: string }>({
   ownerId,
   threadId,
@@ -139,11 +151,16 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     dispatch({ type: "loadOlderMessages", threadId });
   };
 
+  const jumpRef = useRef<() => void>(() => {});
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement;
       if (e.key === "PageUp" || ((e.key === "Home" || e.key === "ArrowUp") && !typing)) {
         setBottomFollow(false);
+      }
+      if (endKeyScrolls(e, e.target) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        e.preventDefault();
+        jumpRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -158,8 +175,15 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     setBottomFollow(true);
     setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null });
     requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: scrollBehavior() });
     });
+  };
+  jumpRef.current = jumpToLatest;
+  const scrollToUnread = () => {
+    const divider = scrollRef.current?.querySelector<HTMLElement>("[data-unread-divider]");
+    if (!divider) return;
+    setBottomFollow(false);
+    divider.scrollIntoView({ block: "start", behavior: scrollBehavior() });
   };
 
   const scrollHandlers = {
@@ -199,6 +223,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     transcriptRef,
     transcriptKey,
     following: follow,
+    followingRef: followRef,
     windowedMessages,
     hiddenCount,
     laterCount,
@@ -207,6 +232,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     showLater,
     loadOlder,
     jumpToLatest,
+    scrollToUnread,
     scrollHandlers,
   };
 }

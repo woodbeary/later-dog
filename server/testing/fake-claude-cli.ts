@@ -34,7 +34,7 @@ const scriptedReplies = (() => {
     return [];
   }
 })();
-type ScriptedToolCall = { name: string; id?: string; input: Record<string, unknown>; ok: boolean; output?: unknown };
+type ScriptedToolCall = { name: string; id?: string; input: Record<string, unknown>; ok: boolean; output?: unknown; pending?: boolean };
 const scriptedToolCalls: ScriptedToolCall[] | null = (() => {
   const raw = process.env.FAKE_CLAUDE_TOOL_CALLS;
   if (raw === undefined) return null;
@@ -42,13 +42,14 @@ const scriptedToolCalls: ScriptedToolCall[] | null = (() => {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
     return parsed
-      .filter((call): call is { name: string; id?: unknown; input?: unknown; ok?: unknown; output?: unknown } => typeof call?.name === "string")
+      .filter((call): call is { name: string; id?: unknown; input?: unknown; ok?: unknown; output?: unknown; pending?: unknown } => typeof call?.name === "string")
       .map((call) => ({
         name: call.name,
         ...(typeof call.id === "string" ? { id: call.id } : {}),
         input: call.input && typeof call.input === "object" && !Array.isArray(call.input) ? call.input as Record<string, unknown> : {},
         ok: call.ok !== false,
         output: call.output,
+        ...(call.pending === true ? { pending: true } : {}),
       }));
   } catch {
     return null;
@@ -575,10 +576,11 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     for (const call of scriptedToolCalls) {
       const id = call.id ?? `tu-${process.pid}-${++toolUseCount}`;
       out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: call.name, input: call.input }], usage } });
+      if (call.pending) continue;
       out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: !call.ok, content: call.output }] } });
       runHooks("PostToolUse", { tool_name: call.name, tool_input: call.input, tool_response: call.output, tool_use_id: id });
     }
-    for (const text of replyParts) out({ type: "assistant", message: { content: [{ type: "text", text }], usage } });
+    if (!scriptedToolCalls.some((call) => call.pending)) for (const text of replyParts) out({ type: "assistant", message: { content: [{ type: "text", text }], usage } });
   } else {
     replyParts.forEach((text, index) => {
       const content: Array<

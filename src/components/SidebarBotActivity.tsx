@@ -166,8 +166,12 @@ export function PinnedThreadRows({ entries, now, onJump, onUnpin }: { entries: A
   </>;
 }
 
-export function SidebarBotActivity({ bot, density, pendingQueued, dispatch }: { bot: Bot; density: SidebarDensity; pendingQueued: AppState["pendingQueued"]; dispatch: Dispatch<Action> }) {
-  const tasks = threadsWhenTreeHidden(bot, pendingQueued).filter((task) => task.threadId !== bot.threadId);
+export function threadsLeftWhenCollapsed<T extends { activity?: string }>(tasks: readonly T[], collapsedByYou: boolean): T[] {
+  return collapsedByYou ? tasks.filter((task) => task.activity === "waiting-on-you") : [...tasks];
+}
+
+export function SidebarBotActivity({ bot, density, pendingQueued, dispatch, onlyWaiting = false }: { bot: Bot; density: SidebarDensity; pendingQueued: AppState["pendingQueued"]; dispatch: Dispatch<Action>; onlyWaiting?: boolean }) {
+  const tasks = threadsLeftWhenCollapsed(threadsWhenTreeHidden(bot, pendingQueued).filter((task) => task.threadId !== bot.threadId), onlyWaiting);
   if (!tasks.length) return null;
   const iconOnly = density === "icons";
   return <div data-sidebar-bot-activity={bot.id} className={cn("mb-1 space-y-0.5", !iconOnly && "ml-6")}>

@@ -45,6 +45,7 @@ Work stops at a gate before the next one starts.
 | L2 Phone review-ready | `phone/review-ready` (later-dog-phone) | the phone repo's own checkout (served to the test iPhone) | running | no-comments check; probe fix; live updates recover; data choice before first send; New dog scroll; visual pass; review notes | proven on the test iPhone; production check after G1 |
 | L3 Reliability | `laterdog/reliability` | `/Volumes/laterdog-phone/lanes/reliability` | running | honest handoffs; one thread per teammate; Keep going across engines; scoped local-tools token; never "the user"; plain disk-full words; deleted dog frees its trial computer | focused tests and fixture proof |
 | L4 PR #36 on screen | `laterdog/visual-36` | `/Volumes/laterdog-phone/lanes/visual36` | running | screenshot every #36 change beside its reference; fix; question card works and folds | sheet with every item passing |
+| L6 Thinking, scroll, sidebar | `laterdog/thinking` | `/Volumes/laterdog-phone/lanes/thinking` | running | one thinking row; quieter updates and the Show every update setting; one steady working dot; NEW divider, new-message pills, End key, stable scroll; sidebar collapse that collapses; Copy conversation ID | sheet at `/Volumes/laterdog-phone/tmp/l6-sheet/index.html` with every item beside its reference |
 | L5–L14 | | | wave 2 and 3 | | |
 
 ## Evidence

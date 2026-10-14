@@ -2,6 +2,10 @@ import { useEffect, useState, type SetStateAction } from "react";
 
 const chosen = new Map<string, boolean>();
 
+export function disclosureChoice(key: string): boolean | undefined {
+  return chosen.get(key);
+}
+
 export function forgetSearchDisclosuresForTests(): void {
   chosen.clear();
 }

@@ -71,7 +71,7 @@ function workedLabel(elapsed: number): string {
 
 export function planTranscript(
   messages: readonly Message[],
-  { runningSince = null, quiet = false }: { runningSince?: number | null; quiet?: boolean } = {},
+  { runningSince = null, quiet = false, foldAll = false }: { runningSince?: number | null; quiet?: boolean; foldAll?: boolean } = {},
 ): TranscriptPlan {
   const firstIndex = new Map<string, number>();
   const terminals = new Map<string, number>();
@@ -106,7 +106,7 @@ export function planTranscript(
     if (spoken(message)) {
       const first = !spokenTurns.has(message.turnId);
       spokenTurns.add(message.turnId);
-      const update = lastShownAt === undefined || message.at - lastShownAt >= UPDATE_GAP_MS;
+      const update = !foldAll && (lastShownAt === undefined || message.at - lastShownAt >= UPDATE_GAP_MS);
       const quietable = !message.turnTerminal && !first && !update;
       if (terminals.has(message.turnId)) {
         if (quietable && index < (lastStep.get(message.turnId) ?? -1)) {
@@ -114,7 +114,7 @@ export function planTranscript(
           folded.set(message.turnId, [...(folded.get(message.turnId) ?? []), message]);
           return;
         }
-      } else if (quietable && quiet && runningSince !== null && message.at >= runningSince) {
+      } else if (quietable && (quiet || foldAll) && runningSince !== null && message.at >= runningSince) {
         hiddenIds.add(message.id);
         return;
       }
