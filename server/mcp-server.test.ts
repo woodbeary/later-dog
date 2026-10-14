@@ -12,6 +12,7 @@ import {
   validateBaseUrl,
   validateToolArguments,
 } from "../scripts/mcp-server.ts";
+import { COMPUTER_TOOLS } from "../scripts/mcp-computer-tools.ts";
 
 const ORIGINAL_FETCH = globalThis.fetch;
 
@@ -58,7 +59,8 @@ describe("MCP JSON-RPC protocol", () => {
   it("lists a closed, annotated orchestration surface", async () => {
     const response = JSON.parse((await processMcpMessage(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })))!);
     const names = response.result.tools.map((tool: any) => tool.name);
-    expect(names).toEqual(TOOLS.map((tool) => tool.name));
+    expect(names.slice(0, TOOLS.length)).toEqual(TOOLS.map((tool) => tool.name));
+    expect(names.slice(TOOLS.length)).toEqual(COMPUTER_TOOLS.map((tool) => tool.name));
     expect(names).toContain("create_bot");
     expect(names).toContain("create_channel");
     expect(names).toContain("wait_for_conversation");

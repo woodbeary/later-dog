@@ -28,7 +28,13 @@ export const ROOM_ROUTING_INSTRUCTIONS =
 const ROOM_STATE_KEYS = new Set(["room", "humans_in_room", "bots_in_room", "recent_messages", "new_message"]);
 const ROOM_STATE_REQUIRED = ["room", "humans_in_room", "bots_in_room", "new_message"];
 
+export type ToolQuestion =
+  | { type: "choice"; instructions: string; criteria: Record<string, string> }
+  | { type: "score"; instructions: string; criteria: string[] }
+  | { type: "noul"; instructions: string; criteria?: { true?: string; false?: string } };
+
 export type Decision = { model: DecideModel; images: string[] } & (
+  | { kind: "toolQuestions"; state: unknown; questions: Record<string, ToolQuestion> }
   | { kind: "keyCheck"; state: unknown; questions: { answer: { type: "noul"; instructions: string } } }
   | { kind: "roomRouting"; state: Record<string, unknown>; questions: { answer: { type: "choice"; instructions: string; criteria: Record<string, string> } } }
 );
@@ -103,6 +109,59 @@ export function decisionFrom(body: unknown): { ok: true; decision: Decision } | 
   if (byteLength(state) > DECIDE_MAX_STATE_BYTES) return { ok: false, refusal: { status: 413, code: "too_large", message: "The state is too large." } };
   const criteria = Object.fromEntries(options) as Record<string, string>;
   return { ok: true, decision: { kind: "roomRouting", model, images: images.images, state, questions: { answer: { type: "choice", instructions: ROOM_ROUTING_INSTRUCTIONS, criteria } } } };
+}
+
+const TOOL_QUESTION_ID = /^[a-z][a-z0-9_]{0,31}$/;
+const TOOL_MODELS: readonly DecideModel[] = ["clef", "clef-flash"];
+export const DECIDE_TOOL_MAX_QUESTIONS = 4;
+export const DECIDE_TOOL_MAX_LEVELS = 10;
+
+const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= DECIDE_MAX_OPTION_CHARS;
+
+function toolQuestionFrom(question: unknown): ToolQuestion | null {
+  if (!isRecord(question) || !isText(question.instructions)) return null;
+  const instructions: string = question.instructions;
+  const criteria = question.criteria;
+  if (question.type === "choice") {
+    if (!isRecord(criteria)) return null;
+    const options = Object.entries(criteria);
+    if (options.length < 2 || options.length > DECIDE_MAX_OPTIONS) return null;
+    if (!options.every(([key, text]) => key.length > 0 && key.length <= 100 && typeof text === "string" && text.length <= DECIDE_MAX_OPTION_CHARS)) return null;
+    return { type: "choice", instructions, criteria: Object.fromEntries(options) as Record<string, string> };
+  }
+  if (question.type === "score") {
+    if (!Array.isArray(criteria) || criteria.length < 2 || criteria.length > DECIDE_TOOL_MAX_LEVELS) return null;
+    if (!criteria.every((level) => typeof level === "string" && level.length <= DECIDE_MAX_OPTION_CHARS)) return null;
+    return { type: "score", instructions, criteria: [...criteria] as string[] };
+  }
+  if (question.type === "noul") {
+    if (criteria === undefined) return { type: "noul", instructions };
+    if (!isRecord(criteria) || !Object.keys(criteria).every((key) => key === "true" || key === "false")) return null;
+    const { true: yes, false: no } = criteria;
+    if ((yes !== undefined && !isText(yes)) || (no !== undefined && !isText(no))) return null;
+    return { type: "noul", instructions, criteria: { ...(yes === undefined ? {} : { true: yes as string }), ...(no === undefined ? {} : { false: no as string }) } };
+  }
+  return null;
+}
+
+export function toolDecisionFrom(body: unknown): { ok: true; decision: Decision } | { ok: false; refusal: Refusal } {
+  if (!isRecord(body) || !isRecord(body.questions) || !("state" in body)) return refuse("Send a state and one to four questions.");
+  const images = imagesFrom(body.images);
+  if (!images.ok) return images;
+  if (byteLength(body) > DECIDE_MAX_IMAGE_BODY_BYTES) return tooLarge("The question and its images are too large. Send smaller images.");
+  const model = typeof body.model === "string" && (TOOL_MODELS as readonly string[]).includes(body.model) ? (body.model as DecideModel) : CLEF_SELECTOR;
+  if (body.model !== undefined && model !== body.model) return refuse("model must be clef or clef-flash.");
+  const entries = Object.entries(body.questions);
+  if (entries.length < 1 || entries.length > DECIDE_TOOL_MAX_QUESTIONS) return refuse(`Ask one to ${DECIDE_TOOL_MAX_QUESTIONS} questions at a time.`);
+  const questions: Record<string, ToolQuestion> = {};
+  for (const [id, raw] of entries) {
+    if (!TOOL_QUESTION_ID.test(id)) return refuse("Question ids are lower-case letters, digits and underscores, starting with a letter.");
+    const question = toolQuestionFrom(raw);
+    if (!question) return refuse(`Question ${id} is not a valid choice, score or noul question.`);
+    questions[id] = question;
+  }
+  if (byteLength(body.state) > DECIDE_MAX_STATE_BYTES) return tooLarge("The state is too large.");
+  return { ok: true, decision: { kind: "toolQuestions", model, images: images.images, state: body.state, questions } };
 }
 
 export function clefInput(decision: Decision) {

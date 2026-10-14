@@ -4,9 +4,10 @@ import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex 
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
 import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
-import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom } from "./decide";
+import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, type Decision, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom, toolDecisionFrom } from "./decide";
 import { maxComputers } from "./idle";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
+import { type McpBackend, handleMcp } from "./mcp";
 import type { ComputerRegistry } from "./registry";
 import { type ComputerOp, type TrialOp, route } from "./routes";
 import {
@@ -518,15 +519,47 @@ async function decideRequest(request: Request, env: Env): Promise<Response> {
   if (!body.ok) return body.response;
   const parsed = decisionFrom(body.value);
   if (!parsed.ok) return apiError(parsed.refusal);
+  return await runDecision(env, keySha256, parsed.decision);
+}
+
+async function runDecision(env: Env, keySha256: string, decision: Decision): Promise<Response> {
   if (!env.AI) return apiError(NOT_INCLUDED);
   const allowance = await trials(env).allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: DECISIONS_PER_DAY, total: DECISIONS_TOTAL_PER_DAY });
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
   try {
-    return json(await env.AI.run(clefModelId(parsed.decision), clefInput(parsed.decision), aiGateway(env)));
+    return json(await env.AI.run(clefModelId(decision), clefInput(decision), aiGateway(env)));
   } catch (error) {
     console.error(`laterdog computers: decision failed: ${error instanceof Error ? error.message : String(error)}`);
     return apiError(INCLUDED_FAILED);
   }
+}
+
+const NEEDS_TRIAL_KEY: Refusal = {
+  status: 403,
+  code: "decisions_need_trial_key",
+  message: "Decisions come with a free trial or later.dog Cloud key (it starts with ldt_). This computers key can run computers but not decisions.",
+};
+
+function mcpBackend(request: Request, env: Env, caller: Caller, url: URL): McpBackend {
+  const post = (value: unknown) => new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
+  return {
+    list: () => listComputers(caller),
+    create: (input) => createComputer(post({ ...input, size: input.size ?? (caller.trial ? "standard" : "small") }), env, caller),
+    computer: (op, id, input) => computerRequest(op, id, input === undefined ? new Request(request.url, { method: "POST" }) : post(input), env, url, caller),
+    decide: async (input) => {
+      if (!caller.trial || !caller.keySha256) return apiError(NEEDS_TRIAL_KEY);
+      if (!(await allowed(env.INCLUDED_LIMIT, caller.keySha256))) return apiError(TOO_MANY);
+      const parsed = toolDecisionFrom(input);
+      if (!parsed.ok) return apiError(parsed.refusal);
+      return await runDecision(env, caller.keySha256, parsed.decision);
+    },
+  };
+}
+
+async function mcpRequest(request: Request, env: Env, via: Via, url: URL): Promise<Response> {
+  const identified = await identify(request, env, via);
+  if (!identified.ok) return identified.response;
+  return await handleMcp(request, { backend: mcpBackend(request, env, identified.caller, url) });
 }
 
 async function voicesRequest(request: Request, env: Env): Promise<Response> {
@@ -694,6 +727,8 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return json({ ...trialOffer(trialPolicy(env)), ...includedField(env), ...(squareConfigured(env) ? { planOffered: true } : {}) });
       case "decide":
         return await decideRequest(request, env);
+      case "mcp":
+        return await mcpRequest(request, env, via, url);
       case "voices":
         return await voicesRequest(request, env);
       case "plan":

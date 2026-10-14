@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import readline from "node:readline";
 import { localControlTokenPath, localToolsHeaders } from "./local-control-token.ts";
+import { COMPUTER_TOOLS, ComputerToolOutput, callComputerTool, computerToolProblem, isComputerTool } from "./mcp-computer-tools.ts";
 
 export function validateBaseUrl(url: string): string {
   const trimmed = url.replace(/\/+$/, "");
@@ -524,6 +525,11 @@ export class ToolInputError extends Error {}
 
 export function validateToolArguments(name: unknown, args: unknown): asserts args is Record<string, unknown> {
   if (typeof name !== "string" || !name) throw new ToolInputError("tool name must be a non-empty string");
+  if (isComputerTool(name)) {
+    const problem = computerToolProblem(name, args);
+    if (problem) throw new ToolInputError(problem);
+    return;
+  }
   const tool = TOOLS.find((candidate) => candidate.name === name);
   if (!tool) throw new ToolInputError(`Unknown tool: ${name}`);
   if (!isRecord(args)) throw new ToolInputError("tool arguments must be an object");
@@ -1227,6 +1233,7 @@ export async function handleToolCall(
     }
 
     default:
+      if (isComputerTool(name)) return new ComputerToolOutput(await callComputerTool(name, args, {}, signal));
       throw new ToolInputError(`Unknown tool: ${name}`);
   }
 }
@@ -1322,7 +1329,7 @@ export async function processMcpMessage(
           name: "laterdog-mcp",
           version: "1.1.0",
         },
-        instructions: "Use bounded read tools before mutating the later.dog team. Approval grants, deletion, and computer lifecycle are intentionally unavailable.",
+        instructions: "Use bounded read tools before mutating the later.dog team. Approval grants and deletion are intentionally unavailable. The computer_* tools and decide call later.dog Cloud with this Mac's own key; they never touch the team.",
       });
     }
 
@@ -1338,7 +1345,7 @@ export async function processMcpMessage(
 
     if (method === "tools/list") {
       if (isNotification) return null;
-      return formatResponse(id, { tools: TOOLS });
+      return formatResponse(id, { tools: [...TOOLS, ...COMPUTER_TOOLS] });
     }
 
     if (method === "tools/call") {
@@ -1370,6 +1377,7 @@ export async function processMcpMessage(
         }
       }
       if (isNotification) return null;
+      if (result instanceof ComputerToolOutput) return formatResponse(id, result.result);
       return formatResponse(id, {
         content: [
           {
