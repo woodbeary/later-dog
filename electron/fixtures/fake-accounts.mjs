@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 const GOOD_CODE = "12345678";
 const base64url = size => randomBytes(size).toString("base64url");
 
-export async function startFakeAccounts({ homeOrigin = "https://home.fixture.test", now = () => Date.now() } = {}) {
+export async function startFakeAccounts({ homeOrigin = "https://home.fixture.test", now = () => Date.now(), requireTrustedOrigin = false } = {}) {
   const f = {
     requests: [], sent: [], signedOut: [], homeState: "ready", setup: undefined, otp: GOOD_CODE, failSend: null, failVerify: null,
     tokens: new Map(), sessions: new Map(), authorizations: new Map(), pairings: 0, accountId: "fixture-account",
@@ -13,8 +13,9 @@ export async function startFakeAccounts({ homeOrigin = "https://home.fixture.tes
     let raw = "";
     for await (const chunk of req) raw += chunk;
     const body = raw ? JSON.parse(raw) : {};
-    f.requests.push({ method: req.method, route: req.url, authorization: req.headers.authorization, body });
+    f.requests.push({ method: req.method, route: req.url, authorization: req.headers.authorization, origin: req.headers.origin, body });
     const send = (status, data, headers = {}) => { res.writeHead(status, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(data)); };
+    if (requireTrustedOrigin && req.url.startsWith("/api/auth/") && req.headers.origin !== f.origin) return send(403, { error: "forbidden" });
     const bearer = req.headers.authorization?.match(/^Bearer (\S+)$/)?.[1];
     if (req.url === "/api/auth/email-otp/send-verification-otp") {
       if (f.failSend) return send(f.failSend.status, f.failSend.body);

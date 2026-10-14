@@ -44,6 +44,22 @@ A signed-in person has no Server menu, no server switcher in the sidebar (only
    lending, so no accounts-service change is needed.
 4. `POST https://accounts.later.dog/api/auth/sign-out` ends the short-lived account session.
 
+Every request includes the configured accounts-service origin in its `Origin`
+header. Node fetch adds `Sec-Fetch-Mode: cors`; Better Auth requires a trusted
+origin when fetch metadata is present. In 0.3.30 the missing header caused HTTP
+403 before an email was sent. The 0.3.31 client supplies it without changing the
+accounts service's origin or CSRF checks.
+
+The sign-in button accepts an immediate click, shows `Sending code…` while the
+request is pending, and permits a retry after its one-line error. It does not
+use the onboarding buttons' initial click delay. The main-process request has
+a 20-second timeout.
+
+Regression coverage includes the real Better Auth handler receiving Node-style
+fetch metadata, denied missing or untrusted origins, accepted trusted-origin
+send and verify requests, and the desktop client completing its fixture flow
+against an origin-enforcing accounts fixture.
+
 `createCloudAccountClient().adopt()` stores the device credential (OS-encrypted
 `cloud-account.bin`, as before), after which the unchanged state loop, lending and
 pairing take over. The device flow is only started after the code was right, so a

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.31 — 2026-10-14
+
+- **Email sign-in works on the Mac.** Fixes the request error that stopped Agree and continue from sending a code in 0.3.30.
+- **Sign-in responds straight away.** A quick click after filling your email is accepted, and the button says Sending code while it waits. If sending fails, a clear message appears and you can retry.
+
 ## 0.3.30 — 2026-10-14
 
 - **One account on your Mac and phone.** Sign in on the Mac with your email and a code, right inside later.dog, to open the same Cloud home as your phone.

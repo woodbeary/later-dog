@@ -53,7 +53,6 @@ async function type(selector: string, value: string) {
     input!.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
-const settled = () => new Promise((resolve) => setTimeout(resolve, 650));
 async function click(label: string) {
   const target = button(label);
   expect(target, `button ${label}`).toBeTruthy();
@@ -74,17 +73,18 @@ afterEach(async () => {
   host.remove();
   delete (window as unknown as { laterdog?: unknown }).laterdog;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("Settings, later.dog Cloud on this Mac", () => {
   it("asks for an email, sends a code, and signs in with the 8 digits without a browser or a second tap", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 9, 14));
     bridge = makeBridge({ status: "signed-out" });
     await show({ cloudAccount: bridge });
     expect(host.querySelector("[data-cloud-account]")?.getAttribute("data-cloud-account")).toBe("signed-out");
     expect(text()).toContain("Not signed in");
     expect(button("Agree and continue")?.disabled).toBe(true);
     await type("input[type=email]", "jo@example.test");
-    await settled();
     await click("Agree and continue");
     expect(bridge.sendCode).toHaveBeenCalledWith("jo@example.test");
     expect(host.querySelector("[data-cloud-sign-in]")?.getAttribute("data-cloud-sign-in")).toBe("code");
@@ -96,12 +96,64 @@ describe("Settings, later.dog Cloud on this Mac", () => {
     expect(bridge.begin).not.toHaveBeenCalled();
   });
 
+  it("says it is sending the code and accepts only one request while it waits", async () => {
+    bridge = makeBridge({ status: "signed-out" });
+    let finish!: (result: Awaited<ReturnType<CloudAccountBridge["sendCode"]>>) => void;
+    vi.mocked(bridge.sendCode).mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    await show({ cloudAccount: bridge });
+    await type("input[type=email]", "jo@example.test");
+    await click("Agree and continue");
+    expect(button("Sending code…")?.disabled).toBe(true);
+    expect(host.querySelector("[role=status]")?.textContent).toBe("Sending code…");
+    const emailInput = host.querySelector<HTMLInputElement>("input[type=email]")!;
+    expect(emailInput.disabled).toBe(true);
+    await click("Sending code…");
+    await act(async () => { emailInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+    expect(bridge.sendCode).toHaveBeenCalledOnce();
+    await act(async () => { finish({ ok: true, email: "jo@example.test" }); });
+    expect(host.querySelector("[data-cloud-sign-in]")?.getAttribute("data-cloud-sign-in")).toBe("code");
+  });
+
+  it.each(["backend", "bridge"] as const)("shows a %s send failure and permits an immediate retry", async (failure) => {
+    bridge = makeBridge({ status: "signed-out" });
+    if (failure === "backend") vi.mocked(bridge.sendCode).mockResolvedValueOnce({ ok: false, code: "email_unavailable" });
+    else vi.mocked(bridge.sendCode).mockRejectedValueOnce(new Error("disconnected"));
+    await show({ cloudAccount: bridge });
+    await type("input[type=email]", "jo@example.test");
+    await click("Agree and continue");
+    expect(host.querySelector("[role=alert]")?.textContent).toBe(failure === "backend"
+      ? "later.dog can't send sign-in emails right now. Try again in a little while."
+      : "That didn't work. Try again, or send a new code.");
+    expect(button("Agree and continue")?.disabled).toBe(false);
+    expect(host.querySelector<HTMLInputElement>("input[type=email]")?.disabled).toBe(false);
+    await click("Agree and continue");
+    expect(bridge.sendCode).toHaveBeenCalledTimes(2);
+    expect(host.querySelector("[role=alert]")).toBeNull();
+    expect(host.querySelector("[data-cloud-sign-in]")?.getAttribute("data-cloud-sign-in")).toBe("code");
+  });
+
+  it("keeps the current email while a code is being checked", async () => {
+    bridge = makeBridge({ status: "signed-out" });
+    let finish!: (result: Awaited<ReturnType<CloudAccountBridge["verifyCode"]>>) => void;
+    vi.mocked(bridge.verifyCode).mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    await show({ cloudAccount: bridge });
+    await type("input[type=email]", "jo@example.test");
+    await click("Agree and continue");
+    await type("input[autocomplete=one-time-code]", "00000000");
+    expect(button("Use a different email")?.disabled).toBe(true);
+    await click("Use a different email");
+    expect(host.querySelector("[data-cloud-sign-in]")?.getAttribute("data-cloud-sign-in")).toBe("code");
+    await act(async () => { finish({ ok: false, code: "wrong_code" }); });
+    expect(button("Use a different email")?.disabled).toBe(false);
+    await click("Use a different email");
+    expect(host.querySelector<HTMLInputElement>("input[type=email]")?.value).toBe("jo@example.test");
+  });
+
   it("says why a code failed and lets the person try again, and a different email", async () => {
     bridge = makeBridge({ status: "signed-out" });
     vi.mocked(bridge.verifyCode).mockResolvedValueOnce({ ok: false, code: "wrong_code" });
     await show({ cloudAccount: bridge });
     await type("input[type=email]", "jo@example.test");
-    await settled();
     await click("Agree and continue");
     await type("input[autocomplete=one-time-code]", "00000000");
     expect(host.querySelector("[data-cloud-sign-in-problem]")?.textContent).toBe("That code didn't match. Check the email and try again.");

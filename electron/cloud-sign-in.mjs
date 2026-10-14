@@ -82,6 +82,7 @@ export function createCloudSignIn({ origin, fetch: fetcher = globalThis.fetch, d
         cache: "no-store",
         headers: {
           accept: "application/json",
+          origin,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
           ...(token ? { authorization: `Bearer ${token}` } : {}),
         },
