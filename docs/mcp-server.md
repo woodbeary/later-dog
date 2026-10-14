@@ -29,12 +29,60 @@ Start later.dog, then configure the MCP client to run:
 }
 ```
 
-Packaged desktop builds require a paired session for tools that create,
-change, send, switch, interrupt, or run anything. Read-only tools work on
-loopback without one. A hosted or shared server with service loopback trust
-([self-hosting](self-hosting.md#loopback-trust-owner-or-service)) needs a
-session for almost every tool, reads included. To authorize an external MCP
-client:
+Packaged desktop builds make local tools prove they are on the same Mac before they create, change, send, switch,
+interrupt, or run anything. Read-only tools work on loopback without any proof. A hosted or shared server with service
+loopback trust ([self-hosting](self-hosting.md#loopback-trust-owner-or-service)) needs a session for almost every tool,
+reads included.
+
+## Local tools on the same Mac: no pairing
+
+When the desktop app starts, it writes a fresh random token to a private file (mode 0600) in its own folder and hands the
+same token to its server:
+
+| System | File |
+| --- | --- |
+| macOS | `~/Library/Application Support/later.dog/local-control-token` |
+| Windows | `%APPDATA%\later.dog\local-control-token` |
+| Linux | `$XDG_CONFIG_HOME/later.dog/local-control-token` (else `~/.config/later.dog/local-control-token`) |
+
+`scripts/mcp-server.ts` (the MCP server, including the one bundled in release builds) and `scripts/control-laterdog.ts`
+read that file by themselves, so Claude Code, Codex and your own scripts on this Mac just work with no setup. They send
+the token as `X-LaterDog-Local-Tools` only to a loopback address, never while probing ports for the server, and not at
+all when `LATERDOG_SERVER_TOKEN` is set (a paired session token wins). Each launch writes a new token, and the
+file is removed at quit; a tool that cached an old one gets "token is out of date; restart the tool". Point
+`LATERDOG_LOCAL_CONTROL_TOKEN_FILE` at another file to override the location. Your own scripts can read the same file and
+send the same header to `http://127.0.0.1:<port>`.
+
+A request carrying the token may do what a paired device can, except what would let a dog approve itself. These stay with
+the desktop app or a paired device, and a local tool is refused with "a dog must not be able to approve its own work":
+
+- answering any card: `POST /api/bots/:id/respond`, `POST /api/threads/:id/respond`, `PATCH /api/bots/:id/cards/:id`, and
+  the secret and connector cards (`/api/bots/:id/secret-cards/*`, `/api/bots/:id/connector-cards/*`);
+- permission grants: `POST /api/bots/:id/always-allow`, writes to `/api/bots/:id/command-allowlist`, connecting an app
+  (`/api/connectors/:slug` writes, `authorize` and `accounts`);
+- changing how a dog asks: any `approvalMode` other than `ask` (Heel), `autoApprove: true`, `alwaysAllow` entries,
+  `acknowledgeLocalAuto`, `refreshPermissions`, on `POST /api/bots`, `PATCH /api/bots/:id`, `POST /api/bots/:id/tasks`,
+  `PATCH /api/bots/:id/tasks/:id`, and in `newBotDefaults` through `PUT /api/config`. Tightening to Heel is allowed. A
+  dog created through a local tool always starts on Heel;
+- widening a dog on `PATCH /api/bots/:id` or `POST /api/bots`: `toolScope`, `connectorScopes`, `outbound`, `mcpServers`,
+  `peers`, `managedSections`, `chiefOfStaff`, `approvePeerComms`, `computer`, `browser`, `composio`, and `cwd` on an
+  existing dog;
+- minting or running credentials: `POST|DELETE /api/auth/pairing`, `/api/desktop-viewer/*`,
+  `/api/desktop/shared-computer-control`, writes to `/api/instances/*` and `/api/mcp/servers*`, `POST /api/cli-test`,
+  installing packs (`/api/teams/import`, `/api/org-library/add`, `/api/team-library/github`) and
+  `POST /api/workspace-backup/restore`.
+
+The list lives in `server/laterdog/local-tools-scope.ts` and is enforced in `server/request-auth.ts` (routes) and in
+`readBody` (fields), with tests in `server/request-auth.test.ts` and `server/laterdog/local-tools-scope.test.ts`.
+
+Any program running as you on this Mac can read that file, a dog's shell included when its mode lets it read your files
+and reach the network. That is why the token cannot approve anything, answer a card or grant a permission, and why those
+need the desktop app (the owner header never leaves the app) or a paired device.
+
+## Pairing a device or an MCP client from outside this Mac
+
+A paired session works from anywhere the server is reachable and can do the refused routes above. To authorize an
+external MCP client:
 
 1. In later.dog, open **Settings → Phone → Set up a phone** and reveal the
    one-time pairing code.

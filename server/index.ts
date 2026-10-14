@@ -629,7 +629,8 @@ import {
   phoneSecretOperationId,
   type PhoneSecretContext,
 } from "./phone-secret.ts";
-import { json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
+import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
+import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal } from "./laterdog/local-tools-scope.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
@@ -792,6 +793,7 @@ if (process.env.LATERDOG_CLI_OWNER_STDIN === "1" && LOOPBACK.trust === "service"
 }
 delete process.env.LATERDOG_CLI_OWNER_STDIN;
 let desktopMutationToken: string | undefined = DESKTOP_MANAGED ? "" : undefined;
+let localToolsToken: string | undefined;
 let companionMutationToken: string | undefined = DESKTOP_MANAGED ? "" : undefined;
 const FALLBACK_PUBLIC_URL = process.env.LATERDOG_PUBLIC_URL?.trim().replace(/\/+$/, "") || null;
 const cfg = loadConfig();
@@ -1718,6 +1720,9 @@ function applyDesktopMutationTokenMessage(raw: unknown): boolean {
   desktopMutationToken = message.token;
   if (typeof message.companionToken === "string" && /^[A-Za-z0-9_-]{43}$/.test(message.companionToken)) {
     companionMutationToken = message.companionToken;
+  }
+  if (typeof message.localToolsToken === "string" && LOCAL_TOOLS_TOKEN_PATTERN.test(message.localToolsToken)) {
+    localToolsToken = message.localToolsToken;
   }
   return true;
 }
@@ -13282,7 +13287,7 @@ const workspaceBackupAccess = {
     const current = resolveRequestAuth(req, {
       sessions, cookieName: SESSION_COOKIE, streamPath: "/api/events",
       url: new URL(req.url ?? "/", `http://localhost:${PORT}`),
-      loopbackMutationToken: desktopMutationToken, companionMutationToken, loopbackTrust: LOOPBACK.trust, cliOwnerToken,
+      loopbackMutationToken: desktopMutationToken, companionMutationToken, loopbackTrust: LOOPBACK.trust, cliOwnerToken, localToolsToken,
     }).auth;
     return Boolean(current?.scopes.includes("admin") && current.kind === original.kind &&
       (current.kind !== "session" || (original.kind === "session" && current.session.id === original.session.id)));
@@ -13726,6 +13731,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       features: { sharedComputers: lendingEnabled() },
       loopbackTrust: LOOPBACK.trust,
       cliOwnerToken,
+      localToolsToken,
     });
     if (gate.auth?.kind === "session" && gate.auth.via === "cookie") {
       const presented = parseCookies(req.headers.cookie).get(SESSION_COOKIE);
@@ -13742,6 +13748,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (!gate.auth) return json(res, gate.status, { error: gate.error });
     const auth = gate.auth;
+    if (auth.kind === "loopback" && auth.localTools) guardBody(req, (body) => localToolsBodyRefusal(method, path, body));
     if (HOSTED_WORKSPACE && auth.kind === "session") {
       const failure = workspaceAccess
         ? await workspaceAccess.authorize(req, auth)
@@ -16820,7 +16827,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const current = resolveRequestAuth(req, {
         sessions, cookieName: SESSION_COOKIE, streamPath: "/api/events", url,
         loopbackMutationToken: desktopMutationToken, companionMutationToken,
-        features: { sharedComputers: lendingEnabled() }, loopbackTrust: LOOPBACK.trust, cliOwnerToken,
+        features: { sharedComputers: lendingEnabled() }, loopbackTrust: LOOPBACK.trust, cliOwnerToken, localToolsToken,
       });
       if (!current.auth) return json(res, current.status, { error: current.error });
       const currentVisible = visibleTo(viewerFor(current.auth));
@@ -17804,6 +17811,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const template = resolveBotCreationDefaults(cfg.newBotDefaults, body);
       const settings = template.profile;
+      if (auth.kind === "loopback" && auth.localTools) Object.assign(settings, { approvalMode: "ask", autoApprove: false, alwaysAllow: [] });
       if (auth.kind === "session" && !auth.scopes.includes("admin")) {
         const field = clientBotPatchViolation(settings);
         if (field || body.preset !== undefined || template.skills.length || template.routines.length || Object.keys(template.memory).length) {

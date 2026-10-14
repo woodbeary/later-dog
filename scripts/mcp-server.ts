@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import readline from "node:readline";
+import { localControlTokenPath, localToolsHeaders } from "./local-control-token.ts";
 
 export function validateBaseUrl(url: string): string {
   const trimmed = url.replace(/\/+$/, "");
@@ -48,29 +49,30 @@ function requestTimeoutMs(): number {
   return Number.isFinite(raw) && raw >= 1_000 && raw <= 120_000 ? Math.floor(raw) : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
-function requestHeaders(options: RequestInit): NonNullable<RequestInit["headers"]> {
+function requestHeaders(url: string, options: RequestInit, discovery: boolean): NonNullable<RequestInit["headers"]> {
   const token = process.env.LATERDOG_SERVER_TOKEN?.trim();
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+  if (!discovery) for (const [name, value] of Object.entries(localToolsHeaders(url))) if (!headers.has(name)) headers.set(name, value);
   return headers;
 }
 
-async function fetchJson(url: string, options: RequestInit = {}): Promise<any> {
+async function fetchJson(url: string, options: RequestInit = {}, discovery = false): Promise<any> {
   const timeout = AbortSignal.timeout(requestTimeoutMs());
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   const response = await fetch(url, {
     ...options,
     signal,
-    headers: requestHeaders(options),
+    headers: requestHeaders(url, options, discovery),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     if (response.status === 403 && !process.env.LATERDOG_SERVER_TOKEN?.trim()) {
-      throw new Error(
-        "later.dog refused this write because the installed desktop app requires a paired session token. " +
-        "Set LATERDOG_SERVER_TOKEN as described in docs/mcp-server.md.",
-      );
+      const approving = /approve its own work/.test(text);
+      throw new Error(approving
+        ? "later.dog refused this because a dog must not be able to approve its own work. Answering approval cards, changing approval modes and granting permissions stay with the desktop app or a paired device."
+        : `later.dog refused this write. The installed desktop app lets local tools make changes with the token it writes to ${localControlTokenPath()} when it starts; restart later.dog if that file is missing, or set LATERDOG_SERVER_TOKEN to a paired session token as described in docs/mcp-server.md.`);
     }
     throw new Error(`later.dog API error (${response.status}): ${text || response.statusText}`);
   }
@@ -88,7 +90,7 @@ export async function probeBaseUrls(candidates: string[]): Promise<string> {
     try {
       const health = await fetchJson(`${candidate}/api/health`, {
         signal: AbortSignal.timeout(Math.min(requestTimeoutMs(), 2_000)),
-      });
+      }, true);
       if (health?.app !== "laterdog") {
         failures.push(`${candidate} answered, but it was not later.dog`);
         continue;
