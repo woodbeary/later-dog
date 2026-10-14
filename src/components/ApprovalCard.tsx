@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, ChevronRight, ShieldCheck, Undo2, X } from "lucide-react";
-import { api, ApiError, type Bot, type Message, type OptionCardData } from "@/state/store";
+import { api, ApiError, useOptionalStore, type Bot, type Message, type OptionCardData } from "@/state/store";
+import { RoutineCreatedLine } from "./QuietLines";
 import { cn } from "@/lib/cn";
 import { FoldedCard } from "./FoldedCard";
 import { t, tFromServer } from "@/lib/i18n";
@@ -60,7 +61,7 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
   if (card.expired === true) return t("approval.status.expired");
   if (!card.answered) return undefined;
   if (card.undone === true) return t("approval.status.undone");
-  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamSetupRequest);
+  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamSetupRequest || card.teamMemoryRequest);
   if (card.answered !== "allow") return isProposal ? t("approval.status.cancelled") : t("approval.status.denied");
   if (card.teamSetupRequest) return card.teamSetupRequest.deletion ? "Dog deleted" : "Pack setup applied";
   const routineAction = card.routineRequest?.operation.action;
@@ -71,7 +72,19 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
   if (card.modelRequest) return t("approval.status.modelChanged");
   if (card.routineRequest) return t("approval.status.routineConfirmed");
   if (card.skillRequest) return t("approval.status.skillConfirmed");
+  if (card.answerScope === "always") return t("approval.status.alwaysAllowed");
+  if (card.answerScope === "chat") return t("approval.status.allowedForChat");
+  if (card.answerScope === "once") return t("approval.status.allowedOnce");
   return t("approval.status.allowed");
+}
+
+export function approvalFoldSummary(card: OptionCardData, tool: string): { outcome: string; action?: string } | undefined {
+  const outcome = approvalCardOutcome(card);
+  if (!outcome) return undefined;
+  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamSetupRequest || card.teamMemoryRequest);
+  if (isProposal || card.expired === true || !card.tool) return { outcome };
+  const phrase = toolLabel(tool, card.approvalScope);
+  return { outcome, action: phrase.charAt(0).toUpperCase() + phrase.slice(1) };
 }
 
 export function toolLabel(tool?: string, where?: "local-computer"): string {
@@ -100,6 +113,9 @@ export function toolLabel(tool?: string, where?: "local-computer"): string {
     other: "approval.tool.takeAction",
     tool: "approval.tool.useTool",
     select_computer: "approval.tool.chooseComputer",
+    ask_bot: "approval.tool.messageDog",
+    delegate_bot: "approval.tool.delegateDog",
+    post_to_room: "approval.tool.postRoom",
   };
   const key = nice[tool] ?? nice[tool.replace(/^mcp__[^_]+__/, "").replace(/^agents_/, "")];
   if (key) return t(key);
@@ -174,21 +190,9 @@ export function appliedChange(card: OptionCardData, name: string): { line: strin
   return undefined;
 }
 
-function AppliedChangeLine({
-  card,
-  name,
-  threadId,
-  summary,
-}: {
-  card: OptionCardData;
-  name: string;
-  threadId?: string;
-  summary: { line: string; canUndo: boolean };
-}) {
-  const [open, setOpen] = useState(false);
+function useCardUndo(card: OptionCardData, threadId?: string) {
   const [undoing, setUndoing] = useState(false);
   const [error, setError] = useState<string>();
-  const undone = card.undone === true;
   const undo = () => {
     if (!threadId || !card.requestId || undoing) return;
     setUndoing(true);
@@ -201,6 +205,39 @@ function AppliedChangeLine({
       })
       .finally(() => setUndoing(false));
   };
+  return { undoing, error, undo };
+}
+
+function UndoButton({ undoing, onUndo, quiet = false }: { undoing: boolean; onUndo: () => void; quiet?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onUndo}
+      disabled={undoing}
+      className={cn(
+        "rounded-md px-1.5 py-0.5 disabled:opacity-60",
+        quiet ? "text-[13px] leading-[18px] text-ink-tertiary hover:text-ink-secondary" : "font-medium text-accent hover:bg-inset",
+      )}
+    >
+      {undoing ? t("approval.applied.undoing") : t("approval.applied.undo")}
+    </button>
+  );
+}
+
+function AppliedChangeLine({
+  card,
+  name,
+  threadId,
+  summary,
+}: {
+  card: OptionCardData;
+  name: string;
+  threadId?: string;
+  summary: { line: string; canUndo: boolean };
+}) {
+  const [open, setOpen] = useState(false);
+  const { undoing, error, undo } = useCardUndo(card, threadId);
+  const undone = card.undone === true;
   return (
     <div className="w-full max-w-[840px] text-[13px] text-ink-secondary" data-applied-change={name}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -209,16 +246,7 @@ function AppliedChangeLine({
           {summary.line}
           {undone && <span> · {t("approval.applied.undone")}</span>}
         </span>
-        {!undone && summary.canUndo && threadId && (
-          <button
-            type="button"
-            onClick={undo}
-            disabled={undoing}
-            className="rounded-md px-1.5 py-0.5 font-medium text-accent hover:bg-inset disabled:opacity-60"
-          >
-            {undoing ? t("approval.applied.undoing") : t("approval.applied.undo")}
-          </button>
-        )}
+        {!undone && summary.canUndo && threadId && <UndoButton undoing={undoing} onUndo={undo} />}
         <button
           type="button"
           aria-expanded={open}
@@ -242,6 +270,43 @@ function AppliedChangeLine({
   );
 }
 
+export function createdRoutineOf(card: OptionCardData): { id?: string; name: string } | undefined {
+  const request = card.routineRequest;
+  if (!request || request.operation.action !== "create" || card.answered !== "allow" || card.expired === true) return undefined;
+  return { id: request.resultId, name: request.undo?.name ?? request.operation.routine.name };
+}
+
+function RoutineCreatedRow({
+  card,
+  routine,
+  threadId,
+  canUndo,
+}: {
+  card: OptionCardData;
+  routine: { id?: string; name: string };
+  threadId?: string;
+  canUndo: boolean;
+}) {
+  const store = useOptionalStore();
+  const { undoing, error, undo } = useCardUndo(card, threadId);
+  const undone = card.undone === true;
+  const live = routine.id ? store?.state.routines.find((candidate) => candidate.id === routine.id) : undefined;
+  const name = live?.name ?? routine.name;
+  const dispatch = store?.dispatch;
+  return (
+    <div className="flex w-full flex-col items-center gap-1" data-created-routine={routine.id ?? ""}>
+      <RoutineCreatedLine
+        name={name}
+        onOpen={live && dispatch && !undone ? () => dispatch({ type: "showRoutines", routineId: live.id, botId: live.botId }) : undefined}
+        trailing={undone
+          ? <span className="text-[13px] text-ink-tertiary">· {t("approval.applied.undone")}</span>
+          : canUndo && threadId ? <UndoButton quiet undoing={undoing} onUndo={undo} /> : undefined}
+      />
+      {error && <div role="alert" className="text-[12.5px] text-warning">{error}</div>}
+    </div>
+  );
+}
+
 export function ApprovalCard({
   bot,
   message,
@@ -256,6 +321,10 @@ export function ApprovalCard({
   const applied = card.autoApplied === true && card.answered === "allow" && !card.held
     ? appliedChange(card, bot?.name ?? t("approval.someone"))
     : undefined;
+  const created = createdRoutineOf(card);
+  if (created) {
+    return <RoutineCreatedRow card={card} routine={created} threadId={threadId} canUndo={applied?.canUndo ?? false} />;
+  }
   if (applied) return <AppliedChangeLine card={card} name={bot?.name ?? t("approval.someone")} threadId={threadId} summary={applied} />;
   const settled = card.answered;
   const expired = card.expired === true;
@@ -269,6 +338,7 @@ export function ApprovalCard({
   const heldNote = tFromServer(card.heldCode, card.held);
   const outcome = approvalCardOutcome(card);
   const outbound = outboundSummary(card);
+  const foldedAction = approvalFoldSummary(card, card.tool ?? "")?.action;
   const displayTool = isRoutineRequest
     ? routineAction === "create" ? "schedule_routine" : "manage_routine"
     : isSkillRequest
@@ -356,9 +426,10 @@ export function ApprovalCard({
   return (
     <FoldedCard
       icon={settled === "allow" && !expired ? <Check size={14} className="shrink-0 text-success" /> : <X size={14} className="shrink-0" />}
-      summary={<><span className="min-w-0 truncate">{outcome}</span>{byVoice}</>}
-      title={outcome}
+      summary={<><span className="min-w-0 truncate">{outcome}{foldedAction && <span className="text-ink-tertiary"> · {foldedAction}</span>}</span>{byVoice}</>}
+      title={foldedAction ? `${outcome} · ${foldedAction}` : outcome}
       arriving={false}
+      centered={Boolean(foldedAction)}
     >
       {body}
     </FoldedCard>

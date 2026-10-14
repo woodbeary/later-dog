@@ -45,7 +45,7 @@ Work stops at a gate before the next one starts.
 | L2 Phone review-ready | later-dog-phone `main` | | done |
 | L3 Reliability | `laterdog/reliability`, `laterdog/local-tools-token` | #44 (merged), #47 (on the staging branch) | done: token is a default-deny allow-list, re-reviewed, N1-N5 fixed with e2e tests |
 | L4 PR #36 on screen | `laterdog/visual-36` | #40 (merged) | done |
-| L5 Chat lines and cards | `laterdog/chatlines` | | running |
+| L5 Chat lines and cards | `laterdog/chatlines` | #50 (on the staging branch) | done: quiet dog-to-dog lines and exchange view, routine line, mentions with faces, renames everywhere, approvals fold; safety review fixed (Allow once primary, Don't allow, Always allow outlined) |
 | L6 Thinking, scroll, sidebar | `laterdog/thinking` | #45 | done, on the staging branch |
 | L7 Accounts, usage, update | `laterdog/accounts-ui` | #42 | done, on the staging branch; two choices for the person (model menu limited to the account in use; accounts that need an approval greyed in Switch account) |
 | L8 Decision layer (Clef) | `laterdog/clef` | #41 | fixing the safety review's findings; live benchmark done |

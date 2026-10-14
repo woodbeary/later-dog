@@ -12,7 +12,8 @@ it.each(["plain text", "Markdown"] as const)("keeps all ten bot colors independe
   for (const roster of [peers, [...peers].reverse()]) {
     const html = renderToStaticMarkup(renderer === "plain text"
       ? createElement(MentionText, { text, peers: roster, everyone: true })
-      : createElement(ChatMarkdown, { text, mentionPeers: roster, everyone: true }));
+      : createElement(ChatMarkdown, { text, mentionPeers: roster, everyone: true }))
+      .replace(/<span data-mention-face.*?<\/svg><\/span><\/span>/g, "");
     const highlights = [...html.matchAll(/<span class="mention-highlight"(?: style="--mention-color:([^"]+)")?>([^<]+)<\/span>/g)]
       .map(([, color, name]) => ({ name, color }));
     expect(highlights).toEqual(ordered.flatMap(({ name, color }) => [

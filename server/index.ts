@@ -264,6 +264,7 @@ import type { GroupGoalRunCardData, GroupGoalRunStatus } from "../shared/group-g
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
+import { confirmRememberedCommand, recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
@@ -2346,6 +2347,13 @@ async function bindTurnComputer(owner: TurnOwner, resource: string, exclusive = 
   turnResourceOwners.set(owner.threadId, owner);
   turnComputerResources.set(owner.threadId, { owner, resource });
 }
+
+const answerGrants: GrantLookup = {
+  hasKey(threadId, key, askerBotId) {
+    const owner = store.bot(askerBotId ?? "") ?? store.botByThread(threadId);
+    return owner ? (botForThread(owner.id, threadId)?.alwaysAllow ?? []).includes(key) : false;
+  },
+};
 
 function botForThread(botId: string, threadId: string): BotRecord | null {
   return directTurnBots.get(threadId) ?? store.projectBotForTask(botId, threadId) ?? store.bot(botId);
@@ -4951,13 +4959,16 @@ async function answerRequest(
     }
   }
   if (remembered && outcome === "allowed-once" && behavior === "allow" && store.bot(remembered.botId)) {
+    let saved = false;
     try {
       commandAllowlist.add(remembered.botId, remembered.candidate);
+      saved = true;
     } catch {
       store.appendMessage(threadId, { role: "bot", kind: "activity", tool: {
         name: "Command allowed once, but its allowlist rule could not be saved. Try again from the permissions menu.", ok: false,
       } });
     }
+    if (saved) confirmRememberedCommand(store, threadId, requestId);
   }
   if (outcome === "answered" && behavior === "answer" && message && cardMessage) {
     const settled = store.messagesFor(threadId).find((m) => m.id === cardMessage.id)?.card;
@@ -19297,6 +19308,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (refusal) return json(res, 403, { error: refusal });
       }
       return await answeringCardAs(auth, bot.threadId, String(body.requestId), async () => {
+        recordAnswerScope(store, bot.threadId, String(body.requestId), behavior, body, answerGrants);
         if (resolveAndSendTrust(res, bot.threadId, String(body.requestId), behavior)) return;
         if (await resolveAndSendTeamSetup(res, {
           botId: bot.id, threadId: bot.threadId, requestId: String(body.requestId), behavior,
@@ -19374,6 +19386,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (refusal) return json(res, 403, { error: refusal });
       }
       return await answeringCardAs(auth, threadId, requestId, async () => {
+        recordAnswerScope(store, threadId, requestId, behavior, body, answerGrants);
         if (resolveAndSendTrust(res, threadId, requestId, behavior)) return;
         const skillCard = store.messagesFor(threadId).find(
           (message) => message.card?.requestId === requestId && message.card.skillRequest,

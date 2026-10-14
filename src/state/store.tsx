@@ -90,6 +90,7 @@ export interface OptionCardData {
   heldCode?: string;
   allowKey?: string;
   allowSession?: boolean;
+  answerScope?: "once" | "always" | "chat";
   commandAllowlist?: { command: string; cwd: string; providerInstanceId: string };
   approvalScope?: "local-computer";
   autoApplied?: boolean;
@@ -161,7 +162,7 @@ export interface Message {
   from?: { botId: string; name: string; color: DogColor };
   peerAsk?: { botId: string; name: string; unattended?: boolean };
   reactions?: Array<{ emoji: string; by: string }>;
-  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: DogColor };
+  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: DogColor; direction?: "to" | "from" };
   threadRef?: { botId: string; threadId: string; title: string };
   cloudTask?: import("../../shared/cloud-task").CloudTaskRef;
   queued?: boolean;
@@ -277,6 +278,7 @@ export interface Bot {
   tasks?: Task[];
   projects?: BotProject[];
   name: string;
+  formerNames?: string[];
   title: string;
   description: string;
   soul?: string;
@@ -887,6 +889,7 @@ export type Action =
       alwaysAllow?: { botId: string; key: string };
       always?: boolean;
       rememberCommand?: boolean;
+      scope?: "once" | "always" | "chat";
       onError?: (message: string) => void;
     }
   | { type: "newTask"; botId: string; projectId?: string }
@@ -2756,7 +2759,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }).catch(showError);
           break;
         case "decideRequest": {
-          const respond = () =>
+          const respond = (scope: typeof action.scope) =>
             api(`/api/threads/${action.threadId}/respond`, {
               method: "POST",
               body: JSON.stringify({
@@ -2766,10 +2769,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 reviewedSha256: action.reviewedSha256,
                 always: action.always,
                 rememberCommand: action.rememberCommand,
+                scope,
               }),
             });
           void waitForExecutionSettings(executionBotsBeforeAction, action.threadId)
             .then(async () => {
+              let grantSaved = true;
               if (action.alwaysAllow) {
                 const bot = stateRef.current.bots.find((candidate) => candidate.id === action.alwaysAllow?.botId);
                 const owner = bot?.tasks?.some((task) => task.threadId === action.threadId);
@@ -2780,10 +2785,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                     body: JSON.stringify(owner ? { threadId: action.threadId, allowKey: action.alwaysAllow.key } : { alwaysAllow: next }),
                   });
                 } catch (error) {
+                  grantSaved = false;
                   showError(error);
                 }
               }
-              const response = await respond();
+              const response = await respond(grantSaved || action.scope !== "always" ? action.scope : "once");
               if (response?.settlementPending && typeof response.message === "string") {
                 showError(new Error(response.message));
               }
@@ -3546,6 +3552,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [state, dispatch, flushBotPatches, refreshInstances, refreshModels],
   );
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+export function useOptionalStore() {
+  return useContext(StoreContext);
 }
 
 export function useStore() {
