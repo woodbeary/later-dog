@@ -12,7 +12,11 @@ export interface CloudAccountState {
   lastPlan?: { tier?: string; active: boolean };
   machine?: import("./cloud-home.mjs").CloudMachine;
   purchase?: import("./cloud-home.mjs").CloudPurchase;
+  fellBack?: true;
 }
+export type CloudSignInFailure = import("./cloud-sign-in.mjs").CloudSignInFailure;
+export type CloudSendCodeResult = { ok: true; email: string } | { ok: false; code: CloudSignInFailure };
+export type CloudVerifyCodeResult = { ok: true; account: CloudAccountState } | { ok: false; code: CloudSignInFailure };
 export interface CloudAccountBridge {
   state(): Promise<CloudAccountState>;
   begin(): Promise<CloudAccountState>;
@@ -24,6 +28,10 @@ export interface CloudAccountBridge {
   openDashboard(): Promise<CloudAccountState>;
   connectHome(): Promise<CloudAccountState>;
   connectHomeForPhone(): Promise<CloudAccountState>;
+  sendCode(email: string): Promise<CloudSendCodeResult>;
+  verifyCode(email: string, code: string): Promise<CloudVerifyCodeResult>;
+  offer(): Promise<{ due: boolean }>;
+  declineOffer(): Promise<{ due: boolean }>;
   onState(callback: (state: CloudAccountState) => void): () => void;
   lending?: import("./computer-sharing.mjs").CloudLendingBridge;
 }
@@ -31,7 +39,7 @@ export interface CloudPlanSnapshot { status: "paid" | "attention" | "checking" |
 export interface CloudPlanBridge {
   state(): Promise<CloudPlanSnapshot>;
   manage(): Promise<void>;
-  useThisComputer(): Promise<void>;
+  signOut(): Promise<void>;
 }
 
 export declare const CLOUD_ORIGIN: string;

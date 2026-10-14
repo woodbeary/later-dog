@@ -29,6 +29,10 @@ function makeBridge(initial: CloudAccountState): CloudAccountBridge {
     openDashboard: vi.fn(async () => ready),
     connectHome: vi.fn(async () => ready),
     connectHomeForPhone: vi.fn(async () => ready),
+    sendCode: vi.fn(async (email: string) => ({ ok: true as const, email })),
+    verifyCode: vi.fn(async () => ({ ok: true as const, account: ready })),
+    offer: vi.fn(async () => ({ due: false })),
+    declineOffer: vi.fn(async () => ({ due: false })),
     onState: vi.fn((callback) => { push = callback; return () => {}; }),
   };
 }
@@ -41,6 +45,15 @@ async function show(laterdog: Record<string, unknown>, onOpenComputer?: () => vo
 
 const text = () => host.textContent ?? "";
 const button = (label: string) => [...host.querySelectorAll("button")].find((candidate) => candidate.textContent === label);
+async function type(selector: string, value: string) {
+  const input = host.querySelector<HTMLInputElement>(selector);
+  expect(input, `input ${selector}`).toBeTruthy();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+const settled = () => new Promise((resolve) => setTimeout(resolve, 650));
 async function click(label: string) {
   const target = button(label);
   expect(target, `button ${label}`).toBeTruthy();
@@ -64,40 +77,44 @@ afterEach(async () => {
 });
 
 describe("Settings, later.dog Cloud on this Mac", () => {
-  it("offers one Sign in, then shows the code the browser shows", async () => {
+  it("asks for an email, sends a code, and signs in with the 8 digits without a browser or a second tap", async () => {
     bridge = makeBridge({ status: "signed-out" });
     await show({ cloudAccount: bridge });
     expect(host.querySelector("[data-cloud-account]")?.getAttribute("data-cloud-account")).toBe("signed-out");
     expect(text()).toContain("Not signed in");
-    expect(text()).toContain("Sign in to use your dogs from your iPhone");
-    await click("Sign in");
-    expect(bridge.begin).toHaveBeenCalledOnce();
-    expect(host.querySelector("[data-cloud-code]")?.textContent).toBe("ABCDE-FGHJK");
-    expect(text()).toContain("Continue in your browser");
-    await click("Cancel");
-    expect(bridge.cancel).toHaveBeenCalledOnce();
-    expect(button("Sign in")).toBeTruthy();
+    expect(button("Agree and continue")?.disabled).toBe(true);
+    await type("input[type=email]", "jo@example.test");
+    await settled();
+    await click("Agree and continue");
+    expect(bridge.sendCode).toHaveBeenCalledWith("jo@example.test");
+    expect(host.querySelector("[data-cloud-sign-in]")?.getAttribute("data-cloud-sign-in")).toBe("code");
+    expect(text()).toContain("jo@example.test");
+    await type("input[autocomplete=one-time-code]", "1234567");
+    expect(bridge.verifyCode).not.toHaveBeenCalled();
+    await type("input[autocomplete=one-time-code]", "1234 5678");
+    expect(bridge.verifyCode).toHaveBeenCalledWith("jo@example.test", "12345678");
+    expect(bridge.begin).not.toHaveBeenCalled();
   });
 
-  it("opens My Cloud by itself once, right after signing in here, when it is ready", async () => {
+  it("says why a code failed and lets the person try again, and a different email", async () => {
+    bridge = makeBridge({ status: "signed-out" });
+    vi.mocked(bridge.verifyCode).mockResolvedValueOnce({ ok: false, code: "wrong_code" });
+    await show({ cloudAccount: bridge });
+    await type("input[type=email]", "jo@example.test");
+    await settled();
+    await click("Agree and continue");
+    await type("input[autocomplete=one-time-code]", "00000000");
+    expect(host.querySelector("[data-cloud-sign-in-problem]")?.textContent).toBe("That code didn't match. Check the email and try again.");
+    expect((host.querySelector("input[autocomplete=one-time-code]") as HTMLInputElement).value).toBe("");
+    await click("Use a different email");
+    expect(host.querySelector("[data-cloud-sign-in]")?.getAttribute("data-cloud-sign-in")).toBe("email");
+  });
+
+  it("shows the terms line the phone shows, with working links", async () => {
     bridge = makeBridge({ status: "signed-out" });
     await show({ cloudAccount: bridge });
-    await click("Sign in");
-    await act(async () => push({ ...ready, machine: { status: "provisioning", setup: { step: "starting" } } }));
-    expect(bridge.connectHome).not.toHaveBeenCalled();
-    await act(async () => push(ready));
-    await act(async () => { await Promise.resolve(); });
-    expect(bridge.connectHome).toHaveBeenCalledOnce();
-    await act(async () => push({ ...ready, checking: true }));
-    await act(async () => push(ready));
-    expect(bridge.connectHome).toHaveBeenCalledOnce();
-  });
-
-  it("never opens My Cloud by itself for a sign-in that was already there", async () => {
-    bridge = makeBridge(ready);
-    await show({ cloudAccount: bridge });
-    await act(async () => push(ready));
-    expect(bridge.connectHome).not.toHaveBeenCalled();
+    expect(host.querySelector("[data-cloud-sign-in-agreement]")?.textContent).toBe("You accept the Terms and Privacy Policy, and that what you send your dogs goes to the AI that answers them, like Kimi on Cloudflare or Grok by xAI.");
+    expect([...host.querySelectorAll("[data-cloud-sign-in-agreement] a")].map((link) => (link as HTMLAnchorElement).href)).toEqual(["https://accounts.later.dog/terms", "https://accounts.later.dog/privacy"]);
   });
 
   it("shows the email and the beta, and opens My Cloud once it's ready", async () => {
@@ -166,15 +183,16 @@ describe("Settings, later.dog Cloud on this Mac", () => {
     await act(async () => { [...confirm.querySelectorAll("button")].find((candidate) => candidate.textContent === "Sign out")!.click(); });
     await act(async () => { await Promise.resolve(); });
     expect(bridge.signOut).toHaveBeenCalledOnce();
-    expect(button("Sign in")).toBeTruthy();
+    expect(button("Agree and continue")).toBeTruthy();
   });
 
   it("asks to sign in again when the sign-in ended, and retries when Cloud is unreachable", async () => {
     bridge = makeBridge({ status: "reauth-required", account });
     await show({ cloudAccount: bridge });
     expect(text()).toContain("Sign in again to keep using My Cloud");
-    await click("Sign in again");
-    expect(bridge.signInAgain).toHaveBeenCalledOnce();
+    expect(host.querySelector("[data-cloud-sign-in]")).toBeTruthy();
+    expect(button("Sign in again")).toBeUndefined();
+    expect(bridge.signInAgain).not.toHaveBeenCalled();
     await act(async () => push({ status: "unavailable", account }));
     expect(text()).toContain("can't be reached right now");
     await click("Try again");
@@ -235,17 +253,22 @@ describe("Settings, later.dog Cloud on this Mac", () => {
 });
 
 describe("Settings, later.dog Cloud while the window shows My Cloud", () => {
-  it("switches back to this Mac and opens lending there, without touching the sign-in", async () => {
-    const cloudAccount = makeBridge(ready);
-    const cloudPlan = { state: vi.fn(), manage: vi.fn(), useThisComputer: vi.fn(async () => {}) };
+  it("offers no server switching, asks before signing out, and opens lending, without touching the sign-in", async () => {
+    const cloudPlan = { state: vi.fn(), manage: vi.fn(), signOut: vi.fn(async () => {}) };
     const cloudLending = { open: vi.fn(async () => {}) };
-    await show({ cloudAccount, cloudPlan, cloudLending, remoteClient: { active: true } });
-    expect(cloudAccount.state).not.toHaveBeenCalled();
+    await show({ cloudPlan, cloudLending });
     expect(text()).toContain("You're on My Cloud");
-    await click("Switch to this Mac");
-    expect(cloudPlan.useThisComputer).toHaveBeenCalledOnce();
+    expect(text()).not.toContain("Switch to this Mac");
     await click("Manage");
     expect(cloudLending.open).toHaveBeenCalledOnce();
+    await click("Sign out");
+    expect(cloudPlan.signOut).not.toHaveBeenCalled();
+    expect(text()).toContain("Your dogs and chats stay in My Cloud");
+    await click("Keep signed in");
+    expect(host.querySelector("[data-cloud-signout-confirm]")).toBeNull();
+    await click("Sign out");
+    await click("Sign out");
+    expect(cloudPlan.signOut).toHaveBeenCalledOnce();
   });
 
   it("shows only the phone app in a plain browser", async () => {

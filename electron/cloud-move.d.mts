@@ -44,6 +44,7 @@ export interface CloudMoveOverview extends CloudMoveState {
   cloud: (Pick<CloudMoveStatus, "contents" | "empty" | "freeBytes" | "previous" | "heldBytes"> & Partial<Pick<CloudMoveStatus, "appVersion">>) | null;
   fit?: MoveFit | null;
   suggest: boolean;
+  automatic?: true;
   destination?: MoveDestination | null;
   blocked?: MoveBlocked | null;
   busyWith?: string;

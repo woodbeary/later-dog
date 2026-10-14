@@ -38,7 +38,7 @@ export function CloudSetup({ viewer }: { viewer: WelcomeViewer | null }) {
 
   const items = cloudSetupItems({
     ...facts,
-    move: moveBridge && move.overview ? { phase: move.state.phase, action: move.state.action, suggest: move.overview.suggest } : null,
+    move: moveBridge && move.overview && !move.overview.automatic ? { phase: move.state.phase, action: move.state.action, suggest: move.overview.suggest } : null,
   });
   const moveItem = items.find((item) => item.id === "move");
   const todo = items.filter((item) => item.status === "todo");

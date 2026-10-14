@@ -2987,7 +2987,7 @@ ipcMain.on("update:offered", event => {
 ipcMain.handle("cloud-lending:open", cloudPageSender("cloud-lending:open", () => openLendingSettings()));
 ipcMain.handle("cloud-plan:state", cloudPageSender("cloud-plan:state", () => cloudPlanSnapshot(cloudAccount?.state())));
 ipcMain.handle("cloud-plan:manage", cloudPageSender("cloud-plan:manage", async () => { await ensureCloudAccount().openDashboard(); }));
-ipcMain.handle("cloud-plan:local", cloudPageSender("cloud-plan:local", () => workspaceMenuAction(() => switchEnvironment(LOCAL_ID))));
+ipcMain.handle("cloud-plan:signOut", cloudPageSender("cloud-plan:signOut", async () => { await ensureCloudAccount().signOut(); }));
 
 const savedWorkspace = id => {
   const env = environmentsState.environments.find(entry => entry.id === id);

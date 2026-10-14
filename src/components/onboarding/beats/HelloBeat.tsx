@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
 import { t } from "@/lib/i18n";
 import { api, useStore } from "@/state/store";
-import { CloudSignInLine } from "./CloudSignInLine";
 import { inputClass, PrimaryButton, QuietButton, staggerIndex, type BeatProps } from "./shared";
 
 export function HelloBeat({ onNext, onSkip, hosted = false }: BeatProps & { hosted?: boolean }) {
@@ -73,7 +72,6 @@ export function HelloBeat({ onNext, onSkip, hosted = false }: BeatProps & { host
       <QuietButton onClick={onSkip} className="animate-rise mt-3" style={staggerIndex(3)}>
         {t("onboarding.maybeLater")}
       </QuietButton>
-      <CloudSignInLine />
     </div>
   );
 }

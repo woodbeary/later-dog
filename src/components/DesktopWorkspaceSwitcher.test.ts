@@ -18,7 +18,7 @@ it("renders nothing outside the desktop app", () => {
 
 const visibleText = (html: string) => html.replace(/<span class="sr-only">.*?<\/span>/g, "").replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
 
-it("says My Cloud · always on while a Cloud home is showing, in a browser too, and nothing more elsewhere", () => {
+it("says My Cloud · always on while a Cloud home is showing, in the app and a browser, with no way to switch server, and nothing more elsewhere", () => {
   vi.stubGlobal("window", {});
   const browser = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher, { cloudHome: true }));
   expect(visibleText(browser)).toBe("My Cloud · always on");
@@ -31,7 +31,8 @@ it("says My Cloud · always on while a Cloud home is showing, in a browser too, 
   vi.stubGlobal("window", { laterdog: { workspaces: { state: () => new Promise(() => {}), menu: () => Promise.resolve() } } });
   const desktop = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher, { cloudHome: true }));
   expect(visibleText(desktop)).toBe("My Cloud · always on");
-  expect(desktop).toContain('aria-label="Switch server: My Cloud · always on"');
+  expect(desktop).not.toContain("Switch server");
+  expect(desktop).not.toContain("<button");
   expect(desktop).toContain("data-cloud-home-indicator");
   const elsewhere = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher));
   expect(elsewhere).not.toContain("always on");

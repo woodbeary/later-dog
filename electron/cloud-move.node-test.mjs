@@ -811,17 +811,17 @@ test("the Cloud's setup checklist can open the lending switch here, and nothing 
   assert.equal(opened.length, 2);
 });
 
-test("Settings on the person's own Cloud shows the plan read only, and can only open the dashboard or switch back", async () => {
+test("Settings on the person's own Cloud shows the plan read only, and can only open the dashboard or sign out", async () => {
   const page = preload({ remote: true });
-  assert.deepEqual(Object.keys(page.bridge.cloudPlan), ["state", "manage", "useThisComputer"]);
+  assert.deepEqual(Object.keys(page.bridge.cloudPlan), ["state", "manage", "signOut"]);
   assert.equal(page.bridge.cloudAccount, undefined, "no account, credential or address reaches the Cloud's page");
   await page.bridge.cloudPlan.state({ origin: "https://evil.example.test" });
   await assert.rejects(page.bridge.cloudPlan.manage(), /Choose Manage/);
-  await assert.rejects(page.bridge.cloudPlan.useThisComputer(), /Choose Use this computer/);
+  await assert.rejects(page.bridge.cloudPlan.signOut(), /Choose Sign out/);
   assert.deepEqual(page.invoked, [["cloud-plan:state"]]);
   const clicked = preload({ remote: true, activation: true });
-  await clicked.bridge.cloudPlan.manage("https://evil.example.test"); await clicked.bridge.cloudPlan.useThisComputer("vps");
-  assert.deepEqual(clicked.invoked, [["cloud-plan:manage"], ["cloud-plan:local"]]);
+  await clicked.bridge.cloudPlan.manage("https://evil.example.test"); await clicked.bridge.cloudPlan.signOut("vps");
+  assert.deepEqual(clicked.invoked, [["cloud-plan:manage"], ["cloud-plan:signOut"]]);
 
   const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const start = source.indexOf(IPC_START), end = source.indexOf(IPC_END, start);
@@ -837,7 +837,7 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
     mainWindow: { isDestroyed: () => false, webContents: cloudContents },
     environmentsState: { environments: [{ id: "cloud", name: "My Cloud", origin: ORIGIN }], activeId: "cloud" },
     cloudAccount: { homeTarget: () => ({ origin: ORIGIN }), state: () => account }, cloudPlanSnapshot, LOCAL_ID: environments.LOCAL_ID, myCloudOrigin, rememberedHome: null,
-    ensureCloudAccount: () => ({ openDashboard: async (...args) => { calls.push(["dashboard", ...args]); return account; } }),
+    ensureCloudAccount: () => ({ openDashboard: async (...args) => { calls.push(["dashboard", ...args]); return account; }, signOut: async () => { calls.push(["signOut"]); return account; } }),
     openLendingSettings: async () => { calls.push(["lending"]); },
     workspaceMenuAction: action => action(), switchEnvironment: id => { calls.push(["switch", id]); },
   });
@@ -845,10 +845,10 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
   const event = { sender: cloudContents, senderFrame: cloudFrame };
   assert.deepEqual(await handlers.get("cloud-plan:state")(event, { tier: "personal" }), { status: "paid", tier: "max" });
   assert.equal(await handlers.get("cloud-plan:manage")(event, "https://evil.example.test"), undefined);
-  await handlers.get("cloud-plan:local")(event, "vps");
-  assert.deepEqual(calls, [["dashboard"], ["switch", environments.LOCAL_ID]]);
+  await handlers.get("cloud-plan:signOut")(event, "vps");
+  assert.deepEqual(calls, [["dashboard"], ["signOut"]]);
   for (const sender of [{ sender: cloudContents, senderFrame: { url: "https://other.example.test/" } }, { sender: {}, senderFrame: cloudFrame }]) {
-    for (const channel of ["cloud-plan:state", "cloud-plan:manage", "cloud-plan:local"]) assert.throws(() => handlers.get(channel)(sender), /only available/);
+    for (const channel of ["cloud-plan:state", "cloud-plan:manage", "cloud-plan:signOut"]) assert.throws(() => handlers.get(channel)(sender), /only available/);
   }
   let current = { status: "reauth-required", message: "expired", account: account.account, lastPlan: { tier: "max", active: true } };
   context.cloudAccount = { homeTarget: () => null, state: () => current };
@@ -857,8 +857,8 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
   assert.deepEqual(await handlers.get("cloud-plan:state")(event), { status: "signin", tier: "max" });
   current = { status: "unavailable", account: account.account, lastPlan: { tier: "max", active: true } };
   assert.deepEqual(await handlers.get("cloud-plan:state")(event), { status: "checking", tier: "max" });
-  await handlers.get("cloud-plan:local")(event);
-  assert.deepEqual(calls.at(-1), ["switch", environments.LOCAL_ID]);
+  await handlers.get("cloud-plan:signOut")(event);
+  assert.deepEqual(calls.at(-1), ["signOut"]);
   context.rememberedHome = { accountId: "someone-else", origin: ORIGIN };
   assert.throws(() => handlers.get("cloud-plan:state")(event), /only available/);
   assert.throws(() => handlers.get("cloud-lending:open")(event), /only available/);
