@@ -1,0 +1,20 @@
+:root {
+  --dur-50: 50ms;
+  --dur-100: 100ms;
+  --dur-150: 150ms;
+  --dur-200: 200ms;
+  --dur-300: 300ms;
+  --ease-calm: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.status-dot {
+  animation: dot-in var(--dur-150) var(--ease-calm) both;
+  transition: background-color var(--dur-150) var(--ease-calm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot {
+    animation: none;
+    transition: none;
+  }
+}

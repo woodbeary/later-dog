@@ -24,6 +24,7 @@ import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
+import { StatusDot } from "./StatusDot";
 import { CompactionChip, DigestChip } from "./DigestChip";
 import { roomActivityVisible, transcriptRowShown } from "@/lib/room-activity";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
@@ -1113,7 +1114,7 @@ export function GroupView({ group }: { group: Group }) {
               <PlaceIcon place={effective} size={9} strokeWidth={2.5} aria-hidden="true" />
             </span>
           ) : (
-            <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-app bg-accent" />
+            <StatusDot kind="working" ring="border-app" size="size-2.5" announce={false} />
           )
         )}
       </span>

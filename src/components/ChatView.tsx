@@ -66,6 +66,8 @@ import { transcriptRowShown } from "@/lib/room-activity";
 import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
+import { StatusDot } from "./StatusDot";
+import { dogStatusKind, sendInFlight } from "@/lib/dog-status";
 import { MOTION } from "@/lib/motion";
 import { useArrivals } from "@/lib/arrivals";
 import { liveActivityLabel } from "@/lib/live-activity";
@@ -989,17 +991,8 @@ function PinnedBanner({
 
 function HeaderStatusDot({ bot }: { bot: Bot }) {
   const waiting = bot.activity === "waiting-on-you";
-  if (!waiting && !bot.busy) return null;
-  const label = waiting ? t("sidebar.preview.waiting") : t("chat.activity.working");
-  return (
-    <span
-      data-testid={waiting ? "waiting-dot" : "working-dot"}
-      role="status"
-      aria-label={label}
-      title={label}
-      className={cn("animate-dot-in absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-composer", waiting ? "bg-warning" : "bg-success")}
-    />
-  );
+  const working = Boolean(bot.busy) || sendInFlight(bot.messages);
+  return <StatusDot kind={dogStatusKind({ waiting, working })} ring="border-composer" announce />;
 }
 
 const CHATHEAD_PILL ="flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-ink/10 bg-composer py-1.5 pl-1.5 text-ink shadow-[0_4px_12px_-1px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.06)]";

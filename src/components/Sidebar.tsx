@@ -47,7 +47,6 @@ import { UpdateButton } from "./UpdateButton";
 import { lastNonReceipt } from "@/lib/receipts";
 import { activityPreview, botEngine } from "@/lib/failed-turn";
 import { activeLocale, t } from "@/lib/i18n";
-import { copyText } from "@/lib/copy-text";
 import type { LocaleKey } from "@/locales";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FullAccessWarning } from "./FullAccessWarning";
@@ -125,6 +124,9 @@ import { ShortcutHint } from "./ShortcutHint";
 import { citationPreviewText } from "@/lib/citations";
 import { markdownPreview } from "../../shared/markdown-preview";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
+import { StatusDot } from "./StatusDot";
+import { copyConversationId } from "@/lib/copy-conversation-id";
+import { dogStatusKind } from "@/lib/dog-status";
 
 export const MAC_TRAFFIC_LIGHT_CENTER_Y = 23;
 
@@ -277,7 +279,10 @@ export function GroupListItem({
       title={density === "icons" ? group.name : undefined}
       aria-label={density === "icons" ? group.name : undefined}
     >
-      <StackedDogs members={members} density={density} />
+      <span className="relative flex shrink-0">
+        <StackedDogs members={members} density={density} />
+        <StatusDot kind={dogStatusKind({ waiting: false, working: groupStatus })} ring="border-panel" size={density === "icons" ? "size-3" : "size-2.5"} announce={false} />
+      </span>
       <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
         <div className="flex items-baseline justify-between gap-2">
           <span className="truncate text-[14px] font-semibold text-ink">{group.name}</span>
@@ -480,7 +485,7 @@ function RoomContextMenu({
       )}
       <button
         onClick={() => {
-          void copyText(group.threadId);
+          void copyConversationId(group.threadId);
           onClose();
         }}
         className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
@@ -824,7 +829,7 @@ export function BotContextMenu({
           dispatch({ type: "toggleSettings", open: true });
         }),
         item(<ClipboardCopy size={16} className="text-ink-secondary" />, t("sidebar.copyConversationId"), () => {
-          void copyText(bot.threadId);
+          void copyConversationId(bot.threadId);
         }),
       ] : [
         item(
@@ -858,7 +863,7 @@ export function BotContextMenu({
         ),
         divider("d2"),
         item(<ClipboardCopy size={16} className="text-ink-secondary" />, t("sidebar.copyConversationId"), () => {
-          void copyText(bot.threadId);
+          void copyConversationId(bot.threadId);
         }),
         divider("d3"),
         item(
@@ -1225,21 +1230,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
         {unread && (
           <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-panel bg-accent" aria-label={t("task.unreadMany")} />
         )}
-        {working && (
-          <span
-            data-testid="working-dot"
-            className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-panel bg-success"
-          />
-        )}
-        {waiting && (
-          <span
-            data-testid="waiting-dot"
-            role="status"
-            aria-label={t("sidebar.preview.waiting")}
-            title={t("sidebar.preview.waiting")}
-            className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-panel bg-warning"
-          />
-        )}
+        <StatusDot kind={dogStatusKind({ waiting, working })} ring="border-panel" size="size-3" announce={waiting} />
       </span>
       <span className="w-full truncate text-center text-[11px] leading-4 text-ink">{bot.name}</span>
     </button>
@@ -1349,21 +1340,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
           motionKey={mascotMotion?.nonce ?? 0}
           animated={working || unread || (mascotMotion?.kind ?? "none") !== "none"}
         />
-        {working && (
-          <span
-            data-testid="working-dot"
-            className={cn(
-              "animate-dot-in absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-panel bg-success",
-              iconOnly ? "size-3" : "size-2.5",
-            )}
-          />
-        )}
-        {waiting && <span data-testid="waiting-dot" role="status" aria-label={t("sidebar.preview.waiting")} title={t("sidebar.preview.waiting")}
-          className={cn("animate-dot-in absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-panel bg-warning", iconOnly ? "size-3" : "size-2.5")} />}
-        {teammateWait && <span data-testid="teammate-wait-dot" role="status" aria-label={t("sidebar.preview.waitingOnTeammate")} title={t("sidebar.preview.waitingOnTeammate")}
-          className={cn("animate-dot-in absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-panel bg-accent", iconOnly ? "size-3" : "size-2.5")} />}
-        {!teammateWait && !waiting && !working && queued && <span data-testid="queued-dot" role="status" aria-label={t("task.queued")} title={t("task.queued")}
-          className={cn("animate-dot-in absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-panel bg-ink-secondary", iconOnly ? "size-3" : "size-2.5")} />}
+        <StatusDot kind={dogStatusKind({ waiting, working, teammates: teammateWait, queued })} ring="border-panel" size={iconOnly ? "size-3" : "size-2.5"} announce={waiting || teammateWait || (queued && !working)} />
         {onLiveCall && iconOnly && (
           <span className="absolute -right-1 -top-1 flex rounded-full bg-panel p-0.5">
             <Phone className="size-3 shrink-0 text-success" role="img" aria-label={t("call.live.badge")} data-testid="live-call-badge">

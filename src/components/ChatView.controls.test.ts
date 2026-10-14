@@ -111,6 +111,11 @@ describe("a working dog in the header and the chat", () => {
     expect(pill(renderToStaticMarkup(createElement(ChatView, { bot })))).not.toContain("working-dot");
   });
 
+  it("shows the green dot the moment a send leaves, before the server says the dog is busy", () => {
+    const leaving: Message = { id: "optimistic-s1", role: "user", kind: "text", text: "hi", at: 1 };
+    expect(pill(renderToStaticMarkup(createElement(ChatView, { bot: inThread({}, [leaving]) })))).toContain('data-testid="working-dot"');
+  });
+
   it("turns the header dot amber while the dog waits on you", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: inThread({ busy: true, activity: "waiting-on-you" }) }));
     expect(pill(markup)).toContain('data-testid="waiting-dot"');
