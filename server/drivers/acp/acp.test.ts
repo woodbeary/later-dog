@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ensureDirs, NATIVE_DIR } from "../../config.ts";
-import type { ProviderInstance } from "../../contracts.ts";
+import type { ProviderInstance, RuntimeEvent } from "../../contracts.ts";
 import { TurnNotStartedError } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { promptSplitFingerprints, writePromptSplitReceipt } from "../prompt-split.ts";
@@ -992,6 +992,19 @@ describe("ACP turns (fake CLI)", () => {
     const conflict = await recorder.until((event) => event.type === "request.opened");
     expect(conflict).toHaveProperty("command", undefined);
     await instance.adapter.respondToRequest("t-acp-conflicting-cwd", conflict.requestId!, { behavior: "deny" });
+    await recorder.until((event) => event.type === "turn.completed");
+  });
+
+  it("carries every argument of a tool call for review, however long", async () => {
+    const toolCall = { kind: "other", title: "mcp__docs__search", rawInput: { query: "x".repeat(900), limit: 5 } };
+    process.env.FAKE_ACP_PERMISSION_TOOL_CALL = JSON.stringify(toolCall);
+    await create(GrokAgentDriver, "permission");
+    await instance.adapter.sendTurn({ threadId: "t-acp-review", text: "go", cwd: scratch });
+    const opened = await recorder.until((event) => event.type === "request.opened") as Extract<RuntimeEvent, { type: "request.opened" }>;
+    expect(opened.summary.length).toBeLessThanOrEqual(200);
+    expect(opened.reviewInput!.length).toBeGreaterThan(900);
+    expect(opened.reviewInput!.fields.map((field) => field.key)).toEqual(["title", "query", "limit"]);
+    await instance.adapter.respondToRequest("t-acp-review", opened.requestId!, { behavior: "deny" });
     await recorder.until((event) => event.type === "turn.completed");
   });
 

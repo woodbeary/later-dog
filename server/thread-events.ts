@@ -123,6 +123,12 @@ const stringsOrMissing = (value: unknown) => value === undefined || (Array.isArr
 const computerHolderOrMissing = (value: unknown) =>
   value === undefined ||
   (isRecord(value) && typeof value.name === "string" && stringOrMissing(value.task));
+const reviewInputOrMissing = (value: unknown) =>
+  value === undefined ||
+  (isRecord(value) &&
+    typeof value.length === "number" &&
+    Array.isArray(value.fields) &&
+    value.fields.every((field) => isRecord(field) && typeof field.key === "string" && typeof field.value === "string"));
 const askQuestionsOrMissing = (value: unknown) =>
   value === undefined ||
   (Array.isArray(value) &&
@@ -199,6 +205,7 @@ export function isRuntimeEvent(value: unknown): value is RuntimeEvent {
         typeof value.summary === "string" &&
         stringsOrMissing(value.choices) &&
         askQuestionsOrMissing(value.questions) &&
+        reviewInputOrMissing(value.reviewInput) &&
         (value.origin === undefined || value.origin === "tool" || value.origin === "output")
       );
     case "request.resolved":

@@ -49,6 +49,9 @@ import { canUseMcpServer } from "../../shared/tool-scope.ts";
 import { assertToolScopeSupported } from "../../shared/tool-scope-support.ts";
 import { gateServer, mcpStdioServer } from "../mcp-gate-config.ts";
 import { CALL_TOOL, DESCRIBE_TOOL, SEARCH_TOOL, directoryCallTarget } from "../mcp-directory.ts";
+import { reviewInputOf } from "../../shared/review-input.ts";
+
+const CODEX_REVIEW_SKIP = ["threadId", "turnId", "itemId", "approvalId", "callId", "conversationId", "id", "startedAtMs"] as const;
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -1106,6 +1109,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           requestType: isQuestion ? "question" : "permission",
           tool,
           summary,
+          ...(!isQuestion ? { reviewInput: reviewInputOf(params, { skip: CODEX_REVIEW_SKIP }) } : {}),
           command: method === "execCommandApproval" || method === "item/commandExecution/requestApproval"
             ? permissionCommand(params.command, params.cwd ?? (
               !params.threadId || params.threadId === codexThreadId ? commandCwd : undefined

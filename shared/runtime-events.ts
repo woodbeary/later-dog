@@ -1,5 +1,6 @@
 import type { AskQuestion } from "./ask-question.ts";
 import type { Helper } from "./helpers.ts";
+import type { ReviewInput } from "./review-input.ts";
 
 export type DriverKind = string;
 export type InstanceId = string;
@@ -88,6 +89,7 @@ export type RuntimeEvent = RuntimeEventBase &
         tool: string;
         summary: string;
         command?: { command: string; cwd: string };
+        reviewInput?: ReviewInput;
         choices?: string[];
         questions?: AskQuestion[];
         origin?: "tool" | "output";

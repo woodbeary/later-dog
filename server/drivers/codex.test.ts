@@ -2048,6 +2048,20 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     await recorder.until((event) => event.type === "turn.completed");
   });
 
+  it("carries the whole approval request for review, without its ids", async () => {
+    await create({ mode: "approval" });
+    process.env.FAKE_CODEX_APPROVAL_REQUEST = JSON.stringify({
+      method: "item/commandExecution/requestApproval",
+      params: { threadId: "t", turnId: "u", itemId: "i", command: "pnpm test", cwd: scratch, reason: `needs the network ${"x".repeat(700)}` },
+    });
+    await instance.adapter.sendTurn({ threadId: "t-codex-review", text: "go", cwd: scratch });
+    const opened = await recorder.until((event) => event.type === "request.opened") as Extract<RuntimeEvent, { type: "request.opened" }>;
+    expect(opened.reviewInput!.length).toBeGreaterThan(700);
+    expect(opened.reviewInput!.fields.map((field) => field.key)).toEqual(["command", "cwd", "reason"]);
+    await instance.adapter.respondToRequest("t-codex-review", opened.requestId!, { behavior: "deny" });
+    await recorder.until((event) => event.type === "turn.completed");
+  });
+
   it("does not infer a helper's working directory from the parent turn", async () => {
     await create({ mode: "approval" });
     process.env.FAKE_CODEX_APPROVAL_REQUEST = JSON.stringify({

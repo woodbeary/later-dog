@@ -54,6 +54,7 @@ import { sessionIdlePolicy } from "../session-idle.ts";
 import { classifyError } from "../retry.ts";
 import { canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 import { gateServer } from "../../mcp-gate-config.ts";
+import { reviewInputOf } from "../../../shared/review-input.ts";
 
 export type AccountErrorCode = Extract<ProviderErrorCode,
   "invalid_credentials" | "inactive_subscription" | "insufficient_funds" | "quota_or_region_restriction">;
@@ -996,6 +997,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             requestType: isQuestion ? "question" : "permission",
             tool,
             summary,
+            ...(!isQuestion ? { reviewInput: reviewInputOf({ title: toolCall.title, ...(typeof toolCall.rawInput === "object" && toolCall.rawInput ? toolCall.rawInput : { input: toolCall.rawInput }) }) } : {}),
             command: isShellCommand ? acpPermissionCommand(toolCall.rawInput, commandCwd) : undefined,
             requiresExplicitApproval: isShellCommand && (
               toolCall.rawInput?.dangerouslyDisableSandbox === true || toolCall.rawInput?.sandbox_permissions === "require_escalated"

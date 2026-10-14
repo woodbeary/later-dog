@@ -44,6 +44,7 @@ import { appendNative } from "./native.ts";
 import { canUseMcpServer, parseToolScope } from "../../shared/tool-scope.ts";
 import { gateServer, mcpStdioServer, resultBudget } from "../mcp-gate-config.ts";
 import { remoteMcpSpec } from "../mcp-http.ts";
+import { reviewInputOf } from "../../shared/review-input.ts";
 
 const DRIVER_KIND = "piAgent";
 const PI_ARGS = ["--mode", "rpc", "--no-session"];
@@ -832,6 +833,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
                 requestType: isQuestion ? "question" : "permission",
                 tool: String(evt.title ?? "pi"),
                 summary,
+                ...(!isQuestion ? { reviewInput: reviewInputOf({ title: evt.title, message: evt.message }) } : {}),
                 ...(choices ? { choices } : {}),
                 ...(question ? { questions: [question] } : {}),
               });

