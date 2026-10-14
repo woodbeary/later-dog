@@ -30,7 +30,7 @@ Node 24+, pnpm 10.33, and for chatting with a dog at least one provider CLI sign
 ```sh
 git clone https://github.com/woodbeary/later-dog.git && cd later-dog
 pnpm install --frozen-lockfile
-pnpm laterdog:dev        # app at http://127.0.0.1:5299 (browser page of the same app)
+pnpm laterdog:dev        # app at http://127.0.0.1:5299, on its own data (~/.laterdog-dev-scripts), never your live dogs; see docs/laterdog/dev-app.md
 pnpm laterdog:package    # unsigned local Mac app → release/mac-arm64/later.dog.app
 pnpm lint && pnpm typecheck && pnpm laterdog:test && pnpm build   # what CI runs
 pnpm laterdog:skills     # re-export canonical skills (edit skills/laterdog/, never the exports)

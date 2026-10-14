@@ -51,7 +51,7 @@ Work stops at a gate before the next one starts.
 | L8 Decision layer (Clef) | `laterdog/clef` | #41 | fixing the safety review's findings; live benchmark done |
 | L9 Motion and tokens | `laterdog/motion` | #43 | done, on the staging branch |
 | L10 Typing suggestions | `laterdog/tab` | | running |
-| L11 later.dog Dev | `laterdog/dev-app` | #46 | fixing the data-safety review's findings; the person picks an icon (`/Volumes/laterdog-phone/tmp/l11-sheet/index.html`) |
+| L11 later.dog Dev | `laterdog/dev-app` | #46 (on the staging branch) | done: Dev shares nothing with the release (data, ports, scheme, companion, container, keychain, updates); two data-safety reviews passed; the person picks an icon (`/Volumes/laterdog-phone/tmp/l11-sheet/index.html`); the first push to `dev` runs its build |
 | L12 Factory and computer tools | | | waiting for a slot |
 | L13 Stability sweep | `laterdog/stability` | | running |
 | L14 Launch and hiring copy | | | waiting for a slot |

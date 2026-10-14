@@ -5,6 +5,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import path from "node:path";
+import { variant } from "./app-variant.mjs";
 
 export const DESKTOP_COMPANION_FIELD = "desktopCompanionRemote";
 const DEVICE_TOKEN = /^laterdog_[A-Za-z0-9_-]{43}$/;
@@ -348,7 +349,7 @@ function listen(server, port) {
 export async function startDesktopCompanionRelay({
   access,
   staticDir,
-  ports = [8798, 18_798, 28_798],
+  ports = variant.ports.companionRelay,
 }) {
   const normalized = desktopCompanionAccess({ [DESKTOP_COMPANION_FIELD]: access });
   if (!normalized) throw new Error("The saved remote computer credential is invalid");

@@ -32,10 +32,12 @@ export function validateBaseUrl(url: string): string {
 const configuredUrl = process.env.LATERDOG_URL ||
   (process.env.LATERDOG_SERVER_PORT ? `http://127.0.0.1:${process.env.LATERDOG_SERVER_PORT}` : undefined);
 
-export const LATERDOG_BASE_URL = validateBaseUrl(configuredUrl || "http://127.0.0.1:8799");
+export const VARIANT_SERVER_PORTS = { release: [8799, 18799, 28799], dev: [8999, 18999, 28999] } as const;
+const targetPorts = process.env.LATERDOG_VARIANT?.trim().toLowerCase() === "dev" ? VARIANT_SERVER_PORTS.dev : VARIANT_SERVER_PORTS.release;
+export const LATERDOG_BASE_URL = validateBaseUrl(configuredUrl || `http://127.0.0.1:${targetPorts[0]}`);
 const DISCOVERY_URLS = configuredUrl
   ? [LATERDOG_BASE_URL]
-  : [8799, 18799, 28799].map((port) => `http://127.0.0.1:${port}`);
+  : targetPorts.map((port) => `http://127.0.0.1:${port}`);
 let discoveredBaseUrl: string | undefined;
 
 export function log(msg: string) {

@@ -3,7 +3,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const STAGE_PREFIX = "laterdog-cua-linux-x64-";
+const VARIANT = require("./app-variant.cjs");
+const STAGE_PREFIX = `${VARIANT.tempName(VARIANT.resolveVariant(), "cua-linux-x64")}-`;
 const LEGACY_STAGE_GRACE_MS = 10 * 60 * 1000;
 const FILES = Object.freeze({
   "cua-driver": "ed5844fadf07b9b72c4a3b3802e1c47233c166d66d6198608d5991f807aab4ac",

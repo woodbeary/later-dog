@@ -2,14 +2,15 @@ import { app, utilityProcess } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveCompanionEntry } from "./companion-entry.mjs";
+import { companionDirFor, variant } from "./app-variant.mjs";
 import {
   cleanupCompanionOriginEndpoint,
   companionOriginHealth,
   createCompanionOriginEndpoint,
 } from "./companion-origin-gateway.mjs";
 
-const CONTROL_PORT = 8811;
-const COMPANION_PORT = 8810;
+const CONTROL_PORT = variant.ports.companionControl;
+const COMPANION_PORT = variant.ports.companion;
 
 let proc = null;
 let lastError = null;
@@ -149,6 +150,8 @@ async function start({ resourcesPath, harnessPort, mutationToken, hostedUrl = nu
   delete childEnvironment.LATERDOG_COMPANION_HOSTED_URL;
   delete childEnvironment.LATERDOG_COMPANION_INTERNAL_ORIGIN;
   delete childEnvironment.LATERDOG_PHONE_SECRET_PUBLIC_KEY;
+  const companionDir = companionDirFor(variant, { env: process.env, home: app.getPath("home") });
+  if (companionDir) childEnvironment.LATERDOG_COMPANION_DIR = companionDir;
   if (hostedUrl) childEnvironment.LATERDOG_COMPANION_HOSTED_URL = hostedUrl;
   childEnvironment.LATERDOG_COMPANION_INTERNAL_ORIGIN = allocatedOrigin.socketPath;
   if (/^[A-Za-z0-9_-]{87}$/.test(String(secretPublicKey ?? ""))) {
