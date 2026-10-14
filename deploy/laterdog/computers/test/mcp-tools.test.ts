@@ -25,7 +25,8 @@ describe("the tool definitions", () => {
     expect(text("computer_wake")).toContain("30 seconds");
     expect(text("computer_action")).toContain("up to 3 times");
     expect(text("computer_action")).toContain("is a guess");
-    expect(text("decide")).toContain("free trial or later.dog Cloud key");
+    expect(text("decide")).toContain("active later.dog Cloud plan");
+    expect(text("computer_action")).toContain("screen checks");
     expect(text("computer_viewer_link")).toContain("expires");
   });
 
@@ -71,6 +72,7 @@ describe("argument checking", () => {
     expect(argumentProblem(decide, { ...ok, questions: { q: { type: "noul", instructions: "x", criteria: { maybe: "y" } } } })).toBe('"questions.q.criteria.maybe" is not an argument this tool takes.');
     expect(argumentProblem(decide, { ...ok, questions: { q: { type: "noul" } } })).toBe('"questions.q.instructions" is required.');
     expect(argumentProblem(decide, { ...ok, questions: { q: "yes or no?" } })).toBe('"questions.q" is not in a supported shape.');
+    expect(argumentProblem(decide, { ...ok, images: [`data:image/png;base64,${"A".repeat(190_000)}`] })).toBe('"images[0]" must be at most 190000 characters.');
     expect(argumentProblem(decide, { ...ok, images: Array.from({ length: 5 }, () => "data:image/png;base64,AAAA") })).toBe('"images" may have at most 4 items.');
   });
 });

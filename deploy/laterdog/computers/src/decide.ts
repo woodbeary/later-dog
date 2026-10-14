@@ -18,8 +18,12 @@ export const DECIDE_MAX_OPTION_CHARS = 600;
 export const DECISIONS_PER_DAY = 500;
 export const DECISIONS_TOTAL_PER_DAY = 100_000;
 export const VOICE_CHARS_TOTAL_PER_DAY = 400_000;
+export const SCREEN_CHECKS_PER_DAY = 1000;
+export const SCREEN_CHECKS_TOTAL_PER_DAY = 100_000;
+export const TOOL_DECISIONS_PER_DAY = 200;
+export const TOOL_DECISIONS_TOTAL_PER_DAY = 20_000;
 
-export type UsageKind = "decisions" | "voice_chars" | "ai_tokens" | "transcribe_seconds" | "completions";
+export type UsageKind = "decisions" | "voice_chars" | "ai_tokens" | "transcribe_seconds" | "completions" | "screen_checks" | "tool_decisions";
 
 export const KEY_CHECK_STATE = { purpose: "later.dog is checking that a decision-model key works." };
 export const KEY_CHECK_QUESTION = "Is this a connection check?";

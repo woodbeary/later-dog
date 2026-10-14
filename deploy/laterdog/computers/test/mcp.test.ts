@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sha256Hex } from "../src/auth";
+import { DAY } from "../src/trial";
 import { MINUTE } from "../src/idle";
 import { type McpBackend, type McpComputerOp, handleMcp } from "../src/mcp";
 import { MCP_PROTOCOL_VERSIONS, TOOLS } from "../src/mcp-tools";
+import { ROOM_ROUTING_INSTRUCTIONS } from "../src/decide";
 import { ORIGIN, OWNER_KEY, type World, apiRequest, body, siteverify, startTrial, trialKey, world } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
@@ -41,13 +44,21 @@ const clefAnswer = (screen = "ready", changed = 0.9) => ({
   answers: { screen: { type: "choice", choice: screen, probabilities: { [screen]: 0.97 } }, changed: { type: "noul", noul: changed } },
 });
 
-async function withDecisions(answers: unknown[] = [clefAnswer()]) {
+async function givePlan(w: World, key: string, status: "active" | "canceled" = "active", periodEnd = Date.now() + 30 * DAY) {
+  const keySha256 = await sha256Hex(key);
+  const registry = w.trials.named("trials");
+  registry.planPending({ keySha256, ref: "r".repeat(32), linkId: "link", orderId: "order" });
+  await registry.applyPlan({ keySha256, customerId: "cust", subscriptionId: "sub", status, periodEnd, limitMs: 40 * 60 * MINUTE, graceMs: 3 * DAY });
+}
+
+async function withDecisions(answers: unknown[] = [clefAnswer()], plan = false) {
   let at = 0;
   const run = vi.fn(async () => answers[Math.min(at++, answers.length - 1)]);
   const w = await world({ AI: { run, gateway: vi.fn() } } as unknown as Record<string, string>);
   siteverify();
   const key = trialKey("k");
   expect((await startTrial(w, key)).status).toBe(200);
+  if (plan) await givePlan(w, key);
   return { w, run, key };
 }
 
@@ -197,7 +208,8 @@ describe("computers over MCP", () => {
     expect(woke.structuredContent).toMatchObject({ ready: true, computer: { id: computer.id, state: "running" } });
 
     const ran = await call(w, OWNER_KEY, "computer_exec", { computer_id: computer.id, command: "echo hi", cwd: "/tmp" });
-    expect(ran.structuredContent).toEqual({ exitCode: 0, stdout: "", stderr: "", timedOut: false });
+    expect(ran.structuredContent).toBeUndefined();
+    expect(JSON.parse(say(ran))).toEqual({ exitCode: 0, stdout: "", stderr: "", timedOut: false });
     const exec = w.containers.get(computer.id)!.execs.find((entry) => entry.cmd.includes("echo hi"))!;
     expect(exec.cmd.slice(0, 2)).toEqual(["timeout", "--kill-after=5"]);
     expect(exec.cmd[2]).toBe("30.000s");
@@ -229,7 +241,7 @@ describe("computers over MCP", () => {
     vi.spyOn(Date, "now").mockImplementation(() => started + (tick += 2000));
     const ran = await call(w, OWNER_KEY, "computer_exec", { computer_id: id, command: "sleep 99", timeout_ms: 1000 });
     expect(say(ran)).toContain("ran out of time");
-    expect(ran.structuredContent.timedOut).toBe(true);
+    expect(say(ran)).toContain('"timedOut": true');
   });
 
   it("gives a free trial the standard size and says so when it asks for more", async () => {
@@ -329,17 +341,59 @@ describe("computer_action over MCP", () => {
   }, 30_000);
 
   it("still returns the screenshot when decisions are not available to the key", async () => {
-    const w = await world({ AI: { run: vi.fn(), gateway: vi.fn() } } as unknown as Record<string, string>);
+    const run = vi.fn();
+    const w = await world({ AI: { run, gateway: vi.fn() } } as unknown as Record<string, string>);
     const id = await makeRunning(w, OWNER_KEY);
     const result = await call(w, OWNER_KEY, "computer_action", { computer_id: id, action: "key", key: "Return" });
     expect(result.isError).toBeUndefined();
     expect(result.content[1]).toMatchObject({ type: "image" });
-    expect(result.structuredContent.screen_check).toEqual({
-      unavailable: "Decisions come with a free trial or later.dog Cloud key (it starts with ldt_). This computers key can run computers but not decisions.",
-    });
+    expect(result.structuredContent.screen_check).toEqual({ unavailable: "Screen checks come with a free trial or later.dog Cloud key. This key gets the screenshot only." });
+    expect(w.containers.get(id)!.execs.filter((entry) => entry.cmd.join(" ").includes("scrot"))).toHaveLength(1);
+    expect(run).not.toHaveBeenCalled();
   });
 
-  it("reports a failed action plainly and does not take a second screenshot", async () => {
+  it("gives screen checks their own budget, apart from room routing and free-form decisions", async () => {
+    const { w, run, key } = await withDecisions();
+    const id = await makeRunning(w, key);
+    const keySha256 = await sha256Hex(key);
+    const registry = w.trials.named("trials");
+    expect(await registry.allowUsage({ keySha256, kind: "screen_checks", amount: 1000, perKey: 1000, total: 100_000 })).toEqual({ ok: true });
+    const spent = await call(w, key, "computer_action", { computer_id: id, action: "key", key: "Return" });
+    expect(spent.isError).toBeUndefined();
+    expect(spent.content[1]).toMatchObject({ type: "image" });
+    expect(spent.structuredContent.screen_check).toEqual({ unavailable: "Today's screen checks are used up, so there is no screen check. The screenshot is still returned." });
+    expect(run).not.toHaveBeenCalled();
+    const routing = { state: { room: {}, humans_in_room: [], bots_in_room: [], new_message: {} }, questions: { answer: { type: "choice", instructions: ROOM_ROUTING_INSTRUCTIONS, criteria: { a: "A", b: "B" } } } };
+    expect((await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: routing }))).status).toBe(200);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts every loading re-shoot toward the screen check budget", async () => {
+    const { w, run, key } = await withDecisions([clefAnswer("loading"), clefAnswer("loading"), clefAnswer("ready")]);
+    const id = await makeRunning(w, key);
+    const registry = w.trials.named("trials");
+    const keySha256 = await sha256Hex(key);
+    await registry.allowUsage({ keySha256, kind: "screen_checks", amount: 998, perKey: 1000, total: 100_000 });
+    const result = await call(w, key, "computer_action", { computer_id: id, action: "key", key: "F5" });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(result.structuredContent.screen_check).toMatchObject({ unavailable: expect.stringContaining("screen checks are used up") });
+  }, 20_000);
+
+  it("scales the typing timeout to the text and refuses long or NUL text", async () => {
+    const { w, key } = await withDecisions();
+    const id = await makeRunning(w, key);
+    const typed = await call(w, key, "computer_action", { computer_id: id, action: "type", text: "x".repeat(1000) });
+    expect(typed.isError).toBeUndefined();
+    const exec = w.containers.get(id)!.execs.find((entry) => entry.cmd.at(-1)!.startsWith("xdotool type"))!;
+    expect(exec.cmd[2]).toBe("17.000s");
+    const keyed = await call(w, key, "computer_action", { computer_id: id, action: "key", key: "Return" });
+    expect(keyed.isError).toBeUndefined();
+    expect(w.containers.get(id)!.execs.find((entry) => entry.cmd.at(-1)!.startsWith("xdotool key"))!.cmd[2]).toBe("20.000s");
+    expect(say(await call(w, key, "computer_action", { computer_id: id, action: "type", text: "x".repeat(1001) }))).toBe('"text" must be at most 1000 characters.');
+    expect(say(await call(w, key, "computer_action", { computer_id: id, action: "type", text: "a\u0000b" }))).toBe("type text cannot contain a NUL character.");
+  }, 20_000);
+
+  it("reports a failed action plainly and takes no screenshot after it", async () => {
     const w = await world();
     const id = await makeRunning(w, OWNER_KEY);
     w.containers.get(id)!.reply = (cmd) => {
@@ -351,7 +405,7 @@ describe("computer_action over MCP", () => {
     const result = await call(w, OWNER_KEY, "computer_action", { computer_id: id, action: "key", key: "Return" });
     expect(result.isError).toBe(true);
     expect(say(result)).toBe("The action did not work: Can't open display :0");
-    expect(w.containers.get(id)!.execs.filter((entry) => entry.cmd.join(" ").includes("scrot"))).toHaveLength(1);
+    expect(w.containers.get(id)!.execs.filter((entry) => entry.cmd.join(" ").includes("scrot"))).toHaveLength(0);
   });
 });
 
@@ -359,7 +413,7 @@ describe("decide over MCP", () => {
   const question = { type: "choice", instructions: "Which fits?", criteria: { a: "Option A", b: "Option B" } };
 
   it("passes Jev-format questions, images and the chosen model to Clef", async () => {
-    const { w, run, key } = await withDecisions([{ model: "clef", answers: { fit: { type: "choice", choice: "a", probabilities: { a: 0.9, b: 0.1 } } } }]);
+    const { w, run, key } = await withDecisions([{ model: "clef", answers: { fit: { type: "choice", choice: "a", probabilities: { a: 0.9, b: 0.1 } } } }], true);
     const png = `data:image/png;base64,${btoa("\x89PNG\r\n\x1a\npixels")}`;
     const result = await call(w, key, "decide", { state: { topic: "x" }, questions: { fit: question, bad: { type: "score", instructions: "How bad?", criteria: ["low", "high"] }, ok: { type: "noul", instructions: "Fine?", criteria: { true: "yes", false: "no" } } }, images: [png], model: "clef-flash" });
     expect(result.isError).toBeUndefined();
@@ -377,7 +431,7 @@ describe("decide over MCP", () => {
   });
 
   it("adds a fresh screenshot of a computer as the last image", async () => {
-    const { w, run, key } = await withDecisions();
+    const { w, run, key } = await withDecisions(undefined, true);
     const id = await makeRunning(w, key);
     await call(w, key, "decide", { state: "x", questions: { q: question }, computer_id: id });
     const input = (run.mock.calls[0] as unknown as [string, { images: string[] }])[1];
@@ -391,15 +445,44 @@ describe("decide over MCP", () => {
     expect((run.mock.calls[1] as unknown as [string, { images: string[] }])[1].images).toHaveLength(4);
   });
 
-  it("needs a trial or Cloud key", async () => {
-    const w = await world({ AI: { run: vi.fn(), gateway: vi.fn() } } as unknown as Record<string, string>);
-    const result = await call(w, OWNER_KEY, "decide", { state: {}, questions: { q: question } });
-    expect(result.isError).toBe(true);
-    expect(say(result)).toContain("it starts with ldt_");
+  it("is for keys with a later.dog Cloud plan, and says so to every other key", async () => {
+    const { w, run, key } = await withDecisions();
+    const refusal = "Free-form decisions come with the later.dog Cloud plan.";
+    for (const bare of [key, OWNER_KEY]) {
+      const result = await call(w, bare, "decide", { state: {}, questions: { q: question } });
+      expect(result.isError).toBe(true);
+      expect(say(result)).toBe(refusal);
+    }
+    await givePlan(w, key, "active", Date.now() - 4 * DAY);
+    expect(say(await call(w, key, "decide", { state: {}, questions: { q: question } }))).toBe(refusal);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("accepts an active plan, a cancelled one still paid for, and one inside its grace days", async () => {
+    for (const [status, end] of [["active", Date.now() + 30 * DAY], ["canceled", Date.now() + 5 * DAY], ["active", Date.now() - 2 * DAY]] as const) {
+      const { w, run, key } = await withDecisions();
+      await givePlan(w, key, status, end);
+      expect((await call(w, key, "decide", { state: {}, questions: { q: question } })).isError, `${status} ${end}`).toBeUndefined();
+      expect(run).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("has its own 200 a day, apart from screen checks and room routing", async () => {
+    const { w, run, key } = await withDecisions(undefined, true);
+    const registry = w.trials.named("trials");
+    const keySha256 = await sha256Hex(key);
+    expect(await registry.allowUsage({ keySha256, kind: "tool_decisions", amount: 200, perKey: 200, total: 20_000 })).toEqual({ ok: true });
+    const used = await call(w, key, "decide", { state: {}, questions: { q: question } });
+    expect(used.isError).toBe(true);
+    expect(say(used)).toBe("This installation has used today's allowance. It resets at midnight UTC.");
+    expect(run).not.toHaveBeenCalled();
+    const id = await makeRunning(w, key);
+    const action = await call(w, key, "computer_action", { computer_id: id, action: "key", key: "Return" });
+    expect(action.structuredContent.screen_check).toMatchObject({ screen: "ready" });
   });
 
   it("refuses what the model should not be asked, before calling it", async () => {
-    const { w, run, key } = await withDecisions();
+    const { w, run, key } = await withDecisions(undefined, true);
     const refused = async (args: Record<string, unknown>) => {
       const result = await call(w, key, "decide", args);
       expect(result.isError, JSON.stringify(args).slice(0, 80)).toBe(true);
@@ -417,7 +500,7 @@ describe("decide over MCP", () => {
   });
 
   it("counts against the key's decisions and the network limits", async () => {
-    const { w, run, key } = await withDecisions();
+    const { w, run, key } = await withDecisions(undefined, true);
     let allowed = true;
     (w.env as Record<string, unknown>).INCLUDED_LIMIT = { limit: async () => ({ success: allowed }) };
     expect((await call(w, key, "decide", { state: {}, questions: { q: question } })).isError).toBeUndefined();
@@ -429,23 +512,23 @@ describe("decide over MCP", () => {
   });
 
   it("says so when the model fails", async () => {
-    const { w, run, key } = await withDecisions();
+    const { w, run, key } = await withDecisions(undefined, true);
     run.mockRejectedValueOnce(new Error("boom"));
     const result = await call(w, key, "decide", { state: {}, questions: { q: question } });
     expect(say(result)).toBe("The service did not answer. Try again.");
   });
 
   it("leaves /v1/systemone answering only later.dog's own questions", async () => {
-    const { w, run, key } = await withDecisions();
+    const { w, run, key } = await withDecisions(undefined, true);
     const response = await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: { state: {}, questions: { answer: question } } }));
     expect(response.status).toBe(422);
     expect(run).not.toHaveBeenCalled();
   });
 });
 
-type Seen = { op: McpComputerOp | "list" | "create" | "decide"; id?: string; input?: unknown };
+type Seen = { op: McpComputerOp | "list" | "create" | "screenCheck" | "decide"; id?: string; input?: unknown };
 
-function fakeBackend(handlers: Partial<Record<Seen["op"], (seen: Seen) => Response | Promise<Response>>>) {
+function fakeBackend(handlers: Partial<Record<Seen["op"], (seen: Seen) => Response | Promise<Response>>>, screenChecks = true) {
   const seen: Seen[] = [];
   const answer = (op: Seen["op"], id?: string, input?: unknown) => {
     const entry: Seen = { op, ...(id === undefined ? {} : { id }), ...(input === undefined ? {} : { input }) };
@@ -454,9 +537,11 @@ function fakeBackend(handlers: Partial<Record<Seen["op"], (seen: Seen) => Respon
     return handler ? handler(entry) : Response.json({}, { status: 500 });
   };
   const backend: McpBackend = {
+    screenChecks,
     list: async () => answer("list"),
     create: async (input) => answer("create", undefined, input),
     computer: async (op, id, input) => answer(op, id, input),
+    screenCheck: async (input) => answer("screenCheck", undefined, input),
     decide: async (input) => answer("decide", undefined, input),
   };
   return { backend, seen };
@@ -479,29 +564,29 @@ describe("the action loop", () => {
   it("looks again while the screen is loading, about a second apart, then stops", async () => {
     const waits: number[] = [];
     const readings = ["loading", "loading", "ready"];
-    const { backend, seen } = fakeBackend({ screenshot: frame, exec: () => ran(), decide: () => reading(readings.shift()!) });
+    const { backend, seen } = fakeBackend({ screenshot: frame, exec: () => ran(), screenCheck: () => reading(readings.shift()!) });
     const result = await unit({ backend, wait: async (ms) => void waits.push(ms) }, "computer_action", { computer_id: ID, action: "click", x: 1, y: 2 });
     expect(result.structuredContent.screen_check).toMatchObject({ screen: "ready", looks: 3 });
     expect(waits).toEqual([500, 1000, 1000]);
     expect(seen.filter((entry) => entry.op === "screenshot")).toHaveLength(4);
-    expect(seen.filter((entry) => entry.op === "decide")).toHaveLength(3);
+    expect(seen.filter((entry) => entry.op === "screenCheck")).toHaveLength(3);
   });
 
   it("gives up after three more looks at a screen that never finishes loading", async () => {
-    const { backend, seen } = fakeBackend({ screenshot: frame, exec: () => ran(), decide: () => reading("loading") });
+    const { backend, seen } = fakeBackend({ screenshot: frame, exec: () => ran(), screenCheck: () => reading("loading") });
     const result = await unit({ backend, wait: async () => undefined }, "computer_action", { computer_id: ID, action: "key", key: "F5" });
     expect(result.structuredContent.screen_check).toMatchObject({ screen: "loading", looks: 4 });
-    expect(seen.filter((entry) => entry.op === "decide")).toHaveLength(4);
+    expect(seen.filter((entry) => entry.op === "screenCheck")).toHaveLength(4);
   });
 
   it("asks for a person on a sign-in, a code or a captcha", async () => {
     for (const screen of ["login", "two_factor", "captcha"]) {
-      const { backend } = fakeBackend({ screenshot: frame, exec: () => ran(), decide: () => reading(screen) });
+      const { backend } = fakeBackend({ screenshot: frame, exec: () => ran(), screenCheck: () => reading(screen) });
       const result = await unit({ backend, wait: async () => undefined }, "computer_action", { computer_id: ID, action: "key", key: "Return" });
       expect(result.structuredContent.screen_check.screen).toBe(screen);
       expect(result.structuredContent.needs_a_person).toContain("computer_viewer_link");
     }
-    const { backend } = fakeBackend({ screenshot: frame, exec: () => ran(), decide: () => reading("error") });
+    const { backend } = fakeBackend({ screenshot: frame, exec: () => ran(), screenCheck: () => reading("error") });
     const result = await unit({ backend, wait: async () => undefined }, "computer_action", { computer_id: ID, action: "key", key: "Return" });
     expect(result.structuredContent.needs_a_person).toBeUndefined();
   });
@@ -510,17 +595,17 @@ describe("the action loop", () => {
     const { backend, seen } = fakeBackend({
       screenshot: frame,
       exec: () => ran(),
-      decide: () => Response.json({ error: { code: "rate_limited", message: "You have used today's decisions." } }, { status: 429 }),
+      screenCheck: () => Response.json({ error: { code: "rate_limited", message: "You have used today's decisions." } }, { status: 429 }),
     });
     const result = await unit({ backend, wait: async () => undefined }, "computer_action", { computer_id: ID, action: "key", key: "Return" });
     expect(result.isError).toBeUndefined();
     expect(result.structuredContent.screen_check).toEqual({ unavailable: "You have used today's decisions." });
-    expect(seen.filter((entry) => entry.op === "decide")).toHaveLength(1);
+    expect(seen.filter((entry) => entry.op === "screenCheck")).toHaveLength(1);
   });
 
   it("does not trust an answer it cannot read", async () => {
     for (const odd of [{}, { answers: { screen: { choice: "sparkly" } } }, { answers: [] }]) {
-      const { backend } = fakeBackend({ screenshot: frame, exec: () => ran(), decide: () => Response.json(odd) });
+      const { backend } = fakeBackend({ screenshot: frame, exec: () => ran(), screenCheck: () => Response.json(odd) });
       const result = await unit({ backend, wait: async () => undefined }, "computer_action", { computer_id: ID, action: "key", key: "Return" });
       expect(result.structuredContent.screen_check).toEqual({ unavailable: "The decision model gave an answer that could not be read." });
     }
@@ -528,19 +613,19 @@ describe("the action loop", () => {
 
   it("skips the check, not the screenshot, when a frame is too big to send", async () => {
     const big = () => new Response(new Uint8Array(150_000).fill(7), { headers: { "content-type": "image/jpeg" } });
-    const { backend, seen } = fakeBackend({ screenshot: big, exec: () => ran(), decide: () => reading("ready") });
+    const { backend, seen } = fakeBackend({ screenshot: big, exec: () => ran(), screenCheck: () => reading("ready") });
     const result = await unit({ backend, wait: async () => undefined }, "computer_action", { computer_id: ID, action: "key", key: "Return" });
     expect(result.structuredContent.screen_check.unavailable).toContain("too large for a screen check");
     expect(result.content[1]).toMatchObject({ type: "image" });
-    expect(seen.some((entry) => entry.op === "decide")).toBe(false);
+    expect(seen.some((entry) => entry.op === "screenCheck")).toBe(false);
   });
 
   it("passes the service's own words through when the computer is not there", async () => {
     const { backend } = fakeBackend({ screenshot: () => Response.json({ error: { code: "asleep", message: "The computer is not running (it is sleeping; wake it first)." } }, { status: 409 }) });
     const result = await unit({ backend }, "computer_action", { computer_id: ID, action: "key", key: "Return" });
     expect(result).toMatchObject({ isError: true, content: [{ text: "The computer is not running (it is sleeping; wake it first)." }] });
-    const odd = fakeBackend({ screenshot: () => new Response("<html>", { status: 502 }) });
-    expect(say(await unit(odd, "computer_screenshot", { computer_id: ID }))).toBe("The computers service answered 502.");
+    const odd = fakeBackend({ screenshot: () => new Response("<html>", { status: 400 }) });
+    expect(say(await unit(odd, "computer_screenshot", { computer_id: ID }))).toBe("The computers service answered 400.");
   });
 
   it("turns an unexpected failure into a short plain message and logs it", async () => {
@@ -583,5 +668,67 @@ describe("waking a computer", () => {
     const result = await unit({ backend }, "computer_wake", { computer_id: ID });
     expect(result).toMatchObject({ isError: true });
     expect(say(result)).toBe("The computer could not start: no capacity");
+  });
+});
+
+describe("what a tool says when the service has a problem", () => {
+  const problem = "The computer had a problem. Try again in a minute.";
+
+  it("hides server errors behind one sentence and logs the original", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    for (const [status, code] of [[502, "container_error"], [502, "start_failed"], [500, "internal"], [503, "weird"], [504, ""]] as const) {
+      const { backend } = fakeBackend({ screenshot: () => Response.json({ error: { code, message: "docker exploded at /var/lib/secret" } }, { status }) });
+      const result = await unit({ backend }, "computer_screenshot", { computer_id: ID });
+      expect(result, `${status} ${code}`).toMatchObject({ isError: true, content: [{ text: problem }] });
+    }
+    expect(errors).toHaveBeenCalledTimes(5);
+    expect(JSON.stringify(errors.mock.calls)).toContain("docker exploded");
+  });
+
+  it("keeps the plain sentences the service means for people, even on a 503", async () => {
+    for (const code of ["busy_today", "not_included", "trials_off"]) {
+      const { backend } = fakeBackend({ screenshot: () => Response.json({ error: { code, message: `Plain words for ${code}.` } }, { status: 503 }) });
+      expect(say(await unit({ backend }, "computer_screenshot", { computer_id: ID }))).toBe(`Plain words for ${code}.`);
+    }
+  });
+
+  it("cuts a long message to 300 characters", async () => {
+    const { backend } = fakeBackend({ screenshot: () => Response.json({ error: { code: "invalid_path", message: "x".repeat(900) } }, { status: 400 }) });
+    expect(say(await unit({ backend }, "computer_screenshot", { computer_id: ID }))).toBe(`${"x".repeat(300)}...`);
+  });
+});
+
+describe("computer_exec output", () => {
+  it("cuts each stream at 100,000 characters, says so, and does not repeat the result", async () => {
+    const { backend } = fakeBackend({ exec: () => Response.json({ exitCode: 1, stdout: "o".repeat(250_000), stderr: "short", timedOut: false }) });
+    const result = await unit({ backend }, "computer_exec", { computer_id: ID, command: "yes" });
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content).toHaveLength(1);
+    const shown = JSON.parse(say(result));
+    expect(shown.stderr).toBe("short");
+    expect(shown.stdout.startsWith("o".repeat(100_000))).toBe(true);
+    expect(shown.stdout).toContain("[later.dog: output cut; showing the first 100000 of 250000 characters]");
+    expect(shown.stdout.length).toBeLessThan(100_200);
+    expect(shown.exitCode).toBe(1);
+  });
+});
+
+describe("a caller that cannot have screen checks", () => {
+  it("gets the screenshot after the action, with no before shot and no check", async () => {
+    const { backend, seen } = fakeBackend({ screenshot: frame, exec: () => ran() }, false);
+    const result = await unit({ backend, wait: async () => undefined }, "computer_action", { computer_id: ID, action: "key", key: "Return" });
+    expect(seen.map((entry) => entry.op)).toEqual(["exec", "screenshot"]);
+    expect(result.structuredContent.screen_check).toEqual({ unavailable: "Screen checks come with a free trial or later.dog Cloud key. This key gets the screenshot only." });
+    expect(result.content[1]).toMatchObject({ type: "image" });
+  });
+});
+
+describe("the MCP path", () => {
+  it("answers with or without a trailing slash", async () => {
+    const w = await world();
+    for (const path of ["/mcp", "/mcp/"]) {
+      const response = await w.fetch(apiRequest("POST", path, OWNER_KEY, { body: { jsonrpc: "2.0", id: 1, method: "ping" } }));
+      expect(response.status, path).toBe(200);
+    }
   });
 });

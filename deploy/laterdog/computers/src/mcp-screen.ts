@@ -30,6 +30,7 @@ export function actionCommand(args: Record<string, unknown>): Command {
       return { ok: true, command: `xdotool mousemove --sync ${x} ${y} click${action === "double_click" ? " --repeat 2 --delay 80" : ""} ${button}` };
     case "type":
       if (typeof text !== "string" || text.length === 0) return missing("type", "text");
+      if (text.includes("\u0000")) return { ok: false, message: "type text cannot contain a NUL character." };
       return { ok: true, command: `xdotool type --delay 12 -- ${quote(text)}` };
     case "key":
       if (typeof key !== "string" || key.trim().length === 0) return missing("key", "a key name such as Return or ctrl+l");
@@ -47,6 +48,15 @@ export function actionCommand(args: Record<string, unknown>): Command {
     default:
       return { ok: false, message: "action must be click, double_click, type, key, scroll or drag." };
   }
+}
+
+const ACTION_TIMEOUT_MS = 20_000;
+const TYPE_MS_PER_CHARACTER = 12;
+const TYPE_BASE_MS = 5000;
+
+export function actionTimeoutMs(args: Record<string, unknown>): number {
+  if (args.action !== "type" || typeof args.text !== "string") return ACTION_TIMEOUT_MS;
+  return TYPE_MS_PER_CHARACTER * args.text.length + TYPE_BASE_MS;
 }
 
 export function actionSummary(args: Record<string, unknown>): string {

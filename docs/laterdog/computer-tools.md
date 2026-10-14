@@ -58,9 +58,9 @@ refuses a service address that is not HTTPS (or loopback), does not follow redir
 | `computer_sleep` | Snapshots and stops it. Files stay; open programs do not. |
 | `computer_screenshot` | The whole screen as a JPEG, pointer included. |
 | `computer_action` | `click`, `double_click`, `type`, `key`, `scroll` or `drag` through `xdotool`, then a fresh screenshot and a Clef screen check. |
-| `computer_exec` | A shell command (bash, as the desktop user) with `timeout_ms` (1 s to 10 min, default 30 s) and an optional `cwd`. Returns exit code, stdout, stderr, `timedOut`. |
+| `computer_exec` | A shell command (bash, as the desktop user) with `timeout_ms` (1 s to 10 min, default 30 s) and an optional `cwd`. Returns exit code, stdout, stderr, `timedOut` as one JSON text; each stream is cut at 100,000 characters, and says so when it is. |
 | `computer_viewer_link` | A signed, expiring link where a person watches the screen and takes over. |
-| `decide` | A Jev-format Clef question: a `state`, one to four `choice`, `score` or `noul` questions, up to four images, and `model` `clef` (default) or `clef-flash`. `computer_id` adds a fresh screenshot as the last image. |
+| `decide` | Needs a key with an active later.dog Cloud plan. A Jev-format Clef question: a `state`, one to four `choice`, `score` or `noul` questions, up to four images, and `model` `clef` (default) or `clef-flash`. `computer_id` adds a fresh screenshot as the last image. |
 
 Every tool has a strict schema (no unknown arguments) and every argument problem comes back as a tool error in plain words,
 such as `"computer_id" is not in the expected format.` or `click needs x and y.`, so the agent can correct itself.
@@ -88,7 +88,7 @@ One text part (JSON) and one image part. The JSON:
 - Typed text is never sent to the model: the check sees `typed 12 characters`, so a password does not leave the computer
   that way. (It is on the screenshot, though, as text fields show what was typed; see
   [Sign-ins with a Secure Form](cloud-computers.md#sign-ins-with-a-secure-form).)
-- If the key cannot use decisions (an `ldc_` key, no decisions left today, the model down, a frame too large to send) the action
+- If the screen check is not available (an `ldc_` key, no screen checks left today, the model down, a frame too large to send) the action
   still happens and you still get the screenshot; `screen_check` says `{ "unavailable": "<why>" }` instead.
 
 The check is a guess from a small model. It is there to save a round trip, not to replace looking at the screenshot.
@@ -98,16 +98,27 @@ The check is a guess from a small model. It is there to save a round trip, not t
 - **Same key, same limits.** `/mcp` accepts exactly the keys the computers API accepts and refuses a request with an `Origin`
   header. A trial key sees and can use only its own computers (the same registry check as `/v1/computers`), so another key's
   id gets "No computer with that id." Wrong or ended keys get 401 before any body is read.
-- **Decisions.** `decide` and the screen check need a trial or Cloud key. They count against that key's 500 decisions a day and
-  the 60 a minute limit that `/v1/systemone` has, and each `computer_action` can use up to four of them (one per shot while loading).
-  The `ldc_` operator key can run computers but not decisions.
+- **Screen checks have their own budget.** Each shot of `computer_action` that is checked, loading re-shoots included, counts
+  one against 1,000 screen checks a day per key and 100,000 in total. It is separate from the 500 a day that room routing
+  uses, so a busy agent cannot break routing. When it runs out, `computer_action` still returns the screenshot, with
+  `screen_check: { "unavailable": "Today's screen checks are used up..." }`. Only free trial and Cloud keys get screen checks;
+  with the operator's `ldc_` key the action runs and returns one screenshot, with no before shot and no check.
+- **`decide` is for Cloud plan keys.** It needs a key whose later.dog Cloud plan is active, or cancelled but paid through
+  (`plans` row `active` or `canceled`, within its period end plus the grace days, the same signal `GET /v1/trial` reports).
+  Any other key, a bare trial key and the `ldc_` key included, gets "Free-form decisions come with the later.dog Cloud plan."
+  It has its own budget of 200 a day per key and 20,000 in total (`tool_decisions`). The computer tools stay at parity with
+  the REST API for trial keys.
+- **Typing.** `text` is at most 1,000 characters and cannot hold a NUL; the command's timeout is 12 ms a character plus 5 s.
+- **Errors.** A server-side problem (any 5xx, `container_error`, `start_failed`) reaches the agent as "The computer had a
+  problem. Try again in a minute." and the original is logged on the Worker; the few 503s that are plain by design
+  (`busy_today`, `not_included`, `trials_off`) keep their words. Other messages are cut at 300 characters.
 - **Sizes of things.** A request body is at most 1 MB; `decide` takes at most 24,000 bytes of state, four images of under
   190,000 characters each as data URLs (JPEG, PNG or WebP), 512 KB together, and up to four questions of 600 characters each.
   A screenshot is about 84 KB at 1280x800, which fits; a busy screen that does not fit skips the check but not the screenshot.
 - **`/v1/systemone` is unchanged.** It still answers only later.dog's own two questions. Free-form questions are reachable
-  only through the `decide` tool, which is behind a trial or Cloud key and the same daily count. Whether to open that is a
+  only through the `decide` tool, which is behind an active Cloud plan and its own count. Whether to open that is a
   product decision; to close it, remove the `mcp` route (`src/routes.ts`) or `toolDecisionFrom` (`src/decide.ts`).
-- **Per-request limits.** The network limit `TRIAL_API_LIMIT` counts each `/mcp` request once, however many steps a tool takes.
+- **Per-request limits.** `decide` and screen checks also pass the 60 a minute `INCLUDED_LIMIT` per key. The network limit `TRIAL_API_LIMIT` counts each `/mcp` request once, however many steps a tool takes.
 - **`computer_exec` and `computer_action` are not read-only.** They are marked destructive and open-world, so clients that
   ask before such tools will ask. Nothing in the tools can reach the person's own Mac, the local later.dog server or any
   other key's data.

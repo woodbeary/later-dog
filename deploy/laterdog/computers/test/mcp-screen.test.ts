@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toolDecisionFrom } from "../src/decide";
-import { SCREEN_CHECK_MODEL, SCREEN_STATES, actionCommand, actionSummary, checkRequest, readScreenCheck } from "../src/mcp-screen";
+import { SCREEN_CHECK_MODEL, actionTimeoutMs, SCREEN_STATES, actionCommand, actionSummary, checkRequest, readScreenCheck } from "../src/mcp-screen";
 
 const frame = `data:image/jpeg;base64,${btoa("\xff\xd8\xff\xe0pixels")}`;
 
@@ -59,6 +59,13 @@ describe("actions as xdotool commands", () => {
     expect(actionCommand({ action: "scroll", x: 1 })).toEqual({ ok: false, message: "scroll needs both x and y, or neither." });
     expect(actionCommand({ action: "drag", x: 1, y: 1, to_x: 2 })).toEqual({ ok: false, message: "drag needs x, y, to_x and to_y." });
     expect(actionCommand({ action: "wiggle" })).toEqual({ ok: false, message: "action must be click, double_click, type, key, scroll or drag." });
+  });
+
+  it("refuses a NUL in typed text and scales the typing timeout", () => {
+    expect(actionCommand({ action: "type", text: "a\u0000b" })).toEqual({ ok: false, message: "type text cannot contain a NUL character." });
+    expect(actionTimeoutMs({ action: "type", text: "x".repeat(100) })).toBe(6200);
+    expect(actionTimeoutMs({ action: "type", text: "x".repeat(1000) })).toBe(17_000);
+    expect(actionTimeoutMs({ action: "click", x: 1, y: 1 })).toBe(20_000);
   });
 
   it("uses the wheel buttons for each direction", () => {

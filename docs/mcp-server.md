@@ -15,7 +15,7 @@ The v1 server intentionally cannot approve requests, remember permission grants,
 or change credentials. Those actions stay in the human-facing app. It also lists nine `computer_*` and `decide` tools
 that call later.dog Cloud directly with the key this Mac already holds (create, wake, sleep, screenshot, mouse and
 keyboard, commands, a viewer link, and Clef decisions). They never touch the team or this server's routes; see
-[computer tools](laterdog/computer-tools.md). They cannot delete a computer.
+[computer tools](laterdog/computer-tools.md). They cannot delete a computer. They sit outside the local-tools allow-list below, which only governs this server's own routes: they never use the local-control token and call later.dog Cloud with the Mac's computers key.
 
 ## From a source checkout
 

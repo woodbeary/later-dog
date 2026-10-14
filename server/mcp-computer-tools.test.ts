@@ -120,6 +120,8 @@ describe("calling the Worker", () => {
       [Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: "There is no tool named x." } }), trialConnection(), "There is no tool named x."],
       [new Response("not json"), trialConnection(), "later.dog's computers service answered something unexpected"],
       [rpcAnswer({ content: "text" }), trialConnection(), "later.dog's computers service answered something unexpected"],
+      [rpcAnswer({ content: [{ type: "image", data: "AAAA", mimeType: "image/jpeg" }, { type: "image", data: "not base64!", mimeType: "image/jpeg" }] }), trialConnection(), "later.dog's computers service answered something unexpected"],
+      [rpcAnswer({ content: [{ type: "image", data: "AAA", mimeType: "image/jpeg" }] }), trialConnection(), "later.dog's computers service answered something unexpected"],
       [rpcAnswer({ content: [{ type: "image", data: "AA", mimeType: "text/html" }] }), trialConnection(), "later.dog's computers service answered something unexpected"],
       [rpcAnswer({ content: [{ type: "resource", uri: "file:///etc/passwd" }] }), trialConnection(), "later.dog's computers service answered something unexpected"],
       [Response.json([]), trialConnection(), "later.dog's computers service answered something unexpected"],

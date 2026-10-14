@@ -10,7 +10,8 @@ export const ACTIONS = ["click", "double_click", "type", "key", "scroll", "drag"
 export const DECIDE_TOOL_MODELS = ["clef", "clef-flash"] as const;
 
 export const SCREEN_MAX = 10_000;
-export const TYPE_MAX_CHARS = 2000;
+export const TYPE_MAX_CHARS = 1000;
+export const IMAGE_MAX_CHARS = 190_000;
 export const KEY_MAX_CHARS = 100;
 export const EXPECT_MAX_CHARS = 300;
 export const SCROLL_MAX_CLICKS = 30;
@@ -168,7 +169,7 @@ export const TOOLS: readonly McpToolDefinition[] = [
       + "and whether it matches what you expected. While the screen is still loading it looks again up to 3 times, about a second apart. "
       + "click, double_click and scroll need x and y (scroll without them scrolls where the pointer is); type needs text; key needs a key name such as Return, ctrl+l or alt+Left; drag needs x, y, to_x and to_y. "
       + "The screen check is a guess: read the screenshot before you rely on it. "
-      + "Each action uses up to four of the key's daily decisions; if decisions are unavailable you still get the screenshot.",
+      + "Each action uses up to four of the key's daily screen checks (1,000 a day, apart from decide); if screen checks are unavailable you still get the screenshot.",
     inputSchema: {
       type: "object",
       properties: {
@@ -227,7 +228,7 @@ export const TOOLS: readonly McpToolDefinition[] = [
       "Ask the Clef decision model a quick question and get probabilities back in about a second. "
       + "Send a state (any JSON that gives the facts), one to four named questions (choice, score or noul, as in the Jev format) and optionally up to four images. "
       + "Use it for fast checks such as which option fits, how bad something is, or whether a screenshot shows a login. "
-      + "It needs a free trial or later.dog Cloud key, and counts toward that key's daily decisions.",
+      + "It needs a key with an active later.dog Cloud plan, and counts toward that key's 200 free-form decisions a day.",
     inputSchema: {
       type: "object",
       properties: {
@@ -243,7 +244,7 @@ export const TOOLS: readonly McpToolDefinition[] = [
         images: {
           type: "array",
           maxItems: DECIDE_TOOL_MAX_IMAGES,
-          items: { type: "string", pattern: "^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$" },
+          items: { type: "string", maxLength: IMAGE_MAX_CHARS, pattern: "^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$" },
           description: "Up to four JPEG, PNG or WebP images as base64 data URLs, each under 190,000 characters.",
         },
         computer_id: { ...computerId, description: "Optional. Adds a fresh screenshot of this computer as the last image. It counts toward the four." },

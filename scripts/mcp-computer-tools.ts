@@ -47,12 +47,14 @@ function contentFrom(value: unknown): ToolContent[] | null {
   for (const item of value) {
     if (!isRecord(item)) return null;
     if (item.type === "text" && typeof item.text === "string") content.push({ type: "text", text: item.text });
-    else if (item.type === "image" && typeof item.data === "string" && typeof item.mimeType === "string" && /^image\/(jpeg|png|webp)$/.test(item.mimeType)) {
+    else if (item.type === "image" && typeof item.data === "string" && item.data.length % 4 === 0 && BASE64.test(item.data) && typeof item.mimeType === "string" && /^image\/(jpeg|png|webp)$/.test(item.mimeType)) {
       content.push({ type: "image", data: item.data, mimeType: item.mimeType });
     } else return null;
   }
   return content;
 }
+
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 const unexpected = () => new Error("later.dog's computers service answered something unexpected");
 
