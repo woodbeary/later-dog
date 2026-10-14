@@ -56,6 +56,8 @@
 @media (pointer: coarse) { .table-action { min-width: 40px; min-height: 40px; } }
 
 @theme {
+  --color-update: #0071e3;
+  --color-update-hover: #0a7df0;
   --animate-panel-in: panel-in var(--motion-enter) var(--ease-out-soft);
   --animate-workspace-in: workspace-in var(--motion-base) var(--ease-out-soft);
   --animate-pop-in: pop-in var(--motion-base) var(--ease-out-soft);

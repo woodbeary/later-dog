@@ -2,7 +2,7 @@ import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { resetClock, resetDistance } from "@/lib/reset-time";
 import { BatteryMeter } from "./AccountBattery";
-import { RestCharge, usageLeft, type AccountRest } from "./AccountCharge";
+import { RechargeLine, SleepingDog, rechargeProgress, restSummary, usageLeft, type AccountRest } from "./AccountCharge";
 import { USAGE_TEXT, usageTone, type PlanProvider } from "./PlanUsage";
 
 export interface UsageWindowLine {
@@ -38,7 +38,18 @@ export function AccountUsageCard({ name, plan, provider, rest, now, onManage, cl
         {plan && <span className="shrink-0 text-[12px] font-normal text-ink-secondary">{plan}</span>}
       </p>
       <div className="mt-2.5 flex flex-col gap-2.5">
-        {rest ? <RestCharge rest={rest} now={now} /> : windows.length === 0 ? (
+        {rest ? (
+          <div data-account-resting className="flex items-center gap-3">
+            <SleepingDog size={26} className="mt-1" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <p className="flex items-center justify-between gap-2 text-[12px]">
+                <span className="font-medium text-ink">{t("accounts.recharging")}</span>
+                <RechargeLine progress={rest.estimated ? null : rechargeProgress(rest, now)} />
+              </p>
+              <p className="text-[11.5px] leading-snug text-ink-tertiary">{restSummary(rest, now)}</p>
+            </div>
+          </div>
+        ) : windows.length === 0 ? (
           <p className="text-[12px] text-ink-secondary">{t("planUsage.none")}</p>
         ) : windows.map((window) => {
           const tone = usageTone(window.used);

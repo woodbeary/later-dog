@@ -16,6 +16,7 @@ import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { SignOutDialog, useSignOutTargets, type SignOutTargets } from "./SignOutAll";
 import { useAccountMenuItems } from "./SidebarAccountItems";
+import { requestUpdateDialog } from "@/lib/update-request";
 import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { brand } from "../lib/brand";
@@ -203,16 +204,23 @@ export function SidebarProfileMenu() {
 
   const updateReady = update?.phase === "downloaded" || update?.phase === "available";
   const mainItems: SidebarMenuItem[] = [
+    ...(updateReady ? [{
+      key: "update-available",
+      label: t("sidebar.menu.updateRow"),
+      icon: <ArrowDownToLine size={18} />,
+      trailing: <span data-menu-update className="shrink-0 text-[12.5px] font-medium text-update">{update?.phase === "available" ? t("sidebar.menu.updateDownload") : t("sidebar.menu.updateInstall")}</span>,
+      onSelect: () => {
+        if (update?.phase === "available") return void update.item.onSelect();
+        requestUpdateDialog();
+      },
+    }] : []),
     ...(profiles ? [profileEntryItem(() => setPage("profiles"))] : []),
     ...(accountItems.usage ? [accountItems.usage] : []),
     {
       key: "settings",
       label: t("sidebar.menu.settings"),
       icon: <SettingsIcon size={18} />,
-      attention: updateReady,
-      attentionTone: "accent",
-      note: update?.phase === "downloaded" ? t("sidebar.menu.updateReady") : updateReady ? t("sidebar.menu.updateAvailable") : undefined,
-      onSelect: () => dispatch(updateReady ? { type: "toggleAppSettings", open: true, section: "updates" } : { type: "toggleAppSettings" }),
+      onSelect: () => dispatch({ type: "toggleAppSettings" }),
     },
     {
       key: "plugins",
