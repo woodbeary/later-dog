@@ -56,6 +56,7 @@ Work stops at a gate before the next one starts.
 | L13 Stability sweep | `laterdog/stability` | #53 (on the staging branch) | done: 34-row checklist in `docs/verification/stability-sweep.md`; 21 pass, 9 fixed with tests, 3 with the smallest fix written down, 1 different by design |
 | L14 Launch and hiring copy | | | waiting for a slot |
 | L15 Desktop follow-up | `laterdog/desktop-polish-oct14`, integrated into `laterdog/release-0330` | #60, #57 | merged into main through #57 as `e2b6dd005` on 2026-10-14: compact progress drawer, opened-thread batches, confirmed peer rename and current-name references. All 11 candidate CI checks passed on `3b3e703de`; release publication and visual verification remain (`docs/verification/desktop-polish.md`) |
+| L16 Local hot reload | local `main` | | command ready: `pnpm dev:desktop` starts isolated source services and Electron on Vite; focused tests and HMR protocol edit/undo pass; Mac window verification awaits this conversation's local Computer connection |
 
 ## Notes for whoever picks this up
 

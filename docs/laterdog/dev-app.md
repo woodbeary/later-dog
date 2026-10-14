@@ -46,6 +46,32 @@ Three server details made this safe. `server/config.ts` used to rename a leftove
 
 Shared on purpose: the engines' own login folders (`~/.claude`, `~/.codex` and so on), external project folders a dog is pointed at, the standalone CuaDriver socket under `~/Library/Caches/cua-driver`, and the signed-in macOS permissions of the Speech helper. A Dev dog and a release dog pointed at the same project folder can edit the same files.
 
+## Local renderer hot reload
+
+From the checkout, run `pnpm dev:desktop`. No package build or CI is involved.
+The launcher uses Node 24+ (including an installed nvm runtime), prepares the
+existing tunnel helper, then starts the source supervisor, API and Vite. It opens
+unpackaged Electron only after all three are ready. The window loads Vite on
+`http://127.0.0.1:5299`, with API port 8999 and supervisor port 9110.
+
+Edit a renderer file under `src/` to use Vite hot reload. Quit the Dev app or press
+Ctrl-C to stop this command's processes. Restart the command after a server or
+Electron main-process edit. An occupied port stops startup; the launcher never
+kills an existing app or silently changes the UI port.
+
+This command uses `~/.laterdog-dev`, `~/Library/Application Support/later.dog Dev`
+and the Dev identity. It does not copy release data and can coexist with the
+release app. Close any other Dev session first. A custom isolated `LATERDOG_HOME`
+and nonreserved `LATERDOG_UI_PORT` are supported; live-data flags are refused.
+
+The launcher lifecycle, environment isolation and existing variant rules passed
+focused local tests. An isolated source-server/Vite run delivered a stylesheet
+update over the HMR websocket, served the changed module, and delivered the
+restoration after the edit was undone. Electron was replaced with an idle test
+child for that check. Actual window launch, visual refresh and simultaneous
+release/Dev windows still need a check on the selected Mac; no screen verification
+is implied by the protocol test.
+
 ## Installing it
 
 1. Push to the `dev` branch (the workflow file must be on `dev`). `.github/workflows/dev-app.yml` builds the app, signs it with the release's Developer ID secrets, notarizes and staples it, then replaces the rolling prerelease `dev-latest`.
@@ -62,10 +88,10 @@ Local packaging is not meant for this Mac. `LATERDOG_VARIANT=dev pnpm laterdog:p
 
 ## Running dev scripts safely
 
-`pnpm dev`, `pnpm dev:server`, `pnpm dev:desktop` and `pnpm laterdog:dev` used to hit port 8799 and `~/.laterdog`, which is the live app. They now go through `scripts/dev-safe.mjs`. The person's own tools (`laterdog:mcp`, `bridge`, `doctor`, `login`, `supervisor`, `github`) are not dev servers, so they keep the release defaults (`~/.laterdog`, supervisor 9010):
+`pnpm dev`, `pnpm dev:server`, `pnpm dev:desktop` and `pnpm laterdog:dev` used to hit port 8799 and `~/.laterdog`, which is the live app. The browser and server commands go through `scripts/dev-safe.mjs`; desktop uses `scripts/dev-desktop.mjs`. The person's own tools (`laterdog:mcp`, `bridge`, `doctor`, `login`, `supervisor`, `github`) are not dev servers, so they keep the release defaults (`~/.laterdog`, supervisor 9010):
 
 - Data is `~/.laterdog-dev-scripts`, the server is on 9011, the supervisor on 9111, the browser UI on 5199 (`pnpm dev`) or 5299 (`pnpm laterdog:dev`). `pnpm dev` proxies to 9011, so run `pnpm dev:server` beside it.
-- `pnpm dev:desktop` runs unpackaged Electron as the Dev variant.
+- `pnpm dev:desktop` starts the complete local Dev session described above, using `~/.laterdog-dev`, API 8999, supervisor 9110 and Vite 5299. It does not use the script-only defaults in the previous bullet.
 - Isolated runs also unset `LATERDOG_SUPERVISOR_URL`, `LATERDOG_TOKEN`, `LATERDOG_TOKEN_FILE`, `LATERDOG_DATA_DIR`, `LATERDOG_HARNESS_URL`, `LATERDOG_COMPANION_DIR` and `LATERDOG_WEBHOOK_PORT`, and set `LATERDOG_APP_VARIANT=dev` so their local computer and companion use Dev's names. Paths are compared after resolving symlinks and ignoring case on macOS.
 - Pointing `LATERDOG_HOME` at the release's folders, or `LATERDOG_SERVER_PORT` / `LATERDOG_PORT` at the release's ports, stops with a message. Any other folder or port is fine.
 - To use the live app on purpose, add `--use-my-live-dogs-and-real-data` (for example `pnpm dev:server -- --use-my-live-dogs-and-real-data`) or set `LATERDOG_USE_MY_LIVE_DOGS=1`. The command then prints a banner naming the live folder.

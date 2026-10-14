@@ -33,7 +33,7 @@
     "mcp": "node --experimental-strip-types scripts/mcp-server.ts",
     "control:laterdog": "node --experimental-strip-types scripts/control-laterdog.ts",
     "eval": "node --experimental-strip-types evals/runners/run-evals.ts",
-    "dev:desktop": "node scripts/dev-safe.mjs desktop",
+    "dev:desktop": "node scripts/dev-desktop.mjs",
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "typecheck": "tsc -b && tsc -p tsconfig.server.json",
     "test": "vitest run && pnpm broker:test && pnpm test:electron && pnpm test:packaged-server",
@@ -92,7 +92,8 @@
     "laterdog:package": "node scripts/package-laterdog.mjs",
     "laterdog:github": "node scripts/laterdog.mjs github",
     "laterdog:apple-signing": "node scripts/laterdog-apple-signing.mjs",
-    "connectors:live": "node scripts/check-connectors-live.ts"
+    "connectors:live": "node scripts/check-connectors-live.ts",
+    "test:dev-desktop": "node --test scripts/dev-desktop.node-test.mjs"
   },
   "dependencies": {
     "@clack/prompts": "1.7.0",

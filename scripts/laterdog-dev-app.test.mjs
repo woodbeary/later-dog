@@ -172,7 +172,7 @@ describe("the dev scripts", () => {
     const scripts = JSON.parse(read("package.json")).scripts;
     expect(scripts.dev).toBe("node scripts/dev-safe.mjs ui");
     expect(scripts["dev:server"]).toBe("node scripts/dev-safe.mjs server");
-    expect(scripts["dev:desktop"]).toBe("node scripts/dev-safe.mjs desktop");
+    expect(scripts["dev:desktop"]).toBe("node scripts/dev-desktop.mjs");
     expect(scripts["laterdog:dev"]).toBe("node scripts/laterdog.mjs dev");
     expect(read("scripts/laterdog.mjs")).toContain("commandContext(command)");
     expect(read("vite.config.ts")).not.toContain("|| 8799");
