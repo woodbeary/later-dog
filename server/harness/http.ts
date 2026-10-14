@@ -2,11 +2,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 const jsonHooks = new WeakMap<ServerResponse, (body: unknown) => unknown>();
 const parsedBodies = new WeakMap<IncomingMessage, unknown>();
-const bodyGuards = new WeakMap<IncomingMessage, (body: unknown) => string | null>();
-
-export function guardBody(req: IncomingMessage, guard: (body: unknown) => string | null): void {
-  bodyGuards.set(req, guard);
-}
 
 export function onJsonBody(res: ServerResponse, hook: (body: unknown) => unknown): void {
   const previous = jsonHooks.get(res);
@@ -52,8 +47,6 @@ export function readBody(req: IncomingMessage, limit = 1_000_000): Promise<any> 
       } catch {
         return fail(400, "invalid JSON body");
       }
-      const refusal = bodyGuards.get(req)?.(body);
-      if (refusal) return fail(403, refusal);
       done = true;
       parsedBodies.set(req, body);
       resolve(body);
