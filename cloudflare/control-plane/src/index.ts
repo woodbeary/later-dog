@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { accountSession, createAuth, deleteExpiredVerifications } from "./auth";
+import { emailFromCodeRequest, SEND_OTP_PATH, warmHomeForEmail } from "./warm-home";
 import { cloudHomeCap, cloudRoute, type HomesService } from "./cloud";
 import { inviteFromWaitlist } from "./waitlist";
 import { cloudPage, phoneAppTarget } from "./cloud-pages";
@@ -79,7 +80,13 @@ async function route(
     const limited = await limitedOTPResponse(request, env);
     if (limited) return limited;
     const auth = createAuth(env, ctx, config, requestId);
+    const warmEmail = homes && request.method === "POST" && url.pathname === SEND_OTP_PATH ? await emailFromCodeRequest(request) : null;
     const response = await auth.handler(request);
+    if (warmEmail && homes && response.ok) {
+      ctx.waitUntil(warmHomeForEmail(env, homes, warmEmail).catch(() => {
+        console.error(JSON.stringify({ message: "home warm-up on code request failed", requestId }));
+      }));
+    }
     if (
       request.method === "POST"
       && url.pathname === SIGN_IN_OTP_PATH
