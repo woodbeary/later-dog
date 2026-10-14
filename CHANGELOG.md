@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.32 — 2026-10-14
+
+- **Clearer sign-in errors.** If sending your email code fails, the message says to try sending it again. It no longer suggests replacing a code you haven't received.
+
 ## 0.3.31 — 2026-10-14
 
 - **Email sign-in works on the Mac.** Fixes the request error that stopped Agree and continue from sending a code in 0.3.30.

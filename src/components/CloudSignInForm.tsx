@@ -54,9 +54,9 @@ export function CloudSignInForm({ bridge, onSignedIn, onSkip, skipLabel, intro }
         setCode("");
         setResendIn(SIGN_IN_RESEND_SECONDS);
         setStep("code");
-      } else setProblem(t(signInProblem(result.code)));
+      } else setProblem(t(signInProblem(result.code, "send")));
     } catch {
-      setProblem(t(signInProblem("unavailable")));
+      setProblem(t(signInProblem("unavailable", "send")));
     } finally {
       working.current = false;
       setBusy(false);
@@ -74,11 +74,11 @@ export function CloudSignInForm({ bridge, onSignedIn, onSkip, skipLabel, intro }
         onSignedIn(result.account);
         return;
       }
-      setProblem(t(signInProblem(result.code)));
+      setProblem(t(signInProblem(result.code, "verify")));
       setCode("");
       codeInput.current?.focus();
     } catch {
-      setProblem(t(signInProblem("unavailable")));
+      setProblem(t(signInProblem("unavailable", "verify")));
       setCode("");
     } finally {
       working.current = false;

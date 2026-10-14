@@ -55,6 +55,11 @@ request is pending, and permits a retry after its one-line error. It does not
 use the onboarding buttons' initial click delay. The main-process request has
 a 20-second timeout.
 
+Sending and verifying codes use separate generic failure messages. A failed
+initial send or resend says `Couldn't send a code. Try again.` Verification
+can suggest a new code because the code-entry step follows a successful send.
+The DOM checks cover both failure phases, bridge exceptions and resend retry.
+
 Regression coverage includes the real Better Auth handler receiving Node-style
 fetch metadata, denied missing or untrusted origins, accepted trusted-origin
 send and verify requests, and the desktop client completing its fixture flow
