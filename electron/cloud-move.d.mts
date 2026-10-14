@@ -30,7 +30,7 @@ export interface CloudMoveState {
   destination?: MoveDestination | null;
   progress?: { bytesTransferred: number; totalBytes: number };
   replacing?: boolean;
-  error?: { code: string; message: string; freeBytes?: number; neededBytes?: number; maxBytes?: number; largest?: true; volumeBytes?: number; destVersion?: string; localVersion?: string;
+  error?: { code: string; message: string; contents?: MoveContents; freeBytes?: number; neededBytes?: number; maxBytes?: number; largest?: true; volumeBytes?: number; destVersion?: string; localVersion?: string;
     other?: string;
     partBytes?: number };
   resumable?: boolean;
@@ -74,11 +74,12 @@ export declare function moveBlocked(input: { kind: "cloud" | "server"; refusal?:
 export declare function mintOwnerCode(fetchImpl: typeof fetch, origin: string, options?: { label?: string; timeoutMs?: number }): Promise<{ origin: string; code: string; expiresAt: number }>;
 export declare function parseMoveEstimate(value: unknown): MoveEstimate | null;
 export declare function moveFit(input: { localBytes: number; freeBytes: number; uploadReceived?: number; volumeBytes?: number | null; disk?: import("./cloud-home.mjs").CloudPlanDisk | null }): MoveFit;
+export declare function arrivedInFull(local: MoveContents | null | undefined, contents: MoveContents | null | undefined): boolean;
 export declare function parseCloudMoveStatus(value: unknown): CloudMoveStatus | null;
 export interface CloudMove {
   state(): CloudMoveState;
   estimate(signal?: AbortSignal): Promise<MoveEstimate>;
-  move(dest: MoveTarget, options?: { requireEmpty?: boolean }): Promise<CloudMoveState>;
+  move(dest: MoveTarget, options?: { requireEmpty?: boolean; verifyArrival?: boolean }): Promise<CloudMoveState>;
   restorePrevious(dest: MoveTarget): Promise<CloudMoveState>;
   cancel(): CloudMoveState;
   reset(): CloudMoveState;

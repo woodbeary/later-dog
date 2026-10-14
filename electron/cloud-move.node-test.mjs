@@ -874,3 +874,40 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
   assert.deepEqual(cloudPlanSnapshot({ ...account, entitlement: { ...account.entitlement, status: "inactive" } }), { status: "attention", tier: "max" });
   assert.deepEqual(cloudPlanSnapshot({ status: "signed-out" }), { status: "none" });
 });
+
+test("an automatic move can ask the home to prove every bot, room and chat arrived before it calls the move done", async () => {
+  const f = harness();
+  try {
+    const result = await f.move.move({ requireEmpty: true, verifyArrival: true });
+    assert.equal(result.phase, "done");
+    assert.deepEqual(result.moved, { bots: 3, rooms: 1, chats: 7 });
+  } finally { f.done(); }
+  const short = harness();
+  try {
+    const original = short.cloud.fetchImpl;
+    short.cloud.fetchImpl = async (url, init) => {
+      const response = await original(url, init);
+      if (new URL(url).pathname === "/api/cloud-move/restore") short.cloud.state.contents = { bots: 3, rooms: 1, chats: 6 };
+      return response;
+    };
+    const engine = createCloudMove({ localRequest: short.local.request, fetchImpl: (...args) => short.cloud.fetchImpl(...args), tempRoot: join(short.temp, "move2"),
+      availableBytes: async () => 1024 ** 4, sleep: async (_ms, signal) => signal?.throwIfAborted(), pollMs: 0, retryDelaysMs: [0, 0] });
+    const result = await engine.move(short.dest, { requireEmpty: true, verifyArrival: true });
+    assert.equal(result.phase, "failed");
+    assert.equal(result.error.code, "not_verified");
+    assert.deepEqual(result.error.contents, { bots: 3, rooms: 1, chats: 6 });
+    assert.deepEqual(readdirSync(join(short.temp, "move2")), [], "nothing is left behind on this computer");
+  } finally { short.done(); }
+});
+
+test("a home that already has dogs refuses an automatic move and says what it holds, so the caller can tell a finished move from a different home", async () => {
+  const f = harness({ cloud: { empty: false } });
+  try {
+    f.cloud.state.contents = { bots: 3, rooms: 1, chats: 7 };
+    const result = await f.move.move({ requireEmpty: true, verifyArrival: true });
+    assert.equal(result.phase, "failed");
+    assert.equal(result.error.code, "not_empty");
+    assert.deepEqual(result.error.contents, { bots: 3, rooms: 1, chats: 7 });
+    assert.equal(f.cloud.log.some(([method, path]) => method === "PUT" && path.startsWith("/api/cloud-move/upload/")), false, "nothing was uploaded");
+  } finally { f.done(); }
+});
