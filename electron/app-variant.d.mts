@@ -1,4 +1,6 @@
 export interface VariantPorts {
+  readonly companion: number;
+  readonly companionControl: number;
   readonly server: readonly number[];
   readonly webhookOffset: number;
   readonly companionRelay: readonly number[];
@@ -16,7 +18,7 @@ export interface VariantDefinition {
   readonly desktopEntry: string;
   readonly cuaHostBundleId: string;
   readonly tempPrefix: string;
-  readonly iconFile: string;
+  readonly iconPath: string;
   readonly ports: VariantPorts;
   readonly updates: { readonly channel: string | null; readonly feedFile: string; readonly cacheDirName: string; readonly releaseCheck: boolean };
 }
@@ -58,3 +60,7 @@ export function liveDataRequested(input?: { argv?: string[]; env?: NodeJS.Proces
 export function scriptTarget(input?: { argv?: string[]; env?: NodeJS.ProcessEnv; home?: string }): ScriptTarget;
 export function readPackageJson(directory?: string): Record<string, unknown> | null;
 export function samePath(a: string, b: string): boolean;
+export const APP_VARIANT_ENV: string;
+export function companionDirFor(definition: VariantDefinition, options?: { env?: NodeJS.ProcessEnv; home?: string }): string | null;
+export function insidePath(parent: string, child: string, options?: { caseInsensitive?: boolean }): boolean;
+export function readBundleIdentifier(execPath: string, readFile?: (path: string, encoding: string) => string): string | null;

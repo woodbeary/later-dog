@@ -14,7 +14,9 @@ const {
 
 const CONNECTION_SCHEMA_VERSION = 1;
 const SETTINGS_SCHEMA_VERSION = 2;
-const HOST_BUNDLE_ID = require("./app-variant.cjs").resolveVariant().cuaHostBundleId;
+const VARIANT = require("./app-variant.cjs");
+const RUNNING_VARIANT = VARIANT.resolveVariant();
+const HOST_BUNDLE_ID = RUNNING_VARIANT.cuaHostBundleId;
 const CERTIFIED_CONTRACT_VERSION = "0.6.0";
 const CERTIFIED_TOOLS_LIST_SCHEMA_VERSION = "1";
 const CERTIFIED_CAPABILITY_VERSION = "1";
@@ -555,14 +557,14 @@ function createLinuxCuaRuntime({
           stat.uid === currentUid &&
           (stat.mode & 0o077) === 0
         ) {
-          const root = ensurePrivateDirectory(path.join(configured, "laterdog-cua"));
+          const root = ensurePrivateDirectory(path.join(configured, VARIANT.tempName(RUNNING_VARIANT, "cua")));
           cleanupStaleRuntimeDirectories(root);
           return root;
         }
       } catch {}
     }
     const currentUid = process.getuid?.() ?? os.userInfo().uid;
-    const root = ensurePrivateDirectory(path.join(os.tmpdir(), `laterdog-cua-${currentUid}`));
+    const root = ensurePrivateDirectory(path.join(os.tmpdir(), `${VARIANT.tempName(RUNNING_VARIANT, "cua")}-${currentUid}`));
     cleanupStaleRuntimeDirectories(root);
     return root;
   };

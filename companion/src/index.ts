@@ -19,6 +19,7 @@ import { notifyDeviceRevoked } from "./harness-notice.ts";
 import { createProxyHandler } from "./proxy.ts";
 import { companionOriginSocket, listenCompanionOrigin } from "./origin.ts";
 import { normalizedPhoneSecretPublicKey } from "./phone-secret-key.ts";
+import { companionDefaults } from "./variant.ts";
 
 const parentPort = (process as NodeJS.Process & {
   parentPort?: { on(event: "message", listener: (event: { data?: unknown }) => void): void };
@@ -40,8 +41,8 @@ const num = (value: string | undefined, fallback: number): number => {
 
 const HARNESS_PORT = num(process.env.LATERDOG_SERVER_PORT, 8799);
 const WEBHOOK_PORT = num(process.env.LATERDOG_WEBHOOK_PORT, HARNESS_PORT + 1);
-const COMPANION_PORT = num(process.env.LATERDOG_COMPANION_PORT, 8810);
-const CONTROL_PORT = num(process.env.LATERDOG_CONTROL_PORT, 8811);
+const COMPANION_PORT = num(process.env.LATERDOG_COMPANION_PORT, companionDefaults().companionPort);
+const CONTROL_PORT = num(process.env.LATERDOG_CONTROL_PORT, companionDefaults().controlPort);
 const SERVICE_TYPE = "_laterdog._tcp";
 let hostedUrl = hostedCompanionUrl(process.env.LATERDOG_COMPANION_HOSTED_URL);
 const PRIVATE_ORIGIN = companionOriginSocket(process.env.LATERDOG_COMPANION_INTERNAL_ORIGIN);

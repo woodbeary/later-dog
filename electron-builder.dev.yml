@@ -9,7 +9,7 @@ protocols:
     schemes: [laterdog-dev]
 
 files:
-  - "!electron/resources/app-update-dev.yml"
+  - build/dev/icon.png
 
 mac:
   icon: build/dev/icon.icns

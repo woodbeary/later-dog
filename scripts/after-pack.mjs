@@ -7,7 +7,7 @@ import {
 } from "./prepare-cloudflared.mjs";
 import { verifyBrowserBundle } from "./prepare-browser.mjs";
 import { LIPO_ARCH, isMachO, writeThinMachO } from "./mac-thin.mjs";
-import { installDevUpdateConfig } from "./dev-update-config.mjs";
+import { installDevUpdateConfig, keepOnlyDevScheme } from "./dev-update-config.mjs";
 
 async function requireRealDirectory(directory, mode = 0o755) {
   const details = await lstat(directory);
@@ -88,6 +88,7 @@ export default async function afterPack(context) {
   );
   await validateCloudflared(resources, context.electronPlatformName, Boolean(context.packager));
   await installDevUpdateConfig(context, resources);
+  await keepOnlyDevScheme(context);
   const browserRoot = path.join(resources, "browser-engine");
   const hasBrowser = await lstat(browserRoot).then(() => true, (error) => {
     if (error?.code === "ENOENT") return false;

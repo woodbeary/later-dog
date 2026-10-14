@@ -122,7 +122,7 @@ const { MIN_BOUNDS, normalizeUnreadCount, parseWindowState, resolveWindowState }
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
 let SERVER_PORT = variant.ports.server[0];
-const APP_ICON = path.join(__dirname, "resources", variant.iconFile);
+const APP_ICON = path.join(__dirname, variant.iconPath);
 let desktopViewerWindow = null;
 let desktopViewerOwner = null;
 let desktopViewerContextId = null;

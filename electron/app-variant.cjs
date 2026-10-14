@@ -4,6 +4,7 @@ const path = require("node:path");
 
 const VARIANT_ENV = "LATERDOG_VARIANT";
 const VARIANT_FIELD = "laterdogVariant";
+const APP_VARIANT_ENV = "LATERDOG_APP_VARIANT";
 const RELEASE = "release";
 const DEV = "dev";
 const VARIANT_IDS = Object.freeze([RELEASE, DEV]);
@@ -20,8 +21,10 @@ const DEFINITIONS = Object.freeze({
     desktopEntry: "dog.later.app.desktop",
     cuaHostBundleId: "dog.later.app",
     tempPrefix: "laterdog",
-    iconFile: "app-icon.png",
+    iconPath: "resources/app-icon.png",
     ports: Object.freeze({
+      companion: 8810,
+      companionControl: 8811,
       server: Object.freeze([8799, 18799, 28799]),
       webhookOffset: 1,
       companionRelay: Object.freeze([8798, 18798, 28798]),
@@ -41,8 +44,10 @@ const DEFINITIONS = Object.freeze({
     desktopEntry: "dog.later.app.dev.desktop",
     cuaHostBundleId: "dog.later.app.dev",
     tempPrefix: "laterdog-dev",
-    iconFile: "app-icon-dev.png",
+    iconPath: "../build/dev/icon.png",
     ports: Object.freeze({
+      companion: 8910,
+      companionControl: 8909,
       server: Object.freeze([8999, 18999, 28999]),
       webhookOffset: 1,
       companionRelay: Object.freeze([8998, 18998, 28998]),
@@ -78,6 +83,18 @@ function bundleIsDev(execPath) {
   return /later\.dog Dev\.app(?:[\\/]|$)/.test(text) || /^later\.dog Dev(?:\.exe)?$/.test(path.basename(text)) || path.basename(text) === "laterdog-dev";
 }
 
+function readBundleIdentifier(execPath, readFile = fs.readFileSync) {
+  const text = String(execPath ?? "");
+  const at = text.indexOf(".app/Contents/MacOS/");
+  if (at === -1) return null;
+  try {
+    const plist = String(readFile(path.join(text.slice(0, at + 4), "Contents", "Info.plist"), "utf8"));
+    return /<key>CFBundleIdentifier<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function readBakedVariant(packageJson) {
   const baked = clean(packageJson?.[VARIANT_FIELD]);
   return VARIANT_IDS.includes(baked) ? baked : null;
@@ -97,13 +114,16 @@ function resolveVariantId({
   execPath = process.execPath,
   electronVersion = process.versions.electron,
   defaultApp = process.defaultApp === true,
+  bundleIdentifier = () => readBundleIdentifier(execPath),
 } = {}) {
+  const packagedApp = Boolean(electronVersion) && !defaultApp;
+  if (packagedApp) {
+    return readBakedVariant(packageJson) === DEV || bundleIsDev(execPath) || bundleIdentifier() === DEFINITIONS[DEV].appId ? DEV : RELEASE;
+  }
   const requested = clean(env[VARIANT_ENV]);
   if (requested && !VARIANT_IDS.includes(requested)) {
     throw new Error(`${VARIANT_ENV}=${env[VARIANT_ENV]} is not a later.dog variant. Use ${VARIANT_IDS.join(" or ")}.`);
   }
-  const packagedApp = Boolean(electronVersion) && !defaultApp;
-  if (packagedApp) return readBakedVariant(packageJson) === DEV || bundleIsDev(execPath) ? DEV : RELEASE;
   if (requested) return requested;
   return electronVersion ? DEV : RELEASE;
 }
@@ -116,8 +136,19 @@ function samePath(a, b) {
   return path.resolve(a) === path.resolve(b);
 }
 
-function insidePath(parent, child) {
-  const relative = path.relative(path.resolve(parent), path.resolve(child));
+function canonicalPath(target) {
+  const absolute = path.resolve(target);
+  try {
+    return fs.realpathSync.native(absolute);
+  } catch {
+    const parent = path.dirname(absolute);
+    return parent === absolute ? absolute : path.join(canonicalPath(parent), path.basename(absolute));
+  }
+}
+
+function insidePath(parent, child, { caseInsensitive = process.platform !== "linux" } = {}) {
+  const fold = (value) => (caseInsensitive ? value.toLowerCase() : value);
+  const relative = path.relative(fold(canonicalPath(parent)), fold(canonicalPath(child)));
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
@@ -175,8 +206,8 @@ function webhookPortFor(definition, serverPort) {
 }
 
 function ownedPorts(definition) {
-  const { server, companionRelay, supervisor, profiles, webhookOffset } = definition.ports;
-  const owned = new Set([supervisor]);
+  const { server, companionRelay, supervisor, profiles, webhookOffset, companion, companionControl } = definition.ports;
+  const owned = new Set([supervisor, companion, companionControl]);
   for (const port of [...server, ...companionRelay]) {
     owned.add(port);
     if (server.includes(port)) owned.add(port + webhookOffset);
@@ -189,8 +220,17 @@ function ownedPorts(definition) {
 }
 
 function applyVariantEnvironment(definition, env = process.env) {
-  if (definition.id !== RELEASE) env.LATERDOG_PORT = String(definition.ports.supervisor);
+  if (definition.id === RELEASE) {
+    delete env[APP_VARIANT_ENV];
+    return env;
+  }
+  env.LATERDOG_PORT = String(definition.ports.supervisor);
+  env[APP_VARIANT_ENV] = definition.id;
   return env;
+}
+
+function companionDirFor(definition, options) {
+  return definition.id === RELEASE ? null : path.join(dataDirFor(definition, options), "companion");
 }
 
 function liveDataRequested({ argv = process.argv, env = process.env } = {}) {
@@ -231,6 +271,10 @@ function scriptTarget({ argv = process.argv, env = process.env, home = os.homedi
 }
 
 module.exports = {
+  APP_VARIANT_ENV,
+  companionDirFor,
+  insidePath,
+  readBundleIdentifier,
   applyVariantEnvironment,
   DEV,
   LIVE_DATA_ENV,

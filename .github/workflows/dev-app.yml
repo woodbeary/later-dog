@@ -83,7 +83,10 @@ jobs:
           APP='release/mac-arm64/later.dog Dev.app'
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")" = 'dog.later.app.dev'
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$APP/Contents/Info.plist")" = 'later.dog Dev'
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$APP/Contents/Info.plist")" = 'laterdog-dev'
+          SCHEMES="$(plutil -extract CFBundleURLTypes json -o - "$APP/Contents/Info.plist" | node -e "const types = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(types.flatMap((type) => type.CFBundleURLSchemes ?? []).join(' '))")"
+          echo "URL schemes: $SCHEMES"
+          test "$SCHEMES" = 'laterdog-dev'
+          for SCHEME in $SCHEMES; do test "$SCHEME" != 'laterdog'; done
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = "$LATERDOG_DEV_VERSION"
           test -f "$APP/Contents/Resources/server/laterdog/main.js"
           test -f "$APP/Contents/Resources/server/laterdog/mcp.js"

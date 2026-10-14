@@ -12,51 +12,53 @@ const { version } = JSON.parse(
 
 const { SCRIPT_DEFAULTS, scriptTarget } = createRequire(import.meta.url)("./electron/app-variant.cjs") as typeof import("./electron/app-variant.mjs");
 const devTarget = scriptTarget();
-if (devTarget.refusal && !process.env.VITEST) throw new Error(devTarget.refusal);
 const proxyPort = devTarget.refusal ? SCRIPT_DEFAULTS.serverPort : devTarget.serverPort ?? (devTarget.live ? 8799 : SCRIPT_DEFAULTS.serverPort);
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  define: {
-    __APP_VERSION__: JSON.stringify(version),
-  },
-  test: {
-    environment: "node",
-    include: [
-      "evals/**/*.test.ts",
-      "server/**/*.test.ts",
-      "electron/**/*.test.mjs",
-      "src/**/*.test.ts",
-      "shared/**/*.test.ts",
-      "companion/**/*.test.ts",
-      "scripts/**/*.test.mjs",
-      "scripts/**/*.test.ts",
-    ],
-    setupFiles: ["server/testing/setup.ts"],
-    fileParallelism: false,
-    sequence: { sequencer: DurationSequencer },
-    testTimeout: 20_000,
-    hookTimeout: 30_000,
-  },
-  resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
+export default defineConfig(({ command }) => {
+  if (command === "serve" && devTarget.refusal && !process.env.VITEST) throw new Error(devTarget.refusal);
+  return {
+    plugins: [react(), tailwindcss()],
+    define: {
+      __APP_VERSION__: JSON.stringify(version),
     },
-  },
-  server: {
-    host: "127.0.0.1",
-    port: Number(process.env.LATERDOG_UI_PORT) || 5199,
-    watch: {
-      ignored: ["**/release/**", "**/build/**", "**/dist/**", "**/electron/resources/**"],
+    test: {
+      environment: "node",
+      include: [
+        "evals/**/*.test.ts",
+        "server/**/*.test.ts",
+        "electron/**/*.test.mjs",
+        "src/**/*.test.ts",
+        "shared/**/*.test.ts",
+        "companion/**/*.test.ts",
+        "scripts/**/*.test.mjs",
+        "scripts/**/*.test.ts",
+      ],
+      setupFiles: ["server/testing/setup.ts"],
+      fileParallelism: false,
+      sequence: { sequencer: DurationSequencer },
+      testTimeout: 20_000,
+      hookTimeout: 30_000,
     },
-    proxy: {
-      "/api": {
-        ws: true,
-        target: `http://127.0.0.1:${proxyPort}`,
-      },
-      "/.well-known/laterdog/environment": {
-        target: `http://127.0.0.1:${proxyPort}`,
+    resolve: {
+      alias: {
+        "@": fileURLToPath(new URL("./src", import.meta.url)),
       },
     },
-  },
+    server: {
+      host: "127.0.0.1",
+      port: Number(process.env.LATERDOG_UI_PORT) || 5199,
+      watch: {
+        ignored: ["**/release/**", "**/build/**", "**/dist/**", "**/electron/resources/**"],
+      },
+      proxy: {
+        "/api": {
+          ws: true,
+          target: `http://127.0.0.1:${proxyPort}`,
+        },
+        "/.well-known/laterdog/environment": {
+          target: `http://127.0.0.1:${proxyPort}`,
+        },
+      },
+    },
+  };
 });

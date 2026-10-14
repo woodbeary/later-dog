@@ -6,12 +6,30 @@ import { LIVE_DATA_FLAG, SCRIPT_DEFAULTS, scriptTarget } from "../electron/app-v
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const LEGACY_SERVER_PORT = 8799;
+export const ISOLATED_DELETIONS = [
+  "LATERDOG_URL",
+  "LATERDOG_SUPERVISOR_URL",
+  "LATERDOG_TOKEN",
+  "LATERDOG_TOKEN_FILE",
+  "LATERDOG_DATA_DIR",
+  "LATERDOG_HARNESS_URL",
+  "LATERDOG_COMPANION_DIR",
+  "LATERDOG_WEBHOOK_PORT",
+];
 const LEGACY_UI_PORT = 5199;
 
 export function safeTarget({ argv = process.argv, env = process.env, home = homedir() } = {}) {
   const target = scriptTarget({ argv, env, home });
   if (target.refusal) throw new Error(target.refusal);
   return target;
+}
+
+export function commandContext(command, { argv = process.argv, env = process.env, home = homedir() } = {}) {
+  if (command !== "dev") {
+    return { isolated: false, target: null, env: { ...env }, dataRoot: env.LATERDOG_HOME ?? join(home, ".laterdog"), supervisorUrl: "http://127.0.0.1:9010" };
+  }
+  const target = safeTarget({ argv, env, home });
+  return { isolated: true, target, env: scriptEnvironment(target, env), dataRoot: target.home, supervisorUrl: `http://127.0.0.1:${target.supervisorPort ?? 9010}` };
 }
 
 export function withoutLiveFlag(argv) {
@@ -39,7 +57,10 @@ export function scriptEnvironment(target, env = process.env) {
   if (target.supervisorPort) next.LATERDOG_PORT = String(target.supervisorPort);
   if (target.uiPort) next.LATERDOG_UI_PORT = String(target.uiPort);
   if (!target.live && !env.LATERDOG_BRIDGE_DIR) next.LATERDOG_BRIDGE_DIR = join(target.home, "bridge");
-  if (!target.live) delete next.LATERDOG_URL;
+  if (!target.live) {
+    for (const name of ISOLATED_DELETIONS) delete next[name];
+    next.LATERDOG_APP_VARIANT = "dev";
+  }
   return next;
 }
 
