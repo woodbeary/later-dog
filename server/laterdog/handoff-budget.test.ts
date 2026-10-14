@@ -15,13 +15,15 @@ describe("handoff end words", () => {
     expect(plainDuration(1_000)).toBe("under a minute");
   });
   it("never blames the person for time running out and never says user", () => {
-    for (const end of ["interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem"] as const) {
+    for (const end of ["api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem"] as const) {
       expect(endWords(end, limits)).not.toMatch(/stopped by|the user|\buser\b/i);
     }
     expect(endWords("capped", limits)).toBe("Ran out of time after 4 hours.");
     expect(endWords("idle", limits)).toBe("Nothing moved for 20 minutes, so later.dog stopped waiting.");
     expect(endWords("person", limits)).toBe("The person stopped this work.");
     expect(endWords("person", limits, true)).toBe("The person stopped this before it started.");
+    expect(endWords("api", limits)).toBe("A local tool on this Mac stopped this work.");
+    expect(endWords("api", limits, true)).toBe("A local tool on this Mac stopped this before it started.");
   });
   it("offers Continue in plain words", () => {
     expect(continueOffer("capped", limits)).toBe("Ran out of time after 4 hours. Continue?");
@@ -34,6 +36,7 @@ describe("handoff end words", () => {
   it("labels a teammate's result by what actually happened", () => {
     expect(teammateEndLabel("Scout", "completed", undefined)).toBe("Scout replied");
     expect(teammateEndLabel("Scout", "cancelled", "person")).toBe("Scout stopped");
+    expect(teammateEndLabel("Scout", "cancelled", "api")).toBe("Scout was stopped by a local tool");
     expect(teammateEndLabel("Scout", "failed", "capped")).toBe("Scout ran out of time");
     expect(teammateEndLabel("Scout", "failed", "idle")).toBe("Scout ran out of time");
     expect(teammateEndLabel("Scout", "cancelled", "origin")).toBe("Scout never got started");

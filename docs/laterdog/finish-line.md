@@ -43,7 +43,7 @@ Work stops at a gate before the next one starts.
 | L0 Integration | `laterdog/checkpoint`, staging `laterdog/next` | #38, #48, #49 | 0.3.28 on `laterdog/checkpoint`; 0.3.29 staged on `laterdog/next` |
 | L1 Cloud ready | `laterdog/home` | #39 | done; tonight's Cloud fixes also on #49 |
 | L2 Phone review-ready | later-dog-phone `main` | | done |
-| L3 Reliability | `laterdog/reliability`, `laterdog/local-tools-token` | #44 (merged), #47 | token redone as a default-deny allow-list; fixing the re-review's N1-N5 |
+| L3 Reliability | `laterdog/reliability`, `laterdog/local-tools-token` | #44 (merged), #47 (on the staging branch) | done: token is a default-deny allow-list, re-reviewed, N1-N5 fixed with e2e tests |
 | L4 PR #36 on screen | `laterdog/visual-36` | #40 (merged) | done |
 | L5 Chat lines and cards | `laterdog/chatlines` | | running |
 | L6 Thinking, scroll, sidebar | `laterdog/thinking` | #45 | done, on the staging branch |
