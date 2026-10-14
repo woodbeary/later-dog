@@ -26,9 +26,9 @@ function recorder() {
     if (clean === "/api/search") return { hits: [] };
     if (clean === "/api/groups") return { group: room };
     if (/^\/api\/groups\/[\w-]+$/.test(clean)) return { group: room };
-    if (/\/tasks$/.test(clean)) return { task: { threadId: "t2", title: "New" }, bot, group: room };
+    if (clean.endsWith("/tasks")) return { task: { threadId: "t2", title: "New" }, bot, group: room };
     if (/\/tasks\/[\w-]+$/.test(clean)) return { task: { threadId: "t1", title: "Renamed" }, bot, group: room };
-    if (/\/edit$/.test(clean)) return { message: { id: "m1" } };
+    if (clean.endsWith("/edit")) return { message: { id: "m1" } };
     return { bot, ok: true };
   };
   return { seen, fetcher };
