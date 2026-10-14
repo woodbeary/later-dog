@@ -84,7 +84,7 @@ describe("EventBus", () => {
     expect(logged).toContain("«redacted");
   });
 
-  it("reports an incomplete log once while continuing live delivery", () => {
+  it("tells the person once, calmly, that part of a chat could not be saved, while live delivery continues", () => {
     rmSync(EVENTS_DIR, { recursive: true, force: true });
     const bus = new EventBus();
     const seen: RuntimeEvent[] = [];
@@ -95,15 +95,47 @@ describe("EventBus", () => {
 
     expect(seen).toHaveLength(3);
     expect(seen[0]).toMatchObject({
-      type: "runtime.error",
+      type: "runtime.notice",
       threadId: "thread-1",
-      message: expect.stringContaining("event history is incomplete"),
+      message: "later.dog couldn't save part of this chat. It will keep trying.",
     });
+    expect(seen.some((event) => event.type === "runtime.error")).toBe(false);
     expect(seen.slice(1).map((event) => event.eventId)).toEqual(["ev-1", "ev-2"]);
     expect(existsSync(EVENTS_DIR)).toBe(false);
   });
 
-  it("writes the incomplete marker before the first event after logging recovers", () => {
+  it("says the disk is nearly full in plain words when that is why", () => {
+    const append: typeof appendFileSync = vi.fn(() => { throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" }); });
+    const bus = new EventBus(append);
+    const seen: RuntimeEvent[] = [];
+    bus.subscribe((event) => seen.push(event));
+    bus.publish(testEvent());
+    const notice = seen.find((event) => event.type === "runtime.notice");
+    expect(notice).toMatchObject({ message: expect.stringMatching(/is almost out of space, so later\.dog couldn't save part of this chat\. Free up some space and it will keep saving\.$/) });
+    expect(JSON.stringify(seen)).not.toContain("Canonical event history");
+  });
+
+  it("shows the notice once per chat for the whole session, even when saving fails, recovers and fails again", () => {
+    let failing = true;
+    const append: typeof appendFileSync = vi.fn(() => { if (failing) throw Object.assign(new Error("full"), { code: "ENOSPC" }); });
+    const bus = new EventBus(append);
+    const seen: RuntimeEvent[] = [];
+    bus.subscribe((event) => seen.push(event));
+    for (const round of [1, 2, 3]) {
+      failing = true;
+      bus.publish(testEvent({ eventId: `fail-a-${round}` }));
+      bus.publish(testEvent({ eventId: `fail-b-${round}` }));
+      failing = false;
+      bus.publish(testEvent({ eventId: `ok-${round}` }));
+    }
+    expect(seen.filter((event) => event.type === "runtime.notice")).toHaveLength(1);
+    bus.publish(testEvent({ eventId: "other-1", threadId: "thread-2" }));
+    failing = true;
+    bus.publish(testEvent({ eventId: "other-2", threadId: "thread-2" }));
+    expect(seen.filter((event) => event.type === "runtime.notice").map((event) => event.threadId)).toEqual(["thread-1", "thread-2"]);
+  });
+
+  it("still writes the incomplete marker before the first event after logging recovers", () => {
     let failing = true;
     const writes: string[] = [];
     const append: typeof appendFileSync = vi.fn((...args: Parameters<typeof appendFileSync>) => {
@@ -123,7 +155,8 @@ describe("EventBus", () => {
     expect(recovered.map((event) => event.type)).toEqual(["runtime.error", "turn.completed"]);
     expect(recovered[0].message).toContain("event history is incomplete");
     expect(writes[1].trim()).toContain('"eventId":"ev-3"');
-    expect(seen.filter((event) => event.type === "runtime.error")).toHaveLength(1);
+    expect(seen.filter((event) => event.type === "runtime.notice")).toHaveLength(1);
+    expect(seen.filter((event) => event.type === "runtime.error")).toHaveLength(0);
   });
 
   it("a throwing listener does not starve the others", () => {

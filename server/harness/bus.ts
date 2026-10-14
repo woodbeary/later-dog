@@ -5,6 +5,7 @@ import { EVENTS_DIR } from "../config.ts";
 import { redactSecrets } from "../redact.ts";
 import { capThreadLog, currentThreadLogCap } from "../thread-log-rotation.ts";
 import { newId, type ProviderInstance, type RuntimeEvent, type RuntimeEventListener } from "../contracts.ts";
+import { SavingNoticeOnce } from "../laterdog/saving-notice.ts";
 
 const INCOMPLETE_LOG_MESSAGE =
   "Canonical event history is incomplete: later.dog could not write one or more events to disk. Live updates will continue.";
@@ -23,6 +24,7 @@ export class EventBus {
   private unsubscribes = new Map<string, () => void>();
   private pendingLogWarnings = new Map<string, RuntimeEvent>();
   private pendingText = new Map<string, { event: TextDelta; timer: ReturnType<typeof setTimeout> }>();
+  private readonly savingNotices = new SavingNoticeOnce();
   private readonly appendLog: typeof appendFileSync;
 
   constructor(appendLog: typeof appendFileSync = appendFileSync) {
@@ -97,7 +99,19 @@ export class EventBus {
         };
         this.pendingLogWarnings.set(event.threadId, warning);
         console.error("bus: canonical event log write failed", error);
-        this.deliver(warning);
+      }
+      const notice = this.savingNotices.next(event.threadId, error);
+      if (notice) {
+        this.deliver({
+          eventId: newId(),
+          provider: event.provider,
+          providerInstanceId: event.providerInstanceId,
+          threadId: event.threadId,
+          createdAt: new Date().toISOString(),
+          turnId: event.turnId,
+          type: "runtime.notice",
+          message: notice,
+        });
       }
     }
     this.deliver(event);

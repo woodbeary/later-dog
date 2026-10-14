@@ -142,3 +142,7 @@ timeouts or assertions; no request retries were added.
 
 No live deployment, provider speedup, fleet-size promise or Windows/Linux
 native verification is implied by the local macOS measurements.
+
+## When saving a chat's event history fails
+
+If an event cannot be appended to a thread's `events/<thread>.ndjson`, the log still gets its internal gap marker (`Canonical event history is incomplete…`, a `runtime.error` written before the next event that does save), so the history stays honest for inspection and backup. The person no longer sees that sentence. The first failure in a chat shows one calm line in that chat, once per session however often saving fails and recovers: "Your Mac is almost out of space, so later.dog couldn't save part of this chat. Free up some space and it will keep saving." (the disk-full and quota errors), a plain permission line for `EACCES`, `EPERM` and `EROFS`, or "later.dog couldn't save part of this chat. It will keep trying." for anything else. The words live in `server/laterdog/saving-notice.ts`; `server/harness/bus.test.ts` proves one notice per chat across failure, recovery and failure again, and the unchanged marker.
