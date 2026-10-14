@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.30 — 2026-10-14
+
+- **One account on your Mac and phone.** Sign in on the Mac with your email and a code, right inside later.dog, to open the same Cloud home as your phone.
+- **Bring your Mac's dogs with you.** Moving into an empty Cloud home checks that your dogs arrived and keeps the Mac's copy. A home that already has dogs is never replaced.
+- **Cloud computers wake faster.** The desktop link returns sooner after a sleeping computer starts running.
+- **Longer voice notes.** Voice notes can run for up to 30 minutes, with Deepgram Nova-3 transcription through later.dog.
+- **Progress stays compact.** Open the thinking row for a drawer of steps, tools and helper work without filling the conversation.
+- **Read threads stay read.** Opening a thread marks the messages you saw together, and unread messages remain easy to find.
+- **Renames follow the dog.** Current names appear in mentions and conversation references; changes to a teammate's profile still ask for confirmation.
+- **Choices for each cloud job.** A job can use its own model, account and effort without changing a dog's defaults, and keeps a scrubbed trace for review.
+
 ## 0.3.29 — 2026-10-14
 
 - **Quiet lines when dogs talk to each other.** You see one line, "Messaged ◯ Name", that opens their conversation, instead of extra chats.
