@@ -1,4 +1,3 @@
-import { writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiRequest, siteverify, startTrial, trialKey, world } from "./fakes";
 
@@ -48,7 +47,6 @@ describe("what the Worker adds around the model", () => {
       p95Ms: Math.round(percentile(samples, 0.95) * 100) / 100,
       maxMs: Math.round(Math.max(...samples) * 100) / 100,
     };
-    if (process.env.TYPING_BENCH_WORKER_OUT) writeFileSync(process.env.TYPING_BENCH_WORKER_OUT, JSON.stringify(report, null, 2));
     expect(report.p50Ms).toBeLessThan(OVERHEAD_P50_BUDGET_MS);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { completeInput, completeRequest, finishCompletion as workerFinish } from "../src/complete";
-import { finishCompletion as appFinish, parseTypingRequest, typingModelInput } from "../../../../server/laterdog/typing-context";
+import { completeInput, completeRequest, finishCompletion as workerFinish } from "../../deploy/laterdog/computers/src/complete.ts";
+import { finishCompletion as appFinish, parseTypingRequest, typingModelInput } from "../../server/laterdog/typing-context.ts";
 
 describe("the Worker and the app word the question the same way", () => {
   const request = { prefix: "Please fix", dog: "Rex", messages: [{ role: "dog" as const, text: "Two tests fail." }, { role: "person" as const, text: "ok" }], phrasing: ["Can you look at"] };
