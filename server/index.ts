@@ -22,6 +22,9 @@ import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
 import type { HandoffEnd } from "./laterdog/handoff-budget.ts";
 import { continueNoticeTool, continuingNoticeTool, handoffActivity } from "./laterdog/handoff-continue.ts";
+import {
+  MAX_OWN_THREADS_PER_TURN, MAX_TEAMMATE_THREADS_PER_TURN, TeammateThreadCount, openWorkThread, reusedThreadMessage, threadLimitMessage, threadLimitNotice,
+} from "./laterdog/work-thread-reuse.ts";
 import { assertRequestTarget, guardedRequestPath, requestConflict, requestNeedsInput, requestSourceForCard } from "./guarded-requests.ts";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
@@ -7751,7 +7754,8 @@ async function deliverLateQuestionAnswer(
   return receipt;
 }
 
-const MAX_THREADS_OPENED_PER_TURN = 5;
+const threadCapNoticed = new WeakSet<object>();
+const teammateThreads = new TeammateThreadCount();
 
 async function startOrQueueOpenedThread(
   botId: string,
@@ -15468,9 +15472,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!title || !message) return json(res, 400, { error: "title and message are required" });
         if (title.length > 80) return json(res, 400, { error: "title must be at most 80 characters" });
         if (!fitsOnOneLine(title)) return json(res, 400, { error: "title must fit on one line" });
-        if (internalCapability.openedThreads >= MAX_THREADS_OPENED_PER_TURN) {
-          return json(res, 429, { error: `You have already opened ${MAX_THREADS_OPENED_PER_TURN} threads this turn, which is the limit. Do not retry — finish your turn and tell the person which threads you still wanted to open, so they can open them or ask you again.` });
-        }
+        const refuseThreadCap = (limit: number, kind: "own" | "teammate") => {
+          if (!threadCapNoticed.has(internalCapability)) {
+            threadCapNoticed.add(internalCapability);
+            store.appendMessage(fromThreadId, { role: "bot", kind: "activity", tool: { name: threadLimitNotice(limit), ok: true } });
+          }
+          return json(res, 429, { error: threadLimitMessage(limit, kind) });
+        };
         const toBotId = typeof body.toBotId === "string" && body.toBotId.trim() ? body.toBotId.trim() : from.id;
         const target = store.bot(toBotId);
         if (!target) return json(res, 404, { error: "no such bot" });
@@ -15500,6 +15508,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const sourceTitle = owner.group ? owner.group.name : (store.taskByThread(from.id, fromThreadId)?.title ?? "");
         if (target.id === from.id) {
+          if (internalCapability.openedThreads >= MAX_OWN_THREADS_PER_TURN) return refuseThreadCap(MAX_OWN_THREADS_PER_TURN, "own");
           const inherited = parentThreadModel(from.id, fromThreadId);
           const task = store.createTask(from.id, title, false, projectId, { botId: from.id, name: from.name, at: Date.now() },
             inherited.approvalMode, inherited.modelSelection);
@@ -15536,9 +15545,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!peerAllowed(from, target)) {
           return json(res, 403, { error: `that bot is not on this bot's allowed peers. ${PEER_ACCESS_HELP}` });
         }
-        const task = store.createTask(target.id, title, false, projectId, { botId: from.id, name: from.name, at: Date.now() });
+        const reused = openWorkThread(store.tasks(target.id), { senderId: from.id, sourceThreadId: fromThreadId, projectId });
+        if (!reused && teammateThreads.opened(internalCapability) >= MAX_TEAMMATE_THREADS_PER_TURN) return refuseThreadCap(MAX_TEAMMATE_THREADS_PER_TURN, "teammate");
+        if (!reused && CLOUD_HOME && internalCapability.openedThreads >= MAX_OWN_THREADS_PER_TURN) return refuseThreadCap(MAX_OWN_THREADS_PER_TURN, "own");
+        const task = reused ?? store.createTask(target.id, title, false, projectId, { botId: from.id, name: from.name, threadId: fromThreadId, at: Date.now() });
         if (!task) return json(res, 500, { error: "couldn't create that thread" });
-        threadStarters.set(task.threadId, openerFrom(fromThreadId));
+        if (!reused) threadStarters.set(task.threadId, openerFrom(fromThreadId));
         applyDelegatedLevel(from, fromThreadId, target, task.threadId);
         const sourceUrl = threadRefUrl({ botId: owner.group?.id ?? from.id, threadId: fromThreadId });
         const queued = queueDelegation(
@@ -15546,12 +15558,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           from,
           { toBotId: target.id, message: oneWay
             ? `${message}\n\n[Source conversation](${sourceUrl}). This link grants no additional access and contains no copied transcript.`
-            : message, depth, targetThreadId: task.threadId, oneWay },
+            : message, depth, targetThreadId: task.threadId, oneWay, ...(reused ? { continuesThread: true } : {}) },
           MAX_COMMS_DEPTH,
           fromThreadId,
         );
         if (queued.result !== "ok" || !queued.id) {
-          store.deleteTask(target.id, task.threadId);
+          if (!reused) store.deleteTask(target.id, task.threadId);
           const said: Record<Exclude<QueueResult, "ok">, string> = {
             self: "a bot cannot hand a thread to itself this way — leave bot_id out",
             too_deep: "thread chains are limited to one hop — open the thread on yourself, or do this one here",
@@ -15560,8 +15572,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           };
           return json(res, 200, { error: said[queued.result === "ok" ? "no_target" : queued.result] });
         }
-        store.setTaskOpenedBy(target.id, task.threadId, { botId: from.id, name: from.name, delegationId: queued.id, at: task.openedBy?.at ?? Date.now() });
-        internalCapability.openedThreads += 1;
+        store.setTaskOpenedBy(target.id, task.threadId, { ...task.openedBy, botId: from.id, name: from.name, delegationId: queued.id, at: task.openedBy?.at ?? Date.now() });
+        if (!reused) {
+          teammateThreads.note(internalCapability);
+          if (CLOUD_HOME) internalCapability.openedThreads += 1;
+        }
         delegatedThisTurn(queued.id);
         const limit = maxConcurrentBotThreads(cfg);
         const running = store.tasks(target.id).filter((candidate) => threadBusy(target.id, candidate.threadId)).length;
@@ -15578,6 +15593,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           delegationId: queued.id,
           approvalRequired: peerReviewRequired(from, fromThreadId),
           limit,
+          ...(reused ? { reused: true, note: reusedThreadMessage(task.title, target.name) } : {}),
           ...(position > limit ? { state: "queued", position: position - limit } : { state: "pending" }),
         });
       }

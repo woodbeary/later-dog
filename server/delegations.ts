@@ -21,6 +21,7 @@ export interface DelegationItem {
   targetThreadId?: string;
   oneWay?: boolean;
   completionOwner?: "external";
+  continuesThread?: boolean;
 }
 
 interface PendingDelegationItem extends DelegationItem {
@@ -283,7 +284,9 @@ export function queueDelegation(
     kind: "activity",
     tool: {
       name: openedThread
-        ? `Opened thread #${openedThread.title} on ${target.name}`
+        ? item.continuesThread
+          ? `Added to thread #${openedThread.title} on ${target.name}`
+          : `Opened thread #${openedThread.title} on ${target.name}`
         : `Delegated to @${target.name}${item.reason ? `: ${item.reason}` : ""}`,
       ok: true,
     },

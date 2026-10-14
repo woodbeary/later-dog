@@ -432,7 +432,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       title, message, depth: context.depth, oneWay: true,
     }) });
     if (r.error) return { text: `Couldn't send to that bot: ${String(r.error)}`, isError: true };
-    const destination = `@${String(r.botName ?? "that bot")} in #${String(r.title ?? title)} [thread id: ${String(r.threadId ?? "")}]`;
+    const destination = `@${String(r.botName ?? "that bot")} in #${String(r.title ?? title)} [thread id: ${String(r.threadId ?? "")}]${r.reused === true ? ", the open thread you already have with them" : ""}`;
     const state = r.approvalRequired === true
       ? `Send to ${destination} is pending approval. The person's approval card appears after this turn ends; dispatch starts once approved.`
       : r.state === "queued"
@@ -652,7 +652,9 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const threadTitle = String(r.title ?? title);
     const threadId = String(r.threadId ?? "");
     const where = r.self === true ? "on yourself" : `on @${String(r.botName ?? "that bot")}`;
-    const opened = `Opened thread #${threadTitle} ${where} [thread id: ${threadId}].`;
+    const opened = r.reused === true
+      ? `Added to your open thread #${threadTitle} ${where} [thread id: ${threadId}], instead of opening another.`
+      : `Opened thread #${threadTitle} ${where} [thread id: ${threadId}].`;
     if (r.self === true) {
       if (r.state === "running") {
         return { text: `${opened} It is running now, in parallel with this conversation, and its result stays in that thread — it will not be delivered here. Mention it to the person as #${threadTitle}; use list_threads in a later turn to see how it is going.` };

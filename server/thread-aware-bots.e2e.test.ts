@@ -305,12 +305,50 @@ describe("start_thread on yourself", () => {
       }
       const sixth = await api("POST", "/api/internal/threads", { title: "Job 5", message: "go" }, token);
       expect(sixth.status).toBe(429);
-      expect(sixth.body.error).toContain("already opened 5 threads this turn");
+      expect(sixth.body.error).toContain("already opened 5 new threads for yourself this turn");
       expect((await botState(bot.id)).tasks).toHaveLength(6);
       for (const task of (await botState(bot.id)).tasks) release(task.threadId);
       await expect.poll(async () => (await botState(bot.id))?.busy, { timeout: 15_000 }).toBe(false);
     } finally {
       await cleanup([bot.id]);
+    }
+  }, 60_000);
+
+  it("sends a repeat request to the thread it already has open with that teammate, and says so in words when it stops a runaway", async () => {
+    const pm = await createBot("Pam", "gated");
+    const qa = await createBot("Quinn", "gated");
+    const ops = await createBot("Ria", "gated");
+    try {
+      const token = await heldTurn(pm, "Send these to QA and Ops.");
+      const first = await api("POST", "/api/internal/threads", { toBotId: qa.id, title: "Check A", message: "First check.", oneWay: true }, token);
+      expect(first.status).toBe(201);
+      expect(first.body.reused).toBeUndefined();
+      const again = await api("POST", "/api/internal/threads", { toBotId: qa.id, title: "Check B", message: "Second check.", oneWay: true }, token);
+      expect(again.status).toBe(201);
+      expect(again.body).toMatchObject({ reused: true, threadId: first.body.threadId, title: "Check A" });
+      expect(again.body.note).toContain("Added to your open thread #Check A with Quinn");
+      expect((await botState(qa.id)).tasks).toHaveLength(2);
+      const other = await api("POST", "/api/internal/threads", { toBotId: ops.id, title: "Check C", message: "Third check.", oneWay: true }, token);
+      expect(other.status).toBe(201);
+      expect(other.body.threadId).not.toBe(first.body.threadId);
+      expect((await botState(ops.id)).tasks).toHaveLength(2);
+      const chips = (await messages(pm.threadId)).filter((message) => message.threadRef).map((message) => message.tool.name);
+      expect(chips).toEqual(["Opened thread #Check A on Quinn", "Added to thread #Check A on Quinn", "Opened thread #Check C on Ria"]);
+      for (let index = 0; index < 5; index++) {
+        expect((await api("POST", "/api/internal/threads", { title: `Own ${index}`, message: "go" }, token)).status).toBe(201);
+      }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const refused = await api("POST", "/api/internal/threads", { title: "One too many", message: "go" }, token);
+        expect(refused.status).toBe(429);
+        expect(refused.body.error).toContain("tell the person plainly");
+      }
+      const notices = (await messages(pm.threadId)).filter((message) => message.tool?.name?.startsWith("notice: This dog opened 5 new threads"));
+      expect(notices).toHaveLength(1);
+      for (const task of (await botState(pm.id)).tasks) release(task.threadId);
+      release(pm.threadId);
+      await expect.poll(async () => (await botState(pm.id))?.busy, { timeout: 15_000 }).toBe(false);
+    } finally {
+      await cleanup([pm.id, qa.id, ops.id]);
     }
   }, 60_000);
 
