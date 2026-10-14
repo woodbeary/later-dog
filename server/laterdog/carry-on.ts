@@ -1,6 +1,6 @@
 import type { ModelSelection } from "../../shared/wire.ts";
 import { failedTurnTool, type FailedTurnTool } from "../../shared/failed-turn.ts";
-import { CONTINUE_AFTER_RESET, carryOnNotice, limitRowToReplace, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
+import { CONTINUE_AFTER_RESET, carryOnNotice, limitRowToReplace, selectionOnAccount, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
 import type { Notice, PathMessage } from "./continue-on-account.ts";
 
 export interface CarryOnInput {
@@ -18,8 +18,8 @@ function keptRequest(input: CarryOnInput) {
   const { battery, accounts, threadId, selection, path } = input;
   if (!battery.enabled) return undefined;
   const turn = battery.keptTurn(threadId, input.generation);
-  const at = path.findLastIndex((message) => message.role === "user" && message.kind === "text");
-  if (!turn?.rerun || at === -1 || path[at]!.id !== turn.requestMessageId) return undefined;
+  const at = path.findIndex((message) => message.id === turn?.requestMessageId);
+  if (!turn?.rerun || (turn.requestMessageId && at === -1)) return undefined;
   const routed = battery.route(selection, accounts, threadId).instanceId;
   const to = accounts.find((account) => account.instanceId === routed);
   return to?.eligible ? { at, to } : undefined;
@@ -35,14 +35,14 @@ export function carryOnAfterReset(input: CarryOnInput & {
 }): CarryOnOutcome {
   const { battery, accounts, selection, path } = input;
   const kept = keptRequest(input);
-  if (!kept || battery.restOf(kept.to, accounts, selection.model)) return "skipped";
+  if (!kept || battery.restOf(kept.to, accounts, selectionOnAccount(selection, kept.to, accounts).model)) return "skipped";
   if (input.full) return "full";
   const turn = battery.takeTurn(input.threadId, input.generation)!;
-  battery.takeBack(input.threadId, kept.to.instanceId);
+  battery.arrive(input.threadId, selection, kept.to.instanceId, accounts);
   const name = kept.to.displayName || kept.to.instanceId;
-  input.write({ name: `recovery: ${carryOnNotice(name)}`, ok: true }, limitRowToReplace(path, turn.requestMessageId)?.id);
+  input.write({ name: `recovery: ${carryOnNotice(name)}`, ok: true, carry: { from: turn.instanceId, to: kept.to.instanceId } }, (limitRowToReplace(path, turn.requestMessageId) ?? path.findLast((message) => message.tool?.quota))?.id);
   const toolRan = path.slice(kept.at + 1).some((message) => message.kind === "activity" && Boolean(message.tool?.itemId));
-  void turn.rerun!(toolRan ? CONTINUE_AFTER_RESET : null).catch((error: unknown) => {
+  void turn.rerun!(toolRan || path.slice(kept.at + 1).some((message) => message.role === "user") ? CONTINUE_AFTER_RESET : null).catch((error: unknown) => {
     input.write(failedTurnTool(`Could not carry on with ${name}: ${error instanceof Error ? error.message : String(error)}`));
   });
   return "started";

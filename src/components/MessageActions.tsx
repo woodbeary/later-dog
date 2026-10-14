@@ -39,6 +39,7 @@ export function MessageActions({
           items={more}
           ariaLabel={t("chat.messageActions")}
           placement="auto"
+          portal
           align={side === "user" ? "start" : "end"}
           onOpenChange={setMenuOpen}
           renderTrigger={({ open: shown }) => (

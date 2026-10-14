@@ -1,19 +1,28 @@
 export type AddAccountKind = "claudeAgent" | "codex";
+export type AddAccountRequest = { kind?: AddAccountKind; instanceId?: undefined } | { instanceId: string; kind?: undefined };
 
 const listeners = new Set<() => void>();
-let pending: { kind?: AddAccountKind } | null = null;
+let pending: AddAccountRequest | null = null;
 
-export function requestAddAccount(kind?: AddAccountKind): void {
-  pending = kind ? { kind } : {};
+function ask(request: AddAccountRequest): void {
+  pending = request;
   for (const listener of listeners) listener();
 }
 
-export function subscribeAddAccount(open: (kind?: AddAccountKind) => void): () => void {
+export function requestAddAccount(kind?: AddAccountKind): void {
+  ask(kind ? { kind } : {});
+}
+
+export function requestAccountSignIn(instanceId: string): void {
+  ask({ instanceId });
+}
+
+export function subscribeAddAccount(open: (request: AddAccountRequest) => void): () => void {
   const listener = () => {
     if (!pending) return;
-    const { kind } = pending;
+    const request = pending;
     pending = null;
-    open(kind);
+    open(request);
   };
   listeners.add(listener);
   listener();

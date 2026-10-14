@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MEMORY_MAX_LINES, readMemoryFile, readMemoryTopic, updateMemory, writeMemoryFile } from "../workspace.ts";
 import { callTool, type ToolCallContext } from "./agents-call.ts";
 
@@ -133,6 +133,24 @@ describe("add_mcp_server", () => {
 });
 
 describe("propose_profile", () => {
+  it("passes an avatar-only request through for a reviewed preview", async () => {
+    const api = vi.fn<ToolCallContext["client"]["api"]>(async () => ({ state: "pending", requestId: "picture" }));
+    const result = await callTool("propose_profile", { avatar_prompt: "  a friendly beagle  ", reason: "You asked for a picture" }, context({
+      client: { api, apiResponse: async () => ({ ok: true, status: 200, body: {} }) },
+    }));
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(String(api.mock.calls[0]![1]?.body))).toMatchObject({ avatarPrompt: "a friendly beagle", changes: {}, reason: "You asked for a picture" });
+  });
+
+  it("rejects an invalid avatar description before sending", async () => {
+    const api = vi.fn(async () => ({}));
+    const result = await callTool("propose_profile", { avatar_prompt: " ", reason: "You asked" }, context({
+      client: { api, apiResponse: async () => ({ ok: true, status: 200, body: {} }) },
+    }));
+    expect(result.isError).toBe(true);
+    expect(api).not.toHaveBeenCalled();
+  });
+
   it("rejects a non-boolean toggle without proposing the valid half", async () => {
     const calls: Array<{ path: string; body: any }> = [];
     const ctx = context({

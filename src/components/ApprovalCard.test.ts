@@ -96,7 +96,8 @@ describe("ApprovalCard routine proposals", () => {
     };
 
     const markup = renderToStaticMarkup(createElement(ApprovalCard, { message }));
-    expect(markup).toContain("Delete “Daily inbox”?");
+    expect(markup).not.toContain("Delete “Daily inbox”?");
+    expect(markup).toContain('aria-expanded="false"');
     expect(markup).toContain("Routine deleted");
   });
 
@@ -525,7 +526,8 @@ describe("ApprovalCard outbound holds", () => {
 
   it("keeps the settled status line", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: outboundMessage("allow") }));
-    expect(html).toContain("Send to Linear?");
+    expect(html).not.toContain("Send to Linear?");
+    expect(html).toContain('aria-expanded="false"');
     expect(html).toContain("Allowed");
   });
 
@@ -654,5 +656,23 @@ describe("the action an approval asks about", () => {
     expect(toolLabel("mcp__computer__computer_exec")).toBe("use its computer");
     expect(toolLabel("computer_get_desktop_state")).toBe("use its computer");
     expect(toolLabel("computer_get_desktop_state", "local-computer")).toBe("use this Mac");
+  });
+});
+
+
+describe("generated profile pictures", () => {
+  it("previews the proposed picture before confirmation", () => {
+    const message = {
+      id: "avatar-card", role: "bot", kind: "options", at: 1,
+      card: { title: "Update Scout?", subtitle: "Picture preview", options: ["Confirm", "Cancel"], requestId: "avatar-request", tool: "update_profile", profileRequest: {
+        version: 1, requestId: "avatar-request", botId: "scout", targetBotId: "scout", targetName: "Scout", threadId: "thread-1", createdAt: 1, reason: "You asked", changes: { avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" }, before: {}, expectedRevision: "before",
+      } },
+    } as Message;
+    const markup = renderToStaticMarkup(createElement(ApprovalCard, { message }));
+    expect(markup).toContain('src="/api/attachments/generated.png"');
+    expect(markup).toContain('alt="Generated profile picture preview"');
+    const pending = pendingApprovals([message])[0]!;
+    const pendingMarkup = renderToStaticMarkup(createElement(PendingApprovalPanel, { pending, count: 1, index: 0 }));
+    expect(pendingMarkup).toContain('src="/api/attachments/generated.png"');
   });
 });

@@ -1022,7 +1022,6 @@
   "usage.history.unpriced": "有 {count} 個回合來自未回報價格的引擎，因此未列入費用欄。",
   "botSettings.computer.checking": "請稍候",
   "botSettings.computer.asleep": "電腦正在休眠",
-  "botSettings.computer.wake": "喚醒",
   "botSettings.computer.waking": "正在喚醒…",
   "botSettings.computer.firstStart": "首次啟動約需一分鐘。",
   "botSettings.computer.unreachable": "無法連線到 {name} 的螢幕",

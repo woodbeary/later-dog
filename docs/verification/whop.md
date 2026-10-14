@@ -1,8 +1,9 @@
 # Whop connection
 
-The first-party Whop card uses the existing MCP registry and OAuth flow. It
-connects to `https://mcp.whop.com/mcp`, with browser sign-in and no pasted API
-key or Composio dependency. The bundled logo is attributed in
+Whop is an ordinary entry in the Apps connector catalog, under Payments. It
+uses the existing MCP registry and OAuth flow, connecting to
+`https://mcp.whop.com/mcp` with browser sign-in and no pasted API key or
+Composio dependency. The bundled logo is attributed in
 `src/assets/whop/README.md`.
 
 ## Isolated browser verification
@@ -25,9 +26,11 @@ has no alternate endpoint or test switch. It checks:
 - A pre-existing unrelated server named `whop` is never overwritten.
 - Cancellation and denied consent leave the connection disabled.
 - Repeated sign-ins reuse the configured server.
-- Whop connects directly in the same grid as the Composio apps, without a
-  Composio key or a detour to the MCP settings. Connected filtering and its
-  count include Whop; disconnect removes it from that filter.
+- Whop has no tile or placement of its own: it waits behind Payments' View all
+  like any other app, a search finds it, and once connected it leads Payments.
+  It connects without a Composio key or a detour to the MCP settings.
+  Connected filtering and its count include Whop; disconnect removes it from
+  that filter.
 - Successful consent plus tool discovery enables the connection; an OAuth
   token reaches the synthetic provider without appearing in the renderer list.
 - Failed post-login tool discovery does not enable the server and is retryable.
@@ -44,7 +47,7 @@ S256, refresh tokens and the `admin` scope.
 ## Regression checks
 
 ```sh
-pnpm exec vitest run src/lib/whop-integration.test.ts src/components/PluginsPanel.navigation.test.ts src/components/PluginsPanel.i18n.test.ts src/components/McpServersPanel.test.ts src/components/McpServersPanel.embedded.test.ts src/lib/mcp-sign-in.test.ts server/mcp-oauth.test.ts server/mcp-oauth-discovery.test.ts server/mcp-oauth-store.test.ts server/mcp-probe.test.ts server/mcp-selection.e2e.test.ts server/mcp-remote-proxy.test.ts server/mcp-gate-config.test.ts server/drivers/pi-mcp-extension.test.ts scripts/testing/verification-docs.test.ts
+pnpm exec vitest run src/lib/whop-integration.test.ts src/components/McpConnectorCards.test.ts src/components/McpServersPanel.whop.test.ts src/components/PluginsPanel.connectors.test.ts src/components/PluginsPanel.navigation.test.ts src/components/PluginsPanel.i18n.test.ts src/components/McpServersPanel.test.ts src/components/McpServersPanel.embedded.test.ts src/lib/mcp-sign-in.test.ts server/mcp-oauth.test.ts server/mcp-oauth-discovery.test.ts server/mcp-oauth-store.test.ts server/mcp-probe.test.ts server/mcp-selection.e2e.test.ts server/mcp-remote-proxy.test.ts server/mcp-gate-config.test.ts server/drivers/pi-mcp-extension.test.ts scripts/testing/verification-docs.test.ts
 pnpm typecheck
 pnpm lint
 pnpm i18n:check
@@ -53,12 +56,12 @@ pnpm build
 
 ## Live acceptance (account owner required)
 
-Open Plugins → Whop → Connect. Complete Whop's browser consent;
-verify its tools appear and ask a permitted bot to list your products. Do not
-create charges, transfers or refunds as a connection smoke test. Under Bot
-access, open the relevant bot's Access settings and change its MCP selection;
-the next task should follow it. Disconnect and verify a new task cannot use
-the signed-out connection.
+Open Plugins, search for Whop, and click Connect. Complete Whop's browser
+consent; verify its tools appear and ask a permitted bot to list your products.
+Do not create charges, transfers or refunds as a connection smoke test. For a
+dog with its own MCP server list, use the card's Add to button or that dog's
+Access settings; the next task should follow it. Disconnect and verify a new
+task cannot use the signed-out connection.
 
 Whop's hosted service currently requests admin access across the user's managed
 businesses. Choosing a business in a prompt is not an account-level restriction.

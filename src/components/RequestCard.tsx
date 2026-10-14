@@ -23,7 +23,7 @@ export const REQUEST_QUIET =
 export function RequestStatus({ tone, leading, children }: { tone: RequestTone; leading?: ReactNode; children: ReactNode }) {
   return (
     <span data-request-status={tone} className={cn("flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium", TONE[tone])}>
-      {tone === "live" && <span className="size-1.5 animate-pulse rounded-full bg-success motion-reduce:animate-none" aria-hidden="true" />}
+      {tone === "live" && <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />}
       {leading}
       {children}
     </span>

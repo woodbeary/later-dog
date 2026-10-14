@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, Check, Loader2, LogOut, RefreshCw, Settings as SettingsIcon } from "lucide-react";
+import { ArrowDownToLine, Check, Loader2, LogOut, Puzzle, RefreshCw, Settings as SettingsIcon } from "lucide-react";
 
 import { InitialsAvatar } from "./Avatar";
 import {
@@ -162,6 +162,7 @@ export function SidebarProfileMenu() {
   const [switching, setSwitching] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<ProfileSwitchError | null>(null);
   const [profileDialog, setProfileDialog] = useState<"add" | "edit" | null>(null);
+  const [editProfileId, setEditProfileId] = useState<string>();
   const triggerRef = useRef<HTMLSpanElement>(null);
   const switchTicket = useRef(0);
   const profilesShown = useRef(false);
@@ -210,6 +211,13 @@ export function SidebarProfileMenu() {
       note: update?.phase === "downloaded" ? t("sidebar.menu.updateReady") : updateReady ? t("sidebar.menu.updateAvailable") : undefined,
       onSelect: () => dispatch(updateReady ? { type: "toggleAppSettings", open: true, section: "updates" } : { type: "toggleAppSettings" }),
     },
+    {
+      key: "plugins",
+      label: t("sidebar.menu.plugins"),
+      icon: <Puzzle size={18} />,
+      tourId: "nav-apps",
+      onSelect: () => dispatch({ type: "togglePlugins", open: true }),
+    },
     ...(signOut.names.length > 0 ? [{
       key: "signOut",
       label: t("accounts.signOut"),
@@ -233,7 +241,8 @@ export function SidebarProfileMenu() {
             focusTrigger();
             setProfileDialog("add");
           },
-          onEdit: () => {
+          onEdit: (id) => {
+            setEditProfileId(id);
             focusTrigger();
             setProfileDialog("edit");
           },
@@ -259,6 +268,7 @@ export function SidebarProfileMenu() {
               <span className="truncate text-[14px] text-ink">{name}</span>
               {setup && <span className="truncate text-[12px] text-ink-secondary">{setup}</span>}
             </span>
+            <SettingsIcon size={15} aria-hidden="true" className="shrink-0 text-ink-secondary" />
           </span>
         )}
       />
@@ -267,7 +277,7 @@ export function SidebarProfileMenu() {
         <AddProfileDialog bridge={profiles.bridge} onClose={() => setProfileDialog(null)} />
       )}
       {profiles && profileDialog === "edit" && (
-        <EditProfilesDialog bridge={profiles.bridge} list={profiles.list} onClose={() => setProfileDialog(null)} />
+        <EditProfilesDialog selectedId={editProfileId} bridge={profiles.bridge} list={profiles.list} onClose={() => setProfileDialog(null)} />
       )}
     </>
   );

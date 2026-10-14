@@ -284,16 +284,41 @@ describe("a cloud computer starts only when the bot uses it", () => {
     await apiOk("DELETE", `/api/bots/${bot.id}`);
   }, 60_000);
 
-  it("a signed-out engine fails with the existing sign-in row and no relay call", async () => {
-    const bot = await cloudBot("Signed out", { modelSelection: { instanceId: "claude-out", model: "claude-sonnet-5" } });
+  it("a signed-out engine uses an available account by default without starting its cloud computer", async () => {
+    expect((await apiOk("GET", "/api/config")).accountBattery.enabled).toBe(true);
+    const bot = await cloudBot("Signed out with backup", { modelSelection: { instanceId: "claude-out", model: "claude-sonnet-5" } });
     const before = requests.length;
-    await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "hi" });
-    const row = await failedRow(bot.id);
-    await idle(bot.id);
-    expect(row.tool).toMatchObject({ ok: false, setup: true });
-    expect(row.tool.name).toMatch(/Not logged in/);
+    const sent = await startTurn(bot.id, "hi");
+    expect(sent.mcpConfig.mcpServers.computer?.args?.at(-1)).toBe("computer");
+    expect((await task(bot.id)).messages).toContainEqual(expect.objectContaining({
+      kind: "activity", tool: expect.objectContaining({
+        name: expect.stringContaining("isn't signed in"), carry: { from: "claude-out", to: "claude" }, ok: true,
+      }),
+    }));
+    await finish(bot.id);
+    expect((await lastReply(bot.id))?.text).toContain("reply to: hi");
+    expect(await errorRows(bot.threadId)).toEqual([]);
     expect(requests.slice(before)).toEqual([]);
+    expect(starts(bot.id)).toEqual([]);
     await apiOk("DELETE", `/api/bots/${bot.id}`);
+  }, 30_000);
+
+  it("a signed-out engine fails with the existing sign-in row and no relay call when automatic account continuation is off", async () => {
+    await apiOk("PUT", "/api/config", { accountBattery: { enabled: false } });
+    try {
+      const bot = await cloudBot("Signed out", { modelSelection: { instanceId: "claude-out", model: "claude-sonnet-5" } });
+      const before = requests.length;
+      await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "hi" });
+      const row = await failedRow(bot.id);
+      await idle(bot.id);
+      expect(row.tool).toMatchObject({ ok: false, setup: true });
+      expect(row.tool.name).toMatch(/Not logged in/);
+      expect(requests.slice(before)).toEqual([]);
+      expect(starts(bot.id)).toEqual([]);
+      await apiOk("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      await apiOk("PUT", "/api/config", { accountBattery: { enabled: true } });
+    }
   }, 30_000);
 
   it("a tool selection without the computer is refused before any relay call, and select_computer does not offer it", async () => {

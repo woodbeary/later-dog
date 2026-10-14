@@ -46,10 +46,25 @@ describe("MessageActions", () => {
     expect(items()).toEqual([]);
     flushSync(() => more()!.click());
     expect(items()).toEqual(["Pin to top", "Retry"]);
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu.className).toContain("fixed z-[100]");
+    expect(row.contains(menu)).toBe(false);
+    expect(document.activeElement).toBe(menu.querySelector('[role="menuitem"]'));
     expect(row.getAttribute("data-open")).toBe("true");
     flushSync(() => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
     expect(pin).toHaveBeenCalledOnce();
     expect(more()!.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("keeps the portaled menu open for inside presses and closes for outside presses", () => {
+    render({ more: [{ key: "pin", label: "Pin to top", onSelect: () => {} }] });
+    flushSync(() => more()!.click());
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    flushSync(() => menu.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(more()?.getAttribute("aria-expanded")).toBe("true");
+    flushSync(() => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(more()?.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("stays shown while a control must remain reachable", () => {

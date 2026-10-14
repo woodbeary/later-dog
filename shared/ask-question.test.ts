@@ -14,6 +14,8 @@ import {
   parseChoices,
   parseProtocolAskQuestions,
   shouldSettleRequestCard,
+  LEGACY_QUESTION_DISMISS_MESSAGE,
+  QUESTION_DISMISS_MESSAGE,
   questionAnswersById,
   questionAnswersByQuestion,
   questionChoices,
@@ -336,6 +338,24 @@ describe("questionAnswersById", () => {
   it("files nothing when a bare reply could answer any of several ids", () => {
     expect(questionAnswersById("Yes", questions)).toEqual({});
     expect(questionAnswersById("   ", questions.slice(0, 1))).toEqual({});
+  });
+
+  it("tells every question it was closed, so a dog that asked several still hears it", () => {
+    expect(questionAnswersById(QUESTION_DISMISS_MESSAGE, questions)).toEqual({
+      "q-ship": QUESTION_DISMISS_MESSAGE,
+      "q-review": QUESTION_DISMISS_MESSAGE,
+    });
+    expect(questionAnswersById(QUESTION_DISMISS_MESSAGE, questions.slice(0, 1))).toEqual({ "q-ship": QUESTION_DISMISS_MESSAGE });
+  });
+});
+
+describe("QUESTION_DISMISS_MESSAGE", () => {
+  it("says plainly the question was closed, not to ask again, and to reply in one short line to them as you", () => {
+    expect(QUESTION_DISMISS_MESSAGE).toContain("they closed this question without answering");
+    expect(QUESTION_DISMISS_MESSAGE).toContain("do not ask it again");
+    expect(QUESTION_DISMISS_MESSAGE).toContain('reply in one short line written to them as "you"');
+    expect(QUESTION_DISMISS_MESSAGE).not.toMatch(/the user/i);
+    expect(QUESTION_DISMISS_MESSAGE).not.toBe(LEGACY_QUESTION_DISMISS_MESSAGE);
   });
 });
 

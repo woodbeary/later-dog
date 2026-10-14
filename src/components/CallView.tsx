@@ -545,7 +545,7 @@ function Call({ bot }: { bot: Bot }) {
             threadId: bot.threadId,
             requestId: open.requestId,
             behavior: allow ? "allow" : "deny",
-            message: allow ? undefined : "Denied by the user, on a call.",
+            message: allow ? undefined : "Declined on a call.",
             onError: (error: string) => {
               const pending = askedApproval.current;
               if (

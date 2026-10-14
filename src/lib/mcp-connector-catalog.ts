@@ -1335,6 +1335,17 @@ export const MCP_CONNECTORS: readonly McpConnector[] = [
     domain: "revenuecat.com",
   },
   {
+    id: "whop",
+    name: "Whop",
+    description: "mcpConnectors.whop.description",
+    note: "mcpConnectors.whop.note",
+    url: "https://mcp.whop.com/mcp",
+    transport: "http",
+    category: "payments",
+    docs: "https://github.com/whopio/whop-mcp-server",
+    domain: "whop.com",
+  },
+  {
     id: "ramp",
     name: "Ramp",
     description: "mcpConnectors.ramp.description",

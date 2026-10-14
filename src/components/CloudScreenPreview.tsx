@@ -3,8 +3,11 @@ import { useEffect, useState } from "react";
 import { Loader2, Maximize2, Monitor } from "lucide-react";
 
 import { t } from "@/lib/i18n";
+import type { DogColor } from "@/lib/mascot";
+import type { MascotBodyId } from "../../shared/mascot-bodies";
+import { WakingDog } from "./WakeDog";
 
-export function CloudScreenPreview({ src, name, error, starting, opening, disabled, refreshing = false, retry = 0, onOpen, onRetry }: {
+export function CloudScreenPreview({ src, name, error, starting, opening, disabled, refreshing = false, retry = 0, dog, onOpen, onRetry }: {
   src: string | null;
   name: string;
   error: string | null;
@@ -13,12 +16,15 @@ export function CloudScreenPreview({ src, name, error, starting, opening, disabl
   disabled: boolean;
   refreshing?: boolean;
   retry?: number;
+  dog?: { color: DogColor; bodyId?: MascotBodyId };
   onOpen: () => void;
   onRetry: (discardFrame: boolean) => void;
 }) {
   const [loaded, setLoaded] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const [woke, setWoke] = useState(false);
   useEffect(() => { setFailed(null); }, [retry]);
+  useEffect(() => { if (starting) setWoke(true); }, [starting]);
   const visible = Boolean(src && loaded === src && failed !== src);
   const problem = error ?? (src && failed === src ? t("computer.preview.imageFailed") : null);
 
@@ -51,7 +57,9 @@ export function CloudScreenPreview({ src, name, error, starting, opening, disabl
       )}
       {!visible && !problem && (
         <div role="status" className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-[12px] text-ink-secondary">
-          <Loader2 size={18} className="animate-spin" />
+          {dog && (starting || woke)
+            ? <WakingDog color={dog.color} bodyId={dog.bodyId} size={56} waking />
+            : <Loader2 size={18} className="animate-spin" />}
           {starting ? t("computer.phase.starting") : t("computer.preview.connectingScreen")}
         </div>
       )}

@@ -636,3 +636,56 @@ export function OpenAiCompatUrl({ autoFocus = false }: { autoFocus?: boolean }) 
     </div>
   );
 }
+
+
+export function ImageGenerationSetup({ onReady }: { onReady?: () => void }) {
+  const { state, dispatch } = useStore();
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const save = async () => {
+    const value = key.trim();
+    if (saving || !value) return;
+    if (!looksLikeKey(value)) { setError(t("keys.notAKey")); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const status = window.laterdog?.setCredential
+        ? await window.laterdog.setCredential("openaiImageApiKey", value)
+        : await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ imageGen: { key: value } }) });
+      setKey("");
+      const configured = status.imageGen?.provider && status.imageGen.provider !== "openai"
+        ? await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ imageGen: { provider: "openai" } }) })
+        : status;
+      dispatch({ type: "configStatus", config: configured });
+      if (configured.imageGen?.configured) onReady?.();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setSaving(false); }
+  };
+  return (
+    <div data-image-generation-setup className="flex flex-col gap-2 text-[12px] text-ink-secondary">
+      <p>{t("botSettings.avatar.setupHint")}</p>
+      <input
+        type="password"
+        value={key}
+        onChange={(event) => setKey(event.target.value)}
+        aria-label={t("botSettings.avatar.setupKey")}
+        placeholder="sk-…"
+        autoComplete="off"
+        autoFocus
+        disabled={saving}
+        onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); void save(); } }}
+        className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">{t("keys.openai.link")}</a>
+        <button type="button" onClick={() => void save()} disabled={saving || !key.trim()} className="rounded-full bg-control px-3 py-1.5 text-ink hover:bg-control-hover disabled:opacity-50">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : t("common.save")}
+        </button>
+      </div>
+      {state.config?.imageGen?.provider && state.config.imageGen.provider !== "openai" && <p>{t("botSettings.avatar.setupSwitch")}</p>}
+      {error && <p role="alert" className="text-danger">{error}</p>}
+    </div>
+  );
+}

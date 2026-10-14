@@ -1357,6 +1357,9 @@ export function GroupView({ group }: { group: Group }) {
           )}
           {(speaker || presenceVisible) && (
             <TurnPresence
+              threadId={group.threadId}
+              color={presenceSpeaker?.color}
+              bodyId={presenceSpeaker?.mascotBody}
               avatar={
                 <BotAvatar
                   bot={presenceSpeaker ?? { color: "yellow" }}

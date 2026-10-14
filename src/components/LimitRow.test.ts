@@ -87,7 +87,7 @@ beforeEach(() => {
   fixture.api.mockReset();
   fixture.state = {
     bots: [dog],
-    instances: [claude("claude", "Personal"), claude("claude-work", "Work"), chatgpt("chatgpt", "ChatGPT")],
+    instances: [claude("claude", "Personal"), claude("claude-work", "Work")],
     pendingQueued: {},
     config: { accountBattery: battery({ claude: { until: inHours(2), kind: "session" } }) },
   };
@@ -103,6 +103,59 @@ afterEach(async () => {
 });
 
 describe("the limit message", () => {
+  it("keeps Continue on Codex available when automatic continuation has no pending callback", async () => {
+    publish({ instances: [claude("claude", "Personal"), chatgpt("chatgpt", "Codex")] });
+    fixture.api.mockResolvedValueOnce({ continued: true });
+    await render(limit({ kind: "session" }));
+    await click(button("Continue on Codex"));
+    expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout/continue-on", { method: "POST", body: JSON.stringify({ threadId: "thread-scout", instanceId: "chatgpt" }) });
+    publish({ config: { accountBattery: battery({ claude: { until: inHours(2) } }, true) } });
+    await settle();
+    expect(words()).not.toContain("Continuing automatically");
+    expect(button("Continue on Codex")).toBeTruthy();
+  });
+
+  it("restores Retry after a restart forgets the held turn and the account resets", async () => {
+    publish({ config: { accountBattery: {
+      ...battery({ claude: { until: inHours(2) }, "claude-work": { until: inHours(4) } }, true),
+      waiting: { "thread-scout": inHours(2) },
+    } } });
+    const props = await render(limit({ kind: "session" }));
+    expect(words()).toContain("Picks up where it stopped");
+    expect(button("Retry")).toBeUndefined();
+    publish({ config: { accountBattery: {
+      ...battery({ claude: { until: inHours(-1) }, "claude-work": { until: inHours(1) } }, true),
+      waiting: {},
+    } } });
+    await settle();
+    expect(words()).not.toContain("Picks up where it stopped");
+    expect(words()).not.toContain("Continuing automatically");
+    expect(buttons()).toEqual(["Retry"]);
+    await click(button("Retry"));
+    expect(props.onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("does not hide manual continuation because a different conversation is waiting", async () => {
+    publish({ config: { accountBattery: {
+      ...battery({ claude: { until: inHours(2) } }, true),
+      waiting: { other: inHours(1) },
+    } } });
+    await render(limit({ kind: "session" }));
+    expect(card()?.querySelector('[role="status"]')).toBeNull();
+    expect(buttons()).toEqual(["Continue on Work"]);
+  });
+
+  it("does not promise an automatic pickup when exhausted accounts have no held turn", async () => {
+    publish({ config: { accountBattery: {
+      ...battery({ claude: { until: inHours(2) }, "claude-work": { until: inHours(4) } }, true),
+      waiting: {},
+    } } });
+    await render(limit({ kind: "session" }));
+    expect(card()?.querySelector('[role="status"]')).toBeNull();
+    expect(words()).toContain("Your other accounts can't take over right now.");
+    expect(buttons()).toEqual(["Add account"]);
+  });
+
   it("names the account and the limit it hit, and when it comes back", async () => {
     await render(limit({ kind: "session" }));
     expect(headline()).toBe("Personal hit its 5-hour limit.");
@@ -205,16 +258,16 @@ describe("the limit message", () => {
     expect(button("Continue on Work")?.disabled).toBe(false);
   });
 
-  it("asks for another account when there is none, and opens Add account", async () => {
-    publish({ instances: [claude("claude", "Personal"), chatgpt("chatgpt", "ChatGPT")] });
+  it("asks for another account when there is none, and opens Add account right here", async () => {
+    publish({ instances: [claude("claude", "Personal")] });
     await render(limit({ kind: "session" }));
     expect(words()).toContain("Add another account to keep going.");
     expect(toggle()?.getAttribute("aria-checked")).toBe("false");
     await click(button("Add account"));
-    expect(fixture.dispatched).toContainEqual({ type: "toggleAppSettings", open: true, section: "general" });
+    expect(fixture.dispatched.filter((action) => action.type === "toggleAppSettings")).toEqual([]);
     const open = vi.fn();
     subscribeAddAccount(open)();
-    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith({});
   });
 
   it("says the other accounts can't take over when they are resting or signed out", async () => {
@@ -233,12 +286,12 @@ describe("the limit message", () => {
     expect(toggle()?.getAttribute("aria-checked")).toBe("false");
     await click(toggle());
     expect(fixture.api).toHaveBeenCalledWith("/api/config", {
-      method: "PUT", body: JSON.stringify({ accountBattery: { enabled: true, order: { claudeAgent: ["claude", "claude-work"], codex: ["chatgpt"] } } }),
+      method: "PUT", body: JSON.stringify({ accountBattery: { enabled: true, auto: false, order: { claudeAgent: ["claude", "claude-work"], codex: [] }, sequence: ["claude", "claude-work"] } }),
     });
     expect(toggle()?.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("says when it picks up by itself, and leaves that to the messages waiting when there are some", async () => {
+  it("keeps the automatic pickup time visible with queued messages", async () => {
     publish({
       instances: [claude("claude", "Personal"), claude("claude-work", "Work")],
       config: { accountBattery: {
@@ -253,8 +306,8 @@ describe("the limit message", () => {
     expect(toggle()?.getAttribute("aria-checked")).toBe("true");
     publish({ pendingQueued: { "thread-scout": [{ queueId: "q1", text: "one" }] } });
     await settle();
-    expect(words()).not.toContain("Picks up");
-    expect(words()).toContain("Your other accounts can't take over right now.");
+    expect(words()).toContain("Picks up where it stopped at 3:00 PM.");
+    expect(words()).not.toContain("Your other accounts can't take over right now.");
     expect(words()).toContain("1 message(s) waiting.");
   });
 

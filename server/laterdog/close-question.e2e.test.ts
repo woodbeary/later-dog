@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
+import { LEGACY_QUESTION_DISMISS_MESSAGE, QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
 
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
@@ -179,6 +179,22 @@ describe.skipIf(process.platform === "win32")("the × on a dog's question", () =
     writeFileSync(finishGate, "finish");
     await waitFor(async () => !(await busy(bot.id)), "the turn to settle");
     expect(await card(bot.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+  }, 60_000);
+
+  it("hears the new close note even when an older window sends the old one", async () => {
+    const { bot, requestId, replies } = await dogAskingAQuestion();
+    const closed = await api("POST", `/api/threads/${bot.threadId}/respond`, {
+      requestId,
+      behavior: "answer",
+      message: LEGACY_QUESTION_DISMISS_MESSAGE,
+    });
+    expect(closed).toMatchObject({ status: 200, body: { ok: true, dismissed: true, outcome: "answered" } });
+    const reply = await waitFor(async () => replies.find((entry) => entry.id === requestId), "the dog to get the close note");
+    expect(reply).toMatchObject({ t: "answer", behavior: "answer", message: QUESTION_DISMISS_MESSAGE, source: "user" });
+    expect(await card(bot.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+
+    writeFileSync(finishGate, "finish");
+    await waitFor(async () => !(await busy(bot.id)), "the turn to settle");
   }, 60_000);
 
   it("hides a question left open after its turn ended, without starting a new turn", async () => {

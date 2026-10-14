@@ -703,7 +703,6 @@
   "usage.costMixed": "tel que chaque fournisseur le rapporte — sur un abonnement, c’est un équivalent, pas un débit",
   "botSettings.computer.checking": "Un instant",
   "botSettings.computer.asleep": "L'ordinateur est en veille",
-  "botSettings.computer.wake": "Réveiller",
   "botSettings.computer.waking": "Réveil…",
   "botSettings.computer.firstStart": "Le premier démarrage prend environ une minute.",
   "botSettings.computer.unreachable": "Impossible d'accéder à l'écran de {name}",

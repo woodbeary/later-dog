@@ -79,8 +79,9 @@ async function show(bridge: ProfileBridge | undefined) {
 const trigger = () => host!.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
 const menu = () => host!.querySelector<HTMLElement>('[role="menu"]');
 const items = () => [...(menu()?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
-const labels = () => items().map((item) => item.querySelector(".truncate")?.textContent);
-const item = (label: string) => items().find((element) => element.querySelector(".truncate")?.textContent === label);
+const itemLabel = (element: HTMLElement) => element.getAttribute("aria-label") ?? element.querySelector(".truncate")?.textContent;
+const labels = () => items().map(itemLabel);
+const item = (label: string) => items().find((element) => itemLabel(element) === label);
 const click = async (element: Element | null | undefined) => {
   expect(element).toBeTruthy();
   await act(async () => {
@@ -127,7 +128,7 @@ describe("switching profiles from the name menu", () => {
     await show(bridgeFor(THREE));
     await openProfiles();
     expect(menu()).toBeTruthy();
-    expect(labels()).toEqual(["Back", "Personal", "Business", "Business 2", "Add profile", "Edit profiles"]);
+    expect(labels()).toEqual(["Back", "Personal", "Edit Personal", "Business", "Edit Business", "Business 2", "Edit Business 2", "Add profile"]);
     expect(document.activeElement).toBe(item("Back"));
     await click(item("Back"));
     expect(labels()[0]).toBe("Switch profile");
@@ -191,7 +192,7 @@ describe("switching profiles from the name menu", () => {
     expect(item("Personal")!.querySelector(".animate-spin")).toBeNull();
   });
 
-  it("opens Add and Edit in their own windows and returns focus to the name", async () => {
+  it("opens Add in its own window and returns focus to the name", async () => {
     await show(bridgeFor(THREE));
     await openProfiles();
     await click(item("Add profile"));
@@ -200,8 +201,26 @@ describe("switching profiles from the name menu", () => {
     await click([...document.querySelectorAll("button")].find((element) => element.textContent === "Cancel"));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(trigger());
+  });
+
+  it.each([
+    ["Personal", "main"],
+    ["Business", BUSINESS],
+    ["Business 2", SECOND],
+  ])("opens the %s pencil on its own rename field without switching profiles", async (name, id) => {
+    const bridge = bridgeFor(THREE);
+    await show(bridge);
     await openProfiles();
-    await click(item("Edit profiles"));
+    await click(item(`Edit ${name}`));
+    expect(menu()).toBeNull();
     expect(document.querySelector('[role="dialog"] h2')?.textContent).toBe("Edit profiles");
+    const field = document.querySelector<HTMLInputElement>(`[role="dialog"] input[aria-label="Rename ${name}"]`);
+    expect(field?.getAttribute("data-profile-edit")).toBe(id);
+    expect(document.activeElement).toBe(field);
+    expect(bridge.switch).not.toHaveBeenCalled();
+    await escape();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+    expect(bridge.rename).not.toHaveBeenCalled();
   });
 });

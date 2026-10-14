@@ -28,7 +28,7 @@ import { AddServerToBots } from "./AddServerToBots";
 import { BrandIcon } from "./BrandIcon";
 import { Switch } from "./SettingsPrimitives";
 import { WhopIcon } from "./WhopIcon";
-import { WHOP_MCP_URL, isWhopServer, whopServerName } from "@/lib/whop-integration";
+import { isWhopServer } from "@/lib/whop-integration";
 
 interface StdioMcpListing {
   name: string;
@@ -202,11 +202,9 @@ function draftFor(server: McpServerListing): McpDraft {
   };
 }
 
-export function McpServersPanel({ embedded = false, whopCard = false, refreshKey = 0, onWhopConnection }: {
+export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
   embedded?: boolean;
-  whopCard?: boolean;
   refreshKey?: number;
-  onWhopConnection?: (connected: boolean) => void;
 } = {}) {
   const { state: store } = useStore();
   const policy = store.config?.managedPolicy;
@@ -229,9 +227,6 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
   const [importText, setImportText] = useState("");
   const loadGeneration = useRef(0);
   const mounted = useRef(true);
-  const whopServer = servers?.find((server) => isRemoteMcpListing(server) && isWhopServer(server));
-  const whopConnected = Boolean(whopServer?.enabled && isRemoteMcpListing(whopServer) && whopServer.auth === "signed-in");
-  useEffect(() => { if (servers !== null) onWhopConnection?.(whopConnected); }, [servers, whopConnected, onWhopConnection]);
 
   const importServers = async () => {
     if (!importText.trim()) return;
@@ -441,29 +436,6 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
     }
   };
 
-  const connectWhop = async () => {
-    if (!servers || busy !== null || signingIn !== null) return;
-    const existing = servers.find((server) => isRemoteMcpListing(server) && isWhopServer(server));
-    if (existing) { await signIn(existing); return; }
-    setBusy("whop");
-    loadGeneration.current += 1;
-    setError(null);
-    setNotice(null);
-    let added: McpServerListing | undefined;
-    try {
-      const name = whopServerName(servers);
-      const result = await api("/api/mcp/servers", { method: "POST", body: JSON.stringify({ name, type: "http", url: WHOP_MCP_URL, enabled: false }) });
-      if (!mounted.current) return;
-      setServers(result.servers ?? []);
-      updateMcpServers(result.servers ?? []);
-      added = result.servers?.find((server: McpServerListing) => server.name === name && isRemoteMcpListing(server) && isWhopServer(server));
-      if (!added) throw new Error(t("whop.setupFailed"));
-    } catch (cause) {
-      if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause));
-    } finally { if (mounted.current) setBusy(null); }
-    if (added && mounted.current) await signIn(added);
-  };
-
   const completeSignIn = async () => {
     if (!signingIn || !signInFlow?.flowId || completingSignIn) return;
     const controller = signInAbort.current;
@@ -573,36 +545,6 @@ export function McpServersPanel({ embedded = false, whopCard = false, refreshKey
         {callbackError && <p role="alert" className="text-danger">{callbackError}</p>}
       </div>
     );
-  }
-
-  if (whopCard) {
-    const result = whopServer && probe[whopServer.name];
-    const failed = error || (result && !result.ok ? result.error : null);
-    const pending = busy !== null || signingIn !== null;
-    return <div data-app-tile="whop" className="glass-card flex min-h-[132px] min-w-0 flex-col rounded-2xl p-4">
-      <div className="flex items-start gap-3">
-        <WhopIcon />
-        <div className="min-w-0 flex-1"><div className="text-[14px] font-medium text-ink">Whop</div><p className="mt-0.5 line-clamp-1 text-[12px] text-ink-secondary" title={t("whop.description")}>{t("whop.description")}</p></div>
-      </div>
-      <div className="mt-auto flex items-center justify-between gap-2 pt-3">
-        <span className="text-[12px] font-medium text-success">{whopConnected ? t("apps.connected") : ""}</span>
-        {signingIn ? <button type="button" onClick={() => signInAbort.current?.abort()} className="rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors enabled:hover:bg-control-hover">{t("mcp.auth.cancel")}</button> :
-          <button type="button" aria-label={t(whopConnected ? "whop.disconnect" : "whop.connect")}
-            disabled={pending || (servers !== null && !whopConnected && (Boolean(whopServer?.managedBy) || (restricted && !policy?.mcp.allowlist.length)))}
-            onClick={() => void (servers === null ? load() : whopConnected && whopServer ? signOut(whopServer) : connectWhop())}
-            className="flex min-w-[80px] items-center justify-center gap-1.5 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover disabled:opacity-40">
-            {pending ? <Loader2 size={13} className="animate-spin" /> : servers === null ? t("connectors.action.retry") : t(whopConnected ? "connectors.disconnect" : "connectors.action.connect")}
-          </button>}
-      </div>
-      {failed && <p role="alert" className="mt-3 text-[12px] text-danger">{typeof failed === "string" ? failed : t(failed.key, failed.params)}</p>}
-      {whopServer && renderSignIn(whopServer)}
-      <details className="mt-3 text-[12px] text-ink-secondary">
-        <summary className="cursor-pointer">{t("whop.access")}</summary>
-        <p className="mt-2 leading-relaxed">{t("whop.notice")}</p>
-        <p className="mt-2 leading-relaxed">{t("whop.accessHint")}</p>
-        {whopServer && <AddServerToBots server={whopServer.name} className="mt-2 leading-relaxed" />}
-      </details>
-    </div>;
   }
 
   const visibleServers = servers?.filter((server) => server.name !== "laterdog");

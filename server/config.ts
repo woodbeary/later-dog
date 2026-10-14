@@ -289,9 +289,18 @@ const automaticRecoverySchema = z.object({
   backup: defaultModelSelectionSchema.optional(),
 }).strict().refine((recovery) => !recovery.enabled || recovery.backup !== undefined,
   { message: "Choose a backup model before enabling automatic recovery", path: ["backup"] });
+const batteryOrderSchema = z.record(z.string().trim().min(1).max(100), z.array(z.string().trim().min(1).max(200)).max(64));
 const accountBatterySchema = z.object({
   enabled: z.boolean(),
-  order: z.record(z.string().trim().min(1).max(100), z.array(z.string().trim().min(1).max(200)).max(64)).default({}),
+  order: batteryOrderSchema.default({}),
+  sequence: z.array(z.string().trim().min(1).max(200)).max(128).optional(),
+  auto: z.boolean().optional(),
+}).strict();
+const accountBatteryPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  order: batteryOrderSchema.optional(),
+  sequence: z.array(z.string().trim().min(1).max(200)).max(128).optional(),
+  auto: z.boolean().optional(),
 }).strict();
 const threadsConfigSchema = z.object({
   maxConcurrentPerBot: z.number().int().min(1).max(MAX_CONCURRENT_BOT_THREADS),
@@ -437,7 +446,7 @@ const storedAppConfigSchema = appConfigSchema.extend({
   }).optional(),
 });
 const appConfigPatchSchema = appConfigSchema.omit({ instances: true, mcpServers: true, cliStartup: true, customDomain: true })
-  .extend({ threads: threadsPatchSchema.optional(), newBots: newBotsPatchSchema.optional() });
+  .extend({ threads: threadsPatchSchema.optional(), newBots: newBotsPatchSchema.optional(), accountBattery: accountBatteryPatchSchema.optional() });
 const jsonObjectSchema = z.record(z.string(), z.json());
 
 export interface AppConfig {
@@ -445,7 +454,7 @@ export interface AppConfig {
   signIn?: { admins?: string[]; members?: string[] };
   defaultModelSelection?: ModelSelection;
   automaticRecovery?: { enabled: boolean; backup?: ModelSelection };
-  accountBattery?: { enabled: boolean; order: Record<string, string[]> };
+  accountBattery?: { enabled: boolean; order: Record<string, string[]>; auto?: boolean; sequence?: string[] };
   newBotDefaults?: NewBotDefaults;
   newBots?: { effort?: EffortLevel };
   cliStartup?: {
@@ -833,7 +842,7 @@ export function cacheUntilConfigChanges<T>(derive: (config: AppConfig) => T): ()
   };
 }
 
-export function syncCredentialEnv(patch: Partial<Omit<AppConfig, "threads" | "newBots">>): void {
+export function syncCredentialEnv(patch: Partial<Omit<AppConfig, "threads" | "newBots" | "accountBattery">>): void {
   const secrets: Array<[value: string | undefined, name: string]> = [
     [patch.xai?.key, "XAI_API_KEY"],
     [patch.mistral?.key, "MISTRAL_API_KEY"],
@@ -996,9 +1005,10 @@ export function onConfigSaved(listener: (before: JsonObject, after: JsonObject) 
 }
 
 export function saveConfig(
-  patch: Partial<Omit<AppConfig, "threads" | "newBots">> & {
+  patch: Partial<Omit<AppConfig, "threads" | "newBots" | "accountBattery">> & {
     threads?: z.output<typeof threadsPatchSchema>;
     newBots?: z.output<typeof newBotsPatchSchema>;
+    accountBattery?: z.output<typeof accountBatteryPatchSchema>;
   },
   options: { replaceInstances?: boolean } = {},
 ): void {
@@ -1008,7 +1018,9 @@ export function saveConfig(
     const parsed = jsonObjectSchema.safeParse(parseJson(readFileSync(p, "utf8")));
     if (parsed.success) disk = parsed.data;
   } catch {}
-  const checkedPatch = appConfigSchema.partial().extend({ threads: threadsPatchSchema.optional(), newBots: newBotsPatchSchema.optional() }).parse(patch);
+  const checkedPatch = appConfigSchema.partial().extend({
+    threads: threadsPatchSchema.optional(), newBots: newBotsPatchSchema.optional(), accountBattery: accountBatteryPatchSchema.optional(),
+  }).parse(patch);
   const before = configSaveListeners.size ? structuredClone(disk) : disk;
   const storedProfiles = storedBrowserProfilesSchema.safeParse(disk.browserProfiles);
   if (storedProfiles.success) disk.browserProfiles = storedProfiles.data;
@@ -1029,7 +1041,10 @@ export function saveConfig(
   if (checkedPatch.customDomain !== undefined) disk.customDomain = checkedPatch.customDomain;
   if (checkedPatch.signIn !== undefined) disk.signIn = checkedPatch.signIn;
   if (checkedPatch.automaticRecovery !== undefined) disk.automaticRecovery = checkedPatch.automaticRecovery;
-  if (checkedPatch.accountBattery !== undefined) disk.accountBattery = checkedPatch.accountBattery;
+  if (checkedPatch.accountBattery !== undefined) {
+    const stored = jsonObjectSchema.safeParse(disk.accountBattery);
+    disk.accountBattery = { enabled: false, order: {}, ...(stored.success ? stored.data : {}), ...checkedPatch.accountBattery };
+  }
   if (checkedPatch.defaultModelSelection !== undefined) {
     disk.defaultModelSelection = checkedPatch.defaultModelSelection;
     if (disk.newBotDefaults) {

@@ -38,9 +38,7 @@ vi.mock("@/state/store", () => ({
   }),
 }));
 vi.mock("./McpServersPanel", () => ({
-  McpServersPanel: ({ embedded, whopCard }: { embedded?: boolean; whopCard?: boolean }) => whopCard
-    ? createElement("div", { "data-whop-card": true }, "Connect Whop")
-    : createElement("div", { "data-embedded": String(Boolean(embedded)) }, "MCP inventory"),
+  McpServersPanel: ({ embedded }: { embedded?: boolean }) => createElement("div", { "data-embedded": String(Boolean(embedded)) }, "MCP inventory"),
 }));
 vi.mock("./Avatar", () => ({ BotAvatar: ({ bot }: { bot: Bot }) => createElement("span", { "data-avatar": bot.id }) }));
 import { APPS_PREVIEW_COUNT, PluginsPanel, USED_BY_AVATAR_SIZE, botsUsingService } from "./PluginsPanel";
@@ -51,6 +49,8 @@ const CARDS = 0;
 const CONFIGURED = 3;
 const STATUS = 6;
 const PHASE = 13;
+const SEARCH = 15;
+const CONNECTED_CONNECTORS = 19;
 
 type Node = ReactElement<{ children?: ReactNode; "aria-pressed"?: boolean; "data-apps-filter"?: string; onClick?: () => void; [key: string]: unknown }>;
 function nodes(value: ReactNode): Node[] {
@@ -93,17 +93,20 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Apps pop-up", () => {
-  it("connects Whop inside the apps grid without a Composio key or MCP detour", () => {
+  it("gives Whop no place of its own: it waits under Payments, and a search finds it like any app", () => {
     fixture.overrides.set(CONFIGURED, false);
-    const { html, nodes: tree } = render();
-    expect(html).toContain("Connect Whop");
-    expect(html).not.toContain("Set up Whop");
-    const grid = tree.find((node) => node.props["data-apps-grid"] !== undefined)!;
-    expect(nodes(grid).some((node) => node.props.whopCard === true)).toBe(true);
+    let { html } = render();
+    expect(html).not.toContain("data-whop-card");
+    expect(html).not.toContain('data-connector-tile="whop"');
+    expect(html).toContain('data-connector-view-all="payments"');
+    fixture.overrides.set(SEARCH, "whop");
+    ({ html } = render());
+    expect(html).toContain('data-connector-tile="whop"');
+    expect(html).toContain('aria-label="Learn more about Whop"');
     expect(fixture.dispatch).not.toHaveBeenCalled();
   });
-  it("counts Whop among connected apps", () => {
-    fixture.overrides.set(18, true);
+  it("counts Whop among connected apps like any other connector", () => {
+    fixture.overrides.set(CONNECTED_CONNECTORS, ["whop"]);
     const { html } = render();
     expect(html).toContain("Connected 2");
   });

@@ -39,7 +39,7 @@ const setup = (options: {
   for (const [instanceId, offset] of Object.entries(options.resets ?? { claude: HOUR, "claude-b": 2 * HOUR })) {
     battery.markExhausted(instanceId, { resetsAt: at(offset), kind: "session" });
   }
-  battery.noteSwitch("thread-1", "claude");
+  battery.noteSwitch("thread-1", "claude", "claude-b");
   const rerun = options.rerun === undefined ? vi.fn(async (_continuation: string | null) => undefined) : options.rerun;
   battery.trackTurn("thread-1", { generation: "g1", instanceId: "claude-b", requestMessageId: options.requestMessageId ?? "q1", ...(rerun ? { rerun } : {}) });
   const input = {
@@ -103,13 +103,12 @@ describe("carrying on once a limit resets", () => {
     expect(failedTurnCause(writes[1]!.name)).toBe("Could not carry on with Personal: spawn failed");
   });
 
-  it("leaves the conversation alone when carry-on is off, the turn can't run again, or newer words came in", () => {
+  it("leaves the conversation alone when carry-on is off, the turn can't run again, or the request was removed", () => {
     const cases = [
       { config: { ...ON, enabled: false } },
       { rerun: null },
-      { requestMessageId: "q0" },
+      { requestMessageId: "missing" },
       { generation: "g2" },
-      { path: [asked("q1"), limit("l1", "claude-b"), asked("q2")] },
       { accounts: [account("claude", "Personal", { eligible: false }), account("claude-b", "Work")] },
     ];
     for (const options of cases) {
@@ -121,4 +120,14 @@ describe("carrying on once a limit resets", () => {
       if (rerun) expect(rerun).not.toHaveBeenCalled();
     }
   });
+});
+
+
+it("keeps the original request when mid-turn messages arrived and resumes exactly once", () => {
+  const { rerun, input, carryOn, pass } = setup({ path: [asked("q1"), asked("midturn"), limit("l1", "claude-b")] });
+  expect(carriesOn(input)).toBe(true);
+  pass(HOUR);
+  expect(carryOn()).toBe("started");
+  expect(carryOn()).toBe("skipped");
+  expect(rerun).toHaveBeenCalledExactlyOnceWith(CONTINUE_AFTER_RESET);
 });

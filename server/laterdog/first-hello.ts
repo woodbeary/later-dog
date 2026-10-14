@@ -20,7 +20,8 @@ export function firstHelloPrompt(personName: string | undefined, dogName: string
     "help with first. Use your tool for asking the person a question with options if you have one, with four short options",
     `${options} and let them answer in their own words; without such a tool, ask in one short line with those`,
     "options. Until they answer, do nothing else: no tools besides the question, no setup, no files. Once they answer,",
-    "start on what they asked right away with the tools you have, the same as any request.",
+    "start on what they asked right away with the tools you have, the same as any request. If they close the question",
+    "without answering, do not ask it again: tell them in one short line that you are ready whenever they are, and stop.",
   ].join(" ");
 }
 

@@ -33,9 +33,11 @@ describe("the header's account menu", () => {
 
 describe("reordering in the header's account menu", () => {
   const work = instance("claude-work", "claudeAgent", "Work");
+  const codex = instance("codex", "codex", "Codex");
   const rows = [
     { instance: claude, label: "Claude", selected: true, movable: true },
     { instance: work, label: "Work", selected: false, movable: true },
+    { instance: codex, label: "Codex", selected: false, movable: true },
     { instance: kimi, label: "Kimi", selected: false },
   ];
   let host: HTMLDivElement;
@@ -50,8 +52,8 @@ describe("reordering in the header's account menu", () => {
     await act(async () => { target.dispatchEvent(event); });
   };
   const order = () => [...host.querySelectorAll<HTMLElement>("[data-account-row]")].map((element) => element.dataset.accountRow);
-  const show = async (onReorder?: (ids: string[]) => void) => {
-    await act(async () => root.render(createElement(AccountMenu, { rows, onPick: () => {}, onReorder })));
+  const show = async (onReorder?: (ids: string[]) => void, auto = false) => {
+    await act(async () => root.render(createElement(AccountMenu, { rows, onPick: () => {}, onReorder, auto })));
   };
 
   beforeEach(() => {
@@ -66,33 +68,67 @@ describe("reordering in the header's account menu", () => {
     vi.unstubAllGlobals();
   });
 
-  it("moves an account among its own kind with Alt and the arrows, with a grip only where it can go", async () => {
+  it("moves accounts through the full provider sequence with Alt and the arrows", async () => {
     const onReorder = vi.fn();
     await show(onReorder);
-    expect(host.querySelectorAll("[data-account-grip]")).toHaveLength(2);
-    expect(item("claude").getAttribute("aria-keyshortcuts")).toBe("Alt+ArrowUp Alt+ArrowDown");
+    expect(host.querySelectorAll("[data-account-grip]")).toHaveLength(3);
+    for (const id of ["claude", "claude-work", "codex"]) {
+      expect(item(id).getAttribute("aria-keyshortcuts")).toBe("Alt+ArrowUp Alt+ArrowDown");
+    }
     expect(item("laterdogAi").getAttribute("aria-keyshortcuts")).toBeNull();
+    await press(item("laterdogAi"), "ArrowUp");
     await press(item("claude"), "ArrowDown", false);
     await press(item("claude"), "ArrowUp");
-    await press(item("claude-work"), "ArrowDown");
+    await press(item("codex"), "ArrowDown");
     expect(onReorder).not.toHaveBeenCalled();
     await press(item("claude"), "ArrowDown");
-    expect(onReorder).toHaveBeenCalledWith(["claude-work", "claude", "laterdogAi"]);
+    expect(onReorder).toHaveBeenNthCalledWith(1, ["claude-work", "claude", "codex", "laterdogAi"]);
+    await press(item("claude-work"), "ArrowDown");
+    expect(onReorder).toHaveBeenNthCalledWith(2, ["claude", "codex", "claude-work", "laterdogAi"]);
+    await press(item("codex"), "ArrowUp");
+    expect(onReorder).toHaveBeenNthCalledWith(3, ["claude", "codex", "claude-work", "laterdogAi"]);
+    expect(onReorder).toHaveBeenCalledTimes(3);
   });
 
-  it("drags an account onto another of its kind, shows it there at once, and hands the order over on the drop", async () => {
+  it("previews a drag across providers and saves the full sequence once on drop", async () => {
     const onReorder = vi.fn();
     await show(onReorder);
     const transfer = new DataTransfer();
+    await drag(item("laterdogAi").parentElement!, "dragstart", transfer);
+    await drag(item("claude").parentElement!, "dragover", transfer);
+    await drag(item("claude").parentElement!, "drop", transfer);
+    expect(order()).toEqual(["claude", "claude-work", "codex", "laterdogAi"]);
+    expect(onReorder).not.toHaveBeenCalled();
     await drag(item("claude-work").parentElement!, "dragstart", transfer);
     await drag(item("laterdogAi").parentElement!, "dragover", transfer);
-    expect(order()).toEqual(["claude", "claude-work", "laterdogAi"]);
+    expect(order()).toEqual(["claude", "claude-work", "codex", "laterdogAi"]);
     await drag(item("claude").parentElement!, "dragover", transfer);
-    expect(order()).toEqual(["claude-work", "claude", "laterdogAi"]);
-    await drag(item("claude").parentElement!, "drop", transfer);
+    expect(order()).toEqual(["claude-work", "claude", "codex", "laterdogAi"]);
+    await drag(item("codex").parentElement!, "dragover", transfer);
+    expect(order()).toEqual(["claude", "codex", "claude-work", "laterdogAi"]);
+    expect(onReorder).not.toHaveBeenCalled();
+    await drag(item("codex").parentElement!, "drop", transfer);
     await drag(item("claude-work").parentElement!, "dragend", transfer);
     expect(onReorder).toHaveBeenCalledTimes(1);
-    expect(onReorder).toHaveBeenCalledWith(["claude-work", "claude", "laterdogAi"]);
+    expect(onReorder).toHaveBeenCalledWith(["claude", "codex", "claude-work", "laterdogAi"]);
+  });
+
+  it("blocks keyboard and drag reordering while the server manages the sequence", async () => {
+    const onReorder = vi.fn();
+    await show(onReorder, true);
+    expect(host.querySelector("[data-account-managed]")?.textContent).toContain("Automatically managed");
+    expect(host.querySelector("[data-account-grip]")).toBeNull();
+    expect(host.querySelector("[draggable]")).toBeNull();
+    expect(host.querySelector("[aria-keyshortcuts]")).toBeNull();
+    await press(item("claude"), "ArrowDown");
+    await press(item("codex"), "ArrowUp");
+    const transfer = new DataTransfer();
+    await drag(item("claude").parentElement!, "dragstart", transfer);
+    await drag(item("codex").parentElement!, "dragover", transfer);
+    await drag(item("codex").parentElement!, "drop", transfer);
+    await drag(item("claude").parentElement!, "dragend", transfer);
+    expect(order()).toEqual(["claude", "claude-work", "codex", "laterdogAi"]);
+    expect(onReorder).not.toHaveBeenCalled();
   });
 
   it("offers no grip and no drag when there is nowhere to save the order", async () => {

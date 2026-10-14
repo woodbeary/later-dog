@@ -307,6 +307,19 @@ describe("Connect", () => {
     expect(card.html).not.toContain('role="alert"');
   });
 
+  it("asks openly for the callback address when the browser is on another computer", async () => {
+    props.connectors = [byId("sentry")];
+    fixture.values[SERVERS] = [row({ name: "sentry", url: "https://mcp.sentry.dev/mcp" })];
+    fixture.routes = { "POST /api/mcp/servers/sentry/sign-in": () => ({ auth: { ...WAITING, pasteBack: true } }) };
+    click(render().tile("sentry").button("Connect Sentry"));
+    await flush();
+    const card = render().tile("sentry");
+    expect(card.html).toContain("Copy that page");
+    expect(card.html).not.toContain("<details");
+    expect(card.inside.some((node) => node.props.id === "connector-callback-sentry")).toBe(true);
+    expect(card.button("Complete sign-in")).toBeDefined();
+  });
+
   it("shows the failure on the card and leaves the server off when its tools do not load", async () => {
     props.connectors = [byId("linear")];
     const existing = row({ name: "linear", url: "https://mcp.linear.app/mcp", auth: "signed-in" });

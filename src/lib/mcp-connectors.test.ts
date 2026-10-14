@@ -152,7 +152,7 @@ describe("recognizing a configured server", () => {
     expect(MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, "")).length).toBe(MCP_CONNECTORS.length);
     expect(MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, " LINEAR ")).map((connector) => connector.id)).toEqual(["linear"]);
     expect(MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, "payments")).map((connector) => connector.id))
-      .toEqual(["paypal", "stripe", "square", "revenuecat", "airwallex"]);
+      .toEqual(["paypal", "stripe", "square", "revenuecat", "whop", "airwallex"]);
     expect(MCP_CONNECTORS.filter((connector) => connectorMatchesSearch(connector, "jira")).map((connector) => connector.id)).toEqual(["atlassian"]);
     expect(MCP_CONNECTORS.some((connector) => connectorMatchesSearch(connector, "gmail"))).toBe(false);
   });

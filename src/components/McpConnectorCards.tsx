@@ -235,6 +235,32 @@ export function McpConnectorCards({ connectors, refreshKey = 0, grouped, onConne
         : state === "needs-sign-in"
           ? t("mcpConnectors.signInAria", { name: connector.name })
           : t("mcpConnectors.connectAria", { name: connector.name });
+    const callbackForm = (
+      <>
+        <label className="mt-3 block" htmlFor={`connector-callback-${connector.id}`}>{t("mcp.auth.callbackUrl")}</label>
+        <input
+          id={`connector-callback-${connector.id}`}
+          type="text"
+          value={callbackUrl}
+          disabled={completing}
+          onChange={(event) => setCallbackUrl(event.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="http://127.0.0.1:…/mcp-oauth/callback?…"
+          className="mt-1 w-full rounded-lg border border-hairline bg-inset px-3 py-2 text-ink outline-none focus:border-accent"
+        />
+        <button
+          type="button"
+          disabled={!callbackUrl.trim() || completing}
+          aria-busy={completing}
+          onClick={() => void completeSignIn()}
+          className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
+        >
+          {completing && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+          {t(completing ? "mcp.auth.completing" : "mcp.auth.complete")}
+        </button>
+      </>
+    );
     return (
       <div key={connector.id} data-connector-tile={connector.id} className="-mx-2 flex min-w-0 items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-raised/50">
         <BrandIcon brand={connector.id} name={connector.name} domain={connector.domain} decorative />
@@ -308,34 +334,18 @@ export function McpConnectorCards({ connectors, refreshKey = 0, grouped, onConne
                   {t("mcp.auth.openAgain")}
                 </button>
               )}
-              {flow?.flowId && (
+              {flow?.flowId && (flow.pasteBack ? (
+                <div>
+                  <p className="leading-relaxed text-ink">{t("mcp.auth.pasteBackHint")}</p>
+                  {callbackForm}
+                </div>
+              ) : (
                 <details>
                   <summary className="cursor-pointer font-medium text-ink">{t("mcp.auth.otherComputer")}</summary>
                   <p className="mt-2 leading-relaxed">{t("mcp.auth.otherComputerHint")}</p>
-                  <label className="mt-3 block" htmlFor={`connector-callback-${connector.id}`}>{t("mcp.auth.callbackUrl")}</label>
-                  <input
-                    id={`connector-callback-${connector.id}`}
-                    type="text"
-                    value={callbackUrl}
-                    disabled={completing}
-                    onChange={(event) => setCallbackUrl(event.target.value)}
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder="http://127.0.0.1:…/mcp-oauth/callback?…"
-                    className="mt-1 w-full rounded-lg border border-hairline bg-inset px-3 py-2 text-ink outline-none focus:border-accent"
-                  />
-                  <button
-                    type="button"
-                    disabled={!callbackUrl.trim() || completing}
-                    aria-busy={completing}
-                    onClick={() => void completeSignIn()}
-                    className="mt-2 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
-                  >
-                    {completing && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
-                    {t(completing ? "mcp.auth.completing" : "mcp.auth.complete")}
-                  </button>
+                  {callbackForm}
                 </details>
-              )}
+              ))}
               {callbackError && <p role="alert" className="text-danger">{callbackError}</p>}
             </div>
           )}

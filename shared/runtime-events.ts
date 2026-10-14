@@ -1,4 +1,5 @@
 import type { AskQuestion } from "./ask-question.ts";
+import type { Helper } from "./helpers.ts";
 
 export type DriverKind = string;
 export type InstanceId = string;
@@ -80,7 +81,7 @@ export type RuntimeEvent = RuntimeEventBase &
     | { type: "item.completed"; itemType: "tool"; ok: boolean; output?: string }
     | { type: "item.completed"; itemType: "assistant_text"; text: string }
     | { type: "item.completed"; itemType: "assistant_image"; data: string; alt?: string }
-    | { type: "content.delta"; streamKind: "assistant_text" | "reasoning_text"; delta: string }
+    | { type: "content.delta"; streamKind: "assistant_text" | "reasoning_text"; delta: string; summary?: boolean }
     | {
         type: "request.opened";
         requestType: "permission" | "question";
@@ -110,6 +111,7 @@ export type RuntimeEvent = RuntimeEventBase &
         quota?: { resetsAt?: string; kind?: string };
       }
     | { type: "runtime.notice"; message: string }
+    | { type: "helper.updated"; helper: Helper }
   );
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void;

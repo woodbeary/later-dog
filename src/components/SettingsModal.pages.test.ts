@@ -24,7 +24,7 @@ vi.mock("@/lib/updater", () => ({ useUpdaterState: () => (window.laterdog?.updat
 vi.mock("@/lib/app-links", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/app-links")>(), appVersion: () => "1.2.3", openExternalLink: vi.fn() }));
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
 const { marker } = vi.hoisted(() => ({ marker: (name: string) => () => `MARKER:${name};` }));
-vi.mock("./AccountsPanel", () => ({ AccountsPanel: marker("accounts") }));
+vi.mock("./AccountsPanel", () => ({ AccountsPanel: marker("accounts"), AccountsRefresh: () => createElement("button", { "aria-label": "Refresh accounts" }) }));
 vi.mock("./AboutMeSettings", () => ({ AboutMeSettings: marker("about-me") }));
 vi.mock("./SavedApiKeys", async (importOriginal) => ({
   ...await importOriginal<typeof import("./SavedApiKeys")>(),

@@ -28,6 +28,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   return { ...store, api: fixture.api, useStore: () => ({ state: { ...store.initialState, ...fixture.storeState }, dispatch: fixture.dispatch }) };
 });
 import { NewBotDialog } from "./NewBotDialog";
+import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
 
 type Node = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
 function nodes(value: ReactNode): Node[] {
@@ -71,6 +72,17 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("the new dog dialog", () => {
+  it("offers the shared picture editor and retains its picture when creating", () => {
+    const shown = render();
+    const avatar = shown.nodes.find((node) => node.type === ProfileAvatar)!;
+    expect(avatar).toBeDefined();
+    expect(typeof avatar.props.onGenerate).toBe("function");
+    (avatar.props.onPatch as (patch: unknown) => void)({ avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" });
+    change(find(shown, "id", "new-dog-name"), "Biscuit");
+    submit(render());
+    expect(lastNewBot()).toMatchObject({ name: "Biscuit", avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" });
+  });
+
   it("is one card: a name, what it should help with, Create — nothing else", () => {
     const { html, nodes: tree } = render();
     expect(html).toContain('aria-label="New dog"');

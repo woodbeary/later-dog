@@ -1022,7 +1022,6 @@
   "usage.history.unpriced": "有 {count} 个回合来自未回报价格的引擎，因此未列入费用栏。",
   "botSettings.computer.checking": "请稍候",
   "botSettings.computer.asleep": "电脑正在休眠",
-  "botSettings.computer.wake": "唤醒",
   "botSettings.computer.waking": "正在唤醒…",
   "botSettings.computer.firstStart": "首次启动约需一分钟。",
   "botSettings.computer.unreachable": "无法连接到 {name} 的屏幕",

@@ -10,7 +10,6 @@ import {
   Loader2,
   Maximize2,
   Monitor,
-  Power,
   X,
 } from "lucide-react";
 import { api, ApiError, currentTaskBot, useStore, type Bot } from "@/state/store";
@@ -52,6 +51,8 @@ import { cloudRefusal, type PlaceActionId, type PlaceFacts, type PlaceView } fro
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { CloudTrialOffer, useCloudTrial } from "./CloudTrial";
+import { SleepingDog } from "./AccountCharge";
+import { WakeDog, WakingDog } from "./WakeDog";
 
 class LocalizedPanelError extends Error {
   constructor(
@@ -1141,6 +1142,43 @@ export function ComputerPanel({
     off: viewOf("off").line,
     error: bot.computer === "cloud" && (cloudRefused || placeBlocked(cloudView)) ? cloudView.line : t("computer.phase.error"),
   } satisfies Record<Exclude<Phase, "ready" | "local" | "vm">, string>;
+  const dogLook = { color: bot.color, bodyId: bot.mascotBody ?? undefined };
+  const cloudActionId = cloudView.action?.id;
+  const cloudWakeId = cloudActionId === "start" || cloudActionId === "wake" ? cloudActionId : null;
+  const cloudSleeps = phase === "cloud-new" || phase === "cloud-asleep";
+  const wakeDog = phase === "off"
+    ? { label: t("computer.turnOn", { name: bot.name }), hint: t("computer.turnOnHint"), busy: false, onWake: () => updateComputerSelection({ computer: "cloud" }) }
+    : cloudSleeps && cloudWakeId && panelOffers(cloudWakeId) && pending === null
+      ? {
+        label: t(cloudWakeId === "wake" ? "computer.wakeDog" : "computer.turnOn", { name: bot.name }),
+        hint: t(cloudWakeId === "wake" ? "computer.wakeHint" : "computer.turnOnHint"),
+        busy: false,
+        onWake: () => runPlaceAction(cloudWakeId),
+      }
+      : phase === "vps-stopped" && computerStatusCurrent && canManageCloud
+        ? { label: t("computer.turnOn", { name: bot.name }), hint: t("computer.turnOnHint"), busy: pending === "provision", onWake: () => run("provision") }
+        : null;
+  const dogStirs = phase === "busy-boat" && busyBoat.spinner;
+  const dogSleeps = (cloudSleeps && (!cloudActionId || cloudWakeId !== null)) || phase === "vps-stopped" || (phase === "busy-boat" && !busyBoat.spinner);
+  const emptyLine = (
+    <span className="text-[12px]">
+      {currentTeamComputer
+        ? autoView.line
+        : cloudPreviewReady
+        ? t("computer.waitingFrame")
+        : phase === "ready"
+          ? t("computer.autoChooseCloudOpen")
+        : phase === "vm"
+          ? t("computer.capturingVm")
+        : phase === "local"
+          ? isLinux
+            ? t("computer.linuxReady")
+            : t("computer.onThisMac", { name: bot.name })
+          : vmResumable
+            ? t(pending === "vm-start" ? "vm.setup.starting" : "computer.phase.vmStopped")
+            : emptyState[phase]}
+    </span>
+  );
 
   return (
     <aside
@@ -1171,7 +1209,7 @@ export function ComputerPanel({
           <Monitor size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
           {t("computer.tab.computer")}
           {placeLive && bot.computer !== undefined && bot.computer !== "off" && (
-            <span className="size-1.5 animate-status-pulse rounded-full bg-success" role="img" aria-label={t("place.live")} data-testid="computer-live" />
+            <span className="size-1.5 rounded-full bg-success" role="img" aria-label={t("place.live")} data-testid="computer-live" />
           )}
         </h2>
         <button
@@ -1239,6 +1277,7 @@ export function ComputerPanel({
               refreshing={previewRefreshing}
               retry={previewRetry}
               starting={phase === "starting"}
+              dog={dogLook}
               opening={pending === "join"}
               disabled={controlPending}
               onOpen={() => void openDesktop()}
@@ -1278,45 +1317,26 @@ export function ComputerPanel({
             />
           ) : (
             <div className="flex flex-col items-center gap-2 px-6 text-center text-ink-secondary">
-              {askingForGrants ? null : phase === "checking" || phase === "starting" || (phase === "busy-boat" && busyBoat.spinner) || phase === "vm" ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : phase === "local" || phase === "local-unavailable" ? (
-                <Laptop size={22} />
-              ) : phase === "off" ? (
-                <Power size={22} />
-              ) : (
-                <Monitor size={22} />
-              )}
-              {!askingForGrants && <span className="text-[12px]">
-                {currentTeamComputer
-                  ? autoView.line
-                  : cloudPreviewReady
-                  ? t("computer.waitingFrame")
-                  : phase === "ready"
-                    ? t("computer.autoChooseCloudOpen")
-                  : phase === "vm"
-                    ? t("computer.capturingVm")
-                  : phase === "local"
-                    ? isLinux
-                      ? t("computer.linuxReady")
-                      : t("computer.onThisMac", { name: bot.name })
-                    : vmResumable
-                      ? t(pending === "vm-start" ? "vm.setup.starting" : "computer.phase.vmStopped")
-                      : emptyState[phase]}
-              </span>}
+              {wakeDog ? (
+                <WakeDog {...dogLook} size={56} label={wakeDog.label} hint={wakeDog.hint} busy={wakeDog.busy} onWake={wakeDog.onWake}>
+                  {emptyLine}
+                </WakeDog>
+              ) : !askingForGrants && <>
+                {dogStirs ? (
+                  <WakingDog {...dogLook} size={56} waking />
+                ) : phase === "checking" || phase === "starting" || phase === "vm" ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : dogSleeps ? (
+                  <SleepingDog {...dogLook} size={56} />
+                ) : phase === "local" || phase === "local-unavailable" ? (
+                  <Laptop size={22} />
+                ) : (
+                  <Monitor size={22} />
+                )}
+                {emptyLine}
+              </>}
               {currentTeamComputer && placeActionButton(autoView)}
               {bot.computer === "cloud" && (phase === "unconfigured" || phase === "error") && placeActionButton(cloudView)}
-              {computerStatusCurrent && phase === "vps-stopped" && canManageCloud && (
-                <button
-                  type="button"
-                  onClick={() => run("provision")}
-                  disabled={pending === "provision"}
-                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover disabled:opacity-50"
-                >
-                  {pending === "provision" && <Loader2 size={13} className="mr-1.5 inline animate-spin" />}
-                  {t("place.action.start")}
-                </button>
-              )}
               {phase === "vps-unconfigured" && !state.config?.vps?.configured && window.laterdog?.remoteClient?.active !== true && (
                 <div data-vps-alias="" className="mt-2 w-full max-w-[320px] text-left">
                   <VpsConnection />
@@ -1339,16 +1359,6 @@ export function ComputerPanel({
                 />
               )}
               {phase === "off" && livePlace !== "off" && <CloudTrialOffer onUse={takeFreeCloud} />}
-              {phase === "off" && (
-                <button
-                  type="button"
-                  data-testid="turn-on-computer"
-                  onClick={() => updateComputerSelection({ computer: "cloud" })}
-                  className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover"
-                >
-                  {t("computer.turnOn", { name: bot.name })}
-                </button>
-              )}
               {(phase === "show-ready-boat" || phase === "show-sleeping-boat" || phase === "show-pending-boat") && (
                 <button
                   type="button"
@@ -1362,7 +1372,7 @@ export function ComputerPanel({
                       : t("computer.chooseCloudManage")}
                 </button>
               )}
-              {pending === null && (phase === "cloud-new" || phase === "cloud-asleep") && placeActionButton(cloudView)}
+              {pending === null && cloudSleeps && !cloudWakeId && placeActionButton(cloudView)}
               {vmResumable && pending !== "vm-start" && (
                 <p className="text-[12px]">{t(vmStatus?.stop_reason === "idle" ? "vm.stopped.idle" : "vm.stopped.detail")}</p>
               )}

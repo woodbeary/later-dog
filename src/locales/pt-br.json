@@ -716,7 +716,6 @@
   "usage.costMixed": "conforme cada provedor informa — em uma assinatura é um equivalente, não uma cobrança",
   "botSettings.computer.checking": "Só um momento",
   "botSettings.computer.asleep": "O computador está em repouso",
-  "botSettings.computer.wake": "Despertar",
   "botSettings.computer.waking": "Despertando…",
   "botSettings.computer.firstStart": "A primeira inicialização leva cerca de um minuto.",
   "botSettings.computer.unreachable": "Não foi possível acessar a tela de {name}",

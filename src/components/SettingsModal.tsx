@@ -17,7 +17,7 @@ import { appVersion, openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
 import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { AboutMeSettings } from "./AboutMeSettings";
-import { AccountsPanel } from "./AccountsPanel";
+import { AccountsPanel, AccountsRefresh } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { HelpRows } from "./SettingsHelp";
 import { CloudComputerRows } from "./CloudComputerRows";
@@ -41,10 +41,10 @@ export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "
   { id: "updates", labelKey: "settings.updates.title", icon: Download },
 ];
 
-export function SettingsGroup({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
+export function SettingsGroup({ label, children, testId, action }: { label: string; children: ReactNode; testId?: string; action?: ReactNode }) {
   return (
     <section data-settings-group={testId} className="flex flex-col gap-1.5">
-      <div className="px-4 text-[12px] font-medium text-ink-secondary">{label}</div>
+      <div className="flex items-center justify-between px-4 text-[12px] font-medium text-ink-secondary"><div>{label}</div>{action}</div>
       {children}
     </section>
   );
@@ -312,7 +312,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
   const analytics = analyticsConfigured();
   return (
     <>
-      <SettingsGroup label={t("settings.group.accounts")} testId="accounts">
+      <SettingsGroup label={t("settings.group.accounts")} testId="accounts" action={<AccountsRefresh />}>
         <AccountsPanel />
       </SettingsGroup>
       {keyed.length > 0 && (

@@ -79,7 +79,7 @@ export interface ProfilePage {
   onBack: () => void;
   onSwitch: (id: string) => void;
   onAdd: () => void;
-  onEdit: () => void;
+  onEdit: (id: string) => void;
 }
 
 export function profilePageItems({ list, switching, error, onBack, onSwitch, onAdd, onEdit }: ProfilePage): SidebarMenuItem[] {
@@ -102,6 +102,7 @@ export function profilePageItems({ list, switching, error, onBack, onSwitch, onA
       ) : open ? (
         <Check size={16} role="img" aria-label={t("profileSwitcher.inUse")} className="shrink-0 text-accent" />
       ) : undefined,
+      action: { label: t("profileSwitcher.editName", { name }), icon: <Pencil size={15} />, disabled: busy, onSelect: () => onEdit(profile.id) },
       onSelect: () => {
         if (!open) onSwitch(profile.id);
       },
@@ -125,13 +126,7 @@ export function profilePageItems({ list, switching, error, onBack, onSwitch, onA
       disabled: busy || !list.canAdd,
       onSelect: onAdd,
     },
-    {
-      key: "profiles-edit",
-      label: t("profileSwitcher.edit"),
-      icon: <Pencil size={18} />,
-      disabled: busy,
-      onSelect: onEdit,
-    },
+
   ];
 }
 
@@ -319,6 +314,7 @@ function ProfileRow({
   profile,
   open,
   first,
+  selected,
   disabled,
   onRename,
   onRemove,
@@ -326,6 +322,7 @@ function ProfileRow({
   profile: DesktopProfile;
   open: boolean;
   first: boolean;
+  selected?: boolean;
   disabled: boolean;
   onRename: (name: string) => void;
   onRemove: () => void;
@@ -346,6 +343,8 @@ function ProfileRow({
     <div className={cn("flex items-center gap-3 px-4 py-2.5", !first && "border-t border-hairline/40")}>
       <InitialsAvatar initials={profileBadge(name)} size={28} />
       <input
+        data-profile-edit={profile.id}
+        autoFocus={selected}
         value={draft}
         maxLength={NAME_LIMIT}
         disabled={disabled}
@@ -379,12 +378,14 @@ function ProfileRow({
 }
 
 export function EditProfilesDialog({
+  selectedId,
   bridge,
   list,
   onClose,
 }: {
   bridge: ProfileBridge;
   list: DesktopProfileList;
+  selectedId?: string;
   onClose: () => void;
 }) {
   const [removing, setRemoving] = useState<DesktopProfile | null>(null);
@@ -398,6 +399,9 @@ export function EditProfilesDialog({
     if (!pending) onClose();
   };
   useModal(dialog, close);
+  useEffect(() => {
+    if (selectedId) dialog.current?.querySelector<HTMLInputElement>(`[data-profile-edit="${CSS.escape(selectedId)}"]`)?.focus();
+  }, [selectedId]);
 
   const rename = async (id: string, name: string) => {
     setError("");
@@ -441,6 +445,7 @@ export function EditProfilesDialog({
                 profile={profile}
                 open={profile.id === list.activeId}
                 first={index === 0}
+                selected={profile.id === selectedId}
                 disabled={pending}
                 onRename={(name) => void rename(profile.id, name)}
                 onRemove={() => setRemoving(profile)}

@@ -705,7 +705,6 @@
   "usage.costMixed": "各プロバイダーの報告どおりです。サブスクリプションでは請求ではなく相当額です",
   "botSettings.computer.checking": "少々お待ちください",
   "botSettings.computer.asleep": "コンピューターはスリープ中です",
-  "botSettings.computer.wake": "起こす",
   "botSettings.computer.waking": "起動中…",
   "botSettings.computer.firstStart": "初回の起動には約 1 分かかります。",
   "botSettings.computer.unreachable": "{name} の画面に接続できません",

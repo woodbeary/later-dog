@@ -26,7 +26,7 @@ const fixture = vi.hoisted(() => {
   };
 });
 
-const PHASE_OFFSETS = { phase: 0, resolved: 2, vmViewerUrl: 10, vmStatus: 11, error: 15 } as const;
+const PHASE_OFFSETS = { phase: 0, resolved: 2, boatState: 4, vmViewerUrl: 10, vmStatus: 11, pending: 12, error: 15 } as const;
 let phaseIndex = -1;
 
 vi.mock("react", async (original) => ({
@@ -87,6 +87,7 @@ vi.mock("@/state/store", async (importOriginal) => ({
 }));
 
 const { ComputerPanel } = await import("./ComputerPanel");
+const { WakeDog } = await import("./WakeDog");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -135,7 +136,8 @@ function render(forBot: Bot) {
   const buttons = all.filter((node) => node.type === "button");
   const button = (label: string) => buttons.find((node) => text(node.props.children) === label);
   const byTestId = (id: string) => all.find((node) => node.props["data-testid"] === id);
-  return { html, nodes: all, buttons, button, byTestId };
+  const wakeDog = all.find((node) => node.type === WakeDog) as ReactElement<{ label: string; hint: string; busy: boolean; onWake: () => void }> | undefined;
+  return { html, nodes: all, buttons, button, byTestId, wakeDog };
 }
 
 const fresh = () => {
@@ -173,7 +175,7 @@ describe("Computer panel", () => {
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleComputer", open: false });
   });
 
-  it("pulses its live dot while a turn runs wherever the dog works, and never for Off", () => {
+  it("shows its live dot while a turn runs wherever the dog works, and never for Off", () => {
     expect(render(makeBot({ computer: "cloud", busy: true })).byTestId("computer-live")).toBeDefined();
     fresh();
     expect(render(makeBot({ computer: "local", busy: true })).byTestId("computer-live")).toBeDefined();
@@ -183,14 +185,17 @@ describe("Computer panel", () => {
     expect(render(makeBot({ computer: "off", busy: true })).byTestId("computer-live")).toBeUndefined();
   });
 
-  it("turns a dog's computer back on with one button, no picker", () => {
+  it("turns a dog's computer back on from the sleeping dog itself, with no other button or picker", () => {
     fixture.seed = { phase: "off" };
     const rendered = render(makeBot({ computer: "off" }));
     expect(rendered.html).toContain("Scout has no screen. It can still chat and do anything that doesn&#x27;t need one.");
     expect(rendered.byTestId("choose-where-works")).toBeUndefined();
-    const turnOn = rendered.byTestId("turn-on-computer")!;
-    expect(text(turnOn.props.children)).toBe("Turn on Scout's computer");
-    (turnOn.props.onClick as () => void)();
+    expect(rendered.buttons.filter((node) => /turn on|start|wake/i.test(text(node.props.children)))).toEqual([]);
+    const dog = rendered.wakeDog!;
+    expect(dog.props.label).toBe("Turn on Scout's computer");
+    expect(dog.props.hint).toBe("Tap to turn on");
+    expect(rendered.html).toContain('aria-label="Turn on Scout&#x27;s computer"');
+    dog.props.onWake();
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "scout", patch: { computer: "cloud" } });
   });
 });
@@ -282,6 +287,32 @@ describe("Cloud computer", () => {
     }
   });
 
+  it("wakes a sleeping cloud computer from the dog itself, not a separate Wake button", async () => {
+    fixture.seed = { phase: "cloud-asleep", resolved: cloudBox, boatState: "archived" };
+    const rendered = render(makeBot({ computer: "cloud" }));
+    expect(rendered.byTestId("place-action")).toBeUndefined();
+    expect(rendered.buttons.filter((node) => /wake|start/i.test(text(node.props.children)))).toEqual([]);
+    const dog = rendered.wakeDog!;
+    expect(dog.props.label).toBe("Wake Scout's computer");
+    expect(dog.props.hint).toBe("Tap to wake");
+    expect(dog.props.busy).toBe(false);
+    dog.props.onWake();
+    expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout/computer/provision", { method: "POST" });
+  });
+
+  it("starts a cloud computer that never ran from the dog, and only shows it sleeping while the dog only chats", () => {
+    fixture.seed = { phase: "cloud-new", resolved: cloudBox };
+    const idle = render(makeBot({ computer: "cloud" }));
+    expect(idle.wakeDog!.props.label).toBe("Turn on Scout's computer");
+    expect(idle.byTestId("place-action")).toBeUndefined();
+    fresh();
+    fixture.seed = { phase: "cloud-new", resolved: cloudBox };
+    const chatting = render(makeBot({ computer: "cloud", busy: true }));
+    expect(chatting.wakeDog).toBeUndefined();
+    expect(chatting.html).toContain("data-sleeping-dog");
+    expect(chatting.byTestId("place-action")).toBeUndefined();
+  });
+
   it("lets a dog whose tools leave out the computer use it, in one click from here", async () => {
     const api = vi.fn(async (..._args: unknown[]) => ({}));
     fixture.api = api;
@@ -340,14 +371,21 @@ describe("Technical controls", () => {
     expect(rendered.nodes.find((node) => node.props["data-testid"] === "computer-actions")).toBeUndefined();
   });
 
-  it("says a VPS computer is stopped and offers one Start, with no VPS setup controls", () => {
-    fixture.seed = { phase: "vps-stopped", resolved: { botId: "scout", threadId: "thread-scout", computer: "cloud", cloudBackend: "vps" } };
+  it("says a VPS computer is stopped and starts it from the sleeping dog, with no VPS setup controls", () => {
+    const vpsBox = { botId: "scout", threadId: "thread-scout", computer: "cloud", cloudBackend: "vps" } as const;
+    fixture.seed = { phase: "vps-stopped", resolved: vpsBox };
     const rendered = render(makeBot({ computer: "cloud", cloudBackend: "vps" }));
     expect(rendered.html).toContain("The managed VPS computer is stopped");
     expect(rendered.buttons.some((node) => /VPS|advanced/i.test(text(node.props.children)))).toBe(false);
-    const start = rendered.button("Start it now")!;
-    (start.props.onClick as () => void)();
+    expect(rendered.button("Start it now")).toBeUndefined();
+    const dog = rendered.wakeDog!;
+    expect(dog.props.label).toBe("Turn on Scout's computer");
+    dog.props.onWake();
     expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout/computer/provision", { method: "POST" });
+
+    fresh();
+    fixture.seed = { phase: "vps-stopped", resolved: vpsBox, pending: "provision" };
+    expect(render(makeBot({ computer: "cloud", cloudBackend: "vps" })).wakeDog!.props.busy).toBe(true);
   });
 
   it("asks for the server's SSH alias right in the panel while a VPS computer has none", () => {

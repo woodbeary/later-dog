@@ -40,6 +40,7 @@ const calls = (key: string) => fixture.api.mock.calls.filter(([path, init]) =>
 const settle = () => act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); });
 const panel = () => host.querySelector<HTMLElement>("[data-simple-computer]")!;
 const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === label)!;
+const dogButton = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 const press = (element: HTMLElement) => act(async () => element.click());
 const show = async (bot: Bot) => {
   await act(async () => root.render(createElement(ComputerTab, { bot })));
@@ -123,10 +124,13 @@ describe("the Computer tab", () => {
     expect(fixture.api.mock.calls[0]![0]).toBe("/api/bots/scout/computer?threadId=thread-scout");
     expect(panel().dataset.simpleComputer).toBe("asleep");
     expect(panel().textContent).toContain("Computer is asleep");
-    expect(panel().querySelector('[data-dog="sleeping"]')).not.toBeNull();
     expect(panel().textContent).toContain("Scout's screen");
+    const dog = dogButton("Wake Scout's computer")!;
+    expect(dog.querySelector('[data-dog="sleeping"]')).not.toBeNull();
+    expect(panel().textContent).toContain("Tap to wake");
+    expect(panel().querySelectorAll("button")).toHaveLength(1);
 
-    await press(button("Wake"));
+    await press(dog);
     await settle();
     expect(calls(WAKE)).toHaveLength(1);
     expect(panel().dataset.simpleComputer).toBe("awake");
@@ -146,15 +150,24 @@ describe("the Computer tab", () => {
     reply(SHOT, () => ({ png: "AAAA" }));
     await show(scout());
 
-    await press(button("Wake"));
+    const dog = dogButton("Wake Scout's computer")!;
+    dog.focus();
+    await press(dog);
     await settle();
     expect(panel().dataset.simpleComputer).toBe("waking");
     expect(panel().textContent).toContain("Waking up…");
     expect(panel().textContent).toContain("The first start takes about a minute.");
-    expect(panel().querySelector('[data-dog="waking"]')).not.toBeNull();
+    expect(dog.isConnected).toBe(true);
+    expect(document.activeElement).toBe(dog);
+    expect(dog.getAttribute("aria-disabled")).toBe("true");
+    expect(dog.querySelector('[data-dog="waking"]')).not.toBeNull();
+    await press(dog);
+    expect(calls(WAKE)).toHaveLength(1);
     expect(calls(STATUS)).toHaveLength(1);
 
-    await act(async () => { vi.advanceTimersByTime(3000); });
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(dog.querySelector('[data-dog="loading"]')).not.toBeNull();
+    await act(async () => { vi.advanceTimersByTime(2000); });
     await settle();
     expect(calls(STATUS)).toHaveLength(2);
     expect(panel().dataset.simpleComputer).toBe("awake");
@@ -166,13 +179,15 @@ describe("the Computer tab", () => {
     reply(WAKE, () => ({ ready: false, problem: "No room in that region right now" }));
     await show(scout());
 
-    await press(button("Wake"));
+    await press(dogButton("Wake Scout's computer")!);
     await settle();
     const alert = panel().querySelector('[role="alert"]')!;
     expect(alert.textContent).toContain("Couldn't wake Scout's screen");
     expect(alert.textContent).toContain("No room in that region right now");
+    expect(panel().textContent).toContain("Tap to try again");
+    expect(button("Try again")).toBeUndefined();
 
-    await press(button("Try again"));
+    await press(dogButton("Wake Scout's computer")!);
     await settle();
     expect(calls(WAKE)).toHaveLength(2);
   });
@@ -181,18 +196,42 @@ describe("the Computer tab", () => {
     reply(STATUS, () => ({ ...box("stopped"), teamComputer: { id: "pack", name: "Pack box" } }));
     await show(scout());
     expect(panel().textContent).toContain("Uses Pack box, the cloud computer this pack shares.");
-    expect(button("Wake")).toBeUndefined();
+    expect(panel().querySelector("[data-wake-dog]")).toBeNull();
+    expect(panel().querySelector('[data-dog="sleeping"]')).not.toBeNull();
     await press(button("Open"));
     expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleComputer", open: true });
   });
 
-  it("turns the computer on in place for a dog that has none", async () => {
-    reply(STATUS, () => ({ surface: "off" }));
+  it("turns the computer on and wakes it with one tap on the sleeping dog", async () => {
+    reply(STATUS, () => ({ surface: "off" }), () => box(null), () => box("running"));
+    reply(WAKE, () => ({ ready: true }));
+    reply(SHOT, () => ({ png: "AAAA" }));
+    fixture.dispatch.mockImplementation((action: { type: string }) => {
+      if (action.type === "updateBot") root.render(createElement(ComputerTab, { bot: scout({ computer: "cloud" }) }));
+    });
     await show(scout({ computer: "off" }));
     expect(panel().textContent).toContain("No screen to show");
     expect(panel().textContent).toContain("Scout has no screen.");
-    await press(host.querySelector<HTMLButtonElement>("[data-computer-turn-on]")!);
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "updateBot", botId: "scout", patch: { computer: "cloud" } });
+    expect(panel().textContent).toContain("Tap to turn on");
+    expect(panel().querySelectorAll("button")).toHaveLength(1);
+
+    const dog = dogButton("Turn on Scout's computer")!;
+    await press(dog);
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "scout", patch: { computer: "cloud" } });
+    await settle();
+    expect(calls(STATUS)).toHaveLength(3);
+    expect(calls(WAKE)).toHaveLength(1);
+    expect(panel().dataset.simpleComputer).toBe("awake");
+  });
+
+  it("goes back to sleep instead of hanging when turning on finds no computer to wake", async () => {
+    reply(STATUS, () => ({ surface: "off" }));
+    await show(scout({ computer: "off" }));
+    await press(dogButton("Turn on Scout's computer")!);
+    await settle();
+    expect(calls(STATUS)).toHaveLength(2);
+    expect(calls(WAKE)).toHaveLength(0);
+    expect(panel().dataset.simpleComputer).toBe("off");
   });
 
   it("says where the dog works when it is not a cloud computer", async () => {

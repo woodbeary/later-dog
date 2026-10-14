@@ -8,7 +8,7 @@ import { listenLiveFrames } from "@/lib/live-events";
 import { isReadyBoatState } from "@/lib/local-computer";
 import { isActiveTurnRefusal } from "@/lib/remote-desktop";
 import { SleepingDog } from "../AccountCharge";
-import { DogAvatar } from "../Avatar";
+import { WakeDog } from "../WakeDog";
 
 type Surface = "cloud" | "local" | "vm" | "browser" | "off";
 
@@ -76,6 +76,7 @@ export function ComputerTab({ bot }: { bot: Bot }) {
   const [frame, setFrame] = useState<string | null>(null);
   const [shotFailed, setShotFailed] = useState(false);
   const alive = useRef(true);
+  const wakeNext = useRef(false);
   const busy = useRef(Boolean(bot.busy));
   busy.current = Boolean(bot.busy);
   const flush = useRef(flushBotPatches);
@@ -94,10 +95,20 @@ export function ComputerTab({ bot }: { bot: Bot }) {
       .catch(() => null)
       .then(() => api<ComputerStatus>(`/api/bots/${id}/computer${query}`, { signal: controller.signal }))
       .then((status) => {
-        if (!controller.signal.aborted) setCard(computerCardFor({ computer, autoStartVps }, status));
+        if (controller.signal.aborted) return;
+        const next = computerCardFor({ computer, autoStartVps }, status);
+        const turnedOn = wakeNext.current;
+        wakeNext.current = false;
+        if (turnedOn && next.kind === "asleep" && next.canWake) {
+          void wake(next.fresh);
+          return;
+        }
+        setCard(next);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setCard({ kind: "unreachable" });
+        if (controller.signal.aborted) return;
+        wakeNext.current = false;
+        setCard({ kind: "unreachable" });
       });
     return () => controller.abort();
   }, [id, query, computer, autoStartVps, cloudBackend, round]);
@@ -180,11 +191,18 @@ export function ComputerTab({ bot }: { bot: Bot }) {
       setCard({ kind: "wakeFailed", fresh, problem: error instanceof Error ? error.message : String(error) });
     }
   };
+  const turnOn = () => {
+    wakeNext.current = true;
+    setCard({ kind: "waking", fresh: true, polling: false });
+    dispatch({ type: "updateBot", botId: id, patch: { computer: "cloud" } });
+    setRound((value) => value + 1);
+  };
 
   const openButton = (
     <button type="button" data-computer-open onClick={open} className={pill}>{t("computer.open")}</button>
   );
   const dog = { color: bot.color, bodyId: bot.mascotBody ?? undefined };
+  const wakeLabel = t("computer.wakeDog", { name: bot.name });
 
   let body: ReactNode;
   switch (card.kind) {
@@ -197,28 +215,33 @@ export function ComputerTab({ bot }: { bot: Bot }) {
       );
       break;
     case "asleep":
-      body = (
+      body = card.canWake ? (
+        <Middle>
+          <WakeDog {...dog} label={wakeLabel} hint={t("computer.wakeHint")} onWake={() => void wake(card.fresh)}>
+            <div className={headline}>{t("botSettings.computer.asleep")}</div>
+          </WakeDog>
+        </Middle>
+      ) : (
         <Middle>
           <SleepingDog size={76} color={dog.color} bodyId={dog.bodyId} className="mb-1" />
           <div className={headline}>{t("botSettings.computer.asleep")}</div>
           {card.team && <p className={line}>{t("place.view.autoTeam.line", { computer: card.team })}</p>}
-          {card.canWake ? (
-            <button type="button" data-computer-wake onClick={() => void wake(card.fresh)} className={pill}>
-              {t("botSettings.computer.wake")}
-            </button>
-          ) : openButton}
+          {openButton}
         </Middle>
       );
       break;
     case "waking":
       body = (
         <Middle status>
-          <DogAvatar color={dog.color} bodyId={dog.bodyId} state="waking" size={76} trackPointer={false} />
-          <div className={cn(headline, "flex items-center gap-1.5")}>
-            <Loader2 size={14} className="animate-spin text-ink-secondary" aria-hidden="true" />
-            {t("botSettings.computer.waking")}
-          </div>
-          {card.fresh && <p className={line}>{t("botSettings.computer.firstStart")}</p>}
+          <WakeDog
+            {...dog}
+            busy
+            label={wakeLabel}
+            hint={card.fresh ? t("botSettings.computer.firstStart") : undefined}
+            onWake={() => void wake(card.fresh)}
+          >
+            <div className={headline}>{t("botSettings.computer.waking")}</div>
+          </WakeDog>
         </Middle>
       );
       break;
@@ -268,14 +291,12 @@ export function ComputerTab({ bot }: { bot: Bot }) {
     case "wakeFailed":
       body = (
         <Middle>
-          <SleepingDog size={56} color={dog.color} bodyId={dog.bodyId} />
-          <div role="alert" className="flex flex-col items-center gap-1">
-            <div className={headline}>{t("botSettings.computer.wakeFailed", { name: bot.name })}</div>
-            {card.problem && <p className={cn(line, "line-clamp-3")}>{card.problem}</p>}
-          </div>
-          <button type="button" data-computer-wake onClick={() => void wake(card.fresh)} className={pill}>
-            {t("botSettings.computer.tryAgain")}
-          </button>
+          <WakeDog {...dog} label={wakeLabel} hint={t("computer.retryHint")} onWake={() => void wake(card.fresh)}>
+            <div role="alert" className="flex flex-col items-center gap-1">
+              <div className={headline}>{t("botSettings.computer.wakeFailed", { name: bot.name })}</div>
+              {card.problem && <p className={cn(line, "line-clamp-3")}>{card.problem}</p>}
+            </div>
+          </WakeDog>
         </Middle>
       );
       break;
@@ -308,17 +329,10 @@ export function ComputerTab({ bot }: { bot: Bot }) {
     case "off":
       body = (
         <Middle>
-          <MonitorOff size={24} className="text-ink-secondary" aria-hidden="true" />
-          <div className={headline}>{t("botSettings.computer.noScreen")}</div>
-          <p className={line}>{t("place.view.off.line", { bot: bot.name })}</p>
-          <button
-            type="button"
-            data-computer-turn-on
-            onClick={() => dispatch({ type: "updateBot", botId: id, patch: { computer: "cloud" } })}
-            className={pill}
-          >
-            {t("computer.turnOn", { name: bot.name })}
-          </button>
+          <WakeDog {...dog} label={t("computer.turnOn", { name: bot.name })} hint={t("computer.turnOnHint")} onWake={turnOn}>
+            <div className={headline}>{t("botSettings.computer.noScreen")}</div>
+            <p className={line}>{t("place.view.off.line", { bot: bot.name })}</p>
+          </WakeDog>
         </Middle>
       );
       break;

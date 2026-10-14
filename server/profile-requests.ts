@@ -19,6 +19,8 @@ const LABELS: Record<Exclude<(typeof PROFILE_REQUEST_FIELDS)[number], "soul" | "
   description: "Description",
   notifications: "Notifications",
   speakReplies: "Speak replies",
+  avatarUrl: "Picture",
+  avatarCrop: "Picture shape",
 };
 const PRIVATE_WORKSPACE = "its private workspace";
 const CHOOSE_ONE = "Choose at least one of name, title, description, soul, cwd, notifications, speakReplies";
@@ -53,7 +55,7 @@ export interface ProfileRequestStore {
     },
   ): { id: string };
   patchMessage(threadId: string, messageId: string, patch: { card: OptionCardLike }): { id: string } | null;
-  patchBotProfile(id: string, patch: Partial<Pick<BotRecord, "name" | "title" | "description" | "cwd" | "soul" | "notifications" | "speakReplies" | "lastProfileRequestId">>): BotRecord | null;
+  patchBotProfile(id: string, patch: Partial<Pick<BotRecord, "name" | "title" | "description" | "cwd" | "soul" | "notifications" | "speakReplies" | "avatarUrl" | "avatarCrop" | "lastProfileRequestId">>): BotRecord | null;
 }
 
 export interface ProfileRequestServiceOptions {
@@ -105,7 +107,7 @@ function reasonText(value: unknown): string {
   return redactSecretsInText(trimmed);
 }
 
-function parseChanges(input: unknown): ProfileRequestChanges {
+export function parseProfileChanges(input: unknown): ProfileRequestChanges {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     throw new ProfileRequestError(CHOOSE_ONE);
   }
@@ -136,6 +138,14 @@ function parseChanges(input: unknown): ProfileRequestChanges {
     const value = parsed.patch[field];
     if (field === "notifications" || field === "speakReplies") {
       if (value !== undefined) changes[field] = value as boolean;
+      continue;
+    }
+    if (field === "avatarUrl") {
+      if (typeof value === "string") changes.avatarUrl = value;
+      continue;
+    }
+    if (field === "avatarCrop") {
+      if (value === "mascot" || value === "circle" || value === "square" || value === "rounded") changes.avatarCrop = value;
       continue;
     }
     if (typeof value !== "string") continue;
@@ -173,6 +183,10 @@ export function profileCardCopy(
   for (const field of PROFILE_REQUEST_FIELDS) {
     if (field === "soul" || field === "cwd") continue;
     if (changes[field] === undefined) continue;
+    if (field === "avatarUrl") {
+      lines.push("Picture: a new generated picture, shown on this card");
+      continue;
+    }
     if (field === "notifications" || field === "speakReplies") {
       lines.push(`${LABELS[field]}: ${toggleText(before[field] as boolean | undefined)} → ${toggleText(changes[field] as boolean | undefined)}`);
       continue;
@@ -232,7 +246,7 @@ export class ProfileRequestService {
     appliedBy?: DirectApply;
   } {
     const reason = reasonText(args.reason);
-    const changes = parseChanges(args.changes);
+    const changes = parseProfileChanges(args.changes);
 
     const targetBotId = args.targetBotId ?? args.botId;
     const target = this.store.bot(targetBotId);
@@ -256,9 +270,14 @@ export class ProfileRequestService {
       } else {
         const value = changes[field];
         if (value === undefined || value === snapshot[field]) continue;
-        before[field] = redactSecretsInText(snapshot[field]);
-        if (before[field] !== snapshot[field]) exactBefore = false;
-        finalChanges[field] = value;
+        if (field === "avatarCrop") {
+          before.avatarCrop = snapshot.avatarCrop;
+          finalChanges.avatarCrop = changes.avatarCrop;
+        } else {
+          before[field] = redactSecretsInText(snapshot[field]);
+          if (before[field] !== snapshot[field]) exactBefore = false;
+          finalChanges[field] = value;
+        }
       }
     }
     if (Object.keys(finalChanges).length === 0) {
@@ -350,7 +369,7 @@ export class ProfileRequestService {
     const patch: Parameters<ProfileRequestStore["patchBotProfile"]>[1] = {};
     for (const field of PROFILE_REQUEST_FIELDS) {
       if (field === "cwd" || payload.changes[field] === undefined) continue;
-      (patch as Record<string, unknown>)[field] = rest[field];
+      (patch as Record<string, unknown>)[field] = field === "avatarUrl" ? rest[field] || undefined : rest[field];
     }
     if (payload.changes.cwd !== undefined) {
       const checked = validateBotCwd(cwd || null);
@@ -414,7 +433,7 @@ export class ProfileRequestService {
       }
 
       const { cwd, ...rest } = payload.changes;
-      const validated = Object.keys(rest).length ? parseChanges(rest) : {};
+      const validated = Object.keys(rest).length ? parseProfileChanges(rest) : {};
       const patch: Parameters<ProfileRequestStore["patchBotProfile"]>[1] = { ...validated, lastProfileRequestId: payload.requestId };
       if (cwd !== undefined) {
         const checked = validateBotCwd(cwd || null);
