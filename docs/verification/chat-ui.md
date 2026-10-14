@@ -116,8 +116,9 @@ open a read-only view of the exchange with a Close chat button; a hand-off into
 a teammate's thread opens that thread. A routine a dog creates reads
 `Created routine ⏲ name` and opens that routine in Routines. An answered
 permission folds to `Allowed once`, `Always allowed`, `Allowed for this chat`
-or `Denied` with the tool's short name; the open card offers Always allow,
-Allow once and Never.
+or `Denied` with the tool's short name; the open card offers Allow once
+(primary), Don't allow, and then, set apart and outlined, Always allow. A card
+is labelled Always allowed only once the grant is really on the dog.
 
 Names are read by dog id, and the server keeps a dog's earlier names
 (`formerNames`), so a rename shows everywhere (sidebar, lines, mentions, the

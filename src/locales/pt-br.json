@@ -1519,7 +1519,6 @@
   "approval.status.allowedOnce": "Permitido uma vez",
   "approval.status.alwaysAllowed": "Sempre permitido",
   "approval.status.allowedForChat": "Permitido para esta conversa",
-  "approval.action.never": "Nunca",
   "approval.tool.messageDog": "enviar mensagem a outro cão",
   "approval.tool.delegateDog": "passar trabalho a outro cão",
   "approval.tool.postRoom": "publicar em uma sala"

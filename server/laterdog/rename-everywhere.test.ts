@@ -48,6 +48,25 @@ describe("renaming a dog", () => {
     expect(store.bot(helper.id)).not.toHaveProperty("formerNames");
   });
 
+  it("keeps the history when only the capital letters of a name change", () => {
+    const { store, helper } = pair();
+    store.patchBotProfile(helper.id, { name: "Tutor" });
+    store.patchBotProfile(helper.id, { name: "tutor" });
+    expect(store.bot(helper.id)).toMatchObject({ name: "tutor", formerNames: ["Study Helper"] });
+    store.patchBot(helper.id, { name: "TUTOR" });
+    expect(store.bot(helper.id)).toMatchObject({ name: "TUTOR", formerNames: ["Study Helper"] });
+    expect(new Store(selection).bot(helper.id)?.formerNames).toEqual(["Study Helper"]);
+  });
+
+  it("does not rename an exchange the person named themselves", () => {
+    const { store, helper, channel } = pair();
+    store.patchGroup(channel.id, { name: "Sky notes" });
+    store.patchBotProfile(helper.id, { name: "Tutor" });
+    expect(store.group(channel.id)?.name).toBe("Sky notes");
+    store.patchBot(helper.id, { name: "Coach" });
+    expect(store.group(channel.id)?.name).toBe("Sky notes");
+  });
+
   it("renames the exchange between two dogs in both orders", () => {
     const { store, boss, helper, channel } = pair();
     expect(store.group(channel.id)?.name).toBe("New Bot ⇄ Study Helper");

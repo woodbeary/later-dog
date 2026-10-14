@@ -1816,7 +1816,6 @@
   "approval.status.allowedOnce": "Дозволено один раз",
   "approval.status.alwaysAllowed": "Дозволено завжди",
   "approval.status.allowedForChat": "Дозволено для цього чату",
-  "approval.action.never": "Ніколи",
   "approval.tool.messageDog": "написати іншій собаці",
   "approval.tool.delegateDog": "передати роботу іншій собаці",
   "approval.tool.postRoom": "опублікувати в кімнаті"

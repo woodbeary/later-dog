@@ -2759,7 +2759,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }).catch(showError);
           break;
         case "decideRequest": {
-          const respond = () =>
+          const respond = (scope: typeof action.scope) =>
             api(`/api/threads/${action.threadId}/respond`, {
               method: "POST",
               body: JSON.stringify({
@@ -2769,11 +2769,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 reviewedSha256: action.reviewedSha256,
                 always: action.always,
                 rememberCommand: action.rememberCommand,
-                scope: action.scope,
+                scope,
               }),
             });
           void waitForExecutionSettings(executionBotsBeforeAction, action.threadId)
             .then(async () => {
+              let grantSaved = true;
               if (action.alwaysAllow) {
                 const bot = stateRef.current.bots.find((candidate) => candidate.id === action.alwaysAllow?.botId);
                 const owner = bot?.tasks?.some((task) => task.threadId === action.threadId);
@@ -2784,10 +2785,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                     body: JSON.stringify(owner ? { threadId: action.threadId, allowKey: action.alwaysAllow.key } : { alwaysAllow: next }),
                   });
                 } catch (error) {
+                  grantSaved = false;
                   showError(error);
                 }
               }
-              const response = await respond();
+              const response = await respond(grantSaved || action.scope !== "always" ? action.scope : "once");
               if (response?.settlementPending && typeof response.message === "string") {
                 showError(new Error(response.message));
               }

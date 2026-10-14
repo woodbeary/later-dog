@@ -61,7 +61,7 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
   if (card.expired === true) return t("approval.status.expired");
   if (!card.answered) return undefined;
   if (card.undone === true) return t("approval.status.undone");
-  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamSetupRequest);
+  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamSetupRequest || card.teamMemoryRequest);
   if (card.answered !== "allow") return isProposal ? t("approval.status.cancelled") : t("approval.status.denied");
   if (card.teamSetupRequest) return card.teamSetupRequest.deletion ? "Dog deleted" : "Pack setup applied";
   const routineAction = card.routineRequest?.operation.action;
@@ -81,7 +81,7 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
 export function approvalFoldSummary(card: OptionCardData, tool: string): { outcome: string; action?: string } | undefined {
   const outcome = approvalCardOutcome(card);
   if (!outcome) return undefined;
-  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamSetupRequest);
+  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamSetupRequest || card.teamMemoryRequest);
   if (isProposal || card.expired === true || !card.tool) return { outcome };
   const phrase = toolLabel(tool, card.approvalScope);
   return { outcome, action: phrase.charAt(0).toUpperCase() + phrase.slice(1) };

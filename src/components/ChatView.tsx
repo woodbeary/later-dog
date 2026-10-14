@@ -770,6 +770,7 @@ const MessagesList = memo(function MessagesList({
   emergingId,
   canRetryLast,
   engine,
+  groupIds,
   onStartEdit,
   onCancelEdit,
   onSubmitEdit,
@@ -788,6 +789,7 @@ const MessagesList = memo(function MessagesList({
   emergingId?: string | null;
   canRetryLast: boolean;
   engine: InstanceInfo | undefined;
+  groupIds: string;
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSubmitEdit: (id: string, text: string) => void;
@@ -799,8 +801,11 @@ const MessagesList = memo(function MessagesList({
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
   const items = useMemo(
-    () => foldExchanges(groupTranscript(messages, plan), (item) => item.kind !== "run" || showToolCalls),
-    [messages, plan, locale, showToolCalls],
+    () => foldExchanges(groupTranscript(messages, plan), {
+      renders: (item) => item.kind !== "run" || showToolCalls,
+      hasGroup: (groupId) => groupIds.split("|").includes(groupId),
+    }),
+    [messages, plan, locale, showToolCalls, groupIds],
   );
   const unreadSince = useUnreadBoundary(`${botId}/${threadId}`, messages);
   let unreadPlaced = false;
@@ -1066,6 +1071,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   );
   const showToolCalls = showToolCallsEnabled(state.config);
   const runningSince = bot.busy ? bot.turnStartedAt ?? null : null;
+  const groupIds = useMemo(() => state.groups.map((group) => group.id).join("|"), [state.groups]);
   const plan = useMemo(
     () => planTranscript(messages, { runningSince, quiet: !showToolCalls }),
     [messages, runningSince, showToolCalls],
@@ -1343,6 +1349,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               emergingId={popping}
               canRetryLast={!bot.busy && Boolean(lastUserMessage)}
               engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
+              groupIds={groupIds}
               onStartEdit={startEdit}
               onCancelEdit={cancelEdit}
               onSubmitEdit={submitEdit}

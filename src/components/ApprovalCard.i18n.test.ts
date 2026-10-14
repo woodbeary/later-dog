@@ -109,7 +109,7 @@ describe("German approval cards", () => {
       }),
     ));
 
-    expect(markup).toContain(">Nie<");
+    expect(markup).toContain("Nicht erlauben");
     expect(markup).toContain("Immer erlauben");
     expect(markup).toContain("Einmal erlauben");
     expect(markup).toContain("Bei Mochi nicht mehr nach Bash:pnpm test fragen");
@@ -224,7 +224,7 @@ describe("Brazilian Portuguese approval cards", () => {
       }),
     ));
 
-    expect(markup).toContain(">Nunca<");
+    expect(markup).toContain("Não permitir");
     expect(markup).toContain("Sempre permitir");
     expect(markup).toContain("Permitir uma vez");
     expect(markup).toContain("Não perguntar mais a Mochi sobre Bash:pnpm test");

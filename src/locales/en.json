@@ -237,7 +237,6 @@
   "approval.action.cancelTurn": "Stop",
   "approval.action.cancel": "Cancel",
   "approval.action.deny": "Don't allow",
-  "approval.action.never": "Never",
   "approval.action.stopAsking": "Stop asking {name} about {key}",
   "approval.action.alwaysAllow": "Always allow",
   "approval.action.alwaysAllowSession": "Allow for this chat",

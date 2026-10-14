@@ -25,6 +25,7 @@ export interface ExchangeItem {
   target: ExchangeTarget;
   messages: Message[];
   rows: ExchangeRow[];
+  folded: Message[];
 }
 
 export type QuietTranscriptItem = TranscriptItem | ExchangeItem;
@@ -69,7 +70,7 @@ function sameTarget(a: ExchangeTarget, b: ExchangeTarget): boolean {
 export function singleExchange(message: Message): ExchangeItem | null {
   const row = exchangeRow(message);
   return row
-    ? { kind: "exchange", id: `exchange:${message.id}`, withBotId: row.withBotId, target: row.target, messages: [message], rows: [row] }
+    ? { kind: "exchange", id: `exchange:${message.id}`, withBotId: row.withBotId, target: row.target, messages: [message], rows: [row], folded: [] }
     : null;
 }
 
@@ -84,21 +85,33 @@ function lastRendered(
   return undefined;
 }
 
-function isPeerMessageOf(item: ExchangeItem, message: Message): boolean {
+function isPeerMessageOf(item: ExchangeItem, message: Message, hasGroup: (groupId: string) => boolean): boolean {
   const peer = peerLine(message);
-  if (peer?.delivery !== "ask_bot") return false;
-  return peer.botId ? peer.botId === item.withBotId : peer.name === item.rows[0]!.withName;
+  if (peer?.delivery !== "ask_bot" || !peer.botId || peer.botId !== item.withBotId) return false;
+  return item.target.kind === "group" && hasGroup(item.target.groupId);
+}
+
+export function foldedPreview(item: Pick<ExchangeItem, "folded">, limit = 140): string | undefined {
+  const message = item.folded.at(-1);
+  const body = message ? peerLine(message)?.body : undefined;
+  const line = body?.split("\n").map((part) => part.trim()).find(Boolean);
+  if (!line) return undefined;
+  return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
 }
 
 export function foldExchanges(
   items: readonly TranscriptItem[],
-  renders: (item: TranscriptItem) => boolean = () => true,
+  { renders = () => true, hasGroup = () => false }: {
+    renders?: (item: TranscriptItem) => boolean;
+    hasGroup?: (groupId: string) => boolean;
+  } = {},
 ): QuietTranscriptItem[] {
   const folded: QuietTranscriptItem[] = [];
   for (const item of items) {
     const last = lastRendered(folded, renders);
-    if (item.kind === "message" && last?.kind === "exchange" && isPeerMessageOf(last, item.message)) {
+    if (item.kind === "message" && last?.kind === "exchange" && isPeerMessageOf(last, item.message, hasGroup)) {
       last.messages.push(item.message);
+      last.folded.push(item.message);
       continue;
     }
     const row = item.kind === "message" ? exchangeRow(item.message) : null;
@@ -118,6 +131,7 @@ export function foldExchanges(
       target: row.target,
       messages: [row.message],
       rows: [row],
+      folded: [],
     });
   }
   return folded;

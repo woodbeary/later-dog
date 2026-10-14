@@ -5,7 +5,7 @@ import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { currentDogName } from "@/lib/dog-refs";
 import { openExchange } from "@/lib/exchange-view";
-import { exchangeWording, type ExchangeItem } from "@/lib/quiet-lines";
+import { exchangeWording, foldedPreview, type ExchangeItem } from "@/lib/quiet-lines";
 import { BotAvatar } from "./Avatar";
 
 export const QUIET_FACE_SIZE = 14;
@@ -60,13 +60,14 @@ export const ExchangeLine = memo(function ExchangeLine({ item }: { item: Exchang
   const members = group?.memberIds.map((id) => currentDogName(state.bots, id, "")) ?? [];
   const [one, two] = members.length === 2 ? members : [name, name];
   const label = readOnly ? t("chat.exchange.open", { first: one, second: two }) : t("chat.openConversationWith", { name });
+  const preview = foldedPreview(item);
   const open = () => {
     if (target.kind === "thread") openThread(dispatch, { botId: target.botId, threadId: target.threadId }, state);
     else if (readOnly) openExchange(target.groupId);
     else dispatch({ type: "select", id: target.groupId });
   };
   return (
-    <QuietLine onClick={open} label={label} title={label}>
+    <QuietLine onClick={open} label={preview ? `${label}: ${preview}` : label} title={preview ? `${label}: ${preview}` : label}>
       <span data-exchange-label>{t(wording.key, { count: wording.count })}</span>
       <BotAvatar
         bot={withBot ?? { name, color: first.withColor }}
@@ -77,6 +78,7 @@ export const ExchangeLine = memo(function ExchangeLine({ item }: { item: Exchang
         animated={false}
       />
       <span data-exchange-name className="min-w-0 truncate">{name}</span>
+      {preview && <span data-exchange-preview className="min-w-0 max-w-[20rem] truncate text-ink-tertiary">· {preview}</span>}
     </QuietLine>
   );
 });

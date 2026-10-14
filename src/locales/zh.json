@@ -2029,7 +2029,6 @@
   "approval.status.allowedOnce": "已允许一次",
   "approval.status.alwaysAllowed": "已始终允许",
   "approval.status.allowedForChat": "已在本次聊天中允许",
-  "approval.action.never": "从不",
   "approval.tool.messageDog": "给另一只狗发消息",
   "approval.tool.delegateDog": "把工作交给另一只狗",
   "approval.tool.postRoom": "在房间里发帖"

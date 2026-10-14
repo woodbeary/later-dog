@@ -25,6 +25,12 @@ function exchange(messages: Message[]) {
   return item;
 }
 
+const folded = (message: Message[]) => {
+  const item = foldExchanges(groupTranscript(message), { hasGroup: (id) => id === "g1" })[0]!;
+  if (item.kind !== "exchange") throw new Error("not an exchange");
+  return item;
+};
+
 const render = (bots: unknown[], messages: Message[]) =>
   renderToStaticMarkup(createElement(BotEditorStore, { value: store(bots), children: createElement(ExchangeLine, { item: exchange(messages) }) }));
 
@@ -66,6 +72,18 @@ describe("the quiet line for a hand-off to a teammate's thread", () => {
     const html = render([boss, { ...helper, name: "Tutor", formerNames: ["Study Helper"] }], [sent]);
     expect(html).toMatch(/Messaged<\/span>.*<svg.*Tutor<\/span>/);
     expect(html).toContain('aria-label="Open the conversation with Tutor"');
+  });
+});
+
+describe("what a folded message leaves on the line", () => {
+  it("shows the first line of the message and puts it in the title", () => {
+    const asked: Message = { id: "q1", role: "user", kind: "text", at: 2, text: "can you check the deploy?\nmore", peerAsk: { botId: "d2", name: "Study Helper" } };
+    const item = folded([comm("a", "from"), asked]);
+    const html = renderToStaticMarkup(createElement(BotEditorStore, { value: store([boss, helper]), children: createElement(ExchangeLine, { item }) }));
+    expect(html).toContain("data-exchange-preview");
+    expect(html).toContain("can you check the deploy?");
+    expect(html).not.toContain("more</span>");
+    expect(html).toContain('title="Read what New Bot and Study Helper said to each other: can you check the deploy?"');
   });
 });
 

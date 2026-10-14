@@ -9,8 +9,6 @@ import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 
-const NEVER_MESSAGE = "The person chose Never for this action. Do not try it again.";
-
 export interface Pending {
   message: Message;
   requestId: string;
@@ -207,7 +205,7 @@ export function PendingApprovalActions({
       threadId,
       requestId: pending.requestId,
       behavior,
-      message: behavior === "deny" ? (durableRequest ? "Declined." : NEVER_MESSAGE) : undefined,
+      message: behavior === "deny" ? "Declined." : undefined,
       reviewedSha256: behavior === "allow" ? reviewedSha256 : undefined,
       alwaysAllow: grant,
       always: forChat,
@@ -219,44 +217,13 @@ export function PendingApprovalActions({
   const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
   const quiet = "bg-control text-ink hover:bg-control-hover";
   const primary = "bg-accent font-medium text-white hover:brightness-110";
-  const alwaysIsPrimary = !durableRequest && Boolean((bot && pending.allowKey) || (!pending.allowKey && !canRememberCommand && pending.allowSession));
+  const durable = "ml-3 border border-hairline bg-transparent text-ink hover:bg-control";
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-[18px] bg-card px-3 pb-3 pt-1">
-      {!durableRequest && bot && pending.allowKey && (
-        <button
-          onClick={() => decide("allow", true)}
-          title={t("approval.action.stopAsking", { name: bot.name, key: pending.allowKey })}
-          className={cn(base, primary)}
-        >
-          {t("approval.action.alwaysAllow")}
-        </button>
-      )}
-      {!durableRequest && !pending.allowKey && !canRememberCommand && pending.allowSession && (
-        <button
-          onClick={() => decide("allow", true)}
-          title={t("approval.action.alwaysAllowSessionHint")}
-          className={cn(base, primary)}
-        >
-          {t("approval.action.alwaysAllowSession")}
-        </button>
-      )}
-      {canRememberCommand && pending.commandAllowlist && (
-        <button
-          onClick={() => decide("allow", false, true)}
-          title={t("approval.action.alwaysAllowCommandHint", { cwd: pending.commandAllowlist.cwd })}
-          className={cn(base, quiet)}
-        >
-          {t("approval.action.alwaysAllowCommand")}
-        </button>
-      )}
       <button
         onClick={() => decide("allow")}
         disabled={isSkillRequest && !reviewedSha256}
-        className={cn(
-          base,
-          alwaysIsPrimary ? quiet : primary,
-          "disabled:cursor-not-allowed disabled:opacity-40",
-        )}
+        className={cn(base, primary, "disabled:cursor-not-allowed disabled:opacity-40")}
       >
         {isTeamSetup ? pending.message.card?.options[0] : isSkillRequest
           ? pending.message.card?.skillRequest?.action === "update"
@@ -271,8 +238,35 @@ export function PendingApprovalActions({
         autoFocus={isTeamSetup}
         className={cn(base, quiet)}
       >
-        {isRoutineRequest || isProfileRequest || isTeamSetup ? t("approval.action.cancel") : t("approval.action.never")}
+        {isRoutineRequest || isProfileRequest || isTeamSetup ? t("approval.action.cancel") : t("approval.action.deny")}
       </button>
+      {!durableRequest && bot && pending.allowKey && (
+        <button
+          onClick={() => decide("allow", true)}
+          title={t("approval.action.stopAsking", { name: bot.name, key: pending.allowKey })}
+          className={cn(base, durable)}
+        >
+          {t("approval.action.alwaysAllow")}
+        </button>
+      )}
+      {!durableRequest && !pending.allowKey && !canRememberCommand && pending.allowSession && (
+        <button
+          onClick={() => decide("allow", true)}
+          title={t("approval.action.alwaysAllowSessionHint")}
+          className={cn(base, durable)}
+        >
+          {t("approval.action.alwaysAllowSession")}
+        </button>
+      )}
+      {canRememberCommand && pending.commandAllowlist && (
+        <button
+          onClick={() => decide("allow", false, true)}
+          title={t("approval.action.alwaysAllowCommandHint", { cwd: pending.commandAllowlist.cwd })}
+          className={cn(base, durable)}
+        >
+          {t("approval.action.alwaysAllowCommand")}
+        </button>
+      )}
     </div>
   );
 }
