@@ -52,6 +52,13 @@ const mochiMessages: Message[] = [
   comm("m10", "from", "Scout", "green", "scout"),
   { id: "m11", role: "user", kind: "text", at: at(), text: "can you share the sky notes?", peerAsk: { botId: "scout", name: "Scout" } },
   { id: "m12", role: "bot", kind: "text", at: at(), text: "Sent them over to Scout." },
+  {
+    id: "m13", role: "bot", kind: "options", at: at(),
+    card: {
+      title: "Approval needed", subtitle: "Hand the sky notes to Scout", options: ["Allow", "Deny", "Always allow"],
+      requestId: "preview-request", tool: "delegate_bot", allowKey: "peer:delegate_bot:scout",
+    },
+  },
 ];
 
 const chained = (messages: Message[]): Message[] => messages.map((message, index) => ({ ...message, parentId: messages[index - 1]?.id ?? null }));
