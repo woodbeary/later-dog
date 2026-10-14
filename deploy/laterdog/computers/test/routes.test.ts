@@ -52,6 +52,13 @@ describe("API routes", () => {
     expect(route("GET", "/")).toEqual({ kind: "not_found", api: false });
   });
 
+  it("routes the MCP endpoint, with or without a trailing slash", () => {
+    expect(route("POST", "/mcp")).toEqual({ kind: "mcp" });
+    expect(route("POST", "/mcp/")).toEqual({ kind: "mcp" });
+    expect(route("GET", "/mcp/")).toEqual({ kind: "method_not_allowed", allow: ["POST"] });
+    expect(route("POST", "/mcp/x")).toEqual({ kind: "not_found", api: false });
+  });
+
   it("serves health checks", () => {
     expect(route("GET", "/healthz")).toEqual({ kind: "health" });
   });
