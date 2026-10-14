@@ -677,6 +677,7 @@ import { createDeciderRoutes } from "./routes/decider.ts";
 import { createThreadModelRoutes } from "./routes/thread-models.ts";
 import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
+import { createMacAccessRoutes } from "./routes/mac-access.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
@@ -13489,6 +13490,16 @@ ROUTES.push(createThreadModelRoutes({
   mayChangeModel: (auth) => !CLOUD_HOME || cloudOwnerSession(auth),
   reply: (botId) => publicBot(store.bot(botId)!),
 }));
+ROUTES.push(createMacAccessRoutes({
+  cloudHome: Boolean(CLOUD_HOME),
+  update: (body) => {
+    const parsed = macAccessUpdate.safeParse(body);
+    if (!parsed.success) return false;
+    macApprovals.update(parsed.data);
+    return true;
+  },
+  view: () => macAccessView(),
+}));
 ROUTES.push(createHandoffContinueRoutes({
   root: (id) => roomHandoffs.nodes.get(id),
   refusal: cloudThreadRefusal,
@@ -13998,14 +14009,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (method === "GET" && path === "/api/shared-computers" && lendingEnabled()) {
       return json(res, 200, { computers: sharedComputers.status(sessionLendingPrincipal(auth)) });
-    }
-    if (path === "/api/mac-access" && CLOUD_HOME && (method === "GET" || method === "PUT")) {
-      if (method === "PUT") {
-        const parsed = macAccessUpdate.safeParse(await readBody(req, 64_000));
-        if (!parsed.success) return json(res, 400, { error: "Send mode (ask, always or never) and, optionally, the dogs that are always allowed." });
-        macApprovals.update(parsed.data);
-      }
-      return json(res, 200, macAccessView());
     }
     if (method === "POST" && path.startsWith("/api/shared-computers/") && lendingEnabled()) {
       if (auth.kind !== "session") return json(res, 403, { error: "Pair this desktop first" });
