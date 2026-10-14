@@ -36,6 +36,8 @@ const routing = (criteria: Record<string, string> = { rex: "Rex", scout: "Scout"
   model: "jev-latest",
   questions: { answer: { type: "choice", instructions: ROOM_ROUTING_INSTRUCTIONS, criteria } },
 });
+const SIGNATURES = { png: "\x89PNG\r\n\x1a\n", jpeg: "\xff\xd8\xff\xe0", webp: "RIFF\0\0\0\0WEBPVP8 " } as const;
+const dataUrl = (type: keyof typeof SIGNATURES, tail = "pixels") => `data:image/${type};base64,${btoa(SIGNATURES[type] + tail)}`;
 const clefAnswer = { model: "clef", answers: { answer: { type: "choice", choice: "rex", probabilities: { rex: 0.98, scout: 0.01, __everyone__: 0.01 } } }, usage: { input_tokens: 297 } };
 
 async function included(vars: Record<string, string> = {}, elevenLabs: "ok" | "down" = "ok") {
@@ -92,6 +94,59 @@ describe("included decisions", () => {
     ];
     for (const ask of asks) expect((await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: ask }))).status).toBeGreaterThanOrEqual(400);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("passes up to four images and a chosen Clef model on to the model", async () => {
+    const { w, run, key } = await included();
+    const photos = [dataUrl("png"), dataUrl("jpeg"), dataUrl("webp")];
+    for (const [selector, id] of [["clef-flash", "@cf/cloudflare/clef-flash"], ["clef-omni", "@cf/cloudflare/clef-omni"], ["clef", CLEF_MODEL]] as const) {
+      run.mockClear();
+      const response = await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: { ...routing(), model: selector, images: photos } }));
+      expect(response.status).toBe(200);
+      expect(run).toHaveBeenCalledWith(id, { model: selector, state: roomState, questions: routing().questions, images: photos }, { gateway: { id: "default", collectLog: false } });
+    }
+    run.mockClear();
+    expect((await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: { ...routing(), model: "gpt-9" } }))).status).toBe(200);
+    expect(run).toHaveBeenCalledWith(CLEF_MODEL, { model: "clef", state: roomState, questions: routing().questions }, { gateway: { id: "default", collectLog: false } });
+  });
+
+  it("refuses unusable images before any model is called", async () => {
+    const { w, run, key } = await included();
+    const send = (images: unknown, extra: Record<string, unknown> = {}) => w.fetch(apiRequest("POST", "/v1/systemone", key, { body: { ...routing(), images, ...extra } }));
+    expect((await send([dataUrl("png"), dataUrl("png"), dataUrl("png"), dataUrl("png"), dataUrl("png")])).status).toBe(422);
+    expect((await send("not-an-array")).status).toBe(422);
+    expect((await send([42])).status).toBe(422);
+    expect((await send(["https://example.com/a.png"])).status).toBe(422);
+    expect((await send([`data:image/gif;base64,${btoa("GIF89a")}`])).status).toBe(422);
+    expect((await send([`data:image/png;base64,${btoa(SIGNATURES.jpeg + "pixels")}`])).status).toBe(422);
+    const big = await send([dataUrl("jpeg", "x".repeat(150_000))]);
+    expect(big.status).toBe(413);
+    expect(await body(big)).toMatchObject({ error: { code: "too_large" } });
+    const together = Array.from({ length: 4 }, () => dataUrl("jpeg", "x".repeat(100_000)));
+    const overBody = await send(together);
+    expect(overBody.status).toBe(413);
+    expect(await body(overBody)).toMatchObject({ error: { code: "too_large" } });
+    expect((await w.fetch(apiRequest("POST", "/v1/systemone", key, {
+      body: { state: KEY_CHECK_STATE, images: [dataUrl("png")], questions: { answer: { type: "noul", instructions: KEY_CHECK_QUESTION } } },
+    }))).status).toBe(422);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("keeps the old body cap for text-only decisions", async () => {
+    const { w, run, key } = await included();
+    const response = await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: { ...routing(), padding: "x".repeat(70_000) } }));
+    expect(response.status).toBe(413);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("counts image calls in the same daily decision limits", async () => {
+    const { w, key } = await included();
+    expect((await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: { ...routing(), images: [dataUrl("png")] } }))).status).toBe(200);
+    const registry = w.trials.named("trials");
+    const keySha256 = await sha256Hex(key);
+    expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 1, total: 100 })).toMatchObject({ ok: false, refusal: { status: 429, code: "daily_limit" } });
+    expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 2, total: 1 })).toMatchObject({ ok: false, refusal: { status: 503, code: "busy_today" } });
+    expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 2, total: 2 })).toEqual({ ok: true });
   });
 
   it("serves only live free trials, never a browser, and stops when the trial window ends", async () => {

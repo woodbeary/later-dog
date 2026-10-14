@@ -57,6 +57,9 @@ test("Cloud origin comes only from the build's configuration; only explicit fixt
   const saved = { LATERDOG_CLOUD_ORIGIN: process.env.LATERDOG_CLOUD_ORIGIN };
   delete process.env.LATERDOG_CLOUD_ORIGIN;
   try {
+    assert.equal(configuredCloudOrigin(), "https://accounts.later.dog");
+    assert.equal(cloudOrigin(), "https://accounts.later.dog");
+    process.env.LATERDOG_CLOUD_ORIGIN = "off";
     assert.equal(configuredCloudOrigin(), "");
     assert.throws(() => cloudOrigin(), /not configured/);
     assert.throws(() => cloudOrigin("https://cloud.example.test"));

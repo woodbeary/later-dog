@@ -333,7 +333,7 @@ it("offers its bots cloud computers only, and tells them they cannot see the per
     await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
     const { systemPrompt, mcpConfig } = JSON.parse(readFileSync(dump, "utf8"));
     expect(systemPrompt).toContain(cloudHomePrompt(true));
-    expect(systemPrompt).toContain("check list_shared_computers");
+    expect(systemPrompt).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account");
     expect(systemPrompt).not.toMatch(/Local VM is an isolated desktop|user's host|host desktop|select an available Local VM/);
     const agents = mcpConfig.mcpServers.agents;
     expect(agents.env.LATERDOG_CLOUD_HOME).toBe("1");

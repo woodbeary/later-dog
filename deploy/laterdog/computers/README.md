@@ -99,6 +99,15 @@ the computer has slept.
 | `GET /computers/:id/screenshot` | `image/jpeg` of the whole screen, pointer included. |
 | `POST /computers/:id/desktop` | `{ url, expiresAt }`: a viewer link valid for 2 hours. It is signed (HMAC-SHA256, secret `DESKTOP_SIGNING_KEY`) over the id, the expiry and the boot count, so it also dies when the computer sleeps. Anyone holding it can watch and take over: share it only with the person. 409 `asleep` unless `running`. |
 
+### MCP
+
+`POST /mcp` is the same computers and decisions as nine MCP tools (`computer_list`, `computer_create`, `computer_wake`,
+`computer_sleep`, `computer_screenshot`, `computer_action`, `computer_exec`, `computer_viewer_link`, `decide`): JSON-RPC 2.0 over
+Streamable HTTP, one JSON answer per POST, no streaming. It takes the same bearer keys as `/v1/computers`, reaches the same
+handlers (`src/mcp.ts` calls `listComputers`, `createComputer`, `computerRequest` and the decision code), and so keeps their
+scoping and limits. `src/mcp-tools.ts` holds the tool definitions and the argument check, with no imports, so the desktop's
+local MCP server reuses them. See [docs/laterdog/computer-tools.md](../../../docs/laterdog/computer-tools.md).
+
 ### Environment for one command
 
 `env` is an object of names to string values, such as `{ "ANTHROPIC_API_KEY": "…" }`. It is laid over the base

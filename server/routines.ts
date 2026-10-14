@@ -1629,6 +1629,22 @@ export class RoutineManager {
       : "The assigned dog no longer exists";
   }
 
+  retime(): number {
+    const now = this.now();
+    const changed: Routine[] = [];
+    this.commitMutation(() => {
+      for (const routine of this.routines) {
+        if (!routine.enabled || routine.schedule.type === "once" || routine.schedule.type === "cron") continue;
+        const next = nextOccurrence(routine.schedule, now);
+        if (next === null || next === routine.nextRunAt) continue;
+        routine.nextRunAt = next;
+        changed.push(routine);
+      }
+    });
+    for (const routine of changed) this.emitRoutine(routine);
+    return changed.length;
+  }
+
   private initialOccurrence(schedule: RoutineSchedule, now: number): number | null {
     if (schedule.type === "once") return schedule.at;
     return nextOccurrence(schedule, now);

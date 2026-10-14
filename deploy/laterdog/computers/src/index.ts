@@ -4,13 +4,15 @@ import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex 
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
 import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
-import { CLEF_MODEL, DECIDE_MAX_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, VOICE_CHARS_TOTAL_PER_DAY, clefInput, decisionFrom } from "./decide";
+import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, SCREEN_CHECKS_PER_DAY, SCREEN_CHECKS_TOTAL_PER_DAY, TOOL_DECISIONS_PER_DAY, TOOL_DECISIONS_TOTAL_PER_DAY, type Decision, type UsageKind, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom, toolDecisionFrom } from "./decide";
 import { COMPLETE_DEFAULT_MODEL, COMPLETE_MAX_BODY_BYTES, COMPLETIONS_PER_DAY, COMPLETIONS_TOTAL_PER_DAY, completeInput, completeRequest, completionFrom } from "./complete";
 import { maxComputers } from "./idle";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
+import { type McpBackend, handleMcp } from "./mcp";
 import type { ComputerRegistry } from "./registry";
 import { type ComputerOp, type TrialOp, route } from "./routes";
 import {
+  DAY,
   TRIAL_CLAIM,
   TRIAL_FORM_MAX_BYTES,
   TRIAL_TOKEN,
@@ -378,6 +380,20 @@ async function startTrialFromApp(request: Request, env: Env): Promise<Response> 
   return json({ trial: trialView(activation.trial), ...includedField(env) }, activation.replayed ? 200 : 201);
 }
 
+export const HOME_GRANT_DAYS = 90;
+
+async function grantHome(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const claim = (body.value as { claim?: unknown } | undefined)?.claim;
+  if (typeof claim !== "string" || !TRIAL_CLAIM.test(claim)) {
+    return apiError({ status: 400, code: "invalid_claim", message: "Send { \"claim\": \"<the home key's 64-character SHA-256>\" }." });
+  }
+  const granted = await trials(env).grant({ keySha256: claim, limitMs: planPolicy(env).limitMs, windowMs: HOME_GRANT_DAYS * DAY });
+  if (!granted.ok) return apiError(granted.refusal);
+  return json({ trial: trialView(granted.trial) }, granted.replayed ? 200 : 201);
+}
+
 async function grantTrial(request: Request, env: Env, caller: Caller): Promise<Response> {
   if (caller.trial) return apiError({ status: 403, code: "owner_only", message: "Only the owner's key can grant a free trial." });
   const body = await readJson(request);
@@ -501,19 +517,68 @@ async function decideRequest(request: Request, env: Env): Promise<Response> {
   if (!token) return apiError(NO_TRIAL, CHALLENGE);
   const keySha256 = await sha256Hex(token);
   if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
-  const body = await readBody(request, DECIDE_MAX_BODY_BYTES);
+  const body = await readBody(request, DECIDE_MAX_IMAGE_BODY_BYTES);
   if (!body.ok) return body.response;
   const parsed = decisionFrom(body.value);
   if (!parsed.ok) return apiError(parsed.refusal);
+  return await runDecision(env, keySha256, parsed.decision, ROOM_DECISIONS);
+}
+
+type DecisionBudget = { kind: UsageKind; perKey: number; total: number };
+
+const ROOM_DECISIONS: DecisionBudget = { kind: "decisions", perKey: DECISIONS_PER_DAY, total: DECISIONS_TOTAL_PER_DAY };
+const SCREEN_CHECKS: DecisionBudget = { kind: "screen_checks", perKey: SCREEN_CHECKS_PER_DAY, total: SCREEN_CHECKS_TOTAL_PER_DAY };
+const TOOL_DECISIONS: DecisionBudget = { kind: "tool_decisions", perKey: TOOL_DECISIONS_PER_DAY, total: TOOL_DECISIONS_TOTAL_PER_DAY };
+
+async function runDecision(env: Env, keySha256: string, decision: Decision, budget: DecisionBudget, exhausted?: Refusal): Promise<Response> {
   if (!env.AI) return apiError(NOT_INCLUDED);
-  const allowance = await trials(env).allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: DECISIONS_PER_DAY, total: DECISIONS_TOTAL_PER_DAY });
-  if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
+  const allowance = await trials(env).allowUsage({ keySha256, amount: 1, ...budget });
+  if (!allowance.ok) {
+    if (exhausted && allowance.refusal.status !== 401) return apiError(exhausted);
+    return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
+  }
   try {
-    return json(await env.AI.run(CLEF_MODEL, clefInput(parsed.decision), aiGateway(env)));
+    return json(await env.AI.run(clefModelId(decision), clefInput(decision), aiGateway(env)));
   } catch (error) {
     console.error(`laterdog computers: decision failed: ${error instanceof Error ? error.message : String(error)}`);
     return apiError(INCLUDED_FAILED);
   }
+}
+
+const NEEDS_PLAN: Refusal = { status: 403, code: "decisions_need_plan", message: "Free-form decisions come with the later.dog Cloud plan." };
+const SCREEN_CHECKS_USED: Refusal = { status: 429, code: "screen_checks_used", message: "Today's screen checks are used up, so there is no screen check. The screenshot is still returned." };
+
+async function planActive(env: Env, keySha256: string): Promise<boolean> {
+  const plan = await trials(env).planFor(keySha256);
+  if (!plan || (plan.status !== "active" && plan.status !== "canceled") || plan.period_end === null) return false;
+  return Date.now() < plan.period_end + planPolicy(env).graceMs;
+}
+
+function mcpBackend(request: Request, env: Env, caller: Caller, url: URL): McpBackend {
+  const post = (value: unknown) => new Request(request.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
+  const decide = async (input: unknown, keySha256: string, budget: DecisionBudget, exhausted?: Refusal) => {
+    if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
+    const parsed = toolDecisionFrom(input);
+    if (!parsed.ok) return apiError(parsed.refusal);
+    return await runDecision(env, keySha256, parsed.decision, budget, exhausted);
+  };
+  return {
+    screenChecks: Boolean(caller.trial && caller.keySha256),
+    list: () => listComputers(caller),
+    create: (input) => createComputer(post({ ...input, size: input.size ?? (caller.trial ? "standard" : "small") }), env, caller),
+    computer: (op, id, input) => computerRequest(op, id, input === undefined ? new Request(request.url, { method: "POST" }) : post(input), env, url, caller),
+    screenCheck: async (input) => (caller.keySha256 ? await decide(input, caller.keySha256, SCREEN_CHECKS, SCREEN_CHECKS_USED) : apiError(NEEDS_PLAN)),
+    decide: async (input) => {
+      if (!caller.keySha256 || !(await planActive(env, caller.keySha256))) return apiError(NEEDS_PLAN);
+      return await decide(input, caller.keySha256, TOOL_DECISIONS);
+    },
+  };
+}
+
+async function mcpRequest(request: Request, env: Env, via: Via, url: URL): Promise<Response> {
+  const identified = await identify(request, env, via);
+  if (!identified.ok) return identified.response;
+  return await handleMcp(request, { backend: mcpBackend(request, env, identified.caller, url) });
 }
 
 async function completeHandler(request: Request, env: Env): Promise<Response> {
@@ -705,6 +770,8 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return json({ ...trialOffer(trialPolicy(env)), ...includedField(env), ...(squareConfigured(env) ? { planOffered: true } : {}) });
       case "decide":
         return await decideRequest(request, env);
+      case "mcp":
+        return await mcpRequest(request, env, via, url);
       case "voices":
         return await voicesRequest(request, env);
       case "plan":
@@ -721,6 +788,9 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return await transcribeRequest(request, env);
       case "trial_start":
         return await startTrialFromApp(request, env);
+      case "home_grant":
+        if (via !== "binding") return apiError(NO_ENDPOINT);
+        return await grantHome(request, env);
       case "trial":
       case "trial_grant":
       case "collection":

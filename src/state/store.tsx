@@ -16,6 +16,7 @@ import type { ModelVariantOption, RuntimeEvent } from "../../shared/runtime-even
 import type { DogColor, DogMotion } from "@/lib/mascot";
 import type { BotAvatarCrop } from "../../shared/bot-avatar";
 import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode";
+import { MAC_ALLOW_KEY } from "../../shared/cloud-home";
 import { sameModelSelection } from "../../shared/thread-model";
 import type { MascotBodyId } from "../../shared/mascot-bodies";
 import type { QuestionRequestCardData } from "../../shared/ask-question";
@@ -2801,7 +2802,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               let grantSaved = true;
               if (action.alwaysAllow) {
                 const bot = stateRef.current.bots.find((candidate) => candidate.id === action.alwaysAllow?.botId);
-                const owner = bot?.tasks?.some((task) => task.threadId === action.threadId);
+                const owner = action.alwaysAllow.key === MAC_ALLOW_KEY || bot?.tasks?.some((task) => task.threadId === action.threadId);
                 const next = [...new Set([...(bot ? currentTaskBot(bot, action.threadId).alwaysAllow ?? [] : []), action.alwaysAllow.key])];
                 try {
                   await api(owner ? `/api/bots/${action.alwaysAllow.botId}/always-allow` : `/api/bots/${action.alwaysAllow.botId}`, {

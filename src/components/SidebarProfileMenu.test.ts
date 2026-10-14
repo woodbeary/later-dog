@@ -179,28 +179,29 @@ describe("the menu under your name", () => {
     menu.dispatch.mockReset();
   });
 
-  it("keeps to Settings when nothing here is signed in, with nothing about phones", () => {
+  it("offers the iPhone app above Settings when nothing here is signed in, and no phone pairing", () => {
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["settings", "plugins"]);
-    expect(items.map((item) => item.label).join(" ")).not.toMatch(/phone/i);
-    items[0]!.onSelect();
+    expect(items.map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins"]);
+    expect(items[0]).toMatchObject({ label: "Get later.dog for iPhone" });
+    expect(items.map((item) => item.label).join(" ")).not.toMatch(/connect your phone|pair/i);
+    items[1]!.onSelect();
     expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
   });
 
   it("ends with Add account and Sign out, under a line, once an account here is signed in", () => {
     menu.instances = [claude, { ...claude, instanceId: "claude-api", authentication: { method: "paste-code" } } as InstanceInfo];
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["settings", "plugins", "add-account", "signOut"]);
-    expect(items[2]).toMatchObject({ label: "Add account", separatorBefore: true });
-    expect(items[3]).toMatchObject({ label: "Sign out", separatorBefore: false });
+    expect(items.map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins", "add-account", "signOut"]);
+    expect(items[3]).toMatchObject({ label: "Add account", separatorBefore: true });
+    expect(items[4]).toMatchObject({ label: "Sign out", separatorBefore: false });
     menu.instances = [{ ...claude, snapshot: { state: "available", authenticated: false } } as InstanceInfo];
-    expect(open().map((item) => item.key)).toEqual(["settings", "plugins"]);
+    expect(open().map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins"]);
   });
 
   it("adds a New update available row with Install when an update is ready, and stays quiet otherwise", () => {
     const updater = { updater: { check: vi.fn(), install: vi.fn(), onState: vi.fn() } };
     menu.updater = { status: "downloaded", version: "0.2.0" } as UpdaterState;
-    const [ready, settings] = open(updater);
+    const [ready, , settings] = open(updater);
     expect(ready).toMatchObject({ key: "update-available", label: "New update available" });
     expect(renderToStaticMarkup(ready!.trailing as never)).toContain(">Install<");
     expect(settings).toMatchObject({ key: "settings" });
@@ -217,7 +218,7 @@ describe("the menu under your name", () => {
 
     for (const quiet of [{ status: "error", message: "offline" }, { status: "idle" }, { status: "downloading", percent: 3 }] as UpdaterState[]) {
       menu.updater = quiet;
-      expect(open(updater).map((item) => item.key)).toEqual(["settings", "plugins"]);
+      expect(open(updater).map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins"]);
     }
     menu.updater = { status: "downloaded", version: "0.2.0" } as UpdaterState;
     open(updater).find((item) => item.key === "settings")!.onSelect();

@@ -23,6 +23,8 @@ import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { TypingSuggestionsRows } from "./TypingSuggestionsSettings";
 import { HelpRows } from "./SettingsHelp";
 import { CloudComputerRows } from "./CloudComputerRows";
+import { CloudAccountSettings } from "./CloudAccountSettings";
+import { PhoneAppDialog } from "./PhoneAppDialog";
 import { ExecutionRows, ThisComputerRow } from "./ComputerSettings";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { InstanceProviderMark } from "./ProviderIcons";
@@ -318,11 +320,18 @@ function MacPermissions({ permissions, intro }: { permissions: readonly DesktopP
 }
 
 function GeneralPage({ mac }: { mac: boolean }) {
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
   const keyed = savedKeyEngines(state.instances);
   const analytics = analyticsConfigured();
+  const [phoneOpen, setPhoneOpen] = useState(false);
   return (
     <>
+      <SettingsGroup label={t("settings.section.cloudAccount")} testId="later-dog-cloud">
+        <SettingsRows>
+          <CloudAccountSettings onGetPhone={() => setPhoneOpen(true)} onOpenComputer={() => dispatch({ type: "toggleAppSettings", open: true, section: "computer" })} />
+        </SettingsRows>
+        <PhoneAppDialog open={phoneOpen} onClose={() => setPhoneOpen(false)} />
+      </SettingsGroup>
       <SettingsGroup label={t("settings.group.accounts")} testId="accounts" action={<AccountsRefresh />}>
         <AccountsPanel />
       </SettingsGroup>

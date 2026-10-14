@@ -1,0 +1,69 @@
+name: Cloud home image
+on:
+  workflow_dispatch:
+  push:
+    branches: [laterdog/home]
+    paths:
+      - deploy/laterdog/home/**
+      - deploy/cloud-home/**
+      - Dockerfile
+      - server/**
+      - .github/workflows/cloud-home-image.yml
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: cloud-home-image
+  cancel-in-progress: false
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/later-dog-home:${{ github.sha }}
+      HOME_HOST: h000000000000000000000000-home.later.dog
+      CLOUDFLARE_PUSH: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build the Cloud home base image
+        run: docker build --target cloud-home -t laterdog-cloud-home:latest .
+      - name: Add the Cloudflare runtime
+        run: docker build -f deploy/laterdog/home/Dockerfile -t "$IMAGE" .
+      - name: Boot it and check pairing, sessions and live updates
+        run: |
+          secret="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
+          docker run -d --name home -p 8080:8080 \
+            -e LATERDOG_CLOUD_ROLE=home \
+            -e LATERDOG_CLOUD_MACHINE_ID=h000000000000000000000000 \
+            -e LATERDOG_CLOUD_ADMIN_URL=https://accounts.later.dog \
+            -e LATERDOG_CLOUD_BOOTSTRAP_SECRET="$secret" \
+            -e LATERDOG_PUBLIC_URL="https://$HOME_HOST" \
+            "$IMAGE"
+          HOME_BOOTSTRAP_SECRET="$secret" node deploy/laterdog/home/smoke.mjs || { docker logs home; exit 1; }
+          docker logs home 2>&1 | tail -20
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: docker push "$IMAGE"
+      - run: echo "Pushed $IMAGE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Push the image to Cloudflare's registry
+        if: env.CLOUDFLARE_PUSH == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          short="${GITHUB_SHA::12}"
+          docker tag "$IMAGE" "later-dog-home:$short"
+          npx --yes wrangler@4.148.0 containers push "later-dog-home:$short" 2>&1 | tee push.log
+          uri="$(grep -o 'registry\.cloudflare\.com/[^ ]*' push.log | tail -1)"
+          if [ -z "$uri" ]; then echo "The push printed no registry address"; exit 1; fi
+          {
+            echo "Cloudflare registry image: \`$uri\`"
+            echo "Set containers[0].image in deploy/laterdog/home/wrangler.jsonc to that address."
+          } >> "$GITHUB_STEP_SUMMARY"

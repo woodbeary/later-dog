@@ -1,12 +1,11 @@
 import { createManagedDesktopStore, retryDelay, unreadableRecord } from "./managed-desktop.mjs";
 import { CLOUD_MACHINE_CONNECTABLE, parseCloudPurchase, parseCloudSummary, parsePairingGrant } from "./cloud-home.mjs";
 
+export const DEFAULT_CLOUD_ORIGIN = "https://accounts.later.dog";
 export function configuredCloudOrigin(environment = process.env) {
-  for (const name of ["LATERDOG_CLOUD_ORIGIN"]) {
-    const value = typeof environment[name] === "string" ? environment[name].trim() : "";
-    if (value) return value;
-  }
-  return "";
+  const value = typeof environment.LATERDOG_CLOUD_ORIGIN === "string" ? environment.LATERDOG_CLOUD_ORIGIN.trim() : "";
+  if (value === "off") return "";
+  return value || DEFAULT_CLOUD_ORIGIN;
 }
 const TOKEN = /^omc_[A-Za-z0-9_-]{43}$/;
 const CODE = /^[A-HJ-NP-Z2-9]{5}-[A-HJ-NP-Z2-9]{5}$/;

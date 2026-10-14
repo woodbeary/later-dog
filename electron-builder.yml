@@ -102,6 +102,9 @@ mac:
     NSSpeechRecognitionUsageDescription: later.dog transcribes your voice on-device to type messages for you.
     NSAccessibilityUsageDescription: later.dog uses Accessibility when you let a bot control this Mac.
     NSScreenCaptureUsageDescription: later.dog uses Screen Recording so bots can see this Mac before acting.
+    NSDownloadsFolderUsageDescription: So your dogs can find and send files from Downloads when you ask, even from your iPhone.
+    NSDesktopFolderUsageDescription: So your dogs can find and send files from your Desktop when you ask, even from your iPhone.
+    NSDocumentsFolderUsageDescription: So your dogs can find and send files from Documents when you ask, even from your iPhone.
   notarize: false
 
 dmg:

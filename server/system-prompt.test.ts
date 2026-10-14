@@ -290,9 +290,10 @@ describe("cloudHomePrompt", () => {
     }
   });
 
-  it("points to a lent Mac only when the turn has the shared-computer tools", () => {
-    expect(cloudHomePrompt(true)).toContain("check list_shared_computers: a Mac they lend to My Cloud is reachable through shared_computer");
-    expect(cloudHomePrompt(true)).toContain("turn on Let My Cloud use this Mac under Settings → later.dog Cloud in the desktop app on that Mac");
+  it("points to the person's Mac only when the turn has the shared-computer tools", () => {
+    expect(cloudHomePrompt(true)).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account, and they approve it on a card");
+    expect(cloudHomePrompt(true)).toContain("they install later.dog on the Mac and sign in with the same email, and it connects by itself");
+    expect(cloudHomePrompt(true)).not.toMatch(/Let My Cloud use this Mac|lend/);
     expect(cloudHomePrompt(false)).not.toMatch(/shared_computer|list_shared_computers/);
     expect(cloudHomePrompt(false)).toContain("You cannot see or use their Mac or PC, its screen or its files from here.");
   });

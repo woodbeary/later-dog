@@ -7,6 +7,7 @@ import { SkillRequestPreview } from "@/components/SkillRequestPreview";
 import { toolLabel } from "./ApprovalCard";
 import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
+import { MAC_ALLOW_KEY } from "../../shared/cloud-home";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 
 export interface Pending {
@@ -243,7 +244,7 @@ export function PendingApprovalActions({
       {!durableRequest && bot && pending.allowKey && (
         <button
           onClick={() => decide("allow", true)}
-          title={t("approval.action.stopAsking", { name: bot.name, key: pending.allowKey })}
+          title={pending.allowKey === MAC_ALLOW_KEY ? t("approval.action.stopAskingMac", { name: bot.name }) : t("approval.action.stopAsking", { name: bot.name, key: pending.allowKey })}
           className={cn(base, durable)}
         >
           {t("approval.action.alwaysAllow")}

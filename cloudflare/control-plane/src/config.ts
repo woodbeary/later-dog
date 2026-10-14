@@ -18,6 +18,7 @@ export interface CapacityConfig {
 }
 
 export interface ControlPlaneConfig {
+  managedEndpoints: boolean;
   authBaseURL: string;
   allowedOrigins: ReadonlySet<string>;
   capacity: CapacityConfig;
@@ -151,13 +152,14 @@ export function readConfig(env: Env): ControlPlaneConfig {
   const allowedOrigins = new Set(values.map((value) => exactHTTPSOrigin(value, "ALLOWED_ORIGINS")));
   allowedOrigins.add(authBaseURL);
 
-  if (!cloudflareResourceIdSchema.safeParse(env.CLOUDFLARE_ACCOUNT_ID).success) {
+  const managedEndpoints = (env as unknown as { MANAGED_ENDPOINTS?: string }).MANAGED_ENDPOINTS !== "off";
+  if (managedEndpoints && !cloudflareResourceIdSchema.safeParse(env.CLOUDFLARE_ACCOUNT_ID).success) {
     throw new Error("CLOUDFLARE_ACCOUNT_ID must be a 32-character Cloudflare ID");
   }
-  if (!cloudflareResourceIdSchema.safeParse(env.CLOUDFLARE_ZONE_ID).success) {
+  if (managedEndpoints && !cloudflareResourceIdSchema.safeParse(env.CLOUDFLARE_ZONE_ID).success) {
     throw new Error("CLOUDFLARE_ZONE_ID must be a 32-character Cloudflare ID");
   }
-  if (!cloudflareTokenSchema.safeParse(env.CLOUDFLARE_API_TOKEN).success) {
+  if (managedEndpoints && !cloudflareTokenSchema.safeParse(env.CLOUDFLARE_API_TOKEN).success) {
     throw new Error("CLOUDFLARE_API_TOKEN is missing or invalid");
   }
   const hostSuffix = z.string().min(1).max(218).safeParse(env.COMPANION_HOST_SUFFIX);
@@ -168,12 +170,13 @@ export function readConfig(env: Env): ControlPlaneConfig {
   const capacity = readCapacityConfig(env as unknown as Partial<Record<string, unknown>>);
 
   return {
+    managedEndpoints,
     authBaseURL,
     allowedOrigins,
     capacity,
     cloudflare: {
       accountId: env.CLOUDFLARE_ACCOUNT_ID,
-      apiToken: env.CLOUDFLARE_API_TOKEN,
+      apiToken: managedEndpoints ? env.CLOUDFLARE_API_TOKEN : "",
       companionHostSuffix: hostnameSuffix(hostSuffix.data),
       zoneId: env.CLOUDFLARE_ZONE_ID,
     },

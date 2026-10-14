@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "laterdog-home",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "*-home.later.dog/*", "zone_name": "later.dog" }],
+  "containers": [
+    {
+      "class_name": "CloudHomeHost",
+      "image": "./Dockerfile",
+      "image_build_context": "../../..",
+      "instance_type": "standard-1",
+      "max_instances": 400,
+      "observability": { "enabled": true }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "HOMES", "class_name": "CloudHomeHost" }]
+  },
+  "exports": {
+    "CloudHomeHost": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "r2_buckets": [{ "binding": "STATE", "bucket_name": "laterdog-homes" }],
+  "services": [
+    { "binding": "COMPUTERS", "service": "laterdog-computers", "entrypoint": "ComputersApi" },
+    { "binding": "ACCOUNTS", "service": "laterdog-control-plane", "entrypoint": "AccountsApi" }
+  ],
+  "vars": {
+    "HOME_HOST_SUFFIX": "-home.later.dog",
+    "ADMIN_ORIGIN": "https://accounts.later.dog",
+    "INCLUDED_API": "https://cloud.later.dog/v1"
+  },
+  "secrets": { "required": ["HOME_SECRET"] }
+}

@@ -16,8 +16,10 @@ export type Route =
   | { kind: "trial"; op: TrialOp }
   | { kind: "trial_offer" }
   | { kind: "trial_grant" }
+  | { kind: "home_grant" }
   | { kind: "trial_start" }
   | { kind: "decide" }
+  | { kind: "mcp" }
   | { kind: "voices" }
   | { kind: "chat" }
   | { kind: "complete" }
@@ -56,8 +58,10 @@ export function route(method: string, pathname: string): Route {
   if (pathname === "/trial") return method === "GET" || method === "POST" ? { kind: "trial_page" } : { kind: "method_not_allowed", allow: ["GET", "POST"] };
   if (pathname === "/v1/trials") return method === "GET" ? { kind: "trial_offer" } : { kind: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/v1/trials/grant") return method === "POST" ? { kind: "trial_grant" } : { kind: "method_not_allowed", allow: ["POST"] };
+  if (pathname === "/v1/homes/grant") return method === "POST" ? { kind: "home_grant" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/trials/start") return method === "POST" ? { kind: "trial_start" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/systemone") return method === "POST" ? { kind: "decide" } : { kind: "method_not_allowed", allow: ["POST"] };
+  if (pathname === "/mcp" || pathname === "/mcp/") return method === "POST" ? { kind: "mcp" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/voice/voices") return method === "GET" ? { kind: "voices" } : { kind: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/v1/voice/speech-to-text") return method === "POST" ? { kind: "transcribe" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/complete") return method === "POST" ? { kind: "complete" } : { kind: "method_not_allowed", allow: ["POST"] };
