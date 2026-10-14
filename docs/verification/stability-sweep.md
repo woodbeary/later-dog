@@ -6,11 +6,11 @@ A pass over later.dog's day-to-day reliability, written 2026-10-14 on `laterdog/
 
 | | Rows |
 | --- | --- |
-| Pass as found | 22 |
-| Failed, fixed here with a test | 8 |
+| Pass as found | 21 |
+| Failed, fixed here with a test | 9 |
 | Fails, smallest fix written down | 3 |
 | Differs from the reference by design | 1 |
-| Not run, and why | listed at the end |
+| Rows | 34, plus what was not run at the end |
 
 ## Re-run it
 
@@ -88,7 +88,7 @@ node --test electron/updater-coordinator.node-test.mjs electron/update-errors.no
 
 | Check | Result | Evidence | Fix or smallest fix |
 | --- | --- | --- | --- |
-| A turn that ends while the disk is full | Pass | `server/full-disk.e2e.test.ts` second case: the engine held, the 40 MB image filled, the engine released: the server stayed healthy, the thread went idle, the reply was kept, and the next message ran normally after space was freed. | none |
+| A turn that ends while the disk is full | Failed, fixed | `server/full-disk.e2e.test.ts` second case, found on the 40 MB image: with the engine held and the disk filled, the turn finished but saving its end threw (`database or disk is full` at `store.patchMessage` in the turn-completed handler, `server/index.ts`). The handler stopped before marking the thread idle, so the dog stayed "working" after space returned, Stop answered ok and changed nothing, and every later message queued. Only a restart recovered it. Now a storage failure there is retried every three seconds for ten minutes (`server/laterdog/turn-end-guard.ts`, `retry-until.ts`, `recoverUnsettledTurn`), the dog goes idle once the disk allows, and the queued message runs. | commit "A turn that ends while the disk is full no longer leaves the dog working for ever" |
 | A full disk while saving | Failed, fixed | Run on a real 40 MB disk image (`server/full-disk.e2e.test.ts`). Before: a send answered `cannot rollback - no transaction is active` (the rollback after SQLite had ended the transaction replaced the real error, in `server/message-db.ts` and `server/laterdog/store.ts`), and renaming a dog printed `ENOSPC: no space left on device, open '/Volumes/…/bots.json.<pid>.<uuid>.tmp'`. After: "Your Mac is almost out of space, so later.dog couldn't save that. Free up some space and try again." for both, the real error goes to the log, nothing already saved is lost, the server stays healthy, and the same send id succeeds once space returns with one copy in the chat. | commit "A full disk, a locked database or a crashed request says what happened in plain words" |
 | A crashed request does not show a path, a code or a stack | Failed, fixed | The catch-all returned `e.message` for any error without a status (`server/index.ts`, the end of `handleRequest`). Errors with an errno code, a stack, a database word or a built-in error type now read "Something went wrong on this computer, so that didn't go through. Try again, and if it keeps happening, quit and reopen later.dog."; the original is logged. `server/laterdog/plain-error.test.ts` (6 shapes). Deliberate messages and their statuses are unchanged. | same commit |
 | A rejected request names what was wrong | Failed, fixed | A malformed request answered with the validation library's JSON report (`[ { "expected": "string", "code": "invalid_type", ... } ]`). It now reads "That wasn't something later.dog could use (name: Invalid input: expected string, received array). Check it and try again." Twelve different failing requests are checked for stack lines, errno names, paths, `undefined` and byte counts in `server/stability-sweep.e2e.test.ts`. | commit "A bad request names the field that was wrong" |
