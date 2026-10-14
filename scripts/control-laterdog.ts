@@ -6,6 +6,7 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
 
+import { withLocalTools } from "./local-control-token.ts";
 import { handleToolCall, request, validateBaseUrl } from "./mcp-server.ts";
 import { launchUi, runControlLaterDogUi } from "./testing/control-laterdog-ui.ts";
 import { removeTempDir, waitForExit } from "../server/testing/cleanup.ts";
@@ -162,7 +163,7 @@ export async function runControlLaterDog(
   const call = async (tool: string, input: Record<string, unknown>, rawUrl: unknown) => {
     const url = configuredUrl(rawUrl, env, mutation);
     const fetcher = url
-      ? (path: string, options: RequestInit = {}) => requester(path, options, url)
+      ? (path: string, options: RequestInit = {}) => requester(path, withLocalTools(options, url, env), url)
       : requester;
     return callTool(tool, input, fetcher);
   };
@@ -358,6 +359,7 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
   }
   if (parentEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN) {
     childEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN = parentEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN;
+    if (parentEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN) childEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN = parentEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN;
     childEnv.LATERDOG_DESKTOP_PARENT = "1";
   }
   return childEnv;

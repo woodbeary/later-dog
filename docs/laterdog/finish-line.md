@@ -43,7 +43,7 @@ Work stops at a gate before the next one starts.
 | L0 Integration | `laterdog/checkpoint`, staging `laterdog/next` | #38, #48, #49 | 0.3.28 on `laterdog/checkpoint`; 0.3.29 staged on `laterdog/next` |
 | L1 Cloud ready | `laterdog/home` | #39 | done; tonight's Cloud fixes also on #49 |
 | L2 Phone review-ready | later-dog-phone `main` | | done |
-| L3 Reliability | `laterdog/reliability`, `laterdog/local-tools-token` | #44 (merged), #47 | token redone as a default-deny allow-list; fixing the re-review's N1-N5 |
+| L3 Reliability | `laterdog/reliability`, `laterdog/local-tools-token` | #44 (merged), #47 (on the staging branch) | done: token is a default-deny allow-list, re-reviewed, N1-N5 fixed with e2e tests |
 | L4 PR #36 on screen | `laterdog/visual-36` | #40 (merged) | done |
 | L5 Chat lines and cards | `laterdog/chatlines` | | running |
 | L6 Thinking, scroll, sidebar | `laterdog/thinking` | #45 | done, on the staging branch |
@@ -51,7 +51,7 @@ Work stops at a gate before the next one starts.
 | L8 Decision layer (Clef) | `laterdog/clef` | #41 | fixing the safety review's findings; live benchmark done |
 | L9 Motion and tokens | `laterdog/motion` | #43 | done, on the staging branch |
 | L10 Typing suggestions | `laterdog/tab` | | running |
-| L11 later.dog Dev | `laterdog/dev-app` | #46 | fixing the data-safety review's findings; the person picks an icon (`/Volumes/laterdog-phone/tmp/l11-sheet/index.html`) |
+| L11 later.dog Dev | `laterdog/dev-app` | #46 (on the staging branch) | done: Dev shares nothing with the release (data, ports, scheme, companion, container, keychain, updates); two data-safety reviews passed; the person picks an icon (`/Volumes/laterdog-phone/tmp/l11-sheet/index.html`); the first push to `dev` runs its build |
 | L12 Factory and computer tools | | | waiting for a slot |
 | L13 Stability sweep | `laterdog/stability` | | running |
 | L14 Launch and hiring copy | | | waiting for a slot |

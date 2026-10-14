@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 
-import { readBody } from "./http.ts";
+import { guardBody, parsedBodyOf, readBody } from "./http.ts";
 
 const request = (chunks: Buffer[]) => Readable.from(chunks) as unknown as IncomingMessage;
 
@@ -32,5 +32,28 @@ describe("readBody", () => {
   it("still refuses a body over the limit", async () => {
     const bytes = Buffer.from(JSON.stringify({ text: "中".repeat(100) }));
     await expect(readBody(request(splitInsideCharacter(bytes, 10)), 64)).rejects.toMatchObject({ status: 413 });
+  });
+});
+
+describe("guardBody", () => {
+  it("lets a guarded request through when the guard has no objection", async () => {
+    const req = request([Buffer.from(JSON.stringify({ name: "Scout" }))]);
+    guardBody(req, () => null);
+    expect(await readBody(req)).toEqual({ name: "Scout" });
+  });
+
+  it("refuses with 403 and the guard's own words, and keeps the refused body unparsed", async () => {
+    const req = request([Buffer.from(JSON.stringify({ approvalMode: "full" }))]);
+    guardBody(req, (body) => (body as { approvalMode?: string }).approvalMode === "full" ? "Needs the desktop app." : null);
+    await expect(readBody(req)).rejects.toMatchObject({ status: 403, message: "Needs the desktop app." });
+    expect(parsedBodyOf(req)).toBeUndefined();
+  });
+
+  it("guards only the request it was set on", async () => {
+    const guarded = request([Buffer.from("{}")]);
+    guardBody(guarded, () => "no");
+    const other = request([Buffer.from("{}")]);
+    await expect(readBody(guarded)).rejects.toMatchObject({ status: 403 });
+    expect(await readBody(other)).toEqual({});
   });
 });

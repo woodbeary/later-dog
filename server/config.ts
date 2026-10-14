@@ -738,7 +738,7 @@ export const EVENTS_DIR = join(DATA_DIR, "events");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 
 export function ensureDirs() {
-  if (!existsSync(DATA_DIR) && existsSync(LEGACY_DATA_DIR)) {
+  if (DATA_DIR === join(homedir(), ".laterdog") && !existsSync(DATA_DIR) && existsSync(LEGACY_DATA_DIR)) {
     try {
       renameSync(LEGACY_DATA_DIR, DATA_DIR);
     } catch {}

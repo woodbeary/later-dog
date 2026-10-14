@@ -7,6 +7,7 @@ import localOrigin from "./local-origin.cjs";
 import environments from "./environments.cjs";
 import { randomUUID } from "node:crypto";
 import { createCompanyBackupSchedule } from "./company-backup-schedule.mjs";
+import { tempName, variant } from "./app-variant.mjs";
 
 const mainSource = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 function section(start, end) {
@@ -47,7 +48,7 @@ function fixture() {
     disconnect: async () => { f.generation++; f.connection = null; f.state = { status: "signed-out" }; f.onState(f.state); return f.state; } };
   localOrigin.setLocalOrigin(ORIGIN);
   const context = vm.createContext({
-    AbortController, AbortSignal, Date, Headers, setTimeout, clearTimeout, path, randomUUID, Buffer,
+    AbortController, AbortSignal, Date, Headers, setTimeout, clearTimeout, path, randomUUID, Buffer, tempName, variant,
     app: { isPackaged: true, getPath: () => "/unused-synthetic-backup-fixture", getVersion: () => "fixture" },
     os: { hostname: () => "Fixture computer" }, process: { platform: "fixture" },
     createManagedDesktopStore: options => {

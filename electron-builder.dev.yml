@@ -1,0 +1,19 @@
+extends: ./electron-builder.yml
+
+appId: dog.later.app.dev
+productName: later.dog Dev
+artifactName: laterdog-dev-${version}-${arch}.${ext}
+
+protocols:
+  - name: later.dog Dev package install
+    schemes: [laterdog-dev]
+
+files:
+  - build/dev/icon.png
+
+mac:
+  icon: build/dev/icon.icns
+
+dmg:
+  artifactName: laterdog-dev-${version}-${arch}.dmg
+  title: later.dog Dev

@@ -1,7 +1,8 @@
 import environments from "./environments.cjs";
+import { deepLink, variant } from "./app-variant.mjs";
 import { withoutDesktopCompanionAccess } from "./desktop-companion-client.mjs";
 
-export const ORGANIZATION_DEEP_LINK = "laterdog://organization";
+export const ORGANIZATION_DEEP_LINK = deepLink(variant, "organization");
 const RESTART_FIELD = "desktopOrganizationSettingsPending";
 
 export const isOrganizationDeepLink = value => value === ORGANIZATION_DEEP_LINK;

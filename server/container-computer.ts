@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { augmentedPath, resolveCliSpawn } from "./env-path.ts";
 import { DATA_DIR } from "./config.ts";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
+import { appVariantSuffix, sharedVmViewerPort } from "./variant-names.ts";
 
 const run = promisify(execFile);
 const SCREENSHOT_STATUS_TTL_MS = 10_000;
@@ -27,7 +28,7 @@ export const IMAGE_REPOSITORY = "localhost/laterdog/cua-local-vm";
 export const IMAGE_LAYER_VERSION = "5";
 export const IMAGE_LAYER_LABEL = "com.laterdog.image-layer";
 export const IMAGE = `${IMAGE_REPOSITORY}:driver-${CUA_DRIVER_VERSION}-v${IMAGE_LAYER_VERSION}`;
-export const CONTAINER = "laterdog-computer";
+export const CONTAINER = `laterdog-computer${appVariantSuffix()}`;
 export const MANAGED_LABEL = "com.laterdog.local-vm";
 export const DRIVER_LABEL = "com.laterdog.cua-driver";
 export const BASE_IMAGE_LABEL = "com.laterdog.cua-base";
@@ -44,7 +45,7 @@ export type Runtime = (typeof RUNTIMES)[number];
 export type LifecycleAction = "pull" | "run" | "start" | "stop" | "remove";
 
 const INTERNAL_VIEWER_PORT = 6901;
-const HOST_VIEWER_PORT = 6080;
+const HOST_VIEWER_PORT = sharedVmViewerPort();
 const MEMORY_BYTES = 4 * 1024 * 1024 * 1024;
 const PIDS_LIMIT = 512;
 

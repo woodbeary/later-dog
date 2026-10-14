@@ -5,11 +5,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-app.setName("later.dog");
-fs.mkdirSync(path.join(app.getPath("appData"), "later.dog"), { recursive: true, mode: 0o700 });
-app.setPath("userData", path.join(app.getPath("appData"), "later.dog"));
+import { applyVariantEnvironment, dataDirFor, deepLinkPattern, logsDirFor, serverPortRange, tempName, userDataDirFor, variant } from "./app-variant.mjs";
+applyVariantEnvironment(variant);
+app.setName(variant.productName);
+fs.mkdirSync(userDataDirFor(variant, app.getPath("appData")), { recursive: true, mode: 0o700 });
+app.setPath("userData", userDataDirFor(variant, app.getPath("appData")));
+const variantLogsDir = logsDirFor(variant, { home: app.getPath("home"), userData: app.getPath("userData") });
+if (variantLogsDir) app.setAppLogsPath(variantLogsDir);
 import { startCua, stopCua, registerCuaIpc, setCuaStateListener } from "./cua.mjs";
 import { startLaterDogSupervisor } from "./laterdog-supervisor.mjs";
+import { removeLocalControlToken, startLocalControlToken } from "./local-control-token.mjs";
 import { createAndroidDeviceController } from "./android-device.mjs";
 import { finishSpeech, startSpeech, stopSpeech, voiceNoteAudio } from "./speech.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
@@ -30,7 +35,7 @@ import { createServerSupervisor } from "./server-supervisor.mjs";
 import { createServerLiveness } from "./laterdog-server-liveness.mjs";
 import { serverChildLaunch } from "./server-child-launch.mjs";
 import { packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
-import { createOrganizationEntry, isOrganizationDeepLink, takeOrganizationDeepLink, organizationRestartIntent, withOrganizationRestartIntent, withoutOrganizationRestartIntent } from "./organization-entry.mjs";
+import { createOrganizationEntry, ORGANIZATION_DEEP_LINK, isOrganizationDeepLink, takeOrganizationDeepLink, organizationRestartIntent, withOrganizationRestartIntent, withoutOrganizationRestartIntent } from "./organization-entry.mjs";
 import { windowChromeOptions } from "./window-chrome.mjs";
 import { createAllWindowsClosedQuit } from "./window-all-closed.mjs";
 import { offerMoveToApplications } from "./move-to-applications.mjs";
@@ -118,8 +123,8 @@ const { MIN_BOUNDS, normalizeUnreadCount, parseWindowState, resolveWindowState }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
-let SERVER_PORT = 8799;
-const APP_ICON = path.join(__dirname, "resources/app-icon.png");
+let SERVER_PORT = variant.ports.server[0];
+const APP_ICON = path.join(__dirname, variant.iconPath);
 let desktopViewerWindow = null;
 let desktopViewerOwner = null;
 let desktopViewerContextId = null;
@@ -216,7 +221,7 @@ function applyUnreadBadge(win = mainWindow) {
 
 if (process.platform === "linux") {
   app.disableHardwareAcceleration();
-  app.setDesktopName("dog.later.app.desktop");
+  app.setDesktopName(variant.desktopEntry);
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -252,7 +257,7 @@ function queuePackageInstall(rawLink) {
 }
 
 function focusFromTrialLink(url) {
-  if (!/^laterdog:\/\/(?:trial|plan)(?:[/?#]|$)/i.test(String(url))) return false;
+  if (!deepLinkPattern(variant, ["trial", "plan"]).test(String(url))) return false;
   if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
   return true;
 }
@@ -264,7 +269,7 @@ app.on("open-url", (event, url) => {
 
 app.on("second-instance", (_event, commandLine) => {
   if (takeOrganizationDeepLink(commandLine)) {
-    queueOrganizationEntry("laterdog://organization");
+    queueOrganizationEntry(ORGANIZATION_DEEP_LINK);
     return;
   }
   if (cloudEntry.fromArgs(commandLine)) return;
@@ -303,6 +308,7 @@ const UTILITY_SERVER_STOP_TIMEOUT_MS = 6_500;
 const trustedApprovalMode = createTrustedApprovalModeCoordinator({ randomId: randomUUID });
 const desktopMutationToken = randomBytes(32).toString("base64url");
 const companionMutationToken = randomBytes(32).toString("base64url");
+const localControl = startLocalControlToken(app.getPath("userData"), (line) => slog(line));
 const serverLiveness = createServerLiveness({ port: () => SERVER_PORT, log: slog });
 const serverSupervisor = createServerSupervisor({
   restart: () => startServerOn(SERVER_PORT),
@@ -345,7 +351,7 @@ const serverSupervisor = createServerSupervisor({
 });
 
 function desktopDataDir() {
-  return process.env.LATERDOG_HOME || path.join(app.getPath("home"), ".laterdog");
+  return dataDirFor(variant, { env: process.env, home: app.getPath("home") });
 }
 
 async function stopUtilityServer(proc, timeoutMs = UTILITY_SERVER_STOP_TIMEOUT_MS) {
@@ -1106,7 +1112,7 @@ async function runCompanyBackup(kind, input, scheduled = null) {
     }
     if (status.busy) throw companyBackupDeferred();
     const transfers = createCompanyBackups({
-      tempRoot: path.join(app.getPath("temp"), "laterdog-company-backups"),
+      tempRoot: path.join(app.getPath("temp"), tempName(variant, "company-backups")),
       localRequest: (route, init) => localBackupRequest(proc, route, init),
       portalRequest: (route, options) => client.requestBackup(route, { ...options, generation }),
       availableBytes: async temporary => {
@@ -1139,6 +1145,7 @@ function syncDesktopMutationToken(proc) {
       type: "laterdog:desktop-mutation-token",
       token: desktopMutationToken,
       companionToken: companionMutationToken,
+      ...(localControl ? { localToolsToken: localControl.token } : {}),
     });
   } catch (error) {
     slog(`desktop mutation capability sync failed: ${error?.message ?? error}`);
@@ -1274,7 +1281,7 @@ async function startServerOn(port) {
 async function startServerPackaged() {
   let everyPortForeignOwned = true;
   for (let attempt = 0; attempt < 2; attempt++) {
-    for (const port of [8799, 18799, 28799]) {
+    for (const port of variant.ports.server) {
       if (desktopShutdownStarted) return false;
       const started = await startServerOn(port);
       if (started.proc) {
@@ -1311,7 +1318,7 @@ function buildErrorPage({ allPortsOccupied }) {
   const serverLogPath = path.join(LOG_DIR, "server.log");
   const serverLogHref = pathToFileURL(serverLogPath).href;
   const reason = allPortsOccupied
-    ? "Every later.dog port answered health checks from another process — likely a second copy of the app, or another program on ports 8799–28799. Quit that program, then quit and reopen later.dog."
+    ? `Every ${variant.productName} port answered health checks from another process — likely a second copy of the app, or another program on ports ${serverPortRange(variant)}. Quit that program, then quit and reopen ${variant.productName}.`
     : "The background server didn't come up in time — this is usually slow startup, not a port conflict. Quit and reopen later.dog.";
   return (
     "data:text/html;charset=utf-8," +
@@ -2365,7 +2372,7 @@ ipcMain.handle("desktop:export-diagnostics", localOnly("desktop:export-diagnosti
 }));
 
 ipcMain.handle("desktop:save-file", localOnly("desktop:save-file", async (event, rawPath) => {
-  return withSavableFile(rawPath, { home: os.homedir(), root: askingProfile(event) ? profiles.activeDataDir() : undefined }, async ({ defaultName, copyTo }) => {
+  return withSavableFile(rawPath, { home: os.homedir(), root: askingProfile(event) ? profiles.activeDataDir() : variant.id === "release" ? undefined : desktopDataDir() }, async ({ defaultName, copyTo }) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const defaultPath = await defaultSaveName(app.getPath("downloads"), defaultName);
     const choice = await dialog.showSaveDialog(parent ?? undefined, {
@@ -2705,7 +2712,7 @@ function ensureCloudMove() {
       return fetch(`http://127.0.0.1:${SERVER_PORT}${route}`, { ...init, redirect: "error", credentials: "omit",
         headers: { ...Object.fromEntries(new Headers(init.headers)), [DESKTOP_MUTATION_HEADER]: desktopMutationToken } });
     },
-    tempRoot: path.join(app.getPath("temp"), "laterdog-cloud-move"),
+    tempRoot: path.join(app.getPath("temp"), tempName(variant, "cloud-move")),
     availableBytes: async directory => { const disk = await fs.promises.statfs(directory); return disk.bavail * disk.bsize; },
     onState: publishCloudMoveState,
   });
@@ -3134,9 +3141,9 @@ app.whenReady().then(async () => {
   });
   if (app.isPackaged) {
     try {
-      desktopDataDirLease = acquireDataDirLease(desktopDataDir(), {
+      desktopDataDirLease = acquireDataDirLease(desktopDataDir(), variant.id === "release" ? {
         legacyDataDir: path.join(app.getPath("home"), ".laterdog-v0"),
-      });
+      } : {});
     } catch (error) {
       dialog.showErrorBox(
         "later.dog could not start safely",
@@ -3147,7 +3154,7 @@ app.whenReady().then(async () => {
     }
   }
   if (app.isPackaged) {
-    app.setAsDefaultProtocolClient("laterdog");
+    app.setAsDefaultProtocolClient(variant.scheme);
     installDesktopMutationHeader();
   }
   if (process.platform === "darwin") app.dock.setIcon(APP_ICON);
@@ -3379,5 +3386,6 @@ function releaseDesktopDataDirLease() {
 }
 
 app.on("will-quit", releaseDesktopDataDirLease);
+app.on("will-quit", () => { if (localControl) removeLocalControlToken(localControl.file, localControl.token); });
 app.on("will-quit", () => desktopTray?.destroy());
 process.once("exit", releaseDesktopDataDirLease);

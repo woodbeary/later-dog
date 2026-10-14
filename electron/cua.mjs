@@ -10,6 +10,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import localOriginModule from "./local-origin.cjs";
 import { permissionChecklist } from "./mac-permissions.mjs";
+import { variant } from "./app-variant.mjs";
 
 const { localOnly } = localOriginModule;
 
@@ -32,7 +33,7 @@ const STANDALONE_SOCKET = path.join(
   app.getPath("home"),
   "Library/Caches/cua-driver/cua-driver.sock",
 );
-const HOST_BUNDLE_ID = "dog.later.app";
+const HOST_BUNDLE_ID = variant.cuaHostBundleId;
 const CUA_ENV = { CUA_DRIVER_RS_TELEMETRY_ENABLED: "0" };
 const execFileAsync = promisify(execFile);
 process.env.CUA_DRIVER_RS_TELEMETRY_ENABLED ??= "0";
