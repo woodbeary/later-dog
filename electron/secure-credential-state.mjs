@@ -30,7 +30,9 @@ const copy = (credentials) => {
   return structuredClone(document);
 };
 
-export function createSecureCredentialState(initialCredentials, persist, { writable = true, reload, afterReload } = {}) {
+export const LOCKED_STORE_MESSAGE = "The credential store is locked. Unlock your keychain and try again. Your saved keys have not been changed.";
+
+export function createSecureCredentialState(initialCredentials, persist, { writable = true, reload, afterReload, unavailableMessage = LOCKED_STORE_MESSAGE } = {}) {
   let current = copy(initialCredentials);
   let transition = Promise.resolve();
 
@@ -67,7 +69,7 @@ export function createSecureCredentialState(initialCredentials, persist, { writa
     update(derive, afterPersist) {
       return serialize(async () => {
         if (!(await recover())) {
-          throw new Error("The credential store is locked. Unlock your keychain and try again. Your saved keys have not been changed.");
+          throw new Error(unavailableMessage);
         }
         const previous = copy(current);
         const next = copy(await derive(copy(previous)));

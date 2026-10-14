@@ -9,6 +9,8 @@ export interface SecureCredentialState {
   ): Promise<unknown>;
 }
 
+export declare const LOCKED_STORE_MESSAGE: string;
+
 export declare function createSecureCredentialState(
   initialCredentials: CredentialDocument,
   persist: (next: CredentialDocument) => Promise<void> | void,
@@ -16,5 +18,6 @@ export declare function createSecureCredentialState(
     writable?: boolean;
     reload?: () => Promise<{ status: string; credentials: CredentialDocument }>;
     afterReload?: (credentials: CredentialDocument) => Promise<void> | void;
+    unavailableMessage?: string;
   },
 ): SecureCredentialState;

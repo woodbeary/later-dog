@@ -73,7 +73,10 @@ export function openTunnelCredentials(dataDir: string): TunnelCredentials {
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     writeFileAtomic(file, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   };
-  const state = createSecureCredentialState(initial, persist, { writable: status !== "unavailable" });
+  const state = createSecureCredentialState(initial, persist, {
+    writable: status !== "unavailable",
+    unavailableMessage: "The tunnel account file could not be read, so it was left as it is and nothing was saved.",
+  });
   return {
     file,
     status,
