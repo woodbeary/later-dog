@@ -12,11 +12,20 @@ interface Anchor {
   offset: number;
 }
 
+export function boxOf(row: HTMLElement): DOMRect | null {
+  for (const child of row.children) {
+    const rect = child.getBoundingClientRect();
+    if (rect.height > 0) return rect;
+  }
+  const rect = row.getBoundingClientRect();
+  return rect.height > 0 ? rect : null;
+}
+
 function findAnchor(scroller: HTMLElement): Anchor | null {
   const top = scroller.getBoundingClientRect().top;
   for (const row of scroller.querySelectorAll<HTMLElement>("[data-mid]")) {
-    const rect = row.getBoundingClientRect();
-    if (rect.height > 0 && rect.bottom > top) return { id: row.dataset.mid ?? "", offset: rect.top - top };
+    const rect = boxOf(row);
+    if (rect && rect.bottom > top) return { id: row.dataset.mid ?? "", offset: rect.top - top };
   }
   return null;
 }
@@ -42,7 +51,9 @@ export function useScrollAnchor(
         remember();
         return;
       }
-      const offset = row.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      const box = boxOf(row);
+      if (!box) return;
+      const offset = box.top - scroller.getBoundingClientRect().top;
       const shift = anchorShift(anchor.offset, offset);
       if (shift !== 0) scroller.scrollTop += shift;
     };
