@@ -146,7 +146,7 @@ export function TriggersPanel() {
         aria-modal="true"
         aria-labelledby="triggers-title"
         tabIndex={-1}
-        className="glass-surface glass-popup animate-pop-in relative flex flex-col overflow-hidden rounded-[24px] outline-none"
+        className="glass-surface glass-popup animate-sheet-in relative flex flex-col overflow-hidden rounded-sheet outline-none"
       >
         <header className="flex items-start justify-between gap-4 px-6 pb-4 pt-6 sm:px-8 sm:pt-7">
           <div className="min-w-0">

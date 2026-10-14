@@ -180,8 +180,9 @@ export function ApprovalModeSelector({
           aria-label={t("approvalMode.menuAria", { provider: providerName })}
           {...motion.exitProps}
           className={cn(
-            "absolute z-40 w-[340px] overflow-hidden rounded-2xl border border-hairline/40 bg-raised shadow-2xl",
+            "absolute z-40 w-[340px] overflow-hidden rounded-menu border border-hairline/40 bg-raised shadow-popover",
             menuDirection === "up" ? "bottom-full mb-2" : "top-full mt-2",
+            menuDirection === "up" ? (align === "right" ? "origin-bottom-right" : "origin-bottom-left") : align === "right" ? "origin-top-right" : "origin-top-left",
             align === "right" ? "right-0" : "left-0",
             wide && "w-full min-w-[340px]",
             motion.className,

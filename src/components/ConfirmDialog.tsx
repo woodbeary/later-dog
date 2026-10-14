@@ -102,7 +102,7 @@ export function ConfirmDialogCard({
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-body"
       className={cn(
-        "w-full max-w-[420px] rounded-2xl border bg-panel p-5 shadow-2xl",
+        "w-full max-w-[420px] rounded-sheet border bg-panel p-5 shadow-modal",
         danger ? "border-danger/30" : "border-hairline/50",
       )}
     >

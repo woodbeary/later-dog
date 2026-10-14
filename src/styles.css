@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./tokens.css";
 
 @custom-variant touch {
   @media (hover: none), (pointer: coarse) {
@@ -58,12 +59,14 @@
 @theme {
   --color-update: #0071e3;
   --color-update-hover: #0a7df0;
-  --animate-panel-in: panel-in var(--motion-enter) var(--ease-out-soft);
-  --animate-workspace-in: workspace-in var(--motion-base) var(--ease-out-soft);
-  --animate-pop-in: pop-in var(--motion-base) var(--ease-out-soft);
-  --animate-pop-out: pop-out var(--motion-base) var(--ease-out-soft) forwards;
+  --animate-panel-in: panel-in var(--spring-standard-duration) var(--spring-standard) both;
+  --animate-workspace-in: workspace-in var(--duration-slow) var(--ease-enter);
+  --animate-pop-in: pop-in var(--duration-slow) var(--ease-enter) both;
+  --animate-pop-out: pop-out var(--duration-exit) var(--ease-exit) forwards;
+  --animate-sheet-in: sheet-in var(--spring-standard-duration) var(--spring-standard) both;
+  --animate-scrim-in: fade-in var(--duration-slow) var(--ease-enter) both;
   --animate-caret: caret-blink 1s step-end infinite;
-  --animate-msg-in: msg-in var(--motion-base) var(--ease-out-soft);
+  --animate-msg-in: msg-in var(--duration-slow) var(--ease-enter);
   --animate-dot-in: dot-in var(--motion-micro) var(--ease-out-soft) both;
   --animate-shimmer: shimmer 2.2s steps(60) infinite;
   --animate-status-pulse: status-pulse calc(var(--motion-enter) * 5) steps(2, jump-none) infinite;
@@ -108,12 +111,6 @@
   --color-success-ink: #072114;
   --color-scrollbar: #3d3d3d;
   --color-dog-line: #fcfcfc;
-
-  --motion-micro: 120ms;
-  --motion-base: 200ms;
-  --motion-enter: 320ms;
-  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-in-out-soft: cubic-bezier(0.45, 0, 0.55, 1);
 }
 
 [data-skin="midnight"] {
@@ -548,11 +545,11 @@ body {
     justify-content: center;
     gap: 0.5rem;
     min-height: 2rem;
-    border-radius: var(--radius-lg, 0.5rem);
+    border-radius: var(--radius-control);
     font-size: 13px;
     font-weight: 500;
     line-height: 1.25rem;
-    transition: background-color var(--motion-micro) ease, color var(--motion-micro) ease;
+    transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
   }
   .ui-button {
     padding: 0.375rem 0.75rem;
@@ -593,8 +590,7 @@ body {
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 16%, transparent),
     inset 0 0 0 1px color-mix(in srgb, white 4%, transparent),
-    0 24px 64px -12px color-mix(in srgb, black 45%, transparent),
-    0 2px 8px color-mix(in srgb, black 12%, transparent);
+    var(--shadow-modal);
 }
 .glass-popup-frame {
   position: fixed;
@@ -618,7 +614,7 @@ body {
   background-color: color-mix(in srgb, var(--color-card) 60%, transparent);
 }
 .glass-card[data-app-tile] {
-  transition: background-color 150ms ease, border-color 150ms ease;
+  transition: background-color var(--duration-normal) ease, border-color var(--duration-normal) ease;
 }
 .glass-card[data-app-tile]:hover {
   background: color-mix(in srgb, var(--color-raised) 72%, transparent);
@@ -763,12 +759,24 @@ body {
   to { opacity: 1; }
 }
 @keyframes pop-in {
-  from { transform: scale(0.96) translateY(6px); opacity: 0; }
-  to { transform: scale(1) translateY(0); opacity: 1; }
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 @keyframes pop-out {
-  from { transform: scale(1) translateY(0); opacity: 1; }
-  to { transform: scale(0.96) translateY(6px); opacity: 0; }
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(0.92); opacity: 0; }
+}
+@keyframes sheet-in {
+  from { transform: translateY(32px) scale(0.97); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes message-in-start {
+  from { transform: translateX(-14px) scale(0.97); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes message-in-end {
+  from { transform: translateX(14px) scale(0.97); opacity: 0; }
+  to { transform: none; opacity: 1; }
 }
 @keyframes caret-blink {
   0%, 100% { opacity: 1; }
@@ -809,7 +817,18 @@ body {
   animation: turn-answer-in var(--motion-enter) var(--ease-out-soft) both;
 }
 [data-arriving] > * {
-  animation: msg-in var(--motion-base) var(--ease-out-soft) both;
+  transform-origin: 0 100%;
+  animation: message-in-start var(--duration-slow) var(--ease-enter) both;
+}
+[data-arriving] > [data-from="user"] {
+  transform-origin: 100% 100%;
+  animation-name: message-in-end;
+}
+.fixed.inset-0[class*="bg-black"] {
+  animation: fade-in var(--duration-slow) var(--ease-enter) both;
+}
+.fixed.inset-0[class*="bg-black"] > :is([role="dialog"], [role="alertdialog"]):not([class*="animate-"]) {
+  animation: sheet-in var(--spring-standard-duration) var(--spring-standard) both;
 }
 [data-pane-in] > * {
   animation: pane-in var(--motion-base) var(--ease-out-soft) both;
@@ -886,8 +905,10 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .animate-msg-in, .animate-pop-in, .animate-panel-in, .animate-workspace-in, [data-pane-in] > *,
-  .animate-dot-in, .animate-rise, .animate-spot-in, .turn-mascot-in, .turn-answer, [data-arriving] > * {
-    animation: fade-in var(--motion-base) ease-out both !important;
+  .animate-dot-in, .animate-rise, .animate-spot-in, .animate-sheet-in, .turn-mascot-in, .turn-answer, [data-arriving] > *,
+  [data-arriving] > [data-from="user"], .fixed.inset-0[class*="bg-black"],
+  .fixed.inset-0[class*="bg-black"] > :is([role="dialog"], [role="alertdialog"]):not([class*="animate-"]) {
+    animation: fade-in var(--duration-normal) ease-out both !important;
   }
   .animate-pop-out, .turn-mascot-out { animation: none !important; opacity: 0; }
   .animate-caret, .animate-shimmer, .animate-ripple, .animate-bolt { animation: none !important; }
@@ -900,8 +921,12 @@ body {
 :root[data-reduced-motion="true"] .animate-spot-in,
 :root[data-reduced-motion="true"] .animate-pop-in,
 :root[data-reduced-motion="true"] .animate-msg-in,
-:root[data-reduced-motion="true"] [data-arriving] > * {
-  animation: fade-in var(--motion-base) ease-out both !important;
+:root[data-reduced-motion="true"] .animate-sheet-in,
+:root[data-reduced-motion="true"] .animate-panel-in,
+:root[data-reduced-motion="true"] [data-arriving] > *,
+:root[data-reduced-motion="true"] .fixed.inset-0[class*="bg-black"],
+:root[data-reduced-motion="true"] .fixed.inset-0[class*="bg-black"] > :is([role="dialog"], [role="alertdialog"]):not([class*="animate-"]) {
+  animation: fade-in var(--duration-normal) ease-out both !important;
   transition: none !important;
 }
 :root[data-reduced-motion="true"] .animate-pop-out,

@@ -80,7 +80,7 @@ export function RoutineRunCard({
   return (
     <section
       aria-label={`${run.routineName} routine run: ${copy.label}`}
-      className="w-full max-w-[420px] rounded-[18px] bg-card px-3.5 py-3 ring-[0.5px] ring-ink/10"
+      className="w-full max-w-[420px] rounded-card bg-card px-3.5 py-3 ring-[0.5px] ring-ink/10"
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">

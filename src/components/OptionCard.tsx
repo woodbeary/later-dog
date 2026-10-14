@@ -81,8 +81,8 @@ export function OptionCard({
   const body = (
     <div
       className={cn(
-        "w-full max-w-[420px] rounded-[18px] bg-card px-3.5 py-3",
-        answered ? "opacity-70" : "ring-[0.5px] ring-ink/10",
+        "w-full max-w-[420px] rounded-question bg-card px-4 py-3.5",
+        answered ? "opacity-70" : "shadow-elevated",
       )}
     >
       <div className="flex items-start justify-between gap-4">

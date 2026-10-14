@@ -136,8 +136,8 @@ export function QuestionCard({
       role="group"
       aria-label={t("question.aria.card")}
       className={cn(
-        "w-full max-w-[420px] rounded-[18px] bg-card px-3.5 py-3",
-        settled ? "opacity-70" : "ring-[0.5px] ring-ink/10",
+        "w-full max-w-[420px] rounded-question bg-card px-4 py-3.5",
+        settled ? "opacity-70" : "shadow-elevated",
       )}
     >
       <div className="flex items-center justify-between gap-3">

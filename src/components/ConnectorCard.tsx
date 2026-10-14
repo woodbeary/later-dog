@@ -123,7 +123,7 @@ export function ConnectorCard({ botId, threadId, message }: { botId: string; thr
 
   return (
     <div className="flex w-full justify-start">
-      <div data-tour="connector" className="w-full max-w-[420px] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10">
+      <div data-tour="connector" className="w-full max-w-[420px] overflow-hidden rounded-card bg-card ring-[0.5px] ring-ink/10">
         <div className="flex items-start gap-2.5 px-3.5 pb-2 pt-3">
           {brandMark(connector.slug) ? <BrandIcon brand={connector.slug} name={connector.label} size={32} decorative /> : (
             <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-[13px] font-semibold text-ink">

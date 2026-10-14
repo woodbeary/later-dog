@@ -108,7 +108,7 @@ export function SecretRequestCard({
 
   return (
     <div className="flex w-full justify-start">
-      <div className="w-full max-w-[420px] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10">
+      <div className="w-full max-w-[420px] overflow-hidden rounded-card bg-card ring-[0.5px] ring-ink/10">
         <div className="flex items-start gap-2.5 px-3.5 pb-2 pt-3">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
             <KeyRound size={16} />

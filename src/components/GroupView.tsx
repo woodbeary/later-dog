@@ -287,7 +287,7 @@ export const Transcript = memo(function Transcript({
           ) : m.kind === "digest" ? (
             showToolCalls ? <DigestChip message={m} /> : null
           ) : m.kind === "text" && (m.text || m.attachments?.length) ? (
-            <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
+            <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
               {sentAbove && (
                 <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId: group.threadId, messageId: m.id }} eager={m.id === newestMessageId || m.id === newestUserMessageId} className="mb-1.5 max-w-[min(42rem,78%)]" />
               )}
@@ -309,7 +309,7 @@ export const Transcript = memo(function Transcript({
                 <div
                   data-chat-bubble
                   className={cn(
-                    "w-fit max-w-[min(42rem,78%)] rounded-[18px] text-[14px] leading-[21px]",
+                    "w-fit max-w-[min(42rem,78%)] rounded-bubble text-[14px] leading-[21px]",
                     !user && m.id === emergingId && "turn-answer",
                     (user ? sentOnly : !m.text?.trim() && !m.replyToId && m.attachments?.length)
                       ? "text-ink"
@@ -816,7 +816,7 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
                 <div
                   role="listbox"
                   aria-label={t("room.behavior.chooseLead")}
-                  className={cn("absolute left-0 top-full z-30 mt-2 w-72 max-w-[calc(100vw-3rem)] overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl shadow-black/20", leadMotion.className)} {...leadMotion.exitProps}
+                  className={cn("absolute left-0 top-full z-30 mt-2 w-72 max-w-[calc(100vw-3rem)] overflow-hidden rounded-menu origin-top-left border border-hairline/60 bg-panel shadow-popover", leadMotion.className)} {...leadMotion.exitProps}
                 >
                   <div className="border-b border-hairline/40 px-3 py-2.5">
                     <div className="text-[12.5px] font-semibold text-ink">{t("room.behavior.chooseLead")}</div>

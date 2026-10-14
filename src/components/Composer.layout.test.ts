@@ -100,7 +100,8 @@ describe("the message box", () => {
   it("is one line when empty: + on the left (files, connectors, permissions), the words, then the model on the right", async () => {
     await mount();
     expect(expanded()).toBe(false);
-    expect(box().className).toContain("rounded-[22px]");
+    expect(box().className).toContain("rounded-composer");
+    expect(box().className).not.toContain("rounded-composer-expanded");
     expect(row().classList.contains("flex-wrap")).toBe(false);
     expect(editor().classList.contains("basis-full")).toBe(false);
 
@@ -117,7 +118,7 @@ describe("the message box", () => {
     await mount();
     await type("first line\nsecond line");
     expect(expanded()).toBe(true);
-    expect(box().className).toContain("rounded-[20px]");
+    expect(box().className).toContain("rounded-composer-expanded");
     expect(row().classList.contains("flex-wrap")).toBe(true);
     expect(editor().classList.contains("order-first")).toBe(true);
     expect(editor().classList.contains("basis-full")).toBe(true);

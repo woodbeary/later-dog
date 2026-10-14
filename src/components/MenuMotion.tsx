@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { MOTION } from "@/lib/motion";
 
-export const MENU_MOTION_MS = MOTION.base;
+export const MENU_MOTION_MS = MOTION.exit;
 
 function reducedMotion(): boolean {
   if (typeof document === "undefined") return false;

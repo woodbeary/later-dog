@@ -537,7 +537,7 @@ export function SettingsModal() {
         aria-modal="true"
         aria-labelledby="app-settings-title"
         tabIndex={-1}
-        className="glass-surface glass-popup animate-pop-in relative flex overflow-hidden rounded-[24px] outline-none"
+        className="glass-surface glass-popup animate-sheet-in relative flex overflow-hidden rounded-sheet outline-none"
       >
         <span id="app-settings-title" className="sr-only">{t("settings.title")}</span>
         <nav className="glass-rail hidden min-h-0 w-[200px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/30 p-3 sm:flex">
