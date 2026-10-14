@@ -860,7 +860,7 @@ export function Composer({
           <div
             role="listbox"
             aria-label={t("composer.commands.aria")}
-            className={cn("absolute bottom-full left-2 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg", commandMotion.className)} {...commandMotion.exitProps}
+            className={cn("absolute bottom-full left-2 z-20 mb-2 w-80 overflow-hidden rounded-menu origin-bottom-left border border-hairline/40 bg-raised shadow-popover", commandMotion.className)} {...commandMotion.exitProps}
           >
             <div className="border-b border-hairline/20 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
               {t("composer.commands.title")}
@@ -901,7 +901,7 @@ export function Composer({
             ref={mentionListRef}
             role="listbox"
             aria-label={t("composer.mention.aria")}
-            className={cn("absolute bottom-full left-2 z-20 mb-2 max-h-72 w-72 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-hairline/40 bg-raised shadow-lg", mentionMotion.className)} {...mentionMotion.exitProps}
+            className={cn("absolute bottom-full left-2 z-20 mb-2 max-h-72 w-72 overflow-x-hidden overflow-y-auto overscroll-contain rounded-menu origin-bottom-left border border-hairline/40 bg-raised shadow-popover", mentionMotion.className)} {...mentionMotion.exitProps}
           >
             {candidates.map((peer, i) => (
               <button
@@ -936,7 +936,7 @@ export function Composer({
           </div>
         )}
         {approval && (
-          <div className="mb-2 overflow-hidden rounded-[18px] bg-card shadow-[0_2px_8px_-1px_rgba(0,0,0,0.05),0_1px_2px_rgba(0,0,0,0.03)] ring-[0.5px] ring-ink/15">
+          <div className="mb-2 overflow-hidden rounded-card bg-card shadow-composer ring-[0.5px] ring-ink/15">
             <PendingApprovalPanel
               pending={approval}
               count={approvals.length}
@@ -974,8 +974,8 @@ export function Composer({
           data-tour="composer"
           data-expanded={expanded || undefined}
           className={cn(
-            "@container/composer relative z-[1] bg-composer px-2 py-1.5 ring-[0.5px] ring-ink/30 shadow-[0_2px_8px_-1px_rgba(0,0,0,0.05),0_1px_2px_rgba(0,0,0,0.03)] transition-[border-radius] duration-200",
-            expanded ? "rounded-[20px]" : "rounded-[22px]",
+            "@container/composer relative z-[1] bg-composer px-2 py-1.5 ring-[0.5px] ring-ink/30 shadow-composer transition-[border-radius] duration-(--duration-slow) ease-(--ease-enter)",
+            expanded ? "rounded-composer-expanded" : "rounded-composer",
           )}
         >
         {replyTo && (

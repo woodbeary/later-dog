@@ -1,0 +1,54 @@
+:root {
+  --duration-instant: 50ms;
+  --duration-fast: 100ms;
+  --duration-normal: 150ms;
+  --duration-slow: 200ms;
+  --duration-slower: 300ms;
+  --duration-exit: 300ms;
+
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-loop: cubic-bezier(0.45, 0, 0.55, 1);
+
+  --spring-standard: linear(0, 0.018, 0.062, 0.123, 0.193, 0.267, 0.341, 0.413, 0.481, 0.544, 0.602, 0.654, 0.7, 0.741, 0.778, 0.81, 0.838, 0.862, 0.883, 0.901, 0.916, 0.929, 0.94, 0.95, 0.958, 0.965, 0.971, 0.975, 0.98, 0.983, 0.986, 0.988, 1);
+  --spring-standard-duration: 485ms;
+  --spring-slow: linear(0, 0.019, 0.066, 0.13, 0.202, 0.279, 0.354, 0.427, 0.495, 0.558, 0.615, 0.666, 0.711, 0.752, 0.787, 0.818, 0.844, 0.868, 0.887, 0.905, 0.919, 0.932, 0.942, 0.951, 0.959, 0.966, 0.971, 0.976, 0.98, 0.983, 0.986, 0.988, 1);
+  --spring-slow-duration: 665ms;
+  --spring-bounce: linear(0, 0.019, 0.07, 0.143, 0.228, 0.321, 0.416, 0.509, 0.596, 0.676, 0.749, 0.812, 0.866, 0.912, 0.95, 0.979, 1.003, 1.02, 1.032, 1.04, 1.045, 1.046, 1.046, 1.044, 1.041, 1.037, 1.033, 1.028, 1.024, 1.02, 1.016, 1.012, 1);
+  --spring-bounce-duration: 500ms;
+  --press-scale: 0.93;
+
+  --motion-micro: var(--duration-fast);
+  --motion-base: var(--duration-slow);
+  --motion-enter: var(--duration-slower);
+  --ease-out-soft: var(--ease-enter);
+  --ease-in-out-soft: var(--ease-loop);
+
+  --hairline-width: 0.5px;
+  --hairline-subtle: color-mix(in srgb, var(--color-ink) 5%, transparent);
+  --hairline-weak: color-mix(in srgb, var(--color-ink) 10%, transparent);
+  --hairline-default: color-mix(in srgb, var(--color-ink) 15%, transparent);
+  --hairline-strong: color-mix(in srgb, var(--color-ink) 30%, transparent);
+
+  --shadow-tint: rgb(0 0 0 / 0.16);
+  --shadow-tint-deep: rgb(0 0 0 / 0.28);
+}
+
+@theme static {
+  --radius-bubble: 18px;
+  --radius-card: 16px;
+  --radius-question: 24px;
+  --radius-menu: 12px;
+  --radius-sheet: 24px;
+  --radius-control: 8px;
+  --radius-composer: 22px;
+  --radius-composer-expanded: 20px;
+
+  --shadow-control: 0 1px 3px var(--shadow-tint), 0 0 0 1px var(--hairline-subtle);
+  --shadow-inline: 0 4px 12px -1px var(--shadow-tint), 0 2px 4px -2px var(--shadow-tint), 0 0 0 1px var(--hairline-subtle);
+  --shadow-popover: 0 10px 20px -3px var(--shadow-tint-deep), 0 0 0 1px var(--hairline-subtle);
+  --shadow-modal: 0 20px 32px -5px var(--shadow-tint-deep), 0 0 0 1px var(--hairline-subtle);
+  --shadow-window: 0 22px 70px 4px var(--shadow-tint-deep), 0 0 0 1px var(--hairline-subtle);
+  --shadow-elevated: 0 4px 12px -1px var(--shadow-tint), 0 2px 4px -2px var(--shadow-tint), inset 0 0 0 0.5px var(--hairline-default);
+  --shadow-composer: 0 2px 8px -1px rgb(0 0 0 / 0.05), 0 1px 2px rgb(0 0 0 / 0.03);
+}

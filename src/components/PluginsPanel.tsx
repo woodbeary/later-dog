@@ -672,7 +672,7 @@ export function PluginsPanel() {
         aria-modal="true"
         aria-labelledby="plugins-title"
         tabIndex={-1}
-        className="glass-surface glass-popup animate-pop-in relative flex flex-col overflow-hidden rounded-[24px]"
+        className="glass-surface glass-popup animate-sheet-in relative flex flex-col overflow-hidden rounded-sheet"
       >
         <header className="flex flex-col gap-4 px-6 pb-3 pt-6 sm:px-8 sm:pt-7">
           <div className="flex items-start justify-between gap-4">
@@ -753,7 +753,7 @@ export function PluginsPanel() {
                   role="menu"
                   aria-label={t("apps.filter.moreAria")}
                   className={cn(
-                    "absolute left-0 top-full z-40 mt-1.5 w-[232px] overflow-y-auto overscroll-contain rounded-xl border border-hairline/50 bg-menu py-1.5 shadow-2xl shadow-black/50",
+                    "absolute left-0 top-full z-40 mt-1.5 w-[232px] overflow-y-auto overscroll-contain rounded-menu origin-top-left border border-hairline/50 bg-menu py-1.5 shadow-popover",
                     moreMotion.className,
                   )}
                   style={{ maxHeight: moreRoom }}

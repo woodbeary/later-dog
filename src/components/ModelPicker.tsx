@@ -920,10 +920,10 @@ export function ModelPicker({
           {...motion.exitProps}
           style={contained ? undefined : { ...placement, width: popoverWidth }}
           className={cn(
-            "flex flex-col rounded-2xl border border-hairline/50 bg-card", part === "model" ? "overflow-visible" : "overflow-hidden",
+            "flex flex-col rounded-menu border border-hairline/50 bg-card", part === "model" ? "overflow-visible" : "overflow-hidden",
             contained
               ? "relative mt-3 w-full max-h-[min(420px,50dvh)]"
-              : cn("absolute z-30 max-w-[calc(100vw-2rem)] max-h-[min(600px,calc(100dvh-7rem))] shadow-2xl shadow-black/50", above ? "bottom-full mb-2" : "right-0 top-full mt-2"),
+              : cn("absolute z-30 max-w-[calc(100vw-2rem)] max-h-[min(600px,calc(100dvh-7rem))] shadow-popover", above ? "bottom-full mb-2 origin-bottom-right" : "right-0 top-full mt-2 origin-top-right"),
             motion.className,
           )}
         >

@@ -84,7 +84,7 @@ export function SendChoiceMenu({ name, canSteer, disabled = false, onChoose }: {
             else navigateThreadMenu(event);
           }}
           className={cn(
-            "absolute bottom-full right-0 z-30 mb-1.5 w-[290px] max-w-[calc(100vw-2rem)] rounded-xl border border-hairline bg-panel p-1.5 text-left shadow-2xl",
+            "absolute bottom-full right-0 z-30 mb-1.5 w-[290px] max-w-[calc(100vw-2rem)] rounded-menu origin-bottom-right border border-hairline bg-panel p-1.5 text-left shadow-popover",
             motion.className,
           )}
         >

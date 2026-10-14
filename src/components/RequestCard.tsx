@@ -60,7 +60,7 @@ export function RequestCard({
           if (event.currentTarget.contains(target) && !target.closest("button, a, input")) onActivate();
         } : undefined}
         className={cn(
-          "group/request relative w-full max-w-[420px] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10 transition-[box-shadow] motion-reduce:transition-none",
+          "group/request relative w-full max-w-[420px] overflow-hidden rounded-card bg-card ring-[0.5px] ring-ink/10 transition-[box-shadow] motion-reduce:transition-none",
           onActivate && "cursor-pointer hover:ring-ink/25 after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:bg-ink/0 after:transition-colors hover:after:bg-ink/[0.04] motion-reduce:after:transition-none",
         )}
       >

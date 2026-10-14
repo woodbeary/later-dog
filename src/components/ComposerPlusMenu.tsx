@@ -65,7 +65,7 @@ export function ComposerPlusMenu({ onAttach, permissions, onConnectors }: {
           role="menu"
           data-composer-plus-menu
           {...motion.exitProps}
-          className={cn("absolute bottom-full left-0 z-30 mb-2 w-60 rounded-2xl border border-hairline/50 bg-card p-1 shadow-2xl shadow-black/50", motion.className)}
+          className={cn("absolute bottom-full left-0 z-30 mb-2 w-60 rounded-menu origin-bottom-left border border-hairline/50 bg-card p-1 shadow-popover", motion.className)}
         >
           <button type="button" role="menuitem" className={row} onClick={() => { setOpen(false); onAttach(); }}>
             <Paperclip size={16} className="shrink-0 text-ink-secondary" />

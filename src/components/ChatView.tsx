@@ -225,7 +225,7 @@ export function ErrorRow({
   const headline = macCuaReason ?? plainHeadline ?? message;
   return (
     <div className="flex justify-start">
-      <div data-turn-error className="w-fit max-w-[min(42rem,78%)] rounded-[18px] bg-card px-3 py-[7px] text-[14px] leading-[21px] text-ink">
+      <div data-turn-error className="w-fit max-w-[min(42rem,78%)] rounded-bubble bg-card px-3 py-[7px] text-[14px] leading-[21px] text-ink">
         <div className="flex items-start gap-2">
           <AlertTriangle size={14} className="mt-[3.5px] shrink-0 text-ink-secondary" />
           <span className="min-w-0 break-words">{headline}</span>
@@ -323,7 +323,7 @@ class MessageBoundary extends Component<{ children: ReactNode; fallbackText: str
   render() {
     if (this.state.failed) {
       return (
-        <div className="chat-text w-fit max-w-[min(42rem,78%)] rounded-[18px] bg-card px-3 py-[7px] text-[14px] leading-[21px] whitespace-pre-wrap text-ink">
+        <div className="chat-text w-fit max-w-[min(42rem,78%)] rounded-bubble bg-card px-3 py-[7px] text-[14px] leading-[21px] whitespace-pre-wrap text-ink">
           {this.props.fallbackText}
         </div>
       );
@@ -353,7 +353,7 @@ function BubbleEditor({
     if (draft.trim()) onSubmit(draft.trim());
   };
   return (
-    <div className="w-full max-w-[min(42rem,78%)] rounded-[18px] border border-hairline/40 bg-bubble-user px-3 py-2">
+    <div className="w-full max-w-[min(42rem,78%)] rounded-bubble border border-hairline/40 bg-bubble-user px-3 py-2">
       <textarea
         ref={ref}
         value={draft}
@@ -485,7 +485,7 @@ const Bubble = memo(function Bubble({
   ];
 
   return (
-    <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
+    <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
       {peer && <PeerLabel peer={peer} />}
       {sentAbove && (
         <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
@@ -518,7 +518,7 @@ const Bubble = memo(function Bubble({
         <div
           data-chat-bubble
           className={cn(
-            "w-fit max-w-[min(42rem,78%)] rounded-[18px] text-[14px] leading-[21px]",
+            "w-fit max-w-[min(42rem,78%)] rounded-bubble text-[14px] leading-[21px]",
             emerging && "turn-answer",
             user && webhookView
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"

@@ -174,7 +174,7 @@ export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message:
         aria-label={t("cloudTask.cardAria", { title, status: view.label })}
         data-testid="cloud-task-card"
         data-phase={view.phase}
-        className="@container/cloudtask w-full max-w-[min(42rem,max(78%,18rem))] overflow-hidden rounded-[18px] bg-card ring-[0.5px] ring-ink/10"
+        className="@container/cloudtask w-full max-w-[min(42rem,max(78%,18rem))] overflow-hidden rounded-card bg-card ring-[0.5px] ring-ink/10"
       >
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3 pl-3.5 pr-3">
           <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-inset text-ink-secondary @max-[22rem]/cloudtask:hidden">

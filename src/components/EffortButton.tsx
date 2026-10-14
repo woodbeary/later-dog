@@ -68,7 +68,7 @@ export function EffortButton({ bot, threadId }: { bot: Bot; threadId?: string })
           aria-label={t("model.simple.effort")}
           data-effort-menu
           {...motion.exitProps}
-          className={cn("absolute bottom-full right-0 z-30 mb-2 w-52 rounded-xl border border-hairline/50 bg-card p-2.5 shadow-2xl shadow-black/50", motion.className)}
+          className={cn("absolute bottom-full right-0 z-30 mb-2 w-52 rounded-menu origin-bottom-right border border-hairline/50 bg-card p-2.5 shadow-popover", motion.className)}
         >
           {levels.length > 0 && (
             <>
