@@ -945,7 +945,7 @@ describe("LiveCallController relay", () => {
       await vi.advanceTimersByTimeAsync(0);
       hear(t, "yes", 5_000);
       await delegate(t, "del_2", 5_100);
-      expect(t.socket().appends("commentary").at(-1)).toMatchObject({ content: "The decision could not be saved. Ask the user to try again." });
+      expect(t.socket().appends("commentary").at(-1)).toMatchObject({ content: "The decision could not be saved. Ask the person to try again." });
       hear(t, "yes", 9_000);
       await delegate(t, "del_3", 9_100);
       expect(t.deps.respond).toHaveBeenCalledTimes(2);

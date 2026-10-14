@@ -50,6 +50,9 @@ describe("what a teammate's result chip says", () => {
     expect(teammateResultLabel("Scout", "completed", undefined, "Launch")).toBe("Scout replied · Launch");
     expect(teammateResultLabel("Scout", "failed", undefined)).toBe("Scout couldn't finish");
     expect(teammateResultLabel("Scout", "cancelled", undefined)).toBe("Scout stopped");
+    expect(teammateResultLabel("Scout", "cancelled", undefined, undefined, "person")).toBe("Scout stopped");
+    expect(teammateResultLabel("Scout", "failed", undefined, undefined, "capped")).toBe("Scout ran out of time");
+    expect(teammateResultLabel("Scout", "cancelled", undefined, undefined, "interrupted")).toBe("Scout was interrupted");
     expect(teammateResultLabel("Scout", "completed", "Destination bot task no longer exists")).toBe("Scout's reply was held back");
   });
 });

@@ -171,13 +171,13 @@ describe("formatQuestionAnswers", () => {
 
   it("names each question beside its answer — the model sees only this text", () => {
     expect(formatQuestionAnswers(questions, [["Opus"], ["Instamart", "Blinkit"]])).toBe(
-      "The user answered your questions.\n\nQ: Which model?\nA: Opus\n\nQ: Which stores?\nA: Instamart, Blinkit",
+      "The person answered your questions.\n\nQ: Which model?\nA: Opus\n\nQ: Which stores?\nA: Instamart, Blinkit",
     );
   });
 
   it("omits a question that was left unanswered instead of implying one", () => {
     expect(formatQuestionAnswers(questions, [["Opus"], ["  "]])).toBe(
-      "The user answered your questions.\n\nQ: Which model?\nA: Opus",
+      "The person answered your questions.\n\nQ: Which model?\nA: Opus",
     );
   });
 
@@ -300,7 +300,7 @@ describe("questionAnswersById", () => {
   ])!;
 
   it("maps a multi-block reply to an answer per id", () => {
-    const reply = "The user answered your questions.\n\nQ: Ship today?\nA: Yes\n\nQ: Who reviews?\nA: Ada, Lin";
+    const reply = "The person answered your questions.\n\nQ: Ship today?\nA: Yes\n\nQ: Who reviews?\nA: Ada, Lin";
     expect(questionAnswersById(reply, questions)).toEqual({ "q-ship": "Yes", "q-review": "Ada, Lin" });
   });
 
@@ -376,5 +376,13 @@ describe("isPersistentQuestionCard", () => {
     expect(shouldSettleRequestCard(question, "unavailable")).toBe(false);
     expect(shouldSettleRequestCard(question, "user")).toBe(true);
     expect(shouldSettleRequestCard({ requestType: "permission", tool: "Bash" }, "timeout")).toBe(true);
+  });
+});
+
+describe("answers saved before the wording changed", () => {
+  it("still strips the old preamble, and the new one", () => {
+    expect(answerWithoutPreamble("The user answered your questions.\n\nQ: Ship?\nA: Yes")).toBe("Q: Ship?\nA: Yes");
+    expect(answerWithoutPreamble("The person answered your questions.\n\nQ: Ship?\nA: Yes")).toBe("Q: Ship?\nA: Yes");
+    expect(answerWithoutPreamble("Plain text")).toBe("Plain text");
   });
 });

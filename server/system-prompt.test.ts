@@ -22,6 +22,7 @@ import {
   WEBHOOK_PROMPT,
   SIGN_IN_PROMPT,
   VOICE_PROMPT,
+  voicePrompt,
   type ComputerPromptKind,
 } from "./system-prompt.ts";
 
@@ -119,10 +120,21 @@ describe("buildSystemPrompt", () => {
     ]);
   });
 
+  it("adds the person's name to the voice rule when it is known, and only then", () => {
+    expect(voicePrompt()).toBe(VOICE_PROMPT);
+    expect(voicePrompt("  ")).toBe(VOICE_PROMPT);
+    expect(voicePrompt(" Jacob ")).toBe(`${VOICE_PROMPT} Their name is "Jacob"; use it when it helps.`);
+    const named = buildSystemPrompt("You are Kiwi.", "", [], "Jacob");
+    expect(named.text).toBe(`You are Kiwi.${voicePrompt("Jacob")}`);
+    expect(named.text).toContain('"Jacob"');
+    expect(buildSystemPrompt("You are Kiwi.", "", []).text).not.toContain("Their name is");
+  });
+
   it("always tells the dog to talk to the person as you, not about the user, and not to itself", () => {
-    expect(VOICE_PROMPT).toContain('directly, as "you"');
-    expect(VOICE_PROMPT).toContain('"the user" or "the person"; your replies never do');
-    expect(VOICE_PROMPT).toContain("never narrate your reasoning to yourself");
+    expect(VOICE_PROMPT).toContain('Speak to the person directly: say "you", or use their name when you know it.');
+    expect(VOICE_PROMPT).toContain('Never call them "the user" or "the person" in anything you write');
+    expect(VOICE_PROMPT).toContain('never "The user didn\'t answer yet"');
+    expect(VOICE_PROMPT).toContain("Never narrate your reasoning to yourself");
     for (const soul of ["", "Be brief."]) {
       expect(buildSystemPrompt("You are Kiwi.", soul, [{ id: "recall", label: "Recall", text: " Search." }]).stable).toContain(VOICE_PROMPT);
     }

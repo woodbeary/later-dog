@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import {
-  AccountBattery, DEFAULT_REST_MS, backNotice, batteryEnabled, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection,
+  AccountBattery, DEFAULT_REST_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection,
   routedNotice, switchNotice, withoutAccount,
   type AccountBatteryConfig, type BatteryAccount, type Rest,
 } from "./account-battery.ts";
@@ -580,5 +580,74 @@ describe("automatic continuation defaults and cross-provider order", () => {
       .toMatchObject({ ok: true, config: { sequence: ["codex", "claude"] } });
     expect(checkBatteryConfig({ sequence: ["missing"] }, accounts, ON).ok).toBe(false);
     expect(withoutAccount(config, "codex")?.sequence).toEqual(["claude"]);
+  });
+});
+
+
+describe("keeping going across engines", () => {
+  const codex = (instanceId: string, extra: Partial<BatteryAccount> = {}) =>
+    account(instanceId, { driverKind: "codex", models: ["gpt-5.5", "gpt-5.5-mini"], defaultModel: "gpt-5.5", ...extra });
+  const accounts = [account("claude"), account("claude-b"), codex("chatgpt")];
+  const config: AccountBatteryConfig = { enabled: true, order: { claudeAgent: ["claude", "claude-b"], codex: ["chatgpt"] } };
+  const dog = { instanceId: "claude", model: "claude-opus-5", effort: "high" as const };
+
+  it("names the two engines the way a person would", () => {
+    expect(engineName("claudeAgent")).toBe("Claude");
+    expect(engineName("codex")).toBe("Codex");
+    expect(engineName("grokAgent")).toBe("grokAgent");
+  });
+
+  it("says in one short line that Claude is recharging and the work continues on Codex, only when the engine really changes", () => {
+    expect(crossEngineNotice(accounts[0], accounts[2], "Continuing")).toBe("Claude is recharging. Continuing on Codex.");
+    expect(crossEngineNotice(accounts[2], accounts[0], "Running")).toBe("Codex is recharging. Running on Claude.");
+    expect(crossEngineNotice(accounts[0], accounts[1], "Continuing")).toBeUndefined();
+    expect(crossEngineNotice(undefined, accounts[1], "Continuing")).toBeUndefined();
+  });
+
+  it("goes through the whole order: with every Claude account recharging, the work moves to Codex on its default model and drops Claude-only settings", () => {
+    const resting = { claude: rest(HOUR), "claude-b": rest(HOUR) };
+    expect(routeSelection({ config, selection: dog, accounts, resting, now: NOW })).toEqual({ instanceId: "chatgpt", model: "gpt-5.5" });
+  });
+
+  it("uses the model the dog chose for that engine, matched by account or by engine, and falls back to the default", () => {
+    const resting = { claude: rest(HOUR), "claude-b": rest(HOUR) };
+    const choice = [{ instanceId: "chatgpt", model: "gpt-5.5-mini" }];
+    expect(routeSelection({ config, selection: dog, accounts, resting, now: NOW, preferred: choice })).toEqual({ instanceId: "chatgpt", model: "gpt-5.5-mini" });
+    expect(routeSelection({ config, selection: dog, accounts, resting, now: NOW, preferred: [{ instanceId: "chatgpt", model: "gpt-unknown" }] }))
+      .toEqual({ instanceId: "chatgpt", model: "gpt-5.5" });
+    const second = [...accounts, codex("chatgpt-b")];
+    expect(chosenModelOn(second[3]!, second, choice)).toBe("gpt-5.5-mini");
+    expect(chosenModelOn(second[1]!, second, choice)).toBeUndefined();
+    expect(selectionOnAccount(dog, accounts[1]!, accounts, choice)).toEqual({ ...dog, instanceId: "claude-b" });
+  });
+
+  it("checks a model-specific rest against the model it will actually run", () => {
+    const codexOnly = [account("claude"), codex("chatgpt")];
+    const resting = { claude: rest(HOUR), chatgpt: rest(HOUR, { kind: "opus" }) };
+    expect(routeSelection({ config, selection: dog, accounts: codexOnly, resting, now: NOW }))
+      .toEqual({ instanceId: "chatgpt", model: "gpt-5.5" });
+  });
+
+  it("stays put when the switch is off, and when every account in the order is out", () => {
+    const resting = { claude: rest(HOUR), "claude-b": rest(HOUR) };
+    expect(routeSelection({ config: { ...config, enabled: false }, selection: dog, accounts, resting, now: NOW })).toBe(dog);
+    expect(routeSelection({ config, selection: dog, accounts, resting: { ...resting, chatgpt: rest(HOUR) }, now: NOW })).toBe(dog);
+  });
+
+  it("asks the battery for the dog's chosen model on every path that routes", () => {
+    const choice = [{ instanceId: "chatgpt", model: "gpt-5.5-mini" }];
+    const preferred = vi.fn((threadId: string | undefined) => threadId === "thread-1" ? choice : undefined);
+    const battery = new AccountBattery({ config: () => config, accounts: () => accounts, now: () => NOW, preferred });
+    battery.markExhausted("claude", { resetsAt: at(HOUR) });
+    battery.markExhausted("claude-b", { resetsAt: at(HOUR) });
+    expect(battery.route(dog, accounts, "thread-1")).toEqual({ instanceId: "chatgpt", model: "gpt-5.5-mini" });
+    expect(battery.route(dog, accounts, "thread-2")).toEqual({ instanceId: "chatgpt", model: "gpt-5.5" });
+    expect(battery.route(dog, accounts)).toEqual({ instanceId: "chatgpt", model: "gpt-5.5" });
+    const turn = { generation: "g", instanceId: "claude", rerun: async () => undefined };
+    battery.trackTurn("thread-1", turn);
+    expect(battery.nextAccount({ threadId: "thread-1", generation: "g", stopReason: "usage_limit", ranOn: "claude", selection: dog, accounts }))
+      .toMatchObject({ to: { instanceId: "chatgpt" } });
+    expect(battery.arrive("thread-1", dog, "chatgpt", accounts)).toBe("Claude is recharging. Running on Codex.");
+    expect(battery.arrive("thread-1", dog, "chatgpt", accounts)).toBeUndefined();
   });
 });

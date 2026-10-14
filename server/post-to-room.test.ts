@@ -621,7 +621,7 @@ describe("post_to_room", () => {
     expect(str(intoOwnRoom.body.error)).toContain("already speaking");
   }, 40_000);
 
-  it("stops the room at its third bot post and sends the model to the user", async () => {
+  it("stops the room at its third bot post and sends the model to the person", async () => {
     const one = await makeBot("Budget One", "Budget");
     const two = await makeBot("Budget Two", "Budget");
     const three = await makeBot("Budget Three", "Budget");
@@ -631,7 +631,7 @@ describe("post_to_room", () => {
     expect((await post(two.id, two.threadId, room.id, "second")).status).toBe(201);
     const third = await post(three.id, three.threadId, room.id, "third");
     expect(third.status).toBe(429);
-    expect(str(third.body.error)).toMatch(/ask the user/i);
+    expect(str(third.body.error)).toMatch(/ask the person/i);
     expect(str(third.body.error)).toMatch(/do not retry/i);
     expect(await messagesOf(room.threadId)).toHaveLength(2);
   }, 40_000);
@@ -746,7 +746,7 @@ describe("post_to_room", () => {
       behavior: "deny",
     })).status).toBe(200);
     const settled = await pending;
-    expect(str(settled.body.error)).toContain("denied by user");
+    expect(str(settled.body.error)).toContain("the person said no");
     expect(await messagesOf(room.threadId), "a denied post reached the room anyway").toHaveLength(0);
 
     expect((await api("PATCH", `/api/bots/${gated.id}`, { approvePeerComms: false })).status).toBe(200);

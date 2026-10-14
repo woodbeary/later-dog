@@ -21,6 +21,7 @@ export interface DelegationItem {
   targetThreadId?: string;
   oneWay?: boolean;
   completionOwner?: "external";
+  continuesThread?: boolean;
 }
 
 interface PendingDelegationItem extends DelegationItem {
@@ -283,7 +284,9 @@ export function queueDelegation(
     kind: "activity",
     tool: {
       name: openedThread
-        ? `Opened thread #${openedThread.title} on ${target.name}`
+        ? item.continuesThread
+          ? `Added to thread #${openedThread.title} on ${target.name}`
+          : `Opened thread #${openedThread.title} on ${target.name}`
         : `Delegated to @${target.name}${item.reason ? `: ${item.reason}` : ""}`,
       ok: true,
     },
@@ -617,12 +620,12 @@ async function processOne(
         toBotName: target.name,
         status: verdict === "deny" ? "denied" : verdict,
         approvalOutcome: verdict,
-        result: verdict === "deny" ? "the user denied this handoff" : failure.error,
+        result: verdict === "deny" ? "the person denied this handoff" : failure.error,
       });
       appendDeliveryMessage(bus, sourceThreadId, item, {
         role: "bot",
         kind: "activity",
-        tool: { name: verdict === "deny" ? `Delegation to @${target.name} denied by user`
+        tool: { name: verdict === "deny" ? `Delegation to @${target.name} declined`
           : `Delegation to @${target.name}: ${failure.error}`, ok: false },
       });
       return "settled";
@@ -771,7 +774,7 @@ export function buildDelegationRevivalPrompt(targetName: string): string {
   return [
     "[A delegated task just completed]",
     `The task you delegated to @${targetName} has finished, and their reply is now in this conversation.`,
-    "Pick the work back up: review the reply, then answer the user with the outcome — lead with the concrete result and say what happens next. Do not re-delegate the same task.",
+    "Pick the work back up: review the reply, then answer the person with the outcome — lead with the concrete result and say what happens next. Do not re-delegate the same task.",
   ].join("\n\n");
 }
 
@@ -779,7 +782,7 @@ export function buildDelegationFailurePrompt(targetName: string, reason: string)
   return [
     "[A delegated task failed]",
     `The task you delegated to @${targetName} did not finish: ${reason}`,
-    "Take over: tell the user what failed in plain terms, then decide the next step — retry with a narrower task, do the work yourself, or propose an alternative. Do not re-delegate the exact same task unchanged.",
+    "Take over: tell the person what failed in plain terms, then decide the next step — retry with a narrower task, do the work yourself, or propose an alternative. Do not re-delegate the exact same task unchanged.",
   ].join("\n\n");
 }
 

@@ -3,13 +3,14 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type State = "starting" | "running" | "sleeping" | "stopping" | "error";
 type FakeComputer = { id: string; name: string; state: State };
 type Recorded = { method: string; path: string; headers: IncomingMessage["headers"]; body: string };
 
 const KEY = `ldc_${"f".repeat(48)}`;
+const TRIAL_KEY = `ldt_${"t".repeat(43)}`;
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0xff, 0xd9]);
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const noBoat = {} as any;
@@ -31,6 +32,7 @@ describe("the cloud computer facade", () => {
   let wakeTo: State = "running";
   let startsOnPoll = false;
   let dropCreateAnswer = false;
+  let trialOne = false;
   let concurrentCreate: string | null = null;
   let frame = JPEG;
 
@@ -58,7 +60,7 @@ describe("the cloud computer facade", () => {
           if (url.pathname.endsWith("/commands")) return send(200, { ok: true, exitCode: 0, stdout: "boat", stderr: "" });
           return send(404, { ok: false, message: "not found" });
         }
-        if (req.headers.authorization !== `Bearer ${KEY}`) return send(401, { error: { code: "unauthorized", message: "unknown key" } });
+        if (req.headers.authorization !== `Bearer ${KEY}` && req.headers.authorization !== `Bearer ${TRIAL_KEY}`) return send(401, { error: { code: "unauthorized", message: "unknown key" } });
         const failure = failures.get(`${method} ${url.pathname}`);
         if (failure) {
           failures.delete(`${method} ${url.pathname}`);
@@ -68,6 +70,7 @@ describe("the cloud computer facade", () => {
         if (url.pathname === "/v1/computers" && method === "GET") return send(200, { computers: [...fleet.values()] });
         if (url.pathname === "/v1/computers" && method === "POST") {
           const name = JSON.parse(body).name as string;
+          if (trialOne && fleet.size > 0) return send(409, { error: { code: "trial_one_computer", message: "the free trial includes one cloud computer" } });
           if (concurrentCreate) {
             add("", "sleeping", concurrentCreate); concurrentCreate = null;
             return send(409, { error: { code: "idempotency_in_progress", message: "a create with this key is in progress" } });
@@ -113,7 +116,7 @@ describe("the cloud computer facade", () => {
 
   beforeEach(() => {
     fleet.clear(); keys.clear(); failures.clear(); requests.length = 0;
-    wakeTo = "running"; startsOnPoll = false; dropCreateAnswer = false; concurrentCreate = null; frame = JPEG;
+    wakeTo = "running"; startsOnPoll = false; dropCreateAnswer = false; trialOne = false; concurrentCreate = null; frame = JPEG;
     vi.stubEnv("LATERDOG_COMPUTERS_API", `http://127.0.0.1:${port}/v1`);
     vi.stubEnv("LATERDOG_COMPUTERS_KEY_FILE", join(keyDir, "computers-key"));
   });
@@ -274,6 +277,66 @@ describe("the cloud computer facade", () => {
       vi.stubEnv("LATERDOG_HOME", undefined);
       rmSync(trialHome, { recursive: true, force: true });
     }
+  });
+
+  describe("a deleted dog frees the free trial's one computer", () => {
+    let trialHome = "";
+    const startTrial = () => {
+      trialHome = mkdtempSync(join(tmpdir(), "laterdog-trial-release-"));
+      vi.stubEnv("LATERDOG_HOME", trialHome);
+      vi.stubEnv("LATERDOG_COMPUTERS_API", "");
+      writeFileSync(join(trialHome, "computers-trial-key"), `${TRIAL_KEY}\n`, { mode: 0o600 });
+      writeFileSync(join(trialHome, "computers-trial.json"), JSON.stringify({ api: `http://127.0.0.1:${port}/v1`, confirmed: true }));
+      trialOne = true;
+    };
+    afterEach(() => {
+      vi.stubEnv("LATERDOG_HOME", undefined);
+      if (trialHome) rmSync(trialHome, { recursive: true, force: true });
+      trialHome = "";
+      computers.useBoatOwners(() => []);
+    });
+
+    it("releases the computer of a dog that is gone, so the next dog gets one", async () => {
+      startTrial();
+      const first = await computers.provisionBoat(noBoat, "first-dog", "First");
+      await expect(computers.provisionBoat(noBoat, "second-dog", "Second")).rejects.toMatchObject({ boatCode: "trial_one_computer" });
+      expect(await computers.releaseDeletedDogsComputers(noBoat, [owner("second-dog", "Second")])).toBe(1);
+      expect(fleet.has(first.boxId)).toBe(false);
+      const second = await computers.provisionBoat(noBoat, "second-dog", "Second");
+      expect([...fleet.values()].map((computer) => computer.name)).toEqual([nameFor("second-dog")]);
+      expect(second.reused).toBe(false);
+    });
+
+    it("frees the slot by itself when the next dog is refused for it, once, and then makes the computer", async () => {
+      startTrial();
+      await computers.provisionBoat(noBoat, "gone-dog", "Gone");
+      computers.useBoatOwners(() => [owner("next-dog", "Next")]);
+      const next = await computers.provisionBoat(noBoat, "next-dog", "Next");
+      expect([...fleet.keys()]).toEqual([next.boxId]);
+      expect(fleet.get(next.boxId)?.name).toBe(nameFor("next-dog"));
+      expect(ours().filter((request) => request.method === "DELETE")).toHaveLength(1);
+    });
+
+    it("never releases a computer that still has a dog, and keeps the refusal when nothing can be freed", async () => {
+      startTrial();
+      const kept = await computers.provisionBoat(noBoat, "kept-dog", "Kept");
+      expect(await computers.releaseDeletedDogsComputers(noBoat, [owner("kept-dog", "Kept", true)])).toBe(0);
+      expect(fleet.has(kept.boxId)).toBe(true);
+      computers.useBoatOwners(() => [owner("kept-dog", "Kept"), owner("other-dog", "Other")]);
+      await expect(computers.provisionBoat(noBoat, "other-dog", "Other")).rejects.toMatchObject({ boatCode: "trial_one_computer", message: expect.stringMatching(/free trial includes one/) });
+      expect(fleet.has(kept.boxId)).toBe(true);
+      expect(ours().filter((request) => request.method === "DELETE")).toHaveLength(0);
+    });
+
+    it("leaves a paid plan's or the person's own computers alone", async () => {
+      add("old-dog", "sleeping");
+      expect(await computers.releaseDeletedDogsComputers(noBoat, [])).toBe(0);
+      expect(fleet.size).toBe(1);
+      startTrial();
+      writeFileSync(join(trialHome, "computers.json"), JSON.stringify({ api: `http://127.0.0.1:${port}/v1` }));
+      expect(await computers.releaseDeletedDogsComputers(noBoat, [])).toBe(0);
+      expect(fleet.size).toBe(1);
+    });
   });
 
   it("runs console commands in the clean environment and refuses oversized ones before any request", async () => {

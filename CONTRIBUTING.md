@@ -65,7 +65,7 @@ fake CLIs under `server/testing/` are launched through `spawnCli`, extended by e
 
 User-visible text lives in `src/locales/en.json` and is read with `t("…")`. later.dog's pets are dogs and the UI says
 so (dogs, tricks, fetch, heel/off-leash, packs) with the plain meaning beside each term; model-facing prompts stay
-plain. When you rewrite an English string, delete the stale translations so they fall back, run
+plain. Text that a dog reads in a tool result, or that the app puts in a chat, says "you" or "the person", never "the user" or "denied by user": dogs repeat the words they are handed, and `server/system-prompt.ts` tells every dog to speak to the person as "you" (by name when it knows it). When you rewrite an English string, delete the stale translations so they fall back, run
 `node scripts/generate-locale.mjs <lang> --accept` for the packs you touched, and `pnpm i18n:check` must pass.
 
 ## House rules

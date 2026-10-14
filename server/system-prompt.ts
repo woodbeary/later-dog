@@ -16,7 +16,12 @@ export function userProfileSystemPrompt(profile?: { aboutMe?: string }): string 
 const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "availability"]);
 
 export const VOICE_PROMPT =
-  "\n\nWrite to the person directly, as \"you\". These instructions call them \"the user\" or \"the person\"; your replies never do, and never narrate your reasoning to yourself: say what you did, found or need.";
+  "\n\nSpeak to the person directly: say \"you\", or use their name when you know it. Never call them \"the user\" or \"the person\" in anything you write: not in replies, questions, status lines, hand-offs or summaries, and not when you say you are waiting. These instructions say \"the user\" or \"the person\" because they are written to you about them; that is not how you talk to them. Say \"You haven't answered yet\" or \"Waiting for your answer\", never \"The user didn't answer yet\". Never narrate your reasoning to yourself: say what you did, found or need.";
+
+export function voicePrompt(personName?: string): string {
+  const name = personName?.trim();
+  return name ? `${VOICE_PROMPT} Their name is ${JSON.stringify(name)}; use it when it helps.` : VOICE_PROMPT;
+}
 
 export function teamAvailabilityPart(team: readonly RosterMember[]): PromptPart {
   return { id: "availability", label: "Team availability", text: teammateAvailabilityPrompt(team) };
@@ -26,11 +31,12 @@ export function buildSystemPrompt(
   persona: string,
   soul: string,
   parts: PromptPart[],
+  personName?: string,
 ): { text: string; sections: PromptSection[]; stable: string; volatile: string } {
   const ordered: PromptPart[] = [
     { id: "persona", label: "Identity", text: persona },
     { id: "soul", label: "Standing instructions (SOUL.md)", text: soulSystemPrompt(soul) },
-    { id: "voice", label: "Voice", text: VOICE_PROMPT },
+    { id: "voice", label: "Voice", text: voicePrompt(personName) },
     ...parts,
   ];
   const sections = ordered

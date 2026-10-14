@@ -77,33 +77,33 @@ export function spokenApprovalPrompt(card: OptionCardData): string {
 
 export function spokenReviewPrompt(card: OptionCardData): string {
   const title = brief(card.title || "a proposal", 200);
-  return `Tell the user, in your own words, that you need their decision in the chat: ${title}. They review it on screen and choose there; it cannot be decided by voice.`;
+  return `Tell the person, in your own words, that you need their decision in the chat: ${title}. They review it on screen and choose there; it cannot be decided by voice.`;
 }
 
 export function spokenConnectorPrompt(label: string): string {
-  return `Tell the user, in your own words, that you need them to connect ${brief(label || "an app", 80)} in the chat before you can go on. It cannot be done by voice.`;
+  return `Tell the person, in your own words, that you need them to connect ${brief(label || "an app", 80)} in the chat before you can go on. It cannot be done by voice.`;
 }
 
 export function spokenSecretPrompt(label: string): string {
-  return `Tell the user, in your own words, that you need ${brief(label || "a credential", 80)} entered in the chat on screen before you can go on. Never ask them to say it aloud.`;
+  return `Tell the person, in your own words, that you need ${brief(label || "a credential", 80)} entered in the chat on screen before you can go on. Never ask them to say it aloud.`;
 }
 
 export function spokenQuestionPrompt(card: OptionCardData): string {
   const detail = brief(card.subtitle || card.title);
   const choices = card.options.length ? ` The options are ${card.options.join(", ")}.` : "";
-  return `Ask the user, in your own words: ${detail}?${choices} Then delegate their answer.`;
+  return `Ask the person, in your own words: ${detail}?${choices} Then delegate their answer.`;
 }
 
 export const LIVE_COPY = {
-  notHeard: "The request was not heard clearly. Ask the user to say it again.",
-  notClear: "That was not a clear yes or no. Ask the user again for a clear yes or no.",
+  notHeard: "The request was not heard clearly. Ask the person to say it again.",
+  notClear: "That was not a clear yes or no. Ask the person again for a clear yes or no.",
   deniedMessage: "Declined on a live call.",
-  answeredInChat: "The user answered that request in the chat. Do not ask about it again.",
+  answeredInChat: "The person answered that request in the chat. Do not ask about it again.",
   working: "You are working on the request now. Nothing is done until the result comes back; do not guess it.",
-  answerPassed: "You are using the user's answer now. Wait for the result.",
+  answerPassed: "You are using the person's answer now. Wait for the result.",
   granted: "Thanks, I'll go ahead.",
   denied: "Okay, I won't do it.",
-  saveFailed: (detail: string) => `The decision could not be saved${detail ? `: ${detail}` : "."} Ask the user to try again.`,
+  saveFailed: (detail: string) => `The decision could not be saved${detail ? `: ${detail}` : "."} Ask the person to try again.`,
   noAnswer: "I'm done. The result, or what went wrong, is in the chat.",
   typedAnswerLead: (typed: string) => `About what you typed in the chat ("${brief(typed, 200)}"):`,
   progress: (spoken: string) => `Progress: ${brief(spoken, 200)}`,
@@ -112,5 +112,5 @@ export const LIVE_COPY = {
       lastStep ? `; last step: ${lastStep}, ${duration(lastStepAgoMs)} ago` : ""}).`,
   signedOut: "The call has ended because the sign-in that started it has ended. Sign in again to start a new call.",
   unpaired: "The call has ended because the phone that started it was unpaired from this computer.",
-  permissionRequest: (prompt: string) => `You need the user's permission. Say it in your own words: ${prompt} Ask for a clear yes or no, then delegate their answer.`,
+  permissionRequest: (prompt: string) => `You need the person's permission. Say it in your own words: ${prompt} Ask for a clear yes or no, then delegate their answer.`,
 };

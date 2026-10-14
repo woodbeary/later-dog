@@ -265,3 +265,34 @@ now explicitly require real coordination receipts for named-bot participation;
 this is guidance, not a guarantee that every model report is truthful. The
 explicit nested run proves actual recipient execution, not merely a plausible
 final summary. These live results do not establish every provider's quality.
+
+## How long coordinated work may take, and how it ends
+
+A tree of handed-off work (a Chief, its teammates, and whoever they pass work to) is not on a short clock. It stays alive for as long as anything in it shows real progress: a teammate's turn that keeps producing events, a teammate waiting on a card for you or on a computer or helpers, or a request waiting its turn behind a teammate who is busy. The tree ends for time in two cases, both measured by `server/laterdog/handoff-budget.ts`:
+
+- **Nothing moved for 20 minutes** (`rooms.handoffIdleMinutes`): no node showed progress and nothing was waiting on you.
+- **4 hours in total** since the tree began (`rooms.handoffHardCapMinutes`), so a runaway loop cannot go on forever. A parent that only owes its final summary gets a short runway past the cap.
+
+New teammate work is refused with a plain message once less than 10 minutes of the cap remains. The legacy `rooms.handoffLifetimeMinutes` is still read as the idle window when `handoffIdleMinutes` is not set.
+
+Each ended request records why in `endedBy` in `room-handoffs.json`, and the words every reader sees follow it:
+
+| `endedBy` | Teammate chip | Text the Chief reads |
+| --- | --- | --- |
+| `person` | "Scout stopped" | The person stopped this work. |
+| `idle`, `capped` | "Scout ran out of time" | Nothing moved for 20 minutes… / Ran out of time after 4 hours. |
+| `interrupted` | "Scout was interrupted" | Interrupted before it finished. |
+| `origin` | "Scout never got started" | The request that started this ended before it could begin. |
+| `restart`, `deleted`, `limit`, `problem` | "Scout couldn't finish" | each in plain words |
+
+Only the Stop buttons (a conversation, a room, or a guarded request) say it was stopped by the person. A change that interrupts a dog's turn (switching its engine, tightening its permissions) now says "interrupted".
+
+When a tree ends for time, its Chief's conversation gets one line, "Ran out of time after 4 hours. Continue?", with a **Continue** button. Continue (`POST /api/handoffs/:id/continue`) starts a fresh tree from the same request: answers that already came back are kept, and each request that did not finish goes out again to the same teammate in the same thread, told to check what is already done and carry on. When they all return, the Chief resumes and answers you. A tree can be continued once; the button turns into "Picking the work back up where it stopped."
+
+Checks: `server/room-handoffs.test.ts` (idle, hard cap, honest endings, Continue), `server/laterdog/handoff-budget.test.ts`, `src/components/StatusActivityRow.test.ts`.
+
+## One open thread per teammate
+
+When a dog sends work to a teammate through `send_to_bot` (or the older cross-bot `start_thread`), later.dog first looks for a thread that dog already opened on that teammate from the same conversation and that is still open: not archived, and not closed unless it is the teammate's `@Chief · work` thread, which reopens when new work arrives. If there is one, the request goes into it and runs after anything still running there. The chat says "Added to thread #… on …" instead of "Opened thread", and the dog is told it was added to an open thread instead of opening another. A request that names a folder only reuses a thread in that folder.
+
+New threads are counted per turn only when one is really created, and only to stop a runaway loop: 5 threads a dog opens for itself, 15 with teammates. At the limit the dog is told to finish and say plainly which threads it still wanted, and the conversation gets one line, "This dog opened 5 new threads in one go, so later.dog paused new ones to stop a runaway. Ask again if you want more." (shown once per turn, however many more it tries). The code is in `server/laterdog/work-thread-reuse.ts`; `server/thread-aware-bots.e2e.test.ts` proves the reuse, the chips and the single notice on a fixture.

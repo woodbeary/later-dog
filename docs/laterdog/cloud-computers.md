@@ -42,6 +42,15 @@ built from the same pieces the supervisor already proved.
 - **Where it plugs in:** a new computer kind next to `vps` (server driver + `Where <dog> works` option), so
   approvals, the Computer panel and the "This PC — not ready" reasoning all apply unchanged.
 
+## The free trial's one computer, and deleting a dog
+
+The free trial includes one cloud computer (the service answers a second with `trial_one_computer`). A dog's computer is named for the dog and this installation, so a computer whose dog no longer exists is an orphan that would hold that one slot. Two things release it, only while the trial is the computers service in use (never on a paid plan or the person's own service, where orphans stay in Settings for the person to delete):
+
+- deleting a dog deletes its computer as before, and then sweeps any other orphaned trial computer of this installation (`releaseDeletedDogsComputers` in `server/computers.ts`, called from `deleteBotWithLifecycle`);
+- if the next dog's create is refused with `trial_one_computer`, the same sweep runs once and the create is retried, so a computer orphaned by an older deletion, a restore or a failed cleanup no longer blocks the next dog.
+
+A computer with a dog (any current dog or team computer owner) is never touched, and with no owner list registered nothing is released. `server/computers.test.ts` proves the sweep against a fake service that enforces the one-computer limit.
+
 ## Sign-ins with a Secure Form
 
 Added 2026-10-12. A dog on its cloud computer (`box`) that reaches a sign-in page asks with `request_secure_form`: a

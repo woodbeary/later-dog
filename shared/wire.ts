@@ -254,6 +254,7 @@ export interface WireMessage {
     place?: PlaceRow;
     quota?: FailedTurnQuota;
     carry?: { from: string; to: string };
+    resume?: { handoffId: string };
     itemId?: string;
     fullResult?: boolean;
   };

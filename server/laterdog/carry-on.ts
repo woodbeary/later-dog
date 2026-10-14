@@ -35,7 +35,7 @@ export function carryOnAfterReset(input: CarryOnInput & {
 }): CarryOnOutcome {
   const { battery, accounts, selection, path } = input;
   const kept = keptRequest(input);
-  if (!kept || battery.restOf(kept.to, accounts, selectionOnAccount(selection, kept.to, accounts).model)) return "skipped";
+  if (!kept || battery.restOf(kept.to, accounts, selectionOnAccount(selection, kept.to, accounts, battery.preferredFor(input.threadId)).model)) return "skipped";
   if (input.full) return "full";
   const turn = battery.takeTurn(input.threadId, input.generation)!;
   battery.arrive(input.threadId, selection, kept.to.instanceId, accounts);

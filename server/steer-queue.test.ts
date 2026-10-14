@@ -794,7 +794,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       expect(replies[0].text).toContain("first task please");
       expect(replies[1].text).toContain("steer two\n\nsteer three");
       expect(replies[1].text).not.toContain("authenticated external webhook");
-      expect(replies[1].text).not.toContain("[The user rewound");
+      expect(replies[1].text).not.toContain("[The person rewound");
       const userTexts = snapshot.messages.filter((m: any) => m.role === "user").map((m: any) => m.text);
       expect(userTexts).toEqual(["first task please", "steer two", "steer three"]);
       expect(snapshot.messages.some((m: any) => m.queued)).toBe(false);

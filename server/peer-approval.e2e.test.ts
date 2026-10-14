@@ -79,7 +79,7 @@ it("preserves peer approval expiry through real HTTP responses and durable deleg
       else writeFileSync(expiry, "expire");
       const result = await pending;
       expect(result).toMatchObject({ approvalOutcome: outcome, approvalSource: outcome === "deny" ? "user" : "system" });
-      expect(result.error).toBe(outcome === "deny" ? "denied by user" : "the approval card expired without an answer");
+      expect(result.error).toBe(outcome === "deny" ? "the person said no" : "the approval card expired without an answer");
       const settled = (await messages(from.threadId)).find(m => m.id === approval.id);
       expect(settled.card).toMatchObject({ answered: "deny", dismissed: outcome !== "deny" });
       evidence.push({ operation: "ask-bot", outcome, result, card: settled.card });
@@ -144,7 +144,7 @@ it("preserves peer approval expiry through real HTTP responses and durable deleg
     writeFileSync(expiry, "expire");
     const batch = await pendingBatch;
     expect(batch.approvals).toEqual([
-      { botId: target.id, error: "denied by user", approvalOutcome: "deny", approvalSource: "user" },
+      { botId: target.id, error: "the person said no", approvalOutcome: "deny", approvalSource: "user" },
       { botId: other.id, error: "the approval card expired without an answer", approvalOutcome: "expired", approvalSource: "system" },
     ]);
     expect(batch.error).toContain("no work sent");

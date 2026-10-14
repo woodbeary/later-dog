@@ -297,7 +297,7 @@ function completedProposalResult(r: Json, subject: string): { text: string; isEr
   if (state !== "applied" || (result?.state !== undefined && result.state !== "applied")) {
     return { text: `The request for ${subject} did not complete successfully.${error ? ` ${error}` : ""}${summary}${details}\n\nDo not claim it was applied. Address the reported blocker rather than repeating the request or asking for a duplicate confirmation.`, isError: true };
   }
-  return { text: `Applied ${subject}.${summary}${details}${attention ? `\n\nNeeds attention: ${attention}` : ""}\n\nNo additional confirmation is needed. Continue the requested work; do not wait for a review card or ask the user to approve this change again.` };
+  return { text: `Applied ${subject}.${summary}${details}${attention ? `\n\nNeeds attention: ${attention}` : ""}\n\nNo additional confirmation is needed. Continue the requested work; do not wait for a review card or ask the person to approve this change again.` };
 }
 
 function confirmationResult(r: Json, fallback: string, noun = "routine"): { text: string; isError?: boolean } {
@@ -305,7 +305,7 @@ function confirmationResult(r: Json, fallback: string, noun = "routine"): { text
   if (completed) return completed;
   const summary = typeof r.summary === "string" && r.summary.trim() ? `\n\n${r.summary.trim()}` : "";
   return {
-    text: `A confirmation card is now visible to the user for ${fallback}.${summary}\n\nThis change has not been applied yet. End this turn and wait for the user to confirm or deny the card; do not claim the ${noun} was created or changed before confirmation.`,
+    text: `A confirmation card is now visible to the person for ${fallback}.${summary}\n\nThis change has not been applied yet. End this turn and wait for the person to confirm or deny the card; do not claim the ${noun} was created or changed before confirmation.`,
   };
 }
 
@@ -432,7 +432,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       title, message, depth: context.depth, oneWay: true,
     }) });
     if (r.error) return { text: `Couldn't send to that bot: ${String(r.error)}`, isError: true };
-    const destination = `@${String(r.botName ?? "that bot")} in #${String(r.title ?? title)} [thread id: ${String(r.threadId ?? "")}]`;
+    const destination = `@${String(r.botName ?? "that bot")} in #${String(r.title ?? title)} [thread id: ${String(r.threadId ?? "")}]${r.reused === true ? ", the open thread you already have with them" : ""}`;
     const state = r.approvalRequired === true
       ? `Send to ${destination} is pending approval. The person's approval card appears after this turn ends; dispatch starts once approved.`
       : r.state === "queued"
@@ -463,12 +463,12 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const rooms = Array.isArray(r.rooms) ? r.rooms.filter(jsonRecord) : [];
     const unpostable = Array.isArray(r.unpostable) ? r.unpostable.filter(jsonRecord) : [];
     const blocked = unpostable.length
-      ? `\n\nRooms you are in but cannot post into (no id — there is nothing to retry; give the user the reason instead):\n${
+      ? `\n\nRooms you are in but cannot post into (no id — there is nothing to retry; give the person the reason instead):\n${
         unpostable.map((room) => `- ${String(room.name)}: ${String(room.reason)}`).join("\n")
       }`
       : "";
     if (!rooms.length) {
-      return { text: `You are not in any room you can post into. Tell the user what you wanted to share and let them decide where it goes.${blocked}` };
+      return { text: `You are not in any room you can post into. Tell the person what you wanted to share and let them decide where it goes.${blocked}` };
     }
     const lines = rooms.map((room) => {
       const members = Array.isArray(room.members) ? room.members.map(String).join(", ") : "";
@@ -491,7 +491,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     });
     if (r.error) return { text: String(r.error), isError: true };
     return {
-      text: `Posted in ${r.roomName ?? "the room"}${r.attachedVoiceNote ? " with the voice note attached" : ""}. Nobody's turn was started, so expect no reply — tell the user it is posted.`,
+      text: `Posted in ${r.roomName ?? "the room"}${r.attachedVoiceNote ? " with the voice note attached" : ""}. Nobody's turn was started, so expect no reply — tell the person it is posted.`,
     };
   }
   if (name === "ask_bot") {
@@ -509,7 +509,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       const amount = waitedSeconds < 60 ? waitedSeconds : Math.round(waitedSeconds / 60);
       const unit = waitedSeconds < 60 ? "second" : "minute";
       return {
-        text: `${r.toBotName ?? "That bot"} is still working after ${amount} ${unit}${amount === 1 ? "" : "s"} — the ask was converted to a delegation so the reply is not lost. Task id: ${taskId}. ${EXTERNAL_RUNTIME ? EXTERNAL_STATUS_GUIDANCE : "Finish your turn now; the result will be delivered to this conversation automatically. Use check_delegation in a later turn only if the user asks for status."}${note ? `\n\n${note}` : ""}`,
+        text: `${r.toBotName ?? "That bot"} is still working after ${amount} ${unit}${amount === 1 ? "" : "s"} — the ask was converted to a delegation so the reply is not lost. Task id: ${taskId}. ${EXTERNAL_RUNTIME ? EXTERNAL_STATUS_GUIDANCE : "Finish your turn now; the result will be delivered to this conversation automatically. Use check_delegation in a later turn only if the person asks for status."}${note ? `\n\n${note}` : ""}`,
       };
     }
     if (r.busy) {
@@ -526,7 +526,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       const taskId = String(r.taskId ?? "").trim();
       if (taskId) {
         return {
-          text: `${r.toBotName ?? "That bot"} is busy right now, so your message was queued as a delegation instead — ${EXTERNAL_RUNTIME ? "it waits for the peer and any required approval" : "it runs after your current turn ends"}. Task id: ${taskId}. ${EXTERNAL_RUNTIME ? EXTERNAL_STATUS_GUIDANCE : "Finish your turn now; the result will be delivered to this conversation automatically. Use check_delegation in a later turn only if the user asks for status."}${note ? `\n\n${note}` : ""}`,
+          text: `${r.toBotName ?? "That bot"} is busy right now, so your message was queued as a delegation instead — ${EXTERNAL_RUNTIME ? "it waits for the peer and any required approval" : "it runs after your current turn ends"}. Task id: ${taskId}. ${EXTERNAL_RUNTIME ? EXTERNAL_STATUS_GUIDANCE : "Finish your turn now; the result will be delivered to this conversation automatically. Use check_delegation in a later turn only if the person asks for status."}${note ? `\n\n${note}` : ""}`,
         };
       }
       return { text: `That bot is busy right now — try again after it finishes.${note ? `\n\n${note}` : ""}` };
@@ -570,7 +570,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (r.status === "done") return { text: `${who} finished task ${taskId}:\n${String(r.result || "(no reply text)")}` };
     if (r.status === "queued") {
       const why = r.targetStatus === "waiting-on-user"
-        ? ` ${who} is waiting on the user, so it goes through after they answer.`
+        ? ` ${who} is waiting on the person, so it goes through after they answer.`
         : r.targetStatus === "working" ? ` ${who} is busy with other work.` : "";
       const expiresInMs = Number(r.expiresInMs);
       const expiry = !Number.isFinite(expiresInMs)
@@ -652,7 +652,9 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const threadTitle = String(r.title ?? title);
     const threadId = String(r.threadId ?? "");
     const where = r.self === true ? "on yourself" : `on @${String(r.botName ?? "that bot")}`;
-    const opened = `Opened thread #${threadTitle} ${where} [thread id: ${threadId}].`;
+    const opened = r.reused === true
+      ? `Added to your open thread #${threadTitle} ${where} [thread id: ${threadId}], instead of opening another.`
+      : `Opened thread #${threadTitle} ${where} [thread id: ${threadId}].`;
     if (r.self === true) {
       if (r.state === "running") {
         return { text: `${opened} It is running now, in parallel with this conversation, and its result stays in that thread — it will not be delivered here. Mention it to the person as #${threadTitle}; use list_threads in a later turn to see how it is going.` };
@@ -714,7 +716,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     };
   }
   if (name === "create_room") {
-    if (args.section !== undefined) return { text: "Room sections are fixed to your own section; ask the user to move rooms.", isError: true };
+    if (args.section !== undefined) return { text: "Room sections are fixed to your own section; ask the person to move rooms.", isError: true };
     const roomName = String(args.name ?? "").trim();
     const memberIds = Array.isArray(args.member_bot_ids)
       ? args.member_bot_ids.map((id) => String(id).trim()).filter(Boolean)
@@ -786,7 +788,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return { text: `${r.label ?? CREDENTIAL_TARGETS[credentialId].label} is already configured. Continue the task.` };
     }
     return {
-      text: `A secure ${r.label ?? CREDENTIAL_TARGETS[credentialId].label} request is ready. The desktop app and a freshly QR-paired mobile app show its secure entry card; older mobile pairings explain how to pair again or finish on the computer. End this turn; later.dog will resume the task after the user saves or declines. Never ask them to paste the key into chat.`,
+      text: `A secure ${r.label ?? CREDENTIAL_TARGETS[credentialId].label} request is ready. The desktop app and a freshly QR-paired mobile app show its secure entry card; older mobile pairings explain how to pair again or finish on the computer. End this turn; later.dog will resume the task after the person saves or declines. Never ask them to paste the key into chat.`,
     };
   }
   if (name === "request_takeover") {
@@ -1056,7 +1058,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     return {
       text:
         `${memoryBlock}${hits.length} ${q ? "matching " : ""}message${hits.length === 1 ? "" : "s"} from your earlier conversations (${q ? "best match first" : "newest first"}):\n${lines.join("\n")}\n\n` +
-        "These are your own past notes. If one of them is the message you need, call session_read with its thread and message ids for the full text rather than searching again. Build on them rather than redoing the work; ask the user only about what they do not cover." +
+        "These are your own past notes. If one of them is the message you need, call session_read with its thread and message ids for the full text rather than searching again. Build on them rather than redoing the work; ask the person only about what they do not cover." +
         (crossed
           ? " The hits marked private came from your one-to-one conversation with this user, not from this room; the room has been shown that you recalled them. Use them, and say where something came from if anyone asks."
           : ""),
@@ -1105,7 +1107,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         return `- ${row.action} ${row.name}`;
       }).join("\n")
       : "(none)";
-    return { text: `Imported skills:\n${live}\n\nStaged (waiting for the user's decision):\n${pending}` };
+    return { text: `Imported skills:\n${live}\n\nStaged (waiting for the person's decision):\n${pending}` };
   }
   if (name === "skill_manage") {
     if (args.action !== "create" && args.action !== "update") {
@@ -1140,11 +1142,11 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const completed = completedProposalResult(r, args.action === "update" ? `the update to skill “${nameLabel}”` : `the new skill “${nameLabel}”`);
     if (completed) return { ...completed, text: completed.text + warningText };
     const status = args.action === "update"
-      ? "The current version remains unchanged until the user reviews and applies the update."
-      : "The skill is staged and inactive until the user reviews and enables it.";
+      ? "The current version remains unchanged until the person reviews and applies the update."
+      : "The skill is staged and inactive until the person reviews and enables it.";
     const proposal = args.action === "update" ? `updating skill “${nameLabel}”` : `new skill “${nameLabel}”`;
     return {
-      text: `A confirmation card is now visible to the user for ${proposal}.${warningText}\n\n${status} End this turn and wait for the decision.`,
+      text: `A confirmation card is now visible to the person for ${proposal}.${warningText}\n\n${status} End this turn and wait for the decision.`,
     };
   }
   if (name === "add_mcp_server") {
@@ -1170,7 +1172,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     ].filter(Boolean).join(" ");
     const local = transport === "command" ? " Enabling a local command runs that command on their computer." : "";
     return {
-      text: `Saved MCP server “${serverName}”${where} switched off. It stays off in MCP server settings until the user turns it on.${local}${named ? ` ${named}` : ""}`,
+      text: `Saved MCP server “${serverName}”${where} switched off. It stays off in MCP server settings until the person turns it on.${local}${named ? ` ${named}` : ""}`,
     };
   }
   return { text: `Unknown tool: ${name}`, isError: true };

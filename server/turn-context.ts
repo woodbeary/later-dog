@@ -26,9 +26,9 @@ export function engineIsFresh(input: {
 }
 
 const REWOUND_PREAMBLE =
-  "[The user rewound this conversation (edited a message or switched to another version). Everything before this point was replaced by the following history:]";
+  "[The person rewound this conversation (edited a message or switched to another version). Everything before this point was replaced by the following history:]";
 const FRESH_PREAMBLE =
-  "[You are joining this conversation mid-thread (the user switched this bot over to you). The conversation so far:]";
+  "[You are joining this conversation mid-thread (the person switched this bot over to you). The conversation so far:]";
 const EXTERNAL_UPDATE_PREAMBLE =
   "[This conversation received an update outside your provider session. The complete current history follows so you can use that update in your next response:]";
 
@@ -49,7 +49,7 @@ export function buildRecoveryText(input: {
     "",
     ...input.transcript.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`),
     "",
-    "[Now reply to the user's latest message:]",
+    "[Now reply to the person's latest message:]",
     "",
     input.text,
   ].join("\n");
@@ -69,7 +69,7 @@ export function buildTurnContext(input: TurnContextInput): {
       "",
       ...transcript.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`),
       "",
-      "[Now reply to the user's latest message:]",
+      "[Now reply to the person's latest message:]",
       "",
       text,
     ].join("\n"),

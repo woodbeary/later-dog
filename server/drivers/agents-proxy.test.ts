@@ -799,7 +799,7 @@ describe("agents-proxy MCP surface", () => {
   it("tells the model to fall back to the user when it is in no postable room", async () => {
     roomsResponse = { rooms: [] };
     const res = await callTool("list_rooms", {});
-    expect(res.result.content[0].text).toContain("Tell the user");
+    expect(res.result.content[0].text).toContain("Tell the person");
     roomsResponse = { rooms: [{ id: "room-launch", name: "Launch", members: ["Asker", "Helper"] }] };
   });
 
@@ -1241,7 +1241,7 @@ describe("agents-proxy MCP surface", () => {
     try {
       const text = (await callTool("check_delegation", { task_id: "task-later456" })).result.content[0].text;
       expect(text).toContain("still queued");
-      expect(text).toContain("@Helper is waiting on the user, so it goes through after they answer.");
+      expect(text).toContain("@Helper is waiting on the person, so it goes through after they answer.");
       expect(text).toContain("It expires if not picked up within 5 hours.");
     } finally {
       delegationStatusResponse = { status: "done", toBotName: "Helper", result: "All done." };
