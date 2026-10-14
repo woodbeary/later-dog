@@ -28,3 +28,18 @@ it("removes decoration when a peer is renamed or archived", () => {
     expect(renderToStaticMarkup(createElement(MentionText, { text: "@Atlas", peers }))).toBe("@Atlas");
   }
 });
+
+const renamed = [{ id: "d1", name: "Tutor", formerNames: ["Study Helper"], color: "blue" as const }];
+
+it("shows the current name and a face when displaying a message that used an earlier name", () => {
+  const html = renderToStaticMarkup(createElement(MentionText, { text: "Thanks @Study Helper", peers: renamed, faces: true }));
+  expect(html).toContain("data-mention-face");
+  expect(html).toContain("@Tutor</span>");
+  expect(html).not.toContain("Study Helper");
+});
+
+it("keeps exactly what was typed, with no face, inside the composer so the caret stays aligned", () => {
+  const html = renderToStaticMarkup(createElement(MentionText, { text: "Thanks @Study Helper", peers: renamed }));
+  expect(html).not.toContain("data-mention-face");
+  expect(html).toContain("@Study Helper</span>");
+});

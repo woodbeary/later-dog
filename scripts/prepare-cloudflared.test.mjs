@@ -14,6 +14,7 @@ import {
   verifyPinnedBinary,
   verifySha256,
 } from "./prepare-cloudflared.mjs";
+import { planCommand } from "./dev-safe.mjs";
 
 describe("cloudflared download retries", () => {
   afterEach(() => {
@@ -164,9 +165,10 @@ describe("pinned cloudflared packaging", () => {
   });
 
   it("stages the current target for development without narrowing package preparation", () => {
-    expect(packageJson.scripts["dev:desktop"]).toBe(
-      "node scripts/prepare-cloudflared.mjs --current && electron .",
-    );
+    expect(packageJson.scripts["dev:desktop"]).toBe("node scripts/dev-safe.mjs desktop");
+    const [stage, start] = planCommand("desktop", { live: false, serverPort: 8999 }).steps;
+    expect(stage.args.map((arg) => arg.replace(/\\/g, "/")).slice(-2)).toEqual([expect.stringMatching(/scripts\/prepare-cloudflared\.mjs$/), "--current"]);
+    expect(start.file.replace(/\\/g, "/")).toMatch(/node_modules\/\.bin\/electron$/);
     expect(packageJson.scripts["build:cloudflared"]).toBe(
       "node scripts/prepare-cloudflared.mjs",
     );

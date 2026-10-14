@@ -48,6 +48,8 @@ import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
+import { plainClientError, statusFallback } from "@/lib/plain-client-error";
+import { SEND_ATTEMPT_TIMEOUT_MS, UncertainSends, isUncertainSendFailure, sendWithRetry } from "@/lib/send-retry";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
 import { receiveReasoningEvent, forgetReasoning } from "@/lib/turn-reasoning";
 
@@ -91,6 +93,7 @@ export interface OptionCardData {
   heldCode?: string;
   allowKey?: string;
   allowSession?: boolean;
+  answerScope?: "once" | "always" | "chat";
   commandAllowlist?: { command: string; cwd: string; providerInstanceId: string };
   approvalScope?: "local-computer";
   autoApplied?: boolean;
@@ -162,7 +165,7 @@ export interface Message {
   from?: { botId: string; name: string; color: DogColor };
   peerAsk?: { botId: string; name: string; unattended?: boolean };
   reactions?: Array<{ emoji: string; by: string }>;
-  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: DogColor };
+  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: DogColor; direction?: "to" | "from" };
   threadRef?: { botId: string; threadId: string; title: string };
   cloudTask?: import("../../shared/cloud-task").CloudTaskRef;
   queued?: boolean;
@@ -278,6 +281,7 @@ export interface Bot {
   tasks?: Task[];
   projects?: BotProject[];
   name: string;
+  formerNames?: string[];
   title: string;
   description: string;
   soul?: string;
@@ -491,6 +495,13 @@ export interface ConfigStatus {
     enabled: boolean;
     jobs: { roomRouting: boolean };
   };
+  typing?: {
+    enabled: boolean;
+    smarter: boolean;
+    included: boolean;
+    cloudflare: { configured: boolean; accountId: string; model: string };
+    ranking: boolean;
+  };
   live?: LiveSettings;
   imageGen?: {
     configured: boolean;
@@ -504,7 +515,7 @@ export interface ConfigStatus {
   };
   profile?: { name: string; email: string; aboutMe?: string };
   language?: string;
-  features?: { skillAuthoring: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean };
+  features?: { skillAuthoring: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
   onboarding?: OnboardingStatus;
   browserEngine?: BrowserEngineSummary;
   browserProfiles?: BrowserProfile[];
@@ -539,7 +550,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "mistral" | "cerebras" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "accountBattery" | "localVm" | "opencodeGo" | "tts" | "decider" | "imageGen" | "live" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "cloudHome"
+  "xai" | "mistral" | "cerebras" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "accountBattery" | "localVm" | "opencodeGo" | "tts" | "decider" | "typing" | "imageGen" | "live" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "cloudHome"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -564,6 +575,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     opencodeGo: frame.opencodeGo,
     tts: frame.tts,
     decider: frame.decider,
+    typing: frame.typing,
     imageGen: frame.imageGen,
     live: frame.live,
     profile: frame.profile,
@@ -888,6 +900,7 @@ export type Action =
       alwaysAllow?: { botId: string; key: string };
       always?: boolean;
       rememberCommand?: boolean;
+      scope?: "once" | "always" | "chat";
       onError?: (message: string) => void;
     }
   | { type: "newTask"; botId: string; projectId?: string }
@@ -2192,6 +2205,8 @@ export function duplicateProfileFor(source: Bot) {
 
 export const MESSAGE_PAGE_SIZE = 200;
 
+const uncertainSends = new UncertainSends();
+
 export async function api<T = any>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const { timeoutMs, signal, ...rest } = init ?? {};
   const res = await fetch(path, {
@@ -2204,7 +2219,7 @@ export async function api<T = any>(path: string, init?: RequestInit & { timeoutM
         : AbortSignal.timeout(timeoutMs),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status, body);
+  if (!res.ok) throw new ApiError(body.error ?? statusFallback(res.status), res.status, body);
   return body;
 }
 
@@ -2419,7 +2434,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const olderPagesInFlight = new Set<string>();
     let creatingBot = false;
     const showError = (e: unknown) => {
-      rawDispatch({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      rawDispatch({ type: "error", message: plainClientError(e) });
       setTimeout(() => rawDispatch({ type: "error", message: null }), 6000);
     };
     const cardTarget = (action: { botId: string; messageId: string; groupId?: string }) => {
@@ -2515,7 +2530,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (action.type === "taskSwitched") action = { ...action, bot: withTaskWrites(action.bot) as Bot };
       if (action.type === "botPatched") action = { ...action, bot: withTaskWrites(action.bot) };
       if ((action.type === "send" || action.type === "sendGroup" || action.type === "editMessage") && !action.sendId) {
-        action = { ...action, sendId: crypto.randomUUID() };
+        const { bots, groups } = stateRef.current;
+        let heldSendId: string | undefined;
+        if (action.type === "send") {
+          const { botId, threadId, text, replyToId } = action;
+          heldSendId = uncertainSends.recall(botId, threadId ?? bots.find((bot) => bot.id === botId)?.threadId, text, replyToId);
+        } else if (action.type === "sendGroup") {
+          const { groupId, threadId, text, replyToId, mode } = action;
+          heldSendId = uncertainSends.recall(groupId, threadId ?? groups.find((group) => group.id === groupId)?.threadId, text, `${replyToId ?? ""}|${mode ?? "chat"}`);
+        }
+        action = { ...action, sendId: heldSendId ?? crypto.randomUUID() };
       }
       const botBeforeUpdate =
         action.type === "updateBot" || action.type === "setModel"
@@ -2692,11 +2716,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
           const sendId = action.sendId ?? crypto.randomUUID();
           void waitForExecutionSettings(botBeforeSend ? [botBeforeSend] : [], threadId)
-            .then(() => api(`/api/bots/${action.botId}/messages`, {
+            .then(() => sendWithRetry(() => api(`/api/bots/${action.botId}/messages`, {
                 method: "POST",
                 body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId, deliver: action.deliver }),
-              }))
+                timeoutMs: SEND_ATTEMPT_TIMEOUT_MS,
+              })))
             .then((body) => {
+              uncertainSends.forget(action.botId, threadId, action.text, action.replyToId);
               if (body?.message && typeof body.threadId === "string") {
                 rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
               }
@@ -2720,6 +2746,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
             })
             .catch((error) => {
+              if (isUncertainSendFailure(error)) uncertainSends.remember(action.botId, threadId, action.text, sendId, action.replyToId);
               if (threadId) {
                 rawDispatch({ type: "optimisticMessageRemoved", threadId, sendId });
               }
@@ -2757,7 +2784,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }).catch(showError);
           break;
         case "decideRequest": {
-          const respond = () =>
+          const respond = (scope: typeof action.scope) =>
             api(`/api/threads/${action.threadId}/respond`, {
               method: "POST",
               body: JSON.stringify({
@@ -2767,10 +2794,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 reviewedSha256: action.reviewedSha256,
                 always: action.always,
                 rememberCommand: action.rememberCommand,
+                scope,
               }),
             });
           void waitForExecutionSettings(executionBotsBeforeAction, action.threadId)
             .then(async () => {
+              let grantSaved = true;
               if (action.alwaysAllow) {
                 const bot = stateRef.current.bots.find((candidate) => candidate.id === action.alwaysAllow?.botId);
                 const owner = action.alwaysAllow.key === MAC_ALLOW_KEY || bot?.tasks?.some((task) => task.threadId === action.threadId);
@@ -2781,10 +2810,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                     body: JSON.stringify(owner ? { threadId: action.threadId, allowKey: action.alwaysAllow.key } : { alwaysAllow: next }),
                   });
                 } catch (error) {
+                  grantSaved = false;
                   showError(error);
                 }
               }
-              const response = await respond();
+              const response = await respond(grantSaved || action.scope !== "always" ? action.scope : "once");
               if (response?.settlementPending && typeof response.message === "string") {
                 showError(new Error(response.message));
               }
@@ -2937,7 +2967,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             action.threadId ?? stateRef.current.groups.find((group) => group.id === action.groupId)?.threadId;
           const sendId = action.sendId ?? crypto.randomUUID();
           void waitForExecutionSettings(executionBotsBeforeAction)
-            .then(() => api(`/api/groups/${action.groupId}/messages`, {
+            .then(() => sendWithRetry(() => api(`/api/groups/${action.groupId}/messages`, {
               method: "POST",
               body: JSON.stringify({
                 text: action.text,
@@ -2946,8 +2976,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 sendId,
                 mode: action.mode ?? "chat",
               }),
-            }))
+              timeoutMs: SEND_ATTEMPT_TIMEOUT_MS,
+            })))
             .then((body) => {
+              uncertainSends.forget(action.groupId, threadId, action.text, `${action.replyToId ?? ""}|${action.mode ?? "chat"}`);
               if (body?.message && typeof body.threadId === "string") {
                 rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
               }
@@ -2970,6 +3002,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
             })
             .catch((error) => {
+              if (isUncertainSendFailure(error)) uncertainSends.remember(action.groupId, threadId, action.text, sendId, `${action.replyToId ?? ""}|${action.mode ?? "chat"}`);
               if (threadId) {
                 rawDispatch({ type: "optimisticMessageRemoved", threadId, sendId });
               }
@@ -3547,6 +3580,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [state, dispatch, flushBotPatches, refreshInstances, refreshModels],
   );
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+export function useOptionalStore() {
+  return useContext(StoreContext);
 }
 
 export function useStore() {

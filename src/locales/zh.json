@@ -2016,5 +2016,20 @@
   "credentialStore.retry": "重试解锁",
   "credentialStore.retryFailed": "仍然无法读取已保存的登录信息。请重试，或退出并重新打开 {app}。",
   "credentialStore.saveFailed": "无法安全保存密钥。密钥仍保留在此输入框中，请重试保存。",
-  "credentialStore.unavailable": "无法读取已保存的登录信息。请重试解锁，或退出并重新打开 {app}。如果系统询问，请允许访问钥匙串。"
+  "credentialStore.unavailable": "无法读取已保存的登录信息。请重试解锁，或退出并重新打开 {app}。如果系统询问，请允许访问钥匙串。",
+  "chat.exchange.messaged": "已发消息给",
+  "chat.exchange.messageFrom": "收到消息来自",
+  "chat.exchange.messagesWith": "{count} 条消息，对象：",
+  "chat.exchange.open": "查看 {first} 和 {second} 之间的对话",
+  "chat.exchange.close": "关闭聊天",
+  "chat.exchange.readOnly": "这些是小狗之间写给彼此的消息。你可以阅读，但不能在这里回复。",
+  "chat.exchange.empty": "它们之间还没有任何对话。",
+  "chat.routine.created": "已创建例行任务",
+  "chat.routine.open": "打开例行任务 {name}",
+  "approval.status.allowedOnce": "已允许一次",
+  "approval.status.alwaysAllowed": "已始终允许",
+  "approval.status.allowedForChat": "已在本次聊天中允许",
+  "approval.tool.messageDog": "给另一只狗发消息",
+  "approval.tool.delegateDog": "把工作交给另一只狗",
+  "approval.tool.postRoom": "在房间里发帖"
 }

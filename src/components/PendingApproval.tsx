@@ -198,7 +198,9 @@ export function PendingApprovalActions({
   const reviewedSha256 = pending.message.card?.skillRequest
     ? reviewedSkillSha256(pending.message.card.skillRequest)
     : undefined;
-  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false) =>
+  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false) => {
+    const grant = always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined;
+    const forChat = always && !pending.allowKey && pending.allowSession ? true : undefined;
     dispatch({
       type: "decideRequest",
       threadId,
@@ -206,17 +208,32 @@ export function PendingApprovalActions({
       behavior,
       message: behavior === "deny" ? "Declined." : undefined,
       reviewedSha256: behavior === "allow" ? reviewedSha256 : undefined,
-      alwaysAllow: always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined,
-      always: always && !pending.allowKey && pending.allowSession ? true : undefined,
+      alwaysAllow: grant,
+      always: forChat,
       rememberCommand: rememberCommand || undefined,
+      scope: behavior !== "allow" ? undefined : grant || rememberCommand ? "always" : forChat ? "chat" : "once",
     });
+  };
 
   const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
   const quiet = "bg-control text-ink hover:bg-control-hover";
   const primary = "bg-accent font-medium text-white hover:brightness-110";
-  const alwaysIsPrimary = !durableRequest && Boolean((bot && pending.allowKey) || (!pending.allowKey && !canRememberCommand && pending.allowSession));
+  const durable = "ml-3 border border-hairline bg-transparent text-ink hover:bg-control";
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-[18px] bg-card px-3 pb-3 pt-1">
+      <button
+        onClick={() => decide("allow")}
+        disabled={isSkillRequest && !reviewedSha256}
+        className={cn(base, primary, "disabled:cursor-not-allowed disabled:opacity-40")}
+      >
+        {isTeamSetup ? pending.message.card?.options[0] : isSkillRequest
+          ? pending.message.card?.skillRequest?.action === "update"
+            ? t("approval.action.update")
+            : t("approval.action.enable")
+          : isRoutineRequest || isProfileRequest
+            ? t("approval.action.confirm")
+            : t("approval.action.allowOnce")}
+      </button>
       <button
         onClick={() => decide("deny")}
         autoFocus={isTeamSetup}
@@ -228,7 +245,7 @@ export function PendingApprovalActions({
         <button
           onClick={() => decide("allow", true)}
           title={pending.allowKey === MAC_ALLOW_KEY ? t("approval.action.stopAskingMac", { name: bot.name }) : t("approval.action.stopAsking", { name: bot.name, key: pending.allowKey })}
-          className={cn(base, primary)}
+          className={cn(base, durable)}
         >
           {t("approval.action.alwaysAllow")}
         </button>
@@ -237,7 +254,7 @@ export function PendingApprovalActions({
         <button
           onClick={() => decide("allow", true)}
           title={t("approval.action.alwaysAllowSessionHint")}
-          className={cn(base, primary)}
+          className={cn(base, durable)}
         >
           {t("approval.action.alwaysAllowSession")}
         </button>
@@ -246,28 +263,11 @@ export function PendingApprovalActions({
         <button
           onClick={() => decide("allow", false, true)}
           title={t("approval.action.alwaysAllowCommandHint", { cwd: pending.commandAllowlist.cwd })}
-          className={cn(base, quiet)}
+          className={cn(base, durable)}
         >
           {t("approval.action.alwaysAllowCommand")}
         </button>
       )}
-      <button
-        onClick={() => decide("allow")}
-        disabled={isSkillRequest && !reviewedSha256}
-        className={cn(
-          base,
-          alwaysIsPrimary ? quiet : primary,
-          "disabled:cursor-not-allowed disabled:opacity-40",
-        )}
-      >
-        {isTeamSetup ? pending.message.card?.options[0] : isSkillRequest
-          ? pending.message.card?.skillRequest?.action === "update"
-            ? t("approval.action.update")
-            : t("approval.action.enable")
-          : isRoutineRequest || isProfileRequest
-            ? t("approval.action.confirm")
-            : t("approval.action.allowOnce")}
-      </button>
     </div>
   );
 }

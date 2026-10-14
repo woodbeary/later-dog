@@ -49,3 +49,35 @@ describe("mention picker choices", () => {
     expect(mentionChoicesForQuery(choices, "Six ")).toEqual([]);
   });
 });
+
+describe("mentions follow a renamed dog", () => {
+  const scout = { id: "d1", name: "Scout", formerNames: ["Pixel"], color: "red" as const };
+  const peers = [scout, { id: "d2", name: "Atlas", color: "blue" as const }];
+
+  it("finds a mention written with an earlier name and shows the current one", () => {
+    const text = "Ask @Pixel and @Atlas";
+    const ranges = mentionRanges(text, peers);
+    expect(ranges.map(({ start, end }) => text.slice(start, end))).toEqual(["@Pixel", "@Atlas"]);
+    expect(ranges[0]).toMatchObject({ botId: "d1", display: "@Scout", dog: "red" });
+    expect(ranges[1]!.display).toBeUndefined();
+    expect(ranges[1]).toMatchObject({ botId: "d2" });
+  });
+
+  it("lets a current name win over another dog's earlier name", () => {
+    const text = "@Pixel";
+    const ranges = mentionRanges(text, [...peers, { id: "d3", name: "Pixel" }]);
+    expect(ranges).toEqual([{ start: 0, end: 6, botId: "d3" }]);
+  });
+
+  it("ignores an earlier name two dogs once shared", () => {
+    const both = [
+      { id: "a", name: "Ada", formerNames: ["Max"] },
+      { id: "b", name: "Ben", formerNames: ["max"] },
+    ];
+    expect(mentionRanges("@Max", both)).toEqual([]);
+  });
+
+  it("does not match an earlier name as the start of a longer word", () => {
+    expect(mentionRanges("@Pixelated", peers)).toEqual([]);
+  });
+});
