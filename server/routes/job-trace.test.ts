@@ -52,6 +52,20 @@ describe("downloading a cloud job's trace through the desktop", () => {
     expect(await answer.json()).toEqual({ error: "This job's trace expired 2026-01-01." });
   });
 
+  it("streams the trace through and cuts the download off when the supervisor's stream breaks, never ending it as if whole", async () => {
+    const upstream = (async () => {
+      let sent = false;
+      return new Response(new ReadableStream({
+        pull(controller) {
+          if (!sent) { sent = true; controller.enqueue(new TextEncoder().encode('{"n":1}\n')); return; }
+          controller.error(new Error("supervisor went away"));
+        },
+      }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const base = await serve(upstream);
+    await expect((async () => (await fetch(`${base}/api/laterdog/jobs/${JOB}/trace`)).text())()).rejects.toThrow();
+  });
+
   it("only answers its own path, and only to a GET", async () => {
     const base = await serve((async () => new Response("never")) as unknown as typeof fetch);
     expect((await fetch(`${base}/api/laterdog/jobs/${JOB}/trace`, { method: "POST", body: "{}" })).status).toBe(405);

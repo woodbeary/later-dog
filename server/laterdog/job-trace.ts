@@ -1,7 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { PassThrough, Readable, Transform, pipeline } from "node:stream";
+import { promisify } from "node:util";
+import { createGunzip, gunzip, gzip } from "node:zlib";
 import type { JobTrace } from "../../shared/laterdog.ts";
+import { redactTrace, redactTraceYielding } from "./trace-scrub.ts";
+
+export { redactTrace };
+
+const gunzipAsync = promisify(gunzip);
+const gzipAsync = promisify(gzip);
 
 export const TRACE_DEFAULT_RETENTION_DAYS = 30;
 export const TRACE_MAX_RETENTION_DAYS = 365;
@@ -9,16 +18,32 @@ export const MAX_TRACE_GZIP_BYTES = 16 * 1024 * 1024;
 export const MAX_TRACE_RAW_BYTES = 64 * 1024 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const SECRET_PATTERNS = [/sk-ant-[A-Za-z0-9_-]{20,}/g, /gh[pousr]_[A-Za-z0-9]{30,}/g, /github_pat_[A-Za-z0-9_]{30,}/g];
 
 export interface TraceCapture { gz: Buffer; truncated: boolean; rawBytes: number }
 
-export interface TraceUpload { retentionDays: number; truncated: boolean }
+export interface TraceUpload { retentionDays: number; truncated: boolean; signal?: AbortSignal }
 
 export interface JobTraceStore {
   readonly where: JobTrace["where"];
   put(jobId: string, gz: Buffer, upload: TraceUpload): Promise<JobTrace>;
-  get(jobId: string): Promise<Buffer | null>;
+  open(jobId: string): Promise<Readable | null>;
+}
+
+export function limitBytes(max: number, what: string): Transform {
+  let seen = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      seen += chunk.length;
+      if (seen > max) done(new Error(`${what} is larger than the ${max}-byte limit`));
+      else done(null, chunk);
+    },
+  });
+}
+
+export function readableTraceStream(gz: Readable): Readable {
+  const out = new PassThrough();
+  pipeline(gz, limitBytes(MAX_TRACE_GZIP_BYTES, "The stored trace"), createGunzip(), limitBytes(MAX_TRACE_RAW_BYTES * 2, "The trace"), out, () => undefined);
+  return out;
 }
 
 export function traceRetentionDays(env: NodeJS.ProcessEnv): number {
@@ -41,31 +66,39 @@ export function traceExpired(trace: Pick<JobTrace, "expiresAt">, now = Date.now(
   return Date.parse(trace.expiresAt) <= now;
 }
 
-export function redactTrace(text: string, secrets: readonly string[]): string {
-  let out = text;
-  for (const secret of secrets) if (secret.length >= 8) out = out.split(secret).join("[redacted]");
-  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, "[redacted]");
-  return out;
+export async function captureTrace(gz: Buffer, truncated: boolean, secrets: readonly string[]): Promise<TraceCapture> {
+  const raw = (await gunzipAsync(gz, { maxOutputLength: MAX_TRACE_RAW_BYTES * 2 })).toString("utf8");
+  const clean = Buffer.from(await redactTraceYielding(raw, secrets), "utf8");
+  return { gz: await gzipAsync(clean, { level: 9 }), truncated, rawBytes: clean.length };
 }
 
-export function captureTrace(gz: Buffer, truncated: boolean, secrets: readonly string[]): TraceCapture {
-  const raw = gunzipSync(gz, { maxOutputLength: MAX_TRACE_RAW_BYTES * 2 }).toString("utf8");
-  const clean = Buffer.from(redactTrace(raw, secrets), "utf8");
-  return { gz: gzipSync(clean, { level: 9 }), truncated, rawBytes: clean.length };
+export const TRACE_TAILS = [MAX_TRACE_RAW_BYTES, 32 * 1024 * 1024, 16 * 1024 * 1024, 8 * 1024 * 1024, 4 * 1024 * 1024, 2 * 1024 * 1024, 1024 * 1024] as const;
+
+export function traceCommand(limits: { rawBytes: number; gzipBytes: number; tails: readonly number[] } = { rawBytes: MAX_TRACE_RAW_BYTES, gzipBytes: MAX_TRACE_GZIP_BYTES, tails: TRACE_TAILS }): string {
+  return [
+    "set -u",
+    'T="$HOME/task"; f="$T/out.jsonl"; g="$T/trace.jsonl.gz"',
+    '[ -s "$f" ] || { echo none; exit 0; }',
+    'raw=$(wc -c < "$f")',
+    "word=whole; size=0",
+    `for n in whole ${limits.tails.join(" ")}; do`,
+    '  if [ "$n" = whole ]; then',
+    `    [ "$raw" -le ${limits.rawBytes} ] || continue`,
+    '    gzip -9 -c "$f" > "$g"; word=whole',
+    "  else",
+    '    [ "$raw" -gt "$n" ] || continue',
+    "    word=truncated",
+    `    if [ "$(tail -c $((n + 1)) "$f" | head -c 1 | od -An -c | tr -d ' ')" = '\\n' ]; then tail -c "$n" "$f"; else tail -c "$n" "$f" | tail -n +2; fi | gzip -9 > "$g"`,
+    "  fi",
+    '  size=$(wc -c < "$g")',
+    `  [ "$size" -le ${limits.gzipBytes} ] && break`,
+    "done",
+    'echo "$word $raw"',
+    'echo "$size"',
+  ].join("\n");
 }
 
-export function readableTrace(gz: Buffer): Buffer {
-  return gunzipSync(gz, { maxOutputLength: MAX_TRACE_RAW_BYTES * 2 });
-}
-
-export const TRACE_COMMAND = [
-  "set -u",
-  'T="$HOME/task"; f="$T/out.jsonl"',
-  '[ -s "$f" ] || { echo none; exit 0; }',
-  'raw=$(wc -c < "$f")',
-  `if [ "$raw" -gt ${MAX_TRACE_RAW_BYTES} ]; then tail -c ${MAX_TRACE_RAW_BYTES} "$f" | tail -n +2 | gzip -9 > "$T/trace.jsonl.gz"; echo "truncated $raw"; else gzip -9 -c "$f" > "$T/trace.jsonl.gz"; echo "whole $raw"; fi`,
-  'wc -c < "$T/trace.jsonl.gz"',
-].join("\n");
+export const TRACE_COMMAND = traceCommand();
 
 export function parseTraceReport(stdout: string): { kind: "none" } | { kind: "kept"; truncated: boolean; rawBytes: number; gzipBytes: number } {
   const [first = "", second = ""] = stdout.trim().split("\n");
@@ -93,7 +126,7 @@ export class StateTraceStore implements JobTraceStore {
     return { ...(this.#token ? { authorization: `Bearer ${this.#token}` } : {}), ...extra };
   }
   async put(jobId: string, gz: Buffer, upload: TraceUpload): Promise<JobTrace> {
-    const response = await this.#fetch(`${this.#url}/${traceKey(jobId)}`, { method: "PUT", body: new Uint8Array(gz), signal: AbortSignal.timeout(120_000),
+    const response = await this.#fetch(`${this.#url}/${traceKey(jobId)}`, { method: "PUT", body: new Uint8Array(gz), signal: upload.signal ?? AbortSignal.timeout(120_000),
       headers: this.#headers({ "content-type": "application/gzip", "x-laterdog-retain-days": String(upload.retentionDays), "x-laterdog-truncated": upload.truncated ? "1" : "0" }) });
     if (!response.ok) throw new Error(`the trace store answered ${response.status}`);
     const storedAt = this.#now();
@@ -104,13 +137,14 @@ export class StateTraceStore implements JobTraceStore {
     } catch { expiresAt = traceExpiry(storedAt, upload.retentionDays); }
     return { where: "r2", bytes: gz.length, storedAt: storedAt.toISOString(), expiresAt, truncated: upload.truncated };
   }
-  async get(jobId: string): Promise<Buffer | null> {
+  async open(jobId: string): Promise<Readable | null> {
     const response = await this.#fetch(`${this.#url}/${traceKey(jobId)}`, { headers: this.#headers(), signal: AbortSignal.timeout(120_000) });
-    if (response.status === 404 || response.status === 410) return null;
-    if (!response.ok) throw new Error(`the trace store answered ${response.status}`);
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.length > MAX_TRACE_GZIP_BYTES) throw new Error("the stored trace is larger than the limit");
-    return bytes;
+    if (response.status === 404 || response.status === 410) { await response.body?.cancel(); return null; }
+    if (!response.ok) { await response.body?.cancel(); throw new Error(`the trace store answered ${response.status}`); }
+    const announced = Number(response.headers.get("content-length"));
+    if (Number.isFinite(announced) && announced > MAX_TRACE_GZIP_BYTES) { await response.body?.cancel(); throw new Error("the stored trace is larger than the limit"); }
+    if (!response.body) return null;
+    return Readable.fromWeb(response.body as import("node:stream/web").ReadableStream);
   }
 }
 
@@ -125,13 +159,13 @@ export class LocalTraceStore implements JobTraceStore {
   }
   #file(jobId: string): string { return join(this.#dir, `${traceKey(jobId).slice("traces/".length)}`); }
   async put(jobId: string, gz: Buffer, upload: TraceUpload): Promise<JobTrace> {
-    writeFileSync(this.#file(jobId), gz, { mode: 0o600 });
+    await writeFile(this.#file(jobId), gz, { mode: 0o600 });
     const storedAt = this.#now();
     return { where: "local", bytes: gz.length, storedAt: storedAt.toISOString(), expiresAt: traceExpiry(storedAt, upload.retentionDays), truncated: upload.truncated };
   }
-  async get(jobId: string): Promise<Buffer | null> {
+  async open(jobId: string): Promise<Readable | null> {
     const file = this.#file(jobId);
-    return existsSync(file) ? readFileSync(file) : null;
+    return existsSync(file) ? createReadStream(file) : null;
   }
   forget(jobId: string): void {
     const file = this.#file(jobId);

@@ -1,7 +1,7 @@
 import { Container, ContainerProxy, getContainer } from "@cloudflare/containers";
 import { DOG_BOT_ID, DOG_HEADER, dogToken } from "./dog-token";
 import { WAKEUP_BOTS_HEADER, mayHaveWakeups } from "./wakeup-hint";
-import { TRACE_PREFIX, handleTrace, sweepDue, sweepTraces } from "./traces";
+import { TRACE_PREFIX, handleTrace, sweepIfDue } from "./traces";
 
 export { ContainerProxy };
 
@@ -224,10 +224,8 @@ export default {
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(watchdog(env));
-    if (sweepDue(Date.now())) {
-      ctx.waitUntil(sweepTraces(env.STATE as unknown as Parameters<typeof sweepTraces>[0], Date.now())
-        .then((removed) => { if (removed) console.log(`laterdog traces: removed ${removed} expired`); })
-        .catch((error: unknown) => console.error(`laterdog traces: sweep failed: ${String(error)}`)));
-    }
+    ctx.waitUntil(sweepIfDue(env.STATE as unknown as Parameters<typeof sweepIfDue>[0], Date.now())
+      .then((removed) => { if (removed) console.log(`laterdog traces: removed ${removed} expired`); })
+      .catch((error: unknown) => console.error(`laterdog traces: sweep failed: ${String(error)}`)));
   },
 } satisfies ExportedHandler<Env>;

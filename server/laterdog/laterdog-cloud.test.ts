@@ -12,8 +12,8 @@ import { GitHubPublisher } from "./github.ts";
 import { WorkspaceStore } from "./store.ts";
 import { Supervisor } from "./supervisor.ts";
 import { AUTO_SETUP_SCRIPT, SETUP_FAILED_NOTE } from "./cloud-task-files.ts";
-import { StateTraceStore, jobTraceStoreFromEnv, readableTrace } from "./job-trace.ts";
-import { FakeTraceState } from "./trace-state-fake.ts";
+import { StateTraceStore, jobTraceStoreFromEnv } from "./job-trace.ts";
+import { FakeTraceState, slurp } from "./trace-state-fake.ts";
 import {
   COMPUTER_PREFIX, ComputerSubmissionUnknown, claudeOptions, INTERNAL_COMPUTERS_API, LATERDOG_CLOUD_CAPABILITIES, LaterdogCloudAdapter, laterdogCloudSettings, shellQuote, taskScript,
 } from "./laterdog-cloud.ts";
@@ -362,6 +362,8 @@ describe("later.dog Cloud adapter", () => {
     const parsed = configSchema.parse({ profiles: [{ id: "cloud", label: "later.dog Cloud", backend: "laterdog-cloud", computerSize: "large" }] });
     expect(parsed.profiles[0]).toMatchObject({ backend: "laterdog-cloud", computerSize: "large" });
     expect(() => configSchema.parse({ profiles: [{ id: "cloud", label: "x", backend: "laterdog-cloud", computerSize: "huge" }] })).toThrow();
+    expect(configSchema.parse({ profiles: [{ id: "cloud", label: "x", backend: "laterdog-cloud", maxComputerSize: "xlarge" }] }).profiles[0]).toMatchObject({ maxComputerSize: "xlarge" });
+    expect(() => configSchema.parse({ profiles: [{ id: "cloud", label: "x", backend: "laterdog-cloud", maxComputerSize: "huge" }] })).toThrow();
     expect(repositorySchema.parse({ slug: "fixture/repo", environmentId: "x", environments: { "laterdog-cloud": "none" } }).environments["laterdog-cloud"]).toBe("none");
   });
 });
@@ -474,7 +476,7 @@ describe("later.dog Cloud through the supervisor", () => {
 });
 
 describe("later.dog Cloud jobs choose their model, effort, size and account", () => {
-  it("asks for a small computer unless the job, or the profile, asks for more", async () => {
+  it("asks for a small computer unless the job asks for more, and never more than the profile allows", async () => {
     const sizeOf = async (adapterProfile: Profile, jobSize?: "small" | "standard" | "large" | "xlarge") => {
       const { api, context } = setup();
       const own = new LaterdogCloudAdapter(adapterProfile, { fetch: api.fetch, env: { LATERDOG_COMPUTERS_URL: API, LATERDOG_COMPUTERS_KEY: COMPUTERS_KEY, CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN }, pollMs: 0 });
@@ -482,9 +484,12 @@ describe("later.dog Cloud jobs choose their model, effort, size and account", ()
       return JSON.parse(api.requests.find((request) => request.method === "POST" && request.url.endsWith("/computers"))!.body).size as string;
     };
     expect(await sizeOf(profile)).toBe("small");
-    expect(await sizeOf(profile, "large")).toBe("large");
-    expect(await sizeOf({ ...profile, computerSize: "standard" })).toBe("standard");
-    expect(await sizeOf({ ...profile, computerSize: "standard" }, "xlarge")).toBe("xlarge");
+    expect(await sizeOf(profile, "large")).toBe("small");
+    expect(await sizeOf({ ...profile, maxComputerSize: "large" }, "large")).toBe("large");
+    expect(await sizeOf({ ...profile, maxComputerSize: "large" })).toBe("small");
+    expect(await sizeOf({ ...profile, computerSize: "standard" })).toBe("small");
+    expect(await sizeOf({ ...profile, computerSize: "standard" }, "xlarge")).toBe("standard");
+    expect(await sizeOf({ ...profile, computerSize: "xlarge", maxComputerSize: "standard" }, "xlarge")).toBe("standard");
   });
 
   it("runs Claude Code with the model and effort the job asks for, and with its own defaults otherwise", async () => {
@@ -540,7 +545,7 @@ describe("later.dog Cloud keeps every trace", () => {
     expect(await settle(adapter, taskId)).toBe("ready");
     const capture = (await adapter.trace(taskId))!;
     expect(capture).toMatchObject({ truncated: false });
-    const text = readableTrace(capture.gz).toString("utf8");
+    const text = gunzipSync(capture.gz).toString("utf8");
     expect(text).toContain('"text":"working"');
     expect(text).toContain('"type":"result"');
     expect(text).toContain("[redacted]");
@@ -600,8 +605,9 @@ describe("later.dog Cloud keeps every trace", () => {
     expect(Math.round((Date.parse(ready.trace!.expiresAt) - Date.now()) / 86_400_000)).toBe(14);
     const served = await supervisor.trace(job.id);
     expect(served.filename).toBe(`laterdog-job-${job.id}-trace.jsonl`);
-    expect(served.body.toString("utf8")).toContain('"text":"working"');
-    expect(served.body.toString("utf8")).not.toContain(CLAUDE_TOKEN);
+    const servedText = (await slurp(served.stream))!.toString("utf8");
+    expect(servedText).toContain('"text":"working"');
+    expect(servedText).not.toContain(CLAUDE_TOKEN);
     expect(supervisor.summaries({ ids: [job.id] })[0].trace).toMatchObject({ truncated: false });
     await supervisor.drain();
   });

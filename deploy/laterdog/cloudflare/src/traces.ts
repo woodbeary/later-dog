@@ -33,6 +33,8 @@ export async function handleTrace(request: Request, bucket: TraceBucket, key: st
   if (!TRACE_KEY.test(key)) return new Response("Invalid trace key", { status: 400 });
   const now = options.now ?? Date.now();
   if (request.method === "PUT") {
+    const announced = Number(request.headers.get("content-length"));
+    if (Number.isFinite(announced) && announced > MAX_TRACE_BYTES) return new Response("A trace is 1 byte to 16 MB", { status: 413 });
     const body = await request.arrayBuffer();
     if (body.byteLength === 0 || body.byteLength > MAX_TRACE_BYTES) return new Response("A trace is 1 byte to 16 MB", { status: 413 });
     const magic = new Uint8Array(body, 0, Math.min(2, body.byteLength));
@@ -70,6 +72,14 @@ export async function sweepTraces(bucket: TraceBucket, now: number): Promise<num
   return removed;
 }
 
-export function sweepDue(now: number): boolean {
-  return new Date(now).getUTCMinutes() < 5;
+export const SWEEP_MARKER = "meta/trace-sweep-at";
+const SWEEP_EVERY_MS = 60 * 60 * 1000;
+
+export async function sweepIfDue(bucket: TraceBucket, now: number): Promise<number | null> {
+  const marker = await bucket.get(SWEEP_MARKER);
+  const last = marker ? Number(await new Response(marker.body).text()) : Number.NaN;
+  if (Number.isFinite(last) && now - last >= 0 && now - last < SWEEP_EVERY_MS) return null;
+  const removed = await sweepTraces(bucket, now);
+  await bucket.put(SWEEP_MARKER, new TextEncoder().encode(String(now)).buffer as ArrayBuffer, { httpMetadata: { contentType: "text/plain" } });
+  return removed;
 }

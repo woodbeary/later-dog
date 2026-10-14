@@ -1,4 +1,4 @@
-import { JOB_EFFORTS, jobAccount, jobModel, type JobEffort } from "../../shared/laterdog.ts";
+import { DEFAULT_JOB_COMPUTER_SIZE, JOB_COMPUTER_SIZES, JOB_EFFORTS, jobAccount, jobModel, type JobComputerSize, type JobEffort, type Profile } from "../../shared/laterdog.ts";
 
 export interface DogChoices { instanceId: string; model: string; effort?: string }
 export interface JobChoices { account?: string; model?: string; effort?: JobEffort }
@@ -23,4 +23,14 @@ export function dogJobDefaults(env: NodeJS.ProcessEnv): JobChoices {
     ...(model && jobModel.safeParse(model).success ? { model } : {}),
     ...(effort && (JOB_EFFORTS as readonly string[]).includes(effort) ? { effort: effort as JobEffort } : {}),
   };
+}
+
+export function computerCeiling(profile: Pick<Profile, "maxComputerSize" | "computerSize"> | undefined): JobComputerSize {
+  return profile?.maxComputerSize ?? profile?.computerSize ?? DEFAULT_JOB_COMPUTER_SIZE;
+}
+
+export function clampComputerSize(asked: JobComputerSize | undefined, ceiling: JobComputerSize): { size: JobComputerSize; clamped: boolean } {
+  const size = asked ?? DEFAULT_JOB_COMPUTER_SIZE;
+  const over = JOB_COMPUTER_SIZES.indexOf(size) > JOB_COMPUTER_SIZES.indexOf(ceiling);
+  return { size: over ? ceiling : size, clamped: over };
 }

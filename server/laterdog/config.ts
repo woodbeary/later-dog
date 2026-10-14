@@ -12,6 +12,7 @@ export const configSchema = z.object({
     routineId: z.string().regex(/^trig_[A-Za-z0-9_-]+$/, "routineId must look like trig_…").optional(),
     routineTokenEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/, "routineTokenEnv must be an environment variable name").optional(),
     computerSize: z.enum(JOB_COMPUTER_SIZES).optional(),
+    maxComputerSize: z.enum(JOB_COMPUTER_SIZES).optional(),
     claudeTokenEnv: z.string().regex(/^CLAUDE_CODE_OAUTH_TOKEN(_[A-Z0-9_]+)?$/, "claudeTokenEnv must be CLAUDE_CODE_OAUTH_TOKEN or CLAUDE_CODE_OAUTH_TOKEN_<NAME>").optional(),
     account: jobAccount.optional() }).strict()
     .refine((p) => p.backend !== "claude-cloud" || p.routineTokenEnv, "A claude-cloud profile needs routineTokenEnv")).min(1)

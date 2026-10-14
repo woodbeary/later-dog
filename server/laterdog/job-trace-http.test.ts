@@ -23,7 +23,7 @@ afterEach(async () => {
 async function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "laterdog-trace-http-")); const store = new WorkspaceStore(join(dir, "workspace.sqlite"));
   const local = new LocalTraceStore(join(dir, "traces"));
-  const supervisor = new Supervisor(store, { dataDir: dir, profiles: [{ id: "cloud", label: "later.dog Cloud", backend: "laterdog-cloud" }], concurrency: 4, publishingHost: "local", traces: { primary: local, local } });
+  const supervisor = new Supervisor(store, { dataDir: dir, profiles: [{ id: "cloud", label: "later.dog Cloud", backend: "laterdog-cloud", maxComputerSize: "large" }], concurrency: 4, publishingHost: "local", traces: { primary: local, local } });
   const token = "fixture-supervisor-token-".repeat(3);
   const server = createSupervisorServer(supervisor, token); resources.push({ server, supervisor, store, dir });
   server.listen(0, "127.0.0.1"); await once(server, "listening");

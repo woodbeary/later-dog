@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_RETENTION_DAYS, handleTrace, retentionDays, sweepDue, sweepTraces, type TraceBucket } from "../deploy/laterdog/cloudflare/src/traces.ts";
+import { MAX_RETENTION_DAYS, handleTrace, retentionDays, sweepIfDue, sweepTraces, type TraceBucket } from "../deploy/laterdog/cloudflare/src/traces.ts";
 
 const JOB = "5f2d8c0e-1111-4222-8333-444455556666";
 const KEY = `traces/${JOB}.jsonl.gz`;
@@ -81,7 +81,23 @@ describe("the supervisor Worker's trace store", () => {
     bucket.objects.set("latest/config.json", { value: new ArrayBuffer(1) });
     expect(await sweepTraces(bucket, NOW + 2 * 86_400_000)).toBe(3);
     expect([...bucket.objects.keys()].sort()).toEqual(["latest/config.json", "traces/5f2d8c0e-1111-4222-8333-444455550003.jsonl.gz", "traces/5f2d8c0e-1111-4222-8333-444455550004.jsonl.gz"]);
-    expect(sweepDue(Date.parse("2026-10-14T12:00:00Z"))).toBe(true);
-    expect(sweepDue(Date.parse("2026-10-14T12:05:00Z"))).toBe(false);
+  });
+
+  it("sweeps when the last sweep was over an hour ago, even if a cron firing was missed", async () => {
+    const bucket = new FakeBucket();
+    await put(bucket, { "x-laterdog-retain-days": "1" });
+    expect(await sweepIfDue(bucket, NOW + 2 * 86_400_000)).toBe(1);
+    await put(bucket, { "x-laterdog-retain-days": "1" });
+    expect(await sweepIfDue(bucket, NOW + 2 * 86_400_000 + 20 * 60_000)).toBeNull();
+    expect(bucket.objects.has(KEY)).toBe(true);
+    expect(await sweepIfDue(bucket, NOW + 2 * 86_400_000 + 61 * 60_000)).toBe(1);
+    expect(bucket.objects.has(KEY)).toBe(false);
+  });
+
+  it("refuses an upload that announces more than 16 MB before reading it", async () => {
+    const bucket = new FakeBucket();
+    const answer = await handleTrace(new Request(`http://state.r2/${KEY}`, { method: "PUT", body: GZIP, headers: { "content-length": String(20 * 1024 * 1024) } }), bucket, KEY, { now: NOW });
+    expect(answer.status).toBe(413);
+    expect(bucket.objects.size).toBe(0);
   });
 });

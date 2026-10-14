@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
+import { pipeline } from "node:stream";
 import { z } from "zod";
 import { repositorySchema, scopePath } from "../../shared/laterdog.ts";
 import { json, readBody } from "../harness/http.ts";
@@ -72,10 +73,11 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
       }
       if (url.pathname === "/v1/jobs" && method === "POST") {
         const body = await readBody(req,200_000);
-        if (body && typeof body === "object" && !Array.isArray(body) && !("profileId" in body)) (body as Record<string, unknown>).profileId = supervisor.preferredProfile(typeof (body as Record<string, unknown>).account === "string" ? (body as Record<string, string>).account : undefined);
+        const profileDefaulted = Boolean(body && typeof body === "object" && !Array.isArray(body) && !("profileId" in body));
+        if (profileDefaulted) (body as Record<string, unknown>).profileId = supervisor.preferredProfile(typeof (body as Record<string, unknown>).account === "string" ? (body as Record<string, string>).account : undefined);
         const request = scope.jobRequest(body);
         await supervisor.ensureRepository(request);
-        return json(res,202,supervisor.create(request));
+        return json(res,202,supervisor.create(request,{ profileDefaulted }));
       }
       if (url.pathname === "/v1/jobs" && method === "GET") {
         const ids = url.searchParams.get("ids");
@@ -91,9 +93,9 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
         if (method === "GET" && jobPath[2] === "activity") return json(res,200,await supervisor.activity(id,z.coerce.number().int().min(0).default(0).parse(url.searchParams.get("after") ?? undefined)));
         if (method === "GET" && jobPath[2] === "trace") {
           const trace = await supervisor.trace(id);
-          res.writeHead(200,{ "content-type": "application/x-ndjson; charset=utf-8", "content-length": trace.body.length, "content-disposition": `attachment; filename="${trace.filename}"`,
+          res.writeHead(200,{ "content-type": "application/x-ndjson; charset=utf-8", "content-disposition": `attachment; filename="${trace.filename}"`,
             "x-laterdog-trace-expires": trace.expiresAt, "x-laterdog-trace-truncated": trace.truncated ? "1" : "0" });
-          return void res.end(trace.body);
+          return void pipeline(trace.stream,res,(error) => { if (error) res.destroy(); });
         }
         if (method === "POST" && jobPath[2] === "screen") return json(res,200,await supervisor.screen(id));
         if (method === "GET" && jobPath[2] === "patch") {

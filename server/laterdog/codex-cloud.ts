@@ -26,7 +26,7 @@ export interface ExecutionAdapter {
   progress?(taskId: string): { stage?: string; lastStep?: import("../../shared/cloud-task.ts").CloudTaskStep } | undefined;
   activity?(taskId: string, after: number): Promise<import("../../shared/cloud-task.ts").CloudTaskActivityPage>;
   transcript?(taskId: string): Promise<string>;
-  trace?(taskId: string): Promise<import("./job-trace.ts").TraceCapture | null>;
+  trace?(taskId: string, budgetMs?: number): Promise<import("./job-trace.ts").TraceCapture | null>;
   screen?(taskId: string): Promise<{ url: string; expiresAt: number | string }>;
   cancel?(taskId: string): Promise<void>;
 }

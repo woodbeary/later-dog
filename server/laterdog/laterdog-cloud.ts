@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { DEFAULT_JOB_COMPUTER_SIZE, JOB_COMPUTER_SIZES, JOB_EFFORTS, gitRef, jobModel, repoSlug, type BackendCapabilities, type JobEffort, type Profile } from "../../shared/laterdog.ts";
+import { JOB_COMPUTER_SIZES, JOB_EFFORTS, gitRef, jobModel, repoSlug, type BackendCapabilities, type JobEffort, type Profile } from "../../shared/laterdog.ts";
 import { COMPUTER_ID, ComputersApiError, readCapped } from "./cloud-computers.ts";
 import { SubmissionUnknown, type ExecutionAdapter, type JobContext } from "./codex-cloud.ts";
 import { MAX_TRACE_GZIP_BYTES, TRACE_COMMAND, captureTrace, parseTraceReport, type TraceCapture } from "./job-trace.ts";
 import { claudeEffortArg } from "./effort-levels.ts";
+import { clampComputerSize, computerCeiling } from "./job-defaults.ts";
 import { ACTIVITY_SCRIPT, AUTO_SETUP_SCRIPT, SETUP_FAILED_NOTE, WATCH_SCRIPT } from "./cloud-task-files.ts";
 import { MAX_ACTIVITY_PAGE_BYTES, cloudTaskStep, parseCloudTaskSteps, type CloudTaskActivityPage, type CloudTaskStep } from "../../shared/cloud-task.ts";
 
@@ -287,7 +288,7 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
   private readonly profile: Profile;
   private readonly fetchImpl: typeof fetch;
   private readonly env: NodeJS.ProcessEnv;
-  private readonly size: ComputerSize;
+  private readonly ceiling: ComputerSize;
   private readonly bootTimeoutMs: number;
   private readonly pollMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -296,7 +297,7 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
   private readonly progressById = new Map<string, { stage?: string; lastStep?: CloudTaskStep }>();
   constructor(profile: Profile, options: LaterdogCloudAdapterOptions = {}) {
     this.profile = profile; this.fetchImpl = options.fetch ?? fetch; this.env = options.env ?? process.env;
-    this.size = options.size ?? profile.computerSize ?? DEFAULT_JOB_COMPUTER_SIZE;
+    this.ceiling = options.size ?? computerCeiling(profile);
     this.bootTimeoutMs = options.bootTimeoutMs ?? 180_000; this.pollMs = options.pollMs ?? 2_000;
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.maxRunMinutes = options.maxRunMinutes ?? 180;
@@ -340,7 +341,7 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
     const setup = mode === "auto" ? AUTO_SETUP_SCRIPT : mode === "command" ? `set -euo pipefail\n${environmentId.trim()}\n` : "";
     const script = taskScript({ repository: context.repository, sourceRef, baseSha: context.baseSha, maxRunMinutes: this.maxRunMinutes, setup: mode, model: context.model, effort: context.effort });
     const { computers, settings } = this.client();
-    const size = context.computerSize ?? this.size;
+    const size = clampComputerSize(context.computerSize, this.ceiling).size;
     let computer: Computer;
     try { computer = await computers.create(`${COMPUTER_PREFIX}${context.jobId}`, size, context.jobId); }
     catch (error) {
@@ -457,19 +458,25 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
     return (await computers.read(id, "task/activity.jsonl", MAX_TRANSCRIPT_BYTES)).toString("utf8");
   }
 
-  async trace(taskId: string): Promise<TraceCapture | null> {
+  private knownSecrets(settings: LaterdogCloudSettings): string[] {
+    const named = Object.entries(this.env).filter(([name, value]) => /^CLAUDE_CODE_OAUTH_TOKEN(_[A-Z0-9_]+)?$/.test(name) && typeof value === "string").map(([, value]) => value as string);
+    return [settings.claudeToken, settings.githubToken, settings.key, this.env.LATERDOG_COMPUTERS_KEY, this.env.LATERDOG_TOKEN, ...named]
+      .filter((secret): secret is string => typeof secret === "string" && secret.trim().length > 0);
+  }
+
+  async trace(taskId: string, budgetMs = 120_000): Promise<TraceCapture | null> {
     const id = LaterdogCloudAdapter.id(taskId);
     const { computers, settings } = this.client();
     const computer = await computers.get(id);
     if (!computer || computer.state !== "running") return null;
-    const report = await computers.exec(id, TRACE_COMMAND, 120_000);
+    const report = await computers.exec(id, TRACE_COMMAND, budgetMs);
     if (report.exitCode !== 0) throw new Error(`Packing the trace on computer ${id} exited ${report.exitCode ?? "without a code"}: ${report.stderr.trim().slice(-200)}`);
     const parsed = parseTraceReport(report.stdout);
     if (parsed.kind === "none") return null;
     if (parsed.gzipBytes > MAX_TRACE_GZIP_BYTES) throw new Error(`The packed trace on computer ${id} is ${parsed.gzipBytes} bytes, over the ${MAX_TRACE_GZIP_BYTES}-byte limit`);
     const gz = await computers.read(id, "task/trace.jsonl.gz", MAX_TRACE_GZIP_BYTES);
     if (gz.length !== parsed.gzipBytes) throw new Error(`The trace read from computer ${id} was ${gz.length} bytes, not the ${parsed.gzipBytes} it reported`);
-    return captureTrace(gz, parsed.truncated, [settings.claudeToken, ...(settings.githubToken ? [settings.githubToken] : [])]);
+    return captureTrace(gz, parsed.truncated, this.knownSecrets(settings));
   }
 
   async screen(taskId: string): Promise<{ url: string; expiresAt: number | string }> {

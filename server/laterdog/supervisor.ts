@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { activeJob, createJobSchema, repositorySchema, scopesOverlap, type BackendId, type CreateJob, type Job, type Profile, type WorkspaceSnapshot } from "../../shared/laterdog.ts";
+import { activeJob, createJobSchema, repositorySchema, scopesOverlap, type BackendId, type CreateJob, type Job, type JobTrace, type Profile, type WorkspaceSnapshot } from "../../shared/laterdog.ts";
 import { MAX_ACTIVITY_PAGE_BYTES, cloudTaskSummary, parseCloudTaskSteps, patchChanges, type CloudTaskActivityPage, type CloudTaskSummary } from "../../shared/cloud-task.ts";
 import { CodexCloudAdapter, SubmissionUnknown, type ExecutionAdapter, type JobContext } from "./codex-cloud.ts";
 import { ClaudeCloudAdapter, CLAUDE_CLOUD_CAPABILITIES } from "./claude-cloud.ts";
@@ -11,7 +11,9 @@ import { GitHubDeviceLogin } from "./github-login.ts";
 import { WorkspaceStore } from "./store.ts";
 import { measuredOutcomes } from "./observations.ts";
 import { deliverOutbox } from "./notifications.ts";
-import { LocalTraceStore, jobTraceStoreFromEnv, readableTrace, traceExpired, traceRetentionDays, type JobTraceStore } from "./job-trace.ts";
+import { clampComputerSize, computerCeiling } from "./job-defaults.ts";
+import { LocalTraceStore, jobTraceStoreFromEnv, readableTraceStream, traceExpired, traceRetentionDays, type JobTraceStore, type TraceCapture } from "./job-trace.ts";
+import type { Readable } from "node:stream";
 
 export interface SupervisorOptions {
   dataDir: string;
@@ -27,6 +29,8 @@ export interface SupervisorOptions {
   traces?: { primary: JobTraceStore; local: LocalTraceStore };
   traceRetentionDays?: number;
   traceRetryMs?: number[];
+  traceBudgetMs?: number;
+  traceStopCapMs?: number;
   traceSweepMs?: number;
 }
 
@@ -34,6 +38,16 @@ export function correctionTitle(brief: string): string {
   const first = brief.trim().split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? "";
   const line = first.length > 120 ? `${first.slice(0, 119).trimEnd()}…` : first;
   return `Correct: ${line || "address the review"}`;
+}
+
+const TRACE_BUDGET_MS = 30_000;
+const TRACE_STOP_CAP_MS = 5_000;
+
+function settleWithin<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  work.catch(() => undefined);
+  const late = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`${what} took longer than ${Math.max(Math.round(ms / 1000), 1)} s`)), ms); });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
 
 function inherited(parent: Job): Pick<CreateJob, "model" | "effort" | "account" | "computerSize"> {
@@ -54,6 +68,8 @@ export class Supervisor {
   private readonly artifactDir: string;
   private readonly traces: { primary: JobTraceStore; local: LocalTraceStore };
   private lastTraceSweep = 0;
+  private readonly tracing = new Map<string, Promise<void>>();
+  private readonly uploads = new Set<Promise<void>>();
   readonly store: WorkspaceStore;
   readonly options: SupervisorOptions;
   constructor(store: WorkspaceStore, options: SupervisorOptions) {
@@ -71,12 +87,24 @@ export class Supervisor {
     return { jobId: job.id, repository: job.repository, sourceRef: job.sourceRef, baseSha: job.baseSha, createdAt: job.createdAt,
       ...(job.model ? { model: job.model } : {}), ...(job.effort ? { effort: job.effort } : {}), ...(job.account ? { account: job.account } : {}), ...(job.computerSize ? { computerSize: job.computerSize } : {}) };
   }
-  create(input: unknown): Job {
-    const request = createJobSchema.parse(input);
-    const adapter = this.adapters.get(request.profileId); if (!adapter) throw new Error("Unknown account profile");
-    const job = this.store.create(request, adapter.capabilities.id as BackendId);
-    const profile = this.options.profiles.find((candidate) => candidate.id === request.profileId);
-    if (request.account && profile && profile.account !== request.account && profile.id !== request.account && !this.store.events(job.id).some((event) => event.type === "account_differs")) {
+  create(input: unknown, how: { profileDefaulted?: boolean } = {}): Job {
+    const parsed = createJobSchema.parse(input);
+    const adapter = this.adapters.get(parsed.profileId); if (!adapter) throw new Error("Unknown account profile");
+    const backend = adapter.capabilities.id as BackendId;
+    const profile = this.options.profiles.find((candidate) => candidate.id === parsed.profileId);
+    const cloud = backend === "laterdog-cloud";
+    const { model, effort, computerSize, ...rest } = parsed;
+    const sizing = cloud && computerSize ? clampComputerSize(computerSize, computerCeiling(profile)) : undefined;
+    const request: CreateJob = cloud ? { ...rest, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(sizing ? { computerSize: sizing.size } : {}) } : rest;
+    const job = this.store.create(request, backend);
+    const recorded = (type: string) => this.store.events(job.id).some((event) => event.type === type);
+    if (sizing?.clamped && !recorded("computer_size_clamped")) {
+      this.store.update(job.id, {}, "computer_size_clamped", `Asked for a ${computerSize} computer; ran on ${sizing.size} (this profile allows up to ${sizing.size})`);
+    }
+    if (!cloud && (model || effort || computerSize) && !recorded("choices_ignored")) {
+      this.store.update(job.id, {}, "choices_ignored", "This backend does not take a model, effort or computer size, so they were not applied");
+    }
+    if (how.profileDefaulted && cloud && request.account && profile && profile.account !== request.account && profile.id !== request.account && !recorded("account_differs")) {
       this.store.update(job.id, {}, "account_differs", `Asked for account ${request.account}; no cloud profile is signed in to it, so this runs on ${profile.label}`);
     }
     return job;
@@ -167,44 +195,64 @@ export class Supervisor {
       this.store.touch(job.id, { activityArtifact });
     } catch (error) { console.warn(`later.dog kept no progress log for job ${job.id}: ${message(error)}`); }
   }
-  private async keepTrace(job: Job): Promise<void> {
+  private keepTrace(job: Job, capMs = this.options.traceBudgetMs ?? TRACE_BUDGET_MS): Promise<void> {
+    const running = this.tracing.get(job.id);
+    const work = running ?? this.captureTrace(job, this.options.traceBudgetMs ?? TRACE_BUDGET_MS).finally(() => this.tracing.delete(job.id));
+    if (!running) this.tracing.set(job.id, work);
+    return settleWithin(work, capMs, "Keeping the trace").catch(() => undefined);
+  }
+  private async captureTrace(job: Job, budgetMs: number): Promise<void> {
     const adapter = this.adapters.get(job.profileId);
     if (!adapter?.trace || !job.taskId || this.store.job(job.id).trace) return;
-    const retentionDays = this.options.traceRetentionDays ?? traceRetentionDays(process.env);
-    const waits = this.options.traceRetryMs ?? [1_000, 4_000];
-    let reason = "";
+    const started = Date.now();
+    let reason: string;
     try {
-      const captured = await adapter.trace(job.taskId);
-      if (!captured) return;
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          const trace = await this.traces.primary.put(job.id, captured.gz, { retentionDays, truncated: captured.truncated });
-          this.store.touch(job.id, { trace });
-          return;
-        } catch (error) {
-          reason = message(error);
-          if (attempt >= waits.length) break;
-          await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
-        }
-      }
-      if (this.traces.primary.where !== "local") {
-        const trace = await this.traces.local.put(job.id, captured.gz, { retentionDays, truncated: captured.truncated });
-        this.store.touch(job.id, { trace });
-        this.store.update(job.id, {}, "trace_kept_locally", `The trace store refused it (${reason}); kept on this supervisor's disk instead`);
-        return;
-      }
+      const captured = await settleWithin(adapter.trace(job.taskId, budgetMs), budgetMs, "Capturing the trace");
+      if (!captured) reason = "The computer had no event stream to keep";
+      else { await this.storeTrace(job.id, captured, Math.max(budgetMs - (Date.now() - started), 1_000)); return; }
     } catch (error) { reason = message(error); }
     console.warn(`later.dog kept no trace for job ${job.id}: ${reason}`);
     this.store.update(job.id, {}, "trace_not_kept", reason);
   }
-  async trace(id: string): Promise<{ body: Buffer; filename: string; expiresAt: string; truncated: boolean }> {
+  private async storeTrace(jobId: string, captured: TraceCapture, remainingMs: number): Promise<void> {
+    const upload = { retentionDays: this.options.traceRetentionDays ?? traceRetentionDays(process.env), truncated: captured.truncated };
+    let localFailure: string | undefined;
+    try { this.store.touch(jobId, { trace: await this.traces.local.put(jobId, captured.gz, upload) }); }
+    catch (error) { localFailure = message(error); }
+    if (this.traces.primary.where === "local") {
+      if (localFailure) throw new Error(localFailure);
+      return;
+    }
+    if (localFailure === undefined) { this.promoteTrace(jobId, captured.gz, upload); return; }
+    try { this.store.touch(jobId, { trace: await settleWithin(this.uploadTrace(jobId, captured.gz, upload), remainingMs, "Uploading the trace") }); }
+    catch (error) { throw new Error(`${message(error)}; and the supervisor's own disk refused it: ${localFailure}`); }
+  }
+  private async uploadTrace(jobId: string, gz: Buffer, upload: { retentionDays: number; truncated: boolean }): Promise<JobTrace> {
+    const waits = this.options.traceRetryMs ?? [1_000, 4_000];
+    const signal = AbortSignal.timeout(this.options.traceBudgetMs ?? TRACE_BUDGET_MS);
+    for (let attempt = 0; ; attempt += 1) {
+      try { return await this.traces.primary.put(jobId, gz, { ...upload, signal }); }
+      catch (error) {
+        if (attempt >= waits.length || signal.aborted) throw error;
+        await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
+      }
+    }
+  }
+  private promoteTrace(jobId: string, gz: Buffer, upload: { retentionDays: number; truncated: boolean }): void {
+    const run: Promise<void> = this.uploadTrace(jobId, gz, upload)
+      .then((trace) => { this.store.touch(jobId, { trace }); this.traces.local.forget(jobId); })
+      .catch((error: unknown) => { this.store.update(jobId, {}, "trace_kept_locally", `The trace store refused it (${message(error)}); kept on this supervisor's disk instead`); })
+      .finally(() => { this.uploads.delete(run); });
+    this.uploads.add(run);
+  }
+  async trace(id: string): Promise<{ stream: Readable; filename: string; expiresAt: string; truncated: boolean }> {
     const job = this.store.job(id);
     if (!job.trace) throw Object.assign(new Error("No trace was kept for this job."), { status: 404 });
     if (traceExpired(job.trace)) throw Object.assign(new Error(`This job's trace expired ${job.trace.expiresAt.slice(0, 10)}.`), { status: 410 });
     const store = job.trace.where === "local" ? this.traces.local : this.traces.primary;
-    const stored = await store.get(id);
+    const stored = await store.open(id);
     if (!stored) throw Object.assign(new Error("This job's trace is no longer in the store."), { status: 410 });
-    return { body: readableTrace(stored), filename: `laterdog-job-${id}-trace.jsonl`, expiresAt: job.trace.expiresAt, truncated: job.trace.truncated };
+    return { stream: readableTraceStream(stored), filename: `laterdog-job-${id}-trace.jsonl`, expiresAt: job.trace.expiresAt, truncated: job.trace.truncated };
   }
   private sweepTraces(): void {
     if (Date.now() - this.lastTraceSweep < (this.options.traceSweepMs ?? 3_600_000)) return;
@@ -422,8 +470,8 @@ export class Supervisor {
     const adapter = this.adapters.get(job.profileId);
     if (job.state !== "running" || !job.taskId || !adapter?.cancel) return this.cancel(id, acknowledgeUnknown);
     this.store.update(id, { cancelRequested: true }, "cancel_requested", "Deleting the task's computer");
-    await this.keepActivity(job);
-    await this.keepTrace(job);
+    const cap = this.options.traceStopCapMs ?? TRACE_STOP_CAP_MS;
+    await Promise.all([settleWithin(this.keepActivity(job), cap, "Keeping the progress log").catch(() => undefined), this.keepTrace(job, cap)]);
     await adapter.cancel(job.taskId);
     if (this.inFlight.has(id)) return this.store.job(id);
     return this.store.update(id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");
@@ -435,7 +483,7 @@ export class Supervisor {
     const baseRef = await this.publisher.defaultBranch(parsed.data.repository);
     this.store.saveRepository(repositorySchema.parse({ slug: parsed.data.repository, environmentId: "none", environments: { "laterdog-cloud": "auto" }, baseRef, publish: true, merge: false }));
   }
-  async drain(): Promise<void> { while (this.inFlight.size) { this.store.lease(this.owner); await new Promise((resolve) => setTimeout(resolve,20)); } this.store.release(this.owner); }
+  async drain(): Promise<void> { await Promise.allSettled([...this.tracing.values(), ...this.uploads]); while (this.inFlight.size) { this.store.lease(this.owner); await new Promise((resolve) => setTimeout(resolve,20)); } this.store.release(this.owner); }
   stop(): void { this.stopped = true; }
 }
 export function message(error: unknown): string { return error instanceof Error ? error.message : "Operation failed"; }

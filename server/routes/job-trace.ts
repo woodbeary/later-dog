@@ -1,4 +1,6 @@
+import { Readable, pipeline } from "node:stream";
 import { PASS, type RouteHandler } from "./table.ts";
+import { limitBytes } from "../laterdog/job-trace.ts";
 import { desktopSupervisorToken, supervisorOrigin } from "../laterdog/config.ts";
 
 const TRACE_PATH = /^\/api\/laterdog\/jobs\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/trace$/;
@@ -19,12 +21,16 @@ export function createJobTraceRoutes(fetchImpl: typeof fetch = fetch): RouteHand
       const failure = await response.json().catch(() => ({})) as { error?: unknown };
       return json(res, response.status, { error: typeof failure.error === "string" ? failure.error : "The trace could not be read." });
     }
-    const body = Buffer.from(await response.arrayBuffer());
-    if (body.length > MAX_TRACE_BYTES) return json(res, 502, { error: "The trace is larger than this app will download." });
+    if (!response.body) return json(res, 502, { error: "The supervisor sent no trace." });
     res.writeHead(200, {
-      "content-type": "application/x-ndjson; charset=utf-8", "content-length": body.length, "cache-control": "no-store", "x-content-type-options": "nosniff",
+      "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff",
       "content-disposition": response.headers.get("content-disposition") ?? `attachment; filename="laterdog-job-${match[1]}-trace.jsonl"`,
     });
-    res.end(body);
+    await new Promise<void>((done) => {
+      pipeline(Readable.fromWeb(response.body as import("node:stream/web").ReadableStream), limitBytes(MAX_TRACE_BYTES, "The trace"), res, (error) => {
+        if (error) res.destroy();
+        done();
+      });
+    });
   };
 }

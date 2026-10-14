@@ -1,3 +1,12 @@
+import type { Readable } from "node:stream";
+
+export async function slurp(stream: Readable | null): Promise<Buffer | null> {
+  if (!stream) return null;
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
 export interface FakeStateRequest { method: string; path: string; headers: Record<string, string>; bytes: number }
 
 export class FakeTraceState {

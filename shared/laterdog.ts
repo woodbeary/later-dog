@@ -104,6 +104,7 @@ export interface Profile {
   routineId?: string;
   routineTokenEnv?: string;
   computerSize?: JobComputerSize;
+  maxComputerSize?: JobComputerSize;
   claudeTokenEnv?: string;
   account?: string;
 }
