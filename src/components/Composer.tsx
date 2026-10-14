@@ -81,6 +81,8 @@ import {
 } from "./ComposerQueuedMessages";
 import { cloudDictationEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
 import { sharperTranscript } from "@/lib/sharper-dictation";
+import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
+import { TypingGhost, TypingGhostAnnouncement } from "./TypingGhost";
 import { mentionChoicesForQuery } from "@/lib/mentions";
 import { serializeThreadRefs, threadTokenFromPaste, threadTokenSpacing } from "@/lib/thread-refs";
 import {
@@ -384,6 +386,26 @@ export function Composer({
     return mentionChoicesForQuery(pool, mention.query);
   }, [mention, dismissedAt, state.bots, bot?.id, group, members]);
   const mentionPickerOpen = candidates.length > 0;
+  const suggestion = useComposerSuggestion({
+    config: state.config,
+    text,
+    caret,
+    field: inputRef.current,
+    lines: group ? group.messages : bot ? visibleMessages(bot) : [],
+    dog: group ? group.name : (bot?.name ?? ""),
+    dogNames: (group ? members ?? [] : state.bots.filter((member) => member.id !== bot?.id && !member.hidden)).map((member) => member.name),
+    commands: [...(group && !group.dm ? ["/goal"] : []), "/learn", "/setup"],
+    recording,
+    listening,
+    locked,
+    approval: Boolean(approval),
+    picker: commandPickerOpen || mentionPickerOpen,
+    edit: editText,
+    moveCaret: (at) => {
+      setCaret(at);
+      requestAnimationFrame(() => inputRef.current?.setSelectionRange(at, at));
+    },
+  });
   const commandMotion = useMenuMotion(commandPickerOpen);
   const mentionMotion = useMenuMotion(mentionPickerOpen);
 
@@ -663,6 +685,7 @@ export function Composer({
       });
       track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && (delivery ? waitsForTurn(delivery) : !canSteer), delivery });
     }
+    suggestion.sent(text);
     setRecording(false);
     setRetryingNote(null);
     setText("");
@@ -1082,7 +1105,11 @@ export function Composer({
             rememberPosition();
           }}
           onClick={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
+          onCompositionStart={suggestion.onCompositionStart}
+          onCompositionEnd={suggestion.onCompositionEnd}
+          ghost={<TypingGhost text={suggestion.ghost} source={suggestion.source} />}
           onKeyDown={(e) => {
+            if (suggestion.onKeyDown(e)) return;
             if (commandPickerOpen) {
               if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
@@ -1171,6 +1198,7 @@ export function Composer({
           aria-label={t("composer.placeholder.bot", { name: group ? group.name : (bot?.name ?? "") })}
             className="block max-h-[9rem] min-h-5 w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-[14px] leading-5 placeholder:text-ink-secondary focus:outline-none"
           />
+          <TypingGhostAnnouncement text={suggestion.ghost} />
           <div data-composer-actions className="ml-auto flex items-center gap-1">
           {!locked && bot && !group && !remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="model" />}
           {!locked && bot && !group && !remoteClient && <EffortButton bot={bot} threadId={bot.threadId} />}

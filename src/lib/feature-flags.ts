@@ -1,7 +1,7 @@
 import { t } from "./i18n";
 
 export interface FeatureFlagConfig {
-  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; routinesInConversation?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean };
+  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; routinesInConversation?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean };
   browserEngine?: { kind: "engine" | "unavailable"; reason?: string; installable?: boolean; installing?: boolean; installError?: string };
 }
 
@@ -26,6 +26,10 @@ export function builtInBrowserEnabled(config: FeatureFlagConfig | null | undefin
 
 export function cloudDictationEnabled(config: FeatureFlagConfig | null | undefined): boolean {
   return config?.features?.cloudDictation !== false;
+}
+
+export function typingSuggestionsEnabled(config: FeatureFlagConfig | null | undefined): boolean {
+  return config?.features?.typingSuggestions !== false;
 }
 
 export function stepUpdatesEnabled(config: FeatureFlagConfig | null | undefined): boolean {
