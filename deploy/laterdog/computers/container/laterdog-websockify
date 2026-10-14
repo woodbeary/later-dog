@@ -1,0 +1,9 @@
+#!/usr/bin/python3
+import sys
+
+sys.modules["numpy"] = None
+
+from websockify.websocketproxy import websockify_init
+
+sys.argv[0] = "websockify"
+websockify_init()

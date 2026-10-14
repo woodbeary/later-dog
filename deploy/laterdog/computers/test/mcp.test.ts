@@ -348,7 +348,7 @@ describe("computer_action over MCP", () => {
     expect(result.isError).toBeUndefined();
     expect(result.content[1]).toMatchObject({ type: "image" });
     expect(result.structuredContent.screen_check).toEqual({ unavailable: "Screen checks come with a free trial or later.dog Cloud key. This key gets the screenshot only." });
-    expect(w.containers.get(id)!.execs.filter((entry) => entry.cmd.join(" ").includes("scrot"))).toHaveLength(1);
+    expect(w.containers.get(id)!.execs.filter((entry) => entry.cmd.join(" ").includes("scrot --overwrite --pointer"))).toHaveLength(1);
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -405,7 +405,7 @@ describe("computer_action over MCP", () => {
     const result = await call(w, OWNER_KEY, "computer_action", { computer_id: id, action: "key", key: "Return" });
     expect(result.isError).toBe(true);
     expect(say(result)).toBe("The action did not work: Can't open display :0");
-    expect(w.containers.get(id)!.execs.filter((entry) => entry.cmd.join(" ").includes("scrot"))).toHaveLength(0);
+    expect(w.containers.get(id)!.execs.filter((entry) => entry.cmd.join(" ").includes("scrot --overwrite --pointer"))).toHaveLength(0);
   });
 });
 
@@ -645,12 +645,37 @@ describe("waking a computer", () => {
     return () => Response.json({ computer: { id: ID, name: ID, size: "small", state: rest.length > 1 ? rest.shift() : rest[0] } });
   };
 
+  const drawing = (...list: Array<[string, boolean]>) => {
+    const rest = [...list];
+    return () => {
+      const [state, desktopAvailable] = rest.length > 1 ? rest.shift()! : rest[0]!;
+      return Response.json({ computer: { id: ID, name: ID, size: "small", state, desktopAvailable } });
+    };
+  };
+
+  it("waits for the desktop to be drawn, not only for the computer to run", async () => {
+    const waits: number[] = [];
+    const { backend, seen } = fakeBackend({ wake: drawing(["starting", false]), get: drawing(["running", false], ["running", false], ["running", true]) });
+    const result = await unit({ backend, wait: async (ms) => void waits.push(ms) }, "computer_wake", { computer_id: ID });
+    expect(result.structuredContent).toMatchObject({ ready: true, computer: { state: "running", desktopAvailable: true } });
+    expect(waits).toEqual([500, 500, 500]);
+    expect(seen.map((entry) => entry.op)).toEqual(["wake", "get", "get", "get"]);
+  });
+
+  it("says it is not ready while a running computer's desktop is still being drawn", async () => {
+    const waits: number[] = [];
+    const { backend } = fakeBackend({ wake: drawing(["running", false]), get: drawing(["running", false]) });
+    const result = await unit({ backend, wait: async (ms) => void waits.push(ms) }, "computer_wake", { computer_id: ID });
+    expect(result.structuredContent.ready).toBe(false);
+    expect(waits.reduce((sum, ms) => sum + ms, 0)).toBe(30_000);
+  });
+
   it("waits for a starting computer to run", async () => {
     const waits: number[] = [];
     const { backend, seen } = fakeBackend({ wake: states("starting"), get: states("starting", "running") });
     const result = await unit({ backend, wait: async (ms) => void waits.push(ms) }, "computer_wake", { computer_id: ID });
     expect(result.structuredContent).toMatchObject({ ready: true, computer: { state: "running" } });
-    expect(waits).toEqual([2000, 2000]);
+    expect(waits).toEqual([500, 500]);
     expect(seen.map((entry) => entry.op)).toEqual(["wake", "get", "get"]);
   });
 

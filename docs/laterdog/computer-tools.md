@@ -54,7 +54,7 @@ refuses a service address that is not HTTPS (or loopback), does not follow redir
 | --- | --- |
 | `computer_list` | Your computers: id, name, size, state. |
 | `computer_create` | A new Linux desktop (Xfce, Chromium, git, Node). `name` and `size` are optional. Size is `small` (standard-1), the default, `standard`, `large` or `xlarge`; a free trial always gets `standard`, so it is the default for a trial key. Returns while the computer is starting. |
-| `computer_wake` | Starts a sleeping computer or waits for a new one: returns when it is running, or says it is still starting after 30 seconds and to call again. |
+| `computer_wake` | Starts a sleeping computer or waits for a new one: returns when it is running and its desktop is drawn, or says it is still starting after 30 seconds and to call again. |
 | `computer_sleep` | Snapshots and stops it. Files stay; open programs do not. |
 | `computer_screenshot` | The whole screen as a JPEG, pointer included. |
 | `computer_action` | `click`, `double_click`, `type`, `key`, `scroll` or `drag` through `xdotool`, then a fresh screenshot and a Clef screen check. |

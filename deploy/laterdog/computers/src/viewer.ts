@@ -1,3 +1,4 @@
+import { NOVNC_BASE, NOVNC_ENTRY, NOVNC_MODULES } from "./novnc";
 
 export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -60,6 +61,7 @@ export function viewerPage(options: { name: string; expiresAtMs: number; nonce: 
 <meta name="referrer" content="no-referrer">
 <title>${escapeHtml(name)} · later.dog</title>
 <style nonce="${nonce}">${STYLE}</style>
+${NOVNC_MODULES.map((file) => `<link rel="modulepreload" href="${NOVNC_BASE}/${file}">`).join("\n")}
 </head>
 <body>
 <div id="screen" role="application" aria-label="${escapeHtml(name)} desktop"></div>
@@ -67,7 +69,7 @@ export function viewerPage(options: { name: string; expiresAtMs: number; nonce: 
   <div class="pill" id="status" data-state="wait" role="status" aria-live="polite"><span class="dot"></span><span id="label">Connecting…</span></div>
 </div>
 <script type="module" nonce="${nonce}">
-import RFB from "./core/rfb.js";
+import RFB from "${NOVNC_ENTRY}";
 
 const EXPIRES_AT = ${Math.floor(expiresAtMs)};
 const screen = document.getElementById("screen");

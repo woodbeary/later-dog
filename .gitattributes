@@ -8,3 +8,4 @@ server/model-catalog/models-dev.snapshot.json text eol=lf
 third_party/models-dev/LICENSE text eol=lf
 third_party/opencode/LICENSE text eol=lf
 Dockerfile text eol=lf
+third_party/novnc/** text eol=lf

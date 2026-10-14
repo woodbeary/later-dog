@@ -5,11 +5,20 @@ describe("viewer page", () => {
   const nonce = "abc123";
   const html = viewerPage({ name: `Rex <img src=x onerror=alert(1)> "&"`, expiresAtMs: 1_800_007_200_000, nonce });
 
-  it("loads noVNC by relative URL so it stays under the signed path", () => {
-    expect(html).toContain('import RFB from "./core/rfb.js";');
+  it("loads noVNC from the versioned, token-free static path and keeps the socket and status under the signed path", () => {
+    expect(html).toContain('import RFB from "/novnc/1.6.0/core/rfb.js";');
     expect(html).toContain('new URL("websockify", location.href)');
     expect(html).toContain('fetch("status"');
+    expect(html).not.toContain("./core/");
     expect(html).not.toMatch(/src="\//);
+  });
+
+  it("preloads every noVNC module in one go so the import chain is not fetched level by level", () => {
+    const links = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map((match) => match[1]);
+    expect(links).toHaveLength(52);
+    expect(links).toContain("/novnc/1.6.0/core/rfb.js");
+    expect(links).toContain("/novnc/1.6.0/vendor/pako/lib/zlib/inflate.js");
+    expect(new Set(links).size).toBe(links.length);
   });
 
   it("escapes the computer's name", () => {

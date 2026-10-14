@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import { sha256Hex } from "../src/auth";
+import { FakeSocket, RFB_BANNER } from "./fake-socket";
 import worker, { ComputerRegistry, DogComputer, TrialRegistry } from "../src/index";
 
 const sqliteModule = "node:sqlite";
@@ -90,8 +91,17 @@ export class FakeContainer {
     return { exitCode: Promise.resolve(answered?.exitCode ?? 0), stdout: stream(answered?.stdout), stderr: stream(answered?.stderr), kill: () => undefined };
   }
 
+  rfbAnswers: () => boolean = () => true;
+  readonly sockets: FakeSocket[] = [];
+
   getTcpPort(): { fetch(): Promise<Response> } {
-    return { fetch: async () => new Response("{}") };
+    return {
+      fetch: async () => {
+        const socket = new FakeSocket(this.rfbAnswers() ? RFB_BANNER : undefined);
+        this.sockets.push(socket);
+        return Object.assign(new Response(null, { status: 200 }), { webSocket: socket });
+      },
+    };
   }
 }
 
