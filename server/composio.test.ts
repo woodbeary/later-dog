@@ -430,6 +430,16 @@ describe.sequential("Composio Sessions", () => {
     expect(connectionMode({})).toBe("unavailable");
   });
 
+  it("updates credential availability only with a valid desktop credential message", () => {
+    const env = { LATERDOG_CREDENTIAL_STORE: "unavailable" };
+    expect(applyManagedBrokerMessage({ type: "untrusted", access: null, credentialStore: "ok" }, env)).toBe(false);
+    expect(env.LATERDOG_CREDENTIAL_STORE).toBe("unavailable");
+    expect(applyManagedBrokerMessage({ type: "laterdog:managed-composio", access: null, credentialStore: "unknown" }, env)).toBe(false);
+    expect(env.LATERDOG_CREDENTIAL_STORE).toBe("unavailable");
+    expect(applyManagedBrokerMessage({ type: "laterdog:managed-composio", access: null, credentialStore: "ok" }, env)).toBe(true);
+    expect(env.LATERDOG_CREDENTIAL_STORE).toBe("ok");
+  });
+
   it("does not reuse a self-hosted catalog after the project key changes", async () => {
     const before = calls.length;
     const first = await listToolkits({ composio: { apiKey: "ak_catalog_a" } });

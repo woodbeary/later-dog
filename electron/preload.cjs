@@ -37,7 +37,7 @@ const PROFILE_KEYS = new Set([
   "beginScreenPreviewIntent", "screenFrame", "speechStart", "speechStop", "speechFinish", "speechAudio", "onSpeechTranscript", "onSpeechEnd",
   "onOpenAppSettings", "getPathForFile", "permStatus", "permRequestMic", "permOpenSettings", "permissions",
   "relaunch", "openInstallTerminal", "copyText", "openExternal", "applySkin", "windowControls", "onPackageInstall", "setUnreadCount",
-  "pickFolder", "exportDiagnostics", "saveFile", "revealInFolder", "setCredential", "updater", "releaseCheck", "confirm", "profiles",
+  "pickFolder", "exportDiagnostics", "saveFile", "revealInFolder", "setCredential", "retryCredentialStore", "updater", "releaseCheck", "confirm", "profiles",
 ]);
 const remoteKeys = isLocalPage ? REMOTE_SAFE
   : isProfilePage ? PROFILE_KEYS
@@ -215,7 +215,16 @@ const bridge = {
       throw new Error(message.replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, ""));
     }),
   revealInFolder: (filePath) => ipcRenderer.invoke("desktop:reveal-file", filePath),
-  setCredential: (name, value) => ipcRenderer.invoke("credential:set", name, value),
+  setCredential: async (name, value) => {
+    try {
+      return await ipcRenderer.invoke("credential:set", name, value);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const detail = message.replace(/^Error invoking remote method 'credential:set': (?:Error: )?/, "");
+      throw new Error(value && detail.includes(value) ? "The key could not be saved securely. Try again." : detail);
+    }
+  },
+  retryCredentialStore: () => ipcRenderer.invoke("credential:retry"),
 
   updater: {
     check: () => ipcRenderer.invoke("update:check"),

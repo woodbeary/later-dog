@@ -1502,5 +1502,9 @@
   "cloudTask.update.published": "A tarefa na nuvem está pronta para revisão",
   "cloudTask.update.verified": "As alterações da tarefa na nuvem foram verificadas",
   "cloudTask.update.merged": "A tarefa na nuvem está concluída",
-  "cloudTask.update.attention": "A tarefa na nuvem precisa de você"
+  "cloudTask.update.attention": "A tarefa na nuvem precisa de você",
+  "credentialStore.retry": "Tentar desbloquear novamente",
+  "credentialStore.retryFailed": "Ainda não foi possível ler os dados de acesso salvos. Tente novamente ou feche e reabra o {app}.",
+  "credentialStore.saveFailed": "Não foi possível salvar a chave com segurança. Ela ainda está neste campo. Tente salvá-la novamente.",
+  "credentialStore.unavailable": "Não foi possível ler os dados de acesso salvos. Tente desbloqueá-los novamente ou feche e reabra o {app}. Permita o acesso às Chaves, se solicitado."
 }

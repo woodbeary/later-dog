@@ -233,6 +233,7 @@ function ipcFixture(options) {
     localOnly: localOrigin.localOnly,
     cuaReady: Promise.resolve(null),
     credentialStoreUnavailable: false,
+    credentialFallbackAvailable: () => false,
     desktopCapabilities: (capabilities) => plain(capabilities),
     CREDENTIAL_PATCH: { xaiApiKey: (value) => ({ xai: { key: value } }) },
     safeStorage: { isAsyncEncryptionAvailable: async () => f.context.encryption !== false },
@@ -286,4 +287,61 @@ test("the open profile's page hears about this Mac as a local page, with its own
   assert.equal(forPersonal.credentialStore, "ok");
   const remote = ipcFixture({ showing: REMOTE, open: BUSINESS_ID, remote: true });
   assert.equal((await remote.handlers.get("desktop:capabilities")(remote.event)).remote, true);
+});
+
+
+test("credential retry recovers only the sender's own local vault and returns no secrets", async () => {
+  const personal = ipcFixture();
+  let retries = 0;
+  personal.context.secureCredentialState = { retry: async () => { retries++; return true; } };
+  assert.deepEqual(plain(await personal.handlers.get("credential:retry")(personal.event)), { available: true });
+  assert.equal(retries, 1);
+  personal.context.secureCredentialState.retry = async () => { throw new Error("keychain locked"); };
+  assert.deepEqual(plain(await personal.handlers.get("credential:retry")(personal.event)), { available: false });
+
+  const business = ipcFixture({ showing: BUSINESS, open: BUSINESS_ID });
+  const ids = [];
+  business.profiles.retryCredentials = async (id) => { ids.push(id); return true; };
+  assert.deepEqual(plain(await business.handlers.get("credential:retry")(business.event)), { available: true });
+  assert.deepEqual(ids, [BUSINESS_ID]);
+
+  const remote = ipcFixture({ showing: REMOTE, open: BUSINESS_ID, remote: true });
+  assert.throws(() => remote.handlers.get("credential:retry")(remote.event), /only available/);
+});
+
+test("main vault recovery restores all runtime keys before clearing the unavailable state", async () => {
+  const f = ipcFixture();
+  const applied = [];
+  let capabilities = 0;
+  let phone = 0;
+  let composio = 0;
+  Object.assign(f.context, {
+    desktopRemoteAccess: null,
+    SERVER_PORT: 48995,
+    CREDENTIAL_PATCH: {
+      ttsKey: (key) => ({ tts: { key } }),
+      fishAudioKey: (fishKey) => ({ tts: { fishKey } }),
+      boxToken: (token) => ({ box: { token } }),
+    },
+    credentialStoreUnavailable: true,
+    applyProfileCredential: async (entry) => { applied.push(plain(entry)); },
+    readPhoneSecretIdentity: (credentials) => credentials.phone,
+    syncPhoneSecretKey: () => { phone++; },
+    syncManagedComposioCredentials: () => { composio++; },
+    broadcastDesktopCapabilities: async () => { capabilities++; },
+  });
+  const credentials = { ttsKey: "fixture-voice", fishAudioKey: "fixture-fish", boxToken: "fixture-box", phone: { id: "unchanged" } };
+  await f.context.restoreWorkspaceCredentials(credentials);
+  assert.deepEqual(applied, [{ port: 48995, patch: { tts: { key: "fixture-voice", fishKey: "fixture-fish" }, box: { token: "fixture-box" } } }]);
+  assert.equal(f.context.credentialStoreUnavailable, false);
+  assert.deepEqual(f.context.secureCredentials, credentials);
+  assert.deepEqual(f.context.phoneSecretIdentity, credentials.phone);
+  assert.equal(phone, 1);
+  assert.equal(composio, 1);
+  assert.equal(capabilities, 1);
+
+  f.context.credentialStoreUnavailable = true;
+  f.context.applyProfileCredential = async () => { throw new Error("server unavailable"); };
+  await assert.rejects(f.context.restoreWorkspaceCredentials(credentials), /server unavailable/);
+  assert.equal(f.context.credentialStoreUnavailable, true);
 });

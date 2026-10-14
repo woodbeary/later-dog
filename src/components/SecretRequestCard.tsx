@@ -3,6 +3,7 @@ import { Check, ExternalLink, KeyRound, Loader2, LockKeyhole, RefreshCw, X } fro
 
 import { credentialConfigPatch, credentialResumeOutcome } from "../../shared/credential-request";
 import { cn } from "@/lib/cn";
+import { t } from "@/lib/i18n";
 import { api, useStore, type ConfigStatus, type Message } from "@/state/store";
 
 export function SecretRequestCard({
@@ -75,6 +76,7 @@ export function SecretRequestCard({
     if (saving || (!value.trim() && !savedLocally)) return;
     setSaving(true);
     setLocalError(null);
+    let saved = savedLocally;
     try {
       if (!savedLocally) {
         const next = value.trim();
@@ -87,10 +89,11 @@ export function SecretRequestCard({
         dispatch({ type: "configStatus", config: status });
         setValue("");
         setSavedLocally(true);
+        saved = true;
       }
       await notifyProvided();
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : String(error));
+      setLocalError(saved ? error instanceof Error ? error.message : String(error) : t("credentialStore.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -170,7 +173,7 @@ export function SecretRequestCard({
                 className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
                 {saving && <Loader2 size={13} className="animate-spin" />}
-                {savedLocally ? "Continue task" : "Save securely"}
+                {savedLocally ? "Continue task" : localError ? t("chat.retry") : "Save securely"}
               </button>
             </div>
             <a

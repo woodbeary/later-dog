@@ -2012,5 +2012,9 @@
   "cloudTask.update.published": "雲端任務可供審核",
   "cloudTask.update.verified": "雲端任務的變更已檢查",
   "cloudTask.update.merged": "雲端任務已完成",
-  "cloudTask.update.attention": "雲端任務需要你處理"
+  "cloudTask.update.attention": "雲端任務需要你處理",
+  "credentialStore.retry": "重試解鎖",
+  "credentialStore.retryFailed": "仍無法讀取已儲存的登入資訊。請重試，或結束並重新開啟 {app}。",
+  "credentialStore.saveFailed": "無法安全儲存金鑰。金鑰仍保留在此輸入欄位中，請重試儲存。",
+  "credentialStore.unavailable": "無法讀取已儲存的登入資訊。請重試解鎖，或結束並重新開啟 {app}。若系統詢問，請允許取用鑰匙圈。"
 }

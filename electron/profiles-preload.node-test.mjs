@@ -58,7 +58,7 @@ test("Personal's page gets the whole bridge, profiles included, without asking m
 test("the open profile's page gets its own desktop features and nothing Personal-only", () => {
   const { bridge, asked } = load({ origin: "http://127.0.0.1:8811", profilePage: true });
   assert.deepEqual(asked, ["profiles:page"]);
-  for (const key of ["profiles", "setCredential", "saveFile", "revealInFolder", "approvals", "speechStart", "permissions", "updater", "confirm", "workspaces"]) {
+  for (const key of ["profiles", "setCredential", "retryCredentialStore", "saveFile", "revealInFolder", "approvals", "speechStart", "permissions", "updater", "confirm", "workspaces"]) {
     assert.ok(key in bridge, `${key} should reach a profile`);
   }
   for (const key of PERSONAL_ONLY) assert.equal(key in bridge, false, `${key} must stay Personal-only`);
@@ -69,6 +69,7 @@ test("a server's page that main does not name as the open profile keeps the remo
     const { bridge } = load({ origin: "https://remote.invalid", ...options });
     assert.equal("profiles" in bridge, false);
     assert.equal("setCredential" in bridge, false);
+    assert.equal("retryCredentialStore" in bridge, false);
     assert.equal("saveFile" in bridge, false);
     assert.equal(typeof bridge.getCapabilities, "function");
   }

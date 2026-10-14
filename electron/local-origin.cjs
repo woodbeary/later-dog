@@ -5,6 +5,7 @@ const PROFILE_CHANNELS = new Set([
   "approvals:set-trusted-mode",
   "clipboard:write-text",
   "credential:set",
+  "credential:retry",
   "desktop:export-diagnostics",
   "desktop:open-external",
   "desktop:pick-folder",

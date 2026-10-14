@@ -370,15 +370,37 @@ let desktopCompanionRelay = null;
 const CREDENTIALS_FILE = path.join(app.getPath("userData"), "credentials.bin");
 
 let credentialStoreUnavailable = false;
+let credentialStoreUsesFallback = false;
 
-async function loadSecureCredentials() {
+function credentialFallbackAvailable() {
+  return process.platform === "darwin" && typeof safeStorage.isEncryptionAvailable === "function" && safeStorage.isEncryptionAvailable();
+}
+
+function decryptCredentialFallback(buffer) {
+  if (!credentialFallbackAvailable()) throw new Error("The operating-system credential store is unavailable");
+  return safeStorage.decryptString(buffer);
+}
+
+function encryptCredentialFallback(value) {
+  if (!credentialFallbackAvailable()) throw new Error("The operating-system credential store is unavailable");
+  return safeStorage.encryptString(value);
+}
+
+async function readCredentialStore() {
   const result = await readSecureCredentials({
     exists: () => fs.existsSync(CREDENTIALS_FILE),
     isAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
     readFile: () => fs.readFileSync(CREDENTIALS_FILE),
     decrypt: (buffer) => safeStorage.decryptStringAsync(buffer),
+    decryptFallback: process.platform === "darwin" ? decryptCredentialFallback : undefined,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   });
+  if (result.status !== "unavailable") credentialStoreUsesFallback = result.usedFallback === true;
+  return result;
+}
+
+async function loadSecureCredentials() {
+  const result = await readCredentialStore();
   credentialStoreUnavailable = result.status === "unavailable";
   if (credentialStoreUnavailable) {
     slog(`credential store unreadable after retries (${result.error}); saved keys are not loaded this launch`);
@@ -390,11 +412,13 @@ async function saveSecureCredentials(credentials) {
   if (credentialStoreUnavailable) {
     throw new Error("The operating-system credential store could not be read this launch");
   }
-  if (!(await safeStorage.isAsyncEncryptionAvailable())) {
+  if (!credentialStoreUsesFallback && !(await safeStorage.isAsyncEncryptionAvailable())) {
     throw new Error("The operating-system credential store is unavailable");
   }
   fs.mkdirSync(path.dirname(CREDENTIALS_FILE), { recursive: true });
-  const encrypted = await safeStorage.encryptStringAsync(JSON.stringify(credentials));
+  const encrypted = credentialStoreUsesFallback
+    ? encryptCredentialFallback(JSON.stringify(credentials))
+    : await safeStorage.encryptStringAsync(JSON.stringify(credentials));
   const temporary = `${CREDENTIALS_FILE}.${process.pid}.tmp`;
   fs.writeFileSync(temporary, encrypted, { mode: 0o600 });
   fs.renameSync(temporary, CREDENTIALS_FILE);
@@ -607,11 +631,13 @@ async function ensurePhoneSecretIdentity() {
   }
   try {
     const created = await createPhoneSecretIdentity();
-    await updateSecureCredentialDocument((credentials) =>
-      withPhoneSecretIdentity(credentials, created),
-    );
-    phoneSecretIdentity = created;
-    return created;
+    let identity = created;
+    await updateSecureCredentialDocument((credentials) => {
+      identity = readPhoneSecretIdentity(credentials) ?? created;
+      return withPhoneSecretIdentity(credentials, identity);
+    });
+    phoneSecretIdentity = identity;
+    return identity;
   } catch (error) {
     phoneSecretIdentity = null;
     slog(`phone credential key unavailable: ${error?.message ?? error}`);
@@ -1269,6 +1295,7 @@ function syncManagedComposioCredentials() {
     serverProc.postMessage({
       type: "laterdog:managed-composio",
       access: managedComposioAccess(composioBrokerUrl(), secureCredentials),
+      credentialStore: credentialStoreUnavailable ? "unavailable" : "ok",
     });
   } catch (error) {
     slog(`connected-apps credential sync failed: ${error?.message ?? error}`);
@@ -1747,6 +1774,10 @@ async function startProfiles() {
         available: () => safeStorage.isAsyncEncryptionAvailable(),
         encrypt: (value) => safeStorage.encryptStringAsync(value),
         decrypt: (buffer) => safeStorage.decryptStringAsync(buffer),
+        ...(process.platform === "darwin" ? {
+          decryptFallback: decryptCredentialFallback,
+          encryptFallback: encryptCredentialFallback,
+        } : {}),
       },
       applyCredential: applyProfileCredential,
       trash: (target) => shell.trashItem(target),
@@ -2949,7 +2980,7 @@ async function saveWorkspaceCredential(name, value) {
   if (!patchFor || typeof value !== "string") {
     throw new Error("Unsupported credential");
   }
-  if (app.isPackaged && !(await safeStorage.isAsyncEncryptionAvailable())) {
+  if (app.isPackaged && !(await safeStorage.isAsyncEncryptionAvailable()) && !credentialFallbackAvailable()) {
     throw new Error("The operating-system credential store is unavailable");
   }
   const secret = value.trim();
@@ -2983,13 +3014,43 @@ async function saveWorkspaceCredential(name, value) {
 async function saveProfileCredential(id, name, value) {
   const patchFor = CREDENTIAL_PATCH[name];
   if (!patchFor || typeof value !== "string") throw new Error("Unsupported credential");
-  if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("The operating-system credential store is unavailable");
+  if (!(await safeStorage.isAsyncEncryptionAvailable()) && !credentialFallbackAvailable()) throw new Error("The operating-system credential store is unavailable");
   return profiles.saveCredential(id, name, value, patchFor(value.trim()));
 }
 
 ipcMain.handle("credential:set", localOnly("credential:set", (event, name, value) =>
   askingProfile(event) ? saveProfileCredential(profiles.activeId(), name, value) : saveWorkspaceCredential(name, value),
 ));
+
+async function restoreWorkspaceCredentials(credentials) {
+  if (app.isPackaged && serverReady && !desktopRemoteAccess) {
+    const patch = {};
+    for (const [name, patchFor] of Object.entries(CREDENTIAL_PATCH)) {
+      if (typeof credentials[name] !== "string" || !credentials[name]) continue;
+      for (const [section, values] of Object.entries(patchFor(credentials[name]))) {
+        patch[section] = { ...patch[section], ...values };
+      }
+    }
+    await applyProfileCredential({ port: SERVER_PORT, patch });
+  }
+  secureCredentials = credentials;
+  credentialStoreUnavailable = false;
+  phoneSecretIdentity = readPhoneSecretIdentity(credentials);
+  if (serverProc) syncPhoneSecretKey(serverProc);
+  syncManagedComposioCredentials();
+  void broadcastDesktopCapabilities().catch(() => {});
+}
+
+ipcMain.handle("credential:retry", localOnly("credential:retry", async (event) => {
+  try {
+    const available = askingProfile(event)
+      ? await profiles.retryCredentials(profiles.activeId())
+      : await secureCredentialState?.retry() ?? false;
+    return { available };
+  } catch {
+    return { available: false };
+  }
+}));
 
 ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mode", (event, botId, mode, options) => {
   const proc = askingProfile(event) ? profiles.activeProcess() : serverProc;
@@ -3105,6 +3166,8 @@ app.whenReady().then(async () => {
   }
   secureCredentialState = createSecureCredentialState(secureCredentials, saveSecureCredentials, {
     writable: !credentialStoreUnavailable,
+    reload: readCredentialStore,
+    afterReload: restoreWorkspaceCredentials,
   });
   secureCredentials = secureCredentialState.read();
   if (app.isPackaged) await ensurePhoneSecretIdentity();

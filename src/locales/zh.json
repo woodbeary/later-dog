@@ -2012,5 +2012,9 @@
   "cloudTask.update.published": "云端任务可供审核",
   "cloudTask.update.verified": "云端任务的更改已检查",
   "cloudTask.update.merged": "云端任务已完成",
-  "cloudTask.update.attention": "云端任务需要你处理"
+  "cloudTask.update.attention": "云端任务需要你处理",
+  "credentialStore.retry": "重试解锁",
+  "credentialStore.retryFailed": "仍然无法读取已保存的登录信息。请重试，或退出并重新打开 {app}。",
+  "credentialStore.saveFailed": "无法安全保存密钥。密钥仍保留在此输入框中，请重试保存。",
+  "credentialStore.unavailable": "无法读取已保存的登录信息。请重试解锁，或退出并重新打开 {app}。如果系统询问，请允许访问钥匙串。"
 }

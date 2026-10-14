@@ -32,6 +32,8 @@ function harness({ answers = () => "ready", busy = new Set(), applyCredential, b
     const proc = new EventEmitter();
     proc.pid = undefined;
     proc.kills = 0;
+    proc.messages = [];
+    proc.postMessage = (message) => proc.messages.push(message);
     proc.stuck = false;
     proc.kill = () => {
       proc.kills++;
@@ -445,6 +447,163 @@ test("a key the profile's server refuses is rolled back", async () => {
   );
   await assert.rejects(runner.saveCredential("p0000000000ff", "xaiApiKey", "x", {}), /unavailable/);
   await runner.stopAll();
+});
+
+function seedProfileVault(setup, id, credentials) {
+  const file = path.join(setup.options.credentialsRoot, id, "credentials.bin");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const sealed = `sealed:${JSON.stringify(credentials)}`;
+  fs.writeFileSync(file, sealed);
+  return { file, sealed };
+}
+
+test("retrying a locked profile restores all its keys before saving a new one", async (t) => {
+  const setup = harness();
+  const id = "p000000000001";
+  const oldKeys = { xaiApiKey: "existing-xai", composioApiKey: "existing-composio", fishAudioKey: "existing-fish", imageGenPrivate: "preserve-unknown" };
+  const { file, sealed } = seedProfileVault(setup, id, oldKeys);
+  const decrypt = setup.secrets.decrypt;
+  let unlocked = false;
+  setup.secrets.decrypt = async (buffer) => {
+    if (!unlocked) throw new Error("Keychain unavailable");
+    return decrypt(buffer);
+  };
+  const runner = setup.runner();
+  t.after(async () => { await runner.stopAll(); fs.rmSync(setup.root, { recursive: true, force: true }); });
+  await runner.start();
+  await runner.add("Business");
+  await runner.switchTo(id);
+  assert.equal(runner.activeCredentialStore(), "unavailable");
+  assert.equal(setup.forks[0].env.LATERDOG_CREDENTIAL_STORE, "unavailable");
+  assert.equal(await runner.retryCredentials(id), false);
+  assert.equal(fs.readFileSync(file, "utf8"), sealed);
+  assert.deepEqual(setup.applied, []);
+
+  unlocked = true;
+  assert.equal(await runner.retryCredentials(id), true);
+  assert.equal(runner.activeCredentialStore(), "ok");
+  assert.deepEqual(setup.applied, [{ port: 8811, patch: {
+    xai: { key: "existing-xai" }, tts: { fishKey: "existing-fish" }, composio: { apiKey: "existing-composio" },
+  } }]);
+  assert.equal(fs.readFileSync(file, "utf8"), sealed);
+  assert.equal(await runner.retryCredentials(id), true);
+  assert.equal(setup.applied.length, 1);
+  await runner.saveCredential(id, "ttsKey", "new-elevenlabs", { tts: { key: "new-elevenlabs" } });
+  assert.equal(fs.readFileSync(file, "utf8"), `sealed:${JSON.stringify({ ...oldKeys, ttsKey: "new-elevenlabs" })}`);
+  assert.equal(fs.existsSync(path.join(setup.root, "userData", "credentials.bin")), false);
+});
+
+test("concurrent profile retry and saves reopen once and preserve every credential", async (t) => {
+  const setup = harness();
+  const id = "p000000000001";
+  const { file } = seedProfileVault(setup, id, { xaiApiKey: "old-xai" });
+  const decrypt = setup.secrets.decrypt;
+  let unlocked = false;
+  let reads = 0;
+  setup.secrets.decrypt = async (buffer) => {
+    reads++;
+    if (!unlocked) throw new Error("Keychain unavailable");
+    await tick(5);
+    return decrypt(buffer);
+  };
+  const runner = setup.runner();
+  t.after(async () => { await runner.stopAll(); fs.rmSync(setup.root, { recursive: true, force: true }); });
+  await runner.start();
+  await runner.add("Business");
+  unlocked = true;
+  const readsAtUnlock = reads;
+  await Promise.all([
+    runner.saveCredential(id, "ttsKey", "elevenlabs", { tts: { key: "elevenlabs" } }),
+    runner.retryCredentials(id),
+    runner.saveCredential(id, "openaiLiveKey", "live", { live: { key: "live" } }),
+  ]);
+  assert.equal(reads - readsAtUnlock, 1);
+  assert.deepEqual(setup.applied.map(({ patch }) => patch), [
+    { xai: { key: "old-xai" } }, { tts: { key: "elevenlabs" } }, { live: { key: "live" } },
+  ]);
+  assert.equal(fs.readFileSync(file, "utf8"), `sealed:${JSON.stringify({ xaiApiKey: "old-xai", ttsKey: "elevenlabs", openaiLiveKey: "live" })}`);
+});
+
+test("failed profile recovery keeps ciphertext intact, even if its original file disappears", async (t) => {
+  const setup = harness();
+  const id = "p000000000001";
+  const { file, sealed } = seedProfileVault(setup, id, { xaiApiKey: "old-xai" });
+  setup.secrets.decrypt = async () => { throw new Error("Invalid ciphertext"); };
+  let writes = 0;
+  setup.secrets.encrypt = async () => { writes++; throw new Error("Must not write"); };
+  const runner = setup.runner();
+  t.after(async () => { await runner.stopAll(); fs.rmSync(setup.root, { recursive: true, force: true }); });
+  await runner.start();
+  await runner.add("Business");
+  await runner.switchTo(id);
+  await assert.rejects(runner.saveCredential(id, "ttsKey", "new", { tts: { key: "new" } }));
+  assert.equal(await runner.retryCredentials(id), false);
+  assert.equal(fs.readFileSync(file, "utf8"), sealed);
+  fs.unlinkSync(file);
+  assert.equal(await runner.retryCredentials(id), false);
+  await assert.rejects(runner.saveCredential(id, "ttsKey", "new", { tts: { key: "new" } }));
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(writes, 0);
+  assert.equal(runner.activeCredentialStore(), "unavailable");
+  assert.deepEqual(setup.applied, []);
+});
+
+test("profile recovery is not complete until the server accepts the restored credentials", async (t) => {
+  let serverAccepts = false;
+  let applies = 0;
+  const setup = harness({ applyCredential: async () => {
+    applies++;
+    if (!serverAccepts) throw new Error("Bot server unavailable");
+    return { ok: true };
+  } });
+  const id = "p000000000001";
+  const { file, sealed } = seedProfileVault(setup, id, { xaiApiKey: "old-xai" });
+  const decrypt = setup.secrets.decrypt;
+  let unlocked = false;
+  setup.secrets.decrypt = async (buffer) => {
+    if (!unlocked) throw new Error("Keychain unavailable");
+    return decrypt(buffer);
+  };
+  const runner = setup.runner();
+  t.after(async () => { await runner.stopAll(); fs.rmSync(setup.root, { recursive: true, force: true }); });
+  await runner.start();
+  await runner.add("Business");
+  await runner.switchTo(id);
+  unlocked = true;
+  await assert.rejects(runner.retryCredentials(id), /Bot server unavailable/);
+  assert.equal(runner.activeCredentialStore(), "unavailable");
+  assert.equal(fs.readFileSync(file, "utf8"), sealed);
+  serverAccepts = true;
+  assert.equal(await runner.retryCredentials(id), true);
+  assert.equal(applies, 2);
+  assert.equal(runner.activeCredentialStore(), "ok");
+});
+
+test("a profile recovered by the encrypted fallback also uses that backend for future writes", async (t) => {
+  const setup = harness();
+  const id = "p000000000001";
+  const { file, sealed } = seedProfileVault(setup, id, { xaiApiKey: "old-xai" });
+  let unlocked = false;
+  let asyncWrites = 0;
+  let fallbackWrites = 0;
+  setup.secrets.decrypt = async () => { throw new Error("Async decryption unavailable"); };
+  setup.secrets.decryptFallback = async (buffer) => {
+    if (!unlocked) throw new Error("Keychain unavailable");
+    return String(buffer).replace(/^sealed:/, "");
+  };
+  setup.secrets.encrypt = async () => { asyncWrites++; throw new Error("Must use recovered backend"); };
+  setup.secrets.encryptFallback = async (text) => { fallbackWrites++; return Buffer.from(`sealed:${text}`); };
+  const runner = setup.runner();
+  t.after(async () => { await runner.stopAll(); fs.rmSync(setup.root, { recursive: true, force: true }); });
+  await runner.start();
+  await runner.add("Business");
+  assert.equal(fs.readFileSync(file, "utf8"), sealed);
+  unlocked = true;
+  await runner.saveCredential(id, "ttsKey", "new-elevenlabs", { tts: { key: "new-elevenlabs" } });
+  assert.equal(asyncWrites, 0);
+  assert.equal(fallbackWrites, 1);
+  assert.equal(fs.readFileSync(file, "utf8"), `sealed:${JSON.stringify({ xaiApiKey: "old-xai", ttsKey: "new-elevenlabs" })}`);
+  assert.deepEqual(setup.applied.map(({ patch }) => patch), [{ xai: { key: "old-xai" } }, { tts: { key: "new-elevenlabs" } }]);
 });
 
 test("removing a profile stops its server and moves its folder to the Trash", async () => {

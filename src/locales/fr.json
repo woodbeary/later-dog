@@ -1489,5 +1489,9 @@
   "cloudTask.update.published": "La tâche cloud est prête à vérifier",
   "cloudTask.update.verified": "Les modifications de la tâche cloud ont été vérifiées",
   "cloudTask.update.merged": "La tâche cloud est terminée",
-  "cloudTask.update.attention": "La tâche cloud a besoin de toi"
+  "cloudTask.update.attention": "La tâche cloud a besoin de toi",
+  "credentialStore.retry": "Réessayer le déverrouillage",
+  "credentialStore.retryFailed": "Les identifiants enregistrés restent illisibles. Réessaie, ou quitte et rouvre {app}.",
+  "credentialStore.saveFailed": "La clé n’a pas pu être enregistrée de façon sécurisée. Elle est toujours dans ce champ. Réessaie de l’enregistrer.",
+  "credentialStore.unavailable": "Les identifiants enregistrés n’ont pas pu être lus. Réessaie de les déverrouiller, ou quitte et rouvre {app}. Autorise l’accès au trousseau si cela t’est demandé."
 }

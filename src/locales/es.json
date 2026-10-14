@@ -1489,5 +1489,9 @@
   "cloudTask.update.published": "La tarea en la nube está lista para revisar",
   "cloudTask.update.verified": "Se han comprobado los cambios de la tarea en la nube",
   "cloudTask.update.merged": "La tarea en la nube está completada",
-  "cloudTask.update.attention": "La tarea en la nube te necesita"
+  "cloudTask.update.attention": "La tarea en la nube te necesita",
+  "credentialStore.retry": "Intentar desbloquear de nuevo",
+  "credentialStore.retryFailed": "Aún no se pueden leer los datos de acceso guardados. Inténtalo de nuevo o cierra y vuelve a abrir {app}.",
+  "credentialStore.saveFailed": "No se pudo guardar la clave de forma segura. Sigue en este campo. Intenta guardarla de nuevo.",
+  "credentialStore.unavailable": "No se pudieron leer los datos de acceso guardados. Intenta desbloquearlos de nuevo o cierra y vuelve a abrir {app}. Permite el acceso al llavero si se solicita."
 }
