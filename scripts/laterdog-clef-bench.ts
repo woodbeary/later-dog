@@ -252,7 +252,7 @@ export async function runClefBench(options: BenchOptions = {}): Promise<BenchRep
             tool: testCase.tool,
             summary: testCase.summary,
             ...(testCase.command ? { command: testCase.command } : {}),
-            input: reviewInputOf({ ...(testCase.command ? { command: testCase.command } : {}), ...(testCase.args ?? {}), description: testCase.summary }),
+            input: reviewInputOf({ ...(testCase.command ? { command: testCase.command } : {}), ...testCase.args, description: testCase.summary }),
           }, { mayAutoApprove: true, budgetMs: BENCH_BUDGET_MS, scope: REVIEW_SCOPE });
           const unavailable = samples.at(-1)?.ok === false;
           const verdictCorrect = unavailable ? null : verdictMatches(verdict, testCase);

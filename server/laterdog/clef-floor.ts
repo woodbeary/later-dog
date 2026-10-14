@@ -22,23 +22,23 @@ const PROSE_KEY = /^(description|timeout|run_in_background|reason|title|justific
 const PATH_KEY = /(path|file|name|dir|folder|cwd|target|dest|src|source|location|root|url|uri|glob)s?$/i;
 
 const OPERATORS = /[;&|`<>\n\r\0]|\$[A-Za-z_{(]/;
-const PARENT_SEGMENT = /(^|[\/\\\s"'=:(])\.\.([\/\\\s"')]|$)/;
+const PARENT_SEGMENT = /(^|[/\\\s"'=:(])\.\.([/\\\s"')]|$)/;
 const HOME = /(^|[\s"'=:(])~|\$HOME|%USERPROFILE%/;
-const ABSOLUTE_TOKEN = /(?<![\w.~:\/\-])\/(?!\/)[^\s"'`;|&<>()]*/g;
+const ABSOLUTE_TOKEN = /(?<![\w.~:/-])\/(?!\/)[^\s"'`;|&<>()]*/g;
 const FILE_URL = /^file:\/\//i;
 const WEB_URL = /^[a-z][a-z0-9+.-]*:\/\//i;
 
 const CREDENTIALS: readonly RegExp[] = [
-  /(^|[\/\\\s"'=:])\.(ssh|aws|gnupg|kube|docker|azure|npm|gem)([\/\\\s"']|$)/i,
-  /(^|[\/\\\s"'=:])\.env(\.[\w.-]+)?([\s"'\/\;|&]|$)/i,
+  /(^|[/\\\s"'=:])\.(ssh|aws|gnupg|kube|docker|azure|npm|gem)([/\\\s"']|$)/i,
+  /(^|[/\\\s"'=:])\.env(\.[\w.-]+)?([\s"'/\\;|&]|$)/i,
   /\.(npmrc|netrc|pypirc|git-credentials|pgpass)\b/i,
-  /(^|[\/\\\s"'=:])id_(rsa|dsa|ecdsa|ed25519)/i,
+  /(^|[/\\\s"'=:])id_(rsa|dsa|ecdsa|ed25519)/i,
   /\.(pem|p12|pfx|keystore|jks)\b/i,
   /keychain/i,
   /credentials\.(json|bin)\b/i,
 ];
 
-const LATERDOG_DATA = /(^|[\/\\\s"'=:])\.laterdog([\/\\\s"']|$)|credentials\.bin\b/i;
+const LATERDOG_DATA = /(^|[/\\\s"'=:])\.laterdog([/\\\s"']|$)|credentials\.bin\b/i;
 
 const within = (path: string, root: string) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
 
