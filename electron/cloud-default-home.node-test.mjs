@@ -7,7 +7,7 @@ const connected = (machine = { status: "ready", origin: HOME }) => ({ status: "c
 
 test("only a signed-in person whose home is ready has a home to open", () => {
   assert.deepEqual(readyHome(connected()), { origin: HOME });
-  for (const state of [null, { status: "signed-out" }, connected({ status: "provisioning", origin: HOME }), connected(undefined), { ...connected(), status: "unavailable" }]) assert.equal(readyHome(state), null);
+  for (const state of [null, { status: "signed-out" }, connected({ status: "provisioning", origin: HOME }), connected(null), { ...connected(), status: "unavailable" }]) assert.equal(readyHome(state), null);
 });
 
 test("the window opens the home once per home, never again after the person was sent back, and never when it is already showing it", () => {
