@@ -229,18 +229,20 @@ describe("configuration boundaries", () => {
     expect(() => parseConfigPatch({ defaultModelSelection })).toThrow("defaultModelSelection");
   });
 
-  it("exposes room handoff lifetime limits from config with the current defaults", () => {
+  it("exposes room handoff idle and hard-cap limits from config with the current defaults", () => {
     const configured = parseStoredConfig({
-      rooms: { turnTimeoutMinutes: 20, handoffLifetimeMinutes: 60, handoffMinRunwayMinutes: 15, handoffHardCapMinutes: 360 },
+      rooms: { turnTimeoutMinutes: 20, handoffIdleMinutes: 45, handoffMinRunwayMinutes: 15, handoffHardCapMinutes: 360 },
     });
     expect(roomHandoffLimits(configured)).toEqual({
-      lifetimeMs: 60 * 60_000, minRunwayMs: 15 * 60_000, hardCapMs: 360 * 60_000,
+      idleMs: 45 * 60_000, minRunwayMs: 15 * 60_000, hardCapMs: 360 * 60_000,
     });
     expect(roomHandoffLimits(parseStoredConfig({}))).toEqual({
-      lifetimeMs: 30 * 60_000, minRunwayMs: 10 * 60_000, hardCapMs: 240 * 60_000,
+      idleMs: 20 * 60_000, minRunwayMs: 10 * 60_000, hardCapMs: 240 * 60_000,
     });
-    expect(() => parseStoredConfig({ rooms: { turnTimeoutMinutes: 20, handoffMinRunwayMinutes: 10, handoffLifetimeMinutes: 5 } }))
-      .toThrow("rooms handoff bounds must satisfy handoffMinRunwayMinutes <= handoffLifetimeMinutes <= handoffHardCapMinutes");
+    expect(roomHandoffLimits(parseStoredConfig({ rooms: { turnTimeoutMinutes: 20, handoffLifetimeMinutes: 60 } })).idleMs)
+      .toBe(60 * 60_000);
+    expect(() => parseStoredConfig({ rooms: { turnTimeoutMinutes: 20, handoffMinRunwayMinutes: 10, handoffHardCapMinutes: 5 } }))
+      .toThrow("rooms handoff bounds must satisfy handoffMinRunwayMinutes <= handoffHardCapMinutes and handoffIdleMinutes <= handoffHardCapMinutes");
   });
 
   it("canonicalizes legacy browser profile ids without dropping other stored settings", () => {

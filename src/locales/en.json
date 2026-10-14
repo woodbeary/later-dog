@@ -861,6 +861,8 @@
   "chat.showRawMarkdown": "Show raw markdown",
   "chat.showRenderedMarkdown": "Show rendered markdown",
   "chat.retry": "Retry",
+  "chat.handoff.continue": "Continue",
+  "chat.handoff.continuing": "Continuing…",
   "chat.teammatesWorking": "Other dogs working",
   "chat.error.signedOut": "{name} isn't signed in yet. Sign in below, then send your message again.",
   "chat.error.details": "Details",

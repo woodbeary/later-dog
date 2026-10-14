@@ -20,6 +20,8 @@ import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversati
 import { botMemoryFiles, createLendingMemory } from "./lending-memory.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
+import type { HandoffEnd } from "./laterdog/handoff-budget.ts";
+import { continueNoticeTool, continuingNoticeTool, handoffActivity } from "./laterdog/handoff-continue.ts";
 import { assertRequestTarget, guardedRequestPath, requestConflict, requestNeedsInput, requestSourceForCard } from "./guarded-requests.ts";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
@@ -2377,7 +2379,7 @@ function requestedTaskBot(botId: string, rawThreadId: unknown): BotRecord {
   return task;
 }
 
-async function interruptDirectThread(botId: string, threadId: string, options?: { preserveComputerResume?: boolean }): Promise<void> {
+async function interruptDirectThread(botId: string, threadId: string, options?: { preserveComputerResume?: boolean; by?: HandoffEnd }): Promise<void> {
   if (!options?.preserveComputerResume && pendingComputerResumes.delete(threadId)
       && store.taskByThread(botId, threadId)?.activity === "parked.computer") {
     store.setTaskActivity(botId, threadId, "idle");
@@ -2387,7 +2389,7 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
     requestOwner.stopped = true;
     if (requestOwner.messageId) store.patchMessage(threadId, requestOwner.messageId, { requestCancelled: true });
   }
-  noteTeammatesLeftRunning(botId, threadId, roomHandoffs.stopAwaitingDirect(threadId));
+  noteTeammatesLeftRunning(botId, threadId, roomHandoffs.stopAwaitingDirect(threadId, options?.by ?? "interrupted"));
   const owner = botForThread(botId, threadId);
   const generation = directTurnGenerationByThread.get(threadId);
   if (accountBattery.pending(threadId, generation)) cancelBatteryContinuation(threadId, "You stopped this work. Automatic continuation is cancelled.");
@@ -2404,7 +2406,7 @@ async function stopThreadTurn(botId: string, threadId: string): Promise<void> {
     return;
   }
   handoffs.stoppedByPerson(threadId);
-  await interruptDirectThread(botId, threadId);
+  await interruptDirectThread(botId, threadId, { by: "person" });
 }
 
 function noteTeammatesLeftRunning(botId: string, threadId: string, running: RoomHandoff[]): void {
@@ -4152,6 +4154,14 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
     }
     if (directThreadIds.size > 0) drainQueuedSends();
   },
+  activity: node => node.groupId ? undefined : handoffActivity(watchdog.snapshot(node.threadId)),
+  closed: (root, end) => {
+    const present = root.groupId
+      ? Boolean(store.group(root.groupId) && store.groupTaskByThread(root.groupId, root.threadId))
+      : Boolean(store.taskByThread(root.botId, root.threadId));
+    if (!present) return;
+    store.appendMessage(root.threadId, { role: "bot", kind: "activity", tool: continueNoticeTool(root.id, end, roomHandoffLimits(cfg)) });
+  },
   report: (child, parent) => {
     if (child.kind === "assignment" && child.status === "completed") return;
     const group = parent.groupId ? store.group(parent.groupId) : undefined;
@@ -4165,7 +4175,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
       from: bot ? { botId: bot.id, name: bot.name, color: bot.color } : undefined,
       tool: {
         name: teammateResultLabel(bot?.name ?? "Teammate", child.status, problem,
-          child.groupId ? store.group(child.groupId)?.name ?? "Room" : undefined),
+          child.groupId ? store.group(child.groupId)?.name ?? "Room" : undefined, child.endedBy),
         ok: child.status === "completed" && !problem,
         ...(child.status === "completed" && !problem && child.result.trim()
           ? { output: redactSecretsInText(child.result.trim()).slice(0, 2_000) } : {}),
@@ -4534,10 +4544,11 @@ function cancelGroupTurnOperations(
     status: "stopped",
     detail: "Stopped by you.",
   },
+  by: HandoffEnd = outcome.status === "limit-reached" ? "limit" : "interrupted",
 ) {
   pendingComputerResumes.delete(threadId);
   cancelTeamSetupResumesForThread(threadId);
-  roomHandoffs.cancelRoom(groupId, threadId);
+  roomHandoffs.cancelRoom(groupId, threadId, by);
   for (const operation of groupTurnOperations.get(groupId) ?? []) {
     if (operation.threadId !== threadId) continue;
     operation.cancelled = true;
@@ -17631,7 +17642,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           instance: busy ? runningTurnInstance(busy, threadId) : undefined,
         };
       });
-      for (const { threadId } of interruptTargets) cancelGroupTurnOperations(group.id, threadId);
+      for (const { threadId } of interruptTargets) cancelGroupTurnOperations(group.id, threadId, undefined, "person");
       for (const { threadId, instance } of interruptTargets) {
         revokeInternalCapabilitiesForThread(threadId);
         await instance?.adapter.interruptTurn(threadId).catch(() => {});
@@ -18971,7 +18982,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (snapshot.phase === "settled") throw requestConflict("This request has already settled");
       owner.stopped = true;
       handoffs.stoppedByPerson(threadId);
-      await interruptDirectThread(m[1], threadId);
+      await interruptDirectThread(m[1], threadId, { by: "person" });
       return json(res, 200, { ok: true, outcome: "stopped" });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/messages(?:\/(guarded))?$/);
@@ -19399,6 +19410,21 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 200, { ok: true, outcome });
       });
     }
+    m = path.match(/^\/api\/handoffs\/([\w-]+)\/continue$/);
+    if (m && method === "POST") {
+      const root = roomHandoffs.nodes.get(m[1]);
+      if (!root || root.parentId) return json(res, 404, { error: "no such work to continue" });
+      const notYours = cloudThreadRefusal(auth, root.threadId);
+      if (notYours) return json(res, 403, { error: notYours });
+      try {
+        const result = roomHandoffs.continueTree(root.id);
+        const offer = store.messagesFor(root.threadId).find(message => message.tool?.resume?.handoffId === root.id);
+        if (offer) store.patchMessage(root.threadId, offer.id, { tool: continuingNoticeTool() });
+        return json(res, 200, { ok: true, ...result });
+      } catch (error) {
+        return json(res, 409, { error: error instanceof Error ? error.message : "that work could not be continued" });
+      }
+    }
     m = path.match(/^\/api\/bots\/([\w-]+)\/interrupt$/);
     if (m && method === "POST") {
       const bot = store.bot(m[1]);
@@ -19436,7 +19462,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (expectedThreadId !== undefined && busyGroup.threadId !== expectedThreadId) {
           return json(res, 409, { error: `this dog is working in channel ${busyGroup.group.name}` });
         }
-        cancelGroupTurnOperations(busyGroup.group.id, busyGroup.threadId);
+        cancelGroupTurnOperations(busyGroup.group.id, busyGroup.threadId, undefined, "person");
         revokeInternalCapabilitiesForThread(busyGroup.threadId);
         await instance?.adapter.interruptTurn(busyGroup.threadId).catch(() => {});
         closeOpenApprovals(busyGroup.threadId);
@@ -19451,7 +19477,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "the dog switched tasks before it could be interrupted" });
       }
       handoffs.stoppedByPerson(expectedThreadId ?? bot.threadId);
-      await interruptDirectThread(bot.id, expectedThreadId ?? bot.threadId);
+      await interruptDirectThread(bot.id, expectedThreadId ?? bot.threadId, { by: "person" });
       return json(res, 200, { ok: true });
     }
 
@@ -19693,7 +19719,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "this task is running — stop it first" });
       }
       const stagedSkillCleanups = stagedSkillCleanupsForThread(m[2]);
-      roomHandoffs.cancelDirect(m[2], "The source conversation was deleted");
+      roomHandoffs.cancelDirect(m[2], "deleted");
       cancelTeamSetupResumesForThread(m[2]);
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 404, { error: "no such task" });

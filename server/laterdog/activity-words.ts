@@ -1,4 +1,5 @@
 import type { Store } from "../store.ts";
+import { teammateEndLabel, type HandoffEnd } from "./handoff-budget.ts";
 
 type NameOf = (idOrName: string) => string | undefined;
 
@@ -110,9 +111,8 @@ export function botNames(store: Pick<Store, "bot" | "bots">): NameOf {
   };
 }
 
-export function teammateResultLabel(name: string, status: string, withheld: string | null | undefined, room?: string): string {
+export function teammateResultLabel(name: string, status: string, withheld: string | null | undefined, room?: string, end?: HandoffEnd): string {
   if (withheld) return `${name}'s reply was held back`;
   if (status === "completed") return room ? `${name} replied · ${room}` : `${name} replied`;
-  if (status === "cancelled") return `${name} stopped`;
-  return `${name} couldn't finish`;
+  return teammateEndLabel(name, status, end);
 }

@@ -3,12 +3,16 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InstanceInfo, Message } from "@/state/store";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { StatusActivityRow } from "./StatusActivityRow";
 
 const fixture = vi.hoisted(() => ({
   rest: { since: "2026-10-13T11:00:00Z", until: "2026-10-13T13:00:00Z", estimated: true },
+  api: vi.fn(async (_path: string, _init?: { method?: string }) => ({ ok: true })),
 }));
 vi.mock("@/state/store", () => ({
+  api: fixture.api,
   useStore: () => ({ state: { config: { accountBattery: { resting: { a: fixture.rest } } }, instances: [
     { instanceId: "b", displayName: "Work", driverKind: "codex", snapshot: { state: "available", authenticated: true }, models: { default: "gpt", options: [] } } satisfies InstanceInfo,
   ] } }),
@@ -38,5 +42,33 @@ describe("account carry notices", () => {
     const host = render("notice", false);
     expect(host.querySelector("[data-account-carry]")).toBeNull();
     expect(host.querySelector('[role="status"]')?.textContent).toBe("Running on Work");
+  });
+});
+
+describe("Continue after time runs out", () => {
+  const offer: Message = { id: "offer", at: Date.now(), role: "bot", kind: "activity", tool: {
+    name: "notice: Ran out of time after 4 hours. Continue?", ok: true, resume: { handoffId: "root-1" },
+  } };
+  it("says what happened in plain words and offers one Continue button", () => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(StatusActivityRow, { message: offer }));
+    expect(host.querySelector("[data-continue-work]")?.textContent).toBe("Ran out of time after 4 hours.Continue");
+    expect(host.querySelectorAll("[data-continue-work-button]")).toHaveLength(1);
+    expect(host.textContent).not.toMatch(/stopped by user|the user/i);
+  });
+  it("asks the server to resume the same work, and shows its refusal if it cannot", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(createElement(StatusActivityRow, { message: offer })); });
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-continue-work-button]")!.click(); });
+    expect(fixture.api).toHaveBeenCalledWith("/api/handoffs/root-1/continue", { method: "POST" });
+    fixture.api.mockRejectedValueOnce(new Error("This work was already continued."));
+    await act(async () => { root.render(createElement(StatusActivityRow, { key: "again", message: { ...offer, id: "offer-2" } })); });
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-continue-work-button]")!.click(); });
+    expect(host.querySelector("[data-continue-work-error]")?.textContent).toBe("This work was already continued.");
+    await act(async () => { root.unmount(); });
+    host.remove();
   });
 });

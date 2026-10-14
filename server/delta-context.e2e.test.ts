@@ -485,20 +485,20 @@ const resultAcrossRestart = async (f: any, stripRecord: boolean) => {
 
 it("replays once for a stored conversation without a handoff record when a result arrives after restart", () => fixture(async (f) => {
   const turn = await resultAcrossRestart(f, true);
-  expect(count(f.prompt(turn), "Interrupted by server restart")).toBe(1);
+  expect(count(f.prompt(turn), "restarted while this was running")).toBe(1);
   expect(f.prompt(turn)).toContain("ORCHID_7Q");
   expect(f.launches().at(-1).resume).toBeNull();
   const rebuilt = f.nativeSession();
   f.plan[f.chief.id] = { reply: "ok" };
   await f.send("Thanks.");
   await f.wait();
-  expect(count(f.prompt(f.turns().at(-1)), "Interrupted by server restart")).toBe(0);
+  expect(count(f.prompt(f.turns().at(-1)), "restarted while this was running")).toBe(0);
   expect(f.nativeSession()).toBe(rebuilt);
 }), 90_000);
 
 it("keeps resuming a stored conversation with a handoff record when a result arrives after restart", () => fixture(async (f) => {
   const turn = await resultAcrossRestart(f, false);
-  expect(count(f.prompt(turn), "Interrupted by server restart")).toBe(1);
+  expect(count(f.prompt(turn), "restarted while this was running")).toBe(1);
   expect(f.prompt(turn)).not.toContain("ORCHID_7Q");
   expect(f.launches().at(-1).resume).not.toBeNull();
 }), 90_000);

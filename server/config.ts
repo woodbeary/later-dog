@@ -28,7 +28,7 @@ export const MAX_ROOM_TURN_TIMEOUT_MINUTES = 1_440;
 export const DEFAULT_MCP_CALL_TIMEOUT_MINUTES = 10;
 export const MIN_MCP_CALL_TIMEOUT_MINUTES = 1;
 export const MAX_MCP_CALL_TIMEOUT_MINUTES = 60;
-export const DEFAULT_ROOM_HANDOFF_LIFETIME_MINUTES = 30;
+export const DEFAULT_ROOM_HANDOFF_IDLE_MINUTES = 20;
 export const DEFAULT_ROOM_HANDOFF_MIN_RUNWAY_MINUTES = 10;
 export const DEFAULT_ROOM_HANDOFF_HARD_CAP_MINUTES = 240;
 export const DEFAULT_MAX_CONCURRENT_BOT_THREADS = 3;
@@ -88,16 +88,17 @@ const roomConfigSchema = z.object({
     .int()
     .min(MIN_ROOM_TURN_TIMEOUT_MINUTES)
     .max(MAX_ROOM_TURN_TIMEOUT_MINUTES),
+  handoffIdleMinutes: z.number().int().min(1).max(MAX_ROOM_TURN_TIMEOUT_MINUTES).optional(),
   handoffLifetimeMinutes: z.number().int().min(1).max(MAX_ROOM_TURN_TIMEOUT_MINUTES).optional(),
   handoffMinRunwayMinutes: z.number().int().min(1).max(MAX_ROOM_TURN_TIMEOUT_MINUTES).optional(),
   handoffHardCapMinutes: z.number().int().min(1).max(7 * MAX_ROOM_TURN_TIMEOUT_MINUTES).optional(),
 }).refine(
   (rooms) =>
     (rooms.handoffMinRunwayMinutes ?? DEFAULT_ROOM_HANDOFF_MIN_RUNWAY_MINUTES) <=
-      (rooms.handoffLifetimeMinutes ?? DEFAULT_ROOM_HANDOFF_LIFETIME_MINUTES) &&
-    (rooms.handoffLifetimeMinutes ?? DEFAULT_ROOM_HANDOFF_LIFETIME_MINUTES) <=
+      (rooms.handoffHardCapMinutes ?? DEFAULT_ROOM_HANDOFF_HARD_CAP_MINUTES) &&
+    (rooms.handoffIdleMinutes ?? rooms.handoffLifetimeMinutes ?? DEFAULT_ROOM_HANDOFF_IDLE_MINUTES) <=
       (rooms.handoffHardCapMinutes ?? DEFAULT_ROOM_HANDOFF_HARD_CAP_MINUTES),
-  { message: "rooms handoff bounds must satisfy handoffMinRunwayMinutes <= handoffLifetimeMinutes <= handoffHardCapMinutes" },
+  { message: "rooms handoff bounds must satisfy handoffMinRunwayMinutes <= handoffHardCapMinutes and handoffIdleMinutes <= handoffHardCapMinutes" },
 );
 const mcpConfigSchema = z.object({
   callTimeoutMinutes: z
@@ -483,7 +484,7 @@ export interface AppConfig {
   imageGen?: ImageGenerationConfig;
   live?: { key?: string; voice?: string; readTypedReplies?: boolean; idleMinutes?: number };
   profile?: { name?: string; email?: string; aboutMe?: string };
-  rooms?: { turnTimeoutMinutes: number; handoffLifetimeMinutes?: number; handoffMinRunwayMinutes?: number; handoffHardCapMinutes?: number };
+  rooms?: { turnTimeoutMinutes: number; handoffIdleMinutes?: number; handoffLifetimeMinutes?: number; handoffMinRunwayMinutes?: number; handoffHardCapMinutes?: number };
   mcp?: { callTimeoutMinutes?: number };
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };
   context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean };
@@ -614,14 +615,14 @@ export function liveSettingsFor(cfg: AppConfig): LiveSettings {
 }
 
 export interface RoomHandoffLimitsMs {
-  lifetimeMs: number;
+  idleMs: number;
   minRunwayMs: number;
   hardCapMs: number;
 }
 
 export function roomHandoffLimits(cfg: AppConfig): RoomHandoffLimitsMs {
   return {
-    lifetimeMs: (cfg.rooms?.handoffLifetimeMinutes ?? DEFAULT_ROOM_HANDOFF_LIFETIME_MINUTES) * 60_000,
+    idleMs: (cfg.rooms?.handoffIdleMinutes ?? cfg.rooms?.handoffLifetimeMinutes ?? DEFAULT_ROOM_HANDOFF_IDLE_MINUTES) * 60_000,
     minRunwayMs: (cfg.rooms?.handoffMinRunwayMinutes ?? DEFAULT_ROOM_HANDOFF_MIN_RUNWAY_MINUTES) * 60_000,
     hardCapMs: (cfg.rooms?.handoffHardCapMinutes ?? DEFAULT_ROOM_HANDOFF_HARD_CAP_MINUTES) * 60_000,
   };

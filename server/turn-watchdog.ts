@@ -83,6 +83,10 @@ export class TurnWatchdog {
     return this.turns.has(threadId);
   }
 
+  snapshot(threadId: string): WatchedTurn | undefined {
+    return this.turns.get(threadId);
+  }
+
   sweep(): void {
     const at = this.now();
     for (const turn of this.turns.values()) {

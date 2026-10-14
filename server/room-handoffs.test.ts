@@ -285,448 +285,383 @@ describe("addressed room request tree", () => {
     expect(() => new RoomHandoffs(file, hooks).enqueue(addr("A"), "new", undefined, addr("B"), "work", "build")).toThrow("storage");
   }));
 });
-describe("room handoff lifetime budget", () => {
-  it("parks queued work past the tree ceiling, then fails it at the queue window naming the wait", () => {
-    let nowMs = 0;
-    return fixture((engine, hooks) => {
-      const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
-      engine.sourceSettled("turn", true);
-      hooks.busy = () => true;
-      nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs + 1;
-      engine.tick();
-      expect(node.status).toBe("queued");
-      expect(engine.nodes.get("turn")?.status).toBe("waiting");
-      nowMs = ROOM_HANDOFF_LIMITS.queueMs + 1;
-      engine.tick();
-      expect(node.status).toBe("failed");
-      expect(node.result).toContain("Room handoff queue budget exhausted");
-      expect(node.result).toContain("never started while waiting for a busy teammate");
-      expect(node.result).toContain("60m of the 60m queue window");
-      expect(hooks.run).not.toHaveBeenCalled();
-    }, () => nowMs);
-  });
-  it("runs parked work once the teammate frees up, then resumes the waiting source", async () => {
-    let nowMs = 0;
-    await fixture(async (engine, hooks) => {
-      hooks.busy = () => nowMs <= ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000;
-      const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
-      engine.sourceSettled("turn", true);
-      nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000;
-      engine.tick(); await flush();
-      expect(node.status).toBe("queued");
-      expect(engine.nodes.get("turn")?.status).toBe("waiting");
-      nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs + 61_000;
-      engine.tick(); await flush();
-      expect(node.startedAt).toBe(ROOM_HANDOFF_LIMITS.lifetimeMs + 61_000);
-      for (let i = 0; i < 3; i++) { engine.tick(); await flush(); }
-      expect(node.status).toBe("completed");
-      expect(engine.nodes.get("turn")?.status).toBe("completed");
-    }, () => nowMs);
-  });
-  it("pauses the lifetime clock while work executes, then fails it at the wall-clock hard cap", async () => {
+
+const MIN = 60_000;
+const settle = async (engine: RoomHandoffs, times = 4) => { for (let i = 0; i < times; i++) { engine.tick(); await flush(); } };
+type Finish = (result: { ok: boolean; text: string }) => void;
+
+describe("room handoff idle budget", () => {
+  it("keeps a tree alive for hours while its dog keeps showing activity, then says plainly that time ran out", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
       let aborted = false;
+      hooks.activity = () => ({ at: nowMs });
       hooks.run = (_node, _resumed, signal) => new Promise(resolve =>
         signal.addEventListener("abort", () => { aborted = true; resolve({ ok: false, text: "aborted" }); }));
       const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
       engine.sourceSettled("turn", true);
-      nowMs = 24 * 60_000; engine.tick(); await flush();
+      for (nowMs = 10 * MIN; nowMs < 4 * 60 * MIN; nowMs += 10 * MIN) { engine.tick(); await flush(); expect(node.status).toBe("running"); }
+      nowMs = 4 * 60 * MIN - 1_000; engine.tick(); await flush();
       expect(node.status).toBe("running");
-      nowMs = 24 * 60_000 + ROOM_HANDOFF_LIMITS.minRunwayMs + 1_000;
-      engine.tick(); await flush();
-      expect(node.status).toBe("running");
-      expect(aborted).toBe(false);
-      nowMs = 24 * 60_000 + 45 * 60_000 + 1_000;
-      engine.tick(); await flush();
+      nowMs = 4 * 60 * MIN; engine.tick(); await flush();
       expect(node.status).toBe("failed");
+      expect(node.endedBy).toBe("capped");
+      expect(node.result).toContain("Ran out of time after 4 hours.");
+      expect(node.result).not.toMatch(/user|stopped by/i);
       expect(aborted).toBe(true);
-      expect(node.result).toContain("Room handoff hard cap exhausted");
-      expect(node.result).toContain("node was running");
-    }, () => nowMs, { hardCapMs: 45 * 60_000 });
+    }, () => nowMs);
   });
-  it("refuses new work when only the hard-cap remainder is too short to honor the runway", async () => {
+  it("stops waiting once a running node has shown nothing for the idle window, and says so", async () => {
+    let nowMs = 0;
+    await fixture(async (engine, hooks) => {
+      hooks.activity = () => ({ at: 0 });
+      hooks.run = () => new Promise(() => {});
+      const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
+      engine.sourceSettled("turn", true);
+      engine.tick(); await flush();
+      nowMs = ROOM_HANDOFF_LIMITS.idleMs; engine.tick(); await flush();
+      expect(node.status).toBe("running");
+      nowMs = ROOM_HANDOFF_LIMITS.idleMs + 1; engine.tick(); await flush();
+      expect(node.status).toBe("failed");
+      expect(node.endedBy).toBe("idle");
+      expect(node.result).toContain("Nothing moved for 20 minutes");
+      expect(engine.nodes.get("turn")?.endedBy).toBe("idle");
+    }, () => nowMs);
+  });
+  it("renews the idle window every time the dog shows activity", async () => {
+    let nowMs = 0;
+    let lastActivity = 0;
+    await fixture(async (engine, hooks) => {
+      hooks.activity = () => ({ at: lastActivity });
+      hooks.run = () => new Promise(() => {});
+      const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
+      engine.sourceSettled("turn", true);
+      engine.tick(); await flush();
+      nowMs = 19 * MIN; lastActivity = nowMs; engine.tick(); await flush();
+      nowMs = 38 * MIN; engine.tick(); await flush();
+      expect(node.status).toBe("running");
+      nowMs = 39 * MIN + 1; engine.tick(); await flush();
+      expect(node.status).toBe("failed");
+      expect(node.endedBy).toBe("idle");
+    }, () => nowMs);
+  });
+  it("never counts time spent waiting on the person as idle", async () => {
+    let nowMs = 0;
+    await fixture(async (engine, hooks) => {
+      hooks.activity = () => ({ at: 0, waiting: true });
+      hooks.run = () => new Promise(() => {});
+      const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
+      engine.sourceSettled("turn", true);
+      engine.tick(); await flush();
+      nowMs = 3 * 60 * MIN; engine.tick(); await flush();
+      expect(node.status).toBe("running");
+    }, () => nowMs);
+  });
+  it("trusts a running node it has no activity reading for, up to the hard cap", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
       hooks.run = () => new Promise(() => {});
       const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
       engine.sourceSettled("turn", true);
       engine.tick(); await flush();
+      nowMs = 3 * 60 * MIN; engine.tick(); await flush();
       expect(node.status).toBe("running");
-      nowMs = 40 * 60_000;
-      expect(() => engine.enqueue(node, "follow", node.id, addr("C"), "work", "more"))
-        .toThrow("Room handoff budget exhausted");
-    }, () => nowMs, { hardCapMs: 45 * 60_000 });
+    }, () => nowMs);
   });
-  it("resumes a waiting parent past the ceiling and gives the follow-up its own runway", async () => {
+  it("keeps queued work waiting for a busy teammate alive, then ends it as out of time at the hard cap", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
-      const resumedAt: number[] = [];
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
-      hooks.run = (node, resumed, signal) => new Promise(resolve => {
-        if (resumed) resumedAt.push(nowMs);
-        finish[node.key] = resolve;
-        signal.addEventListener("abort", () => resolve({ ok: false, text: "aborted" }));
-      });
-      engine.enqueue(addr("A"), "turn", undefined, addr("B"), "build", "build");
-      engine.sourceSettled("turn", true);
-      nowMs = 21 * 60_000; engine.tick(); await flush();
-      expect(engine.children("turn")[0].status).toBe("running");
-      nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000;
-      finish.build({ ok: true, text: "done" }); await flush();
-      engine.tick(); await flush();
-      const parent = engine.nodes.get("turn")!;
-      expect(parent.status).toBe("waiting");
-      engine.tick(); await flush();
-      expect(parent.status).toBe("running");
-      expect(resumedAt).toEqual([ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000]);
-      expect(parent.startedAt).toBe(ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000);
-      nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000 + ROOM_HANDOFF_LIMITS.minRunwayMs;
-      engine.tick(); await flush();
-      expect(parent.status).toBe("running");
-      nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs + 60_000 + 45 * 60_000 + 1_000;
-      engine.tick(); await flush();
-      expect(parent.status).toBe("failed");
-      expect(parent.result).toContain("Room handoff lifetime budget exhausted");
-      expect(parent.result).toContain("node was running");
-    }, () => nowMs, { hardCapMs: 45 * 60_000 });
-  });
-  it("pauses the lifetime clock while work executes and resumes it once execution stops", async () => {
-    let nowMs = 0;
-    await fixture(async (engine, hooks) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
-      hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
-      engine.enqueue(addr("A"), "turn", undefined, addr("B"), "build", "build");
-      engine.sourceSettled("turn", true);
-      nowMs = 10 * 60_000; engine.tick(); await flush();
-      expect(engine.children("turn")[0].status).toBe("running");
-      nowMs = 29 * 60_000;
-      expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("C"), "followup", "more work")).not.toThrow();
-      finish.build({ ok: true, text: "done" }); await flush();
       hooks.busy = () => true;
-      engine.tick(); await flush();
-      nowMs = 46 * 60_000;
-      expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("D"), "late", "more work"))
-        .toThrow(/budget exhausted: only 3m of the 30m tree lifetime remains/);
+      const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
+      engine.sourceSettled("turn", true);
+      nowMs = 2 * 60 * MIN; engine.tick(); await flush();
+      expect(node.status).toBe("queued");
+      expect(engine.nodes.get("turn")?.status).toBe("waiting");
+      nowMs = 4 * 60 * MIN; engine.tick(); await flush();
+      expect(node.status).toBe("failed");
+      expect(node.endedBy).toBe("capped");
+      expect(node.result).toBe("Ran out of time after 4 hours.");
+      expect(hooks.run).not.toHaveBeenCalled();
     }, () => nowMs);
   });
-  it("keeps the tree's pause credit for a running descendant after its conversation stops awaiting", async () => {
+  it("refuses new work in plain words once too little time is left to use it", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
-      hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
-      const source = { botId: "clive", threadId: "clive-chat" };
-      engine.enqueue(source, "turn", undefined, { botId: "lead", threadId: "lead-task" }, "build", "build");
-      engine.sourceSettled("turn", true);
-      nowMs = 10 * 60_000; engine.tick(); await flush();
-      const running = engine.children("turn")[0];
-      expect(running.status).toBe("running");
-      engine.stopAwaitingDirect("clive-chat");
-      expect(running.status).toBe("running");
-      nowMs = 29 * 60_000;
-      engine.tick(); await flush();
-      expect(() => engine.enqueue(running, "unused", running.id, addr("C"), "followup", "more work")).not.toThrow();
-      finish.build({ ok: true, text: "done" }); await flush();
-      for (let i = 0; i < 3; i++) { engine.tick(); await flush(); }
-      expect(running.status).toBe("waiting");
-      expect(engine.children(running.id)[0]?.status).toBe("running");
-    }, () => nowMs);
-  });
-  it("closes the executing pause at settlement so a follow-up before the next tick sees the aged budget", async () => {
-    let nowMs = 0;
-    await fixture(async (engine, hooks) => {
-      let finishBuild!: (result: { ok: boolean; text: string }) => void;
-      hooks.run = node => node.key === "build"
-        ? new Promise<{ ok: boolean; text: string }>(resolve => { finishBuild = resolve; })
-        : Promise.resolve({ ok: true, text: "done" });
-      engine.enqueue(addr("A"), "turn", undefined, addr("B"), "build", "build");
-      engine.sourceSettled("turn", true);
-      nowMs = 10 * 60_000; engine.tick(); await flush();
-      nowMs = 15 * 60_000; finishBuild({ ok: true, text: "done" }); await flush();
-      nowMs = 32 * 60_000;
-      expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("C"), "followup", "more work"))
-        .toThrow(/budget exhausted: only 3m of the 30m tree lifetime remains/);
-    }, () => nowMs);
-  });
-  it("closes the executing pause when cancelTree stops the tree, so a follow-up sees the aged budget", async () => {
-    let nowMs = 0;
-    await fixture(async (engine, hooks) => {
-      hooks.run = node => node.key === "build"
-        ? new Promise<{ ok: boolean; text: string }>(() => {})
-        : Promise.resolve({ ok: true, text: "done" });
-      engine.enqueue(addr("A"), "turn", undefined, addr("B"), "build", "build");
-      engine.sourceSettled("turn", true);
-      nowMs = 10 * 60_000; engine.tick(); await flush();
-      nowMs = 15 * 60_000; engine.cancelRoom("A");
-      nowMs = 28 * 60_000;
-      expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("C"), "followup", "more work"))
-        .toThrow(/budget exhausted: only 2m of the 30m tree lifetime remains/);
-    }, () => nowMs);
-  });
-  it("refuses follow-up work when the remaining lifetime cannot serve a minimum runway", () => {
-    let nowMs = 0;
-    return fixture(engine => {
-      engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
-      engine.sourceSettled("turn", true);
-      nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs - ROOM_HANDOFF_LIMITS.minRunwayMs + 1;
-      expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("C"), "followup", "more work"))
-        .toThrow(/budget exhausted: only 9m of the 30m tree lifetime remains/);
-      nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs + 1;
-      expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("D"), "late", "more work"))
-        .toThrow(/budget exhausted: only 0s/);
-    }, () => nowMs);
-  });
-  it("still serves a follow-up enqueued under an aged root with a full runway left", async () => {
-    let nowMs = 0;
-    await fixture(async (engine, hooks) => {
-      hooks.run = node => node.key === "first"
-        ? new Promise<{ ok: boolean; text: string }>(() => {})
-        : Promise.resolve({ ok: true, text: "done" });
-      engine.enqueue(addr("A"), "turn", undefined, addr("B"), "first", "build");
+      hooks.run = () => new Promise(() => {});
+      const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
       engine.sourceSettled("turn", true);
       engine.tick(); await flush();
-      nowMs = ROOM_HANDOFF_LIMITS.lifetimeMs - ROOM_HANDOFF_LIMITS.minRunwayMs;
-      engine.enqueue(addr("A"), "turn", undefined, addr("C"), "followup", "more work");
-      engine.tick(); await flush();
-      const followup = engine.children("turn").find(n => n.key === "followup");
-      expect(followup?.status).toBe("completed");
-      expect(engine.nodes.get("turn")?.status).not.toBe("failed");
+      nowMs = 3 * 60 * MIN;
+      expect(() => engine.enqueue(node, "follow", node.id, addr("C"), "work", "more")).not.toThrow();
+      nowMs = 4 * 60 * MIN - 9 * MIN;
+      expect(() => engine.enqueue(node, "follow", node.id, addr("D"), "work", "even more"))
+        .toThrow(/Time is nearly up for this team task: 9 minutes left of 4 hours.*tell the person plainly/);
     }, () => nowMs);
   });
-});
-
-
-describe("room handoff hard cap synthesis carve-out", () => {
-  it("grants a dispatchable owed synthesis its turn past the cap, then the tree completes", async () => {
+  it("lets a parent that only owes a synthesis finish past the cap, then completes the tree", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
+      const finish: Record<string, Finish> = {};
       hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
       engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
       engine.sourceSettled("turn", true);
-      nowMs = 11 * 60_000; engine.tick(); await flush();
+      nowMs = 11 * MIN; engine.tick(); await flush();
       finish.work({ ok: true, text: "child done" }); await flush();
       hooks.busy = n => n.id === "turn";
-      engine.tick(); await flush();
+      await settle(engine, 2);
       const parent = engine.nodes.get("turn")!;
-      expect(parent.status).toBe("waiting");
-      engine.tick(); await flush();
       expect(parent.status).toBe("resume");
-      nowMs = 27 * 60_000; hooks.busy = () => false;
+      nowMs = 27 * MIN; hooks.busy = () => false;
       engine.tick(); await flush();
       expect(parent.status).toBe("running");
       finish.root({ ok: true, text: "synthesized" }); await flush();
       engine.tick(); await flush();
       expect(parent.status).toBe("completed");
       expect(hooks.report).toHaveBeenCalled();
-    }, () => nowMs, { minRunwayMs: 5 * 60_000, lifetimeMs: 10 * 60_000, hardCapMs: 15 * 60_000 });
+    }, () => nowMs, { minRunwayMs: 5 * MIN, hardCapMs: 15 * MIN });
   });
-  it("still fails a true stall past the cap when the owed synthesis cannot run", async () => {
+  it("still ends a true stall past the cap when the owed synthesis cannot run", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
+      const finish: Record<string, Finish> = {};
       hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
       const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
       engine.sourceSettled("turn", true);
-      nowMs = 11 * 60_000; engine.tick(); await flush();
+      nowMs = 11 * MIN; engine.tick(); await flush();
       finish.work({ ok: true, text: "child done" }); await flush();
       hooks.busy = () => true;
-      engine.tick(); await flush();
+      await settle(engine, 2);
       const parent = engine.nodes.get("turn")!;
-      expect(parent.status).toBe("waiting");
-      engine.tick(); await flush();
       expect(parent.status).toBe("resume");
-      nowMs = 27 * 60_000; engine.tick(); await flush();
+      nowMs = 27 * MIN; engine.tick(); await flush();
       expect(parent.status).toBe("failed");
-      expect(parent.result).toContain("Room handoff hard cap exhausted");
+      expect(parent.endedBy).toBe("capped");
+      expect(parent.result).toContain("Ran out of time after 15 minutes.");
       expect(node.status).toBe("completed");
-    }, () => nowMs, { minRunwayMs: 5 * 60_000, lifetimeMs: 10 * 60_000, hardCapMs: 15 * 60_000 });
+    }, () => nowMs, { minRunwayMs: 5 * MIN, hardCapMs: 15 * MIN });
   });
   it("bounds an in-flight synthesis past the cap to its minimum runway", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
       let aborted = false;
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
+      const finish: Record<string, Finish> = {};
       hooks.run = (node, _resumed, signal) => new Promise(resolve => {
         finish[node.key] = resolve;
         signal.addEventListener("abort", () => { aborted = true; resolve({ ok: false, text: "aborted" }); });
       });
       const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
       engine.sourceSettled("turn", true);
-      nowMs = 13 * 60_000; engine.tick(); await flush();
+      nowMs = 13 * MIN; engine.tick(); await flush();
       finish.work({ ok: true, text: "child done" }); await flush();
       hooks.busy = n => n.id === "turn";
-      engine.tick(); await flush();
+      await settle(engine, 2);
       const parent = engine.nodes.get("turn")!;
-      expect(parent.status).toBe("waiting");
-      engine.tick(); await flush();
       expect(parent.status).toBe("resume");
-      nowMs = 14 * 60_000; hooks.busy = () => false;
+      nowMs = 14 * MIN; hooks.busy = () => false;
       engine.tick(); await flush();
       expect(parent.status).toBe("running");
-      nowMs = 16 * 60_000; engine.tick(); await flush();
+      nowMs = 16 * MIN; engine.tick(); await flush();
       expect(parent.status).toBe("running");
       expect(aborted).toBe(false);
-      nowMs = 14 * 60_000 + 5 * 60_000 + 1_000;
-      engine.tick(); await flush();
+      nowMs = 14 * MIN + 5 * MIN + 1_000; engine.tick(); await flush();
       expect(parent.status).toBe("failed");
       expect(aborted).toBe(true);
-      expect(parent.result).toContain("Room handoff lifetime budget exhausted");
+      expect(parent.endedBy).toBe("capped");
       expect(node.status).toBe("completed");
-    }, () => nowMs, { minRunwayMs: 5 * 60_000, lifetimeMs: 10 * 60_000, hardCapMs: 15 * 60_000 });
+    }, () => nowMs, { minRunwayMs: 5 * MIN, hardCapMs: 15 * MIN });
   });
-  it("keeps refusing new follow-up work past the cap", async () => {
-    let nowMs = 0;
-    await fixture(async (engine, hooks) => {
-      hooks.run = () => new Promise(() => {});
-      const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
-      engine.sourceSettled("turn", true);
-      nowMs = 60_000; engine.tick(); await flush();
-      expect(node.status).toBe("running");
-      nowMs = 12 * 60_000;
-      expect(() => engine.enqueue(node, "follow", node.id, addr("C"), "work", "more"))
-        .toThrow("Room handoff budget exhausted");
-    }, () => nowMs, { minRunwayMs: 5 * 60_000, lifetimeMs: 10 * 60_000, hardCapMs: 15 * 60_000 });
-  });
-});
-
-describe("room handoff hard cap renewal", () => {
-  it("renews the stall window when a child settles", async () => {
-    let nowMs = 0;
-    await fixture(async (engine, hooks) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
-      hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
-      engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
-      engine.sourceSettled("turn", true);
-      engine.tick(); await flush();
-      nowMs = 40 * 60_000; finish.work({ ok: true, text: "child done" }); await flush();
-      hooks.busy = n => n.id === "turn";
-      engine.tick(); await flush();
-      const parent = engine.nodes.get("turn")!;
-      expect(parent.status).toBe("waiting");
-      engine.tick(); await flush();
-      expect(parent.status).toBe("resume");
-      nowMs = 84 * 60_000; engine.tick(); await flush();
-      expect(parent.status).toBe("resume");
-      nowMs = 86 * 60_000; engine.tick(); await flush();
-      expect(parent.status).toBe("failed");
-      expect(parent.result).toContain("Room handoff hard cap exhausted");
-    }, () => nowMs, { hardCapMs: 45 * 60_000 });
-  });
-  it("renews the stall window when a synthesis dispatches", async () => {
-    let nowMs = 0;
-    await fixture(async (engine, hooks) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
-      hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
-      engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
-      engine.sourceSettled("turn", true);
-      engine.tick(); await flush();
-      nowMs = 20 * 60_000; finish.work({ ok: true, text: "child done" }); await flush();
-      hooks.busy = n => n.id === "turn";
-      engine.tick(); await flush();
-      const parent = engine.nodes.get("turn")!;
-      expect(parent.status).toBe("waiting");
-      engine.tick(); await flush();
-      expect(parent.status).toBe("resume");
-      nowMs = 30 * 60_000; hooks.busy = () => false;
-      engine.tick(); await flush();
-      expect(parent.status).toBe("running");
-      nowMs = 74 * 60_000; engine.tick(); await flush();
-      expect(parent.status).toBe("running");
-      nowMs = 76 * 60_000; engine.tick(); await flush();
-      expect(parent.status).toBe("failed");
-    }, () => nowMs, { hardCapMs: 45 * 60_000 });
-  });
-  it("admits follow-up work against the renewed stall window", async () => {
-    let nowMs = 0;
-    await fixture(async (engine, hooks) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
-      hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
-      engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
-      engine.sourceSettled("turn", true);
-      engine.tick(); await flush();
-      nowMs = 40 * 60_000; finish.work({ ok: true, text: "child done" }); await flush();
-      nowMs = 42 * 60_000;
-      expect(() => engine.enqueue(addr("A"), "turn", undefined, addr("C"), "follow", "more")).not.toThrow();
-    }, () => nowMs, { hardCapMs: 45 * 60_000, lifetimeMs: 45 * 60_000 });
-  });
-  it("persists the renewal stamp and reloads it", async () => {
+  it("persists the progress stamp and the ending, and reloads them", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks, file) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
+      const finish: Record<string, Finish> = {};
       hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
       engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
       engine.sourceSettled("turn", true);
       engine.tick(); await flush();
-      nowMs = 40 * 60_000; finish.work({ ok: true, text: "child done" }); await flush();
-      engine.tick(); await flush();
+      nowMs = 40 * MIN; finish.work({ ok: true, text: "child done" }); await flush();
+      await settle(engine, 2);
       const parent = engine.nodes.get("turn")!;
-      expect(parent.status).toBe("waiting");
-      engine.tick(); await flush();
       expect(parent.status).toBe("running");
-      nowMs = 42 * 60_000; finish.root({ ok: true, text: "synthesized" }); await flush();
+      nowMs = 42 * MIN; finish.root({ ok: true, text: "synthesized" }); await flush();
       engine.tick(); await flush();
       expect(parent.status).toBe("completed");
       const saved = JSON.parse(readFileSync(file, "utf8")) as Array<{ id: string; lastProgressAt?: number }>;
-      expect(saved.find(n => n.id === "turn")?.lastProgressAt).toBe(42 * 60_000);
-      const reloaded = new RoomHandoffs(file, hooks, () => nowMs, { hardCapMs: 45 * 60_000 });
-      expect(reloaded.nodes.get("turn")?.lastProgressAt).toBe(42 * 60_000);
-    }, () => nowMs, { hardCapMs: 45 * 60_000 });
+      expect(saved.find(n => n.id === "turn")?.lastProgressAt).toBe(42 * MIN);
+      expect(new RoomHandoffs(file, hooks, () => nowMs).nodes.get("turn")?.lastProgressAt).toBe(42 * MIN);
+    }, () => nowMs);
   });
 });
 
-describe("hard cap expiry digest", () => {
-  it("carries a bounded digest of settled children on expiry", async () => {
+describe("room handoff endings tell the truth", () => {
+  const stopped = (engine: RoomHandoffs, thread: string) => [...engine.nodes.values()].filter(n => n.threadId === thread);
+  it("says the person stopped it only when the person did", () => fixture(engine => {
+    engine.enqueue(addr("Old"), "old", undefined, addr("History"), "work", "old work");
+    engine.cancelRoom("Old");
+    for (const n of engine.nodes.values()) {
+      if (n.status === "cancelled") { expect(n.endedBy).toBe("person"); expect(n.result).toBe("The person stopped this work."); }
+    }
+    expect(engine.nodes.get("old")?.status).toBe("cancelled");
+  }));
+  it("labels an interruption, a deleted conversation and a restart as what they were", () => fixture((engine, hooks, file) => {
+    const one = { botId: "clive", threadId: "one" };
+    const two = { botId: "clive", threadId: "two" };
+    const three = { botId: "clive", threadId: "three" };
+    const a = engine.enqueue(one, "first", undefined, { botId: "lead", threadId: "lead-one" }, "work", "build").node;
+    const b = engine.enqueue(two, "second", undefined, { botId: "lead", threadId: "lead-two" }, "work", "build").node;
+    const c = engine.enqueue(three, "third", undefined, { botId: "lead", threadId: "lead-three" }, "work", "build").node;
+    engine.cancelDirect("one", "deleted");
+    expect(a.endedBy).toBe("deleted");
+    expect(a.result).toBe("The conversation that asked for this was deleted.");
+    engine.stopAwaitingDirect("two", "interrupted");
+    expect(stopped(engine, "two").some(n => n.endedBy === "interrupted")).toBe(true);
+    expect(engine.nodes.get("second")?.result).toBe("Interrupted before it finished.");
+    expect(b.endedBy).toBe("interrupted");
+    expect(b.result).toBe("Interrupted before it started.");
+    const restarted = new RoomHandoffs(file, hooks);
+    expect(restarted.nodes.get(c.id)?.endedBy).toBe("restart");
+    expect(restarted.nodes.get(c.id)?.result).toContain("restarted");
+    expect(restarted.nodes.get(c.id)?.result).not.toMatch(/user/i);
+  }));
+  it("stops a person-stopped teammate that never started as stopped before it started", () => fixture(engine => {
+    const { node } = engine.enqueue({ botId: "clive", threadId: "one" }, "turn", undefined, { botId: "lead", threadId: "lead" }, "work", "build");
+    engine.sourceSettled("turn", true);
+    engine.nodes.get("turn")!.status = "running";
+    engine.stopAwaitingDirect("one");
+    expect(node.status).toBe("cancelled");
+    expect(node.endedBy).toBe("person");
+    expect(node.result).toBe("The person stopped this before it started.");
+  }));
+  it("ends queued work whose originating request has ended as never started, not stopped", () => fixture(engine => {
+    const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
+    engine.nodes.get("turn")!.status = "completed";
+    engine.tick();
+    expect(node.status).toBe("cancelled");
+    expect(node.endedBy).toBe("origin");
+  }));
+});
+
+describe("room handoff continue", () => {
+  async function timedOut(engine: RoomHandoffs, hooks: RoomHandoffHooks, setNow: (ms: number) => void) {
+    const finish: Record<string, Finish> = {};
+    hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
+    const source = { botId: "chief", threadId: "chief-chat" };
+    const done = engine.enqueue(source, "turn", undefined, { botId: "scout", threadId: "scout-work" }, "scout", "Find the files").node;
+    const slow = engine.enqueue(source, "turn", undefined, { botId: "builder", threadId: "builder-work" }, "builder", "Build it").node;
+    engine.sourceSettled("turn", true);
+    engine.tick(); await flush();
+    finish.scout({ ok: true, text: "Found them" }); await flush();
+    setNow(ROOM_HANDOFF_LIMITS.hardCapMs); engine.tick(); await flush();
+    return { done, slow, source };
+  }
+  it("offers Continue once when a tree ends for time, and not for a person's stop", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
+      const closed = vi.fn(); hooks.closed = closed;
+      const { slow } = await timedOut(engine, hooks, ms => { nowMs = ms; });
+      expect(slow.endedBy).toBe("capped");
+      engine.tick(); engine.tick();
+      expect(closed).toHaveBeenCalledTimes(1);
+      expect(closed).toHaveBeenCalledWith(expect.objectContaining({ id: "turn", endedBy: "capped" }), "capped");
+      engine.enqueue(addr("Z"), "stop", undefined, addr("Y"), "work", "build");
+      engine.cancelRoom("Z");
+      engine.tick();
+      expect(closed).toHaveBeenCalledTimes(1);
+      expect(engine.continuable("stop")).toBe(false);
+    }, () => nowMs);
+  });
+  it("resumes the same work: finished answers carry over and only the unfinished request goes out again", async () => {
+    let nowMs = 0;
+    await fixture(async (engine, hooks) => {
+      const { slow, done, source } = await timedOut(engine, hooks, ms => { nowMs = ms; });
+      expect(engine.continuable("turn")).toBe(true);
+      hooks.run = vi.fn(async node => ({ ok: true, text: `${node.key} finished` }));
+      nowMs += MIN;
+      const result = engine.continueTree("turn");
+      expect(result).toMatchObject({ resent: 1, kept: 1 });
+      const root = engine.nodes.get(result.rootId)!;
+      expect(root).toMatchObject({ botId: "chief", threadId: "chief-chat", text: engine.nodes.get("turn")!.text });
+      const copies = engine.children(root.id);
+      expect(copies.map(n => [n.key, n.status])).toEqual(expect.arrayContaining([["scout", "completed"], ["builder", "queued"]]));
+      const again = copies.find(n => n.key === "builder")!;
+      expect(again.threadId).toBe(slow.threadId);
+      expect(again.text).toContain("Build it");
+      expect(again.text).toContain("Continuing");
+      expect(copies.find(n => n.key === "scout")?.result).toBe(done.result);
+      expect(engine.nodes.get("turn")?.continuedAs).toBe(root.id);
+      expect(engine.continuable("turn")).toBe(false);
+      expect(() => engine.continueTree("turn")).toThrow("already continued");
+      await settle(engine, 8);
+      expect(engine.nodes.get(result.rootId)?.status).toBe("completed");
+      expect(hooks.run).toHaveBeenCalledWith(expect.objectContaining({ key: "builder" }), false, expect.anything());
+      expect(hooks.run).toHaveBeenCalledWith(expect.objectContaining({ id: result.rootId }), true, expect.anything());
+      expect(source.botId).toBe("chief");
+    }, () => nowMs);
+  });
+  it("refuses to continue work that was not cut short by time", () => fixture(engine => {
+    engine.enqueue(addr("Q"), "turn", undefined, addr("R"), "work", "build");
+    engine.cancelRoom("Q");
+    expect(() => engine.continueTree("turn")).toThrow("Nothing is waiting");
+    expect(() => engine.continueTree("missing")).toThrow("no such work");
+  }));
+  it("leaves the old tree untouched when a continuation cannot be queued", async () => {
+    let nowMs = 0;
+    await fixture(async (engine, hooks) => {
+      await timedOut(engine, hooks, ms => { nowMs = ms; });
+      const before = engine.nodes.size;
+      hooks.validate = () => "A teammate is no longer reachable";
+      expect(() => engine.continueTree("turn")).toThrow("no longer reachable");
+      expect(engine.nodes.size).toBe(before);
+      expect(engine.nodes.get("turn")?.continuedAs).toBeUndefined();
+    }, () => nowMs);
+  });
+});
+
+describe("room handoff time-out digest", () => {
+  it("carries a bounded digest of settled children when time runs out", async () => {
+    let nowMs = 0;
+    await fixture(async (engine, hooks) => {
+      const finish: Record<string, Finish> = {};
       hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
       hooks.busy = n => n.id === "turn";
       engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
       engine.enqueue(addr("A"), "turn", undefined, addr("C"), "more", "build");
       engine.sourceSettled("turn", true);
       engine.tick(); await flush();
-      nowMs = 5 * 60_000;
+      nowMs = 5 * MIN;
       finish.work({ ok: true, text: "alpha result TAIL-END" });
       finish.more({ ok: true, text: "beta result TAIL-END" }); await flush();
-      engine.tick(); await flush();
+      await settle(engine, 2);
       const parent = engine.nodes.get("turn")!;
-      expect(parent.status).toBe("waiting");
-      engine.tick(); await flush();
       expect(parent.status).toBe("resume");
-      nowMs = 51 * 60_000; engine.tick(); await flush();
+      nowMs = 51 * MIN; engine.tick(); await flush();
       expect(parent.status).toBe("failed");
-      expect(parent.result).toContain("Room handoff hard cap exhausted");
+      expect(parent.result).toContain("Ran out of time after 45 minutes.");
       expect(parent.result).toContain("work [completed] alpha result TAIL-END");
       expect(parent.result).toContain("more [completed] beta result TAIL-END");
       expect(parent.result.length).toBeLessThan(5000);
-    }, () => nowMs, { hardCapMs: 45 * 60_000 });
+    }, () => nowMs, { hardCapMs: 45 * MIN });
   });
   it("elides digest entries beyond the budget", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
-      const finish: Record<string, (result: { ok: boolean; text: string }) => void> = {};
+      const finish: Record<string, Finish> = {};
       hooks.run = node => new Promise(resolve => { finish[node.key] = resolve; });
       hooks.busy = n => n.id === "turn";
-      for (let i = 0; i < 12; i++) {
-        engine.enqueue(addr("A"), "turn", undefined, addr(`B${i}`), `work${i}`, "build");
-      }
+      for (let i = 0; i < 12; i++) engine.enqueue(addr("A"), "turn", undefined, addr(`B${i}`), `work${i}`, "build");
       engine.sourceSettled("turn", true);
       engine.tick(); await flush();
-      nowMs = 5 * 60_000;
+      nowMs = 5 * MIN;
       for (let i = 0; i < 12; i++) finish[`work${i}`]({ ok: true, text: "x".repeat(2048) });
       await flush();
-      engine.tick(); await flush();
+      await settle(engine, 2);
       const parent = engine.nodes.get("turn")!;
-      expect(parent.status).toBe("waiting");
-      engine.tick(); await flush();
       expect(parent.status).toBe("resume");
-      nowMs = 51 * 60_000; engine.tick(); await flush();
+      nowMs = 51 * MIN; engine.tick(); await flush();
       expect(parent.status).toBe("failed");
-      expect(parent.result).toContain("Room handoff hard cap exhausted");
+      expect(parent.result).toContain("Ran out of time after 45 minutes.");
       expect(parent.result).toContain("elided)");
       expect(parent.result.length).toBeLessThan(5000);
-    }, () => nowMs, { hardCapMs: 45 * 60_000 });
+    }, () => nowMs, { hardCapMs: 45 * MIN });
   });
   it("adds no digest when nothing settled", async () => {
     let nowMs = 0;
@@ -734,15 +669,14 @@ describe("hard cap expiry digest", () => {
       hooks.run = () => new Promise(() => {});
       const { node } = engine.enqueue(addr("A"), "turn", undefined, addr("B"), "work", "build");
       engine.sourceSettled("turn", true);
-      nowMs = 24 * 60_000; engine.tick(); await flush();
-      expect(node.status).toBe("running");
-      nowMs = 24 * 60_000 + 45 * 60_000 + 1_000; engine.tick(); await flush();
+      engine.tick(); await flush();
+      nowMs = 46 * MIN; engine.tick(); await flush();
       expect(node.status).toBe("failed");
-      expect(node.result).toContain("Room handoff hard cap exhausted");
-      expect(node.result).not.toContain("\n");
-    }, () => nowMs, { hardCapMs: 45 * 60_000 });
+      expect(node.result).toBe("Ran out of time after 45 minutes.");
+    }, () => nowMs, { hardCapMs: 45 * MIN });
   });
 });
+
 
 describe("shared room request display", () => {
   it("shares one identity across one call's recipients, before and after dispatch and restart", () => fixture(async (engine, hooks, file) => {
