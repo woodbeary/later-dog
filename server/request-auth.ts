@@ -4,11 +4,12 @@ import { isIP } from "node:net";
 
 import type { Scope, SessionRecord, SessionRegistry } from "./sessions.ts";
 import { denyReason as companionDenial, isCompanionNotice } from "../companion/src/routes.ts";
+import { LOCAL_TOOLS_HEADER, localToolsRouteRefusal } from "./laterdog/local-tools-scope.ts";
 
 export type LoopbackTrust = "owner" | "service";
 
 export type RequestAuth =
-  | { kind: "loopback"; scopes: readonly Scope[]; trust?: "service" }
+  | { kind: "loopback"; scopes: readonly Scope[]; trust?: "service"; localTools?: true }
   | { kind: "session"; session: SessionRecord; via: "bearer" | "cookie" | "ticket"; scopes: readonly Scope[] };
 
 export interface RequestAuthResult {
@@ -299,6 +300,7 @@ export interface ResolveOptions {
   features?: { sharedComputers?: boolean };
   loopbackTrust?: LoopbackTrust;
   cliOwnerToken?: string;
+  localToolsToken?: string;
 }
 
 const CLI_OWNER_HEADER = "x-laterdog-cli-owner";
@@ -384,6 +386,15 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
       mutatingPublicRoute(method, path) &&
       !secureTokenMatch(headerValue(req.headers[DESKTOP_OWNER_HEADER]), options.loopbackMutationToken)
     ) {
+      const localTools = headerValue(req.headers[LOCAL_TOOLS_HEADER]);
+      if (localTools !== undefined && options.localToolsToken) {
+        if (!secureTokenMatch(localTools, options.localToolsToken)) {
+          return deny(403, "forbidden: this local tools token is out of date; restart the tool so it reads the current one");
+        }
+        const refusal = localToolsRouteRefusal(method, path);
+        if (refusal) return deny(403, `forbidden: ${refusal}`);
+        return { auth: { kind: "loopback", scopes: LOOPBACK_SCOPES, localTools: true }, status: 401, error: "" };
+      }
       return deny(403, "forbidden: this change must come from the desktop app or a paired device");
     }
     if (options.loopbackMutationToken === undefined && options.loopbackTrust === "service") {

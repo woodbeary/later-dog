@@ -10,6 +10,7 @@ fs.mkdirSync(path.join(app.getPath("appData"), "later.dog"), { recursive: true, 
 app.setPath("userData", path.join(app.getPath("appData"), "later.dog"));
 import { startCua, stopCua, registerCuaIpc, setCuaStateListener } from "./cua.mjs";
 import { startLaterDogSupervisor } from "./laterdog-supervisor.mjs";
+import { removeLocalControlToken, startLocalControlToken } from "./local-control-token.mjs";
 import { createAndroidDeviceController } from "./android-device.mjs";
 import { finishSpeech, startSpeech, stopSpeech, voiceNoteAudio } from "./speech.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
@@ -302,6 +303,7 @@ const UTILITY_SERVER_STOP_TIMEOUT_MS = 6_500;
 const trustedApprovalMode = createTrustedApprovalModeCoordinator({ randomId: randomUUID });
 const desktopMutationToken = randomBytes(32).toString("base64url");
 const companionMutationToken = randomBytes(32).toString("base64url");
+const localControl = startLocalControlToken(app.getPath("userData"), (line) => slog(line));
 const serverLiveness = createServerLiveness({ port: () => SERVER_PORT, log: slog });
 const serverSupervisor = createServerSupervisor({
   restart: () => startServerOn(SERVER_PORT),
@@ -1138,6 +1140,7 @@ function syncDesktopMutationToken(proc) {
       type: "laterdog:desktop-mutation-token",
       token: desktopMutationToken,
       companionToken: companionMutationToken,
+      ...(localControl ? { localToolsToken: localControl.token } : {}),
     });
   } catch (error) {
     slog(`desktop mutation capability sync failed: ${error?.message ?? error}`);
@@ -3378,5 +3381,6 @@ function releaseDesktopDataDirLease() {
 }
 
 app.on("will-quit", releaseDesktopDataDirLease);
+app.on("will-quit", () => { if (localControl) removeLocalControlToken(localControl.file, localControl.token); });
 app.on("will-quit", () => desktopTray?.destroy());
 process.once("exit", releaseDesktopDataDirLease);
