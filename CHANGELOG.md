@@ -18,6 +18,9 @@
 - **A quieter update.** A small "Downloading update" pill, then a blue Update button that names the version and warns you if a dog is still working.
 - **Motion that feels right.** Menus grow from their button, sheets rise from the edge, messages slide in from their side, and buttons give a little squish when pressed. With Reduce Motion on, things fade instead.
 - **Local tools work without pairing.** Claude Code, Codex and scripts on this Mac can talk to later.dog through a private key file. They can never approve anything, answer a dog's question, or reach a dog on Full access, and a dog sees their messages as coming from a tool, not from you.
+- **Sends survive a dropped connection.** If the network blips, later.dog tries again without sending your message twice.
+- **A full Mac gets plain words,** and a dog no longer gets stuck "working" after the disk fills up.
+- **Approvals left open by a restart close** instead of looking like they still wait for you.
 - **later.dog Dev.** A separate Dev app can sit beside later.dog with its own dogs, data, ports and updates, so trying a new build never touches your real dogs.
 
 ## 0.3.28 — 2026-10-14
