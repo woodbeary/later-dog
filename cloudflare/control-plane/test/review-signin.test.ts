@@ -66,6 +66,38 @@ describe("App Review sign-in", () => {
     for (const context of pending) await waitOnExecutionContext(context);
   });
 
+  it("signs in again on a phone that still holds the cookie from its last sign-in", async () => {
+    const worker = createWorker(fetch);
+    const request = (path: string, body: unknown) => new Request(`${BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.43", cookie: "__Secure-better-auth.session_token=left.from.last.time" },
+      body: JSON.stringify(body),
+    });
+    const sendContext = createExecutionContext();
+    const sent = await worker.fetch(request("/api/auth/email-otp/send-verification-otp", { email: REVIEW_EMAIL, type: "sign-in" }), env, sendContext);
+    await waitOnExecutionContext(sendContext);
+    expect(sent.status).toBe(200);
+    const signInContext = createExecutionContext();
+    const signedIn = await worker.fetch(request("/api/auth/sign-in/email-otp", { email: REVIEW_EMAIL, otp: REVIEW_CODE }), env, signInContext);
+    await waitOnExecutionContext(signInContext);
+    expect(signedIn.status).toBe(200);
+    expect(signedIn.headers.get("set-auth-token")).toBeTruthy();
+  });
+
+  it("still refuses a browser sign-in from a page it does not trust", async () => {
+    const response = await call("/api/auth/email-otp/send-verification-otp", { email: REVIEW_EMAIL, type: "sign-in" }, "198.51.100.44");
+    expect(response.status).toBe(200);
+    const worker = createWorker(fetch);
+    const ctx = createExecutionContext();
+    const forged = await worker.fetch(new Request(`${BASE_URL}/api/auth/email-otp/send-verification-otp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.44", "sec-fetch-site": "cross-site", "sec-fetch-mode": "cors", cookie: "__Secure-better-auth.session_token=victim" },
+      body: JSON.stringify({ email: REVIEW_EMAIL, type: "sign-in" }),
+    }), env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(forged.status).toBe(403);
+  });
+
   it("gives everyone else their own random code", async () => {
     const ctx = createExecutionContext();
     const auth = createAuth(env, ctx, readConfig(env), crypto.randomUUID());

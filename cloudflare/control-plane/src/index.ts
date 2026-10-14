@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { accountSession, createAuth, deleteExpiredVerifications } from "./auth";
+import { SIGN_IN_OTP_PATH, withoutAmbientCookie } from "./code-sign-in-request";
 import { emailFromCodeRequest, SEND_OTP_PATH, warmHomeForEmail } from "./warm-home";
 import { cloudHomeCap, cloudRoute, type HomesService } from "./cloud";
 import { inviteFromWaitlist } from "./waitlist";
@@ -26,7 +27,6 @@ import {
   rotateInstallationCredential,
 } from "./installations";
 
-const SIGN_IN_OTP_PATH = "/api/auth/sign-in/email-otp";
 const ROTATE_ROUTE = /^\/v1\/installations\/([^/]+)\/credentials\/rotate$/;
 const INSTALLATION_ROUTE = /^\/v1\/installations\/([^/]+)$/;
 
@@ -81,7 +81,7 @@ async function route(
     if (limited) return limited;
     const auth = createAuth(env, ctx, config, requestId);
     const warmEmail = homes && request.method === "POST" && url.pathname === SEND_OTP_PATH ? await emailFromCodeRequest(request) : null;
-    const response = await auth.handler(request);
+    const response = await auth.handler(withoutAmbientCookie(request, url.pathname));
     if (warmEmail && homes && response.ok) {
       ctx.waitUntil(warmHomeForEmail(env, homes, warmEmail).catch(() => {
         console.error(JSON.stringify({ message: "home warm-up on code request failed", requestId }));
