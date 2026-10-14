@@ -4,7 +4,7 @@ import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex 
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
 import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
-import { CLEF_MODEL, DECIDE_MAX_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, VOICE_CHARS_TOTAL_PER_DAY, clefInput, decisionFrom } from "./decide";
+import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom } from "./decide";
 import { maxComputers } from "./idle";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
 import type { ComputerRegistry } from "./registry";
@@ -514,7 +514,7 @@ async function decideRequest(request: Request, env: Env): Promise<Response> {
   if (!token) return apiError(NO_TRIAL, CHALLENGE);
   const keySha256 = await sha256Hex(token);
   if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
-  const body = await readBody(request, DECIDE_MAX_BODY_BYTES);
+  const body = await readBody(request, DECIDE_MAX_IMAGE_BODY_BYTES);
   if (!body.ok) return body.response;
   const parsed = decisionFrom(body.value);
   if (!parsed.ok) return apiError(parsed.refusal);
@@ -522,7 +522,7 @@ async function decideRequest(request: Request, env: Env): Promise<Response> {
   const allowance = await trials(env).allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: DECISIONS_PER_DAY, total: DECISIONS_TOTAL_PER_DAY });
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
   try {
-    return json(await env.AI.run(CLEF_MODEL, clefInput(parsed.decision), aiGateway(env)));
+    return json(await env.AI.run(clefModelId(parsed.decision), clefInput(parsed.decision), aiGateway(env)));
   } catch (error) {
     console.error(`laterdog computers: decision failed: ${error instanceof Error ? error.message : String(error)}`);
     return apiError(INCLUDED_FAILED);
