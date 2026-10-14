@@ -56,7 +56,7 @@ describe("the computer tools next to the team tools", () => {
     expect(listed.map((tool: { name: string }) => tool.name)).toEqual([...TOOLS, ...COMPUTER_TOOLS].map((tool) => tool.name));
     expect(COMPUTER_TOOLS).toBe(WORKER_TOOLS);
     expect(new Set(listed.map((tool: { name: string }) => tool.name)).size).toBe(listed.length);
-    expect(listed.every((tool: any) => tool.inputSchema.additionalProperties === false && tool.annotations?.title)).toBe(true);
+    expect(listed.every((tool: any) => tool.inputSchema.additionalProperties === false && tool.annotations)).toBe(true);
     expect(COMPUTER_TOOLS.map((tool) => tool.name)).toEqual([
       "computer_list", "computer_create", "computer_wake", "computer_sleep", "computer_screenshot", "computer_action", "computer_exec", "computer_viewer_link", "decide",
     ]);

@@ -283,7 +283,7 @@ describe("computers over MCP", () => {
 });
 
 describe("computer_action over MCP", () => {
-  const xdotool = (w: World, id: string) => w.containers.get(id)!.execs.map((entry) => entry.cmd.at(-1)!).filter((command) => command.startsWith("xdotool"));
+  const xdotool = (w: World, id: string) => w.containers.get(id)!.execs.map((entry) => entry.cmd.at(-1)!).filter((command) => command.startsWith("xdotool") && !command.includes("getdisplaygeometry"));
 
   it("acts, then returns a fresh screenshot with a screen check", async () => {
     const { w, run, key } = await withDecisions([clefAnswer("ready", 0.95)]);
@@ -472,7 +472,7 @@ async function unit(deps: { backend: McpBackend; wait?: (ms: number) => Promise<
     new Request(`${ORIGIN}/mcp`, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) }),
     deps,
   );
-  return (await response.json()).result as { content: Array<{ type: string; text?: string }>; structuredContent?: any; isError?: boolean };
+  return ((await response.json()) as { result: unknown }).result as { content: Array<{ type: string; text?: string }>; structuredContent?: any; isError?: boolean };
 }
 
 describe("the action loop", () => {
