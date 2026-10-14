@@ -9801,6 +9801,11 @@ describe("harness HTTP API", () => {
         body: JSON.stringify(body),
       });
 
+      const rosterResponse = await fetch(`${BASE}/api/internal/agents`, { headers: internalHeaders });
+      expect(rosterResponse.status).toBe(200);
+      const roster = z.object({ bots: z.array(z.object({ id: z.string() }).passthrough()) }).parse(await rosterResponse.json());
+      expect(roster.bots.map((bot) => bot.id)).toContain(outsider.id);
+
       const outOfSection = await post({
         fromBotId: chief.id,
         fromThreadId: chief.threadId,
@@ -9809,7 +9814,7 @@ describe("harness HTTP API", () => {
         forBotId: outsider.id,
       });
       expect(outOfSection.status).toBe(403);
-      expect(z.object({ error: z.string() }).parse(await outOfSection.json()).error).toMatch(/different section/);
+      expect(z.object({ error: z.string() }).parse(await outOfSection.json()).error).toMatch(/routine-management scope/);
 
       const unknown = await post({
         fromBotId: chief.id,
@@ -10009,6 +10014,22 @@ describe("harness HTTP API", () => {
       expect(await botTitle(b.id)).toBe("");
 
       expect((await api("PATCH", `/api/bots/${a.id}`, { chiefOfStaff: true })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${b.id}`, { section: "Separate profile management" })).status).toBe(200);
+      const rosterResponse = await fetch(`${BASE}/api/internal/agents`, { headers: internalHeaders });
+      expect(rosterResponse.status).toBe(200);
+      const roster = z.object({ bots: z.array(z.object({ id: z.string() }).passthrough()) }).parse(await rosterResponse.json());
+      expect(roster.bots.map((bot) => bot.id)).toContain(b.id);
+      const outsideTeam = await fetch(`${BASE}/api/internal/profile-requests`, {
+        method: "POST",
+        headers: internalHeaders,
+        body: JSON.stringify({
+          fromBotId: a.id, fromThreadId: a.threadId, forBotId: b.id,
+          changes: { title: "Outside management scope" }, reason: "Communication does not grant management access",
+        }),
+      });
+      expect(outsideTeam.status).toBe(403);
+      expect(await botTitle(b.id)).toBe("");
+      expect((await api("PATCH", `/api/bots/${b.id}`, { section: "" })).status).toBe(200);
       const proposedResponse = await fetch(`${BASE}/api/internal/profile-requests`, {
         method: "POST",
         headers: internalHeaders,

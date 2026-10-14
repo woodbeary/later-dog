@@ -162,7 +162,7 @@ const peerNames = async (selfId: string, token: string) => {
 };
 
 describe("peer allow-list", () => {
-  it.each(["rename", "delete"])("requires existing teams and never revives grants after %s and recreation", async mode => {
+  it.each(["rename", "delete"])("does not revive management grants after %s and recreation while peers stay reachable", async mode => {
     await hideSeededBot();
     const clive = await createBot(`Chief ${mode}`, "plain");
     const engineer = await createBot(`Engineer ${mode}`, "plain");
@@ -186,9 +186,11 @@ describe("peer allow-list", () => {
       expect(changed.status).toBe(200);
       expect((await state()).managedSections).toEqual([]);
       expect((await api("POST", "/api/sidebar-sections", { name: team, botIds: [engineer.id] })).status).toBe(200);
-      expect(await peerNames(clive.id, token)).toEqual([]);
-      const refused = await api("POST", "/api/internal/ask-bot", { toBotId: engineer.id, message: "Old grants must not return" }, { authorization: `Bearer ${token}` });
-      expect(refused.status).toBe(403);
+      expect(await peerNames(clive.id, token)).toEqual([engineer.name]);
+      const contacted = await api("POST", "/api/internal/ask-bot", { toBotId: engineer.id, message: "Coordinate without changing management grants" }, { authorization: `Bearer ${token}` });
+      expect(contacted.status).toBe(200);
+      expect(contacted.body.error).toBeUndefined();
+      expect(contacted.body.text).toBeTruthy();
     } finally {
       for (const bot of [clive, engineer]) {
         await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
@@ -197,7 +199,7 @@ describe("peer allow-list", () => {
     }
   }, 45_000);
 
-  it("requires an explicit Chief grant for legacy consultation and revokes it on demotion", async () => {
+  it("revokes Chief management grants on demotion without preventing legacy consultation", async () => {
     await hideSeededBot();
     const clive = await createBot("Clive", "plain");
     const specialist = await createBot("Engineer", "plain");
@@ -217,7 +219,7 @@ describe("peer allow-list", () => {
       expect(outcome.body.text).toBeTruthy();
       await api("PATCH", `/api/bots/${clive.id}`, { chiefOfStaff: false });
       await api("PATCH", `/api/bots/${clive.id}`, { chiefOfStaff: true });
-      expect(await peerNames(clive.id, token)).toEqual([]);
+      expect(await peerNames(clive.id, token)).toEqual(["Engineer"]);
       const state = (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: any) => bot.id === clive.id);
       expect(state.managedSections ?? []).toEqual([]);
     } finally {

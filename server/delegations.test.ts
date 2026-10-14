@@ -348,7 +348,7 @@ describe("drainDelegations", () => {
     expect(runTargetCalls).toEqual([]);
   });
 
-  it("drops a queued handoff when section assignment separates the bots before dispatch", async () => {
+  it("dispatches a queued handoff after the target moves to another pack", async () => {
     const queued = queueDelegation(
       commsBus,
       from,
@@ -356,21 +356,14 @@ describe("drainDelegations", () => {
       1,
     );
     expect(store.setBotsSection([target.id], "Elsewhere").ok).toBe(true);
-
     drainDelegations(commsBus, approvalBus, from.threadId, (toBotId, message, commsDepth) => {
       runTargetCalls.push({ toBotId, message, commsDepth });
     });
-
-    await waitFor(() => findDelegationReceipt(queued.id!) && _pendingCount(from.threadId) === 0);
-    expect(findDelegationReceipt(queued.id!)).toMatchObject({
-      status: "dropped",
-      result: expect.stringContaining("different sections"),
-    });
-    expect(runTargetCalls).toEqual([]);
-    expect(
-      store.messagesFor(from.threadId).some((message) =>
-        message.tool?.name.includes("bots now belong to different sections")),
-    ).toBe(true);
+    await waitFor(() => runTargetCalls.length === 1);
+    expect(runTargetCalls).toEqual([
+      { toBotId: target.id, message: expect.stringContaining("do this"), commsDepth: 1 },
+    ]);
+    expect(findDelegationReceipt(queued.id!)?.status).not.toBe("dropped");
   });
 
   it("drops a queued handoff when the sender's allow-list stops covering the target", async () => {
@@ -460,7 +453,7 @@ describe("drainDelegations", () => {
     expect(runTargetCalls[0]!.commsDepth).toBe(1);
   });
 
-  it("rechecks sections after a pending human approval before dispatch", async () => {
+  it("rechecks explicit peer access after a pending human approval before dispatch", async () => {
     store.patchBot(from.id, { approvePeerComms: true });
     const queued = queueDelegation(
       commsBus,
@@ -475,7 +468,7 @@ describe("drainDelegations", () => {
     const card = await waitFor(() =>
       store.messagesFor(from.threadId).find((message) => message.card?.requestId),
     );
-    expect(store.setBotsSection([target.id], "Elsewhere").ok).toBe(true);
+    store.patchBot(from.id, { peers: [] });
     resolvePeerComms(approvalBus, card.card!.requestId!, "allow");
 
     await waitFor(() => findDelegationReceipt(queued.id!) && _pendingCount(from.threadId) === 0);

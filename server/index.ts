@@ -130,7 +130,7 @@ import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
 import { buildRecall } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
 import { appendAboutMe, commitLearned, planLearned } from "./profile-learned.ts";
-import { canAccessTeam, canReachPeer, coordinatorSupervises, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, peerRosterSystemPrompt, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomPeerRosterSystemPrompt, roomRosterLine, PEER_ACCESS_HELP } from "./peer-roster.ts";
+import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, peerRosterSystemPrompt, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomPeerRosterSystemPrompt, roomRosterLine, PEER_ACCESS_HELP } from "./peer-roster.ts";
 import {
   containerComputerAction,
   containerComputerExists,
@@ -4089,18 +4089,17 @@ function roomHandoffProblem(node: Pick<RoomHandoff, "groupId" | "threadId" | "bo
   if (node.groupId && (!group || group.dm || !store.groupTaskByThread(group.id, node.threadId))) return "Destination room task no longer exists";
   if (!node.groupId && !store.taskByThread(bot.id, node.threadId)) return "Destination bot task no longer exists";
   if (group && !group.memberIds.includes(bot.id)) return "The addressed agent is no longer a member of this room";
-  const outsideSection = (room: GroupRecord, speaker: BotRecord) => room.memberIds.some(id => {
+  const outsideAudience = (room: GroupRecord, speaker: BotRecord) => !roomFeedsBot(room, speaker) || room.memberIds.some(id => {
     const member = store.bot(id);
-    return member && !canAccessTeam(speaker, member.section) && !coordinatorSupervises(member, speaker);
+    return member && !sameAudience(speaker.visibility, member.visibility);
   });
-  if (group && outsideSection(group, bot)) return "Destination room includes a member outside the agent's section";
+  if (group && outsideAudience(group, bot)) return "Destination room is outside the agent's visibility scope";
   if (group && roomSetupPending(group)) return "Destination room setup is unfinished";
   if (parent) {
     const from = store.bot(parent.botId);
     const source = parent.groupId ? store.group(parent.groupId) : undefined;
     if (!from || from.hidden || (parent.groupId ? !source || !source.memberIds.includes(from.id) || !store.groupTaskByThread(source.id, parent.threadId) : !store.taskByThread(from.id, parent.threadId))) return "Source membership or task was removed";
-    const sharedSupervisor = source && group && source.id === group.id && parent.threadId === node.threadId && coordinatorSupervises(bot, from);
-    if ((!canAccessTeam(from, bot.section) && !sharedSupervisor) || (source && outsideSection(source, from))) return "Room work cannot cross the sender's section boundary";
+    if (source && outsideAudience(source, from)) return "Source room is outside the sender's visibility scope";
     if (source && group && source.id === group.id && parent.threadId !== node.threadId) return "Same-room work must stay in the originating conversation";
     if (!peerAllowed(from, bot)) return "The recipient is not an allowed peer of the sender";
   }
@@ -8985,7 +8984,7 @@ function routineSourceOwner(run: Pick<RoutineRun, "botId" | "sourceThreadId" | "
   if (!bot) return null;
   const sourceBot = store.botByThread(threadId);
   if (sourceBot && !sourceBot.hidden && !store.taskByThread(sourceBot.id, threadId)?.routineRunId &&
-    (sourceBot.id === bot.id || canReachPeer(sourceBot, bot))) {
+    (sourceBot.id === bot.id || (canAccessTeam(sourceBot, bot.section) && canReachPeer(sourceBot, bot)))) {
     return { bot: sourceBot, group: undefined, threadId };
   }
   const group = store.groupByThread(threadId);
@@ -9424,7 +9423,7 @@ const routineRequests = new RoutineRequestService({
     const proposer = store.bot(proposerBotId);
     const targetBot = store.bot(target.botId);
     if (!targetBot) return `@${target.name} no longer exists, so this routine request cannot be confirmed for it`;
-    if (!proposer || !canReachPeer(proposer, targetBot)) {
+    if (!proposer || !canAccessTeam(proposer, targetBot.section) || !canReachPeer(proposer, targetBot)) {
       return `@${target.name} is no longer in this section, so this routine request cannot be confirmed for it`;
     }
     return null;
@@ -9609,7 +9608,7 @@ const chiefPeerTargetRule = (noun: string) => (proposerBotId: string, targetBotI
   const target = store.bot(targetBotId);
   if (!target) return "that bot no longer exists";
   if (!proposer?.chiefOfStaff) return "only a section's Chief of Staff can change another bot's " + noun;
-  if (!canReachPeer(proposer, target)) return "that bot is not in a team this Chief is allowed to manage";
+  if (!canAccessTeam(proposer, target.section) || !canReachPeer(proposer, target)) return "that bot is not in a team this Chief is allowed to manage";
   return null;
 };
 const validateModelProposal = (selection: ModelSelection, current?: BotRecord): string | null => {
@@ -11896,12 +11895,12 @@ function roomPostEligibility(
   }
   const outsider = group.memberIds
     .map((id) => store.bot(id))
-    .find((member) => member && !canAccessTeam(bot, member.section) && !coordinatorSupervises(member, bot));
-  if (outsider) {
+    .find((member) => member && !sameAudience(bot.visibility, member.visibility));
+  if (outsider || !roomFeedsBot(group, bot)) {
     return {
       ok: false,
       status: 403,
-      error: `that room includes @${outsider.name}, who is outside your section — tell the user what you wanted to post there instead`,
+      error: "that room is outside your visibility scope — tell the user what you wanted to post there instead",
     };
   }
   if (roomSetupPending(group)) {
@@ -14396,8 +14395,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             if (!target) {
               return json(res, 404, { error: "no bot with that id — call list_bots and copy the exact id from the result" });
             }
-            if (!canReachPeer(from, target)) {
-              return json(res, 403, { error: `that bot belongs to a different section or is unavailable. ${PEER_ACCESS_HELP}` });
+            if (!canAccessTeam(from, target.section) || !canReachPeer(from, target)) {
+              return json(res, 403, { error: `that bot is outside this bot's routine-management scope or is unavailable. ${PEER_ACCESS_HELP}` });
             }
             forBot = { botId: target.id, name: target.name };
           }
@@ -14826,8 +14825,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const target = store.bot(toBotId);
         if (!target) return json(res, 404, { error: "no such bot" });
         const from = internalSender;
-        if (!canAccessTeam(from, target.section) || target.hidden) {
-          return json(res, 403, { error: `that bot belongs to a different section or is unavailable. ${PEER_ACCESS_HELP}` });
+        if (target.hidden) {
+          return json(res, 403, { error: `that bot is unavailable. ${PEER_ACCESS_HELP}` });
         }
         if (!peerAllowed(from, target)) {
           return json(res, 403, { error: `that bot is not on this bot's allowed peers. ${PEER_ACCESS_HELP}` });
@@ -14919,10 +14918,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const freshFrom = store.bot(fromBotId);
           const freshTarget = store.bot(toBotId);
           if (!freshFrom || !freshTarget) return json(res, 404, { error: "no such bot" });
-          if (!canAccessTeam(freshFrom, freshTarget.section) || freshTarget.hidden) {
-            return json(res, 200, { error: "that bot moved to a different section", receipt: peerDeliveryReceipt({
+          if (freshTarget.hidden) {
+            return json(res, 200, { error: "that bot is no longer available", receipt: peerDeliveryReceipt({
               botId: toBotId, outcome: "failed",
-              detail: "that bot moved to a different section — the message was not sent",
+              detail: "that bot is no longer available — the message was not sent",
             }) });
           }
           if (!peerAllowed(freshFrom, freshTarget)) {
@@ -15135,8 +15134,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const toBotId = resolvedTo.id;
         const target = store.bot(toBotId);
         if (!target) return json(res, 404, { error: "no such bot" });
-        if (!canAccessTeam(from, target.section) || target.hidden) {
-          return json(res, 403, { error: `that bot belongs to a different section or is unavailable. ${PEER_ACCESS_HELP}` });
+        if (target.hidden) {
+          return json(res, 403, { error: `that bot is unavailable. ${PEER_ACCESS_HELP}` });
         }
         if (!peerAllowed(from, target)) {
           return json(res, 403, { error: `that bot is not on this bot's allowed peers. ${PEER_ACCESS_HELP}` });
@@ -15520,8 +15519,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!oneWay && depth >= MAX_COMMS_DEPTH) {
           return json(res, 200, { error: "thread chains are limited to one hop — open the thread on yourself, or do this one here" });
         }
-        if (!canAccessTeam(from, target.section) || target.hidden) {
-          return json(res, 403, { error: `that bot belongs to a different section or is unavailable. ${PEER_ACCESS_HELP}` });
+        if (target.hidden) {
+          return json(res, 403, { error: `that bot is unavailable. ${PEER_ACCESS_HELP}` });
         }
         if (!peerAllowed(from, target)) {
           return json(res, 403, { error: `that bot is not on this bot's allowed peers. ${PEER_ACCESS_HELP}` });
@@ -15689,7 +15688,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (!parsed.success) return json(res, 400, { error: "provide a room name, memberIds, and optional bulletin (at most 12000 characters)" });
           const memberIds = [...new Set([maker.id, ...parsed.data.memberIds])];
           if (!allowedRoster(memberIds)) {
-            return json(res, 403, { error: "include yourself and only active, allowed peers from your section" });
+            return json(res, 403, { error: "include yourself and only active, allowed peers from your reachable workspace roster" });
           }
           const group = createChannel({
             name: redactSecretsInText(parsed.data.name), memberIds, section: maker.section,
@@ -15710,7 +15709,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!parsed.success) return json(res, 400, { error: "provide roomId and a supported room action; section moves are user-only" });
         const room = store.group(parsed.data.roomId);
         if (!room || room.dm || sectionKey(room.section) !== sectionKey(maker.section) || !allowedRoster(room.memberIds)) {
-          return json(res, 403, { error: "you can only manage rooms you belong to with allowed peers in your own section" });
+          return json(res, 403, { error: "you can only manage rooms in your own pack that you belong to, with allowed peers from this workspace" });
         }
         const { action, memberIds, name, bulletin } = parsed.data;
         const patch: Record<string, unknown> = {};
@@ -15722,7 +15721,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           patch.bulletin = redactSecretsInText(bulletin);
         } else {
           if (!memberIds || memberIds.some((id) => !allowedIds.has(id))) {
-            return json(res, 403, { error: "memberIds must name only yourself or active, allowed peers in your section" });
+            return json(res, 403, { error: "memberIds must name only yourself or active, allowed peers in this workspace" });
           }
           const next = action === "add_members" ? [...new Set([...room.memberIds, ...memberIds])]
             : action === "remove_members" ? room.memberIds.filter((id) => !memberIds.includes(id)) : memberIds;

@@ -418,13 +418,14 @@ describe("coordinate_bots on a teammate", () => {
     const other = await createBot("Other", "gated");
     try {
       expect((await api("PATCH", `/api/bots/${other.id}`, { section: "Elsewhere" })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${near.id}`, { section: "Allowed across packs" })).status).toBe(200);
       expect((await api("PATCH", `/api/bots/${pm.id}`, { peers: [near.id] })).status).toBe(200);
       const token = await heldTurn(pm, "Coordinate only with my allowed teammate.");
       expect((await api("POST", "/api/internal/threads", { toBotId: near.id, title: "Job", message: "go" }, token)).status).toBe(409);
       const send = (botIds: string[]) => api("POST", "/api/internal/coordinate-bots", { botIds, message: "Check it." }, token);
       const outside = await send([other.id]);
       expect(outside.status).toBe(403);
-      expect(outside.body.error).toContain("section boundary");
+      expect(outside.body.error).toContain("allowed peer");
       const unlisted = await send([far.id]);
       expect(unlisted.status).toBe(403);
       expect(unlisted.body.error).toContain("allowed peer");

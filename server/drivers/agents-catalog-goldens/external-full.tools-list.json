@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "list_bots",
-      "description": "List the other bots (agents) you may contact in your own team and any additional teams the owner has explicitly allowed you to coordinate, with their team, model and current status. Call this to discover exact teammate IDs before assigning work or requesting advice through your available coordination tools.",
+      "description": "List the other bots (agents) you may contact across packs in this workspace, with their pack, model and current status. Visibility and explicit peer restrictions still apply; this does not grant access to other workspaces or accounts. Call this to discover exact teammate IDs before assigning work or requesting advice through your available coordination tools.",
       "inputSchema": {
         "type": "object",
         "properties": {}

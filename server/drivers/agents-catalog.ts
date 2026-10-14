@@ -210,7 +210,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
   },
   {
     name: "list_room_targets",
-    description: "Discover actual later.dog teammates and rooms in your allowed teams. Works in a normal bot conversation too; no room is required. Returns bot and room IDs, roles and working folders, never other conversations' history. Use these bots, not native coding helpers with similar names, when the user asks their team to work together.",
+    description: "Discover reachable later.dog teammates and rooms across packs in this workspace. Visibility and explicit peer restrictions still apply. Works in a normal bot conversation too; no room is required. Returns bot and room IDs, roles and working folders, never other conversations' history. Use these bots, not native coding helpers with similar names, when the user asks their team to work together.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -235,7 +235,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "list_bots",
     description:
-      "List the other bots (agents) you may contact in your own team and any additional teams the owner has explicitly allowed you to coordinate, with their team, model and current status. Call this to discover exact teammate IDs before assigning work or requesting advice through your available coordination tools.",
+      "List the other bots (agents) you may contact across packs in this workspace, with their pack, model and current status. Visibility and explicit peer restrictions still apply; this does not grant access to other workspaces or accounts. Call this to discover exact teammate IDs before assigning work or requesting advice through your available coordination tools.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -467,7 +467,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "manage_room",
     description:
-      "Manage a group chat from list_rooms that you belong to: rename it, change its bulletin, or add/remove/set members. Only teammates you can reach in your own section can join; keep yourself as a member. Busy rooms, pending approvals and team-goal leads are protected. You cannot move rooms or bots between sections. Follow the tool result under the effective access level; if the change is refused, report the blocker and ask the user to make the change instead, without trying another route.",
+      "Manage a group chat in your own section from list_rooms that you belong to: rename it, change its bulletin, or add/remove/set members. Reachable teammates across packs in this workspace can join; keep yourself as a member. Busy rooms, pending approvals and team-goal leads are protected. You cannot move rooms or bots between sections. Follow the tool result under the effective access level; if the change is refused, report the blocker and ask the user to make the change instead, without trying another route.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

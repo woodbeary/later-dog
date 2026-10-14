@@ -95,7 +95,8 @@ it("marks a failed one-way send so restart recovery cannot duplicate its notice"
   expect((await failureNotice())?.tool?.handoffId).toEqual(expect.any(String));
 }), 45_000);
 
-it("does not grant a specialist direct access to its supervising Chief", () => fixture(async f => {
+it("respects a specialist's explicit peer restriction when contacting its Chief", () => fixture(async f => {
+  await f.api(`/api/bots/${f.lead.id}`, { peers: [] }, "PATCH");
   f.plan[f.lead.id] = {
     steps: [{ expectError: true, arguments: { bot_ids: [f.chief.id], message: "Contact the Chief without a shared room" } }],
     reply: "The direct request was refused",
@@ -106,7 +107,7 @@ it("does not grant a specialist direct access to its supervising Chief", () => f
   expect(f.nodes()).toEqual([]);
   const response = f.evidence().find((turn: any) => turn.botId === f.lead.id).evidence.find((entry: any) => entry.step).response;
   expect(response.result.isError).toBe(true);
-  expect(response.result.content[0].text).toContain("sender's section boundary");
+  expect(response.result.content[0].text).toContain("not an allowed peer");
   expect((await f.api("/api/bots")).groups).toEqual([]);
 }), 45_000);
 
@@ -776,11 +777,11 @@ it("deleting the waiting source cancels its tree and never recreates the deleted
   }
 }), 45_000);
 
-it("withholds direct results when the owner's cross-team grant is revoked", () => fixture(async f => {
+it("withholds direct results when the owner revokes explicit peer access", () => fixture(async f => {
   f.plan[f.lead.id] = { delayMs: 3000, reply: "PRIVATE_ENGINEERING_RESULT" };
   await f.start();
   await expect.poll(() => f.nodes().find((node: any) => node.parentId)?.status, { timeout: 15_000 }).toBe("running");
-  await f.api(`/api/bots/${f.chief.id}`, { managedSections: [] }, "PATCH");
+  await f.api(`/api/bots/${f.chief.id}`, { peers: [] }, "PATCH");
   expect((await f.wait()).status).toBe("settled");
   expect(f.nodes().find((node: any) => node.parentId).status).toBe("failed");
   const resumed = f.evidence().find((turn: any) => turn.botId === f.chief.id && turn.resumed);
@@ -803,7 +804,7 @@ it("retains returned direct reports for follow-up turns but rechecks access befo
   await f.api(`/api/bots/${f.chief.id}/messages/${followup.id}/edit`, { threadId: f.chief.activeTaskId, text: "Check the earlier engineering report" });
   expect((await f.wait()).status).toBe("settled");
   expect(f.evidence().filter((turn: any) => turn.botId === f.chief.id).at(-1).prompt.message.content).toContain("PRIVATE_ENGINEERING_FACT_8347");
-  await f.api(`/api/bots/${f.chief.id}`, { managedSections: [] }, "PATCH");
+  await f.api(`/api/bots/${f.chief.id}`, { peers: [] }, "PATCH");
   f.plan[f.chief.id] = { reply: "Access removed", expectContextIncludes: ["Teammate result withheld"] };
   f.save();
   const edited = (await f.messages(f.chief.activeTaskId)).findLast((message: any) => message.role === "user");
