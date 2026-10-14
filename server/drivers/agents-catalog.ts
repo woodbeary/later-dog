@@ -11,6 +11,7 @@ export interface CatalogProfile {
   sharedComputers: boolean;
   voiceNotes: boolean;
   cloudHome: boolean;
+  emailMe?: boolean;
   memoryEnabled?: boolean;
   chief: boolean;
   botId: string;
@@ -26,6 +27,7 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
     sharedComputers: env.LATERDOG_SHARED_COMPUTERS_ENABLED === "1",
     voiceNotes: env.LATERDOG_VOICE_NOTES === "1",
     cloudHome: env.LATERDOG_CLOUD_HOME === "1",
+    emailMe: env.LATERDOG_EMAIL_ME === "1",
     memoryEnabled: env.LATERDOG_MEMORY_ENABLED !== "0",
     chief: env.LATERDOG_CHIEF_OF_STAFF === "1",
     botId: env.LATERDOG_BOT_ID ?? "",
@@ -201,12 +203,25 @@ const toolDefinitions = (externalRuntime: boolean) => [
   },
   {
     name: "shared_computer",
-    description: "Use a desktop explicitly shared by the user. Discover computer_id and folder_id with list_shared_computers. list_files/read_file/write_file are confined to chosen folders; paths are relative. read_file returns sha256; overwriting requires expected_sha256. Binary files support base64 encoding. run_command requires a SEPARATE unrestricted terminal grant. computer_tools lists the native computer-control tools; computer_call invokes one with arguments and needs a SEPARATE computer-control grant. Never substitute the server's filesystem when this desktop is offline. Actions are not retried automatically; inspect an uncertain outcome before retrying.",
+    description: "Use a desktop explicitly shared by the user. Discover computer_id and folder_id with list_shared_computers. list_files/read_file/write_file are confined to chosen folders; paths are relative. read_file returns sha256; overwriting requires expected_sha256. Binary files support base64 encoding. A file over 256 KiB is read in parts: pass offset and length (up to 262144 bytes each); every part reports the file's total size. run_command requires a SEPARATE unrestricted terminal grant. computer_tools lists the native computer-control tools; computer_call invokes one with arguments and needs a SEPARATE computer-control grant. Never substitute the server's filesystem when this desktop is offline. Actions are not retried automatically; inspect an uncertain outcome before retrying.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       computer_id: { type: "string" }, action: { type: "string", enum: ["list_files", "read_file", "write_file", "run_command", "computer_tools", "computer_call"] },
       folder_id: { type: "string" }, path: { type: "string" }, content: { type: "string" }, encoding: { type: "string", enum: ["utf8", "base64"] }, expected_sha256: { type: "string" },
+      offset: { type: "integer", minimum: 0 }, length: { type: "integer", minimum: 1, maximum: 262144 },
       command: { type: "string" }, tool_name: { type: "string" }, arguments: { type: "object", additionalProperties: true },
     }, required: ["computer_id", "action"] },
+  },
+  {
+    name: "email_me",
+    description: "Email the person who owns this later.dog home, at the email they signed in with. Nobody else can be emailed. Use it when they ask you to email or send them something. Attach text you wrote ({ filename, text }), a file you read yourself as base64 ({ filename, base64 }), or a file from a folder their Mac shares ({ computer_id, folder_id, path } from list_shared_computers; big files are fetched for you). Attachments together must be at most 3.5 MB; if a file is bigger, say so instead of sending a partial file.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      subject: { type: "string", minLength: 1, maxLength: 200 },
+      body: { type: "string", minLength: 1, maxLength: 20000, description: "Plain text. Say what is attached and anything they asked for." },
+      attachments: { type: "array", maxItems: 10, items: { type: "object", additionalProperties: false, properties: {
+        filename: { type: "string" }, text: { type: "string" }, base64: { type: "string" },
+        computer_id: { type: "string" }, folder_id: { type: "string" }, path: { type: "string" },
+      } } },
+    }, required: ["subject", "body"] },
   },
   {
     name: "list_room_targets",
@@ -872,6 +887,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
 
 const SKILL_TOOL_NAMES = new Set(["skills_list", "skill_manage"]);
 export const SHARED_COMPUTER_TOOL_NAMES = new Set(["list_shared_computers", "shared_computer"]);
+const EMAIL_TOOL_NAMES = new Set(["email_me"]);
 const VOICE_TOOL_NAMES = new Set(["send_voice_note"]);
 const CHIEF_ONLY_TOOL_NAMES = new Set([
   "list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread",
@@ -907,9 +923,12 @@ function catalogTools(profile: CatalogProfile) {
   const SHAREABLE_TOOLS = profile.sharedComputers
     ? AUTHORING_TOOLS
     : AUTHORING_TOOLS.filter((tool) => !SHARED_COMPUTER_TOOL_NAMES.has(tool.name));
-  const VOICE_READY_TOOLS = profile.voiceNotes
+  const EMAIL_READY_TOOLS = profile.emailMe
     ? SHAREABLE_TOOLS
-    : SHAREABLE_TOOLS.filter((tool) => !VOICE_TOOL_NAMES.has(tool.name));
+    : SHAREABLE_TOOLS.filter((tool) => !EMAIL_TOOL_NAMES.has(tool.name));
+  const VOICE_READY_TOOLS = profile.voiceNotes
+    ? EMAIL_READY_TOOLS
+    : EMAIL_READY_TOOLS.filter((tool) => !VOICE_TOOL_NAMES.has(tool.name));
   const ROLE_TOOLS = profile.chief
     ? VOICE_READY_TOOLS
     : VOICE_READY_TOOLS.filter((tool) => !CHIEF_ONLY_TOOL_NAMES.has(tool.name)).map((tool) => {

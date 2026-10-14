@@ -64,7 +64,8 @@ export async function validateSharedFolders(folders) {
   return result;
 }
 
-const JOB_KEYS = new Set(["computer_id", "action", "folder_id", "path", "content", "encoding", "expected_sha256", "command", "tool_name", "arguments"]);
+const JOB_KEYS = new Set(["computer_id", "action", "folder_id", "path", "content", "encoding", "expected_sha256", "offset", "length", "command", "tool_name", "arguments"]);
+const wholeNumber = (value, max) => value === undefined || (Number.isSafeInteger(value) && value >= 0 && value <= max);
 const JOB_ACTIONS = new Set(["list_files", "read_file", "write_file", "run_command", "computer_tools", "computer_call"]);
 const optionalText = (value, max) => value === undefined || (typeof value === "string" && value.length <= max);
 export function validSharedOperation(operation, computerId) {
@@ -75,6 +76,7 @@ export function validSharedOperation(operation, computerId) {
     optionalText(operation.path, 2048) && optionalText(operation.content, 350_000) &&
     (operation.encoding === undefined || operation.encoding === "utf8" || operation.encoding === "base64") &&
     (operation.expected_sha256 === undefined || (typeof operation.expected_sha256 === "string" && /^[a-f0-9]{64}$/.test(operation.expected_sha256))) &&
+    wholeNumber(operation.offset, 64 * 1024 * 1024) && wholeNumber(operation.length, 256 * 1024) &&
     optionalText(operation.command, 8000) && optionalText(operation.tool_name, 100) &&
     (operation.arguments === undefined || (Boolean(operation.arguments) && typeof operation.arguments === "object" && !Array.isArray(operation.arguments)));
 }
@@ -145,7 +147,7 @@ export function createComputerSharing({ file, fetch: fetchImpl, environments, cu
     const response = await fetchImpl(`${env.origin}${route}`, {
       method: body === undefined ? "GET" : "POST", credentials: "include", redirect: "error", cache: "no-store",
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(35_000)]) : AbortSignal.timeout(10_000),
-      headers: { origin: env.origin, ...(body === undefined ? {} : { "content-type": "application/json" }), ...(secret ? { "x-laterdog-computer-secret": secret } : {}) },
+      headers: { origin: env.origin, "x-laterdog-lending": "1", ...(body === undefined ? {} : { "content-type": "application/json" }), ...(secret ? { "x-laterdog-computer-secret": secret } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const chunks = []; let bytes = 0;

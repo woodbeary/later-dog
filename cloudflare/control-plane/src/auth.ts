@@ -3,6 +3,8 @@ import { bearer, emailOTP } from "better-auth/plugins";
 
 import type { ControlPlaneConfig } from "./config";
 import { sendOTPEmail } from "./email";
+import { noteEmailFailure } from "./email-health";
+import { isReviewEmail, reviewSignIn } from "./review-signin";
 
 export function createAuth(
   env: Env,
@@ -10,6 +12,7 @@ export function createAuth(
   config: ControlPlaneConfig,
   requestId: string,
 ) {
+  const review = reviewSignIn(env as unknown as Partial<Record<"REVIEW_EMAIL" | "REVIEW_SIGNIN_CODE", unknown>>);
   return betterAuth({
     appName: "later.dog",
     baseURL: config.authBaseURL,
@@ -50,12 +53,14 @@ export function createAuth(
         resendStrategy: "rotate",
         disableSignUp: false,
         rateLimit: { window: 60, max: 5 },
+        generateOTP: ({ email }) => (isReviewEmail(review, email) ? review.code : undefined),
         async sendVerificationOTP(input) {
+          if (isReviewEmail(review, input.email)) return;
           await sendOTPEmail({
             async send(message) {
               await env.EMAIL.send(message);
             },
-          }, config.emailFrom, input, requestId);
+          }, config.emailFrom, input, requestId, (error) => noteEmailFailure(env.DB, error));
         },
       }),
       bearer({ requireSignature: true }),

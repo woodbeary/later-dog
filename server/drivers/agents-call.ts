@@ -372,6 +372,12 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
   if (SHARED_COMPUTER_TOOL_NAMES.has(name) && !context.sharedComputers) {
     return { text: "Computer sharing is turned off in this workspace. There are no shared computers to use.", isError: true };
   }
+  if (name === "email_me") {
+    const { ok, body } = await apiResponse("/api/internal/email-me", { method: "POST", body: JSON.stringify(args) });
+    if (!ok) return { text: String(body.error ?? "The email could not be sent."), isError: true };
+    const attached = Array.isArray(body.attachments) && body.attachments.length ? ` with ${body.attachments.join(", ")}` : "";
+    return { text: `Emailed the person${attached}. It goes to the email they use for later.dog.` };
+  }
   if (name === "list_shared_computers") {
     return { text: JSON.stringify(await api("/api/internal/shared-computers")) };
   }
