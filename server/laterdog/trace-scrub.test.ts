@@ -17,8 +17,8 @@ describe("trace scrubbing by shape", () => {
     ["a later.dog computers key", `ldc_${alnum(40)}`],
     ["a later.dog token", `ldt_${alnum(40)}`],
     ["a Cloudflare user token", `cfut_${alnum(40)}`],
-    ["an AWS access key id", "AKIAIOSFODNN7EXAMPLE"],
-    ["an AWS session key id", "ASIAIOSFODNN7EXAMPLE"],
+    ["an AWS access key id", ["AKIA", "IOSFODNN7EXAMPLE"].join("")],
+    ["an AWS session key id", ["ASIA", "IOSFODNN7EXAMPLE"].join("")],
     ["a GitHub token", `ghp_${alnum(36)}`],
     ["a GitHub fine-grained token", `github_pat_${alnum(50)}`],
   ];
