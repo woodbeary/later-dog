@@ -11,6 +11,7 @@ export const SCREENSHOT_FILTER_BUDGET_MS = 1_500;
 export const WORTH_SHOWING_MIN_PROBABILITY = 0.6;
 export const SECRET_MAX_PROBABILITY = 0.3;
 
+export const LAST_POSTED_MS = 10 * 60_000;
 const TASK_MAX = 800;
 const REPLY_MAX = 1_200;
 
@@ -49,7 +50,7 @@ const clip = (text: string, max: number) => {
 };
 
 export function createScreenshotFilter(deps: ScreenshotFilterDeps) {
-  const lastPosted = createBoundedMap<Frame>({ max: 30, ttlMs: 60 * 60_000 });
+  const lastPosted = createBoundedMap<Frame>({ max: 30, ttlMs: LAST_POSTED_MS });
 
   return {
     active: () => deps.enabled(),

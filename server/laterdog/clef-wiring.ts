@@ -23,6 +23,8 @@ export interface ClefAsker {
   approvalMode: ApprovalMode;
   commandAllowed: boolean;
   guestDriven: boolean;
+  cwd?: string;
+  projectRoot?: string;
 }
 
 export interface ClefDeps {
@@ -33,6 +35,7 @@ export interface ClefDeps {
   respond(event: Opened, behavior: "allow" | "deny", message?: string): Promise<RequestOutcome | "failed">;
   note(threadId: string, text: string, ok: boolean): void;
   dataDir: string;
+  protectedPaths?: readonly string[];
   hasBudget(): boolean;
   accountAvailable(input: TurnEndInput): boolean;
   canStart(input: TurnEndInput): boolean;
@@ -51,7 +54,7 @@ export interface ClefDeps {
   }): void;
 }
 
-export function reviewContextFor(asker: ClefAsker | null, event: Opened): ReviewContext | null {
+export function reviewContextFor(asker: ClefAsker | null, event: Opened, protectedPaths: readonly string[] = []): ReviewContext | null {
   if (!asker || asker.guestDriven) return null;
   const verdict = autoVerdict(asker.approvalMode, event.tool, {
     requiresExplicitApproval: event.requiresExplicitApproval,
@@ -59,8 +62,19 @@ export function reviewContextFor(asker: ClefAsker | null, event: Opened): Review
   });
   const mayAutoApprove = !verdict.approve && verdict.source === "no-grant" && !event.requiresExplicitApproval &&
     event.approvalScope !== "local-computer" && !event.choices?.length && !ASKS_A_PERSON.test(event.tool);
-  return { botId: asker.id, botName: asker.name, mayAutoApprove };
+  const cwd = event.command?.cwd ?? asker.cwd ?? asker.projectRoot;
+  return {
+    botId: asker.id,
+    botName: asker.name,
+    mayAutoApprove,
+    scope: { ...(cwd ? { cwd } : {}), ...(asker.projectRoot ? { projectRoot: asker.projectRoot } : {}), protectedPaths },
+  };
 }
+
+const HELD_BACK_WHY = {
+  not_worth_showing: "it did not look worth showing",
+  secret_likely: "it may show a secret",
+} as const;
 
 const isThenable = (value: unknown): value is PromiseLike<unknown> =>
   typeof (value as { then?: unknown } | null | undefined)?.then === "function";
@@ -85,7 +99,7 @@ export function createClef(deps: ClefDeps) {
     decider: deps.decider,
     enabled: () => deciderReady(deps.config(), "autoReview"),
     rules: () => autoReviewRules(deps.config()),
-    context: (event) => reviewContextFor(deps.asker(event), event),
+    context: (event) => reviewContextFor(deps.asker(event), event, deps.protectedPaths ?? []),
     deliver: deps.deliver,
     answer: deps.respond,
     note: (event, text, ok) => note(event.threadId, text, ok),
@@ -99,6 +113,7 @@ export function createClef(deps: ClefDeps) {
       decision,
       rule,
     }),
+    log,
     breaker,
   });
 
@@ -146,6 +161,7 @@ export function createClef(deps: ClefDeps) {
     void screenshots.shouldPost(input)
       .then((outcome) => {
         if (outcome.post) input.post();
+        else note(input.threadId, `Screenshot held back: ${HELD_BACK_WHY[outcome.reason]}`, true);
       })
       .catch(() => undefined);
   };

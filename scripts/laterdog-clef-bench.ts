@@ -6,12 +6,13 @@ import { createDecider, type Decider } from "../server/decider/index.ts";
 import type { Answers, AskOptions, DeciderModel, DeciderQuestion, DeciderResult, DeciderSeam } from "../server/decider/types.ts";
 import { reviewAction, type AutoReviewVerdict } from "../server/laterdog/clef-auto-review.ts";
 import { choiceAnswer, fakeDecider, yesAnswer } from "../server/laterdog/clef-fake-decider.ts";
+import { reviewInputOf } from "../shared/review-input.ts";
 import { fastDecide } from "../server/laterdog/clef-fast-decide.ts";
 import { LOADING_QUESTION, SHOWING_QUESTION, type ScreenShowing } from "../server/laterdog/clef-screen-check.ts";
 import { SECRET_QUESTION, WORTH_QUESTION } from "../server/laterdog/clef-screenshot-filter.ts";
 import { TURN_END_QUESTION, turnEndState, type TurnEndChoice } from "../server/laterdog/clef-turn-end.ts";
 import {
-  REVIEW_CASES, REVIEW_RULES, SCREEN_CASES, TURN_CASES, turnPath, type ReviewCase, type ScreenCase, type TurnCase,
+  REVIEW_CASES, REVIEW_RULES, REVIEW_SCOPE, SCREEN_CASES, TURN_CASES, turnPath, type ReviewCase, type ScreenCase, type TurnCase,
 } from "./testing/clef-bench/cases.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -236,9 +237,10 @@ export async function runClefBench(options: BenchOptions = {}): Promise<BenchRep
             const answers: Record<string, ReturnType<typeof choiceAnswer>> = {};
             const fits: Record<string, ReturnType<typeof yesAnswer>> = {};
             if (questions.allowed_by) {
-              const hit = expected.kind === "allow" && !wrong;
-              answers.allowed_by = hit ? choiceAnswer(`rule_${expected.rule}`, 0.97, ["none", "rule_1", "rule_2"]) : choiceAnswer("none", 0.98, ["none", "rule_1", "rule_2"]);
-              for (const id of Object.keys(questions).filter((key) => key.startsWith("fits_"))) fits[id] = yesAnswer(hit && id === `fits_rule_${expected.kind === "allow" ? expected.rule : 0}` ? 0.96 : 0.04);
+              const rule = expected.kind === "allow" ? expected.rule : 2;
+              const hit = (expected.kind === "allow" || testCase.fooled === true) && !wrong;
+              answers.allowed_by = hit ? choiceAnswer(`rule_${rule}`, 0.97, ["none", "rule_1", "rule_2"]) : choiceAnswer("none", 0.98, ["none", "rule_1", "rule_2"]);
+              for (const id of Object.keys(questions).filter((key) => key.startsWith("fits_"))) fits[id] = yesAnswer(hit && id === `fits_rule_${rule}` ? 0.96 : 0.04);
             }
             if (questions.blocked_by) {
               const hit = expected.kind === "block" && !wrong;
@@ -246,7 +248,12 @@ export async function runClefBench(options: BenchOptions = {}): Promise<BenchRep
             }
             return { ...answers, ...fits };
           });
-          const verdict = await reviewAction(measured(inner, samples), REVIEW_RULES, { tool: testCase.tool, summary: testCase.summary, ...(testCase.command ? { command: testCase.command } : {}) }, { mayAutoApprove: true, budgetMs: BENCH_BUDGET_MS });
+          const verdict = await reviewAction(measured(inner, samples), REVIEW_RULES, {
+            tool: testCase.tool,
+            summary: testCase.summary,
+            ...(testCase.command ? { command: testCase.command } : {}),
+            input: reviewInputOf({ ...(testCase.command ? { command: testCase.command } : {}), ...(testCase.args ?? {}), description: testCase.summary }),
+          }, { mayAutoApprove: true, budgetMs: BENCH_BUDGET_MS, scope: REVIEW_SCOPE });
           const unavailable = samples.at(-1)?.ok === false;
           const verdictCorrect = unavailable ? null : verdictMatches(verdict, testCase);
           note(model, "autoReview", ["verdict"], samples, { verdict: verdictCorrect });

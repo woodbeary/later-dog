@@ -7,6 +7,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ToolResults, TOOL_RESULT_MAX_CHARS } from "./tool-results.ts";
+import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { authorizeExternalRuntime, externalRuntimeIsActive, type ExternalRuntimeGrant } from "./external-runtime.ts";
 
@@ -357,7 +358,7 @@ import {
 import * as tts from "./tts/index.ts";
 import { createDecider, deciderIncludedHere, deciderReady, deciderSavePatch, describeDecider } from "./decider/index.ts";
 import { decideRoomResponder, type RoomRoutingInput } from "./decider/room-routing.ts";
-import { clefWideningRefusal, describeClef } from "./laterdog/clef-config.ts";
+import { clefForMembers, clefWideningRefusal, describeClef } from "./laterdog/clef-config.ts";
 import { createClef } from "./laterdog/clef-wiring.ts";
 import { screenGuard } from "./laterdog/clef-screen-check.ts";
 import { createLiveSession, liveAttachUrl, LiveSessionError, type LiveBot, type LiveHistoryMessage } from "./live-call.ts";
@@ -6354,6 +6355,20 @@ function recoverUnsettledTurn(event: RuntimeEvent, error: unknown): void {
   }, { everyMs: 3_000, forMs: 10 * 60_000, onGiveUp: (giveUp) => console.error(`turn end: ${threadId} is still marked working after a failed save`, giveUp) });
 }
 
+function clefFolders(asker: BotRecord, threadId: string): { cwd?: string; projectRoot?: string } {
+  const task = store.taskByThread(asker.id, threadId);
+  let root = asker.cwd;
+  if (!root) {
+    try {
+      root = join(realpathSync(DATA_DIR), "task-workspaces", asker.id, asker.threadId);
+    } catch {
+      root = undefined;
+    }
+  }
+  const cwd = task?.cwd ?? root;
+  return { ...(cwd ? { cwd } : {}), ...(root ? { projectRoot: root } : {}) };
+}
+
 function requestAsker(threadId: string) {
   const owner = store.botByThread(threadId);
   const direct = owner ? botForThread(owner.id, threadId) ?? undefined : undefined;
@@ -6379,8 +6394,10 @@ const clef = createClef({
       guestDriven,
       approvalMode: guestDriven ? "ask" : approvalModeForTurn(asker, isInternalTurn(event.threadId), event.threadId),
       commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command)),
+      ...clefFolders(asker, event.threadId),
     };
   },
+  protectedPaths: [DATA_DIR, join(homedir(), ".laterdog")],
   respond: async (event, behavior, message) => {
     const instance = event.providerInstanceId
       ? registry.get(event.providerInstanceId)
@@ -6584,7 +6601,7 @@ const onProviderEvent = guardTurnEnd((event: RuntimeEvent) => {
       const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !guestDriven
         ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
         : null;
-      const verdict = permission && asker && event.requestId
+      const verdict = permission && asker && event.requestId && !clef.review.mustAsk(event)
         ? autoVerdict(effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
           commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command)),
@@ -13200,6 +13217,7 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
     opencodeGo: { configured: status.opencodeGo.configured, providerKeys: [] },
     profile: { name: status.profile.name, email: "" },
     accountBattery: { ...status.accountBattery, waiting: {}, routed: {} },
+    clef: clefForMembers(status.clef),
     browserProfiles: status.browserProfiles.map((profile) => Object.fromEntries(Object.entries(profile).filter(([key]) => key !== "partitionId"))),
   };
 }

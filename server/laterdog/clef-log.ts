@@ -7,7 +7,7 @@ import { monthKey } from "../usage-ledger.ts";
 export const CLEF_LOG_DIR = "clef-log";
 const PRUNE_EVERY_MS = 60 * 60_000;
 
-export type ClefLogKind = "turnEnd" | "screenCheck" | "screenshotFilter";
+export type ClefLogKind = "turnEnd" | "screenCheck" | "screenshotFilter" | "autoReview";
 
 export interface ClefLogRow {
   kind: ClefLogKind;

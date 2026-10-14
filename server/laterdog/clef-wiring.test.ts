@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ApprovalMode } from "../../shared/approval-mode.ts";
 import type { AppConfig } from "../config.ts";
 import type { RuntimeEvent } from "../../shared/runtime-events.ts";
+import { reviewInputOf } from "../../shared/review-input.ts";
 import { reviewAction } from "./clef-auto-review.ts";
 import { choiceAnswer, fakeDecider, yesAnswer } from "./clef-fake-decider.ts";
 import { createClef, reviewContextFor, type ClefAsker, type ClefDeps } from "./clef-wiring.ts";
@@ -18,7 +19,7 @@ const asker = (approvalMode: ApprovalMode, over: Partial<ClefAsker> = {}): ClefA
 
 const opened = (over: Partial<Opened> = {}): Opened => ({
   eventId: "e", threadId: "t", createdAt: "now", provider: "claude", type: "request.opened",
-  requestType: "permission", requestId: "r", tool: "Bash", summary: "run pnpm test", ...over,
+  requestType: "permission", requestId: "r", tool: "Bash", summary: "run pnpm test", reviewInput: reviewInputOf({ command: "pnpm test" }), ...over,
 }) as Opened;
 
 describe("reviewContextFor", () => {
@@ -51,6 +52,13 @@ describe("reviewContextFor", () => {
   it("never auto-approves the local computer or a request with its own choices", () => {
     expect(reviewContextFor(asker("ask"), opened({ approvalScope: "local-computer" }))).toMatchObject({ mayAutoApprove: false });
     expect(reviewContextFor(asker("ask"), opened({ choices: ["Allow once", "Allow always"] }))).toMatchObject({ mayAutoApprove: false });
+  });
+
+  it("tells the review where the dog works and which folders are off limits", () => {
+    const context = reviewContextFor(asker("ask", { cwd: "/work/app/src", projectRoot: "/work/app" }), opened(), ["/home/me/.laterdog"]);
+    expect(context?.scope).toEqual({ cwd: "/work/app/src", projectRoot: "/work/app", protectedPaths: ["/home/me/.laterdog"] });
+    const shell = reviewContextFor(asker("ask", { projectRoot: "/work/app" }), opened({ command: { command: "ls", cwd: "/work/app/lib" } }));
+    expect(shell?.scope).toMatchObject({ cwd: "/work/app/lib", projectRoot: "/work/app" });
   });
 
   it("does not touch an unknown dog or one driven by a guest", () => {
@@ -195,6 +203,32 @@ describe("createClef", () => {
     } finally {
       process.off("unhandledRejection", listener);
     }
+  });
+
+  it("shows the card, never the mode's own approval, when an ask-first rule exists and the review cannot run", async () => {
+    const withBlock: AppConfig = { decider: { ...CONFIG.decider, autoReview: { allow: ["Running the tests is fine."], block: ["Never delete anything."] } } };
+    const wired = clef({ asker: () => asker("full") }, withBlock, () => ({ fail: "unreachable" }));
+    const event = opened({ summary: "run pnpm test" });
+    expect(wired.review.intercept(event)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(wired.delivered).toEqual([event]);
+    expect(wired.review.mustAsk(event)).toBe(true);
+    const plain = clef({ asker: () => asker("full") }, CONFIG, () => ({ fail: "unreachable" }));
+    const other = opened({ summary: "run pnpm test" });
+    expect(plain.review.intercept(other)).toBe(false);
+    expect(plain.review.mustAsk(other)).toBe(false);
+  });
+
+  it("says in the chat when the screenshot filter holds a screen back", async () => {
+    const notes: string[] = [];
+    const { finalScreen } = clef({ note: (_thread, text) => { notes.push(text); } }, CONFIG, () => ({ answers: { worth: yesAnswer(0.1), secret: yesAnswer(0.01) } }));
+    finalScreen({ threadId: "t", frame, task: "x", reply: "y", post: () => undefined });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(notes).toEqual(["Screenshot held back: it did not look worth showing"]);
+    const secret = clef({ note: (_thread, text) => { notes.push(text); } }, CONFIG, () => ({ answers: { worth: yesAnswer(0.9), secret: yesAnswer(0.9) } }));
+    secret.finalScreen({ threadId: "t", frame, task: "x", reply: "y", post: () => undefined });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(notes.at(-1)).toBe("Screenshot held back: it may show a secret");
   });
 
   it("records the decision before it tells the person", async () => {

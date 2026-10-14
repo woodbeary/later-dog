@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseConfigPatch } from "../config.ts";
-import { CLEF_WIDENING_REFUSAL, autoReviewRules, clefWidening, clefWideningRefusal, describeClef } from "./clef-config.ts";
+import { CLEF_WIDENING_REFUSAL, autoReviewRules, clefForMembers, clefWidening, clefWideningRefusal, describeClef } from "./clef-config.ts";
 
 const KEY = "tsk_unit_secret_key_0123456789abcdef";
 
@@ -67,9 +67,29 @@ describe("what loosens the rules", () => {
   });
 
   it("lets tightening through: fewer allow rules, more block rules, jobs turned off", () => {
-    expect(clefWidening(current, { autoReview: { allow: ["a"], block: ["x", "y", "z"] }, jobs: { turnEnd: false } })).toEqual([]);
+    expect(clefWidening(current, { autoReview: { allow: ["a"], block: ["x", "y", "z"] } })).toEqual([]);
     expect(clefWidening(current, { autoReview: { allow: [" a ", "b"], block: ["x", "y"] } })).toEqual([]);
     expect(clefWidening(current, {})).toEqual([]);
+  });
+});
+
+describe("everything that loosens the rules", () => {
+  const current = { enabled: true, key: KEY, baseUrl: "https://clef.example.test", model: "clef" as const, jobs: { autoReview: true, turnEnd: true } };
+
+  it("counts turning a job off, turning decisions off, and changing where or how they are made", () => {
+    expect(clefWidening(current, { jobs: { turnEnd: false } })).toEqual(["jobs.turnEnd.off"]);
+    expect(clefWidening(current, { jobs: { autoReview: false } })).toEqual(["jobs.autoReview.off"]);
+    expect(clefWidening(current, { enabled: false })).toEqual(["decider.enabled"]);
+    expect(clefWidening(current, { provider: "off" })).toEqual(["decider.provider"]);
+    expect(clefWidening(current, { model: "clef-flash" })).toEqual(["decider.model"]);
+    expect(clefWidening(current, { models: { autoReview: "clef-flash" } })).toEqual(["decider.models"]);
+    expect(clefWidening(current, { baseUrl: "https://other.example.test" })).toEqual(["decider.endpoint"]);
+    expect(clefWidening(current, { key: "tsk_new_key_0123456789" })).toEqual(["decider.endpoint"]);
+  });
+
+  it("does not count saving what is already saved, or turning something on that is already on", () => {
+    expect(clefWidening(current, { enabled: true, model: "clef", baseUrl: "https://clef.example.test", key: KEY, jobs: { autoReview: true } })).toEqual([]);
+    expect(clefWidening(current, { jobs: { screenCheck: false } })).toEqual([]);
   });
 });
 
@@ -87,13 +107,25 @@ describe("who may loosen the rules", () => {
     expect(clefWideningRefusal(current, { baseUrl: "https://elsewhere.example.test" }, script)).toBe(CLEF_WIDENING_REFUSAL);
     expect(clefWideningRefusal(current, { key: "tsk_other_key_0123456789" }, script)).toBe(CLEF_WIDENING_REFUSAL);
     expect(clefWideningRefusal(current, { key: KEY }, script)).toBeNull();
+    expect(clefWideningRefusal({ ...current, jobs: { turnEnd: true } }, { jobs: { turnEnd: false } }, script)).toBe(CLEF_WIDENING_REFUSAL);
+    expect(clefWideningRefusal(current, { enabled: false }, script)).toBe(CLEF_WIDENING_REFUSAL);
   });
 
   it("lets the app and paired devices through, and lets a script tighten", () => {
     const loosening = { autoReview: { allow: ["a", "b"], block: [] }, jobs: { turnEnd: true } };
     expect(clefWideningRefusal(current, loosening, { appOrPairedDevice: true, dogsWorking: true })).toBeNull();
     expect(clefWideningRefusal(current, loosening, { appOrPairedDevice: false, dogsWorking: false })).toBeNull();
-    expect(clefWideningRefusal(current, { autoReview: { allow: [], block: ["x", "y"] }, jobs: { turnEnd: false } }, script)).toBeNull();
+    expect(clefWideningRefusal(current, { autoReview: { allow: [], block: ["x", "y"] } }, script)).toBeNull();
     expect(clefWideningRefusal(current, undefined, script)).toBeNull();
+  });
+});
+
+describe("what other viewers of the config see", () => {
+  it("shows the number of rules, never their text", () => {
+    const cfg = { decider: { enabled: true, key: KEY, autoReview: { allow: ["Secret allow rule"], block: ["Never touch the vault", "Another"] } } };
+    const members = clefForMembers(describeClef(cfg));
+    expect(members.autoReview).toEqual({ allow: [], block: [], hidden: true, counts: { allow: 1, block: 2 } });
+    expect(JSON.stringify(members)).not.toContain("vault");
+    expect(describeClef(cfg).autoReview.block).toContain("Never touch the vault");
   });
 });

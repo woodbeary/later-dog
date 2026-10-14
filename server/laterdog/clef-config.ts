@@ -37,6 +37,13 @@ export function clefWidening(current: DeciderSection | undefined, patch: Partial
   for (const job of CLEF_JOBS) {
     if (patch.jobs?.[job] === true && current?.jobs?.[job] !== true) widened.push(`jobs.${job}`);
   }
+  for (const job of CLEF_JOBS) {
+    if (patch.jobs?.[job] === false && current?.jobs?.[job] === true) widened.push(`jobs.${job}.off`);
+  }
+  if (patch.enabled === false && current?.enabled !== false) widened.push("decider.enabled");
+  if (patch.provider === "off" && current?.provider !== "off") widened.push("decider.provider");
+  if (patch.model !== undefined && patch.model !== current?.model) widened.push("decider.model");
+  if (patch.models !== undefined && JSON.stringify(patch.models) !== JSON.stringify(current?.models ?? {})) widened.push("decider.models");
   const sameAddress = (patch.baseUrl ?? current?.baseUrl ?? "").trim() === (current?.baseUrl ?? "").trim();
   const sameKey = (patch.key ?? current?.key ?? "").trim() === (current?.key ?? "").trim();
   if (!sameAddress || !sameKey) widened.push("decider.endpoint");
@@ -49,7 +56,7 @@ export interface ConfigCaller {
 }
 
 export const CLEF_WIDENING_REFUSAL =
-  "Auto-review rules and the fast-decision switches change what dogs may do without asking. Change them from the app or a paired device.";
+  "Auto-review rules, the fast-decision switches and where decisions are sent decide what dogs may do without asking. Change them from the app or a paired device.";
 
 export function clefWideningRefusal(
   current: DeciderSection | undefined,
@@ -76,6 +83,18 @@ export function describeClef(cfg: AppConfig) {
       turnEnd: deciderJobOn(cfg, "turnEnd"),
       screenCheck: deciderJobOn(cfg, "screenCheck"),
       screenshotFilter: deciderJobOn(cfg, "screenshotFilter"),
+    },
+  };
+}
+
+export function clefForMembers(clef: ReturnType<typeof describeClef>) {
+  return {
+    ...clef,
+    autoReview: {
+      allow: [] as string[],
+      block: [] as string[],
+      hidden: true as const,
+      counts: { allow: clef.autoReview.allow.length, block: clef.autoReview.block.length },
     },
   };
 }
