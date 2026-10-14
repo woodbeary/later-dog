@@ -72,7 +72,7 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
       }
       if (url.pathname === "/v1/jobs" && method === "POST") {
         const body = await readBody(req,200_000);
-        if (body && typeof body === "object" && !Array.isArray(body) && !("profileId" in body)) (body as Record<string, unknown>).profileId = supervisor.preferredProfile();
+        if (body && typeof body === "object" && !Array.isArray(body) && !("profileId" in body)) (body as Record<string, unknown>).profileId = supervisor.preferredProfile(typeof (body as Record<string, unknown>).account === "string" ? (body as Record<string, string>).account : undefined);
         const request = scope.jobRequest(body);
         await supervisor.ensureRepository(request);
         return json(res,202,supervisor.create(request));
@@ -84,11 +84,17 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
           : { botId: z.string().regex(/^[\w-]{1,100}$/).optional().parse(url.searchParams.get("bot") ?? undefined), limit: z.coerce.number().int().min(1).max(100).default(20).parse(url.searchParams.get("limit") ?? undefined) };
         return json(res,200,{ jobs: supervisor.summaries(query) });
       }
-      const jobPath = /^\/v1\/jobs\/([\w-]+)(?:\/(action|patch|activity|screen))?$/.exec(url.pathname);
+      const jobPath = /^\/v1\/jobs\/([\w-]+)(?:\/(action|patch|activity|screen|trace))?$/.exec(url.pathname);
       if (jobPath) {
         const id = idSchema.parse(jobPath[1]);
         if (method === "GET" && !jobPath[2]) return json(res,200,{ job: supervisor.store.job(id), events: supervisor.store.events(id) });
         if (method === "GET" && jobPath[2] === "activity") return json(res,200,await supervisor.activity(id,z.coerce.number().int().min(0).default(0).parse(url.searchParams.get("after") ?? undefined)));
+        if (method === "GET" && jobPath[2] === "trace") {
+          const trace = await supervisor.trace(id);
+          res.writeHead(200,{ "content-type": "application/x-ndjson; charset=utf-8", "content-length": trace.body.length, "content-disposition": `attachment; filename="${trace.filename}"`,
+            "x-laterdog-trace-expires": trace.expiresAt, "x-laterdog-trace-truncated": trace.truncated ? "1" : "0" });
+          return void res.end(trace.body);
+        }
         if (method === "POST" && jobPath[2] === "screen") return json(res,200,await supervisor.screen(id));
         if (method === "GET" && jobPath[2] === "patch") {
           const job = supervisor.store.job(id); if (!job.patchArtifact) return json(res,404,{ error: "No collected diff" });

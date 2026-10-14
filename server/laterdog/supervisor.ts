@@ -11,6 +11,7 @@ import { GitHubDeviceLogin } from "./github-login.ts";
 import { WorkspaceStore } from "./store.ts";
 import { measuredOutcomes } from "./observations.ts";
 import { deliverOutbox } from "./notifications.ts";
+import { LocalTraceStore, jobTraceStoreFromEnv, readableTrace, traceExpired, traceRetentionDays, type JobTraceStore } from "./job-trace.ts";
 
 export interface SupervisorOptions {
   dataDir: string;
@@ -23,12 +24,20 @@ export interface SupervisorOptions {
   githubLogin?: GitHubDeviceLogin;
   workspaceUrl?: string;
   workspaceTokenFile?: string;
+  traces?: { primary: JobTraceStore; local: LocalTraceStore };
+  traceRetentionDays?: number;
+  traceRetryMs?: number[];
+  traceSweepMs?: number;
 }
 
 export function correctionTitle(brief: string): string {
   const first = brief.trim().split(/(?<=[.!?])\s|\n/)[0]?.trim() ?? "";
   const line = first.length > 120 ? `${first.slice(0, 119).trimEnd()}…` : first;
   return `Correct: ${line || "address the review"}`;
+}
+
+function inherited(parent: Job): Pick<CreateJob, "model" | "effort" | "account" | "computerSize"> {
+  return { ...(parent.model ? { model: parent.model } : {}), ...(parent.effort ? { effort: parent.effort } : {}), ...(parent.account ? { account: parent.account } : {}), ...(parent.computerSize ? { computerSize: parent.computerSize } : {}) };
 }
 
 export class Supervisor {
@@ -43,12 +52,15 @@ export class Supervisor {
   private readonly publisher: GitHubPublisher;
   private readonly githubLogin: GitHubDeviceLogin;
   private readonly artifactDir: string;
+  private readonly traces: { primary: JobTraceStore; local: LocalTraceStore };
+  private lastTraceSweep = 0;
   readonly store: WorkspaceStore;
   readonly options: SupervisorOptions;
   constructor(store: WorkspaceStore, options: SupervisorOptions) {
     this.store = store; this.options = options;
     if (!Number.isInteger(options.concurrency) || options.concurrency < 1 || options.concurrency > 100) throw new Error("Concurrency must be 1–100");
     this.artifactDir = join(options.dataDir, "artifacts"); mkdirSync(this.artifactDir, { recursive: true, mode: 0o700 });
+    this.traces = options.traces ?? jobTraceStoreFromEnv(process.env, options.dataDir);
     this.publisher = options.publisher ?? new GitHubPublisher(join(options.dataDir, "checkouts"));
     this.githubLogin = options.githubLogin ?? new GitHubDeviceLogin();
     for (const profile of options.profiles) this.adapters.set(profile.id, options.adapter?.(profile) ?? (profile.backend === "claude-cloud"
@@ -56,12 +68,18 @@ export class Supervisor {
         : new CodexCloudAdapter(profile, undefined, { cwd: options.dataDir })));
   }
   private context(job: Job): JobContext {
-    return { jobId: job.id, repository: job.repository, sourceRef: job.sourceRef, baseSha: job.baseSha, createdAt: job.createdAt };
+    return { jobId: job.id, repository: job.repository, sourceRef: job.sourceRef, baseSha: job.baseSha, createdAt: job.createdAt,
+      ...(job.model ? { model: job.model } : {}), ...(job.effort ? { effort: job.effort } : {}), ...(job.account ? { account: job.account } : {}), ...(job.computerSize ? { computerSize: job.computerSize } : {}) };
   }
   create(input: unknown): Job {
     const request = createJobSchema.parse(input);
     const adapter = this.adapters.get(request.profileId); if (!adapter) throw new Error("Unknown account profile");
-    return this.store.create(request, adapter.capabilities.id as BackendId);
+    const job = this.store.create(request, adapter.capabilities.id as BackendId);
+    const profile = this.options.profiles.find((candidate) => candidate.id === request.profileId);
+    if (request.account && profile && profile.account !== request.account && profile.id !== request.account && !this.store.events(job.id).some((event) => event.type === "account_differs")) {
+      this.store.update(job.id, {}, "account_differs", `Asked for account ${request.account}; no cloud profile is signed in to it, so this runs on ${profile.label}`);
+    }
+    return job;
   }
   correction(id: string, brief: string, requestKey: string, writeScopes?: string[]): Job {
     const parent = this.store.job(id);
@@ -69,14 +87,14 @@ export class Supervisor {
     if (!parent.prUrl || !parent.headSha) throw new Error("Publish the result branch before requesting a correction");
     return this.create({ requestKey, repository: parent.repository, title: correctionTitle(brief), brief,
       standingInstructions: parent.standingInstructions, writeScopes: writeScopes ?? parent.writeScopes, dependencies: [id],
-      profileId: parent.profileId, kind: "repair", parentId: id, conversationId: parent.conversationId, botId: parent.botId });
+      profileId: parent.profileId, kind: "repair", parentId: id, conversationId: parent.conversationId, botId: parent.botId, ...inherited(parent) });
   }
   review(id: string, requestKey: string, profileId?: string): Job {
     const parent = this.store.job(id);
     if (!parent.headSha || !parent.prUrl) throw new Error("Publish the result before requesting independent review");
     const brief = `Independently review PR ${parent.prUrl} at commit ${parent.headSha}. Read the change, requirements, tests and relevant surrounding code. Do not edit product code. Write one new root file .laterdog-review.json with JSON: {"headSha":"${parent.headSha}","verdict":"pass" or "changes_requested","summary":"concrete findings and what you actually checked"}. This file is collected as review evidence and is not published to the product branch.\n\nRequirements:\n${parent.brief}`;
     return this.create({ requestKey, repository: parent.repository, title: `Review: ${parent.title}`, brief, standingInstructions: parent.standingInstructions,
-      writeScopes: [".laterdog-review.json"], dependencies: [id], profileId: profileId ?? parent.profileId, kind: "review", parentId: id, conversationId: parent.conversationId, botId: parent.botId });
+      writeScopes: [".laterdog-review.json"], dependencies: [id], profileId: profileId ?? parent.profileId, kind: "review", parentId: id, conversationId: parent.conversationId, botId: parent.botId, ...(profileId ? {} : inherited(parent)) });
   }
   snapshot(): WorkspaceSnapshot {
     const jobs = this.store.jobs(); const prs = new Map<string, Job[]>();
@@ -148,6 +166,51 @@ export class Supervisor {
       const activityArtifact = join(this.artifactDir, `${job.id}.activity.jsonl`); writeFileSync(activityArtifact, transcript, { mode: 0o600 });
       this.store.touch(job.id, { activityArtifact });
     } catch (error) { console.warn(`later.dog kept no progress log for job ${job.id}: ${message(error)}`); }
+  }
+  private async keepTrace(job: Job): Promise<void> {
+    const adapter = this.adapters.get(job.profileId);
+    if (!adapter?.trace || !job.taskId || this.store.job(job.id).trace) return;
+    const retentionDays = this.options.traceRetentionDays ?? traceRetentionDays(process.env);
+    const waits = this.options.traceRetryMs ?? [1_000, 4_000];
+    let reason = "";
+    try {
+      const captured = await adapter.trace(job.taskId);
+      if (!captured) return;
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const trace = await this.traces.primary.put(job.id, captured.gz, { retentionDays, truncated: captured.truncated });
+          this.store.touch(job.id, { trace });
+          return;
+        } catch (error) {
+          reason = message(error);
+          if (attempt >= waits.length) break;
+          await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
+        }
+      }
+      if (this.traces.primary.where !== "local") {
+        const trace = await this.traces.local.put(job.id, captured.gz, { retentionDays, truncated: captured.truncated });
+        this.store.touch(job.id, { trace });
+        this.store.update(job.id, {}, "trace_kept_locally", `The trace store refused it (${reason}); kept on this supervisor's disk instead`);
+        return;
+      }
+    } catch (error) { reason = message(error); }
+    console.warn(`later.dog kept no trace for job ${job.id}: ${reason}`);
+    this.store.update(job.id, {}, "trace_not_kept", reason);
+  }
+  async trace(id: string): Promise<{ body: Buffer; filename: string; expiresAt: string; truncated: boolean }> {
+    const job = this.store.job(id);
+    if (!job.trace) throw Object.assign(new Error("No trace was kept for this job."), { status: 404 });
+    if (traceExpired(job.trace)) throw Object.assign(new Error(`This job's trace expired ${job.trace.expiresAt.slice(0, 10)}.`), { status: 410 });
+    const store = job.trace.where === "local" ? this.traces.local : this.traces.primary;
+    const stored = await store.get(id);
+    if (!stored) throw Object.assign(new Error("This job's trace is no longer in the store."), { status: 410 });
+    return { body: readableTrace(stored), filename: `laterdog-job-${id}-trace.jsonl`, expiresAt: job.trace.expiresAt, truncated: job.trace.truncated };
+  }
+  private sweepTraces(): void {
+    if (Date.now() - this.lastTraceSweep < (this.options.traceSweepMs ?? 3_600_000)) return;
+    this.lastTraceSweep = Date.now();
+    const keep = new Set(this.store.jobs().filter((job) => job.trace?.where === "local" && !traceExpired(job.trace)).map((job) => job.id));
+    try { this.traces.local.sweep(keep); } catch (error) { console.warn(`later.dog could not sweep local traces: ${message(error)}`); }
   }
   private async collect(job: Job): Promise<void> {
     const patch = await this.adapter(job).collect(job.taskId!, this.context(job));
@@ -253,6 +316,7 @@ export class Supervisor {
         if (state === "failed") {
           this.lastPolled.delete(job.id);
           await this.keepActivity(job);
+          await this.keepTrace(job);
           if (this.store.job(job.id).cancelRequested) this.store.update(job.id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");
           else this.store.update(job.id, { state: "needs_attention", finishedAt: new Date().toISOString(), blocker: adapter.failure?.(job.taskId!) ?? "Provider reports this task failed; an agent can investigate and choose a repair" }, "provider_failed");
         }
@@ -260,6 +324,7 @@ export class Supervisor {
           this.lastPolled.delete(job.id); collecting = true;
           this.store.update(job.id, { state: "collecting" }, "collecting");
           await this.keepActivity(job);
+          await this.keepTrace(job);
           await this.collect(job);
         }
       } catch (error) {
@@ -306,19 +371,24 @@ export class Supervisor {
         this.store.update(job.id, { state: uncertain ? "submission_unknown" : "needs_attention", blocker: message(error) }, uncertain ? "submission_unknown" : "preparation_blocked");
       } finally { this.inFlight.delete(job.id); }
     }
+    this.sweepTraces();
     if (this.options.workspaceUrl) await deliverOutbox(this.store,this.options.workspaceUrl,this.options.workspaceTokenFile);
   }
-  preferredProfile(): string {
+  preferredProfile(account?: string): string {
+    const cloud = this.options.profiles.filter((profile) => this.adapters.get(profile.id)?.capabilities.id === "laterdog-cloud");
+    const named = account ? cloud.find((profile) => profile.account === account || profile.id === account) : undefined;
+    if (named) return named.id;
     for (const [id, adapter] of this.adapters) if (adapter.capabilities.id === "laterdog-cloud") return id;
     return "default";
   }
+  private accountLabel(job: Job): string | undefined { return this.options.profiles.find((profile) => profile.id === job.profileId)?.label; }
   summaries(query: { ids?: string[]; botId?: string; limit?: number }): CloudTaskSummary[] {
     const jobs = this.store.jobs();
     if (query.ids) {
       const byId = new Map(jobs.map((job) => [job.id, job]));
-      return query.ids.flatMap((id) => { const job = byId.get(id); return job ? [cloudTaskSummary(job)] : []; });
+      return query.ids.flatMap((id) => { const job = byId.get(id); return job ? [cloudTaskSummary(job, this.accountLabel(job))] : []; });
     }
-    return jobs.filter((job) => !query.botId || job.botId === query.botId).slice(0, query.limit ?? 20).map(cloudTaskSummary);
+    return jobs.filter((job) => !query.botId || job.botId === query.botId).slice(0, query.limit ?? 20).map((job) => cloudTaskSummary(job, this.accountLabel(job)));
   }
   async activity(id: string, after: number): Promise<CloudTaskActivityPage> {
     if (!Number.isSafeInteger(after) || after < 0) throw Object.assign(new Error("after must be a byte offset"), { status: 400 });
@@ -353,6 +423,7 @@ export class Supervisor {
     if (job.state !== "running" || !job.taskId || !adapter?.cancel) return this.cancel(id, acknowledgeUnknown);
     this.store.update(id, { cancelRequested: true }, "cancel_requested", "Deleting the task's computer");
     await this.keepActivity(job);
+    await this.keepTrace(job);
     await adapter.cancel(job.taskId);
     if (this.inFlight.has(id)) return this.store.job(id);
     return this.store.update(id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");

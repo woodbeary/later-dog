@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { repositorySchema, type Profile } from "../../shared/laterdog.ts";
 import { configSchema } from "./config.ts";
 import { SubmissionUnknown, type JobContext } from "./codex-cloud.ts";
@@ -11,8 +12,10 @@ import { GitHubPublisher } from "./github.ts";
 import { WorkspaceStore } from "./store.ts";
 import { Supervisor } from "./supervisor.ts";
 import { AUTO_SETUP_SCRIPT, SETUP_FAILED_NOTE } from "./cloud-task-files.ts";
+import { StateTraceStore, jobTraceStoreFromEnv, readableTrace } from "./job-trace.ts";
+import { FakeTraceState } from "./trace-state-fake.ts";
 import {
-  COMPUTER_PREFIX, ComputerSubmissionUnknown, INTERNAL_COMPUTERS_API, LATERDOG_CLOUD_CAPABILITIES, LaterdogCloudAdapter, laterdogCloudSettings, shellQuote, taskScript,
+  COMPUTER_PREFIX, ComputerSubmissionUnknown, claudeOptions, INTERNAL_COMPUTERS_API, LATERDOG_CLOUD_CAPABILITIES, LaterdogCloudAdapter, laterdogCloudSettings, shellQuote, taskScript,
 } from "./laterdog-cloud.ts";
 
 const CLAUDE_TOKEN = `sk-ant-oat01-fixture_claude_secret_${"x".repeat(80)}`;
@@ -181,7 +184,7 @@ describe("later.dog Cloud adapter", () => {
     const { taskId, taskUrl } = await adapter.submit("echo ran > \"$HOME/task/setup.out\"", context.sourceRef!, "Change src/a.ts", context);
     expect(taskUrl).toBe("");
     const create = api.requests.find((request) => request.method === "POST" && request.url.endsWith("/computers"))!;
-    expect(JSON.parse(create.body)).toEqual({ name: `${COMPUTER_PREFIX}${context.jobId}`, size: "xlarge" });
+    expect(JSON.parse(create.body)).toEqual({ name: `${COMPUTER_PREFIX}${context.jobId}`, size: "small" });
     expect(create.headers["idempotency-key"]).toBe(context.jobId);
     expect(api.requests.filter((request) => request.method === "GET" && request.url.endsWith(`/computers/${taskId}`)).length).toBeGreaterThanOrEqual(2);
     const launch = api.execs.find((exec) => exec.env)!;
@@ -467,5 +470,139 @@ describe("later.dog Cloud through the supervisor", () => {
     const codex = new Supervisor(store, { dataDir: dir, profiles: [{ id: "default", label: "Codex" }], concurrency: 1, publishingHost: "local" }); cleanups.push(() => codex.stop());
     const listed = codex.snapshot().backends.find((backend) => backend.id === "laterdog-cloud");
     expect(listed?.enabled).toBe(false); expect(listed?.limitation).toMatch(/CLAUDE_CODE_OAUTH_TOKEN/);
+  });
+});
+
+describe("later.dog Cloud jobs choose their model, effort, size and account", () => {
+  it("asks for a small computer unless the job, or the profile, asks for more", async () => {
+    const sizeOf = async (adapterProfile: Profile, jobSize?: "small" | "standard" | "large" | "xlarge") => {
+      const { api, context } = setup();
+      const own = new LaterdogCloudAdapter(adapterProfile, { fetch: api.fetch, env: { LATERDOG_COMPUTERS_URL: API, LATERDOG_COMPUTERS_KEY: COMPUTERS_KEY, CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN }, pollMs: 0 });
+      await own.submit("none", context.sourceRef!, "Prompt", { ...context, ...(jobSize ? { computerSize: jobSize } : {}) });
+      return JSON.parse(api.requests.find((request) => request.method === "POST" && request.url.endsWith("/computers"))!.body).size as string;
+    };
+    expect(await sizeOf(profile)).toBe("small");
+    expect(await sizeOf(profile, "large")).toBe("large");
+    expect(await sizeOf({ ...profile, computerSize: "standard" })).toBe("standard");
+    expect(await sizeOf({ ...profile, computerSize: "standard" }, "xlarge")).toBe("xlarge");
+  });
+
+  it("runs Claude Code with the model and effort the job asks for, and with its own defaults otherwise", async () => {
+    const asked = setup();
+    const { taskId } = await asked.adapter.submit("none", asked.context.sourceRef!, "Prompt", { ...asked.context, model: "claude-opus-5-5", effort: "ultra" });
+    expect(await settle(asked.adapter, taskId)).toBe("ready");
+    expect(asked.api.file(taskId, "task/claude.args").split("\n")).toEqual(expect.arrayContaining(["--model", "claude-opus-5-5", "--effort", "ultracode"]));
+    const plain = setup();
+    const job = await plain.adapter.submit("none", plain.context.sourceRef!, "Prompt", plain.context);
+    expect(await settle(plain.adapter, job.taskId)).toBe("ready");
+    const args = plain.api.file(job.taskId, "task/claude.args");
+    expect(args).not.toContain("--model");
+    expect(args).not.toContain("--effort");
+  });
+
+  it("quotes the model it embeds and refuses one that is not a model id", () => {
+    expect(claudeOptions({ model: "claude-sonnet-5-5[1m]", effort: "high" })).toBe("--model 'claude-sonnet-5-5[1m]' --effort 'high'");
+    expect(claudeOptions({})).toBe("");
+    expect(() => claudeOptions({ model: "x; reboot" })).toThrow(/Invalid model/);
+    expect(() => claudeOptions({ model: "$(reboot)" })).toThrow(/Invalid model/);
+    expect(() => claudeOptions({ effort: "turbo" as never })).toThrow(/Invalid effort/);
+    const base = { repository: "fixture/repo", sourceRef: "laterdog/input/x", baseSha: "a".repeat(40), maxRunMinutes: 10 };
+    expect(taskScript({ ...base, model: "claude-opus-5-5", effort: "xhigh" })).toContain("--verbose --model 'claude-opus-5-5' --effort 'xhigh' < ");
+    expect(taskScript(base)).toContain("--verbose < ");
+  });
+
+  it("signs a job in with the Claude token its profile names", async () => {
+    const work = `sk-ant-oat01-work_account_secret_${"w".repeat(80)}`;
+    const api = new FakeComputersApi();
+    const env = { LATERDOG_COMPUTERS_URL: API, LATERDOG_COMPUTERS_KEY: COMPUTERS_KEY, CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN, CLAUDE_CODE_OAUTH_TOKEN_WORK: work };
+    const adapter = new LaterdogCloudAdapter({ ...profile, id: "work", claudeTokenEnv: "CLAUDE_CODE_OAUTH_TOKEN_WORK" }, { fetch: api.fetch, env, pollMs: 0 });
+    const jobId = randomUUID(); api.inputBranch(jobId);
+    await adapter.submit("none", `laterdog/input/${jobId}`, "Prompt", { jobId, repository: "fixture/repo", sourceRef: `laterdog/input/${jobId}`, baseSha: api.baseSha, createdAt: new Date().toISOString() });
+    expect(api.execs.find((exec) => exec.env)!.env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: work });
+    await expect(new LaterdogCloudAdapter({ ...profile, claudeTokenEnv: "CLAUDE_CODE_OAUTH_TOKEN_MISSING" }, { fetch: api.fetch, env }).doctor()).rejects.toThrow(/CLAUDE_CODE_OAUTH_TOKEN_MISSING/);
+    expect(() => configSchema.parse({ profiles: [{ id: "work", label: "Work", backend: "laterdog-cloud", claudeTokenEnv: "GH_TOKEN" }] })).toThrow();
+    expect(configSchema.parse({ profiles: [{ id: "work", label: "Work", backend: "laterdog-cloud", claudeTokenEnv: "CLAUDE_CODE_OAUTH_TOKEN_WORK", account: "claude-2" }] }).profiles[0]).toMatchObject({ account: "claude-2" });
+  });
+});
+
+describe("later.dog Cloud keeps every trace", () => {
+  const LEAKY = [
+    'cat > "$HOME/task/prompt.seen"',
+    `echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}'`,
+    `printf '{"type":"user","leak":"%s"}\\n' "$CLAUDE_CODE_OAUTH_TOKEN"`,
+    "mkdir -p src && printf 'new\\n' > src/a.ts",
+    `echo '{"type":"result","is_error":false,"result":"ok"}'`,
+  ].join("\n");
+
+  it("packs the computer's full event stream, with the tokens blanked", async () => {
+    const { api, adapter, context } = setup({ claude: LEAKY });
+    const { taskId } = await adapter.submit("none", context.sourceRef!, "Prompt", context);
+    expect(await settle(adapter, taskId)).toBe("ready");
+    const capture = (await adapter.trace(taskId))!;
+    expect(capture).toMatchObject({ truncated: false });
+    const text = readableTrace(capture.gz).toString("utf8");
+    expect(text).toContain('"text":"working"');
+    expect(text).toContain('"type":"result"');
+    expect(text).toContain("[redacted]");
+    expect(text).not.toContain(CLAUDE_TOKEN);
+    expect(text.trim().split("\n")).toHaveLength(api.file(taskId, "task/out.jsonl").trim().split("\n").length);
+    expect(capture.rawBytes).toBe(Buffer.byteLength(text));
+  });
+
+  it("keeps the last 64 MB and says so when the stream is larger", async () => {
+    const { api, adapter, context } = setup({ claude: "cat > /dev/null" });
+    const { taskId } = await adapter.submit("none", context.sourceRef!, "Prompt", context);
+    expect(await settle(adapter, taskId)).toBe("ready");
+    const line = `{"n":1,"pad":"${"x".repeat(990)}"}\n`;
+    writeFileSync(join(api.computers.get(taskId)!.home, "task", "out.jsonl"), line.repeat(Math.ceil((70 * 1024 * 1024) / line.length)));
+    const capture = (await adapter.trace(taskId))!;
+    expect(capture.truncated).toBe(true);
+    const text = gunzipSync(capture.gz).toString("utf8");
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(64 * 1024 * 1024);
+    expect(text.startsWith('{"n":1')).toBe(true);
+  }, 60_000);
+
+  it("has nothing to keep when the job never started Claude, or its computer is gone or asleep", async () => {
+    const { api, adapter, context } = setup({ claude: "cat > /dev/null" });
+    const { taskId } = await adapter.submit("none", context.sourceRef!, "Prompt", context);
+    expect(await settle(adapter, taskId)).toBe("ready");
+    writeFileSync(join(api.computers.get(taskId)!.home, "task", "out.jsonl"), "");
+    expect(await adapter.trace(taskId)).toBeNull();
+    api.sleepState(taskId, "sleeping");
+    expect(await adapter.trace(taskId)).toBeNull();
+    api.computers.delete(taskId);
+    expect(await adapter.trace(taskId)).toBeNull();
+  });
+
+  it("uploads the trace to the state store before the computer is deleted, and serves it back", async () => {
+    const api = new FakeComputersApi(LEAKY);
+    const state = new FakeTraceState();
+    const env = { LATERDOG_COMPUTERS_URL: API, LATERDOG_COMPUTERS_KEY: COMPUTERS_KEY, CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN };
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-cloud-supervisor-")); roots.push(dir);
+    const store = new WorkspaceStore(":memory:"); cleanups.push(() => store.close());
+    store.saveRepository(repositorySchema.parse({ slug: "fixture/repo", environmentId: "none", environments: {} }));
+    const publisher = new GitHubPublisher(join(dir, "checkouts"));
+    vi.spyOn(publisher, "prepare").mockImplementation(async (job) => { api.inputBranch(job.id); return { baseSha: api.baseSha, sourceRef: `laterdog/input/${job.id}` }; });
+    const traces = jobTraceStoreFromEnv({}, dir);
+    const supervisor = new Supervisor(store, { dataDir: dir, profiles: [profile], concurrency: 2, publishingHost: "local", publisher, traceRetentionDays: 14, traceRetryMs: [0],
+      traces: { primary: new StateTraceStore("http://state.r2", { fetch: state.fetch }), local: traces.local },
+      adapter: (p) => new LaterdogCloudAdapter(p, { fetch: api.fetch, env, pollMs: 0 }) });
+    cleanups.push(() => supervisor.stop());
+    const job = supervisor.create({ requestKey: randomUUID(), repository: "fixture/repo", title: "Traced", brief: "Change src/a.ts", writeScopes: ["src"], profileId: "cloud" });
+    await supervisor.tick();
+    const deadline = Date.now() + 20_000;
+    while (store.job(job.id).state === "running" && Date.now() < deadline) { await new Promise((resolve) => setTimeout(resolve, 50)); await supervisor.tick(); }
+    const ready = store.job(job.id);
+    expect(ready.state).toBe("ready");
+    expect(api.computers.size).toBe(0);
+    expect(ready.trace).toMatchObject({ where: "r2", truncated: false });
+    expect(state.objects.get(`traces/${job.id}.jsonl.gz`)?.retainDays).toBe(14);
+    expect(Math.round((Date.parse(ready.trace!.expiresAt) - Date.now()) / 86_400_000)).toBe(14);
+    const served = await supervisor.trace(job.id);
+    expect(served.filename).toBe(`laterdog-job-${job.id}-trace.jsonl`);
+    expect(served.body.toString("utf8")).toContain('"text":"working"');
+    expect(served.body.toString("utf8")).not.toContain(CLAUDE_TOKEN);
+    expect(supervisor.summaries({ ids: [job.id] })[0].trace).toMatchObject({ truncated: false });
+    await supervisor.drain();
   });
 });

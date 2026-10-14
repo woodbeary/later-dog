@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
+import { JOB_COMPUTER_SIZES, jobAccount } from "../../shared/laterdog.ts";
 
 export const configSchema = z.object({
   profiles: z.array(z.object({ id: z.string().regex(/^[a-zA-Z0-9_-]+$/), label: z.string().min(1).max(100),
@@ -10,7 +11,9 @@ export const configSchema = z.object({
     codexHome: z.string().refine(isAbsolute, "codexHome must be absolute").optional(), cli: z.string().min(1).optional(),
     routineId: z.string().regex(/^trig_[A-Za-z0-9_-]+$/, "routineId must look like trig_…").optional(),
     routineTokenEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/, "routineTokenEnv must be an environment variable name").optional(),
-    computerSize: z.enum(["small", "standard", "large", "xlarge"]).optional() }).strict()
+    computerSize: z.enum(JOB_COMPUTER_SIZES).optional(),
+    claudeTokenEnv: z.string().regex(/^CLAUDE_CODE_OAUTH_TOKEN(_[A-Z0-9_]+)?$/, "claudeTokenEnv must be CLAUDE_CODE_OAUTH_TOKEN or CLAUDE_CODE_OAUTH_TOKEN_<NAME>").optional(),
+    account: jobAccount.optional() }).strict()
     .refine((p) => p.backend !== "claude-cloud" || p.routineTokenEnv, "A claude-cloud profile needs routineTokenEnv")).min(1)
     .default([{ id: "default", label: "My Codex subscription", backend: "codex-cloud" }]).refine((p) => new Set(p.map((x) => x.id)).size === p.length, "Profile IDs must be unique"),
   concurrency: z.number().int().min(1).max(100).default(4),
