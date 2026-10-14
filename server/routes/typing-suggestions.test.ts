@@ -37,7 +37,9 @@ async function serve(cfg: AppConfig, fetcher: typeof fetch) {
   await new Promise<void>((ready) => server.listen(0, "127.0.0.1", ready));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return async (path: string, body: unknown, method = "POST") => {
-    const response = await fetch(`${base}${path}`, { method, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const response = method === "GET"
+      ? await fetch(`${base}${path}`)
+      : await fetch(`${base}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     return { status: response.status, headers: response.headers, body: (await response.json()) as Record<string, unknown> };
   };
 }
