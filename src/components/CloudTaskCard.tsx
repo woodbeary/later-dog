@@ -4,8 +4,8 @@ import { Check, ChevronRight, CircleStop, Cloud, Hand, Info } from "lucide-react
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import {
-  cloudTaskStatus, cloudTaskStatusClass, cloudTaskTraceUrl, cloudTaskWorking, cloudWakeupOf, elapsedLabel, plainSteps, projectName, runsWithLabel, stopCloudTask,
-  useCloudTask, useCloudTaskActivity, wakeupLine, type CloudTaskStatusView,
+  cloudTaskStatus, cloudTaskStatusClass, cloudTaskWorking, cloudWakeupOf, elapsedLabel, plainSteps, projectName, runsWithLabel, stopCloudTask,
+  useCloudTask, useCloudTaskActivity, useTraceSave, wakeupLine, type CloudTaskStatusView,
 } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
 import { useStore, type Message } from "@/state/store";
@@ -92,6 +92,7 @@ function CloudTaskSteps({ jobId, title, summary, view, panelLink }: {
     : activity.reason ?? activity.error ?? (view.live ? t("cloudTask.noStepsYet") : t("cloudTask.noSteps"));
   const stoppable = Boolean(summary?.stoppable);
   const trace = summary?.trace;
+  const traceSave = useTraceSave(jobId);
 
   return (
     <div className="border-t border-hairline/30 px-3.5 pb-3 pt-2.5" data-cloud-task-steps>
@@ -120,7 +121,7 @@ function CloudTaskSteps({ jobId, title, summary, view, panelLink }: {
           </li>
         ))}
       </ol>
-      {(panelLink || stoppable || stopFailed || trace) && (
+      {(panelLink || stoppable || stopFailed || trace || traceSave.error) && (
         <div className="mt-2 flex min-h-7 items-center gap-1">
           {panelLink && (
             <button
@@ -144,16 +145,18 @@ function CloudTaskSteps({ jobId, title, summary, view, panelLink }: {
             </button>
           )}
           {trace && (
-            <a
-              href={cloudTaskTraceUrl(jobId)}
-              download
+            <button
+              type="button"
+              onClick={() => { void traceSave.save(); }}
+              disabled={traceSave.saving}
               aria-label={t("cloudTask.traceAria", { title })}
-              className="rounded-md px-2 py-1 text-[12.5px] font-medium text-ink-secondary hover:bg-raised hover:text-ink"
+              className="rounded-md px-2 py-1 text-[12.5px] font-medium text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-60"
             >
               {t("cloudTask.trace")}
-            </a>
+            </button>
           )}
           {stopFailed && <span role="alert" className="text-[12px] text-ink-secondary">{t("cloudTask.err.stop")}</span>}
+          {traceSave.error && <span role="alert" className="text-[12px] text-ink-secondary">{traceSave.error}</span>}
         </div>
       )}
     </div>

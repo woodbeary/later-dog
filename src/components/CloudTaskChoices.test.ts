@@ -44,11 +44,12 @@ describe("what a cloud job runs with, in plain words", () => {
     expect(modelLabel("claude-haiku-4-5")).toBe("Haiku 4.5");
     expect(modelLabel("claude-sonnet-5-5[1m]")).toBe("Sonnet 5.5");
     expect(modelLabel("opus")).toBe("Opus");
+    expect(modelLabel("claude-opus-4-1-20250805")).toBe("Opus 4.1");
   });
 
   it("joins the model and effort, and says nothing when neither was chosen", () => {
-    expect(runsWithLabel({ model: "claude-opus-5-5", effort: "high" } as CloudTaskSummary)).toBe("Opus 5.5 · high");
-    expect(runsWithLabel({ effort: "max" } as CloudTaskSummary)).toBe("max");
+    expect(runsWithLabel({ model: "claude-opus-5-5", effort: "high" } as CloudTaskSummary)).toBe("Opus 5.5 · High");
+    expect(runsWithLabel({ effort: "max" } as CloudTaskSummary)).toBe("Max");
     expect(runsWithLabel({} as CloudTaskSummary)).toBeNull();
     expect(runsWithLabel(undefined)).toBeNull();
     expect(traceKeptUntil({ trace: { bytes: 1, truncated: false, expiresAt: "2026-11-13T12:00:00.000Z" } } as CloudTaskSummary)).toMatch(/2026/);
@@ -60,12 +61,31 @@ describe("the job card", () => {
   it("shows the model and effort beside the project, and a link to save the trace", () => {
     const id = remember({ model: "claude-opus-5-5", effort: "high", account: "Work Claude", trace: { bytes: 2048, truncated: false, expiresAt: SOON } });
     card(id);
-    expect(host.querySelector("[data-cloud-task-runs-with]")?.textContent).toBe("Opus 5.5 · high");
+    expect(host.querySelector("[data-cloud-task-runs-with]")?.textContent).toBe("Opus 5.5 · High");
     expect(host.textContent).toContain("repo");
     act(() => { host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click(); });
-    const link = host.querySelector<HTMLAnchorElement>("a[download]")!;
-    expect(link.getAttribute("href")).toBe(`/api/laterdog/jobs/${id}/trace`);
-    expect(link.getAttribute("aria-label")).toBe("Save the full trace of Fix the login button");
+    expect(host.querySelector("a[download]")).toBeNull();
+    const save = host.querySelector<HTMLButtonElement>(`button[aria-label="Save the full trace of Fix the login button"]`)!;
+    expect(save).not.toBeNull();
+  });
+
+  it("saves the trace through an authenticated fetch and says so when the supervisor refuses", async () => {
+    const id = remember({ trace: { bytes: 2048, truncated: false, expiresAt: SOON } });
+    card(id);
+    act(() => { host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click(); });
+    const fetched = vi.fn(async () => new Response('{"type":"result"}\n', { status: 200 }));
+    const created = vi.fn(() => "blob:trace");
+    const revoked = vi.fn();
+    vi.stubGlobal("fetch", fetched);
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: created, revokeObjectURL: revoked }));
+    const save = host.querySelector<HTMLButtonElement>("button[aria-label^='Save the full trace']")!;
+    await act(async () => { save.click(); });
+    expect(fetched).toHaveBeenCalledWith(`/api/laterdog/jobs/${id}/trace`);
+    expect(created).toHaveBeenCalledTimes(1);
+    fetched.mockImplementation(async () => Response.json({ error: "This job's trace expired 2026-01-01." }, { status: 410 }));
+    await act(async () => { save.click(); });
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe("This job's trace expired 2026-01-01.");
+    vi.unstubAllGlobals();
   });
 
   it("shows no trace link and no choices when none were kept or made", () => {
@@ -73,7 +93,7 @@ describe("the job card", () => {
     card(id);
     expect(host.querySelector("[data-cloud-task-runs-with]")).toBeNull();
     act(() => { host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click(); });
-    expect(host.querySelector("a[download]")).toBeNull();
+    expect(host.querySelector("button[aria-label^='Save the full trace']")).toBeNull();
   });
 });
 
@@ -84,9 +104,10 @@ describe("the job panel", () => {
     const choices = host.querySelector('[data-testid="cloud-task-choices"]')!.textContent!;
     expect(choices).toContain("AccountWork Claude");
     expect(choices).toContain("ModelOpus 5.5");
-    expect(choices).toContain("Effortxhigh");
+    expect(choices).toContain("EffortxHigh");
     expect(choices).toContain("ComputerLarge");
-    expect(host.querySelector<HTMLAnchorElement>("a[download]")?.getAttribute("href")).toBe(`/api/laterdog/jobs/${id}/trace`);
+    expect(host.querySelector("a[download]")).toBeNull();
+    expect(host.querySelector("button[aria-label^='Save the full trace']")).not.toBeNull();
     expect(host.textContent).toMatch(/kept until/);
     expect(host.textContent).toMatch(/cut because the record was over 64 MB/);
   });
@@ -94,6 +115,6 @@ describe("the job panel", () => {
   it("leaves the choices out when the job runs with its defaults", () => {
     panel(remember({}));
     expect(host.querySelector('[data-testid="cloud-task-choices"]')).toBeNull();
-    expect(host.querySelector("a[download]")).toBeNull();
+    expect(host.querySelector("button[aria-label^='Save the full trace']")).toBeNull();
   });
 });

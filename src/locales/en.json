@@ -3474,6 +3474,7 @@
   "cloudTask.stopAria": "Stop {title}",
   "cloudTask.stopping": "Stopping…",
   "cloudTask.err.stop": "Couldn't stop. Try again.",
+  "cloudTask.err.trace": "The trace didn't save. Try again.",
   "cloudTask.steps": "Steps",
   "cloudTask.stepsAria": "Steps for {title}",
   "cloudTask.filesChanged": "{files} files changed",
