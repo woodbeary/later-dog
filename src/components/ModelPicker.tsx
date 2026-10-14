@@ -868,14 +868,19 @@ export function ModelPicker({
         <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{active.displayName}</span>
       )}
       {part !== "account" && <span className={cn("flex min-w-0 items-center gap-1", !contained && active && part !== "model" && "@max-4xl/chathead:hidden")}>
-        <span className="max-w-[160px] truncate">
+        <span className="flex min-w-0 max-w-[240px] items-baseline">
           {active && showActiveAccount && (
-            <span data-model-account className="text-ink-secondary">{active.displayName} · </span>
+            <>
+              <span data-model-account className="min-w-[2ch] max-w-[120px] shrink-[4] truncate text-ink-secondary">{active.displayName}</span>
+              <span aria-hidden="true" className="shrink-0 whitespace-pre text-ink-secondary"> · </span>
+            </>
           )}
-          {shownModel}
-          {active && modelProvider(active, selection.model) && (
-            <span className="text-ink-secondary"> · {modelProvider(active, selection.model)}</span>
-          )}
+          <span className="min-w-0 max-w-[160px] truncate">
+            {shownModel}
+            {active && modelProvider(active, selection.model) && (
+              <span className="text-ink-secondary"> · {modelProvider(active, selection.model)}</span>
+            )}
+          </span>
         </span>
         {part === "model" ? null : selectedVariantLabel !== undefined ? (
           <span data-model-variant className="max-w-[120px] truncate text-ink-secondary">· {selectedVariantLabel}</span>
