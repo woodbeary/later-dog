@@ -33,6 +33,7 @@ RUN userdel --remove node \
 COPY xfce-system/xfce4-keyboard-shortcuts.xml /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml
 COPY mimeapps.list /etc/xdg/mimeapps.list
 COPY chromium-flags /etc/chromium.d/laterdog
+COPY chromium-policy.json /etc/chromium/policies/managed/laterdog.json
 COPY start-desktop.sh /usr/local/bin/laterdog-desktop
 COPY laterdog-websockify /usr/local/bin/laterdog-websockify
 COPY --chown=dog:dog xfce/ /home/dog/.config/xfce4/xfconf/xfce-perchannel-xml/

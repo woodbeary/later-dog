@@ -255,24 +255,28 @@ The dogs' tools do not depend on any of it: `exec` runs `bash -lc` as `dog` and 
 ## What survives sleep and wake
 
 Sleep takes a snapshot of the disk, not of memory; wake starts the container from it, so the desktop starts fresh.
-Checked locally with `docker commit` of a running computer, which is the same kind of disk-only snapshot (nothing was
-closed first), then a new container from it:
+Before it syncs and snapshots, `DogComputer.sleep()` asks the dog's Chromium to quit (`SIGTERM`, then waits up to 6 s;
+`src/quit-browser.ts`), so Chromium writes its cookies and its session to disk. A Chromium that does not quit in time
+is logged and the computer sleeps anyway. `container/chromium-policy.json` (installed as a managed policy) sets
+`RestoreOnStartup` to "continue where you left off", so the Browser icon, or any `chromium` a dog starts, reopens the
+last session.
+
+Checked locally with `docker commit` of a running computer (a disk-only snapshot of live processes), then a new
+container from it, with no wait between setting the cookie and the snapshot:
 
 - Files in `/home/dog` and everywhere else on the disk survive.
-- Open windows do not: Chromium, the terminal and the file manager are all closed after a wake, and nothing reopens
-  them. The Browser icon opens Chromium with a new tab, not the old tabs.
-- Chromium's profile survives (`~/.config/chromium`: cookies, logins, history, preferences, and the session files).
-  Started with `chromium --restore-last-session`, the two tabs that were open came back, and a page saw both the
-  persistent cookie and the session cookie. Plain `chromium` does not restore them.
-- Chromium writes cookies to disk about every 30 seconds. A cookie set 8 seconds before the snapshot was not in the
-  profile after the wake; one set 40 seconds before was. So a login made in the last half minute before sleeping is
-  lost, because the snapshot does not ask Chromium to flush first.
+- Chromium's profile survives, and with the quit and the policy two tabs that were open came back on a click of the
+  dock's Browser icon, and a page saw both the persistent and the session cookie. Before the quit, a cookie set 8
+  seconds before the snapshot was lost (Chromium flushes about every 30 seconds).
+- Other windows do not survive: the terminal and the file manager are closed after a wake and nothing reopens them.
+  That would need an XFCE session manager saving its session, which this desktop deliberately does not have.
+- A restored tab shows what it showed (it is not reloaded until used), so a page may look older than its cookie.
+- A computer created from an older image has no policy: it restores only with `chromium --restore-last-session`.
 
-To make "remembers where you left off" true for the browser, two small changes would do it, and neither is in this
-change: a Chromium policy `RestoreOnStartup` = 1 in `/etc/chromium/policies/managed/` so the Browser icon (and any
-`chromium` a dog starts) restores the last session; and, in `DogComputer.sleep()`, a graceful `kill -TERM` of Chromium
-and a short wait before `sync` so its cookies and session are flushed. Reopening a terminal or the file manager at the
-same place would need an XFCE session manager saving its session, which this desktop deliberately does not have.
+The policy also keeps Chromium clean for someone who has never seen it: no "unsupported command-line flag"
+bar (`CommandLineFlagSecurityWarningsEnabled` false; `chromium-flags` still adds `--no-sandbox` where the engine refuses
+user namespaces, which Docker does and Cloudflare does not), no "Sign in to Chromium" prompt (`BrowserSignin` 0, sync
+off), no default-browser question, no promotional tabs, and no usage reporting.
 
 ## The idle policy (cost is the point)
 
@@ -456,7 +460,7 @@ ones with `wrangler containers images delete <image:tag>`.
   output capture, the idle policy and the free-trial rules. `test/exec-env.test.ts` covers exec's `env` (the rules,
   the merge, and that values stay out of the record, the logs and error bodies) and the `xlarge` size;
   `test/entrypoint.test.ts` covers the `ComputersApi` entrypoint and that the public route still needs the key.
-  `test/ready.test.ts` and `test/wake-readiness.test.ts` cover the screen answering, the desktop being drawn (and the two
+  `test/quit-browser.test.ts` covers Chromium quitting before the snapshot. `test/ready.test.ts` and `test/wake-readiness.test.ts` cover the screen answering, the desktop being drawn (and the two
   grace periods), screenshots waiting for it, and a desktop link while starting; `test/novnc.test.ts` checks the vendored
   noVNC against the import graph.
   `test/trial-flow.test.ts`, `test/trial-registry.test.ts` and those two also run the Worker's own request handling and Durable Object classes against in-memory stand-ins (`test/fakes.ts`:
@@ -466,8 +470,8 @@ ones with `wrangler containers images delete <image:tag>`.
 - `pnpm exec oxlint --deny-warnings deploy/laterdog/computers`, from the repository root.
 - `pnpm run dry-run`: `wrangler deploy --dry-run`. This builds the image too.
 - Local image smoke test (native arch): `docker build -t laterdog-computer:dev container && docker run --rm -p 6080:6080 laterdog-computer:dev`,
-  then open http://localhost:6080/vnc.html. Chromium shows a "--no-sandbox" bar there when the Docker engine refuses
-  user namespaces (`container/chromium-flags` adds the flag only then); Cloudflare allows them.
+  then open http://localhost:6080/vnc.html. Chromium runs with `--no-sandbox` there when the Docker engine refuses
+  user namespaces (`container/chromium-flags` adds the flag only then); the managed policy hides its warning bar.
 - `pnpm run smoke`: `scripts/smoke.mjs` against the deployed Worker, 34 checks. Auth; create and boot; exec as `dog` on
   `:0`; files; Chromium; screenshot; the viewer page and noVNC through the signed path; the raw WebSocket upgrade (HTTP
   101, then the `RFB 003.008` greeting as a binary frame, then a round trip to the VNC server); a forged link; exec

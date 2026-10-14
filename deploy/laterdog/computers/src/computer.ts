@@ -9,6 +9,7 @@ import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size, commandEnv, redact } 
 import { route } from "./routes";
 import { trialPolicy } from "./trial";
 import { trials } from "./trial-registry";
+import { QUIT_BROWSER_SCRIPT, QUIT_BROWSER_WAIT_MS } from "./quit-browser";
 import { DESKTOP_GRACE_MS, DESKTOP_SCRIPT, PAINT_GRACE_MS, READY_POLL_MS, type Upstream, answersRfb, desktopFromExit, holdUpstream } from "./ready";
 import { messagePage, newNonce, pageHeaders, viewerPage } from "./viewer";
 
@@ -216,6 +217,7 @@ export class DogComputer extends DurableObject<Env> {
       this.closeViewers(4001, "The computer went to sleep.");
       await this.publish();
       if (container.running) {
+        await this.quitBrowser(record.id);
         await this.run(["sync"], { timeoutMs: 30_000, cap: 1024 }).catch(() => undefined);
         const started = Date.now();
         let snapshot: ContainerSnapshot;
@@ -514,6 +516,15 @@ export class DogComputer extends DurableObject<Env> {
       if (!record || this.deleting || record.state !== "running" || record.desktopDrawn !== false) return;
       if (Date.now() - (record.readyAt ?? Date.now()) >= DESKTOP_GRACE_MS) return;
       await sleep(READY_POLL_MS);
+    }
+  }
+
+  private async quitBrowser(id: string): Promise<void> {
+    try {
+      const result = await this.run(["bash", "-c", QUIT_BROWSER_SCRIPT], { timeoutMs: QUIT_BROWSER_WAIT_MS + 4_000, cap: 1024, user: DOG });
+      if (result.exitCode !== 0) console.warn(`laterdog computers: ${id} browser did not quit before the snapshot (exit ${result.exitCode})`);
+    } catch (error) {
+      console.warn(`laterdog computers: ${id} browser did not quit before the snapshot: ${describeError(error)}`);
     }
   }
 
