@@ -85,7 +85,7 @@ const note = (audio: Uint8Array, type = "audio/wav") => new Blob([audio], { type
 const plainBase64 = (bytes: Uint8Array) => btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
 
 describe("included transcription", () => {
-  it("writes down a voice note with Nova-3 on Workers AI through the AI Gateway, logging no content", async () => {
+  it("writes down a voice note with Nova-3 on Workers AI, straight to the model since the AI Gateway takes no audio streams", async () => {
     const { w, run, key } = await included();
     const audio = wav(1.5);
     const response = await w.fetch(transcribe(key, { model_id: "scribe_v2", file: note(audio), language_code: "en" }));
@@ -94,8 +94,8 @@ describe("included transcription", () => {
     expect(run).toHaveBeenCalledWith(
       TRANSCRIBE_MODEL,
       { audio: { body: expect.any(ReadableStream), contentType: "audio/wav" }, smart_format: true, punctuate: true, language: "en" },
-      { gateway: { id: "default", collectLog: false } },
     );
+    expect(run.mock.calls[0]).toHaveLength(2);
   });
 
   it("leaves the language to the model when none is named, or Nova-3 doesn't know it", async () => {
