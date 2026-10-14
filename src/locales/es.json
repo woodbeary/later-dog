@@ -1508,5 +1508,7 @@
   "approval.status.allowedForChat": "Permitido para este chat",
   "approval.tool.messageDog": "escribir a otro perro",
   "approval.tool.delegateDog": "pasarle trabajo a otro perro",
-  "approval.tool.postRoom": "publicar en una sala"
+  "approval.tool.postRoom": "publicar en una sala",
+  "chat.threads.opened": "Se abrieron {count} conversaciones",
+  "chat.threads.openedOne": "Se abrió una conversación"
 }

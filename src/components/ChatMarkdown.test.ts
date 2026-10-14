@@ -41,6 +41,17 @@ vi.mock("shiki/engine/javascript", () => ({
 }));
 
 describe("mention highlighting", () => {
+  it("never renders a historical mention as another bot that reused its name", () => {
+    const html = renderToStaticMarkup(createElement(ChatMarkdown, {
+      text: "Ask @Pixel.", mentionPeers: [
+        { id: "a", name: "Scout", formerNames: ["Pixel"], color: "blue" },
+        { id: "b", name: "Pixel", color: "red" },
+      ],
+    }));
+    expect(html).toContain("Ask @Pixel.");
+    expect(html).not.toContain('class="mention-highlight"');
+    expect(html).not.toContain("data-mention-face");
+  });
   const mentionPeers = [{ name: "Atlas" }, { name: "調査担当" }];
   it("carries bot colors into Markdown without coloring everyone as a bot", () => {
     const html = renderToStaticMarkup(createElement(ChatMarkdown, {

@@ -2031,5 +2031,7 @@
   "approval.status.allowedForChat": "已在本次聊天中允許",
   "approval.tool.messageDog": "傳訊息給另一隻狗",
   "approval.tool.delegateDog": "把工作交給另一隻狗",
-  "approval.tool.postRoom": "在房間裡發文"
+  "approval.tool.postRoom": "在房間裡發文",
+  "chat.threads.opened": "已開啟 {count} 個對話串",
+  "chat.threads.openedOne": "已開啟對話串"
 }

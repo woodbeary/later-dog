@@ -55,6 +55,7 @@ Work stops at a gate before the next one starts.
 | L12 Factory and computer tools | | | waiting for a slot |
 | L13 Stability sweep | `laterdog/stability` | #53 (on the staging branch) | done: 34-row checklist in `docs/verification/stability-sweep.md`; 21 pass, 9 fixed with tests, 3 with the smallest fix written down, 1 different by design |
 | L14 Launch and hiring copy | | | waiting for a slot |
+| L15 Desktop follow-up | `laterdog/desktop-polish-oct14` | | source ready for integration: compact progress drawer, opened-thread batches, confirmed peer rename and current-name references; based on released 0.3.29; automated checks pass, needs visual verification (`docs/verification/desktop-polish.md`) |
 
 ## Notes for whoever picks this up
 

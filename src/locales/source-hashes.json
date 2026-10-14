@@ -1519,7 +1519,9 @@
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
       "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
       "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
-      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
+      "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
+      "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34"
     },
     "es": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -3031,7 +3033,9 @@
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
       "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
       "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
-      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
+      "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
+      "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34"
     },
     "fr": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -4543,7 +4547,9 @@
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
       "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
       "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
-      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
+      "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
+      "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34"
     },
     "hi": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -6055,7 +6061,9 @@
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
       "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
       "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
-      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
+      "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
+      "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34"
     },
     "ja": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -7569,7 +7577,9 @@
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
       "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
       "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
-      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
+      "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
+      "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34"
     },
     "pt-br": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -9094,7 +9104,9 @@
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
       "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
       "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
-      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
+      "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
+      "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34"
     },
     "zh": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -11129,7 +11141,9 @@
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
       "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
       "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
-      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
+      "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
+      "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34"
     },
     "zh-tw": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -13164,7 +13178,9 @@
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
       "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
       "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
-      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
+      "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
+      "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34"
     },
     "uk": {
       "noEngines.title": "91925671ff9403383e723a3afbbc39cb6015c35db9f0564ce4b43ec463ac22de",
@@ -14986,7 +15002,9 @@
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
       "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
       "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
-      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
+      "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
+      "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34"
     }
   }
 }

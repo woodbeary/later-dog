@@ -6,7 +6,7 @@ export function MentionText({ text, peers, everyone = false, faces = false }: {
   text: string; peers: readonly MentionPeer[]; everyone?: boolean; faces?: boolean;
 }) {
   let end = 0;
-  const parts = mentionRanges(text, peers, everyone).map((range) => {
+  const parts = mentionRanges(text, peers, everyone, faces).map((range) => {
     const prefix = text.slice(end, range.start);
     end = range.end;
     const style = range.color ? { "--mention-color": range.color } as CSSProperties : undefined;

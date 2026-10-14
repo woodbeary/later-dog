@@ -491,6 +491,7 @@ import { createOptionsCard } from "./options-card.ts";
 import { buildBotOverview, type BotOverview, connectedAppsFacts } from "./bot-overview.ts";
 import { submitProfileAvatar } from "./profile-avatar.ts";
 import { ProfileRequestService } from "./profile-requests.ts";
+import { profileTargetPolicy } from "./laterdog/profile-target-policy.ts";
 import { ModelRequestService } from "./model-requests.ts";
 import { TeamSetupError, TeamSetupRequestService } from "./team-setup-requests.ts";
 import type { TeamSetupRequest } from "../shared/team-setup.ts";
@@ -3236,7 +3237,7 @@ if (browserCleanupReferencesReconciled) browserCleanup.startPending();
 
 let activeCoordinationForThread = (_threadId: string): boolean => false;
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
-  const { snoozedUntil, ...base } = toWireTask(task, botModel);
+  const { snoozedUntil, ...base } = toWireTask(task, botModel, store.bots);
   const coordinated = { ...base, waitingForTeammates: activeCoordinationForThread(task.threadId) && !task.busy };
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
@@ -9790,9 +9791,8 @@ function resolveAndSendTrust(res: ServerResponse, threadId: string, requestId: s
 
 const profileRequests = new ProfileRequestService({
   store,
-  autoApply: appliesDirectly,
+  ...profileTargetPolicy(store, appliesDirectly),
   canPersist: proposalPersistence,
-  validateTarget: chiefPeerTargetRule("profile"),
 });
 const modelRequests = new ModelRequestService({
   store,
@@ -14636,7 +14636,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (body.avatarPrompt) {
           const target = store.bot(targetBotId);
           if (!target) return json(res, 404, { error: "That dog no longer exists" });
-          const refusal = targetBotId !== from.id ? profileRequests.validateTarget?.(from.id, targetBotId) : null;
+          const refusal = targetBotId !== from.id ? profileRequests.validateTarget?.(from.id, targetBotId, ["avatarUrl", "avatarCrop"]) : null;
           if (refusal) return json(res, 403, { error: refusal });
           const grant = appliesDirectly(from.id, body.fromThreadId, targetBotId);
           const changesCwd = Boolean(body.changes && typeof body.changes === "object" && Object.hasOwn(body.changes, "cwd"));

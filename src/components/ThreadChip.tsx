@@ -1,8 +1,9 @@
-import { ChevronRight, MessagesSquare } from "lucide-react";
+import { ChevronRight, MessagesSquare, TriangleAlert } from "lucide-react";
 import { openThread, useStore, type Message } from "@/state/store";
 import { t } from "@/lib/i18n";
+import { cn } from "@/lib/cn";
 import { BotAvatar } from "./Avatar";
-import { freshenDogName } from "@/lib/dog-refs";
+import { currentDogName, freshenDogName } from "@/lib/dog-refs";
 
 export function ThreadChip({ message }: { message: Message }) {
   const { state, dispatch } = useStore();
@@ -10,7 +11,13 @@ export function ThreadChip({ message }: { message: Message }) {
   const tool = message.tool;
   if (!ref || !tool) return null;
   const bot = state.bots.find((candidate) => candidate.id === ref.botId);
-  const reply = tool.ok && typeof tool.output === "string"
+  const title = bot?.tasks?.find(task => task.threadId === ref.threadId)?.title ?? ref.title;
+  const storedName = /^(?:Opened|Added to) thread #.* on (.+)$/s.exec(tool.name)?.[1];
+  const name = currentDogName(state.bots, ref.botId, storedName ?? t("triggers.deletedBot"));
+  const opened = tool.ok === true && tool.name.startsWith("Opened thread #");
+  const named = freshenDogName(tool.name, bot, storedName, { leading: true });
+  const caption = opened ? `#${title}` : named.replace(`thread #${ref.title}`, () => `thread #${title}`);
+  const reply = typeof tool.output === "string"
     ? tool.output.split("\n").map((line) => line.replace(/^[#>*\-\s]+/, "").trim()).find(Boolean) ?? ""
     : "";
   return (
@@ -19,13 +26,15 @@ export function ThreadChip({ message }: { message: Message }) {
         type="button"
         data-thread-chip={ref.threadId}
         onClick={() => openThread(dispatch, ref, state)}
-        title={t("chat.openThread", { title: ref.title })}
-        className="flex min-w-0 max-w-[min(560px,100%)] items-center gap-2 rounded-full bg-control/70 py-1 pl-1.5 pr-2.5 text-[13px] text-ink-secondary transition-colors hover:bg-raised hover:text-ink"
+        title={t("chat.openThreadOn", { title, name })}
+        aria-label={t("chat.openThreadOn", { title, name })}
+        className={cn("flex h-6 min-w-0 max-w-[min(560px,100%)] items-center gap-1.5 rounded-full bg-control/70 ps-1.5 pe-2 text-[12px] leading-4 text-ink-secondary transition-colors hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus", tool.ok === false && "text-danger")}
       >
-        {bot ? <BotAvatar bot={bot} state="happy" size={18} /> : <MessagesSquare size={13} aria-hidden="true" />}
-        <span className="shrink-0 font-medium text-ink">{freshenDogName(tool.name, bot, undefined, { leading: true })}</span>
+        {tool.ok === false ? <TriangleAlert size={13} aria-label={t("chat.row.stepFailed")} className="shrink-0" /> : bot ? <BotAvatar bot={bot} state="happy" size={16} animated={false} /> : <MessagesSquare size={13} aria-hidden="true" className="shrink-0" />}
+        <span className="min-w-0 truncate font-medium">{caption}</span>
+        {opened && <span className="min-w-0 truncate text-ink-tertiary">· {name}</span>}
         {reply && <span data-thread-chip-reply className="min-w-0 truncate text-ink-tertiary">{reply}</span>}
-        <ChevronRight size={13} className="shrink-0" />
+        <ChevronRight size={12} aria-hidden="true" className="shrink-0" />
       </button>
     </div>
   );

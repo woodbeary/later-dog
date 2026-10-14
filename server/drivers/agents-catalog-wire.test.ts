@@ -70,8 +70,7 @@ function profiles(): Record<string, Profile> {
 
 const PROFILES = profiles();
 const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
-const CHIEF_TARGET_TOOLS = ["propose_profile", "propose_model"];
-const CHIEF_PROFILE_TARGET = " A Chief of Staff may pass for_bot_id (from list_bots) for a requested change to another bot in its section.";
+const CHIEF_TARGET_TOOLS = ["propose_model"];
 const FULL = { direct: "direct+skills+shared+voice", room: "room+own-thread+skills+shared+voice", external: "external" } as const;
 
 const BUDGET_BASELINE: Record<string, number> = {
@@ -237,7 +236,7 @@ describe("agents proxy tools/list golden", () => {
     for (const wire of Object.values(wires)) expect(toolsOf(wire).map((tool) => tool.name)).not.toContain("vm_exec");
   });
 
-  it("shows only a Chief of Staff the Chief-only tools, and for_bot_id on another bot's profile or model", () => {
+  it("offers everyone reviewed teammate renames while keeping model targeting and team setup Chief-only", () => {
     type SchemaTool = Tool & { description: string; inputSchema: { properties: Record<string, unknown> } };
     const nonChief = Object.keys(PROFILES).filter((name) => PROFILES[name]!.env.LATERDOG_CHIEF_OF_STAFF === "0");
     expect(nonChief).toHaveLength(26);
@@ -252,11 +251,14 @@ describe("agents proxy tools/list golden", () => {
         if (CHIEF_TARGET_TOOLS.includes(chiefTool.name)) {
           const { for_bot_id: forBotId, ...properties } = chiefTool.inputSchema.properties;
           expect(forBotId, `${name}: ${chiefTool.name}`).toBeDefined();
-          expected = { ...chiefTool, description: chiefTool.description.replace(CHIEF_PROFILE_TARGET, ""), inputSchema: { ...chiefTool.inputSchema, properties } };
+          expected = { ...chiefTool, inputSchema: { ...chiefTool.inputSchema, properties } };
         }
         expect(JSON.stringify(tools.get(chiefTool.name)), `${name}: ${chiefTool.name}`).toBe(JSON.stringify(expected));
       }
-      expect(chiefTools.find((tool) => tool.name === "propose_profile")!.description).toContain(CHIEF_PROFILE_TARGET);
+      const profile = tools.get("propose_profile")!;
+      expect(profile.inputSchema.properties).toHaveProperty("for_bot_id");
+      expect(profile.description).toContain("only name and reason");
+      expect(profile.description).toContain("wait for confirmation in the app");
       expect(JSON.stringify(CHIEF_TARGET_TOOLS.map((tool) => tools.get(tool)))).not.toContain("for_bot_id");
       for (const routine of ["propose_routine", "propose_routine_action"]) {
         expect(tools.get(routine)!.inputSchema.properties, `${name}: ${routine}`).toHaveProperty("for_bot_id");

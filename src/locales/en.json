@@ -3493,5 +3493,7 @@
   "settings.typing.cloudflare.unreachable": "Could not reach Cloudflare. Check the account ID and your connection.",
   "settings.typing.cloudflare.failed": "Could not save. Try again.",
   "settings.typing.smarter.title": "Smarter suggestions",
-  "settings.typing.smarter.hint": "What you type and the last few messages go to Cloudflare to suggest the rest. Nothing is kept."
+  "settings.typing.smarter.hint": "What you type and the last few messages go to Cloudflare to suggest the rest. Nothing is kept.",
+  "chat.threads.opened": "Opened {count} threads",
+  "chat.threads.openedOne": "Opened a thread"
 }

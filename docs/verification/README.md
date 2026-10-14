@@ -51,6 +51,7 @@ Use only mapped, tested commands:
 - [Bot setup, model scope, and file continuity](bot-continuity.md)
 - [Reviewed Chief team setup and scoped deletion](team-setup.md)
 - [Profile proposal and credential-card lifecycle](proposal-cards.md)
+- [Desktop progress, thread receipts and teammate names](desktop-polish.md)
 - [Full Access without duplicate approvals](full-access.md)
 - [Exact command allowlist UI and saved rules](command-allowlist.md)
 - [Peer approval denial, expiry, and cancellation](peer-approvals.md)

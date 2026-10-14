@@ -1508,5 +1508,7 @@
   "approval.status.allowedForChat": "इस चैट के लिए अनुमति दी",
   "approval.tool.messageDog": "दूसरे कुत्ते को संदेश भेजना",
   "approval.tool.delegateDog": "दूसरे कुत्ते को काम सौंपना",
-  "approval.tool.postRoom": "किसी रूम में पोस्ट करना"
+  "approval.tool.postRoom": "किसी रूम में पोस्ट करना",
+  "chat.threads.opened": "{count} बातचीत खोलीं",
+  "chat.threads.openedOne": "एक बातचीत खोली"
 }

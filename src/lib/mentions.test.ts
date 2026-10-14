@@ -81,3 +81,36 @@ describe("mentions follow a renamed dog", () => {
     expect(mentionRanges("@Pixelated", peers)).toEqual([]);
   });
 });
+
+
+describe("historical mention identity", () => {
+  it("leaves a reused name plain instead of attributing an old message to its new owner", () => {
+    const peers = [
+      { id: "original", name: "Scout", formerNames: ["Pixel"] },
+      { id: "replacement", name: "Pixel" },
+    ];
+    expect(mentionRanges("Ask @Pixel", peers, false, true)).toEqual([]);
+    expect(mentionRanges("Ask @Pixel", peers)).toEqual([{ start: 4, end: 10, botId: "replacement" }]);
+    expect(mentionChoicesForQuery(peers, "Pixel")).toEqual([peers[1]]);
+  });
+
+  it("does not choose among duplicate current names or fall back to a shorter prefix", () => {
+    const peers = [
+      { id: "a", name: "New Bot" }, { id: "b", name: "new bot" }, { id: "c", name: "New" },
+    ];
+    expect(mentionRanges("@New Bot is here", peers, false, true)).toEqual([]);
+  });
+
+  it("does not claim an ambiguous alias when its other owner is hidden", () => {
+    const peers = [
+      { id: "a", name: "Scout", formerNames: ["Pixel"] },
+      { id: "b", name: "Pixel", hidden: true },
+    ];
+    expect(mentionRanges("@Pixel", peers, false, true)).toEqual([]);
+  });
+
+  it("still displays an unambiguous old name as the renamed bot", () => {
+    expect(mentionRanges("@Pixel", [{ id: "a", name: "Scout", formerNames: ["Pixel"] }], false, true))
+      .toEqual([{ start: 0, end: 6, botId: "a", display: "@Scout" }]);
+  });
+});

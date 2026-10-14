@@ -1818,5 +1818,7 @@
   "approval.status.allowedForChat": "Дозволено для цього чату",
   "approval.tool.messageDog": "написати іншій собаці",
   "approval.tool.delegateDog": "передати роботу іншій собаці",
-  "approval.tool.postRoom": "опублікувати в кімнаті"
+  "approval.tool.postRoom": "опублікувати в кімнаті",
+  "chat.threads.opened": "Відкрито розмов: {count}",
+  "chat.threads.openedOne": "Відкрито розмову"
 }
