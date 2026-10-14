@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { codexConfigMcpServerNames, mountedMcpServerName } from "./codex-mcp-names.ts";
 
-import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
+import { DATA_DIR, DEFAULT_MCP_CALL_TIMEOUT_MINUTES, stripWorkspaceCredentialEnv } from "../config.ts";
 import { hostedWorkspaceConfigured } from "../enterprise.ts";
 import { cloudHomeConfigured } from "../cloud-home.ts";
 import { serverVersion } from "../environment.ts";
@@ -738,6 +738,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const selectedApprovals = new Map<string, boolean>();
         const directoryMounts = new Set<string>();
         const literalEnvs = new Map<string, Record<string, string>>();
+        const toolTimeoutSec = Math.ceil((turn.mcpCallTimeoutMs ?? DEFAULT_MCP_CALL_TIMEOUT_MINUTES * 60_000) / 1000);
         const scopedServer = (name: string, mountName: string, server: McpServerSpec): McpServerSpec | null => {
           if (!canUseMcpServer(turn.toolScope, name)) return null;
           const directory = plan && "url" in server;
@@ -763,6 +764,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             selectedMcp.set(mountName, selected);
             selectedApprovals.set(mountName, preApproved);
             mountMcpServer(appServerArgs, env, mountName, selected, preApproved, literalEnvs.get(mountName), mountedNames);
+            appServerArgs.push("-c", `mcp_servers.${mountName}.tool_timeout_sec=${toolTimeoutSec}`);
             if (turn.toolScope !== undefined && !preApproved) appServerArgs.push("-c", `mcp_servers.${mountName}.default_tools_approval_mode="prompt"`);
           }
         };
@@ -804,6 +806,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             "-c", `${prefix}.args=${JSON.stringify(bridge.args)}`,
             "-c", `${prefix}.env_vars=${JSON.stringify(Object.keys(bridge.env))}`,
             "-c", `${prefix}.default_tools_approval_mode="auto"`,
+            "-c", `${prefix}.tool_timeout_sec=${toolTimeoutSec}`,
           );
           }
         }
@@ -821,6 +824,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const selectionConfig: { config?: Record<string, unknown> } = turn.toolScope === undefined ? {} : { config: { mcp_servers: Object.fromEntries(
           [...selectedMcp].map(([name, server]) => [name, "command" in server ? {
             command: server.command, args: server.args, env_vars: Object.keys(server.env), env: {}, default_tools_approval_mode: selectedApprovals.get(name) ? "auto" : "prompt",
+            tool_timeout_sec: toolTimeoutSec,
           } : {}]),
         ) } };
 

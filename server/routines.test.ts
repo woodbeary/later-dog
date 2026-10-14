@@ -2939,3 +2939,25 @@ describe("routine continuity", () => {
     })).toThrow(/continuity/i);
   });
 });
+
+describe("moving the home to the owner's time zone", () => {
+  it("re-times daily runs to the new zone and leaves one-off and cron runs alone", () => {
+    vi.stubEnv("TZ", "UTC");
+    const h = harness(Date.parse("2026-08-17T06:00:00Z"));
+    const base = { prompt: "Sweep the inbox", botId: "dog-1" };
+    const daily = h.manager.create({ ...base, name: "Morning sweep", schedule: { type: "daily", time: "08:30", weekdays: [1, 2, 3, 4, 5] } });
+    const once = h.manager.create({ ...base, name: "One-off", schedule: { type: "once", at: Date.parse("2026-08-18T10:00:00Z") } });
+    const cron = h.manager.create({ ...base, name: "Cron", schedule: { type: "cron", expression: "0 9 * * 1", timeZone: "UTC" } });
+    expect(daily.nextRunAt).toBe(Date.parse("2026-08-17T08:30:00Z"));
+
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    expect(h.manager.retime()).toBe(1);
+    const after = new Map(h.manager.listRoutines().map((routine) => [routine.id, routine.nextRunAt]));
+    expect(after.get(daily.id)).toBe(Date.parse("2026-08-17T15:30:00Z"));
+    expect(after.get(once.id)).toBe(once.nextRunAt);
+    expect(after.get(cron.id)).toBe(cron.nextRunAt);
+    expect(h.emitted.filter((event) => event.kind === "routine").at(-1)?.routine).toMatchObject({ id: daily.id, nextRunAt: Date.parse("2026-08-17T15:30:00Z") });
+    expect(h.manager.retime()).toBe(0);
+    expect(new RoutineManager(h.options).listRoutines().find((routine) => routine.id === daily.id)?.nextRunAt).toBe(Date.parse("2026-08-17T15:30:00Z"));
+  });
+});

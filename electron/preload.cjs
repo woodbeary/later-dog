@@ -264,9 +264,7 @@ const bridge = {
     },
     lending: {
       state: () => ipcRenderer.invoke("lending:state"),
-      chooseFolder: () => ipcRenderer.invoke("lending:folder"),
-      save: input => ipcRenderer.invoke("lending:save", input),
-      stop: () => ipcRenderer.invoke("lending:stop"),
+      setHome: on => ipcRenderer.invoke("lending:home", on === true),
     },
   } : undefined,
   cloudMove: process.argv.includes("--laterdog-company-desktop=1") ? {

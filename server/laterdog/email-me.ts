@@ -38,8 +38,8 @@ const TYPES: Record<string, string> = {
 const fromText = z.object({ filename: z.string().regex(FILENAME), text: z.string().max(EMAIL_ME_MAX_BYTES) }).strict();
 const fromBase64 = z.object({ filename: z.string().regex(FILENAME), base64: z.string().max(Math.ceil(EMAIL_ME_MAX_BYTES / 3) * 4 + 4) }).strict();
 const fromMac = z.object({
-  computer_id: z.string().uuid(),
-  folder_id: z.string().uuid(),
+  computer_id: z.string().uuid().optional(),
+  folder_id: z.string().uuid().optional(),
   path: z.string().min(1).max(2048),
   filename: z.string().regex(FILENAME).optional(),
 }).strict();
@@ -65,9 +65,9 @@ export interface OutgoingEmail {
 }
 
 export interface MacRead {
-  computer_id: string;
+  computer_id?: string;
   action: "read_file";
-  folder_id: string;
+  folder_id?: string;
   path: string;
   encoding: "base64";
   offset?: number;
@@ -103,7 +103,13 @@ function tooBig(bytes: number): EmailMeAnswer {
 }
 
 async function macFile(input: z.infer<typeof fromMac>, deps: EmailMeDeps, budget: number): Promise<Buffer | EmailMeAnswer> {
-  const base: MacRead = { computer_id: input.computer_id, action: "read_file", folder_id: input.folder_id, path: input.path, encoding: "base64" };
+  const base: MacRead = {
+    ...(input.computer_id ? { computer_id: input.computer_id } : {}),
+    action: "read_file",
+    ...(input.folder_id ? { folder_id: input.folder_id } : {}),
+    path: input.path,
+    encoding: "base64",
+  };
   const parts: Buffer[] = [];
   let offset = 0;
   let size = Number.POSITIVE_INFINITY;
@@ -121,7 +127,7 @@ async function macFile(input: z.infer<typeof fromMac>, deps: EmailMeDeps, budget
 export async function emailMe(raw: unknown, deps: EmailMeDeps): Promise<EmailMeAnswer> {
   const parsed = emailMeInput.safeParse(raw);
   if (!parsed.success) {
-    return { status: 400, body: { error: "email_me needs a subject, a body, and optional attachments: { filename, text }, { filename, base64 } or a shared Mac file { computer_id, folder_id, path }." } };
+    return { status: 400, body: { error: "email_me needs a subject, a body, and optional attachments: { filename, text }, { filename, base64 } or a file on their Mac { path }." } };
   }
   const input = parsed.data;
   const attachments: OutgoingAttachment[] = [];

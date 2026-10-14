@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { constants } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -10,6 +11,11 @@ const LIMIT = 256 * 1024;
 export const LENT_FILE_MAX = 25 * 1024 * 1024;
 const PROTECTED = "Desktop credentials and sharing settings cannot be accessed through a shared folder";
 const GIT_INTERNALS = "Files inside .git cannot be changed through a shared folder: git runs commands from its configuration and hooks";
+const OUTSIDE_HOME = "later.dog can only use files in this computer's home folder.";
+const MAC_BLOCKED = "macOS blocked later.dog from that file. On the Mac, open System Settings → Privacy & Security → Full Disk Access and turn on later.dog, or move the file to Downloads.";
+const PRIVATE_FOLDERS = ["Downloads", "Desktop", "Documents"];
+const ASK_WAIT_MS = 3000;
+const PROBE_MAX_MS = 5 * 60_000;
 
 const PERSONAL_SECRETS = [
   ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".netrc", ".git-credentials", ".npmrc", ".pypirc",
@@ -87,6 +93,74 @@ export async function sharedPath(folder, relative = "") {
     catch (error) { if (error.code !== "ENOENT") throw error; }
   }
   return target;
+}
+
+function listable(dir) {
+  return new Promise(resolve => {
+    const failed = (code, message) => resolve(Object.assign(new Error(message), { code }));
+    let child;
+    try {
+      child = spawn("/bin/ls", [dir], { stdio: ["ignore", "ignore", "pipe"], env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" } });
+    } catch (error) { failed("EPROBE", error.message); return; }
+    let said = "";
+    child.stderr.on("data", chunk => { if (said.length < 4096) said += chunk; });
+    const timer = setTimeout(() => child.kill("SIGKILL"), PROBE_MAX_MS);
+    timer.unref?.();
+    child.once("error", error => { clearTimeout(timer); failed("EPROBE", error.message); });
+    child.once("close", code => {
+      clearTimeout(timer);
+      if (code === 0) return resolve(null);
+      failed(/Operation not permitted/i.test(said) ? "EPERM" : /No such file/i.test(said) ? "ENOENT" : "EPROBE", said.trim() || `ls exited with ${code}`);
+    });
+  });
+}
+
+const probes = new Map();
+function privateFolderProbe(dir, probe) {
+  let outcome = probes.get(dir);
+  if (!outcome) {
+    outcome = Promise.resolve().then(() => probe(dir)).then(error => error ?? null, error => error ?? new Error("Probe failed"));
+    probes.set(dir, outcome);
+    void outcome.then(error => { if (error && probes.get(dir) === outcome) probes.delete(dir); });
+  }
+  return outcome;
+}
+
+const folderBlocked = name => new Error(`macOS blocked later.dog from ${name}. On the Mac, open System Settings → Privacy & Security → Files & Folders and turn on ${name} under later.dog.`);
+
+export async function macFolderAccess(home, name, { platform = process.platform, probe = listable } = {}) {
+  if (platform !== "darwin") return;
+  let timer;
+  const verdict = await Promise.race([
+    privateFolderProbe(path.join(home, name), probe).then(error => ({ error })),
+    new Promise(resolve => { timer = setTimeout(() => resolve({ pending: true }), ASK_WAIT_MS); timer.unref?.(); }),
+  ]).finally(() => clearTimeout(timer));
+  if (verdict.pending) throw new Error(`macOS is asking on the Mac whether later.dog can open ${name}. Tell the person to click Allow on their Mac, then try again.`);
+  if (verdict.error?.code === "EPERM") throw folderBlocked(name);
+}
+
+export async function primeHomeFolders(home, { platform = process.platform, probe = listable } = {}) {
+  if (platform !== "darwin") return;
+  for (const name of PRIVATE_FOLDERS) await privateFolderProbe(path.join(home, name), probe);
+}
+
+function privateFolderIn(relative) {
+  const first = typeof relative === "string" ? relative.split("/").find(part => part && part !== ".") : undefined;
+  return first ? PRIVATE_FOLDERS.find(name => name.toLowerCase() === first.toLowerCase()) : undefined;
+}
+
+export function homeRelative(folder, value) {
+  if (typeof value !== "string") return value;
+  const raw = value.trim();
+  if (raw === "~" || raw === "~/") return "";
+  if (raw.startsWith("~/")) return raw.slice(2);
+  if (!path.isAbsolute(raw)) return raw;
+  for (const base of new Set([folder.path, os.homedir()])) {
+    const relative = path.relative(base, raw);
+    if (relative === "") return "";
+    if (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) return relative.split(path.sep).join("/");
+  }
+  throw new Error(OUTSIDE_HOME);
 }
 
 function killTree(child) {
@@ -174,12 +248,16 @@ export function createSharedCua(connection) {
   };
 }
 
-export async function executeSharedOperation(grant, operation, signal, cua) {
+export async function executeSharedOperation(grant, operation, signal, cua, access = {}) {
   signal.throwIfAborted();
   if (grant.enabled !== true) throw new Error("Computer sharing is off");
   if (operation.action === "run_command") {
     if (grant.terminal !== true) throw new Error("Terminal access is not enabled for this server");
-    return sharedCommand(operation.command, grant.folders[0]?.path ?? process.env.HOME ?? process.env.USERPROFILE, signal);
+    const cwd = grant.folders[0]?.path ?? process.env.HOME ?? process.env.USERPROFILE;
+    if (grant.home === true && typeof operation.command === "string") {
+      for (const name of PRIVATE_FOLDERS) if (new RegExp(`\\b${name}\\b`, "i").test(operation.command)) await macFolderAccess(cwd, name, access);
+    }
+    return sharedCommand(operation.command, cwd, signal);
   }
   if (["computer_tools", "computer_call"].includes(operation.action)) {
     if (grant.computer !== true) throw new Error("Computer control is not enabled for this server");
@@ -188,7 +266,26 @@ export async function executeSharedOperation(grant, operation, signal, cua) {
   if (!["list_files", "read_file", "write_file"].includes(operation.action)) throw new Error("Unsupported shared-computer operation");
   const folder = grant.folders.find(entry => entry.id === operation.folder_id);
   if (!folder) throw new Error("This folder has not been shared with this server");
-  const target = await sharedPath(folder, operation.path);
+  try {
+    return await fileOperation(grant, folder, operation, signal, access);
+  } catch (error) {
+    if ((access.platform ?? process.platform) !== "darwin" || error?.code !== "EPERM") throw error;
+    let name;
+    try { name = grant.home === true ? privateFolderIn(homeRelative(folder, operation.path)) : undefined; } catch {}
+    if (!name) throw new Error(MAC_BLOCKED);
+    probes.delete(path.join(folder.path, name));
+    throw folderBlocked(name);
+  }
+}
+
+async function fileOperation(grant, folder, operation, signal, access) {
+  const relative = grant.home === true ? homeRelative(folder, operation.path) : operation.path;
+  if (grant.home === true) {
+    const name = privateFolderIn(relative);
+    if (name) await macFolderAccess(folder.path, name, access);
+    signal.throwIfAborted();
+  }
+  const target = await sharedPath(folder, relative);
   const protectedRoots = await protectedIdentities(grant.protectedPaths);
   await assertOutsideProtected(protectedRoots, target);
   signal.throwIfAborted();
@@ -209,7 +306,7 @@ export async function executeSharedOperation(grant, operation, signal, cua) {
     throw new Error("Read a part with a whole-number offset and a length of at most 256 KiB");
   }
   if (write && folder.write !== true) throw new Error("This folder is read-only");
-  if (write && insideGitInternals(folder.path, operation.path ?? "")) throw new Error(GIT_INTERNALS);
+  if (write && insideGitInternals(folder.path, relative ?? "")) throw new Error(GIT_INTERNALS);
   let data;
   if (write) {
     if (typeof operation.content !== "string") throw new Error("Give file content to write");
@@ -224,7 +321,7 @@ export async function executeSharedOperation(grant, operation, signal, cua) {
     if (stat.size > BigInt(ranged ? LENT_FILE_MAX : LIMIT)) {
       throw new Error(ranged ? "Files over 25 MiB can't be shared" : "Files over 256 KiB are read in parts: give offset and length (up to 256 KiB each)");
     }
-    await sharedPath(folder, operation.path);
+    await sharedPath(folder, relative);
     const named = await fs.lstat(target, { bigint: true });
     if (named.ino !== stat.ino || named.dev !== stat.dev || named.isSymbolicLink()) throw new Error("The file changed while opening it; retry after inspecting the folder");
     if (protectedRoots.has(`${stat.dev}:${stat.ino}`)) throw new Error(PROTECTED);

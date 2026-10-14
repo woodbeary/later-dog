@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -146,12 +146,14 @@ it("a dog asked to use the Mac before one is lent explains how to connect it", a
   });
   const listing = JSON.parse((await tools.call("list_shared_computers")).content[0].text);
   expect(listing.computers).toEqual([]);
-  expect(listing.connectMac).toContain("install later.dog on it from https://later.dog");
+  expect(listing.connectMac).toContain("installs later.dog on it from https://later.dog and signs in with the same email");
   expect(listing.connectMac).toContain("Let My Cloud use this Mac");
 }, 60_000);
 
-it("a dog on the home finds the newest PDF in the lent Downloads folder and emails it to its owner", async () => {
-  const downloads = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-lent-downloads-")));
+it("a dog on the home finds the newest PDF in the Mac's Downloads, asks once, and emails it to its owner", async () => {
+  const macHome = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-mac-home-")));
+  const downloads = join(macHome, "Downloads");
+  mkdirSync(downloads);
   const invoice = Buffer.alloc(700_000);
   for (let index = 0; index < invoice.length; index += 1) invoice[index] = (index * 31 + 7) % 251;
   invoice.write("%PDF-1.7\n", 0);
@@ -162,11 +164,10 @@ it("a dog on the home finds the newest PDF in the lent Downloads folder and emai
     file: join(home, "desktop-profile", "computer-sharing.json"), environments: () => [env], cuaConnection: async () => null,
     enabled: async () => false,
     cloud: () => ({ status: "connected", accountId: "acct_fixture", origin: base }),
-    home: join(home, "mac-home"),
+    home: macHome, computerName: () => "Jo's MacBook Air",
     fetch: (url: string, init: RequestInit) => fetch(url, { ...init, headers: { ...init.headers as Record<string, string>, authorization: `Bearer ${owner}`, host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https", origin: `https://${HOST}` } }),
   });
-  const folder = { id: randomUUID(), name: "Downloads", path: downloads, write: false };
-  await connector.saveCloud(env, { folders: [folder], screen: false });
+  connector.start({ maintainer: false });
   await expect.poll(() => connector!.cloudState(env).connected, { timeout: 8000 }).toBe(true);
 
   const bot = (await api("POST", "/api/bots", { token: owner, body: { name: "Biscuit", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } } })).body.bot;
@@ -176,20 +177,36 @@ it("a dog on the home finds the newest PDF in the lent Downloads folder and emai
   expect(await tools.names()).toEqual(expect.arrayContaining(["list_shared_computers", "shared_computer", "email_me"]));
 
   const lent = JSON.parse((await tools.call("list_shared_computers")).content[0].text);
-  const computers = lent.computers;
-  expect(computers).toHaveLength(1);
+  expect(lent.computers).toHaveLength(1);
+  expect(lent.computers[0]).toMatchObject({ name: "Jo's MacBook Air", folders: [{ name: "Home", write: true }] });
   expect(lent.connectMac).toBeUndefined();
-  const listing = await tools.call("shared_computer", { computer_id: computers[0].id, folder_id: folder.id, action: "list_files", path: "." });
+  expect(JSON.stringify(lent)).not.toContain(macHome);
+
+  const looking = tools.call("shared_computer", { action: "list_files", path: "~/Downloads" });
+  let card: any;
+  await expect.poll(async () => {
+    const { body } = await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner });
+    card = (body.messages ?? []).find((message: any) => message.card?.tool === "mac_list_files" && !message.card.answered)?.card;
+    return Boolean(card);
+  }, { timeout: 10_000 }).toBe(true);
+  expect(card).toMatchObject({ title: "Jo's MacBook Air", subtitle: "~/Downloads", options: ["Allow", "Deny", "Always allow"], approvalScope: "local-computer" });
+  expect(delivered).toHaveLength(0);
+  const allowed = await api("POST", `/api/threads/${bot.threadId}/respond`, { token: owner, body: { requestId: card.requestId, behavior: "allow" } });
+  expect(allowed.status, JSON.stringify(allowed.body)).toBe(200);
+  const listing = await looking;
   expect(listing.isError, JSON.stringify(listing)).toBeFalsy();
   expect(listing.content[0].text).toContain("invoice-october.pdf");
 
   const sent = await tools.call("email_me", {
     subject: "Your October invoice",
     body: "Here's the newest PDF from your Downloads.",
-    attachments: [{ computer_id: computers[0].id, folder_id: folder.id, path: "invoice-october.pdf" }],
+    attachments: [{ path: "~/Downloads/invoice-october.pdf" }],
   });
   expect(sent.isError, JSON.stringify(sent)).toBeFalsy();
   expect(sent.content[0].text).toBe("Emailed the person with invoice-october.pdf. It goes to the email they use for later.dog.");
+  const cards = (await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner })).body.messages.filter((message: any) => message.card?.approvalScope === "local-computer");
+  expect(cards).toHaveLength(1);
+  expect(cards[0].card.answered).toBe("allow");
 
   expect(delivered).toHaveLength(1);
   expect(delivered[0].authorization).toBe(`Bearer ${EMAIL_TOKEN}`);
@@ -200,6 +217,7 @@ it("a dog on the home finds the newest PDF in the lent Downloads folder and emai
   expect(delivered[0].body.attachments[0]).toMatchObject({ filename: "invoice-october.pdf", type: "application/pdf" });
   expect(Buffer.compare(Buffer.from(delivered[0].body.attachments[0].content, "base64"), invoice)).toBe(0);
   expect(connector.activity(env.id).filter((entry) => entry.action === "read_file").every((entry) => entry.ok)).toBe(true);
+  rmSync(macHome, { recursive: true, force: true });
 }, 60_000);
 
 it("emails nobody but the owner, whatever address the dog asks for", async () => {

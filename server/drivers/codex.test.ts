@@ -306,6 +306,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
       const config = seen.calls.find((call: { method: string }) => call.method === (resumeCursor ? "thread/resume" : "thread/start")).params.config.mcp_servers;
       expect(config.agents.default_tools_approval_mode).toBe("auto");
       expect(config.notes.default_tools_approval_mode).toBe("prompt");
+      expect(config.agents.tool_timeout_sec).toBe(600);
       for (const [name, tool] of [["agents", "list_bots"], ["notes", "read_notes"]]) {
         const spec = config[name!];
         const gate = spawn(spec.command, spec.args, { env: { ...seen.env, ...spec.env, ...Object.fromEntries(spec.env_vars.map((key: string) => [key, seen.env[key]])) }, stdio: ["pipe", "pipe", "pipe"] });
@@ -1425,6 +1426,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv.join(" ")).toContain("mcp_servers.agents.command");
     expect(seen.argv).toContain('mcp_servers.agents.default_tools_approval_mode="auto"');
+    expect(seen.argv).toContain("mcp_servers.agents.tool_timeout_sec=600");
     expect(seen.argv.join(" ")).toContain("/tmp/agents-proxy.js");
     expect(seen.argv.join(" ")).toContain("LATERDOG_COMMS_TOKEN");
     expect(seen.argv.join(" ")).not.toContain("peer-comms-secret");

@@ -97,6 +97,11 @@ export function toolLabel(tool?: string, where?: "local-computer"): string {
     other: "approval.tool.takeAction",
     tool: "approval.tool.useTool",
     select_computer: "approval.tool.chooseComputer",
+    mac_list_files: "approval.tool.macListFiles",
+    mac_read_file: "approval.tool.macReadFile",
+    mac_write_file: "approval.tool.macWriteFile",
+    mac_run_command: "approval.tool.macRunCommand",
+    mac_computer_call: "approval.tool.macUseApps",
   };
   const key = nice[tool] ?? nice[tool.replace(/^mcp__[^_]+__/, "").replace(/^agents_/, "")];
   if (key) return t(key);

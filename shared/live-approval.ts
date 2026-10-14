@@ -37,6 +37,11 @@ const TOOL_PHRASES: Record<string, string> = {
   think: "think",
   other: "take an action",
   tool: "use a tool",
+  mac_list_files: "look in a folder on your Mac",
+  mac_read_file: "open a file on your Mac",
+  mac_write_file: "save a file on your Mac",
+  mac_run_command: "run a command on your Mac",
+  mac_computer_call: "use apps on your Mac",
 };
 
 export function toolPhrase(tool?: string): string {

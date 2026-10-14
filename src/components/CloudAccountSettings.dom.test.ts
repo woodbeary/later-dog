@@ -33,9 +33,9 @@ function makeBridge(initial: CloudAccountState): CloudAccountBridge {
   };
 }
 
-async function show(laterdog: Record<string, unknown>) {
+async function show(laterdog: Record<string, unknown>, onOpenComputer?: () => void) {
   (window as unknown as { laterdog?: unknown }).laterdog = laterdog;
-  await act(async () => { root.render(createElement(CloudAccountSettings, { onGetPhone })); });
+  await act(async () => { root.render(createElement(CloudAccountSettings, { onGetPhone, onOpenComputer })); });
   await act(async () => { await Promise.resolve(); });
 }
 
@@ -188,23 +188,42 @@ describe("Settings, later.dog Cloud on this Mac", () => {
     expect(host.querySelector("[data-cloud-home]")).toBeNull();
   });
 
-  it("lends this Mac from the same card once signed in", async () => {
-    const snapshot: CloudLendingSnapshot = { available: true, screenAvailable: true, state: { enabled: false, folders: [], screen: false, busy: false } };
+  it("connects this Mac by itself once signed in, with one switch to turn it off", async () => {
+    let snapshot: CloudLendingSnapshot = { available: true, screenAvailable: false, state: { on: true, name: "Jo's MacBook Air", enabled: true, busy: false, connected: true }, activity: [] };
     const lending: CloudLendingBridge = {
       state: vi.fn(async () => snapshot),
-      chooseFolder: vi.fn(async () => ({ id: "f1", name: "Downloads", path: "/Users/jo/Downloads", write: false })),
-      save: vi.fn(async (input) => ({ ...snapshot, state: { enabled: true, folders: input.folders, screen: input.screen, busy: false, connected: true } })),
-      stop: vi.fn(async () => snapshot),
+      setHome: vi.fn(async (on) => {
+        snapshot = { ...snapshot, state: { on, name: "Jo's MacBook Air", enabled: on, busy: false, connected: on } };
+        return snapshot;
+      }),
+    };
+    const onOpenComputer = vi.fn();
+    bridge = { ...makeBridge(ready), lending };
+    await show({ cloudAccount: bridge }, onOpenComputer);
+    expect(text()).toContain("Let My Cloud use this Mac");
+    expect(text()).toContain("On. My Cloud can use Jo's MacBook Air when you ask.");
+    expect(host.querySelector("[role=switch]")?.getAttribute("aria-checked")).toBe("true");
+    expect(host.querySelector("[data-lent-folder]")).toBeNull();
+    expect(text()).toContain("To use apps on this Mac too, allow later.dog in Computer settings.");
+    await click("Open");
+    expect(onOpenComputer).toHaveBeenCalledOnce();
+    await act(async () => { host.querySelector<HTMLButtonElement>("[role=switch]")!.click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(lending.setHome).toHaveBeenCalledWith(false);
+    expect(host.querySelector("[role=switch]")?.getAttribute("aria-checked")).toBe("false");
+    expect(text()).toContain("Off. My Cloud can't use this Mac.");
+    expect(host.querySelector("[data-lending-apps-off]")).toBeNull();
+  });
+
+  it("says when My Cloud is using this Mac", async () => {
+    const lending: CloudLendingBridge = {
+      state: vi.fn(async () => ({ available: true, screenAvailable: true, state: { on: true, enabled: true, busy: true, connected: true }, activity: [] })),
+      setHome: vi.fn(),
     };
     bridge = { ...makeBridge(ready), lending };
     await show({ cloudAccount: bridge });
-    expect(text()).toContain("Let My Cloud use this Mac");
-    await act(async () => { host.querySelector<HTMLButtonElement>("[role=switch]")!.click(); });
-    expect(text()).toContain("Pick a folder, or apps and screen.");
-    await click("Add folder");
-    expect(lending.save).toHaveBeenCalledWith({ folders: [{ id: "f1", name: "Downloads", path: "/Users/jo/Downloads", write: false }], screen: false });
-    expect(host.querySelector("[data-lent-folder]")?.getAttribute("data-lent-folder")).toBe("Downloads");
-    expect(text()).toContain("On. My Cloud can use this Mac while it's awake.");
+    expect(text()).toContain("My Cloud is using this Mac now.");
+    expect(host.querySelector("[data-lending-apps-off]")).toBeNull();
   });
 
   it("opens the iPhone app panel", async () => {
@@ -225,7 +244,7 @@ describe("Settings, later.dog Cloud while the window shows My Cloud", () => {
     expect(text()).toContain("You're on My Cloud");
     await click("Switch to this Mac");
     expect(cloudPlan.useThisComputer).toHaveBeenCalledOnce();
-    await click("Choose");
+    await click("Manage");
     expect(cloudLending.open).toHaveBeenCalledOnce();
   });
 
