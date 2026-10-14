@@ -5,6 +5,7 @@ import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
 import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
 import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom } from "./decide";
+import { COMPLETE_DEFAULT_MODEL, COMPLETE_MAX_BODY_BYTES, COMPLETIONS_PER_DAY, COMPLETIONS_TOTAL_PER_DAY, completeInput, completeRequest, completionFrom } from "./complete";
 import { maxComputers } from "./idle";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
 import type { ComputerRegistry } from "./registry";
@@ -49,6 +50,7 @@ declare global {
     XAI_API_KEY?: string;
     TRIAL_AI_MODEL?: string;
     TRIAL_AI_WORKERS_MODEL?: string;
+    TYPING_AI_MODEL?: string;
   }
 }
 
@@ -529,6 +531,30 @@ async function decideRequest(request: Request, env: Env): Promise<Response> {
   }
 }
 
+async function completeHandler(request: Request, env: Env): Promise<Response> {
+  if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
+  const token = includedKey(request);
+  if (!token) return apiError(NO_TRIAL, CHALLENGE);
+  const keySha256 = await sha256Hex(token);
+  if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
+  const body = await readBody(request, COMPLETE_MAX_BODY_BYTES);
+  if (!body.ok) return body.response;
+  const parsed = completeRequest(body.value);
+  if (!parsed.ok) return apiError(parsed.refusal);
+  if (!env.AI) return apiError(NOT_INCLUDED);
+  const allowance = await trials(env).allowUsage({ keySha256, kind: "completions", amount: 1, perKey: COMPLETIONS_PER_DAY, total: COMPLETIONS_TOTAL_PER_DAY });
+  if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
+  try {
+    const model = env.TYPING_AI_MODEL?.trim() || COMPLETE_DEFAULT_MODEL;
+    const raw = await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(model, completeInput(parsed.request), aiGateway(env));
+    const completion = completionFrom(parsed.request.prefix, raw);
+    return completion === null ? apiError(INCLUDED_FAILED) : json({ completion, model });
+  } catch (error) {
+    console.error(`laterdog computers: completion failed: ${error instanceof Error ? error.message : String(error)}`);
+    return apiError(INCLUDED_FAILED);
+  }
+}
+
 async function voicesRequest(request: Request, env: Env): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   if (!includedKey(request)) return apiError(NO_TRIAL, CHALLENGE);
@@ -702,6 +728,8 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return await planDonePage(env, url);
       case "chat":
         return await chatRequestHandler(request, env, (work) => (ctx ? ctx.waitUntil(work) : void work));
+      case "complete":
+        return await completeHandler(request, env);
       case "speak":
         return await speakRequest(request, env, url, target.voiceId);
       case "transcribe":

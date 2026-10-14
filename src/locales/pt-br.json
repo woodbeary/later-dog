@@ -1506,5 +1506,20 @@
   "credentialStore.retry": "Tentar desbloquear novamente",
   "credentialStore.retryFailed": "Ainda não foi possível ler os dados de acesso salvos. Tente novamente ou feche e reabra o {app}.",
   "credentialStore.saveFailed": "Não foi possível salvar a chave com segurança. Ela ainda está neste campo. Tente salvá-la novamente.",
-  "credentialStore.unavailable": "Não foi possível ler os dados de acesso salvos. Tente desbloqueá-los novamente ou feche e reabra o {app}. Permita o acesso às Chaves, se solicitado."
+  "credentialStore.unavailable": "Não foi possível ler os dados de acesso salvos. Tente desbloqueá-los novamente ou feche e reabra o {app}. Permita o acesso às Chaves, se solicitado.",
+  "chat.exchange.messaged": "Mensagem para",
+  "chat.exchange.messageFrom": "Mensagem de",
+  "chat.exchange.messagesWith": "{count} mensagens com",
+  "chat.exchange.open": "Leia o que {first} e {second} disseram um ao outro",
+  "chat.exchange.close": "Fechar conversa",
+  "chat.exchange.readOnly": "Os cães escreveram isto entre si. Você pode ler, mas não responder aqui.",
+  "chat.exchange.empty": "Ainda não foi dito nada entre eles.",
+  "chat.routine.created": "Rotina criada",
+  "chat.routine.open": "Abrir a rotina {name}",
+  "approval.status.allowedOnce": "Permitido uma vez",
+  "approval.status.alwaysAllowed": "Sempre permitido",
+  "approval.status.allowedForChat": "Permitido para esta conversa",
+  "approval.tool.messageDog": "enviar mensagem a outro cão",
+  "approval.tool.delegateDog": "passar trabalho a outro cão",
+  "approval.tool.postRoom": "publicar em uma sala"
 }

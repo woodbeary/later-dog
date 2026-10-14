@@ -9,6 +9,7 @@ export function FoldedCard({
   label,
   arriving,
   takeFocus = false,
+  centered = false,
   children,
 }: {
   icon: ReactNode;
@@ -17,6 +18,7 @@ export function FoldedCard({
   label?: string;
   arriving: boolean;
   takeFocus?: boolean;
+  centered?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -28,7 +30,10 @@ export function FoldedCard({
     line.current?.focus({ preventScroll: true });
   }, [takeFocus]);
   return (
-    <div data-folded-card className={cn("w-full max-w-[420px]", arriving && "motion-safe:animate-msg-in")}>
+    <div
+      data-folded-card
+      className={cn(centered ? "flex w-full flex-col items-center" : "w-full max-w-[420px]", arriving && "motion-safe:animate-msg-in")}
+    >
       <button
         ref={line}
         type="button"
@@ -52,7 +57,7 @@ export function FoldedCard({
         />
       </button>
       {open && (
-        <div id={bodyId} className="mt-1.5 motion-safe:animate-msg-in">
+        <div id={bodyId} className={cn("mt-1.5 motion-safe:animate-msg-in", centered && "w-full max-w-[420px]")}>
           {children}
         </div>
       )}

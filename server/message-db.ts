@@ -7,6 +7,7 @@ import { peerProvenanceAuthor } from "./peer-provenance.ts";
 import type { ResolvedSender, SteerQueueReason } from "../shared/wire.ts";
 import type { Message } from "./store.ts";
 import type { UsageTrigger } from "./usage-ledger.ts";
+import { rollbackQuietly } from "./laterdog/safe-rollback.ts";
 import { MessageSearchWorker } from "./message-search-worker.ts";
 import { searchMessagesInDatabase, type SearchHit } from "./message-search-query.ts";
 export type { SearchHit } from "./message-search-query.ts";
@@ -157,8 +158,8 @@ function transaction<T>(fn: (database: DatabaseSync) => T): T {
       database.exec(`RELEASE ${savepoint}`);
       return result;
     } catch (error) {
-      database.exec(`ROLLBACK TO ${savepoint}`);
-      database.exec(`RELEASE ${savepoint}`);
+      rollbackQuietly(database, `ROLLBACK TO ${savepoint}`);
+      rollbackQuietly(database, `RELEASE ${savepoint}`);
       throw error;
     } finally { transactionDepth -= 1; }
   }
@@ -169,7 +170,7 @@ function transaction<T>(fn: (database: DatabaseSync) => T): T {
     database.exec("COMMIT");
     return result;
   } catch (error) {
-    database.exec("ROLLBACK");
+    rollbackQuietly(database);
     throw error;
   } finally {
     transactionDepth = 0;
@@ -212,7 +213,7 @@ function writeFollowups(write: (connection: DatabaseSync) => void): void {
   try {
     connection.exec("BEGIN IMMEDIATE");
     try { write(connection); connection.exec("COMMIT"); }
-    catch (error) { connection.exec("ROLLBACK"); throw error; }
+    catch (error) { rollbackQuietly(connection); throw error; }
   } finally { connection.exec("PRAGMA synchronous = NORMAL"); }
 }
 
@@ -349,7 +350,7 @@ function importLegacy(threadId: string, legacyFile: string): ThreadRows {
     setActiveLeaf(threadId, activeLeafId);
     db().exec("COMMIT");
   } catch (error) {
-    db().exec("ROLLBACK");
+    rollbackQuietly(db());
     throw error;
   }
   try {
@@ -396,6 +397,19 @@ export function workingGoalRunMessages(): Array<{ threadId: string; message: Mes
     .prepare(
       "SELECT thread_id, json FROM messages " +
       "WHERE kind = 'goal.run' AND json_extract(json, '$.goalRun.status') = 'working'",
+    )
+    .all() as Array<{ thread_id: string; json: string }>;
+  return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
+}
+
+export function openPermissionCards(): Array<{ threadId: string; message: Message }> {
+  const rows = db()
+    .prepare(
+      "SELECT thread_id, json FROM messages " +
+      "WHERE kind = 'options' AND json_extract(json, '$.card.requestType') = 'permission' " +
+      "AND json_extract(json, '$.card.answered') IS NULL " +
+      "AND COALESCE(json_extract(json, '$.card.dismissed'), 0) = 0 " +
+      "AND COALESCE(json_extract(json, '$.card.expired'), 0) = 0",
     )
     .all() as Array<{ thread_id: string; json: string }>;
   return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));

@@ -29,11 +29,11 @@ Work stops at a gate before the next one starts.
 | G0 Consolidated | | Every in-flight change committed and pushed; integration branch `laterdog/checkpoint`; this tracker; no-comments check in the phone repo | done |
 | G1 Phone on production | P0 | Accounts, homes and included AI deployed; the review sign-in reaches a home and a dog replies; the person signs in on their iPhone | done 2026-10-14 00:52 PT for the review account: fresh home ready in 11 s, real AI answer in 8 s. Fixes deployed since: the review address may ask for a code 20 times in 15 minutes (`7141d56fc`); a phone that kept the last sign-in's cookie can sign in again (`8ef743ca1`, accounts `aeeef844`). Waiting on the person: the full reviewer-path check (`/Volumes/laterdog-phone/tmp/reviewer-path-check.mjs`) and their own sign-in on the phone |
 | G2 TestFlight in review | P0 | Build 5 checked on the person's phone, then submitted to Beta App Review | submitted 2026-10-14 00:46 PT, waiting for review. Lesson: it was submitted before a real-device run; never again. Phone `main` has `2341bf6` (in the app while the home starts) and `9d47bec` (no account cookies) for an over-the-air update after approval |
-| G3 Desktop 0.3.28 | P1 | Keys save; honest handoffs with Continue; Keep going across engines; question cards work; roster across folders; PR #36 checked on screen; sealed install and update pass | release commit `b13c4ba19` on `laterdog/checkpoint`, CI running. The local-tools token moved to 0.3.29 (PR #47) after a security review |
+| G3 Desktop 0.3.28 | P1 | Keys save; honest handoffs with Continue; Keep going across engines; question cards work; roster across folders; PR #36 checked on screen; sealed install and update pass | done 2026-10-14 02:52 PT: released from `3c90fc0e1` (all checks green), notarized; sealed install, voice and the 0.3.27 → 0.3.28 in-place update passed with every data file kept and no change to the real folders (`docs/verification/installed-release-2026-10-14.md`). The local-tools token moved to 0.3.29 |
 | G4 Desktop with Cloud | P1 | `dev` merged; desktop signs in to Cloud; same dogs on phone and Mac; lending checked through Cloudflare | `dev` and `laterdog/home` merged onto the staging branch in PR #49 (CI running). Live sign-in and moving dogs need the person's account, so they wait for the morning before shipping |
-| G5 Caliber pass | P2 | Chat lines and cards, thinking row, accounts and updates, motion tokens merged with screenshots | #42, #43, #45 merged on the staging branch `laterdog/next` (PR #48); L5 chat lines running |
-| G6 Decision layer and typing suggestions | P3 | Benchmark numbers recorded; suggestions under 300 ms at the median | live Clef benchmark recorded 2026-10-14: clef 270-406 ms median, 90-100% accurate (table in the L8 docs). PR #41 safety fixes running; L10 typing suggestions running |
-| G7 Dev app, factory, computer tools | P3 | later.dog Dev installs beside the release; one cloud job end to end with screenshots and a saved trace; computer tools answer over MCP | Dev app PR #46 data-safety fixes running; factory and computer tools (L12) waiting for a slot |
+| G5 Caliber pass | P2 | Chat lines and cards, thinking row, accounts and updates, motion tokens merged with screenshots | done 2026-10-14 04:50 PT: released in 0.3.29 with #42, #43, #45, #50 (and #46, #47, #52, #53); sealed install, voice, a Kimi reply and the 0.3.28 → 0.3.29 update passed (`docs/verification/installed-release-2026-10-14.md`) |
+| G6 Decision layer and typing suggestions | P3 | Benchmark numbers recorded; suggestions under 300 ms at the median | typing suggestions shipped in 0.3.29 (local by default; the cloud path is off until turned on, and its Worker route is not deployed yet). Live Clef benchmark recorded. PR #41 is still fixing its safety review |
+| G7 Dev app, factory, computer tools | P3 | later.dog Dev installs beside the release; one cloud job end to end with screenshots and a saved trace; computer tools answer over MCP | Dev app code shipped in 0.3.29 (its own build runs on the first push to `dev`, and the person picks an icon); computer tools (L12a) and factory (L12b) in progress |
 | G8 Launch copy | P3 | Site and README lines and the launch post approved by the person | waiting for a slot (L14) |
 
 ## Lanes
@@ -45,15 +45,15 @@ Work stops at a gate before the next one starts.
 | L2 Phone review-ready | later-dog-phone `main` | | done |
 | L3 Reliability | `laterdog/reliability`, `laterdog/local-tools-token` | #44 (merged), #47 (on the staging branch) | done: token is a default-deny allow-list, re-reviewed, N1-N5 fixed with e2e tests |
 | L4 PR #36 on screen | `laterdog/visual-36` | #40 (merged) | done |
-| L5 Chat lines and cards | `laterdog/chatlines` | | running |
+| L5 Chat lines and cards | `laterdog/chatlines` | #50 (on the staging branch) | done: quiet dog-to-dog lines and exchange view, routine line, mentions with faces, renames everywhere, approvals fold; safety review fixed (Allow once primary, Don't allow, Always allow outlined) |
 | L6 Thinking, scroll, sidebar | `laterdog/thinking` | #45 | done, on the staging branch |
 | L7 Accounts, usage, update | `laterdog/accounts-ui` | #42 | done, on the staging branch; two choices for the person (model menu limited to the account in use; accounts that need an approval greyed in Switch account) |
 | L8 Decision layer (Clef) | `laterdog/clef` | #41 | fixing the safety review's findings; live benchmark done |
 | L9 Motion and tokens | `laterdog/motion` | #43 | done, on the staging branch |
-| L10 Typing suggestions | `laterdog/tab` | | running |
+| L10 Typing suggestions | `laterdog/tab` | #52 (on the staging branch) | done: local suggestions on by default; Smarter suggestions (Cloudflare) off by default; the Worker route `/v1/complete` waits for a deploy from a branch with `laterdog/home`'s computers Worker |
 | L11 later.dog Dev | `laterdog/dev-app` | #46 (on the staging branch) | done: Dev shares nothing with the release (data, ports, scheme, companion, container, keychain, updates); two data-safety reviews passed; the person picks an icon (`/Volumes/laterdog-phone/tmp/l11-sheet/index.html`); the first push to `dev` runs its build |
 | L12 Factory and computer tools | | | waiting for a slot |
-| L13 Stability sweep | `laterdog/stability` | | running |
+| L13 Stability sweep | `laterdog/stability` | #53 (on the staging branch) | done: 34-row checklist in `docs/verification/stability-sweep.md`; 21 pass, 9 fixed with tests, 3 with the smallest fix written down, 1 different by design |
 | L14 Launch and hiring copy | | | waiting for a slot |
 
 ## Notes for whoever picks this up

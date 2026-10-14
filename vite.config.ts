@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { DurationSequencer } from "./scripts/testing/duration-sequencer.ts";
@@ -14,10 +15,15 @@ const { SCRIPT_DEFAULTS, scriptTarget } = createRequire(import.meta.url)("./elec
 const devTarget = scriptTarget();
 const proxyPort = devTarget.refusal ? SCRIPT_DEFAULTS.serverPort : devTarget.serverPort ?? (devTarget.live ? 8799 : SCRIPT_DEFAULTS.serverPort);
 
-export default defineConfig(({ command }) => {
-  if (command === "serve" && devTarget.refusal && !process.env.VITEST) throw new Error(devTarget.refusal);
-  return {
-    plugins: [react(), tailwindcss()],
+const refuseLiveDevServer = (): Plugin => ({
+  name: "laterdog-refuse-live-dev-server",
+  config(_config, { command }) {
+    if (command === "serve" && devTarget.refusal && !process.env.VITEST) throw new Error(devTarget.refusal);
+  },
+});
+
+export default defineConfig({
+    plugins: [refuseLiveDevServer(), react(), tailwindcss()],
     define: {
       __APP_VERSION__: JSON.stringify(version),
     },
@@ -60,5 +66,4 @@ export default defineConfig(({ command }) => {
         },
       },
     },
-  };
 });

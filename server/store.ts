@@ -34,6 +34,7 @@ import type {
 } from "../shared/wire.ts";
 import { CONNECTOR_SLUG_PATTERN, CONNECTOR_TOOL_NAME_PATTERN } from "../shared/wire.ts";
 import { sameModelSelection } from "../shared/thread-model.ts";
+import { exchangeName, formerNamesAfterRename } from "./laterdog/former-names.ts";
 export type {
   BotActivity, ConnectorCardData, GroupDefaultResponder, OptionCardData,
   SecretRequestCardData, Surface, TaskClosedBy, TaskOpenedBy, TaskUsage,
@@ -1653,6 +1654,9 @@ export class Store {
       patch = { ...patch };
       delete patch.toolScope;
     }
+    const renamedFrom = patch.name !== undefined && patch.name !== bot.name ? bot.name : undefined;
+    const former = renamedFrom !== undefined ? formerNamesAfterRename(bot, patch.name!) : undefined;
+    if (former) patch = { ...patch, formerNames: former };
     const toAsk = patch.modelSelection ? (bot.tasks ?? []).filter((task) => task.modelSelection === undefined &&
       this.switchNeedsAsk(id, task.threadId, bot.modelSelection, patch.modelSelection!)) : [];
     Object.assign(bot, patch);
@@ -1670,8 +1674,26 @@ export class Store {
       this.saveBots(this.bots.map((candidate) => candidate === bot ? { ...bot, toolScope: nextToolScope } : candidate));
       bot.toolScope = nextToolScope;
     } else this.saveBots();
+    if (renamedFrom !== undefined) this.refreshExchangeNames(id, renamedFrom);
     this.emit({ type: "bot", botId: id });
     return bot;
+  }
+
+  private refreshExchangeNames(botId: string, previousName: string): void {
+    let changed = false;
+    for (const group of this.groups) {
+      if (!group.dm || group.memberIds.length !== 2 || !group.memberIds.includes(botId)) continue;
+      const [first, second] = group.memberIds.map((id) => this.bot(id));
+      if (!first || !second) continue;
+      const wasNamed = (dog: BotRecord) => (dog.id === botId ? previousName : dog.name);
+      if (group.name !== exchangeName({ name: wasNamed(first) }, { name: wasNamed(second) })) continue;
+      const name = exchangeName(first, second);
+      if (group.name === name) continue;
+      group.name = name;
+      changed = true;
+      this.emit({ type: "group", groupId: group.id });
+    }
+    if (changed) this.saveGroups();
   }
 
   clearVoiceSelections(): BotRecord[] {
@@ -1691,12 +1713,16 @@ export class Store {
     const bot = this.bot(id);
     if (!bot) return null;
     const next = { ...bot, ...patch };
+    const renamedFrom = patch.name !== undefined && patch.name !== bot.name ? bot.name : undefined;
+    const former = renamedFrom !== undefined ? formerNamesAfterRename(bot, patch.name!) : undefined;
+    if (former) next.formerNames = former;
     if (patch.soul !== undefined) {
       next.soulHash = soulHash(patch.soul);
       next.soulDrift = false;
     }
     this.saveBots(this.bots.map((candidate) => candidate.id === id ? next : candidate));
     Object.assign(bot, next);
+    if (renamedFrom !== undefined) this.refreshExchangeNames(id, renamedFrom);
     if (patch.soul !== undefined) {
       try { writeSoulMirror(id, patch.soul); } catch (e) {
         console.warn(`[bot-folder] could not write SOUL.md mirror for ${id}: ${(e as Error).message}`);

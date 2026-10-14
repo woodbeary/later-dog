@@ -197,6 +197,8 @@ import {
   DATA_DIR,
   skillsLibraryEnabled,
   cloudDictationEnabled,
+  typingSuggestionsEnabled,
+  smarterSuggestionsEnabled,
   EVENTS_DIR,
   NATIVE_DIR,
   customMcpServers,
@@ -265,8 +267,9 @@ import type { GroupGoalRunCardData, GroupGoalRunStatus } from "../shared/group-g
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
+import { confirmRememberedCommand, recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing } from "./message-db.ts";
+import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { chiefForBot, INCIDENTS_THREAD_TITLE, IncidentLedger, incidentChip, incidentText, type Incident, type IncidentKind } from "./incidents.ts";
@@ -676,12 +679,17 @@ import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
+import { createTypingWiring } from "./laterdog/typing-wiring.ts";
 import { createThreadModelRoutes } from "./routes/thread-models.ts";
 import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createMacAccessRoutes } from "./routes/mac-access.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
+import { isStorageFailure, plainFailure, tooBigMessage } from "./laterdog/plain-error.ts";
+import { retryUntilDone } from "./laterdog/retry-until.ts";
+import { guardTurnEnd } from "./laterdog/turn-end-guard.ts";
+import { expireStaleApprovals } from "./laterdog/stale-approvals.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
 import { createTimeZoneRoutes, restoreTimeZone } from "./laterdog/time-zone.ts";
@@ -827,6 +835,7 @@ if (hostedModels) {
 bindThreadLogCapProvider(() => threadEventLogMaxBytes(cfg));
 bindDecisionRetention(() => decisionRetentionDays(cfg.decisions?.retentionDays));
 const decider = createDecider({ config: () => cfg, dataDir: DATA_DIR });
+const typingSuggestions = createTypingWiring({ config: () => cfg, decider });
 const customDomainVerifier = createCustomDomainVerifier({ environmentId: ENVIRONMENT_ID });
 const emailSignIn = createEmailSignIn({
   allow: signInAllowList,
@@ -2435,6 +2444,13 @@ async function bindTurnComputer(owner: TurnOwner, resource: string, exclusive = 
   turnResourceOwners.set(owner.threadId, owner);
   turnComputerResources.set(owner.threadId, { owner, resource });
 }
+
+const answerGrants: GrantLookup = {
+  hasKey(threadId, key, askerBotId) {
+    const owner = store.bot(askerBotId ?? "") ?? store.botByThread(threadId);
+    return owner ? (botForThread(owner.id, threadId)?.alwaysAllow ?? []).includes(key) : false;
+  },
+};
 
 function botForThread(botId: string, threadId: string): BotRecord | null {
   return directTurnBots.get(threadId) ?? store.projectBotForTask(botId, threadId) ?? store.bot(botId);
@@ -5040,13 +5056,16 @@ async function answerRequest(
     }
   }
   if (remembered && outcome === "allowed-once" && behavior === "allow" && store.bot(remembered.botId)) {
+    let saved = false;
     try {
       commandAllowlist.add(remembered.botId, remembered.candidate);
+      saved = true;
     } catch {
       store.appendMessage(threadId, { role: "bot", kind: "activity", tool: {
         name: "Command allowed once, but its allowlist rule could not be saved. Try again from the permissions menu.", ok: false,
       } });
     }
+    if (saved) confirmRememberedCommand(store, threadId, requestId);
   }
   if (outcome === "answered" && behavior === "answer" && message && cardMessage) {
     const settled = store.messagesFor(threadId).find((m) => m.id === cardMessage.id)?.card;
@@ -6398,7 +6417,36 @@ async function localVmInventoryPayload() {
   return { instances, maxInstances: localVmMaxInstances(cfg), available: true, problem: null };
 }
 
-bus.subscribe((event: RuntimeEvent) => {
+function recoverUnsettledTurn(event: RuntimeEvent, error: unknown): void {
+  if (event.type !== "turn.completed" || !isStorageFailure(error)) return;
+  const bot = store.botByThread(event.threadId);
+  if (!bot) return;
+  const threadId = event.threadId;
+  const generation = directTurnGenerationByThread.get(threadId);
+  retryUntilDone(() => {
+    if (directTurnGenerationByThread.get(threadId) !== generation) return;
+    if (!directTurnBots.has(threadId) && store.taskByThread(bot.id, threadId)?.activity !== "working") return;
+    const owner = turnResourceOwners.get(threadId);
+    if (owner) {
+      vpsThreadEnded(bot.id, threadId);
+      releaseLocalVmThread(threadId);
+    }
+    releaseTurnResources(owner);
+    store.setTaskActivity(bot.id, threadId, "idle");
+    directTurnBots.delete(threadId);
+    retryDelegationsWaitingOn(bot.id);
+    drainQueuedSends();
+    drainConnectorResumes();
+    drainComputerResumes();
+    drainSecretResumes();
+    drainTakeoverResumes();
+    drainTeamSetupResumes();
+    drainDelegationWakes();
+    settleTrackedRequest(threadId);
+  }, { everyMs: 3_000, forMs: 10 * 60_000, onGiveUp: (giveUp) => console.error(`turn end: ${threadId} is still marked working after a failed save`, giveUp) });
+}
+
+bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   const localVmTarget = localVmThreadTargets.get(event.threadId);
   if (localVmTarget) {
@@ -6981,7 +7029,7 @@ bus.subscribe((event: RuntimeEvent) => {
       break;
     }
   }
-});
+}, recoverUnsettledTurn));
 
 const delegationWatch = new Map<string, {
   channelId?: string;
@@ -13107,6 +13155,7 @@ function configStatus() {
     opencodeGo: { configured: Boolean(cfg.opencodeGo?.apiKey), providerKeys: Object.keys(openCodeProviderKeys(cfg)) },
     tts: tts.describeVoice(cfg),
     decider: describeDecider(cfg),
+    typing: typingSuggestions.describe(),
     imageGen: avatarImageStatus(cfg),
     live: liveSettingsFor(cfg),
     profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "", aboutMe: cfg.profile?.aboutMe ?? "" },
@@ -13140,6 +13189,8 @@ function configStatus() {
       autoRecall: autoRecallEnabled(cfg),
       llmThreadTitles: llmThreadTitlesEnabled(cfg),
       cloudDictation: cloudDictationEnabled(cfg),
+      typingSuggestions: typingSuggestionsEnabled(cfg),
+      smarterSuggestions: smarterSuggestionsEnabled(cfg),
     },
     onboarding: {
       completedAt: cfg.onboarding?.completedAt ?? "",
@@ -13488,6 +13539,7 @@ ROUTES.push(createBotMemoryRoutes({
   },
 }));
 ROUTES.push(createDeciderRoutes({ decider }));
+ROUTES.push(typingSuggestions.routes);
 ROUTES.push(createLaterDogRoutes());
 ROUTES.push(createHelpersRoutes({
   board: helperBoard,
@@ -16847,7 +16899,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (declaredLength !== undefined && declaredLength > IMAGE_MAX_BYTES) {
         req.resume();
-        return json(res, 413, { error: `image exceeds ${IMAGE_MAX_BYTES} bytes` });
+        return json(res, 413, { error: tooBigMessage("image", IMAGE_MAX_BYTES) });
       }
       const saved = await new Promise<SavedAttachment>((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -16904,7 +16956,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (declaredLength !== undefined && declaredLength > FILE_MAX_BYTES) {
         req.resume();
-        return json(res, 413, { error: `file exceeds ${FILE_MAX_BYTES} bytes` });
+        return json(res, 413, { error: tooBigMessage("file", FILE_MAX_BYTES) });
       }
       try {
         const chunks = req.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>;
@@ -19422,6 +19474,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (refusal) return json(res, 403, { error: refusal });
       }
       return await answeringCardAs(auth, bot.threadId, String(body.requestId), async () => {
+        recordAnswerScope(store, bot.threadId, String(body.requestId), behavior, body, answerGrants);
         if (resolveAndSendTrust(res, bot.threadId, String(body.requestId), behavior)) return;
         if (await resolveAndSendTeamSetup(res, {
           botId: bot.id, threadId: bot.threadId, requestId: String(body.requestId), behavior,
@@ -19503,6 +19556,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (refusal) return json(res, 403, { error: refusal });
       }
       return await answeringCardAs(auth, threadId, requestId, async () => {
+        recordAnswerScope(store, threadId, requestId, behavior, body, answerGrants);
         if (resolveAndSendTrust(res, threadId, requestId, behavior)) return;
         const skillCard = store.messagesFor(threadId).find(
           (message) => message.card?.requestId === requestId && message.card.skillRequest,
@@ -21338,6 +21392,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (persisted.tts?.key !== undefined) persisted.tts.key = "";
           if (persisted.tts?.fishKey !== undefined) persisted.tts.fishKey = "";
           if (persisted.decider?.key !== undefined) persisted.decider.key = "";
+          if (persisted.typing?.token !== undefined) persisted.typing.token = "";
           if (persisted.imageGen?.key !== undefined) persisted.imageGen.key = "";
           if (persisted.imageGen?.customApiKey !== undefined) persisted.imageGen.customApiKey = "";
           if (persisted.live?.key !== undefined) persisted.live.key = "";
@@ -21861,11 +21916,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     return json(res, 404, { error: `no route: ${method} ${path}` });
   } catch (e) {
-    const status = (e as any)?.status ?? 500;
+    const failure = plainFailure(e);
+    if (failure.internal) console.error(`${method} ${path} failed`, e);
     const candidateCode = (e as { code?: unknown })?.code;
     const code = typeof candidateCode === "string" && ["guarded_busy", "guarded_branch", "guarded_permissions", "guarded_request_changed", "guarded_request_untracked", "outside_workspace"].includes(candidateCode)
       ? candidateCode : undefined;
-    return json(res, status, { error: e instanceof Error ? e.message : String(e), ...(code ? { code } : {}) });
+    return json(res, failure.status, { error: failure.message, ...(code ? { code } : {}) });
   } finally {
     releaseWorkspaceRequest?.();
   }
@@ -21965,6 +22021,16 @@ for (const row of chatFollowups()) {
 restoreSteeredMessages();
 restoreAsideMessages(store);
 restoreChannelMessages();
+
+try {
+  expireStaleApprovals({
+    cards: openPermissionCards,
+    owns: (threadId) => Boolean(store.botByThread(threadId) || store.groupByThread(threadId)),
+    patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
+  });
+} catch (error) {
+  console.warn(`approval cards left open by the last run could not be closed: ${error instanceof Error ? error.message : String(error)}`);
+}
 
 {
   let movedAutoPins = 0;

@@ -51,14 +51,14 @@ describe("uploaded bot identity portraits", () => {
   it("renders the receipt sender image while preserving its navigation button", () => {
     const html = render(createElement(RoomToolChip, { message: receipt }));
     expect(html).toContain('<img src="/api/attachments/fixture-1.png"');
-    expect(html).toContain('title="Open Juniper"');
-    expect(html).toContain("Message from @Juniper");
+    expect(html).toContain("data-quiet-line");
+    expect(html).toMatch(/Message from<\/span>.*Juniper<\/span>/);
   });
   it("keeps a deleted receipt sender readable with a mascot fallback", () => {
     const html = render(createElement(RoomToolChip, { message: { ...receipt, comm: { ...receipt.comm!, withBotId: "deleted" } } }));
     expect(html).toContain("<svg");
     expect(html).not.toContain("<img");
-    expect(html).toContain("Message from @Juniper");
+    expect(html).toMatch(/Message from<\/span>.*Juniper<\/span>/);
   });
   it("renders uploaded group header and sender portraits", () => {
     const html = render(createElement(GroupView, { group: avatarGroup }));

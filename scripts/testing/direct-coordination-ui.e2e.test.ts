@@ -42,7 +42,7 @@ const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrows
     const snapshot = async () => (await ui("snapshot")).snapshot as string;
     const click = async (name: string, role = "button") => {
       const refs = (await ui("snapshot")).refs as Record<string, { role: string; name: string }>;
-      const match = Object.entries(refs).find(([, entry]) => entry.role === role && entry.name.endsWith(name));
+      const match = Object.entries(refs).find(([, entry]) => entry.role === role && (entry.name.endsWith(name) || entry.name.startsWith(`${name}:`)));
       expect(match).toBeDefined();
       return ui("click", "--ref", "@" + match![0]);
     };
@@ -64,7 +64,7 @@ const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrows
     writeFileSync(gateFile, "complete fixture work");
     await ui("wait-settle", "--timeout", "60");
     await expect.poll(snapshot, { timeout: 15_000 }).toContain("Engineer checked the fixture CSV export");
-    expect(await snapshot()).toContain("Sent to Engineer");
+    expect(await snapshot()).toContain("Open the conversation with Engineer");
     const state = await api("/api/bots");
     const parent = state.bots.find((bot: any) => bot.id === info.botId);
     const receipt = parent.messages.find((message: any) => message.tool?.name === "Sent to Engineer");
@@ -72,7 +72,7 @@ const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrows
     expect(receipt.threadRef.threadId).not.toBe(lead.threadId);
     const screenshot = info.logPath + ".direct-coordination.png";
     await ui("screenshot", "--out", screenshot);
-    await click("Sent to Engineer");
+    await click("Open the conversation with Engineer");
     await expect.poll(snapshot, { timeout: 15_000 }).toContain("CSV export checked in my separate task");
     const selected = (await api("/api/bots")).bots.find((bot: any) => bot.id === lead.id);
     expect(selected.threadId).toBe(receipt.threadRef.threadId);

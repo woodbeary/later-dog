@@ -212,7 +212,8 @@ describe("the phone companion, the local computer and the supervisor", () => {
     expect(companionDefaults({ LATERDOG_APP_VARIANT: "dev" }, HOME)).toEqual({ companionPort: 8910, controlPort: 8909, dataDir: "/Users/someone/.laterdog-dev/companion" });
     const dev = describeVariant("dev");
     const release = describeVariant("release");
-    expect(companionDefaults({ LATERDOG_VARIANT: "dev" }, HOME)).toMatchObject({ companionPort: dev.ports.companion, controlPort: dev.ports.companionControl });
+    expect(companionDefaults({ LATERDOG_APP_VARIANT: "dev" }, HOME)).toMatchObject({ companionPort: dev.ports.companion, controlPort: dev.ports.companionControl });
+    expect(companionDefaults({ LATERDOG_VARIANT: "dev" }, HOME)).toMatchObject({ companionPort: release.ports.companion, controlPort: release.ports.companionControl });
     expect(companionDefaults({}, HOME)).toMatchObject({ companionPort: release.ports.companion, controlPort: release.ports.companionControl });
     expect(read("electron/companion.mjs")).toContain("variant.ports.companionControl");
   });

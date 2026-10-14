@@ -9,6 +9,7 @@ import { Check, Copy, Download, LoaderCircle, RotateCcw, WrapText, X } from "luc
 import { useCopyFeedback } from "@/lib/copy-text";
 import { t } from "@/lib/i18n";
 import { remarkMentions, type MentionPeer } from "@/lib/mentions";
+import { MentionFace } from "./MentionFace";
 
 import {
   countLines,
@@ -829,6 +830,10 @@ const MARKDOWN_COMPONENTS: Components = {
     const link = threadLinkFromProps(props as Record<string, unknown>);
     if (link) return <ThreadLink target={link.target} ambiguous={link.ambiguous}>{props.children}</ThreadLink>;
     const { node: _node, children, ...rest } = props;
+    const { "data-mention-dog": dog, "data-mention-body": body, ...attributes } = rest as Record<string, unknown>;
+    if (typeof dog === "string") {
+      return <span {...attributes}><MentionFace color={dog} body={typeof body === "string" ? body : undefined} />{children}</span>;
+    }
     return <span {...rest}>{children}</span>;
   },
   a: MarkdownLink,
@@ -913,7 +918,9 @@ export function samePeers(previous: readonly MentionPeer[], next: readonly Menti
   if (previous.length !== next.length) return false;
   return previous.every((peer, index) => {
     const other = next[index]!;
-    return peer.name === other.name && peer.hidden === other.hidden && peer.color === other.color;
+    return peer.name === other.name && peer.hidden === other.hidden && peer.color === other.color
+      && peer.id === other.id && peer.mascotBody === other.mascotBody
+      && (peer.formerNames ?? []).join("\n") === (other.formerNames ?? []).join("\n");
   });
 }
 
