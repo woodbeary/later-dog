@@ -43,7 +43,7 @@ import { stateForBot } from "@/lib/mascot";
 import { cn } from "@/lib/cn";
 import { searchMatchesThreads, useSearchDisclosure } from "@/lib/search-disclosure";
 import { useHeldMenuMotion, useMenuMotion } from "./MenuMotion";
-import { UpdateButton } from "./UpdateButton";
+import { UpdatePill } from "./UpdateButton";
 import { lastNonReceipt } from "@/lib/receipts";
 import { activityPreview, botEngine } from "@/lib/failed-turn";
 import { activeLocale, t } from "@/lib/i18n";
@@ -2122,7 +2122,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           >
             {density === "icons" ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
           </button>}
-          {density === "icons" && <UpdateButton align="left" />}
+          {density === "icons" && <UpdatePill compact />}
           <div ref={plusMenuRef} className="contents">
           <button
             ref={importReturnRef}
@@ -2448,13 +2448,15 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-1 not-first:mt-3">
-            <div className="min-w-0 flex-1">
-              <SidebarProfileMenu />
+          <>
+            <div className="empty:hidden not-first:mt-3"><UpdatePill /></div>
+            <div className="flex items-center gap-1 not-first:mt-3">
+              <div className="min-w-0 flex-1">
+                <SidebarProfileMenu />
+              </div>
+              <SidebarBugButton />
             </div>
-            <UpdateButton above />
-            <SidebarBugButton />
-          </div>
+          </>
         )}
       </div>
       </GlassBar>

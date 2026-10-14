@@ -30,6 +30,7 @@ import {
 } from "./SidebarProfileMenu";
 import { APP_REPOSITORY, DOCS_URL, FEEDBACK_URL, HELP_CENTER_URL, platformLabel } from "@/lib/app-links";
 import type { UpdaterState } from "@/lib/updater";
+import { dismissUpdateDialog, updateDialogOpen } from "@/lib/update-request";
 import type { InstanceInfo } from "@/state/store";
 
 const state = (patch: Partial<UpdaterState>): UpdaterState => ({ status: "idle", ...patch }) as UpdaterState;
@@ -186,29 +187,40 @@ describe("the menu under your name", () => {
     expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
   });
 
-  it("ends with Sign out, under a line, once an account here is signed in", () => {
+  it("ends with Add account and Sign out, under a line, once an account here is signed in", () => {
     menu.instances = [claude, { ...claude, instanceId: "claude-api", authentication: { method: "paste-code" } } as InstanceInfo];
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["settings", "plugins", "signOut"]);
-    expect(items[2]).toMatchObject({ label: "Sign out", separatorBefore: true });
+    expect(items.map((item) => item.key)).toEqual(["settings", "plugins", "add-account", "signOut"]);
+    expect(items[2]).toMatchObject({ label: "Add account", separatorBefore: true });
+    expect(items[3]).toMatchObject({ label: "Sign out", separatorBefore: false });
     menu.instances = [{ ...claude, snapshot: { state: "available", authenticated: false } } as InstanceInfo];
     expect(open().map((item) => item.key)).toEqual(["settings", "plugins"]);
   });
 
-  it("marks Settings and opens it at Updates when an update is waiting, and stays quiet otherwise", () => {
+  it("adds a New update available row with Install when an update is ready, and stays quiet otherwise", () => {
     const updater = { updater: { check: vi.fn(), install: vi.fn(), onState: vi.fn() } };
     menu.updater = { status: "downloaded", version: "0.2.0" } as UpdaterState;
-    const [ready] = open(updater);
-    expect(ready).toMatchObject({ key: "settings", attention: true, attentionTone: "accent", note: "Update ready" });
+    const [ready, settings] = open(updater);
+    expect(ready).toMatchObject({ key: "update-available", label: "New update available" });
+    expect(renderToStaticMarkup(ready!.trailing as never)).toContain(">Install<");
+    expect(settings).toMatchObject({ key: "settings" });
+    expect(settings).not.toHaveProperty("note");
+    expect(updateDialogOpen()).toBe(false);
     ready!.onSelect();
-    expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "updates" });
+    expect(updateDialogOpen()).toBe(true);
+    dismissUpdateDialog();
 
     menu.updater = { status: "idle", releaseCheck: "on", available: { version: "0.2.0", url: "https://example.test" } } as UpdaterState;
-    expect(open(updater)[0]).toMatchObject({ attention: true, note: "Update available" });
+    const [offer] = open(updater);
+    expect(offer).toMatchObject({ key: "update-available" });
+    expect(renderToStaticMarkup(offer!.trailing as never)).toContain(">Download<");
 
-    menu.updater = { status: "error", message: "offline" } as UpdaterState;
-    expect(open(updater)[0]).toMatchObject({ attention: false, note: undefined });
-    menu.updater = { status: "idle" } as UpdaterState;
-    expect(open(updater)[0]).toMatchObject({ attention: false, note: undefined });
+    for (const quiet of [{ status: "error", message: "offline" }, { status: "idle" }, { status: "downloading", percent: 3 }] as UpdaterState[]) {
+      menu.updater = quiet;
+      expect(open(updater).map((item) => item.key)).toEqual(["settings", "plugins"]);
+    }
+    menu.updater = { status: "downloaded", version: "0.2.0" } as UpdaterState;
+    open(updater).find((item) => item.key === "settings")!.onSelect();
+    expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
   });
 });

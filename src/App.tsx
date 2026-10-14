@@ -29,6 +29,7 @@ import { CloudSetup } from "@/components/CloudSetup";
 import { engineReady } from "@/components/EngineLibrary";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AddAccountHost } from "@/components/AddAccountHost";
+import { UpdateDialog } from "@/components/UpdateButton";
 import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
@@ -297,6 +298,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       )}
       <CommandPalette />
       <AddAccountHost />
+      <UpdateDialog />
       </div>
       <WindowCaptionButtons
         visible={capabilities.windowChrome === "win-caption" && Boolean(window.laterdog?.windowControls)}

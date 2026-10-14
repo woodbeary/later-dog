@@ -20,6 +20,7 @@ import { requestAccountSignIn, requestAddAccount } from "@/lib/add-account-reque
 import { fastModeFits } from "@/lib/fast-mode";
 import { modelShown, useHiddenModels } from "@/lib/model-visibility";
 import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
+import { modelForAccount } from "./account-switch";
 import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
 import { declaredEffort, effortLevelsFor, effortName, effortNote, simpleEffortLevels } from "@/lib/model-friendly";
 import { t } from "@/lib/i18n";
@@ -770,19 +771,24 @@ export function ModelPicker({
   const chooseAccount = (account: InstanceInfo) => {
     setOpen(false);
     if (account.instanceId === selection.instanceId) return;
-    const model = [selection.model, account.models.default].find((id) => id && account.models.options.some((option) => option.id === id))
-      ?? account.models.options.find((option) => !option.custom)?.id ?? account.models.default;
+    const model = modelForAccount(selection, account);
     if (model) pick(account, model);
   };
-  const modelGroups: ModelMenuGroup[] = simpleProviders.flatMap((provider) => {
-    const members = familyMembers(provider);
-    const chosen = members.find((member) => member.instanceId === selection.instanceId);
-    const instance = (chosen && signedInNow(chosen) ? chosen : undefined)
-      ?? [provider.target, ...members].find(signedInNow) ?? chosen;
-    if (!instance) return [];
+  const menuModels = (instance: InstanceInfo) => {
     const own = instance.models.options.filter((option) => !option.custom);
-    const models = (own.length > 0 ? own : instance.models.options).filter((option) =>
+    return (own.length > 0 ? own : instance.models.options).filter((option) =>
       modelShown(instance.instanceId, option.id, hiddenModels) || (instance.instanceId === selection.instanceId && option.id === selection.model));
+  };
+  const inUseGroup: ModelMenuGroup[] = simpleProviders.flatMap((provider) => {
+    const chosen = familyMembers(provider).find((member) => member.instanceId === selection.instanceId);
+    const models = chosen ? menuModels(chosen) : [];
+    return chosen && models.length > 0 ? [{ instance: chosen, label: provider.label, models }] : [];
+  });
+  const modelGroups: ModelMenuGroup[] = inUseGroup.length > 0 ? inUseGroup : simpleProviders.flatMap((provider) => {
+    const members = familyMembers(provider);
+    const instance = [provider.target, ...members].find(signedInNow);
+    if (!instance) return [];
+    const models = menuModels(instance);
     return models.length > 0 ? [{ instance, label: provider.label, models }] : [];
   });
   const showSwitcher = simpleView && shownAccounts(switcherAccounts, selection.instanceId).length > 1;
@@ -920,7 +926,7 @@ export function ModelPicker({
           {...motion.exitProps}
           style={contained ? undefined : { ...placement, width: popoverWidth }}
           className={cn(
-            "flex flex-col rounded-2xl border border-hairline/50 bg-card", part === "model" ? "overflow-visible" : "overflow-hidden",
+            "flex flex-col rounded-2xl border border-hairline/50 bg-card", part === "model" || part === "account" ? "overflow-visible" : "overflow-hidden",
             contained
               ? "relative mt-3 w-full max-h-[min(420px,50dvh)]"
               : cn("absolute z-30 max-w-[calc(100vw-2rem)] max-h-[min(600px,calc(100dvh-7rem))] shadow-2xl shadow-black/50", above ? "bottom-full mb-2" : "right-0 top-full mt-2"),
@@ -932,7 +938,7 @@ export function ModelPicker({
           )}
           {part === "account" ? (
             <>
-              <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onSettings={() => { setOpen(false); dispatch({ type: "toggleAppSettings", open: true, section: "general" }); }} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
+              <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onSettings={() => { setOpen(false); dispatch({ type: "toggleAppSettings", open: true, section: "general" }); }} onManageUsage={() => { setOpen(false); dispatch({ type: "toggleAppSettings", open: true, section: "usage" }); }} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
                 setOpen(false);
                 requestAddAccount();
               }} />
