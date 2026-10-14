@@ -55,6 +55,7 @@ Work stops at a gate before the next one starts.
 | L12 Factory and computer tools | `laterdog/factory` (L12b) | draft, into `laterdog/cloud-desktop` | L12b done: traces kept in R2, per-job model, account and effort, small default computer, cost and approvals notes (`cloud-jobs.md`, `factory-approvals.md`); computer tools waiting for a slot; one real job still to run |
 | L13 Stability sweep | `laterdog/stability` | #53 (on the staging branch) | done: 34-row checklist in `docs/verification/stability-sweep.md`; 21 pass, 9 fixed with tests, 3 with the smallest fix written down, 1 different by design |
 | L14 Launch and hiring copy | | | waiting for a slot |
+| L15 Desktop follow-up | `laterdog/desktop-polish-oct14`, integrated into `laterdog/release-0330` | #60, #57 | integrated with the 0.3.30 candidate: compact progress drawer, opened-thread batches, confirmed peer rename and current-name references; combined catalog regenerated; 563 scoped tests, both TypeScript projects, lint, locales and renderer build pass. Full candidate CI and visual verification remain (`docs/verification/desktop-polish.md`); no main merge or release |
 
 ## Notes for whoever picks this up
 

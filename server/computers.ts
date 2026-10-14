@@ -23,7 +23,7 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const PROVISION_BUDGET_MS = 90_000;
 const JOIN_BUDGET_MS = 90_000;
 const EXEC_BUDGET_MS = 60_000;
-const POLL_MS = 1_500;
+export const WAKE_POLL_MS = 400;
 const MAX_CREATE_HOPS = 10;
 const TRIAL_STOPS = new Set(["trial_used_up", "trial_ended", "trials_off"]);
 const QUIESCE_BROWSER = [
@@ -119,7 +119,7 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
           }
         }
       }
-      await pause(Math.min(POLL_MS, Math.max(0, deadline - Date.now())));
+      await pause(Math.min(WAKE_POLL_MS, Math.max(0, deadline - Date.now())));
     }
   } catch (error) {
     if (!(error instanceof Error && error.name === "TimeoutError")) throw error;

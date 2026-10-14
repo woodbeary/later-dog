@@ -2129,7 +2129,7 @@ describe("with computer sharing off and no Chief of Staff (the defaults)", () =>
     }
   });
 
-  it("shows a bot that is not a Chief none of the Chief-only tools or parameters", async () => {
+  it("offers ordinary bots reviewed peer renames while retaining Chief-only setup and model targeting", async () => {
     type ListedTool = { name: string; description: string; inputSchema: { properties: Record<string, unknown> } };
     const tools = new Map(((await gatedRpc("tools/list")).result.tools as ListedTool[]).map((tool) => [tool.name, tool]));
     for (const name of ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"]) {
@@ -2137,11 +2137,27 @@ describe("with computer sharing off and no Chief of Staff (the defaults)", () =>
     }
     for (const name of ["create_bot", "create_room", "manage_room"]) expect(tools.has(name), name).toBe(true);
     for (const name of ["create_room", "manage_room"]) expect(tools.get(name)!.description).not.toMatch(/Chief/);
-    for (const name of ["propose_profile", "propose_model"]) {
-      expect(tools.get(name)!.inputSchema.properties).not.toHaveProperty("for_bot_id");
-      expect(tools.get(name)!.description).not.toContain("for_bot_id");
-    }
+    expect(tools.get("propose_model")!.inputSchema.properties).not.toHaveProperty("for_bot_id");
+    expect(tools.get("propose_model")!.description).not.toContain("for_bot_id");
+    expect(tools.get("propose_profile")!.inputSchema.properties).toHaveProperty("for_bot_id");
+    expect(tools.get("propose_profile")!.description).toContain("Non-Chiefs may submit only name and reason");
+    expect(tools.get("propose_profile")!.description).toContain("wait for confirmation in the app");
     expect(tools.get("propose_routine_action")!.inputSchema.properties).toHaveProperty("for_bot_id");
+  });
+
+  it("forwards an ordinary bot's peer rename and preserves its pending confirmation outcome", async () => {
+    lastProfileRequestBody = null;
+    profileRequestResponse = { ...DEFAULT_PROFILE_RESPONSE, state: "pending" };
+    const renamed = await gatedRpc("tools/call", { name: "propose_profile", arguments: {
+      for_bot_id: "bot-helper", name: "Minor changes", reason: "Requested rename",
+    } });
+    expect(renamed.result.isError).toBeFalsy();
+    expect(renamed.result.content[0].text).toContain("confirmation card is now visible");
+    expect(renamed.result.content[0].text).toContain("do not claim the profile was created or changed");
+    expect(lastProfileRequestBody).toEqual({
+      fromBotId: "bot-asker", fromThreadId: "thread-asker-routine", forBotId: "bot-helper",
+      changes: { name: "Minor changes" }, reason: "Requested rename",
+    });
   });
 
   it("refuses a Chief-only tool called by name without reaching the harness", async () => {

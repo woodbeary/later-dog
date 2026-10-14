@@ -52,6 +52,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { FullAccessWarning } from "./FullAccessWarning";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { WorkingDots } from "./WorkingIndicator";
+import { currentDogName } from "@/lib/dog-refs";
 import { nextRename } from "@/lib/rename";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { MIN_QUERY, SearchResults } from "./SearchResults";
@@ -193,7 +194,7 @@ function groupPreview(group: Group, bots: Bot[], instances: InstanceInfo[]): str
   const wakeup = cloudWakeupOf(last);
   if (wakeup) return wakeupLine(wakeup.event);
   if (last.role === "user") return t("sidebar.preview.you", { text: readable });
-  return last.from ? `${last.from.name}: ${readable}` : readable;
+  return last.from ? `${currentDogName(bots.filter((bot) => !bot.hidden), last.from.botId, last.from.name)}: ${readable}` : readable;
 }
 
 function StackedDogs({ members, density }: { members: Bot[]; density: SidebarDensity }) {

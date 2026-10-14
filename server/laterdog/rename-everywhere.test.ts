@@ -5,7 +5,7 @@ import { DATA_DIR } from "../config.ts";
 import type { ModelSelection } from "../contracts.ts";
 import { getOrCreateChannel, mirrorExchange, type CommsBus } from "../comms-visibility.ts";
 import { closeMessageDb } from "../message-db.ts";
-import { Store } from "../store.ts";
+import { Store, toWireTask } from "../store.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "fake-model" });
 
@@ -27,6 +27,25 @@ describe("renaming a dog", () => {
     const bus: CommsBus = { store, broadcast: () => {} };
     return { store, boss, helper, channel, bus };
   };
+
+  it("refreshes dependent thread titles on save, reload and Undo without rewriting custom titles", () => {
+    const { store, boss, helper } = pair();
+    const task = store.createTask(boss.id, "@Study Helper · work", false, undefined,
+      { botId: helper.id, name: helper.name, kind: "work", at: 1 })!;
+    const custom = store.createTask(boss.id, "Study Helper notes", false, undefined,
+      { botId: helper.id, name: helper.name, kind: "work", at: 1 })!;
+    const events: string[] = [];
+    const unsubscribe = store.onChange((change) => { if (change.type === "bot") events.push(change.botId); });
+    store.patchBotProfile(helper.id, { name: "Tutor" });
+    expect(events).toContain(boss.id);
+    expect(toWireTask(task, selection(), store.bots).title).toBe("@Tutor · work");
+    const reloaded = new Store(selection);
+    expect(toWireTask(reloaded.taskByThread(boss.id, task.threadId)!, selection(), reloaded.bots).title).toBe("@Tutor · work");
+    expect(toWireTask(custom, selection(), store.bots).title).toBe("Study Helper notes");
+    reloaded.patchBotProfile(helper.id, { name: "Study Helper" });
+    expect(toWireTask(reloaded.taskByThread(boss.id, task.threadId)!, selection(), reloaded.bots).title).toBe("@Study Helper · work");
+    unsubscribe();
+  });
 
   it("remembers the earlier name when a profile is saved with a new one", () => {
     const { store, helper } = pair();

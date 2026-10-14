@@ -40,8 +40,9 @@ describe("ThreadChip", () => {
   it("renders the receipt as a pill named for the thread it opens", () => {
     const markup = renderToStaticMarkup(createElement(ThreadChip, { message: receipt() }));
     expect(markup).toContain("<button");
-    expect(markup).toContain("Opened thread #QA PR 245 on Scout");
-    expect(markup).toContain('title="Open #QA PR 245"');
+    expect(markup).toContain("#QA PR 245</span>");
+    expect(markup).toContain("· Scout</span>");
+    expect(markup).toContain('title="Open #QA PR 245 on Scout"');
     expect(markup).toContain('data-thread-chip="qa-245"');
   });
 
@@ -71,4 +72,12 @@ describe("ThreadChip", () => {
       { type: "notice", notice: { kind: "thread-gone", botName: "Scout" } },
     ]);
   });
+});
+
+
+it("keeps a failed receipt visible with its error and warning state", () => {
+  const message = { ...receipt(), tool: { name: "Opened thread #QA PR 245 on Scout", ok: false, output: "Permission denied" } };
+  const markup = renderToStaticMarkup(createElement(ThreadChip, { message }));
+  expect(markup).toContain("Permission denied");
+  expect(markup).toContain('aria-label="Did not work"');
 });

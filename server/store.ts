@@ -81,11 +81,16 @@ type AssertSameKeys<A, B> = [keyof A] extends [keyof B] ? ([keyof B] extends [ke
 export type TaskWireProjectionIsExact = AssertExact<WireTask, TaskWireProjection> & AssertSameKeys<WireTask, TaskWireProjection>;
 export const taskWireProjectionIsExact: TaskWireProjectionIsExact = true;
 
-export function toWireTask(task: TaskRecord, botModel: ModelSelection): WireTask {
+export function toWireTask(task: TaskRecord, botModel: ModelSelection, bots: readonly Pick<WireBot, "id" | "name" | "hidden">[] = []): WireTask {
   const { resumeCursors: _resumeCursors, lastInstanceId: _lastInstanceId, handedMessages: _handedMessages,
     appliedCompactionId: _appliedCompactionId, contextFloor: _contextFloor, lastContextModel: _lastContextModel,
     surfaceSource, ...stored } = task;
-  const wire: WireTask = { ...stored, modelSelection: structuredClone(task.modelSelection ?? botModel), followsBotModel: task.modelSelection === undefined };
+  const currentName = (ref: { botId: string; name: string }) => bots.find((bot) => bot.id === ref.botId && !bot.hidden)?.name ?? ref.name;
+  const openedBy = stored.openedBy && { ...stored.openedBy, name: currentName(stored.openedBy) };
+  const closedBy = stored.closedBy && { ...stored.closedBy, name: currentName(stored.closedBy) };
+  const title = stored.openedBy?.kind === "work" && stored.title === `@${stored.openedBy.name} · work`
+    ? `@${openedBy!.name} · work` : stored.title;
+  const wire: WireTask = { ...stored, title, ...(openedBy ? { openedBy } : {}), ...(closedBy ? { closedBy } : {}), modelSelection: structuredClone(task.modelSelection ?? botModel), followsBotModel: task.modelSelection === undefined };
   return surfaceSource === "auto" && wire.surface !== undefined ? { ...wire, surfaceAuto: true } : wire;
 }
 
@@ -1694,6 +1699,11 @@ export class Store {
       this.emit({ type: "group", groupId: group.id });
     }
     if (changed) this.saveGroups();
+    for (const bot of this.bots) {
+      if (bot.id !== botId && bot.tasks?.some((task) => task.openedBy?.botId === botId || task.closedBy?.botId === botId)) {
+        this.emit({ type: "bot", botId: bot.id });
+      }
+    }
   }
 
   clearVoiceSelections(): BotRecord[] {

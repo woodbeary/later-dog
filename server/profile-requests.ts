@@ -63,7 +63,7 @@ export interface ProfileRequestServiceOptions {
   now?: () => number;
   autoApply?: DirectApplyCheck;
   canPersist?: (botId: string, threadId: string, opensCard: boolean) => { ok: true } | { ok: false; status: number; error: string };
-  validateTarget?: (proposerBotId: string, targetBotId: string) => string | null;
+  validateTarget?: (proposerBotId: string, targetBotId: string, fields: readonly string[]) => string | null;
 }
 
 export class ProfileRequestError extends Error {
@@ -253,7 +253,7 @@ export class ProfileRequestService {
     if (!target) throw new ProfileRequestError(NO_SUCH_BOT, 404);
     const crossBot = targetBotId !== args.botId;
     if (crossBot && this.validateTarget) {
-      const refusal = this.validateTarget(args.botId, targetBotId);
+      const refusal = this.validateTarget(args.botId, targetBotId, Object.keys(changes));
       if (refusal) throw new ProfileRequestError(refusal, 403);
     }
 
@@ -425,7 +425,7 @@ export class ProfileRequestService {
       if (!target) throw new ProfileRequestError(NO_SUCH_BOT, 404, { terminal: true });
       const crossBot = payload.targetBotId !== payload.botId;
       if (crossBot && this.validateTarget) {
-        const refusal = this.validateTarget(payload.botId, payload.targetBotId);
+        const refusal = this.validateTarget(payload.botId, payload.targetBotId, Object.keys(payload.changes));
         if (refusal) throw new ProfileRequestError(refusal, 404, { terminal: true });
       }
       if (profileRevision(target) !== payload.expectedRevision) {

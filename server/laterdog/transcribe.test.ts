@@ -73,7 +73,7 @@ describe("transcribing a voice note", () => {
   it("stops reading a recording that grows past the limit without a declared length", async () => {
     const piece = new Uint8Array(1024 * 1024);
     const pieces = Array.from({ length: 11 }, () => piece);
-    expect(await readAudio(request(pieces))).toBe("too-large");
+    expect(await readAudio(request(pieces), 10 * 1024 * 1024)).toBe("too-large");
     expect(await readAudio(request(pieces), 12 * 1024 * 1024)).toHaveLength(11 * 1024 * 1024);
   });
 
