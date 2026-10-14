@@ -367,7 +367,7 @@ describe("Pi MCP extension registration", () => {
     try {
       expect(f.tools.map((tool) => tool.name)).toEqual(["mail_read_notes"]);
       const blocked = await f.tools[0].execute("denied", {}, undefined, undefined, { ui: { confirm: async () => false } });
-      expect(blocked.content).toMatchObject([{ text: "Blocked by the user." }]);
+      expect(blocked.content).toMatchObject([{ text: "Blocked by the person." }]);
       expect(existsSync(receipt)).toBe(false);
       await f.tools[0].execute("allowed", {}, undefined, undefined, { ui: { confirm: async () => true } });
       expect(readFileSync(receipt, "utf8")).toBe("read-notes");

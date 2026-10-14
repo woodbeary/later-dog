@@ -400,8 +400,8 @@ it("keeps going on Codex when every Claude account is recharging, on the model t
     fixture.evidence.push({ afterCodex: rows });
     expect(limitRows(rows)).toHaveLength(0);
     expect(carried(rows).map((row) => row.tool.name).at(-1)).toBe("recovery: Claude is recharging. Continuing on Codex.");
+    await expect.poll(() => fixture.codexCalls().filter((call) => call.method === "thread/start").length, { timeout: 10_000 }).toBe(1);
     const started = fixture.codexCalls().filter((call) => call.method === "thread/start");
-    expect(started).toHaveLength(1);
     expect(started[0]!.params.model).toBe("gpt-page-two");
     await chat.send("NEXT_MESSAGE_STRAIGHT_TO_CODEX");
     await chat.settled((rows) => repliesAfter(rows, "NEXT_MESSAGE_STRAIGHT_TO_CODEX").some((row) => row.text === "Finished on Codex"));

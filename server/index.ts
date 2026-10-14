@@ -676,6 +676,7 @@ import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
 import { createThreadModelRoutes } from "./routes/thread-models.ts";
 import { createContinueOnRoutes } from "./routes/continue-on.ts";
+import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
@@ -13488,6 +13489,15 @@ ROUTES.push(createThreadModelRoutes({
   mayChangeModel: (auth) => !CLOUD_HOME || cloudOwnerSession(auth),
   reply: (botId) => publicBot(store.bot(botId)!),
 }));
+ROUTES.push(createHandoffContinueRoutes({
+  root: (id) => roomHandoffs.nodes.get(id),
+  refusal: cloudThreadRefusal,
+  continueTree: (id) => roomHandoffs.continueTree(id),
+  markContinuing: (threadId, handoffId) => {
+    const offer = store.messagesFor(threadId).find(message => message.tool?.resume?.handoffId === handoffId);
+    if (offer) store.patchMessage(threadId, offer.id, { tool: continuingNoticeTool() });
+  },
+}));
 ROUTES.push(createContinueOnRoutes({
   task: requestedTaskBot,
   refusal: cloudThreadRefusal,
@@ -19563,21 +19573,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         return json(res, 200, { ok: true, outcome });
       });
-    }
-    m = path.match(/^\/api\/handoffs\/([\w-]+)\/continue$/);
-    if (m && method === "POST") {
-      const root = roomHandoffs.nodes.get(m[1]);
-      if (!root || root.parentId) return json(res, 404, { error: "no such work to continue" });
-      const notYours = cloudThreadRefusal(auth, root.threadId);
-      if (notYours) return json(res, 403, { error: notYours });
-      try {
-        const result = roomHandoffs.continueTree(root.id);
-        const offer = store.messagesFor(root.threadId).find(message => message.tool?.resume?.handoffId === root.id);
-        if (offer) store.patchMessage(root.threadId, offer.id, { tool: continuingNoticeTool() });
-        return json(res, 200, { ok: true, ...result });
-      } catch (error) {
-        return json(res, 409, { error: error instanceof Error ? error.message : "that work could not be continued" });
-      }
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/interrupt$/);
     if (m && method === "POST") {
