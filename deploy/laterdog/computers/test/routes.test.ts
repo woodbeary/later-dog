@@ -104,17 +104,14 @@ describe("desktop routes", () => {
     expect(route("GET", base)).toEqual({ kind: "redirect", location: `${base}/` });
   });
 
-  it("reaches the page, status, socket and noVNC modules", () => {
+  it("reaches the page, status and socket", () => {
     expect(route("GET", `${base}/`)).toEqual({ kind: "desktop", id: ID, token: TOKEN, resource: { type: "page" } });
     expect(route("GET", `${base}/status`)).toMatchObject({ resource: { type: "status" } });
     expect(route("GET", `${base}/websockify`)).toMatchObject({ resource: { type: "socket" } });
-    expect(route("GET", `${base}/core/rfb.js`)).toMatchObject({ resource: { type: "asset", path: "core/rfb.js" } });
-    expect(route("GET", `${base}/core/util/logging.js`)).toMatchObject({ resource: { type: "asset", path: "core/util/logging.js" } });
-    expect(route("GET", `${base}/vendor/pako/lib/zlib/inflate.js`)).toMatchObject({ resource: { type: "asset", path: "vendor/pako/lib/zlib/inflate.js" } });
   });
 
   it("does not reach anything else in the container", () => {
-    for (const rest of ["vnc.html", "app/ui.js", "core/", "core/../vnc.html", "core/%2e%2e/vnc.html", "core/.hidden.js", "defaults.json", "core/rfb.js/x", "status/x"]) {
+    for (const rest of ["vnc.html", "app/ui.js", "core/", "core/../vnc.html", "core/%2e%2e/vnc.html", "core/.hidden.js", "defaults.json", "core/rfb.js", "core/util/logging.js", "vendor/pako/lib/zlib/inflate.js", "status/x"]) {
       expect(route("GET", `${base}/${rest}`), rest).toEqual({ kind: "not_found", api: false });
     }
   });

@@ -9,6 +9,7 @@ import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size, commandEnv, redact } 
 import { route } from "./routes";
 import { trialPolicy } from "./trial";
 import { trials } from "./trial-registry";
+import { DESKTOP_GRACE_MS, DESKTOP_SCRIPT, PAINT_GRACE_MS, READY_POLL_MS, type Upstream, answersRfb, desktopFromExit, holdUpstream } from "./ready";
 import { messagePage, newNonce, pageHeaders, viewerPage } from "./viewer";
 
 export type State = "starting" | "running" | "sleeping" | "stopping" | "error";
@@ -18,6 +19,7 @@ export interface ComputerView {
   name: string;
   size: Size;
   state: State;
+  desktopAvailable?: boolean;
   createdAt: string;
   lastActiveAt: string;
   snapshotAt?: string;
@@ -38,6 +40,8 @@ interface ComputerRecord {
   name: string;
   size: Size;
   state: State;
+  desktopDrawn?: boolean;
+  readyAt?: number;
   createdAt: number;
   lastActiveAt: number;
   generation: number;
@@ -70,18 +74,13 @@ const DOG_ENV: Record<string, string> = {
   NO_AT_BRIDGE: "1",
 };
 const BOOT_TIMEOUT_MS = 5 * MINUTE;
-const READY_POLL_MS = 1000;
 const STOPPED_GRACE_MS = 30_000;
+const VIEWER_HOLD_MS = 20_000;
+const VIEWER_ATTEMPT_MS = 3_000;
 const EXEC_OUTPUT_CAP = 1024 * 1024;
 const ACTIVITY_WRITE_MS = 30_000;
 const BUDGET_GRACE_MS = 10 * MINUTE;
 
-const READY_SCRIPT = [
-  `xdotool getdisplaygeometry >/dev/null || exit 1`,
-  `exec 3<>/dev/tcp/127.0.0.1/5900 && head -c 12 <&3 | grep -q '^RFB ' || exit 1`,
-  `xdotool search --onlyvisible --class '^xfce4-panel$' >/dev/null && xdotool search --onlyvisible --class '^xfdesktop$' >/dev/null || exit 3`,
-].join("\n");
-const DESKTOP_GRACE_MS = 30_000;
 const READ_SCRIPT = `f=$1; [ -f "$f" ] || exit 44; size=$(stat -c %s -- "$f") || exit 1; [ "$size" -le ${FILE_MAX_BYTES} ] || exit 45; exec cat -- "$f"`;
 const WRITE_SCRIPT = `f=$1; [ ! -d "$f" ] || exit 48; mkdir -p -- "$(dirname -- "$f")" || exit 47; cat > "$f"`;
 const SCREENSHOT_SCRIPT = `f=$(mktemp --suffix=.jpg) || exit 1; trap 'rm -f "$f"' EXIT; scrot --overwrite --pointer --quality 75 "$f" >/dev/null && cat -- "$f"`;
@@ -99,6 +98,7 @@ function view(record: ComputerRecord): ComputerView {
     name: record.name,
     size: record.size,
     state: record.state,
+    desktopAvailable: record.state === "running" && record.desktopDrawn !== false,
     createdAt: iso(record.createdAt),
     lastActiveAt: iso(record.lastActiveAt),
     ...(record.snapshotAt === undefined ? {} : { snapshotAt: iso(record.snapshotAt) }),
@@ -314,6 +314,7 @@ export class DogComputer extends DurableObject<Env> {
 
   async screenshot(): Promise<Result<Uint8Array>> {
     return this.using(async () => {
+      await this.untilDesktop();
       const result = await this.run(["bash", "-c", SCREENSHOT_SCRIPT], { timeoutMs: 20_000, cap: FILE_MAX_BYTES, user: DOG, cwd: DOG_HOME });
       if (result.exitCode !== 0 || result.stdout.bytes.byteLength === 0) {
         return fail(502, "screenshot_failed", `The screenshot failed: ${outputText(result.stderr).trim() || `exit ${result.exitCode}`}`);
@@ -329,7 +330,7 @@ export class DogComputer extends DurableObject<Env> {
       const expiresAt = Math.floor(Date.now() / 1000) + DESKTOP_LINK_TTL_SECONDS;
       const token = await signDesktopToken(secret, record.id, record.generation, expiresAt);
       return ok({ url: `${origin}/desktop/${record.id}/${token}/`, expiresAt: iso(expiresAt * 1000) });
-    });
+    }, { whileStarting: true });
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -353,7 +354,7 @@ export class DogComputer extends DurableObject<Env> {
     await this.reconcile();
     const current = this.load();
     if (!current || this.deleting) return gone();
-    const awake = current.state === "running" && this.ctx.container?.running === true;
+    const awake = (current.state === "running" || current.state === "starting") && this.ctx.container?.running === true;
     switch (target.resource.type) {
       case "status":
         return json({ state: current.state, name: current.name });
@@ -363,49 +364,36 @@ export class DogComputer extends DurableObject<Env> {
         const expiresAtMs = Number(target.token.split(".")[0]) * 1000;
         return new Response(viewerPage({ name: current.name, expiresAtMs, nonce }), { headers: pageHeaders(url, nonce) });
       }
-      case "asset":
-        if (!awake) return new Response("The computer is asleep.", { status: 409 });
-        return this.proxyAsset(target.resource.path);
       case "socket":
         if (!awake) return new Response("The computer is asleep.", { status: 409 });
-        return this.openViewer(request, url);
+        return this.openViewer(request, url, current.state === "starting");
     }
   }
 
-  private async proxyAsset(path: string): Promise<Response> {
-    const upstream = await this.container().getTcpPort(DESKTOP_PORT).fetch(`http://container/${path}`);
-    if (!upstream.ok) {
-      await upstream.body?.cancel();
-      return new Response("Not found", { status: upstream.status === 404 ? 404 : 502 });
-    }
-    return new Response(upstream.body, {
-      headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "private, max-age=3600", "x-content-type-options": "nosniff" },
+  private async connectViewer(starting: boolean): Promise<Upstream | null> {
+    return holdUpstream(this.container().getTcpPort(DESKTOP_PORT), {
+      holdMs: starting ? VIEWER_HOLD_MS : 0,
+      attemptMs: VIEWER_ATTEMPT_MS,
+      stillWanted: () => this.load()?.state === "starting" && !this.deleting,
     });
   }
 
-  private async openViewer(request: Request, url: URL): Promise<Response> {
+  private async openViewer(request: Request, url: URL, starting: boolean): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected a WebSocket upgrade.", { status: 426, headers: { upgrade: "websocket" } });
     }
     const origin = request.headers.get("origin");
     if (origin !== null && origin !== url.origin) return new Response("Cross-origin viewers are refused.", { status: 403 });
-    let upstream: WebSocket | null;
-    try {
-      const response = await this.container().getTcpPort(DESKTOP_PORT).fetch("http://container/websockify", { headers: { upgrade: "websocket" } });
-      upstream = response.webSocket;
-    } catch (error) {
-      console.error(`laterdog computers: viewer connection to websockify failed: ${describeError(error)}`);
-      return new Response("The desktop did not answer.", { status: 502 });
-    }
-    if (!upstream) return new Response("The desktop refused the connection.", { status: 502 });
-    upstream.binaryType = "arraybuffer";
-    upstream.accept();
+    const connected = await this.connectViewer(starting);
+    if (!connected) return new Response("The desktop did not answer.", { status: 502 });
+    const { socket: upstream, first } = connected;
     const pair = new WebSocketPair();
     const [client, browser] = [pair[0], pair[1]];
     browser.binaryType = "arraybuffer";
     browser.accept();
     this.viewers.set(browser, upstream);
     this.markActive();
+    browser.send(first.data);
     const drop = () => {
       if (this.viewers.delete(browser)) this.markActive();
     };
@@ -452,6 +440,7 @@ export class DogComputer extends DurableObject<Env> {
     if (!record) return;
     try {
       if (record.state === "starting") await this.awaitReady(record.generation);
+      else if (record.state === "running" && record.desktopDrawn === false) await this.awaitDesktop(record.generation);
       else if (record.state === "running") await this.watch();
       else if (record.state === "stopping") await this.sleep("idle");
     } catch (error) {
@@ -463,7 +452,6 @@ export class DogComputer extends DurableObject<Env> {
   private async awaitReady(generation: number): Promise<void> {
     const container = this.container();
     const begun = this.load()?.awakeSince ?? Date.now();
-    let displaySince: number | undefined;
     for (;;) {
       const record = this.load();
       if (!record || this.deleting || record.generation !== generation || record.state !== "starting") return;
@@ -472,26 +460,59 @@ export class DogComputer extends DurableObject<Env> {
       if (!container.running && elapsed > STOPPED_GRACE_MS) {
         return this.failBoot(generation, record.snapshot ? "The computer stopped while restoring its snapshot." : "The computer stopped while starting.");
       }
-      const readiness = container.running ? await this.ready() : "none";
-      if (readiness === "display") displaySince ??= Date.now();
-      const withoutDesktop = readiness === "display" && Date.now() - displaySince! >= DESKTOP_GRACE_MS;
-      if (readiness === "desktop" || withoutDesktop) {
+      if (container.running && (await answersRfb(container.getTcpPort(DESKTOP_PORT)))) {
         const now = Date.now();
         const ready = this.update((r) => {
           if (r.generation === generation && r.state === "starting") {
             r.state = "running";
+            r.readyAt = now;
             r.lastActiveAt = now;
           }
         });
         if (ready?.state === "running" && ready.generation === generation) {
-          const how = `${ready.snapshot ? "from snapshot" : "from image"}${withoutDesktop ? "; its desktop session never drew" : ""}`;
-          console.log(`laterdog computers: ${ready.id} ready ${now - begun} ms after start (generation ${generation}, ${how})`);
+          console.log(`laterdog computers: ${ready.id} screen answering ${now - begun} ms after start (generation ${generation}, ${ready.snapshot ? "from snapshot" : "from image"})`);
+          await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
           await this.publish();
-          await this.setBrowserDefault(ready.id);
+          await this.awaitDesktop(generation);
+        }
+        return;
+      }
+      await sleep(READY_POLL_MS);
+    }
+  }
+
+  private async awaitDesktop(generation: number): Promise<void> {
+    let unpaintedSince: number | undefined;
+    for (;;) {
+      const record = this.load();
+      if (!record || this.deleting || record.generation !== generation || record.state !== "running" || record.desktopDrawn !== false) return;
+      const now = Date.now();
+      const readyAt = record.readyAt ?? now;
+      const seen = this.ctx.container?.running ? await this.desktop() : "missing";
+      if (seen === "unpainted") unpaintedSince ??= now;
+      const gaveUp = seen === "missing" ? now - readyAt >= DESKTOP_GRACE_MS : seen === "unpainted" && now - unpaintedSince! >= PAINT_GRACE_MS;
+      if (seen === "drawn" || gaveUp) {
+        const drawn = this.update((r) => {
+          if (r.generation === generation && r.state === "running") r.desktopDrawn = true;
+        });
+        if (drawn?.desktopDrawn) {
+          const how = seen === "drawn" ? "drawn" : seen === "unpainted" ? "up but never painted" : "never drew";
+          console.log(`laterdog computers: ${drawn.id} desktop ${how} ${Date.now() - (drawn.awakeSince ?? readyAt)} ms after start (generation ${generation})`);
+          await this.publish();
+          await this.setBrowserDefault(drawn.id);
           await this.scheduleWatch();
         }
         return;
       }
+      await sleep(READY_POLL_MS);
+    }
+  }
+
+  private async untilDesktop(): Promise<void> {
+    for (;;) {
+      const record = this.load();
+      if (!record || this.deleting || record.state !== "running" || record.desktopDrawn !== false) return;
+      if (Date.now() - (record.readyAt ?? Date.now()) >= DESKTOP_GRACE_MS) return;
       await sleep(READY_POLL_MS);
     }
   }
@@ -505,16 +526,12 @@ export class DogComputer extends DurableObject<Env> {
     }
   }
 
-  private async ready(): Promise<"desktop" | "display" | "none"> {
-    const container = this.container();
+  private async desktop(): Promise<"drawn" | "unpainted" | "missing"> {
     try {
-      const response = await within(container.getTcpPort(DESKTOP_PORT).fetch("http://container/defaults.json"), 3_000);
-      await response?.body?.cancel();
-      if (!response?.ok) return "none";
-      const result = await this.run(["bash", "-c", READY_SCRIPT], { timeoutMs: 5_000, cap: 1024, user: DOG });
-      return result.exitCode === 0 ? "desktop" : result.exitCode === 3 ? "display" : "none";
+      const result = await this.run(["bash", "-c", DESKTOP_SCRIPT], { timeoutMs: 5_000, cap: 1024, user: DOG });
+      return desktopFromExit(result.exitCode);
     } catch {
-      return "none";
+      return "missing";
     }
   }
 
@@ -658,6 +675,8 @@ export class DogComputer extends DurableObject<Env> {
     const record = this.update((r) => {
       r.generation += 1;
       r.state = "starting";
+      r.desktopDrawn = false;
+      delete r.readyAt;
       r.awakeSince = now;
       r.lastActiveAt = now;
       delete r.error;
@@ -706,10 +725,11 @@ export class DogComputer extends DurableObject<Env> {
     return ok(undefined);
   }
 
-  private async using<T>(work: (record: ComputerRecord) => Promise<Result<T>>): Promise<Result<T>> {
+  private async using<T>(work: (record: ComputerRecord) => Promise<Result<T>>, options: { whileStarting?: boolean } = {}): Promise<Result<T>> {
     const record = this.load();
     if (!record || this.deleting) return notFound();
-    if (record.state !== "running" || !this.ctx.container?.running) {
+    const usable = record.state === "running" || (options.whileStarting === true && record.state === "starting");
+    if (!usable || !this.ctx.container?.running) {
       await this.reconcile();
       const current = this.load() ?? record;
       const hint = current.state === "starting" ? "it is still starting; try again shortly" : `it is ${current.state}; wake it first`;
@@ -721,7 +741,8 @@ export class DogComputer extends DurableObject<Env> {
       return await work(record);
     } catch (error) {
       await this.reconcile();
-      if (this.load()?.state !== "running") return fail(409, "asleep", "The computer stopped while the request was running.");
+      const after = this.load()?.state;
+      if (after !== "running" && !(options.whileStarting === true && after === "starting")) return fail(409, "asleep", "The computer stopped while the request was running.");
       console.error(`laterdog computers: ${record.id} operation failed: ${describeError(error)}`);
       return fail(502, "container_error", describeError(error));
     } finally {
