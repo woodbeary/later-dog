@@ -18,6 +18,7 @@ import { appVersion, openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
 import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { AboutMeSettings } from "./AboutMeSettings";
+import { AutoReviewSettings } from "./AutoReviewSettings";
 import { AccountsPanel, AccountsRefresh } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { TypingSuggestionsRows } from "./TypingSuggestionsSettings";
@@ -337,6 +338,11 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <div className="border-t border-hairline/40 py-4">
             <AboutMeSettings />
           </div>
+        </SettingsRows>
+      </SettingsGroup>
+      <SettingsGroup label={t("settings.autoReview.title")} testId="auto-review">
+        <SettingsRows>
+          <AutoReviewSettings />
         </SettingsRows>
       </SettingsGroup>
       <SettingsGroup label={t("settings.section.appearance")} testId="appearance">

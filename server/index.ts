@@ -358,6 +358,7 @@ import * as tts from "./tts/index.ts";
 import { createDecider, deciderIncludedHere, deciderReady, deciderSavePatch, describeDecider } from "./decider/index.ts";
 import { decideRoomResponder, type RoomRoutingInput } from "./decider/room-routing.ts";
 import { describeClef } from "./laterdog/clef-config.ts";
+import { createClef } from "./laterdog/clef-wiring.ts";
 import { createLiveSession, liveAttachUrl, LiveSessionError, type LiveBot, type LiveHistoryMessage } from "./live-call.ts";
 import { LiveCallController, LiveCallSignedOutError, type LiveSocket } from "./live-call-controller.ts";
 import { toUtterances } from "./tts/speech-text.ts";
@@ -6352,8 +6353,49 @@ function recoverUnsettledTurn(event: RuntimeEvent, error: unknown): void {
   }, { everyMs: 3_000, forMs: 10 * 60_000, onGiveUp: (giveUp) => console.error(`turn end: ${threadId} is still marked working after a failed save`, giveUp) });
 }
 
-bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
+function requestAsker(threadId: string) {
+  const owner = store.botByThread(threadId);
+  const direct = owner ? botForThread(owner.id, threadId) ?? undefined : undefined;
+  if (direct) return direct;
+  const speaker = store.groupByThread(threadId) ? groupSpeakers.get(threadId) : undefined;
+  return speaker ? store.bot(speaker.botId) : undefined;
+}
+
+const clef = createClef({
+  decider,
+  config: () => cfg,
+  deliver: (event) => onProviderEvent(event),
+  asker: (event) => {
+    const asker = requestAsker(event.threadId);
+    if (!asker) return null;
+    const guestDriven = cloudGuestDriven(event.threadId);
+    const command = !event.requiresExplicitApproval && event.command && !guestDriven
+      ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
+      : null;
+    return {
+      id: asker.id,
+      name: asker.name,
+      guestDriven,
+      approvalMode: guestDriven ? "ask" : approvalModeForTurn(asker, isInternalTurn(event.threadId), event.threadId),
+      commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command)),
+    };
+  },
+  respond: async (event, behavior, message) => {
+    const instance = event.providerInstanceId
+      ? registry.get(event.providerInstanceId)
+      : registry.get(requestAsker(event.threadId)?.modelSelection.instanceId ?? "");
+    return instance ? instance.adapter.respondToRequest(event.threadId, event.requestId!, { behavior, message }).catch((): "failed" => "failed") : "failed";
+  },
+  note: (threadId, text, ok) => {
+    const speaker = store.groupByThread(threadId) ? groupSpeakers.get(threadId) : undefined;
+    store.appendMessage(threadId, { role: "bot", kind: "activity", ...(speaker ? { from: speaker } : {}), tool: { name: text, ok } });
+  },
+  record: (row) => appendDecision(DATA_DIR, { ...row, source: "auto-review" }),
+});
+
+const onProviderEvent = guardTurnEnd((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
+  if (clef.review.intercept(event)) return;
   const localVmTarget = localVmThreadTargets.get(event.threadId);
   if (localVmTarget) {
     localVmLeaseFor(localVmTarget).touch(event.threadId);
@@ -6935,7 +6977,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       break;
     }
   }
-}, recoverUnsettledTurn));
+}, recoverUnsettledTurn);
+bus.subscribe(onProviderEvent);
 
 const delegationWatch = new Map<string, {
   channelId?: string;
