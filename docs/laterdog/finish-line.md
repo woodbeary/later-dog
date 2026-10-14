@@ -27,7 +27,7 @@ Work stops at a gate before the next one starts.
 | Gate | Priority | Done when | State |
 | --- | --- | --- | --- |
 | G0 Consolidated | | Every in-flight change committed and pushed; integration branch `laterdog/checkpoint`; this tracker; no-comments check in the phone repo | done except the phone check, which is L2's first step |
-| G1 Phone on production | P0 | Accounts, homes and included AI deployed; the review sign-in reaches a home and a dog replies; the person signs in on their iPhone | deployed: R2 `laterdog-homes`; home image in the Cloudflare registry; computers Worker `011bfbc1`; `laterdog-home` `a8733e4d` with its container application; accounts `a82a3086` on accounts.later.dog. Waiting on the wildcard DNS record and the review sign-in check |
+| G1 Phone on production | P0 | Accounts, homes and included AI deployed; the review sign-in reaches a home and a dog replies; the person signs in on their iPhone | deployed and fixed: home image `1a2ddb4b1330` (a new home adopts the services it seeded itself; the crash loop is gone, cold start about 13 s), home Worker `7bf71f00`, accounts `c30bbf09` (asking for a code wakes an existing home). Phone sign-in carries the AI agreement (`later-dog-phone` `66920e4`). Waiting on the wildcard DNS record, then the person's sign-in and the review check |
 | G2 TestFlight in review | P0 | Build 5 checked on the person's phone through internal testing, then submitted to Beta App Review | waiting on G1 |
 | G3 Desktop 0.3.28 | P1 | Keys save; honest handoffs with Continue; Keep going across engines; local-tool token; question cards work; roster across folders; PR #36 checked on screen; sealed install and update pass | waiting on lanes L3, L4 |
 | G4 Desktop 0.3.29 with Cloud | P1 | `dev` merged; desktop signs in to Cloud; same dogs on phone and Mac; lending checked through Cloudflare | waiting on G1, G3 |
@@ -41,11 +41,20 @@ Work stops at a gate before the next one starts.
 | Lane | Branch | Worktree | Status | Next step | Done when |
 | --- | --- | --- | --- | --- | --- |
 | L0 Integration | `laterdog/checkpoint` (PR #38) | `/Volumes/laterdog-phone/lanes/checkpoint` | main + #36 + roster + #37 merged; #37 test fixed; tracker added | CI on PR #38; merge lane PRs as they land | CI green |
-| L1 Cloud ready | `laterdog/home` (PR #39 into dev) | `/Volumes/laterdog-phone/lanes/home` | done: production configs, decisions accept images and a model, optional CI image push, deploy sheet; tests 211 + 39 + 96 green | none | done |
-| L2 Phone review-ready | `phone/review-ready` (later-dog-phone) | the phone repo's own checkout (served to the test iPhone) | running | no-comments check; probe fix; live updates recover; data choice before first send; New dog scroll; visual pass; review notes | proven on the test iPhone; production check after G1 |
+| L1 Cloud ready | `laterdog/home` (PR #39 into dev) | `/Volumes/laterdog-phone/lanes/home` | done, plus fixes after deploy: seeded services adopted (`1a2ddb4b1`), code request wakes the home (`013bfa1ff`), image pin (`4362e2de1`) | none | done |
+| L2 Phone review-ready | `phone/review-ready` → `main` (later-dog-phone, `e174c57`) | the phone repo's own checkout | done: no-comments check, probe fix, live updates recover, data choice before the first send, New dog scrolls, visual pass, Terms and Privacy on sign-in, no plan row; 190 tests; published over the air to `beta` (`857e9992`) | Build 5 and the review submission at G2 | done |
 | L3 Reliability | `laterdog/reliability` | `/Volumes/laterdog-phone/lanes/reliability` | all seven fixes coded with tests; draft PR into `laterdog/checkpoint`; fixture proof recorded in the PR | review the PR; Jacob's live checks: a long dog-to-dog job past 30 minutes, Continue after a time-out, a real Claude-to-Codex continuation, Claude Code and Codex on this Mac using the local-tools token, a full disk | PR merged into `laterdog/checkpoint` and the live checks above pass |
-| L4 PR #36 on screen | `laterdog/visual-36` | `/Volumes/laterdog-phone/lanes/visual36` | running | screenshot every #36 change beside its reference; fix; question card works and folds | sheet with every item passing |
-| L5–L14 | | | wave 2 and 3 | | |
+| L4 PR #36 on screen | `laterdog/visual-36` (PR #40, merged) | `/Volumes/laterdog-phone/lanes/visual36` | done: every #36 change screened beside its reference; questions one at a time with Next and Back, folded answers; account menu, progress peek and model button aligned | none | done |
+| L6 Thinking, scroll, sidebar | `laterdog/thinking` | `/Volumes/laterdog-phone/lanes/thinking` | running | one thinking row, fewer bubbles, green dot, NEW divider and new-messages pill, sidebar collapse, copy id | sheet beside the reference |
+| L7 Accounts, usage, update | `laterdog/accounts-ui` | `/Volumes/laterdog-phone/lanes/accounts` | running | battery rows, account menu usage, add account in place, model never switches account, quiet update pill | sheet beside the reference |
+| L8 Decision layer (Clef) | `laterdog/clef` | `/Volumes/laterdog-phone/lanes/clef` | running | auto-review rules, finished-or-stopped check, screen check, screenshot filter, benchmark | benchmark numbers |
+| L5, L9–L14 | | | waiting for slots | | |
+
+## Notes for whoever picks this up
+
+- After a home image deploy, Cloudflare can keep starting the old image for a few minutes. `wrangler containers instances <app id>` shows the version; wait for the new one before judging a fix.
+- A home's Durable Object keeps its old Worker code while its container runs. A Worker deploy reaches a running home only after it sleeps.
+- Homes are reached at `h<id>-home.later.dog`, which needs a proxied wildcard record (`*` AAAA `100::`) on later.dog.
 
 ## Evidence
 
