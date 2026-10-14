@@ -5,11 +5,12 @@ import { autoVerdict } from "../auto-approve.ts";
 import type { RequestOutcome } from "../contracts.ts";
 import { deciderImagesReady, deciderReady, type Decider } from "../decider/index.ts";
 import { createAutoReview, type ReviewContext } from "./clef-auto-review.ts";
+import { createBreaker } from "./clef-breaker.ts";
 import { autoReviewRules } from "./clef-config.ts";
 import { sipsShrinker } from "./clef-image-shrink.ts";
 import { appendClefLog } from "./clef-log.ts";
 import { createScreenCheck } from "./clef-screen-check.ts";
-import { createScreenshotFilter } from "./clef-screenshot-filter.ts";
+import { createScreenshotFilter, type Frame } from "./clef-screenshot-filter.ts";
 import { createTurnEndWatcher, type TurnEndInput } from "./clef-turn-end.ts";
 
 type Opened = Extract<RuntimeEvent, { type: "request.opened" }>;
@@ -35,6 +36,8 @@ export interface ClefDeps {
   hasBudget(): boolean;
   accountAvailable(input: TurnEndInput): boolean;
   canStart(input: TurnEndInput): boolean;
+  waitingOn(input: TurnEndInput): string | null;
+  threadAlive(threadId: string): boolean;
   nudge(input: TurnEndInput, text: string): Promise<void>;
   record(row: {
     threadId: string;
@@ -54,15 +57,30 @@ export function reviewContextFor(asker: ClefAsker | null, event: Opened): Review
     requiresExplicitApproval: event.requiresExplicitApproval,
     commandAllowed: asker.commandAllowed,
   });
-  if (verdict.approve) return null;
-  return {
-    botId: asker.id,
-    botName: asker.name,
-    mayAutoApprove: verdict.source === "no-grant" && !event.requiresExplicitApproval && !ASKS_A_PERSON.test(event.tool),
-  };
+  const mayAutoApprove = !verdict.approve && verdict.source === "no-grant" && !event.requiresExplicitApproval &&
+    event.approvalScope !== "local-computer" && !event.choices?.length && !ASKS_A_PERSON.test(event.tool);
+  return { botId: asker.id, botName: asker.name, mayAutoApprove };
 }
 
+const isThenable = (value: unknown): value is PromiseLike<unknown> =>
+  typeof (value as { then?: unknown } | null | undefined)?.then === "function";
+
+const quietly = <A extends unknown[]>(run: (...args: A) => unknown) => (...args: A): void => {
+  try {
+    const result = run(...args);
+    if (isThenable(result)) void Promise.resolve(result).catch(() => undefined);
+  } catch {
+    return;
+  }
+};
+
 export function createClef(deps: ClefDeps) {
+  const breaker = createBreaker();
+  const record = quietly(deps.record);
+  const note = quietly(deps.note);
+  const log = quietly((row: Parameters<typeof appendClefLog>[1]) => appendClefLog(deps.dataDir, row));
+  const shrink = sipsShrinker();
+
   const review = createAutoReview({
     decider: deps.decider,
     enabled: () => deciderReady(deps.config(), "autoReview"),
@@ -70,8 +88,8 @@ export function createClef(deps: ClefDeps) {
     context: (event) => reviewContextFor(deps.asker(event), event),
     deliver: deps.deliver,
     answer: deps.respond,
-    note: (event, text, ok) => deps.note(event.threadId, text, ok),
-    record: (event, decision, rule, context) => deps.record({
+    note: (event, text, ok) => note(event.threadId, text, ok),
+    record: (event, decision, rule, context) => record({
       threadId: event.threadId,
       requestId: event.requestId,
       botId: context.botId,
@@ -81,27 +99,61 @@ export function createClef(deps: ClefDeps) {
       decision,
       rule,
     }),
+    breaker,
   });
+
   const turnEnd = createTurnEndWatcher({
     decider: deps.decider,
     enabled: () => deciderReady(deps.config(), "turnEnd"),
     hasBudget: deps.hasBudget,
     accountAvailable: deps.accountAvailable,
     canStart: deps.canStart,
+    waitingOn: deps.waitingOn,
+    threadAlive: deps.threadAlive,
+    announce: (input, text) => note(input.threadId, text, true),
     nudge: deps.nudge,
-    record: (row) => appendClefLog(deps.dataDir, row),
+    record: log,
+    breaker,
   });
+
   const screen = createScreenCheck({
     decider: deps.decider,
     enabled: () => deciderImagesReady(deps.config(), "screenCheck"),
-    record: (row) => appendClefLog(deps.dataDir, row),
-    shrink: sipsShrinker(),
+    record: log,
+    shrink,
+    breaker,
   });
+
   const screenshots = createScreenshotFilter({
     decider: deps.decider,
     enabled: () => deciderImagesReady(deps.config(), "screenshotFilter"),
-    record: (row) => appendClefLog(deps.dataDir, row),
-    shrink: sipsShrinker(),
+    record: log,
+    shrink,
+    breaker,
+    threadAlive: deps.threadAlive,
   });
-  return { review, turnEnd, screen, screenshots };
+
+  const afterTurn = (input: TurnEndInput): Promise<void> =>
+    Promise.resolve()
+      .then(() => turnEnd.afterTurn(input))
+      .then(() => undefined, () => undefined);
+
+  const finalScreen = (input: { threadId: string; frame: Frame; task: string; reply: string; post(): void }): void => {
+    if (!screenshots.active()) {
+      input.post();
+      return;
+    }
+    void screenshots.shouldPost(input)
+      .then((outcome) => {
+        if (outcome.post) input.post();
+      })
+      .catch(() => undefined);
+  };
+
+  const forgetThread = (threadId: string): void => {
+    turnEnd.forget(threadId);
+    screenshots.forget(threadId);
+  };
+
+  return { review, turnEnd: { ...turnEnd, afterTurn }, screen, screenshots, finalScreen, forgetThread };
 }

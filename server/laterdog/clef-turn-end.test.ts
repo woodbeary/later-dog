@@ -19,7 +19,7 @@ const PATH = [
 function input(over: Partial<TurnEndInput> = {}): TurnEndInput {
   return {
     threadId: "t1", botId: "b1", ok: true, reply: "I moved the page. Next I will update the tests.", path: PATH,
-    isCurrent: () => true, stoppedByPerson: false, usageLimited: false, ...over,
+    isCurrent: () => true, stoppedByPerson: () => false, usageLimited: false, ...over,
   };
 }
 
@@ -33,6 +33,7 @@ function harness(script: FakeScript, over: Partial<TurnEndDeps> = {}) {
     hasBudget: () => true,
     accountAvailable: () => true,
     canStart: () => true,
+    waitingOn: () => null,
     nudge: async (_input, text) => { nudges.push(text); },
     record: (row) => { rows.push(row); },
     ...over,
@@ -107,7 +108,7 @@ describe("createTurnEndWatcher", () => {
 
   it("never nudges a task the person stopped, a failed turn, or a usage limit, and never asks then", async () => {
     const h = harness(says("stopped_midway", 0.99));
-    expect(await h.watcher.afterTurn(input({ stoppedByPerson: true }))).toMatchObject({ action: "skipped", reason: "stopped_by_person" });
+    expect(await h.watcher.afterTurn(input({ stoppedByPerson: () => true }))).toMatchObject({ action: "skipped", reason: "stopped_by_person" });
     expect(await h.watcher.afterTurn(input({ ok: false }))).toMatchObject({ action: "skipped", reason: "turn_failed" });
     expect(await h.watcher.afterTurn(input({ usageLimited: true }))).toMatchObject({ action: "skipped", reason: "usage_limit" });
     expect(await h.watcher.afterTurn(input({ skip: true }))).toMatchObject({ action: "skipped", reason: "not_direct_work" });
@@ -131,11 +132,66 @@ describe("createTurnEndWatcher", () => {
     const decider = later.decider;
     const racing = createTurnEndWatcher({
       decider: { ask: async (...args) => { stopped = true; return decider.ask(...args); } },
-      enabled: () => true, hasBudget: () => true, accountAvailable: () => true, canStart: () => true,
+      enabled: () => true, hasBudget: () => true, accountAvailable: () => true, canStart: () => true, waitingOn: () => null,
       nudge: async () => { throw new Error("must not run"); }, record: () => undefined,
     });
-    expect(await racing.afterTurn(input({ stoppedByPerson: false, isCurrent: () => !stopped }))).toMatchObject({ action: "left" });
+    expect(await racing.afterTurn(input({ isCurrent: () => !stopped }))).toMatchObject({ action: "left" });
     for (const h of [noBudget, noAccount, busy]) expect(h.nudges).toHaveLength(0);
+  });
+
+  it("re-reads the stop state at nudge time, so a stop during the decision wins", async () => {
+    let stopped = false;
+    const h = harness(() => { stopped = true; return { answers: { ended: choiceAnswer("stopped_midway", 0.99, CHOICES) } }; });
+    expect(await h.watcher.afterTurn(input({ stoppedByPerson: () => stopped }))).toMatchObject({ action: "left" });
+    expect(h.nudges).toHaveLength(0);
+    expect(h.rows.at(-1)).toMatchObject({ reason: "thread_moved_on" });
+  });
+
+  it("does not nudge a turn that ended waiting on the person, a form, a card, a take-over or a delegation", async () => {
+    for (const reason of ["card_open", "delegation_open", "unattended", "waiting_on_person"]) {
+      const h = harness(says("stopped_midway", 0.99), { waitingOn: () => reason });
+      expect(await h.watcher.afterTurn(input())).toMatchObject({ action: "skipped", reason });
+      expect(h.decider.calls).toHaveLength(0);
+    }
+    for (const kind of ["secret", "connector"]) {
+      const h = harness(says("stopped_midway", 0.99));
+      expect(await h.watcher.afterTurn(input({ path: [...PATH, { role: "bot", kind }] }))).toMatchObject({ action: "skipped", reason: "waiting_on_person" });
+      expect(h.nudges).toHaveLength(0);
+    }
+    let waiting: string | null = null;
+    const late = harness(() => { waiting = "card_open"; return { answers: { ended: choiceAnswer("stopped_midway", 0.99, CHOICES) } }; }, { waitingOn: () => waiting });
+    expect(await late.watcher.afterTurn(input())).toMatchObject({ action: "left" });
+    expect(late.nudges).toHaveLength(0);
+    const broken = harness(says("stopped_midway", 0.99), { waitingOn: () => { throw new Error("boom"); } });
+    expect(await broken.watcher.afterTurn(input())).toMatchObject({ action: "skipped" });
+  });
+
+  it("tells the person with a quiet activity line", async () => {
+    const lines: string[] = [];
+    const h = harness(says("stopped_midway", 0.95), { announce: (_input, text) => { lines.push(text); } });
+    await h.watcher.afterTurn(input());
+    await h.watcher.afterTurn(input());
+    expect(lines).toEqual(["Nudged to keep going (1/3)", "Nudged to keep going (2/3)"]);
+    const failing = harness(says("stopped_midway", 0.95), { announce: () => { throw new Error("no store"); } });
+    expect(await failing.watcher.afterTurn(input())).toMatchObject({ action: "nudged" });
+  });
+
+  it("remembers nothing while the job is off, and forgets threads that are gone", async () => {
+    const off = harness(says("stopped_midway", 0.99), { enabled: () => false });
+    await off.watcher.afterTurn(input());
+    expect(off.watcher.streakOf("t1")).toBe(0);
+    let alive = true;
+    const h = harness(says("stopped_midway", 0.99), { threadAlive: () => alive });
+    await h.watcher.afterTurn(input());
+    expect(h.watcher.streakOf("t1")).toBe(1);
+    alive = false;
+    await h.watcher.afterTurn(input({ threadId: "t2" }));
+    expect(h.watcher.streakOf("t1")).toBe(0);
+  });
+
+  it("cannot be taken down by a failing recorder", async () => {
+    const h = harness(says("done", 0.99), { record: () => { throw new Error("disk full"); } });
+    expect(await h.watcher.afterTurn(input())).toMatchObject({ action: "left" });
   });
 
   it("does nothing when the job is off or the decider is slow, down or broken", async () => {

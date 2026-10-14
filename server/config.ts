@@ -393,6 +393,12 @@ const appConfigSchema = z.object({
       .refine((value) => !value || /^https?:\/\//i.test(value), "the decision model address must start with http:// or https://")
       .optional(),
     model: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+    models: z.object({
+      autoReview: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+      turnEnd: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+      screenCheck: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+      screenshotFilter: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+    }).optional(),
     jobs: z.object({
       roomRouting: z.boolean().optional(),
       autoReview: z.boolean().optional(),
@@ -504,6 +510,7 @@ export interface AppConfig {
     key?: string;
     baseUrl?: string;
     model?: "clef" | "clef-flash" | "clef-omni";
+    models?: { autoReview?: "clef" | "clef-flash" | "clef-omni"; turnEnd?: "clef" | "clef-flash" | "clef-omni"; screenCheck?: "clef" | "clef-flash" | "clef-omni"; screenshotFilter?: "clef" | "clef-flash" | "clef-omni" };
     jobs?: { roomRouting?: boolean; autoReview?: boolean; turnEnd?: boolean; screenCheck?: boolean; screenshotFilter?: boolean };
     autoReview?: { allow: string[]; block: string[] };
   };

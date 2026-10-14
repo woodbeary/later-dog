@@ -1,5 +1,7 @@
 import type { Decider } from "../decider/index.ts";
 import type { ChoiceAnswer, ChoiceQuestion, YesNoAnswer, YesNoQuestion } from "../decider/types.ts";
+import type { Breaker } from "./clef-breaker.ts";
+import { createBoundedMap } from "./clef-bounded.ts";
 import { fastDecide } from "./clef-fast-decide.ts";
 import type { ImageShrinker } from "./clef-images.ts";
 import type { ClefLogRow } from "./clef-log.ts";
@@ -10,6 +12,8 @@ export const SHOWING_MIN_PROBABILITY = 0.7;
 export const UNCHANGED_MAX_PROBABILITY = 0.3;
 export const MAX_LOADING_WAITS = 3;
 export const LOADING_WAIT_MS = 1_000;
+export const SCREEN_CHECK_TOTAL_MS = 3_000;
+export const ASK_MIN_MS = 300;
 
 export const SECURE_FORM_HINT =
   "A sign-in or verification prompt is showing. Do not type passwords or codes yourself: call request_secure_form so the person fills them in safely, then use fill_secure_field.";
@@ -66,6 +70,11 @@ export interface ScreenCheckDeps {
   wait?(ms: number, signal?: AbortSignal): Promise<void>;
   shrink?: ImageShrinker;
   budgetMs?: number;
+  totalMs?: number;
+  loadingWaitMs?: number;
+  askMinMs?: number;
+  breaker?: Breaker;
+  now?: () => number;
 }
 
 const sleep = (ms: number, signal?: AbortSignal) =>
@@ -116,11 +125,15 @@ export function describeDecision(decision: ScreenDecision, waits: number, lastAc
 }
 
 export function createScreenCheck(deps: ScreenCheckDeps) {
-  const previous = new Map<string, Shot>();
-  const actions = new Map<string, string>();
+  const now = deps.now ?? Date.now;
+  const previous = createBoundedMap<Shot>({ max: 12, ttlMs: 15 * 60_000, now });
+  const actions = createBoundedMap<string>({ max: 12, ttlMs: 15 * 60_000, now });
   const wait = deps.wait ?? sleep;
+  const total = deps.totalMs ?? SCREEN_CHECK_TOTAL_MS;
+  const loadingWait = deps.loadingWaitMs ?? LOADING_WAIT_MS;
+  const askMin = deps.askMinMs ?? ASK_MIN_MS;
 
-  async function ask(boxId: string, shot: Shot, signal?: AbortSignal): Promise<ScreenDecision | null> {
+  async function ask(boxId: string, shot: Shot, budgetMs: number, signal?: AbortSignal): Promise<ScreenDecision | null> {
     const before = previous.get(boxId);
     const action = actions.get(boxId);
     const compare = Boolean(before && action);
@@ -131,9 +144,10 @@ export function createScreenCheck(deps: ScreenCheckDeps) {
       ...(compare ? { changed: CHANGED_QUESTION } : {}),
     };
     const decided = await fastDecide(deps.decider, "screenCheck", { last_action: action ?? "none" }, questions, {
-      budgetMs: deps.budgetMs ?? SCREEN_CHECK_BUDGET_MS,
+      budgetMs: Math.min(deps.budgetMs ?? SCREEN_CHECK_BUDGET_MS, budgetMs),
       images,
       shrink: deps.shrink,
+      breaker: deps.breaker,
       signal,
     });
     if (!decided.decided) {
@@ -151,33 +165,56 @@ export function createScreenCheck(deps: ScreenCheckDeps) {
 
   return {
     noteAction(boxId: string, name: string, args: Record<string, unknown>): void {
+      if (!deps.enabled()) return;
       actions.set(boxId, describeAction(name, args));
+    },
+    forgetBox(boxId: string): void {
+      previous.delete(boxId);
+      actions.delete(boxId);
     },
     async afterScreenshot(input: { boxId: string; shot: Shot; capture(): Promise<Shot>; signal?: AbortSignal }): Promise<ScreenCheckResult> {
       if (!deps.enabled()) return { shot: input.shot, text: null, decision: null, waits: 0 };
+      const started = now();
+      const remaining = () => total - (now() - started);
       let shot = input.shot;
       let waits = 0;
       let decision: ScreenDecision | null = null;
-      try {
+      const loop = (async () => {
         for (;;) {
-          decision = await ask(input.boxId, shot, input.signal);
+          decision = await ask(input.boxId, shot, remaining(), input.signal);
           if (!decision || decision.loading < LOADING_MIN_PROBABILITY || waits >= MAX_LOADING_WAITS) break;
-          await wait(LOADING_WAIT_MS, input.signal);
+          if (remaining() < loadingWait + askMin) break;
+          await wait(loadingWait, input.signal);
           input.signal?.throwIfAborted();
           shot = await input.capture();
           waits++;
         }
+      })();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const hardLimit = new Promise<"late">((resolve) => {
+        timer = setTimeout(() => resolve("late"), total + 200);
+      });
+      try {
+        const outcome = await Promise.race([loop.then(() => "done" as const), hardLimit]);
+        if (outcome === "late") {
+          loop.catch(() => undefined);
+          decision = null;
+          deps.record({ kind: "screenCheck", box: input.boxId, action: "skipped", reason: "deadline" });
+        }
       } catch (error) {
         if (input.signal?.aborted) throw error;
         decision = null;
+      } finally {
+        clearTimeout(timer);
       }
       const lastAction = actions.get(input.boxId);
       previous.set(input.boxId, shot);
       actions.delete(input.boxId);
       if (decision) {
+        const seen: ScreenDecision = decision;
         deps.record({
           kind: "screenCheck", box: input.boxId, action: "checked", waits,
-          loading: decision.loading, showing: decision.showing, showingP: decision.showingP, changed: decision.changed,
+          loading: seen.loading, showing: seen.showing, showingP: seen.showingP, changed: seen.changed,
         });
       }
       return { shot, decision, waits, text: decision ? describeDecision(decision, waits, lastAction) : null };

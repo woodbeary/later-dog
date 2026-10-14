@@ -31,11 +31,13 @@ function harness(script: FakeScript, over: { enabled?: boolean } = {}) {
   const decider = fakeDecider(script);
   const rows: ClefLogRow[] = [];
   const waits: number[] = [];
+  let clock = 0;
   const check = createScreenCheck({
     decider,
     enabled: () => over.enabled ?? true,
     record: (row) => { rows.push(row); },
-    wait: async (ms) => { waits.push(ms); },
+    wait: async (ms) => { waits.push(ms); clock += ms; },
+    now: () => clock,
   });
   return { check, decider, rows, waits };
 }
@@ -69,7 +71,7 @@ describe("the screen check after a screenshot", () => {
     expect(call.options.images).toEqual([`data:image/jpeg;base64,${jpeg("a").png}`]);
   });
 
-  it("waits a second and looks again while the screen is loading, at most three times", async () => {
+  it("waits a second and looks again while the screen is loading", async () => {
     const h = harness(looks({ loading: 0.95 }, { loading: 0.9 }, { loading: 0.2 }));
     let taken = 0;
     const result = await h.check.afterScreenshot({ boxId: "b", shot: jpeg("0"), capture: async () => jpeg(String(++taken)) });
@@ -77,14 +79,47 @@ describe("the screen check after a screenshot", () => {
     expect(result.waits).toBe(2);
     expect(result.shot).toEqual(jpeg("2"));
     expect(result.text).toBe("Screen check: Waited 2s for the screen to finish loading.");
+  });
 
+  it("stops waiting once about three seconds are used, however loading it looks", async () => {
     const stuck = harness(looks({ loading: 0.99 }));
     let again = 0;
     const last = await stuck.check.afterScreenshot({ boxId: "b", shot: jpeg("0"), capture: async () => jpeg(String(++again)) });
-    expect(stuck.waits).toEqual([1_000, 1_000, 1_000]);
-    expect(stuck.decider.calls).toHaveLength(4);
-    expect(last.shot).toEqual(jpeg("3"));
-    expect(last.text).toContain("still looked like it was loading after waiting 3s");
+    expect(stuck.waits).toEqual([1_000, 1_000]);
+    expect(stuck.decider.calls).toHaveLength(3);
+    expect(last.shot).toEqual(jpeg("2"));
+    expect(last.text).toContain("still looked like it was loading after waiting 2s");
+  });
+
+  it("gives back the plain screenshot at the hard deadline when a look hangs", async () => {
+    const decider = fakeDecider(looks({ loading: 0.99 }));
+    const check = createScreenCheck({ decider, enabled: () => true, record: () => undefined, wait: async () => undefined, totalMs: 150, loadingWaitMs: 5, askMinMs: 5 });
+    const started = Date.now();
+    const shot = jpeg("0");
+    const result = await check.afterScreenshot({ boxId: "b", shot, capture: () => new Promise<Shot>(() => undefined) });
+    expect(result).toMatchObject({ shot, text: null, decision: null });
+    expect(Date.now() - started).toBeLessThan(600);
+  });
+
+  it("gives the whole check no more than the total even when the decider is slow", async () => {
+    const decider = fakeDecider(() => ({ hang: true }));
+    const check = createScreenCheck({ decider, enabled: () => true, record: () => undefined, totalMs: 200 });
+    const started = Date.now();
+    const result = await check.afterScreenshot({ boxId: "b", shot: jpeg("0"), capture: async () => jpeg("1") });
+    expect(result.text).toBeNull();
+    expect(Date.now() - started).toBeLessThan(700);
+  });
+
+  it("remembers nothing when off and forgets a box on request", async () => {
+    const off = harness(looks({}), { enabled: false });
+    off.check.noteAction("b", "click", { x: 1, y: 1 });
+    await off.check.afterScreenshot({ boxId: "b", shot: jpeg("a"), capture: async () => jpeg("a") });
+    const h = harness(looks({}));
+    await h.check.afterScreenshot({ boxId: "b", shot: jpeg("a"), capture: async () => jpeg("a") });
+    h.check.forgetBox("b");
+    h.check.noteAction("b", "click", { x: 1, y: 1 });
+    await h.check.afterScreenshot({ boxId: "b", shot: jpeg("b"), capture: async () => jpeg("b") });
+    expect(Object.keys(h.decider.calls[1]!.questions)).toEqual(["loading", "showing"]);
   });
 
   it("points the model at the secure form when a login or code prompt shows", async () => {

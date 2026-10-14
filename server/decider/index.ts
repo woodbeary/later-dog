@@ -48,12 +48,54 @@ export function deciderEnabled(cfg: AppConfig): boolean {
   return account.included ? cfg.decider?.enabled !== false : cfg.decider?.enabled === true;
 }
 
+const OPT_IN_JOBS: ReadonlySet<DeciderJob> = new Set<DeciderJob>(["autoReview", "turnEnd", "screenCheck", "screenshotFilter"]);
+
 export function deciderJobOn(cfg: AppConfig, job: DeciderJob): boolean {
-  return cfg.decider?.jobs?.[job] !== false;
+  const saved = cfg.decider?.jobs?.[job];
+  return OPT_IN_JOBS.has(job) ? saved === true : saved !== false;
+}
+
+export function deciderEndpointLabel(cfg: AppConfig): string {
+  const account = deciderAccount(cfg);
+  if (account?.included) return "later.dog Cloud";
+  const base = cfg.decider?.baseUrl?.trim();
+  if (base) {
+    try {
+      return new URL(base).host;
+    } catch {
+      return "your decision endpoint";
+    }
+  }
+  return "api.typesafe.ai";
+}
+
+export function deciderCanRun(cfg: AppConfig, job: DeciderJob): boolean {
+  return deciderEnabled(cfg) && Boolean(deciderAccount(cfg, job));
 }
 
 export function deciderReady(cfg: AppConfig, job: DeciderJob): boolean {
   return deciderEnabled(cfg) && deciderJobOn(cfg, job) && Boolean(deciderAccount(cfg, job));
+}
+
+export const JOB_MODEL_DEFAULTS: Partial<Record<DeciderJob, DeciderModel>> = {
+  autoReview: "clef",
+  screenCheck: "clef",
+  screenshotFilter: "clef",
+  turnEnd: "clef-flash",
+};
+
+const TYPESAFE_HOSTS: ReadonlySet<string> = new Set(["api.typesafe.ai"]);
+
+function clefEndpoint(cfg: AppConfig): boolean {
+  const account = deciderAccount(cfg);
+  if (account?.included) return true;
+  const base = cfg.decider?.baseUrl?.trim();
+  if (!base) return false;
+  try {
+    return !TYPESAFE_HOSTS.has(new URL(base).host);
+  } catch {
+    return false;
+  }
 }
 
 export function deciderModel(cfg: AppConfig): DeciderModel | undefined {
@@ -61,8 +103,14 @@ export function deciderModel(cfg: AppConfig): DeciderModel | undefined {
   return model && DECIDER_MODELS.includes(model) ? model : undefined;
 }
 
+export function deciderModelFor(cfg: AppConfig, job: DeciderJob): DeciderModel | undefined {
+  const own = (cfg.decider?.models as Partial<Record<DeciderJob, DeciderModel>> | undefined)?.[job];
+  if (own && DECIDER_MODELS.includes(own)) return own;
+  return deciderModel(cfg) ?? (clefEndpoint(cfg) ? JOB_MODEL_DEFAULTS[job] : undefined);
+}
+
 export function deciderImagesReady(cfg: AppConfig, job: DeciderJob): boolean {
-  return deciderReady(cfg, job) && deciderModel(cfg) !== undefined;
+  return deciderReady(cfg, job) && deciderModelFor(cfg, job) !== undefined;
 }
 
 export function describeDecider(cfg: AppConfig) {
@@ -217,7 +265,7 @@ export function createDecider(deps: DeciderDeps): Decider {
       const backend = provider === "off" ? offBackend : BACKENDS[provider];
       const account = deciderAccount(cfg, seam)!;
       if (account.included && !relayAccepts(seam, state, questions)) return { ok: false, reason: "misconfigured" };
-      const model = options.model ?? deciderModel(cfg);
+      const model = options.model ?? deciderModelFor(cfg, seam === "keyCheck" ? "roomRouting" : seam);
       const images = options.images?.length ? options.images : undefined;
       return await call(seam, backend, {
         key: account.token, baseUrl: account.api, state, questions,

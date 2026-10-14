@@ -357,7 +357,7 @@ import {
 import * as tts from "./tts/index.ts";
 import { createDecider, deciderIncludedHere, deciderReady, deciderSavePatch, describeDecider } from "./decider/index.ts";
 import { decideRoomResponder, type RoomRoutingInput } from "./decider/room-routing.ts";
-import { describeClef } from "./laterdog/clef-config.ts";
+import { clefWideningRefusal, describeClef } from "./laterdog/clef-config.ts";
 import { createClef } from "./laterdog/clef-wiring.ts";
 import { screenGuard } from "./laterdog/clef-screen-check.ts";
 import { createLiveSession, liveAttachUrl, LiveSessionError, type LiveBot, type LiveHistoryMessage } from "./live-call.ts";
@@ -6403,6 +6403,13 @@ const clef = createClef({
   },
   canStart: ({ botId, threadId }) => !threadBusy(botId, threadId) && !botAtThreadCapacity(botId) && !activeGroupTurnForBot(botId) &&
     !hasQueuedSteeredMessages(botId, threadId) && !parksBehindCoordination(botId, threadId),
+  waitingOn: ({ botId, threadId }) =>
+    isUnattended(botId, threadId) ? "unattended"
+      : openPersonCard(threadId) ? "card_open"
+        : [...pendingTakeoverResumes.values(), ...pendingSecretResumes.values(), ...pendingConnectorResumes.values(), ...pendingComputerResumes.values()].some((entry) => entry.threadId === threadId) ? "waiting_on_person"
+          : pendingDelegationWakes.has(threadId) || roomHandoffs.outstandingDirect(threadId).length > 0 ? "delegation_open"
+            : null,
+  threadAlive: (threadId) => Boolean(store.botByThread(threadId) || store.groupByThread(threadId)),
   nudge: async ({ botId, threadId }, text) => {
     await startTurn(botId, text, { threadId, cardContinuation: true, requestMessageId: directRequestOwners.get(threadId)?.messageId });
   },
@@ -6863,10 +6870,10 @@ const onProviderEvent = guardTurnEnd((event: RuntimeEvent) => {
           settleTrackedRequest(event.threadId);
           if (resumeQueued) void clef.turnEnd.afterTurn({
             threadId: event.threadId, botId: bot.id, ok: event.ok, reply, path: store.activePath(event.threadId), isCurrent,
-            stoppedByPerson: event.stopReason === "interrupted" || directRequestOwners.get(event.threadId)?.stopped === true,
+            stoppedByPerson: () => event.stopReason === "interrupted" || directRequestOwners.get(event.threadId)?.stopped === true,
             usageLimited: event.stopReason === "usage_limit" || limitHold.holds(event.threadId),
             skip: Boolean(internal || routineRun || carryingOn || nextAccount),
-          });
+          }).catch(() => undefined);
         };
         const tokens = event.usage ?? lastReported;
         const contextModel = store.taskByThread(bot.id, event.threadId)?.modelSelection?.model ?? bot.modelSelection.model;
@@ -6932,10 +6939,20 @@ const onProviderEvent = guardTurnEnd((event: RuntimeEvent) => {
           const screenSettled = Promise.race([
             finalScreenFrame(bot.id, event.threadId),
             new Promise<null>((resolve) => { timeout = setTimeout(() => resolve(null), SCREEN_SETTLE_TIMEOUT_MS); }),
-          ]).then(async (frame) => {
-            if (frame && isCurrent() && (await clef.screenshots.shouldPost({ threadId: event.threadId, frame: { png: frame.png, mime: frame.mime }, task: store.activePath(event.threadId).findLast((m) => m.role === "user" && m.kind === "text")?.text ?? "", reply })).post && isCurrent()) {
-              store.insertMessageAfter(event.threadId, settleLeafId, { role: "bot", kind: "screen", png: frame.png, mime: frame.mime });
-            }
+          ]).then((frame) => {
+            if (!frame || !isCurrent()) return;
+            const task = store.activePath(event.threadId).findLast((m) => m.role === "user" && m.kind === "text")?.text ?? "";
+            clef.finalScreen({
+              threadId: event.threadId,
+              frame: { png: frame.png, mime: frame.mime },
+              task,
+              reply,
+              post: () => {
+                if (store.taskByThread(bot.id, event.threadId)) {
+                  store.insertMessageAfter(event.threadId, settleLeafId, { role: "bot", kind: "screen", png: frame.png, mime: frame.mime });
+                }
+              },
+            });
           }).catch(() => {}).finally(() => {
             clearTimeout(timeout);
           });
@@ -9392,6 +9409,7 @@ routines = new RoutineManager({
     if (task && threadId !== botMainThread(botId) && !task.busy && !task.routineRunId && store.messagesFor(threadId).length === 0) {
       store.deleteTask(botId, threadId);
       handoffs.forget(threadId);
+      clef.forgetThread(threadId);
     }
   },
   startTurn: async (botId, threadId, prompt, runOn, triggerSource, onDispatchError) => {
@@ -9691,6 +9709,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
         try {
           for (const instance of ownedBoatComputers) {
             const removed = await boat.deleteManagedBoat(cfg, managedBoatOwners(), instance.boxId, instance.name);
+            clef.screen.forgetBox(instance.boxId);
             if (removed.pending) {
               throw Object.assign(
                 new Error("The cloud computer deletion has started but is still finishing. The dog was kept; retry in a moment"),
@@ -9729,6 +9748,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
           stopScreenPoller(bot.id);
           activeVpsThreads.delete(bot.id);
           lastReply.delete(bot.threadId);
+          clef.forgetThread(bot.threadId);
           cancelPeerApprovalsFor(bot.id);
           discardDelegations(commsBus, bot.threadId);
           computerControl.forget(bot.id);
@@ -19910,6 +19930,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       clearTurnDigestState(m[2]);
       revokeInternalCapabilitiesForThread(m[2]);
       handoffs.forget(m[2]);
+      clef.forgetThread(m[2]);
       settleDirectFollowup(directTurnGenerationByThread.get(m[2]));
       rejectDeletedThreadSkillStages(stagedSkillCleanups);
       return json(res, 200, { bot: publicBot(updated) });
@@ -20067,13 +20088,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (typeof body?.confirmName !== "string" || body.confirmName.length > 100) {
           return json(res, 400, { error: "confirmName must be the cloud computer name shown in Settings" });
         }
-        return json(res, 202, await boat.deleteManagedBoat(
+        const deleted = await boat.deleteManagedBoat(
           cfg,
           owners,
           m[1],
           body.confirmName,
           claimManagedBoatMutation,
-        ));
+        );
+        clef.screen.forgetBox(m[1]);
+        return json(res, 202, deleted);
       } finally {
         releaseInventoryRequest();
       }
@@ -21003,6 +21026,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!planned.ok) return json(res, 400, { error: planned.error });
         patch.decider = planned.patch;
       }
+      const clefRefusal = clefWideningRefusal(cfg.decider, patch.decider, {
+        appOrPairedDevice: auth.kind !== "loopback" || DESKTOP_MANAGED || Boolean(req.headers.origin),
+        dogsWorking: store.bots.some((bot) => bot.busy || activeGroupTurnForBot(bot.id)),
+      });
+      if (clefRefusal) return json(res, 409, { error: clefRefusal });
       const changingVoiceProvider = patch.tts?.provider !== undefined
         && patch.tts.provider !== tts.voiceProvider(cfg);
       if (changingVoiceProvider && patch.tts?.voice === undefined) {

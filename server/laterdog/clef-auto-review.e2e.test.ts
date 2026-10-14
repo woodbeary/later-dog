@@ -43,6 +43,10 @@ beforeAll(async () => {
       const details = String(body.state?.action?.details ?? "");
       const answers: Record<string, unknown> = {};
       for (const [id, question] of Object.entries<any>(body.questions ?? {})) {
+        if (question.type === "noul") {
+          answers[id] = { type: "noul", noul: details.includes("pnpm test") ? 0.97 : 0.4 };
+          continue;
+        }
         const { choice, p } = pick(id, question, details);
         const others = Object.keys(question.criteria).filter((key) => key !== choice);
         const rest = others.length ? (1 - p) / others.length : 0;
@@ -112,10 +116,10 @@ it("approves, pauses or asks from the person's own rules before any card shows",
   expect(await noRules.reply).toMatchObject({ behavior: "deny" });
   expect(requests.filter((request) => request.body.state?.action)).toHaveLength(0);
 
-  await api("PUT", "/api/config", { decider: { baseUrl: stubUrl, model: "clef-flash", autoReview: { allow: [ALLOW], block: [BLOCK] } } });
+  await api("PUT", "/api/config", { decider: { baseUrl: stubUrl, jobs: { autoReview: true }, autoReview: { allow: [ALLOW], block: [BLOCK] } } });
   await api("PUT", "/api/config", { decider: { key: KEY } });
   const status = await api("GET", "/api/config");
-  expect(status.clef).toMatchObject({ ready: true, model: "clef-flash", autoReview: { allow: [ALLOW], block: [BLOCK] } });
+  expect(status.clef).toMatchObject({ ready: true, autoReview: { allow: [ALLOW], block: [BLOCK] }, jobs: { autoReview: true, turnEnd: false } });
   expect(JSON.stringify(status)).not.toContain(KEY);
 
   const allowed = await ask(socketPath, "pnpm test");
@@ -137,13 +141,27 @@ it("approves, pauses or asks from the person's own rules before any card shows",
   expect(sent.length).toBeGreaterThanOrEqual(3);
   for (const request of sent) {
     expect(request.auth).toBe(`Bearer ${KEY}`);
-    expect(request.body.model).toBe("clef-flash");
-    expect(Object.keys(request.body.questions)).toEqual(["allowed_by", "blocked_by"]);
+    expect(request.body.model).toBe("clef");
+    expect(Object.keys(request.body.questions)).toEqual(["allowed_by", "fits_rule_1", "blocked_by"]);
   }
 
   const decisions = (await api("GET", "/api/decisions")).decisions as any[];
   expect(decisions.some((row) => row.requestId === allowed.id && row.decision === "auto-approved" && row.source === "auto-review" && row.rule === ALLOW)).toBe(true);
   expect(decisions.some((row) => row.requestId === blocked.id && row.decision === "auto-denied" && row.source === "auto-review")).toBe(true);
   expect(decisions.some((row) => row.requestId === unsure.id && row.decision === "card-shown")).toBe(true);
+  const bare = (rules: { allow: string[]; block: string[] }) => fetch(url + "/api/config", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decider: { autoReview: rules } }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const widened = await bare({ allow: [ALLOW, "Anything at all is fine."], block: [BLOCK] });
+  expect(widened.status).toBe(409);
+  expect((await widened.json() as any).error).toContain("app or a paired device");
+  const unblocked = await bare({ allow: [ALLOW], block: [] });
+  expect(unblocked.status).toBe(409);
+  const tightened = await bare({ allow: [], block: [BLOCK, "Never touch the network."] });
+  expect(tightened.status).toBe(200);
+  expect((await api("GET", "/api/config")).clef.autoReview).toEqual({ allow: [], block: [BLOCK, "Never touch the network."] });
   await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
 }, 90_000);

@@ -56,7 +56,7 @@ it("nudges a dog that stopped midway once, and lets it be when it is done", asyn
     expect(response.status, `${method} ${path}: ${JSON.stringify(result)}`).toBe(status);
     return result;
   };
-  await api("PUT", "/api/config", { decider: { baseUrl: stubUrl, model: "clef-flash" } });
+  await api("PUT", "/api/config", { decider: { baseUrl: stubUrl, jobs: { turnEnd: true } } });
   await api("PUT", "/api/config", { decider: { key: KEY } });
   const bot = (await api("POST", "/api/bots", { name: "Turn end fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } }, 201)).bot;
   await api("POST", `/api/bots/${bot.id}/messages`, { threadId: bot.threadId, text: "Please finish the migration." }, 202);

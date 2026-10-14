@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseConfigPatch } from "../config.ts";
-import { autoReviewRules, describeClef } from "./clef-config.ts";
+import { CLEF_WIDENING_REFUSAL, autoReviewRules, clefWidening, clefWideningRefusal, describeClef } from "./clef-config.ts";
 
 const KEY = "tsk_unit_secret_key_0123456789abcdef";
 
@@ -27,15 +27,73 @@ describe("Auto-review rules in the config", () => {
     expect(autoReviewRules({})).toEqual({ allow: [], block: [] });
   });
 
-  it("tells Settings whether rules can take effect, without any key", () => {
+  it("tells Settings what is on, what could run, and where things are sent", () => {
     expect(describeClef({})).toEqual({
       ready: false,
+      sendsTo: "api.typesafe.ai",
+      available: { autoReview: false, turnEnd: false, screenCheck: false, screenshotFilter: false },
       autoReview: { allow: [], block: [] },
-      jobs: { autoReview: true, turnEnd: true, screenCheck: true, screenshotFilter: true },
+      jobs: { autoReview: false, turnEnd: false, screenCheck: false, screenshotFilter: false },
     });
-    const on = describeClef({ decider: { enabled: true, key: KEY, model: "clef-flash", autoReview: { allow: ["a"], block: [] }, jobs: { turnEnd: false } } });
-    expect(on).toMatchObject({ ready: true, model: "clef-flash", autoReview: { allow: ["a"], block: [] }, jobs: { turnEnd: false, autoReview: true } });
+    const on = describeClef({ decider: { enabled: true, key: KEY, baseUrl: "https://clef.example.test/v1", model: "clef-flash", autoReview: { allow: ["a"], block: [] }, jobs: { turnEnd: true, autoReview: true } } });
+    expect(on).toMatchObject({
+      ready: true, model: "clef-flash", sendsTo: "clef.example.test", autoReview: { allow: ["a"], block: [] },
+      jobs: { turnEnd: true, autoReview: true, screenCheck: false },
+      available: { autoReview: true, screenCheck: true },
+    });
     expect(JSON.stringify(on)).not.toContain(KEY);
+  });
+
+  it("keeps the new jobs off until they are switched on, even with a saved key", () => {
+    expect(describeClef({ decider: { enabled: true, key: KEY } }).jobs).toEqual({ autoReview: false, turnEnd: false, screenCheck: false, screenshotFilter: false });
     expect(describeClef({ decider: { enabled: true, key: KEY, jobs: { autoReview: false } } }).ready).toBe(false);
+    expect(describeClef({ decider: { enabled: true, key: KEY, jobs: { autoReview: true } } }).ready).toBe(true);
+  });
+
+  it("needs an endpoint that reads images before the screen jobs can run", () => {
+    expect(describeClef({ decider: { enabled: true, key: KEY, jobs: { screenCheck: true } } }).available.screenCheck).toBe(false);
+    expect(describeClef({ decider: { enabled: true, key: KEY, baseUrl: "https://clef.example.test", jobs: { screenCheck: true } } }).available.screenCheck).toBe(true);
+  });
+});
+
+describe("what loosens the rules", () => {
+  const current = { enabled: true, key: KEY, autoReview: { allow: ["a", "b"], block: ["x", "y"] }, jobs: { turnEnd: true } };
+
+  it("flags a new allow rule, a removed block rule, and a job turned on", () => {
+    expect(clefWidening(current, { autoReview: { allow: ["a", "b", "c"], block: ["x", "y"] } })).toEqual(["autoReview.allow"]);
+    expect(clefWidening(current, { autoReview: { allow: ["a"], block: ["x"] } })).toEqual(["autoReview.block"]);
+    expect(clefWidening(current, { jobs: { turnEnd: true, screenCheck: true } })).toEqual(["jobs.screenCheck"]);
+    expect(clefWidening(undefined, { jobs: { autoReview: true }, autoReview: { allow: ["z"], block: [] } })).toEqual(["autoReview.allow", "jobs.autoReview"]);
+  });
+
+  it("lets tightening through: fewer allow rules, more block rules, jobs turned off", () => {
+    expect(clefWidening(current, { autoReview: { allow: ["a"], block: ["x", "y", "z"] }, jobs: { turnEnd: false } })).toEqual([]);
+    expect(clefWidening(current, { autoReview: { allow: [" a ", "b"], block: ["x", "y"] } })).toEqual([]);
+    expect(clefWidening(current, {})).toEqual([]);
+  });
+});
+
+describe("who may loosen the rules", () => {
+  const current = { enabled: true, key: KEY, autoReview: { allow: ["a"], block: ["x"] }, jobs: {} };
+  const script = { appOrPairedDevice: false, dogsWorking: true };
+
+  it("refuses a script on this machine, while dogs work, that adds an allow rule, removes a block rule or turns a job on", () => {
+    expect(clefWideningRefusal(current, { autoReview: { allow: ["a", "b"], block: ["x"] } }, script)).toBe(CLEF_WIDENING_REFUSAL);
+    expect(clefWideningRefusal(current, { autoReview: { allow: ["a"], block: [] } }, script)).toBe(CLEF_WIDENING_REFUSAL);
+    expect(clefWideningRefusal(current, { jobs: { autoReview: true } }, script)).toBe(CLEF_WIDENING_REFUSAL);
+  });
+
+  it("refuses pointing the decisions at another address or key the same way", () => {
+    expect(clefWideningRefusal(current, { baseUrl: "https://elsewhere.example.test" }, script)).toBe(CLEF_WIDENING_REFUSAL);
+    expect(clefWideningRefusal(current, { key: "tsk_other_key_0123456789" }, script)).toBe(CLEF_WIDENING_REFUSAL);
+    expect(clefWideningRefusal(current, { key: KEY }, script)).toBeNull();
+  });
+
+  it("lets the app and paired devices through, and lets a script tighten", () => {
+    const loosening = { autoReview: { allow: ["a", "b"], block: [] }, jobs: { turnEnd: true } };
+    expect(clefWideningRefusal(current, loosening, { appOrPairedDevice: true, dogsWorking: true })).toBeNull();
+    expect(clefWideningRefusal(current, loosening, { appOrPairedDevice: false, dogsWorking: false })).toBeNull();
+    expect(clefWideningRefusal(current, { autoReview: { allow: [], block: ["x", "y"] }, jobs: { turnEnd: false } }, script)).toBeNull();
+    expect(clefWideningRefusal(current, undefined, script)).toBeNull();
   });
 });
