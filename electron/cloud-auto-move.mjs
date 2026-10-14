@@ -28,12 +28,13 @@ export function serializeMoveRecords(records) {
 }
 
 export function createCloudAutoMove({ move, read, write, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, retryDelaysMs = AUTO_MOVE_RETRY_MS, log = () => {}, onMoved = () => {} }) {
-  let busy = false, timer = null, failures = 0, closed = false, scheduled = null;
+  let busy = false, timer = null, failures = 0, closed = false, scheduled = null, gaveUp = null;
   const records = () => { try { return parseMoveRecords(read()); } catch { return {}; } };
   const remember = (accountId, entry) => {
     try { write(serializeMoveRecords({ ...records(), [accountId]: { ...entry, at: now() } })); } catch (error) { log(`cloud move: could not save the result (${error?.message ?? error})`); }
   };
   const stopTimer = () => { if (timer !== null) clearTimer(timer); timer = null; scheduled = null; };
+  const forgetFailure = () => { gaveUp = null; failures = 0; };
 
   async function attempt(accountId, destination, manual) {
     if (closed || busy || move.running()) return { status: "busy" };
@@ -66,12 +67,13 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, setTime
         return { status: "kept-local" };
       }
       if (RETRYABLE.has(code)) return retryLater(accountId, destination, code);
+      gaveUp = accountId;
       return { status: "failed", code };
     } finally { busy = false; }
   }
 
   function retryLater(accountId, destination, code) {
-    if (closed || failures >= retryDelaysMs.length) return { status: "failed", code };
+    if (closed || failures >= retryDelaysMs.length) { gaveUp = accountId; return { status: "failed", code }; }
     const delay = retryDelaysMs[failures++];
     stopTimer();
     scheduled = accountId;
@@ -83,15 +85,17 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, setTime
   return {
     status(accountId) { return records()[accountId]?.status ?? null; },
     ensure(accountId, destination) {
-      if (!accountId || closed || scheduled === accountId) return Promise.resolve({ status: "waiting" });
+      if (!accountId || closed) return Promise.resolve({ status: "busy" });
+      if (scheduled === accountId) return Promise.resolve({ status: "waiting" });
+      if (gaveUp === accountId) return Promise.resolve({ status: "failed" });
       return attempt(accountId, destination, false);
     },
     retry(accountId, destination) {
-      failures = 0;
+      forgetFailure();
       stopTimer();
       return attempt(accountId, destination, true);
     },
-    stop: stopTimer,
+    stop() { stopTimer(); forgetFailure(); },
     close() { closed = true; stopTimer(); },
   };
 }

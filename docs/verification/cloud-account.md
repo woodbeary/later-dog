@@ -6,9 +6,9 @@ Personal Cloud is independent of the organization connection, the hosted
 Companion account, local profile fields, providers, bots and chat history.
 Fresh startup without a saved Cloud credential makes no Cloud request and
 opens no browser. Cloud authentication is optional; its failure never blocks
-free local use. The desktop app no longer has a Cloud account page: nothing in
-it signs in to or out of Cloud. It only reads the saved session's plan, opens
-the dashboard and connects to My Cloud.
+free local use. The desktop signs in with an email and a code, inside the app
+(see [Desktop sign-in](desktop-signin.md)); the browser device-approval flow below
+is the contract that code completes without a browser.
 
 ## Contract and boundaries
 

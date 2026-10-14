@@ -289,7 +289,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         profileEmail={state.config?.profile?.email ?? ""}
       />
       <CloudSetup viewer={viewer} />
-      <CloudQuietLine />
       {state.pluginsOpen && <PluginsPanel />}
       {state.triggersOpen && <TriggersPanel />}
       {state.newBotOpen && <NewBotDialog />}
@@ -303,6 +302,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       <AddAccountHost />
       <UpdateDialog />
       </div>
+      <CloudQuietLine />
       <WindowCaptionButtons
         visible={capabilities.windowChrome === "win-caption" && Boolean(window.laterdog?.windowControls)}
       />

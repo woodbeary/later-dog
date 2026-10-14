@@ -77,11 +77,10 @@ export function CloudSignInGate({ gate }: { gate: CloudSignInGateHandle }) {
         <div className="flex flex-col items-center gap-3">
           <DogAvatar color="yellow" state="happy" motion="blink" motionKey={0} size={72} label={brand().name} />
           <h1 className="text-[22px] font-semibold tracking-tight text-ink">{brand().name}</h1>
-          {!signedIn && <p className="text-center text-[14px] text-ink-secondary">{t("cloudSignIn.tagline")}</p>}
         </div>
         {signedIn && account
           ? <AfterSignIn account={account} onContinue={decline} />
-          : <CloudSignInForm bridge={bridge} onSignedIn={accept} onSkip={decline} />}
+          : <CloudSignInForm bridge={bridge} onSignedIn={accept} onSkip={decline} intro={t("cloudSignIn.tagline")} />}
       </div>
     </div>
   );

@@ -257,7 +257,8 @@ test("a server's card offers a copy only when it can fit and nothing blocks it: 
   let result = await mainOverview({ dest: cloud({ status: "ready", origin: ORIGIN }), peek });
   assert.equal(result.fit.fit, "never"); assert.equal(result.fit.volumeBytes, 10 * GB); assert.equal(result.suggest, false);
   result = await mainOverview({ dest: cloud({ status: "ready", origin: ORIGIN, disk: { gb: 10, maxGb: 100 } }), peek });
-  assert.equal(result.fit.fit, "grow"); assert.equal(result.suggest, true); assert.deepEqual(result.destination, CLOUD); assert.equal(result.blocked, null);
+  assert.equal(result.fit.fit, "grow"); assert.equal(result.suggest, false, "the Cloud is moved to automatically, so it is never suggested"); assert.equal(result.automatic, true);
+  assert.deepEqual(result.destination, CLOUD); assert.equal(result.blocked, null);
   const roomy = { ...peek, status: { ...peek.status, freeBytes: 50 * GB } };
   const server = { ...VPS_ENTRY, disk: () => { throw new Error("a server has no plan"); } };
   result = await mainOverview({ dest: server, peek });
@@ -641,6 +642,7 @@ function mainIpc(extra = {}) {
       restorePrevious: async dest => { calls.push(["restorePrevious", describe(dest)]); return context.result ?? { phase: "idle" }; } }),
     cloudMoveOverview: (dest, onServerPage) => { calls.push(["overview", dest && describe(dest), onServerPage]); return { suggest: false }; },
     dismissCloudMove: origin => calls.push(["dismiss", origin]),
+    runCloudAutoMove: manual => { calls.push(["autoMove", manual]); return Promise.resolve(null); },
     connectCloudHome: async () => calls.push(["connectCloudHome"]), switchEnvironment: async id => calls.push(["switch", id]),
     navigateMainWindow: url => calls.push(["navigate", url]), slog: () => {},
     openWorkspaceSettings: (id, panel) => calls.push(["openSettings", id, panel]),
@@ -723,7 +725,7 @@ test("production IPC: a server's own page gets only itself, never starts a copy 
   context.mainWindow.webContents = cloudContents;
   context.environmentsState = { environments: SAVED, activeId: "cloud-entry" };
   await handlers.get("cloud-move:start")({ sender: cloudContents, senderFrame: cloudFrame });
-  assert.deepEqual(calls, [["move", CLOUD_DEST, { requireEmpty: true }]]);
+  assert.deepEqual(calls, [["autoMove", true]], "the Cloud's own page retries through the automatic move, which requires an empty home");
   for (const event of [{ sender: cloudContents, senderFrame: { url: `${ORIGIN}/` } }, { sender: {}, senderFrame: cloudFrame }, { sender: cloudContents, senderFrame: { url: "https://evil.example.test/" } }]) {
     for (const channel of ["cloud-move:state", "cloud-move:start", "cloud-move:cancel", "cloud-move:dismiss", "cloud-move:restore-previous"]) assert.throws(() => handlers.get(channel)(event), /only available/);
   }
@@ -742,11 +744,11 @@ test("production IPC: a finished copy opens the server it went to", async () => 
   context.environmentsState = { environments: SAVED, activeId: "cloud-entry" };
   const cloudPage = { sender: cloudContents, senderFrame: cloudFrame };
   await handlers.get("cloud-move:start")(cloudPage);
-  assert.deepEqual(calls.filter(([kind]) => kind !== "move"), [["switch", "vps"], ["connectCloudHome"], ["navigate", ORIGIN]]);
+  assert.deepEqual(calls.filter(([kind]) => kind !== "move"), [["switch", "vps"], ["connectCloudHome"], ["autoMove", true]]);
   calls.length = 0;
   context.result = { phase: "failed", error: { code: "network" } };
   await handlers.get("cloud-move:start")(cloudPage);
-  assert.deepEqual(calls.filter(([kind]) => kind !== "move"), []);
+  assert.deepEqual(calls.filter(([kind]) => kind !== "move"), [["autoMove", true]]);
 });
 
 test("a server's Copy opens this computer's Settings → Servers on that server's copy, in this window or by switching it to this computer", () => {

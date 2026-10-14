@@ -116,7 +116,9 @@ the desktop client, its native entry link and policy tests; there is no
 Organization page.
 
 The [personal Cloud account notes](cloud-account.md) cover the desktop Cloud
-client's contract and node tests.
+client's contract and node tests. [Desktop sign-in](desktop-signin.md) covers
+signing in on the Mac with an email and a code, opening the home as the window and
+moving this Mac's dogs into it.
 
 The [embedded server recovery smoke](desktop-server-recovery.md) crashes real
 Electron-owned fixture servers, verifies bounded recovery and private access,

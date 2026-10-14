@@ -83,6 +83,23 @@ test("a failure that will not pass by waiting is reported once and not retried",
   assert.equal(f.timers.length, 0);
 });
 
+test("a move that gave up is not tried again by every later check; only the person's retry, or a new sign-in, starts it again", async () => {
+  const f = setup({ results: [failed("too_large")] });
+  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "failed", code: "too_large" });
+  for (let check = 0; check < 3; check++) assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "failed" });
+  assert.equal(f.moves.length, 1, "a large export is not repeated every minute");
+  assert.deepEqual(await f.engine.retry("acct", DEST), { status: "moved" });
+  const exhausted = setup({ results: [failed("busy"), failed("busy"), failed("busy")] });
+  await exhausted.engine.ensure("acct", DEST);
+  exhausted.timers.at(-1).callback(); await new Promise(resolve => setImmediate(resolve));
+  exhausted.timers.at(-1).callback(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(exhausted.moves.length, 3);
+  for (let check = 0; check < 3; check++) assert.deepEqual(await exhausted.engine.ensure("acct", DEST), { status: "failed" });
+  assert.equal(exhausted.moves.length, 3, "after the last automatic retry it waits for the person");
+  exhausted.engine.stop();
+  assert.deepEqual(await exhausted.engine.ensure("acct", DEST), { status: "moved" }, "signing in again starts fresh");
+});
+
 test("a busy local server or a move already under way never starts a second one", async () => {
   const running = setup({ running: true });
   assert.deepEqual(await running.engine.ensure("acct", DEST), { status: "busy" });

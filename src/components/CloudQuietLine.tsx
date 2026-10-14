@@ -4,8 +4,6 @@ import { cloudAccountBridge, useCloudAccount } from "@/lib/cloud-account-view";
 import { DONE_LINE_MS, moveLine } from "@/lib/cloud-move-line";
 import { t } from "@/lib/i18n";
 
-const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
-
 export function CloudQuietLine() {
   const moveBridge = window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudMove;
   const move = useCloudMove(moveBridge);
@@ -45,8 +43,8 @@ export function CloudQuietLine() {
   }
   if (text === null) return null;
   return (
-    <div role="status" data-cloud-quiet-line={line?.kind ?? "home-unreachable"} style={noDrag}
-      className="fixed left-1/2 top-3 z-40 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-full border border-hairline/40 bg-panel px-4 py-1.5 text-[12.5px] text-ink-secondary shadow-lg shadow-black/10">
+    <div role="status" data-cloud-quiet-line={line?.kind ?? "home-unreachable"}
+      className="flex h-7 shrink-0 items-center justify-center gap-3 border-t border-hairline/40 bg-panel px-4 text-[12.5px] text-ink-secondary">
       <span className="min-w-0 truncate">{text}</span>
       {action && <button type="button" disabled={move.pending || retrying} onClick={action.onClick} className="shrink-0 font-medium text-ink hover:underline disabled:opacity-50">{action.label}</button>}
     </div>

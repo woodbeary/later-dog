@@ -19,11 +19,12 @@ function Agreement() {
   );
 }
 
-export function CloudSignInForm({ bridge, onSignedIn, onSkip, skipLabel }: {
+export function CloudSignInForm({ bridge, onSignedIn, onSkip, skipLabel, intro }: {
   bridge: SignInBridge;
   onSignedIn: (account: CloudAccountState) => void;
   onSkip?: () => void;
   skipLabel?: string;
+  intro?: string;
 }) {
   const [step, setStep] = useState<SignInStep>("email");
   const [email, setEmail] = useState("");
@@ -126,6 +127,7 @@ export function CloudSignInForm({ bridge, onSignedIn, onSkip, skipLabel }: {
 
   return (
     <div data-cloud-sign-in="email" className="flex flex-col gap-3">
+      {intro && <p className="text-center text-[14px] text-ink-secondary">{intro}</p>}
       <input
         autoFocus
         type="email"
