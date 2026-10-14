@@ -1,7 +1,7 @@
 export const HANDOFF_IDLE_MS = 20 * 60_000;
 export const HANDOFF_HARD_CAP_MS = 4 * 60 * 60_000;
 
-export const HANDOFF_ENDS = ["person", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem"] as const;
+export const HANDOFF_ENDS = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem"] as const;
 export type HandoffEnd = (typeof HANDOFF_ENDS)[number];
 
 export const TIME_ENDS: readonly HandoffEnd[] = ["idle", "capped"];
@@ -41,6 +41,7 @@ export function plainDuration(ms: number): string {
 export function endWords(end: HandoffEnd, limits: Pick<HandoffBudgetLimits, "idleMs" | "hardCapMs">, unstarted = false): string {
   switch (end) {
     case "person": return unstarted ? "The person stopped this before it started." : "The person stopped this work.";
+    case "api": return unstarted ? "A local tool on this Mac stopped this before it started." : "A local tool on this Mac stopped this work.";
     case "interrupted": return unstarted ? "Interrupted before it started." : "Interrupted before it finished.";
     case "deleted": return "The conversation that asked for this was deleted.";
     case "idle": return `Nothing moved for ${plainDuration(limits.idleMs)}, so later.dog stopped waiting.`;
@@ -63,6 +64,7 @@ export function teammateEndLabel(name: string, status: string, end: HandoffEnd |
   if (status === "completed") return `${name} replied`;
   if (end === undefined) return status === "cancelled" ? `${name} stopped` : `${name} couldn't finish`;
   if (end === "person") return `${name} stopped`;
+  if (end === "api") return `${name} was stopped by a local tool`;
   if (endedForTime(end)) return `${name} ran out of time`;
   if (end === "origin") return `${name} never got started`;
   if (end === "interrupted") return `${name} was interrupted`;

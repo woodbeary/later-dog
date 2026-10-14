@@ -631,6 +631,7 @@ import {
 } from "./phone-secret.ts";
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
 import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
+import { EDIT_REFUSAL, UNGUARDED_REFUSAL, localToolMessageText, localToolSpeaker, unguardedMode } from "./laterdog/local-tool-message.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
@@ -1217,6 +1218,13 @@ function decisionActorFor(auth: RequestAuth): DecisionActor {
 }
 
 const fromLocalTools = (auth: RequestAuth): boolean => auth.kind === "loopback" && auth.localTools === true;
+
+function unguardedDog(botId: string, threadId?: string): boolean {
+  const bot = store.bot(botId);
+  if (!bot) return false;
+  const projected = threadId ? store.projectBotForTask(botId, threadId) ?? bot : bot;
+  return unguardedMode(approvalModeForTurn(projected, false, threadId ?? projected.threadId));
+}
 
 function cardAnswererFor(auth: RequestAuth): CardAnswerer {
   if (auth.kind === "loopback") return auth.trust === "service" ? { kind: "worker" } : { kind: "loopback" };
@@ -2408,21 +2416,23 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
   noteTeammatesLeftRunning(botId, threadId, roomHandoffs.stopAwaitingDirect(threadId, options?.by ?? "interrupted"));
   const owner = botForThread(botId, threadId);
   const generation = directTurnGenerationByThread.get(threadId);
-  if (accountBattery.pending(threadId, generation)) cancelBatteryContinuation(threadId, "You stopped this work. Automatic continuation is cancelled.");
+  if (accountBattery.pending(threadId, generation)) {
+    cancelBatteryContinuation(threadId, options?.by === "api" ? "A local tool on this Mac stopped this work. Automatic continuation is cancelled." : "You stopped this work. Automatic continuation is cancelled.");
+  }
   cancelDirectTurnDispatch(botId, threadId);
   revokeInternalCapabilitiesForThread(threadId);
   await (owner ? runningTurnInstance(owner, threadId) : null)?.adapter.interruptTurn(threadId);
   if (directTurnGenerationByThread.get(threadId) === generation) closeOpenApprovals(threadId);
 }
 
-async function stopThreadTurn(botId: string, threadId: string): Promise<void> {
+async function stopThreadTurn(botId: string, threadId: string, by: "person" | "api" = "person"): Promise<void> {
   const routine = routines!.activeBotRunForBot(botId);
   if (routine?.threadId === threadId) {
     await routines!.cancelRun(routine.id);
     return;
   }
-  handoffs.stoppedByPerson(threadId);
-  await interruptDirectThread(botId, threadId, { by: "person" });
+  if (by === "person") handoffs.stoppedByPerson(threadId);
+  await interruptDirectThread(botId, threadId, { by });
 }
 
 function noteTeammatesLeftRunning(botId: string, threadId: string, running: RoomHandoff[]): void {
@@ -7107,6 +7117,11 @@ function latestCompaction(messages: readonly Message[]) {
   return record?.compaction ? { ...record.compaction, id: record.id } : undefined;
 }
 
+function directPrompt(text: string, replyTo: Message | undefined, via?: "api" | "call"): string {
+  const prompt = promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User");
+  return via === "api" ? localToolMessageText(prompt) : prompt;
+}
+
 function directContext(bot: BotRecord, threadId: string, messages: Message[]): ContextMessage[] {
   const messagesById = new Map(store.messagesFor(threadId).map(message => [message.id, message]));
   return messages.filter(isContextMessage).map(m => ({
@@ -7115,9 +7130,10 @@ function directContext(bot: BotRecord, threadId: string, messages: Message[]): C
       : m.roomRequest?.phase === "result" ? teammateReportContext(m.roomRequest.id, bot.id)
         : m.kind === "digest" && m.digest ? digestPromptLine(m.digest, m.from?.name ?? bot.name)
           : m.peerAsk ? peerMessageText(m.peerAsk.name, m.text ?? "")
+            : m.role === "user" && m.via === "api" ? localToolMessageText(transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"))
             : m.role !== "user" && m.from ? peerMessageText(m.from.name, transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"))
               : transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"),
-    keep: m.roomRequest?.phase === "result" || Boolean(m.peerAsk) || (m.role !== "user" && Boolean(m.from)),
+    keep: m.roomRequest?.phase === "result" || Boolean(m.peerAsk) || (m.role !== "user" && Boolean(m.from)) || (m.role === "user" && m.via === "api"),
     ...(m.steered ? { steered: true } : {}),
   }));
 }
@@ -7505,7 +7521,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
       replyToId: replyTo?.id,
       sendId,
       reason: decision.reason,
-      prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
+      prompt: directPrompt(text, replyTo, via),
       sender,
       trigger,
       via,
@@ -7635,7 +7651,7 @@ async function acceptDirectSend(
           engineSteersImages: instance?.adapter.capabilities.steerImages === true,
         });
         if (busyAdmission.action === "steer" && instance?.adapter.steer) {
-          const words = steerWords(promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"));
+          const words = steerWords(directPrompt(text, replyTo, via));
           steered = await instance.adapter
             .steer(threadId, words.text, words.images)
             .catch((): SteerOutcome => "indeterminate");
@@ -7673,7 +7689,7 @@ async function acceptDirectSend(
         const queued = queueSteeredMessage(current.id, threadId, text, {
           replyToId: replyTo?.id,
           sendId,
-          prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
+          prompt: directPrompt(text, replyTo, via),
           sender,
           trigger,
           via,
@@ -8076,7 +8092,7 @@ async function startTurn(
     const edited = store.branchMessage(threadId, opts.editedMessageId, text, opts.sendId, opts.sender);
     if (!edited) throw Object.assign(new Error("only a user text message can be edited"), { status: 400 });
     store.patchTask(bot.id, threadId, { rewound: true });
-    userMessage = edited;
+    userMessage = opts.via ? store.patchMessage(threadId, edited.id, { via: opts.via }) ?? edited : edited;
   }
   if (!userMessage) {
     userMessage = opts?.cardContinuation
@@ -8242,12 +8258,15 @@ async function startTurn(
         createHash("sha256").update(JSON.stringify([...persistentConfig, soul])).digest("hex").slice(0, 16);
       const plannedConfig = sessionConfig(bot.soul);
       const skillAuthoring = skillAuthoringEnabled(cfg) && agentsMounted;
-      const setupText = agentsMounted ? expandSetupTurnText(providerText) : providerText;
-      const userTurnText = promptWithReply(
-        skillAuthoring ? expandLearnTurnText(setupText) : setupText,
-        opts?.replyTo,
-        cfg.profile?.name?.trim() || "User",
-      );
+      const fromTool = userMessage.via === "api";
+      const setupText = agentsMounted && !fromTool ? expandSetupTurnText(providerText) : providerText;
+      const userTurnText = fromTool
+        ? directPrompt(setupText, opts?.replyTo, "api")
+        : promptWithReply(
+          skillAuthoring ? expandLearnTurnText(setupText) : setupText,
+          opts?.replyTo,
+          cfg.profile?.name?.trim() || "User",
+        );
       const decideContext = (config: string) => {
         const effortHeld = !effort && typeof handed?.effort === "string";
         const handedStale = Boolean(handed && (!unseen || effortHeld || (externalUpdate && handed.config !== config)));
@@ -10205,7 +10224,7 @@ function serializeRoomContext(
       const rendered = overridden !== undefined ? { ...m, text: overridden } : m;
       const person = m.sender?.name ?? userName;
       const speaker = m.role === "user"
-        ? m.via === "api" ? `${person} (sent through the local API, not typed)` : person
+        ? m.via === "api" ? localToolSpeaker(person) : person
         : m.from ? peerName(m.from.name) : "Bot";
       const line = `${speaker}: ${transcriptText(rendered, messagesById, userName)}`;
       if (!m.peerPost || !m.from || m.from.botId === readerBotId) return line;
@@ -16904,6 +16923,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       const hiddenMember = Array.isArray(body?.memberIds) ? body.memberIds.find((id: unknown) => typeof id === "string" && store.bot(id) && !visible.bot(id)) : undefined;
       if (hiddenMember) return json(res, 400, { error: `unknown channel member: ${String(hiddenMember)}` });
+      if (fromLocalTools(auth) && Array.isArray(body?.memberIds) && body.memberIds.some((id: unknown) => typeof id === "string" && unguardedDog(id))) {
+        return json(res, 403, { error: UNGUARDED_REFUSAL });
+      }
       const group = createChannel(body);
       if (CLOUD_HOME && auth.kind === "session") threadStarters.set(group.threadId, actorKey(auth));
       return json(res, 201, { group: { ...publicGroupState(group), messages: [] } });
@@ -17394,6 +17416,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const notYours = cloudThreadRefusal(auth, renamed.threadId);
         if (notYours) return json(res, 403, { error: notYours });
       }
+      if (fromLocalTools(auth) && Array.isArray(body?.memberIds) && body.memberIds.some((id: unknown) => typeof id === "string" && unguardedDog(id))) {
+        return json(res, 403, { error: UNGUARDED_REFUSAL });
+      }
       const group = updateChannel(m[1], body);
       return json(res, 200, { group: publicGroupState(group) });
     }
@@ -17447,6 +17472,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "threadId must be a task id" });
       }
       const threadId = body.threadId ?? group.threadId;
+      if (fromLocalTools(auth) && group.memberIds.some((id) => unguardedDog(id))) return json(res, 403, { error: UNGUARDED_REFUSAL });
       const trigger = usageTriggerFor(auth);
       try {
         assertWithinBudget(cfg, DATA_DIR);
@@ -17685,7 +17711,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           instance: busy ? runningTurnInstance(busy, threadId) : undefined,
         };
       });
-      for (const { threadId } of interruptTargets) cancelGroupTurnOperations(group.id, threadId, undefined, "person");
+      const stoppedBy = fromLocalTools(auth) ? "api" : "person";
+      for (const { threadId } of interruptTargets) {
+        cancelGroupTurnOperations(group.id, threadId, stoppedBy === "api" ? { status: "stopped", detail: "Stopped by a local tool on this Mac." } : undefined, stoppedBy);
+      }
       for (const { threadId, instance } of interruptTargets) {
         revokeInternalCapabilitiesForThread(threadId);
         await instance?.adapter.interruptTurn(threadId).catch(() => {});
@@ -19054,6 +19083,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const threadId = body.threadId ?? bot.threadId;
       const notYours = cloudGuestSendRefusal(auth, threadId);
       if (notYours) return json(res, 403, { error: notYours });
+      if (fromLocalTools(auth) && unguardedDog(bot.id, threadId)) return json(res, 403, { error: UNGUARDED_REFUSAL });
       const onBehalfOf = guardedBody?.data?.onBehalfOf;
       const trigger: UsageTrigger = onBehalfOf
         ? { kind: "user", ...(onBehalfOf.email ? { email: onBehalfOf.email } : {}), ...(onBehalfOf.name ? { label: onBehalfOf.name } : {}) }
@@ -19206,6 +19236,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!source || source.role !== "user" || source.kind !== "text") {
         return json(res, 404, { error: "only user messages can be edited" });
       }
+      if (fromLocalTools(auth) && source.via !== "api") return json(res, 403, { error: EDIT_REFUSAL });
+      if (fromLocalTools(auth) && unguardedDog(bot.id, bot.threadId)) return json(res, 403, { error: UNGUARDED_REFUSAL });
       const sendId = parseSendId(body.sendId);
       if (sendId) {
         const accepted = acceptedSendMatch(threadMessages, sendId, text, source.replyToId);
@@ -19469,7 +19501,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "threadId must be a task id" });
       }
       if (typeof expectedThreadId === "string" && store.taskByThread(bot.id, expectedThreadId)) {
-        await stopThreadTurn(bot.id, expectedThreadId);
+        await stopThreadTurn(bot.id, expectedThreadId, fromLocalTools(auth) ? "api" : "person");
         return json(res, 200, { ok: true });
       }
       const directClaim = directTurnDispatchClaims.get(bot.threadId);
@@ -19491,7 +19523,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (expectedThreadId !== undefined && busyGroup.threadId !== expectedThreadId) {
           return json(res, 409, { error: `this dog is working in channel ${busyGroup.group.name}` });
         }
-        cancelGroupTurnOperations(busyGroup.group.id, busyGroup.threadId, undefined, "person");
+        cancelGroupTurnOperations(busyGroup.group.id, busyGroup.threadId,
+          fromLocalTools(auth) ? { status: "stopped", detail: "Stopped by a local tool on this Mac." } : undefined, fromLocalTools(auth) ? "api" : "person");
         revokeInternalCapabilitiesForThread(busyGroup.threadId);
         await instance?.adapter.interruptTurn(busyGroup.threadId).catch(() => {});
         closeOpenApprovals(busyGroup.threadId);
@@ -19505,8 +19538,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       ) {
         return json(res, 409, { error: "the dog switched tasks before it could be interrupted" });
       }
-      handoffs.stoppedByPerson(expectedThreadId ?? bot.threadId);
-      await interruptDirectThread(bot.id, expectedThreadId ?? bot.threadId, { by: "person" });
+      if (!fromLocalTools(auth)) handoffs.stoppedByPerson(expectedThreadId ?? bot.threadId);
+      await interruptDirectThread(bot.id, expectedThreadId ?? bot.threadId, { by: fromLocalTools(auth) ? "api" : "person" });
       return json(res, 200, { ok: true });
     }
 

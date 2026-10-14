@@ -69,10 +69,9 @@ async function fetchJson(url: string, options: RequestInit = {}, discovery = fal
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     if (response.status === 403 && !process.env.LATERDOG_SERVER_TOKEN?.trim()) {
-      const approving = /approve its own work/.test(text);
-      throw new Error(approving
-        ? "later.dog refused this because a dog must not be able to approve its own work. Answering approval cards, changing approval modes and granting permissions stay with the desktop app or a paired device."
-        : `later.dog refused this write. The installed desktop app lets local tools make changes with the token it writes to ${localControlTokenPath()} when it starts; restart later.dog if that file is missing, or set LATERDOG_SERVER_TOKEN to a paired session token as described in docs/mcp-server.md.`);
+      const reason = (() => { try { const error = JSON.parse(text)?.error; return typeof error === "string" ? error.replace(/^forbidden: /, "") : undefined; } catch { return undefined; } })();
+      if (reason && reason !== "this change must come from the desktop app or a paired device") throw new Error(`later.dog refused this: ${reason}`);
+      throw new Error(`later.dog refused this write. The installed desktop app lets local tools make changes with the token it writes to ${localControlTokenPath()} when it starts; restart later.dog if that file is missing, or set LATERDOG_SERVER_TOKEN to a paired session token as described in docs/mcp-server.md.`);
     }
     throw new Error(`later.dog API error (${response.status}): ${text || response.statusText}`);
   }

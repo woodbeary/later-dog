@@ -41,7 +41,7 @@ const CALLS: Record<string, Array<Record<string, unknown>>> = {
   send_bot_message: [{ bot_id: "b1", text: "hello" }, { bot_id: "b1", text: "hello", task_id: "t1" }],
   create_bot: [
     { name: "Scout" },
-    { name: "Scout", title: "Researcher", description: "Finds things", section: "Ops", instance_id: "claude", model: "m", effort: "high" },
+    { name: "Scout", title: "Researcher", description: "Finds things", instance_id: "claude", model: "m", effort: "high" },
   ],
   update_bot_profile: [{ bot_id: "b1", name: "New", title: "T", description: "D" }],
   list_channels: [{}],
@@ -49,7 +49,7 @@ const CALLS: Record<string, Array<Record<string, unknown>>> = {
   send_channel_message: [{ channel_id: "g1", text: "hello" }],
   create_channel: [
     { name: "Room", member_ids: ["b1"] },
-    { name: "Room", member_ids: ["b1"], section: "Ops", bulletin: "Plan", default_responder: { kind: "member", bot_id: "b1" } },
+    { name: "Room", member_ids: ["b1"], bulletin: "Plan", default_responder: { kind: "member", bot_id: "b1" } },
   ],
   update_channel: [{ channel_id: "g1", name: "Renamed", member_ids: ["b1"], bulletin: "Plan", default_responder: { kind: "everyone" } }],
   create_task: [{ target_type: "bot", target_id: "b1" }, { target_type: "channel", target_id: "g1", title: "Work" }],
@@ -66,9 +66,11 @@ const CALLS: Record<string, Array<Record<string, unknown>>> = {
   interrupt_conversation: [{ target_type: "bot", target_id: "b1" }, { target_type: "channel", target_id: "g1" }],
 };
 
-const REFUSED_ON_PURPOSE: Array<[string, Record<string, unknown>]> = [
-  ["update_bot_profile", { bot_id: "b1", section: "Elsewhere" }],
-  ["update_channel", { channel_id: "g1", section: "Elsewhere" }],
+const REFUSED_ON_PURPOSE: Array<[string, Record<string, unknown>, string]> = [
+  ["update_bot_profile", { bot_id: "b1", section: "Elsewhere" }, "PATCH"],
+  ["update_channel", { channel_id: "g1", section: "Elsewhere" }, "PATCH"],
+  ["create_bot", { name: "Scout", section: "Elsewhere" }, "POST"],
+  ["create_channel", { name: "Room", member_ids: ["b1"], section: "Elsewhere" }, "POST"],
 ];
 
 describe("every request the later.dog scripts make is on the allow-list", () => {
@@ -96,11 +98,11 @@ describe("every request the later.dog scripts make is on the allow-list", () => 
     }
   });
 
-  it("refuses the one thing a tool can ask for that it may not, moving a dog or a room to another pack", async () => {
-    for (const [tool, args] of REFUSED_ON_PURPOSE) {
+  it("refuses the one thing a tool can ask for that it may not, putting a dog or a room in a pack, or moving one", async () => {
+    for (const [tool, args, method] of REFUSED_ON_PURPOSE) {
       const { seen, fetcher } = recorder();
       await handleToolCall(tool, args, fetcher);
-      const change = seen.find((request) => request.method === "PATCH")!;
+      const change = seen.find((request) => request.method === method)!;
       expect(localToolsBodyRefusal(change.method, change.path, change.body), tool).toBe(LOCAL_TOOLS_REFUSAL);
     }
   });
@@ -136,6 +138,8 @@ describe("everything else is refused by default", () => {
       ["POST", "/api/bots", { name: "X", settings: { approvalMode: "full", alwaysAllow: ["Bash"] } }],
       ["POST", "/api/bots", { name: "X", approvalMode: "auto" }], ["POST", "/api/bots", { name: "X", cwd: "/" }],
       ["POST", "/api/bots", { name: "X", preset: "p" }], ["POST", "/api/bots", { name: "X", computer: "local" }],
+      ["POST", "/api/bots", { name: "X", section: "Ops" }], ["POST", "/api/groups", { name: "R", memberIds: ["b1"], section: "Ops" }],
+      ["POST", "/api/groups", { name: "R", memberIds: ["b1"], setup: { bulletin: "", defaultResponder: { kind: "everyone" }, section: "Ops" } }],
       ["PATCH", "/api/bots/b1", { name: "X", connectorTools: { gmail: "write" } }], ["PATCH", "/api/bots/b1", { browserProfile: "p" }],
       ["PATCH", "/api/bots/b1", { cloudBackend: "vps" }], ["PATCH", "/api/bots/b1", { autoStartVps: true }],
       ["PATCH", "/api/bots/b1", { fallback: [{ instanceId: "a", model: "m" }] }], ["PATCH", "/api/bots/b1", { visibility: "everyone" }],
