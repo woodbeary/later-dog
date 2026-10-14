@@ -1,4 +1,4 @@
-export type HomeWake = "waking" | "busy";
+export type HomeWake = "waking" | "busy" | "asleep";
 
 export const WAKE_HEADER = "x-laterdog-home";
 export const LENDING_HEADER = "x-laterdog-lending";
@@ -8,10 +8,13 @@ export function isBackground(request: Request): boolean {
 }
 export const WAKING_RETRY_SECONDS = 2;
 export const BUSY_RETRY_SECONDS = 10;
+export const ASLEEP_RETRY_SECONDS = 15;
+const RETRY_SECONDS: Record<HomeWake, number> = { waking: WAKING_RETRY_SECONDS, busy: BUSY_RETRY_SECONDS, asleep: ASLEEP_RETRY_SECONDS };
 
 const PAGE_WORDS: Record<HomeWake, { title: string; line: string }> = {
   waking: { title: "Waking up My Cloud…", line: "Your dogs were resting. This takes a few seconds." },
   busy: { title: "later.dog is busy right now", line: "Trying again in a few seconds." },
+  asleep: { title: "My Cloud is resting", line: "It wakes up when you send a message." },
 };
 
 function wantsPage(request: Request): boolean {
@@ -24,7 +27,7 @@ function page(wake: HomeWake, retry: number): string {
 }
 
 export function wakeResponse(request: Request, wake: HomeWake): Response {
-  const retry = wake === "waking" ? WAKING_RETRY_SECONDS : BUSY_RETRY_SECONDS;
+  const retry = RETRY_SECONDS[wake];
   const headers = { "retry-after": String(retry), [WAKE_HEADER]: wake, "cache-control": "no-store" };
   if (wantsPage(request)) return new Response(page(wake, retry), { status: 503, headers: { ...headers, "content-type": "text/html; charset=utf-8" } });
   return Response.json({ error: wake, retryAfter: retry }, { status: 503, headers });

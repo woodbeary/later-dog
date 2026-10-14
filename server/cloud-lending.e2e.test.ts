@@ -144,7 +144,7 @@ it("offers lending on a Cloud home with the maintainer flag still off", async ()
   expect(await api("GET", "/api/shared-computers", { token: owner })).toEqual({ status: 200, body: { computers: [] } });
 });
 
-it("the person's Mac, lent through the real connector, is usable by the owner's conversations and routines, never by what a guest left behind or a webhook", async () => {
+it("the person's Mac connects by itself through the real connector, asks before it is used, and is usable by the owner's conversations and routines, never by what a guest left behind or a webhook", async () => {
   const newBot = async (name: string) => (await api("POST", "/api/bots", { token: owner, body: { name, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } } })).body.bot;
   const routineFor = async (botName: string, prompt = "Read plan.md from my Mac.") => {
     const created = await api("POST", "/api/routines", { token: owner, body: {
@@ -159,30 +159,32 @@ it("the person's Mac, lent through the real connector, is usable by the owner's 
   const rewritten = await routineFor("Rewritten");
   await leftBehind({ threadIds: [guestOpened], routineIds: [rewritten] });
 
-  const folderPath = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-cloud-lent-folder-")));
-  writeFileSync(join(folderPath, "plan.md"), "from the Mac");
+  const macHome = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-cloud-mac-home-")));
+  writeFileSync(join(macHome, "plan.md"), "from the Mac");
+  mkdirSync(join(macHome, ".ssh"));
+  writeFileSync(join(macHome, ".ssh", "id_ed25519"), "private key");
   const env = { id: "my-cloud", name: "My Cloud", origin: base };
   let maintainerChecks = 0;
   connector = createComputerSharing({
     file: join(home, "desktop-profile", "computer-sharing.json"), environments: () => [env], cuaConnection: async () => null,
     enabled: async () => { maintainerChecks++; return false; },
     cloud: () => ({ status: "connected", accountId: "acct_fixture", origin: base }),
-    home: join(home, "mac-home"),
+    home: macHome, computerName: () => "Jo's MacBook Air", retryMs: 500,
     fetch: (url: string, init: RequestInit) => fetch(url, { ...init, headers: { ...init.headers as Record<string, string>, authorization: `Bearer ${owner}`, host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https", origin: `https://${HOST}` } }),
   });
-  const folder = { id: randomUUID(), name: "Plans", path: folderPath, write: false };
-  await connector.saveCloud(env, { folders: [folder], screen: false });
+  connector.start({ maintainer: false });
   await expect.poll(() => connector!.cloudState(env).connected, { timeout: 8000 }).toBe(true);
   expect(maintainerChecks).toBe(0);
 
   const status = (await api("GET", "/api/shared-computers", { token: owner })).body.computers;
   expect(status).toHaveLength(1);
-  expect(status[0]).toMatchObject({ online: true, busy: false, scopes: { folders: [{ id: folder.id, name: expect.any(String), write: false }], terminal: false, screen: false } });
-  expect(JSON.stringify(status)).not.toContain(folderPath);
+  expect(status[0]).toMatchObject({ name: "Jo's MacBook Air", online: true, busy: false, scopes: { folders: [{ id: expect.any(String), name: "Home", write: true }], terminal: true, screen: true } });
+  expect(JSON.stringify(status)).not.toContain(macHome);
   expect(JSON.stringify(status)).not.toMatch(/[a-f0-9]{64}/);
+  expect((await api("GET", "/api/mac-access", { token: owner })).body).toMatchObject({ mode: "ask", dogs: [], macs: [{ id: status[0].id, name: "Jo's MacBook Air", online: true }] });
 
   const sees = async (call: Awaited<ReturnType<typeof proxyFor>>) => JSON.parse((await call("list_shared_computers")).content[0].text).computers.length;
-  const reads = async (call: Awaited<ReturnType<typeof proxyFor>>) => (await call("shared_computer", { computer_id: status[0].id, folder_id: folder.id, action: "read_file", path: "plan.md" }));
+  const reads = async (call: Awaited<ReturnType<typeof proxyFor>>) => (await call("shared_computer", { action: "read_file", path: "plan.md" }));
   const run = (routineId: string) => proxyFor(async () => {
     expect((await api("POST", `/api/routines/${routineId}/run`, { token: owner })).status).toBe(201);
   });
@@ -190,18 +192,57 @@ it("the person's Mac, lent through the real connector, is usable by the owner's 
     const created = (await api("POST", "/api/bots", { token: owner, body: { name, modelSelection: { instanceId: "grok", model: "fake-model" } } })).body.bot;
     return { id: created.id as string, threadId: created.threadId as string };
   };
+  const macCard = async (threadId: string, tool: string) => {
+    let card: any;
+    await expect.poll(async () => {
+      const { body } = await api("GET", `/api/threads/${threadId}/messages`, { token: owner });
+      card = (body.messages ?? []).find((message: any) => message.card?.tool === tool && !message.card.answered)?.card;
+      return Boolean(card);
+    }, { timeout: 10_000 }).toBe(true);
+    return card;
+  };
+  const answer = async (threadId: string, requestId: string, behavior: "allow" | "deny") => {
+    const answered = await api("POST", `/api/threads/${threadId}/respond`, { token: owner, body: { requestId, behavior } });
+    expect(answered.status, JSON.stringify(answered.body)).toBe(200);
+  };
   const bot = await newBot("Cloud bot");
   const call = await proxyFor(async () => {
     expect((await api("POST", `/api/bots/${bot.id}/messages`, { token: owner, body: { text: "Read plan.md from my Mac." } })).status).toBe(202);
   });
   const listed = JSON.parse((await call("list_shared_computers")).content[0].text).computers;
   expect(listed.map((entry: any) => entry.id)).toEqual([status[0].id]);
-  const read = await call("shared_computer", { computer_id: status[0].id, folder_id: folder.id, action: "read_file", path: "plan.md" });
-  expect(JSON.parse(read.content[0].text).content).toBe("from the Mac");
-  expect((await call("shared_computer", { computer_id: status[0].id, action: "run_command", command: "id" })).isError).toBe(true);
-  expect((await call("shared_computer", { computer_id: status[0].id, folder_id: folder.id, action: "write_file", path: "x.md", content: "y" })).isError).toBe(true);
-  expect(existsSync(join(folderPath, "x.md"))).toBe(false);
-  expect(connector.activity(env.id).map((entry) => [entry.action, entry.ok])).toEqual([["read_file", true]]);
+
+  const reading = call("shared_computer", { action: "read_file", path: "~/plan.md" });
+  const readCard = await macCard(bot.threadId, "mac_read_file");
+  expect(readCard).toMatchObject({ title: "Jo's MacBook Air", subtitle: "~/plan.md", options: ["Allow", "Deny", "Always allow"], approvalScope: "local-computer", allowKey: "mac" });
+  expect(connector.activity(env.id)).toEqual([]);
+  const unsigned = await fetch(`${base}/api/threads/${bot.threadId}/respond`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: readCard.requestId, behavior: "allow" }),
+  });
+  expect(unsigned.status).toBe(403);
+  await answer(bot.threadId, readCard.requestId, "allow");
+  expect(JSON.parse((await reading).content[0].text).content).toBe("from the Mac");
+  expect(JSON.parse((await call("shared_computer", { action: "list_files", path: "." })).content[0].text).entries.map((entry: any) => entry.name)).toContain("plan.md");
+  const secretKey = await call("shared_computer", { action: "read_file", path: "~/.ssh/id_ed25519" });
+  expect(secretKey.isError).toBe(true);
+  expect(JSON.stringify(secretKey)).not.toContain("private key");
+
+  const writing = call("shared_computer", { action: "write_file", path: "x.md", content: "y" });
+  const writeCard = await macCard(bot.threadId, "mac_write_file");
+  expect(writeCard.subtitle).toBe("~/x.md");
+  await answer(bot.threadId, writeCard.requestId, "deny");
+  const refused = await writing;
+  expect(refused.isError).toBe(true);
+  expect(refused.content[0].text).toContain("didn't allow it");
+  expect(existsSync(join(macHome, "x.md"))).toBe(false);
+
+  expect((await api("PUT", "/api/mac-access", { token: owner, body: { mode: "never" } })).body.mode).toBe("never");
+  const never = await call("shared_computer", { action: "run_command", command: "touch ran.txt" });
+  expect(never.isError).toBe(true);
+  expect(never.content[0].text).toContain("set their Mac to Never");
+  expect(existsSync(join(macHome, "ran.txt"))).toBe(false);
+  expect(connector.activity(env.id).map((entry) => [entry.action, entry.ok])).toEqual([["read_file", false], ["list_files", true], ["read_file", true]]);
+  expect((await api("PUT", "/api/mac-access", { token: owner, body: { mode: "always" } })).body.mode).toBe("always");
 
   const ownersRoutine = await routineFor("Nightly");
   expect(await sees(await run(ownersRoutine))).toBe(1);
@@ -348,10 +389,16 @@ it("the person's Mac, lent through the real connector, is usable by the owner's 
   expect(computersIn(unaffected, "before")).toBe(1);
   expect.soft(computersIn(unaffected, "after")).toBe(1);
 
-  connector.revoke(env);
+  await connector.setHome(false);
+  expect(connector.cloudState(env)).toMatchObject({ on: false, enabled: false });
   await expect.poll(async () => (await api("GET", "/api/shared-computers", { token: owner })).body.computers, { timeout: 5000 }).toEqual([]);
-  expect((await call("shared_computer", { computer_id: status[0].id, folder_id: folder.id, action: "read_file", path: "plan.md" })).isError).toBe(true);
-  rmSync(folderPath, { recursive: true, force: true });
+  const gone = await call("shared_computer", { action: "read_file", path: "plan.md" });
+  expect(gone.isError).toBe(true);
+  expect(gone.content[0].text).toContain("No Mac is connected yet");
+  await connector.setHome(true);
+  await expect.poll(() => connector!.cloudState(env).connected, { timeout: 8000 }).toBe(true);
+  expect((await api("GET", "/api/shared-computers", { token: owner })).body.computers.map((entry: any) => entry.id)).toEqual([status[0].id]);
+  rmSync(macHome, { recursive: true, force: true });
 }, 60_000);
 
 it("on a Cloud home the owner's answer to an options card is recorded as the owner's", async () => {

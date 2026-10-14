@@ -32,23 +32,23 @@ function OnMyCloud({ onGetPhone }: { onGetPhone: () => void }) {
       message={failed ? <p role="alert" className="text-danger">{t("cloudAccount.actionFailed")}</p> : undefined}>
       {plan && <button type="button" className="ui-button" onClick={() => act(() => plan.useThisComputer())}>{t("cloudAccount.useThisMac")}</button>}
     </SettingRow>
-    {lending && <SettingRow title={t("lending.title")} subtitle={t("cloudAccount.lendFromCloud")}>
-      <button type="button" className="ui-button" onClick={() => act(() => lending.open())}>{t("cloudAccount.choose")}</button>
+    {lending && <SettingRow title={t("lending.title")} subtitle={t("cloudAccount.macFromCloud")}>
+      <button type="button" className="ui-button" onClick={() => act(() => lending.open())}>{t("cloudAccount.manage")}</button>
     </SettingRow>}
     <PhoneRow onGetPhone={onGetPhone} />
   </div>;
 }
 
-export function CloudAccountSettings({ onGetPhone }: { onGetPhone: () => void }) {
+export function CloudAccountSettings({ onGetPhone, onOpenComputer }: { onGetPhone: () => void; onOpenComputer?: () => void }) {
   const bridge = cloudAccountBridge();
   if (!bridge) {
     if (window.laterdog?.remoteClient?.active && (window.laterdog.cloudPlan || window.laterdog.cloudLending)) return <OnMyCloud onGetPhone={onGetPhone} />;
     return <div data-cloud-account="elsewhere"><PhoneRow onGetPhone={onGetPhone} /></div>;
   }
-  return <SignedInCard bridge={bridge} onGetPhone={onGetPhone} />;
+  return <SignedInCard bridge={bridge} onGetPhone={onGetPhone} onOpenComputer={onOpenComputer} />;
 }
 
-function SignedInCard({ bridge, onGetPhone }: { bridge: CloudAccountBridge; onGetPhone: () => void }) {
+function SignedInCard({ bridge, onGetPhone, onOpenComputer }: { bridge: CloudAccountBridge; onGetPhone: () => void; onOpenComputer?: () => void }) {
   const { account, failed: loadFailed, accept } = useCloudAccount(bridge);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -154,7 +154,7 @@ function SignedInCard({ bridge, onGetPhone }: { bridge: CloudAccountBridge; onGe
       message={openFailed ? <p role="alert" className="text-danger">{t("cloudAccount.openFailed")}</p> : undefined}>
       {home.status === "ready" && <button type="button" disabled={busy} className="ui-button" onClick={openHome}>{t("cloudHome.connect")}</button>}
     </SettingRow>}
-    {home && bridge.lending && <CloudLending bridge={bridge.lending} />}
+    {home && bridge.lending && <CloudLending bridge={bridge.lending} onOpenComputer={onOpenComputer} />}
     <PhoneRow onGetPhone={onGetPhone} />
   </div>;
 }

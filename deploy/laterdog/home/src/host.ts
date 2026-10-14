@@ -199,7 +199,7 @@ export class CloudHomeHost extends Container<Env> {
     if (await this.running()) return background ? this.quietly(request) : super.fetch(request);
     if (!background) this.boot(record);
     const busy = this.lastStart?.wake === "busy" && Date.now() - this.lastStart.at < BUSY_MEMORY_MS;
-    return wakeResponse(request, busy ? "busy" : "waking");
+    return wakeResponse(request, busy ? "busy" : background && !this.booting ? "asleep" : "waking");
   }
 
   private quietly(request: Request): Promise<Response> {

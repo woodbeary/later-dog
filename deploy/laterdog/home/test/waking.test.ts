@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUSY_RETRY_SECONDS, isBackground, LENDING_HEADER, startFailure, WAKE_HEADER, wakeResponse, WAKING_RETRY_SECONDS } from "../src/waking.ts";
+import { ASLEEP_RETRY_SECONDS, BUSY_RETRY_SECONDS, isBackground, LENDING_HEADER, startFailure, WAKE_HEADER, wakeResponse, WAKING_RETRY_SECONDS } from "../src/waking.ts";
 
 const api = (accept = "application/json") => new Request("https://h1-home.later.dog/api/bots", { headers: { accept } });
 
@@ -44,5 +44,15 @@ describe("a Mac lending to a home", () => {
     expect(isBackground(new Request("https://h1-home.later.dog/api/auth/session", { headers: { [LENDING_HEADER]: "1" } }))).toBe(true);
     expect(isBackground(new Request("https://h1-home.later.dog/api/auth/session"))).toBe(false);
     expect(isBackground(new Request("https://h1-home.later.dog/api/events", { headers: { [LENDING_HEADER]: "0" } }))).toBe(false);
+  });
+
+  it("is told the home is asleep and to check back less often than a person waiting for it", async () => {
+    const response = wakeResponse(new Request("https://h1-home.later.dog/api/shared-computers/abc/poll", { method: "POST", headers: { [LENDING_HEADER]: "1" } }), "asleep");
+    expect(response.status).toBe(503);
+    expect(response.headers.get(WAKE_HEADER)).toBe("asleep");
+    expect(response.headers.get("retry-after")).toBe(String(ASLEEP_RETRY_SECONDS));
+    expect(await response.json()).toEqual({ error: "asleep", retryAfter: ASLEEP_RETRY_SECONDS });
+    expect(ASLEEP_RETRY_SECONDS).toBeGreaterThan(WAKING_RETRY_SECONDS);
+    expect(ASLEEP_RETRY_SECONDS).toBeLessThan(25);
   });
 });

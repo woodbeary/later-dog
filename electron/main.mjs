@@ -89,6 +89,7 @@ import environmentsModule from "./environments.cjs";
 import localOriginModule from "./local-origin.cjs";
 import { buildApplicationMenu } from "./menu.mjs";
 import { createComputerSharing, validateSharedFolders } from "./computer-sharing.mjs";
+import { primeHomeFolders } from "./shared-computer-access.mjs";
 import { acquireDataDirLease } from "./data-dir-lease.mjs";
 import { createManagedDesktopClient, createManagedDesktopRelay, createManagedDesktopStore, managedPortalOrigin } from "./managed-desktop.mjs";
 import { cloudPlanSnapshot, configuredCloudOrigin, createCloudAccountClient, createCloudAccountStore } from "./cloud-account.mjs";
@@ -1552,8 +1553,10 @@ function sharingController() {
     environments: () => environmentsState.environments,
     enabled: refreshSharedComputersAllowed,
     cloud: cloudLendingSnapshot,
+    pairCloud: async () => cloudAccount?.homeTarget() ? cloudAccount.pairHome() : null,
+    primeAccess: () => app.isPackaged ? primeHomeFolders(os.homedir()) : undefined,
     onChange: summary => lendingIndicator().update({ lending: summary.lending.length > 0, busy: Boolean(summary.busy && summary.lending.includes(summary.busy.env)) }),
-    cuaConnection: () => cuaReady,
+    cuaConnection: lendingCua,
     hostControl: async (id, signal) => {
       const lease = async action => {
         const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/desktop/shared-computer-control`, {
@@ -1589,7 +1592,7 @@ function cloudLendingEnvironment() {
 }
 
 function stopLending() {
-  for (const env of environmentsState.environments) if (computerSharing?.cloudState(env).enabled) computerSharing.revoke(env);
+  void computerSharing?.setHome(false);
 }
 
 async function openLendingSettings() {
@@ -1608,6 +1611,7 @@ let lendingTray = null;
 function lendingIndicator() {
   lendingTray ??= createLendingIndicator({
     Tray, Menu, nativeImage, iconPath: APP_ICON,
+    device: process.platform === "darwin" ? "Mac" : "computer",
     onStop: stopLending,
     onOpen: () => void openLendingSettings().catch(error => slog(`lending settings: ${error?.message ?? error}`)),
   });
@@ -2483,6 +2487,17 @@ function startCuaWhenGranted(checklist) {
   })();
   return checklist;
 }
+async function lendingCua() {
+  const connection = await cuaReady.catch(() => null);
+  if (connection?.mcpCommand) return connection;
+  if (!cuaGrantStart && cuaStartsAfterGrant({ platform: process.platform, remote: Boolean(desktopRemoteAccess), checklist: permissionChecklist(macPermissionHost()), connection })) {
+    cuaGrantStart = startCua()
+      .catch((error) => console.error("[cua] start after grant failed:", error))
+      .finally(() => { cuaGrantStart = null; });
+  }
+  await cuaGrantStart;
+  return cuaReady.catch(() => null);
+}
 ipcMain.handle("perm:checklist", localOnly("perm:checklist", () => startCuaWhenGranted(permissionChecklist(macPermissionHost()))));
 ipcMain.handle("perm:request", localOnly("perm:request", async (_event, permission) => startCuaWhenGranted(await requestPermission(permission, macPermissionHost()))));
 
@@ -2879,31 +2894,17 @@ ipcMain.handle("sharing:save", localWorkspaceOnly("sharing:save", async (_event,
 async function lendingSnapshot() {
   const env = cloudLendingEnvironment();
   const connection = await cuaReady.catch(() => null);
+  const sharing = sharingController();
   return {
     available: Boolean(env),
     screenAvailable: Boolean(connection?.mcpCommand),
-    ...(env ? { state: sharingController().cloudState(env), activity: sharingController().activity(env.id, 30) } : {}),
+    state: sharing.cloudState(env),
+    ...(env ? { activity: sharing.activity(env.id, 30) } : {}),
   };
 }
-const lendingEnv = () => {
-  const env = cloudLendingEnvironment();
-  if (!env) throw new Error("Open My Cloud first.");
-  return env;
-};
 ipcMain.handle("lending:state", localWorkspaceOnly("lending:state", () => lendingSnapshot()));
-ipcMain.handle("lending:folder", localWorkspaceOnly("lending:folder", async () => {
-  lendingEnv();
-  const picked = await dialog.showOpenDialog(mainWindow, { title: "Choose a folder My Cloud can use", properties: ["openDirectory"] });
-  if (picked.canceled || !picked.filePaths[0]) return null;
-  return (await validateSharedFolders([{ id: randomUUID(), path: picked.filePaths[0], write: false }]))[0];
-}));
-ipcMain.handle("lending:save", localWorkspaceOnly("lending:save", async (_event, input) => {
-  await sharingController().saveCloud(lendingEnv(), { folders: input?.folders, screen: input?.screen === true });
-  return lendingSnapshot();
-}));
-ipcMain.handle("lending:stop", localWorkspaceOnly("lending:stop", async () => {
-  sharingController();
-  stopLending();
+ipcMain.handle("lending:home", localWorkspaceOnly("lending:home", async (_event, on) => {
+  await sharingController().setHome(on === true);
   return lendingSnapshot();
 }));
 

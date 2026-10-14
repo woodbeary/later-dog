@@ -319,7 +319,7 @@ function MacPermissions({ permissions, intro }: { permissions: readonly DesktopP
 }
 
 function GeneralPage({ mac }: { mac: boolean }) {
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
   const keyed = savedKeyEngines(state.instances);
   const analytics = analyticsConfigured();
   const [phoneOpen, setPhoneOpen] = useState(false);
@@ -327,7 +327,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
     <>
       <SettingsGroup label={t("settings.section.cloudAccount")} testId="later-dog-cloud">
         <SettingsRows>
-          <CloudAccountSettings onGetPhone={() => setPhoneOpen(true)} />
+          <CloudAccountSettings onGetPhone={() => setPhoneOpen(true)} onOpenComputer={() => dispatch({ type: "toggleAppSettings", open: true, section: "computer" })} />
         </SettingsRows>
         <PhoneAppDialog open={phoneOpen} onClose={() => setPhoneOpen(false)} />
       </SettingsGroup>
