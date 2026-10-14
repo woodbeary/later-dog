@@ -134,7 +134,7 @@ describe("General", () => {
       { instanceId: "mistral", driverKind: "mistral", displayName: "Mistral", access: "api", snapshot: { state: "unavailable", authenticated: false }, models },
     ];
     const html = render();
-    expect(groups(html)).toEqual(["accounts", "profile", "auto-review", "appearance", "typing-suggestions", "system", "help"]);
+    expect(groups(html)).toEqual(["accounts", "api-keys", "profile", "auto-review", "appearance", "typing-suggestions", "system", "help"]);
     expect(markers(html)).toEqual(["accounts", "api-keys=openai", "about-me", "permissions=microphone"]);
     expect(html).toContain(">API keys</div>");
   });
@@ -148,7 +148,9 @@ describe("General", () => {
 
   it("leaves System out where it would be empty", () => {
     vi.stubGlobal("window", {});
-    expect(groups(html)).toEqual(["accounts", "profile", "auto-review", "appearance", "typing-suggestions", "system", "help"]);
+    expect(groups(render())).toEqual(["accounts", "profile", "auto-review", "appearance", "typing-suggestions", "help"]);
+    fixture.analytics = true;
+    expect(groups(render())).toEqual(["accounts", "profile", "auto-review", "appearance", "typing-suggestions", "system", "help"]);
   });
 
   it("ends with Help: Keyboard shortcuts, Help Center, Send Feedback and About", () => {
