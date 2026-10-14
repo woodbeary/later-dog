@@ -34,15 +34,15 @@ A signed-in person has no Server menu, no server switcher in the sidebar (only
 `electron/cloud-sign-in.mjs` talks to the accounts service the phone uses
 (`https://accounts.later.dog`, Better Auth email OTP):
 
-1. `POST /api/auth/email-otp/send-verification-otp` with `type: "sign-in"`.
-2. `POST /api/auth/sign-in/email-otp`, which returns the short-lived account
+1. `POST https://accounts.later.dog/api/auth/email-otp/send-verification-otp` with `type: "sign-in"`.
+2. `POST https://accounts.later.dog/api/auth/sign-in/email-otp`, which returns the short-lived account
    session in `set-auth-token`.
 3. With that session, the existing device flow without a browser:
-   `POST /api/cloud/desktop/authorize`, `POST /api/cloud/desktop/approve`
-   (account session as bearer), `POST /api/cloud/desktop/token`. This is the
+   `POST https://accounts.later.dog/api/cloud/desktop/authorize`, `POST https://accounts.later.dog/api/cloud/desktop/approve`
+   (account session as bearer), `POST https://accounts.later.dog/api/cloud/desktop/token`. This is the
    device token the Mac already used for its plan, its home and computer
    lending, so no accounts-service change is needed.
-4. `POST /api/auth/sign-out` ends the short-lived account session.
+4. `POST https://accounts.later.dog/api/auth/sign-out` ends the short-lived account session.
 
 `createCloudAccountClient().adopt()` stores the device credential (OS-encrypted
 `cloud-account.bin`, as before), after which the unchanged state loop, lending and
