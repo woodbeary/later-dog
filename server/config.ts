@@ -392,7 +392,24 @@ const appConfigSchema = z.object({
       .max(2048)
       .refine((value) => !value || /^https?:\/\//i.test(value), "the decision model address must start with http:// or https://")
       .optional(),
-    jobs: z.object({ roomRouting: z.boolean().optional() }).optional(),
+    model: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+    models: z.object({
+      autoReview: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+      turnEnd: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+      screenCheck: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+      screenshotFilter: z.enum(["clef", "clef-flash", "clef-omni"]).optional(),
+    }).optional(),
+    jobs: z.object({
+      roomRouting: z.boolean().optional(),
+      autoReview: z.boolean().optional(),
+      turnEnd: z.boolean().optional(),
+      screenCheck: z.boolean().optional(),
+      screenshotFilter: z.boolean().optional(),
+    }).optional(),
+    autoReview: z.object({
+      allow: z.array(z.string().trim().min(1).max(1000)).max(20),
+      block: z.array(z.string().trim().min(1).max(1000)).max(20),
+    }).optional(),
   }).optional(),
   typing: z.object({
     accountId: z.string().trim().max(64).refine((value) => !value || /^[0-9a-f]{32}$/i.test(value), "a Cloudflare account id is 32 letters and digits").optional(),
@@ -487,7 +504,16 @@ export interface AppConfig {
   vps?: { sshAlias?: string };
   opencodeGo?: { apiKey?: string; providerKeys?: Record<string, string> };
   tts?: { key?: string; fishKey?: string; voice?: string; provider?: "elevenlabs" | "fish" | "system" | "chatterbox" | "xai"; baseUrl?: string; model?: string; fishModel?: FishTtsModel };
-  decider?: { enabled?: boolean; provider?: "jev" | "off"; key?: string; baseUrl?: string; jobs?: { roomRouting?: boolean } };
+  decider?: {
+    enabled?: boolean;
+    provider?: "jev" | "off";
+    key?: string;
+    baseUrl?: string;
+    model?: "clef" | "clef-flash" | "clef-omni";
+    models?: { autoReview?: "clef" | "clef-flash" | "clef-omni"; turnEnd?: "clef" | "clef-flash" | "clef-omni"; screenCheck?: "clef" | "clef-flash" | "clef-omni"; screenshotFilter?: "clef" | "clef-flash" | "clef-omni" };
+    jobs?: { roomRouting?: boolean; autoReview?: boolean; turnEnd?: boolean; screenCheck?: boolean; screenshotFilter?: boolean };
+    autoReview?: { allow: string[]; block: string[] };
+  };
   imageGen?: ImageGenerationConfig;
   typing?: { accountId?: string; token?: string; model?: string };
   live?: { key?: string; voice?: string; readTypedReplies?: boolean; idleMinutes?: number };

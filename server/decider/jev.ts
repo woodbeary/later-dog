@@ -1,5 +1,5 @@
 import type {
-  BackendRequest, BackendResult, ChoiceAnswer, DeciderAnswer, DeciderBackend, DeciderQuestion, ScoreAnswer, YesNoAnswer,
+  BackendRequest, BackendResult, ChoiceAnswer, DeciderAnswer, DeciderBackend, DeciderModel, DeciderQuestion, ScoreAnswer, YesNoAnswer,
 } from "./types.ts";
 import { isLoopback } from "../provider-key-check.ts";
 
@@ -40,7 +40,13 @@ type WireQuestion =
   | { type: "score"; instructions: string; criteria: string[] }
   | { type: "noul"; instructions: string; criteria?: { true?: string; false?: string } };
 
-export function jevRequestBody(state: unknown, questions: Record<string, DeciderQuestion>) {
+export const MAX_IMAGES = 4;
+
+export function jevRequestBody(
+  state: unknown,
+  questions: Record<string, DeciderQuestion>,
+  extras: { images?: readonly string[]; model?: DeciderModel } = {},
+) {
   const wire: Record<string, WireQuestion> = {};
   for (const [id, question] of Object.entries(questions)) {
     if (question.type === "choice") {
@@ -54,7 +60,8 @@ export function jevRequestBody(state: unknown, questions: Record<string, Decider
       wire[id] = { type: "noul", instructions: question.instructions, ...(criteria ? { criteria } : {}) };
     }
   }
-  return { state, model: JEV_MODEL, questions: wire };
+  const images = extras.images?.slice(0, MAX_IMAGES) ?? [];
+  return { state, model: extras.model ?? JEV_MODEL, ...(images.length ? { images } : {}), questions: wire };
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -145,7 +152,7 @@ async function decide(request: BackendRequest): Promise<BackendResult> {
     response = await request.fetch(endpoint, {
       method: "POST",
       headers: { authorization: `Bearer ${request.key}`, "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify(jevRequestBody(request.state, request.questions)),
+      body: JSON.stringify(jevRequestBody(request.state, request.questions, { images: request.images, model: request.model })),
       signal: request.signal,
       redirect: "error",
     });

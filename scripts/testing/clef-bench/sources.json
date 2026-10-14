@@ -1,0 +1,72 @@
+{
+  "example-home": {
+    "source": "https://example.com",
+    "capturedAt": "2026-10-14T05:51:49.463Z",
+    "bytes": 58460
+  },
+  "login-demo": {
+    "source": "https://the-internet.herokuapp.com/login",
+    "capturedAt": "2026-10-14T05:52:27.534Z",
+    "bytes": 43758
+  },
+  "not-found": {
+    "source": "https://the-internet.herokuapp.com/status_codes/404",
+    "capturedAt": "2026-10-14T05:53:05.122Z",
+    "bytes": 27073
+  },
+  "recaptcha-demo": {
+    "source": "https://www.google.com/recaptcha/api2/demo",
+    "capturedAt": "2026-10-14T05:53:32.952Z",
+    "bytes": 25624
+  },
+  "wikipedia-dog": {
+    "source": "https://en.wikipedia.org/wiki/Dog",
+    "capturedAt": "2026-10-14T05:53:46.750Z",
+    "bytes": 126158
+  },
+  "checkboxes": {
+    "source": "https://the-internet.herokuapp.com/checkboxes",
+    "capturedAt": "2026-10-14T05:54:41.840Z",
+    "bytes": 21928
+  },
+  "spinner": {
+    "source": "generated locally from HTML in cases.ts",
+    "capturedAt": "2026-10-14T05:54:53.190Z",
+    "bytes": 13685
+  },
+  "blank": {
+    "source": "generated locally from HTML in cases.ts",
+    "capturedAt": "2026-10-14T05:54:59.555Z",
+    "bytes": 11165
+  },
+  "two-factor": {
+    "source": "generated locally from HTML in cases.ts",
+    "capturedAt": "2026-10-14T05:55:05.911Z",
+    "bytes": 24150
+  },
+  "confirm-dialog": {
+    "source": "generated locally from HTML in cases.ts",
+    "capturedAt": "2026-10-14T05:55:10.873Z",
+    "bytes": 23035
+  },
+  "server-error": {
+    "source": "generated locally from HTML in cases.ts",
+    "capturedAt": "2026-10-14T05:55:17.972Z",
+    "bytes": 23206
+  },
+  "secret-key": {
+    "source": "generated locally from HTML in cases.ts",
+    "capturedAt": "2026-10-14T06:33:43.385Z",
+    "bytes": 25488
+  },
+  "sign-in": {
+    "source": "generated locally from HTML in cases.ts",
+    "capturedAt": "2026-10-14T05:55:32.339Z",
+    "bytes": 21504
+  },
+  "invoice-result": {
+    "source": "generated locally from HTML in cases.ts",
+    "capturedAt": "2026-10-14T05:55:40.825Z",
+    "bytes": 19781
+  }
+}

@@ -501,6 +501,14 @@ export interface ConfigStatus {
     cloudflare: { configured: boolean; accountId: string; model: string };
     ranking: boolean;
   };
+  clef?: {
+    ready: boolean;
+    sendsTo?: string;
+    available?: { autoReview: boolean; turnEnd: boolean; screenCheck: boolean; screenshotFilter: boolean };
+    model?: "clef" | "clef-flash" | "clef-omni";
+    autoReview: { allow: string[]; block: string[] };
+    jobs: { autoReview: boolean; turnEnd: boolean; screenCheck: boolean; screenshotFilter: boolean };
+  };
   live?: LiveSettings;
   imageGen?: {
     configured: boolean;
@@ -549,7 +557,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "mistral" | "cerebras" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "accountBattery" | "localVm" | "opencodeGo" | "tts" | "decider" | "typing" | "imageGen" | "live" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "cloudHome"
+  "xai" | "mistral" | "cerebras" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "accountBattery" | "localVm" | "opencodeGo" | "tts" | "decider" | "typing" | "clef" | "imageGen" | "live" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "cloudHome"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -575,6 +583,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     tts: frame.tts,
     decider: frame.decider,
     typing: frame.typing,
+    clef: frame.clef,
     imageGen: frame.imageGen,
     live: frame.live,
     profile: frame.profile,

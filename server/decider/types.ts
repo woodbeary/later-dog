@@ -1,8 +1,11 @@
 
 export type DeciderProvider = "jev";
 
-export type DeciderJob = "roomRouting";
-export const DECIDER_JOBS: readonly DeciderJob[] = ["roomRouting"];
+export type DeciderJob = "roomRouting" | "autoReview" | "turnEnd" | "screenCheck" | "screenshotFilter";
+export const DECIDER_JOBS: readonly DeciderJob[] = ["roomRouting", "autoReview", "turnEnd", "screenCheck", "screenshotFilter"];
+
+export type DeciderModel = "clef" | "clef-flash" | "clef-omni";
+export const DECIDER_MODELS: readonly DeciderModel[] = ["clef", "clef-flash", "clef-omni"];
 
 export type DeciderSeam = DeciderJob | "keyCheck";
 
@@ -76,6 +79,8 @@ export type DeciderResult<T> =
 export interface AskOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
+  images?: string[];
+  model?: DeciderModel;
 }
 
 export interface BackendRequest {
@@ -83,6 +88,8 @@ export interface BackendRequest {
   baseUrl?: string;
   state: unknown;
   questions: Record<string, DeciderQuestion>;
+  images?: string[];
+  model?: DeciderModel;
   signal: AbortSignal;
   fetch: typeof fetch;
 }
