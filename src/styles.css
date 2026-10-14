@@ -10,9 +10,13 @@
   --mention-color: var(--color-ink-secondary);
 
   color: color-mix(in oklab, var(--mention-color) 72%, var(--color-ink));
+  font-weight: 600;
 }
 [data-chat-bubble] .mention-highlight {
-  font-weight: 500;
+  font-weight: 600;
+}
+.mention-editor-mirror .mention-highlight {
+  font-weight: inherit;
 }
 ::highlight(search-result-text) {
   color: var(--color-ink);

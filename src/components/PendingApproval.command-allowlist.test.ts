@@ -71,7 +71,7 @@ describe("remembering exact command approvals", () => {
   });
 
   it("keeps Allow once and Deny from saving a grant", () => {
-    for (const [label, behavior] of [["Allow once", "allow"], ["Don't allow", "deny"]]) {
+    for (const [label, behavior] of [["Allow once", "allow"], ["Never", "deny"]]) {
       fixture.dispatch.mockClear();
       view().buttons.find((button) => button.props.children === label)!.props.onClick!();
       expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({

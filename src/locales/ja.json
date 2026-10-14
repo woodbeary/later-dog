@@ -1495,5 +1495,18 @@
   "credentialStore.retry": "ロック解除を再試行",
   "credentialStore.retryFailed": "保存済みのログイン情報をまだ読み取れません。再試行するか、{app} を終了して開き直してください。",
   "credentialStore.saveFailed": "キーを安全に保存できませんでした。キーはこの入力欄に残っています。もう一度保存してください。",
-  "credentialStore.unavailable": "保存済みのログイン情報を読み取れませんでした。ロック解除を再試行するか、{app} を終了して開き直してください。求められた場合はキーチェーンへのアクセスを許可してください。"
+  "credentialStore.unavailable": "保存済みのログイン情報を読み取れませんでした。ロック解除を再試行するか、{app} を終了して開き直してください。求められた場合はキーチェーンへのアクセスを許可してください。",
+  "chat.exchange.messaged": "メッセージ送信:",
+  "chat.exchange.messageFrom": "メッセージ受信:",
+  "chat.exchange.messagesWith": "メッセージ{count}件:",
+  "chat.exchange.open": "{first}と{second}のやり取りを読む",
+  "chat.exchange.close": "チャットを閉じる",
+  "chat.exchange.readOnly": "これは犬どうしのやり取りです。読むことはできますが、ここから返信はできません。",
+  "chat.exchange.empty": "まだ何もやり取りされていません。",
+  "chat.routine.created": "ルーティンを作成:",
+  "chat.routine.open": "ルーティン {name} を開く",
+  "approval.status.allowedOnce": "1回だけ許可",
+  "approval.status.alwaysAllowed": "常に許可",
+  "approval.status.allowedForChat": "このチャットで許可",
+  "approval.action.never": "常に許可しない"
 }

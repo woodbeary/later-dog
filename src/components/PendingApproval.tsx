@@ -9,6 +9,8 @@ import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 
+const NEVER_MESSAGE = "The person chose Never for this action. Do not try it again.";
+
 export interface Pending {
   message: Message;
   requestId: string;
@@ -197,18 +199,22 @@ export function PendingApprovalActions({
   const reviewedSha256 = pending.message.card?.skillRequest
     ? reviewedSkillSha256(pending.message.card.skillRequest)
     : undefined;
-  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false) =>
+  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false) => {
+    const grant = always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined;
+    const forChat = always && !pending.allowKey && pending.allowSession ? true : undefined;
     dispatch({
       type: "decideRequest",
       threadId,
       requestId: pending.requestId,
       behavior,
-      message: behavior === "deny" ? "Declined." : undefined,
+      message: behavior === "deny" ? (durableRequest ? "Declined." : NEVER_MESSAGE) : undefined,
       reviewedSha256: behavior === "allow" ? reviewedSha256 : undefined,
-      alwaysAllow: always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined,
-      always: always && !pending.allowKey && pending.allowSession ? true : undefined,
+      alwaysAllow: grant,
+      always: forChat,
       rememberCommand: rememberCommand || undefined,
+      scope: behavior !== "allow" ? undefined : grant || rememberCommand ? "always" : forChat ? "chat" : "once",
     });
+  };
 
   const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
   const quiet = "bg-control text-ink hover:bg-control-hover";
@@ -216,13 +222,6 @@ export function PendingApprovalActions({
   const alwaysIsPrimary = !durableRequest && Boolean((bot && pending.allowKey) || (!pending.allowKey && !canRememberCommand && pending.allowSession));
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-[18px] bg-card px-3 pb-3 pt-1">
-      <button
-        onClick={() => decide("deny")}
-        autoFocus={isTeamSetup}
-        className={cn(base, quiet)}
-      >
-        {isRoutineRequest || isProfileRequest || isTeamSetup ? t("approval.action.cancel") : t("approval.action.deny")}
-      </button>
       {!durableRequest && bot && pending.allowKey && (
         <button
           onClick={() => decide("allow", true)}
@@ -266,6 +265,13 @@ export function PendingApprovalActions({
           : isRoutineRequest || isProfileRequest
             ? t("approval.action.confirm")
             : t("approval.action.allowOnce")}
+      </button>
+      <button
+        onClick={() => decide("deny")}
+        autoFocus={isTeamSetup}
+        className={cn(base, quiet)}
+      >
+        {isRoutineRequest || isProfileRequest || isTeamSetup ? t("approval.action.cancel") : t("approval.action.never")}
       </button>
     </div>
   );

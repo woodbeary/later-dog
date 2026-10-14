@@ -264,6 +264,7 @@ import type { GroupGoalRunCardData, GroupGoalRunStatus } from "../shared/group-g
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
+import { recordAnswerScope } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
@@ -19302,6 +19303,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           });
           return json(res, closed.status, closed.body);
         }
+        recordAnswerScope(store, bot.threadId, requestId, behavior, body);
         const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, requestId, behavior, body.message, { id: bot.id, name: bot.name }, body.always === true, body.rememberCommand === true);
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending) return json(res, 404, { error: "this question is no longer available" });
@@ -19428,6 +19430,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (!owner && !pending) return json(res, 404, { error: "nothing is waiting on an answer in this conversation" });
         const requestOwner = owner ? botForThread(owner.id, threadId) : null;
+        recordAnswerScope(store, threadId, requestId, behavior, body);
         const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.always === true, body.rememberCommand === true);
         if (outcome === "unavailable" && isPersistentQuestionCard(pending?.card) && behavior === "answer") {
           if (!pending?.card) return json(res, 404, { error: "this question is no longer available" });

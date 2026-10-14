@@ -48,7 +48,8 @@ Work stops at a gate before the next one starts.
 | L6 Thinking, scroll, sidebar | `laterdog/thinking` | `/Volumes/laterdog-phone/lanes/thinking` | running | one thinking row, fewer bubbles, green dot, NEW divider and new-messages pill, sidebar collapse, copy id | sheet beside the reference |
 | L7 Accounts, usage, update | `laterdog/accounts-ui` | `/Volumes/laterdog-phone/lanes/accounts` | running | battery rows, account menu usage, add account in place, model never switches account, quiet update pill | sheet beside the reference |
 | L8 Decision layer (Clef) | `laterdog/clef` | `/Volumes/laterdog-phone/lanes/clef` | running | auto-review rules, finished-or-stopped check, screen check, screenshot filter, benchmark | benchmark numbers |
-| L5, L9–L14 | | | waiting for slots | | |
+| L5 Chat lines and cards | `laterdog/chatlines` | `/Volumes/laterdog-phone/lanes/chatlines` | running: quiet dog-to-dog lines with an exchange view, Created routine line, mention faces, renames by id with earlier names kept, approvals fold with Always / Allow once / Never | fixture screenshots beside the reference, draft PR | sheet at `tmp/l5-sheet/index.html` |
+| L9–L14 | | | waiting for slots | | |
 
 ## Notes for whoever picks this up
 

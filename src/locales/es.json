@@ -1493,5 +1493,18 @@
   "credentialStore.retry": "Intentar desbloquear de nuevo",
   "credentialStore.retryFailed": "Aún no se pueden leer los datos de acceso guardados. Inténtalo de nuevo o cierra y vuelve a abrir {app}.",
   "credentialStore.saveFailed": "No se pudo guardar la clave de forma segura. Sigue en este campo. Intenta guardarla de nuevo.",
-  "credentialStore.unavailable": "No se pudieron leer los datos de acceso guardados. Intenta desbloquearlos de nuevo o cierra y vuelve a abrir {app}. Permite el acceso al llavero si se solicita."
+  "credentialStore.unavailable": "No se pudieron leer los datos de acceso guardados. Intenta desbloquearlos de nuevo o cierra y vuelve a abrir {app}. Permite el acceso al llavero si se solicita.",
+  "chat.exchange.messaged": "Mensaje a",
+  "chat.exchange.messageFrom": "Mensaje de",
+  "chat.exchange.messagesWith": "{count} mensajes con",
+  "chat.exchange.open": "Lee lo que se dijeron {first} y {second}",
+  "chat.exchange.close": "Cerrar chat",
+  "chat.exchange.readOnly": "Los perros se escribieron esto entre ellos. Puedes leerlo, pero no responder aquí.",
+  "chat.exchange.empty": "Todavía no se han dicho nada.",
+  "chat.routine.created": "Rutina creada",
+  "chat.routine.open": "Abrir la rutina {name}",
+  "approval.status.allowedOnce": "Permitido una vez",
+  "approval.status.alwaysAllowed": "Permitido siempre",
+  "approval.status.allowedForChat": "Permitido para este chat",
+  "approval.action.never": "Nunca"
 }

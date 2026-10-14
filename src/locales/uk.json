@@ -1803,5 +1803,18 @@
   "credentialStore.retry": "Спробувати розблокувати знову",
   "credentialStore.retryFailed": "Збережені дані входу досі не вдається прочитати. Спробуй знову або закрий і знову відкрий {app}.",
   "credentialStore.saveFailed": "Не вдалося безпечно зберегти ключ. Він досі в цьому полі. Спробуй зберегти його знову.",
-  "credentialStore.unavailable": "Не вдалося прочитати збережені дані входу. Спробуй розблокувати їх знову або закрий і знову відкрий {app}. Дозволь доступ до в’язки ключів, якщо з’явиться запит."
+  "credentialStore.unavailable": "Не вдалося прочитати збережені дані входу. Спробуй розблокувати їх знову або закрий і знову відкрий {app}. Дозволь доступ до в’язки ключів, якщо з’явиться запит.",
+  "chat.exchange.messaged": "Повідомлення для",
+  "chat.exchange.messageFrom": "Повідомлення від",
+  "chat.exchange.messagesWith": "Листування ({count}) із",
+  "chat.exchange.open": "Прочитати, що {first} і {second} написали одне одному",
+  "chat.exchange.close": "Закрити чат",
+  "chat.exchange.readOnly": "Цуценята написали це одне одному. Ви можете читати, але відповідати тут не можна.",
+  "chat.exchange.empty": "Між ними ще нічого не сказано.",
+  "chat.routine.created": "Рутину створено",
+  "chat.routine.open": "Відкрити рутину {name}",
+  "approval.status.allowedOnce": "Дозволено один раз",
+  "approval.status.alwaysAllowed": "Дозволено завжди",
+  "approval.status.allowedForChat": "Дозволено для цього чату",
+  "approval.action.never": "Ніколи"
 }

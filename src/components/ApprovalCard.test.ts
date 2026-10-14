@@ -1,10 +1,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { ApprovalCard, toolLabel } from "./ApprovalCard";
+import { ApprovalCard, approvalFoldSummary, toolLabel } from "./ApprovalCard";
 import { pendingApprovals, PendingApprovalPanel, spokenApprovalPrompt, type Pending } from "./PendingApproval";
-import type { Bot, Message } from "@/state/store";
+import { BotEditorStore, type Bot, type Message } from "@/state/store";
+import type { Routine } from "@/lib/routines";
 import { skillRequestBehavior } from "../../shared/skill-request";
 
 const routineRequest = {
@@ -580,16 +581,17 @@ describe("ApprovalCard for a change that applied on its own", () => {
   });
   const render = (message: Message) => renderToStaticMarkup(createElement(ApprovalCard, { bot: { name: "Scout" }, message, threadId: "thread-1" }));
 
-  it("reads as one plain line with Undo instead of the approval box", () => {
+  it("reads as one quiet Created routine line with Undo instead of the approval box", () => {
     const at = new Date();
     at.setHours(14, 30, 0, 0);
     const markup = render(routineCard(createRoutineOperation, { name: "Check before dentist", schedule: { type: "once", at: at.getTime() } }));
-    expect(markup).toMatch(/Scout scheduled a routine: Check before dentist, today 2:30/);
+    expect(markup).toContain("data-quiet-line");
+    expect(markup).toMatch(/Created routine.*Check before dentist/);
     expect(markup).toContain(">Undo<");
-    expect(markup).toContain(">Details<");
     expect(markup).not.toContain("30 14 * * 3");
     expect(markup).not.toContain("Waiting for your confirmation");
     expect(markup).not.toContain("schedule_routine");
+    expect(markup).not.toContain("scheduled a routine");
   });
 
   it("never shows a cron expression that has no plain name", () => {
@@ -597,7 +599,7 @@ describe("ApprovalCard for a change that applied on its own", () => {
       { ...createRoutineOperation, routine: { ...createRoutineOperation.routine, schedule: { type: "cron", expression: "*/7 3-5 * * 1", timeZone: "UTC" } } },
       { name: "Odd hours", schedule: { type: "cron", expression: "*/7 3-5 * * 1", timeZone: "UTC" } },
     ));
-    expect(markup).toContain("Scout scheduled a routine: Odd hours");
+    expect(markup).toMatch(/Created routine.*Odd hours/);
     expect(markup).not.toContain("*/7");
   });
 
@@ -605,12 +607,25 @@ describe("ApprovalCard for a change that applied on its own", () => {
     const undone = { ...routineCard(createRoutineOperation, { name: "Backlog review" }) };
     undone.card = { ...undone.card!, undone: true };
     const markup = render(undone);
-    expect(markup).toContain("Scout scheduled a routine: Backlog review");
-    expect(markup).toContain(" · Undone");
+    expect(markup).toMatch(/Created routine.*Backlog review/);
+    expect(markup).toContain("· Undone");
     expect(markup).not.toContain(">Undo<");
     const run = render(routineCard({ action: "run_now", routineId: "routine-1", expectedUpdatedAt: 1 }, { name: "Backlog review" }));
     expect(run).toContain("Scout started a routine: Backlog review");
     expect(run).not.toContain(">Undo<");
+  });
+
+  it("uses the routine's name as it is now and opens it in Routines", () => {
+    const message = routineCard(createRoutineOperation, { name: "Backlog review" });
+    const routine = { id: "routine-1", botId: "bot-1", name: "Renamed backlog" } as Routine;
+    const dispatch = vi.fn();
+    const markup = renderToStaticMarkup(createElement(BotEditorStore, {
+      value: { state: { routines: [routine] }, dispatch } as unknown as Parameters<typeof BotEditorStore>[0]["value"],
+      children: createElement(ApprovalCard, { bot: { name: "Scout" }, message, threadId: "thread-1" }),
+    }));
+    expect(markup).toContain("Renamed backlog");
+    expect(markup).not.toContain("Backlog review");
+    expect(markup).toContain('aria-label="Open routine Renamed backlog"');
   });
 
   it("names profile fields, the model, and the skill in plain words", () => {
@@ -642,10 +657,18 @@ describe("ApprovalCard for a change that applied on its own", () => {
     expect(skill).toContain("Scout added a trick: file-expense");
   });
 
-  it("keeps the approval box for a card a person confirmed", () => {
+  it("shows the same Created routine line for a card a person confirmed, without an Undo", () => {
     const confirmed = routineCard(createRoutineOperation, { name: "Backlog review" });
     confirmed.card = { ...confirmed.card!, autoApplied: undefined, options: ["Confirm", "Cancel"] };
-    expect(render(confirmed)).toContain("Routine scheduled");
+    const markup = render(confirmed);
+    expect(markup).toMatch(/Created routine.*Backlog review/);
+    expect(markup).not.toContain(">Undo<");
+  });
+
+  it("keeps the folded box for a routine change that is not a creation", () => {
+    const paused = routineCard({ action: "pause", routineId: "routine-1", expectedUpdatedAt: 1 });
+    paused.card = { ...paused.card!, autoApplied: undefined, options: ["Confirm", "Cancel"] };
+    expect(render(paused)).toContain("Routine paused");
   });
 });
 
@@ -674,5 +697,41 @@ describe("generated profile pictures", () => {
     const pending = pendingApprovals([message])[0]!;
     const pendingMarkup = renderToStaticMarkup(createElement(PendingApprovalPanel, { pending, count: 1, index: 0 }));
     expect(pendingMarkup).toContain('src="/api/attachments/generated.png"');
+  });
+});
+
+
+describe("an answered permission folds to one grey line", () => {
+  const answered = (answered: string, extra: Partial<NonNullable<Message["card"]>> = {}, tool = "Bash"): Message => ({
+    id: "fold-card", role: "bot", kind: "options", at: 1,
+    card: { title: "Approval needed", subtitle: "pnpm test", options: ["Allow", "Deny"], requestId: "r1", tool, answered, ...extra },
+  });
+  const line = (message: Message) => renderToStaticMarkup(createElement(ApprovalCard, { message }));
+
+  it("says Allowed once, Always allowed or Denied with the tool's short name", () => {
+    expect(line(answered("allow", { answerScope: "once" }))).toMatch(/Allowed once.*Run a command/);
+    expect(line(answered("allow", { answerScope: "always" }))).toMatch(/Always allowed.*Run a command/);
+    expect(line(answered("allow", { answerScope: "chat" }))).toMatch(/Allowed for this chat.*Run a command/);
+    expect(line(answered("deny"))).toMatch(/Denied.*Run a command/);
+  });
+
+  it("names other tools by their short name", () => {
+    expect(line(answered("allow", { answerScope: "once" }, "WebFetch"))).toMatch(/Allowed once.*Fetch a web page/);
+    expect(line(answered("deny", {}, "Write"))).toMatch(/Denied.*Write a file/);
+  });
+
+  it("starts folded: only the one line is shown until it is opened", () => {
+    const markup = line(answered("allow", { answerScope: "once" }));
+    expect(markup).toContain("data-folded-line");
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).not.toContain("pnpm test");
+  });
+
+  it("falls back to plain Allowed for an older card that never recorded how it was answered", () => {
+    expect(line(answered("allow"))).toMatch(/>Allowed</);
+  });
+
+  it("does not add a tool name to proposals, which already say what they changed", () => {
+    expect(approvalFoldSummary({ ...answered("allow", { routineRequest: { ...routineRequest, operation: { action: "pause", routineId: "r", expectedUpdatedAt: 1 } } }).card! }, "manage_routine")?.action).toBeUndefined();
   });
 });

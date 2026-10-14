@@ -90,6 +90,7 @@ export interface OptionCardData {
   heldCode?: string;
   allowKey?: string;
   allowSession?: boolean;
+  answerScope?: "once" | "always" | "chat";
   commandAllowlist?: { command: string; cwd: string; providerInstanceId: string };
   approvalScope?: "local-computer";
   autoApplied?: boolean;
@@ -161,7 +162,7 @@ export interface Message {
   from?: { botId: string; name: string; color: DogColor };
   peerAsk?: { botId: string; name: string; unattended?: boolean };
   reactions?: Array<{ emoji: string; by: string }>;
-  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: DogColor };
+  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: DogColor; direction?: "to" | "from" };
   threadRef?: { botId: string; threadId: string; title: string };
   cloudTask?: import("../../shared/cloud-task").CloudTaskRef;
   queued?: boolean;
@@ -277,6 +278,7 @@ export interface Bot {
   tasks?: Task[];
   projects?: BotProject[];
   name: string;
+  formerNames?: string[];
   title: string;
   description: string;
   soul?: string;
@@ -887,6 +889,7 @@ export type Action =
       alwaysAllow?: { botId: string; key: string };
       always?: boolean;
       rememberCommand?: boolean;
+      scope?: "once" | "always" | "chat";
       onError?: (message: string) => void;
     }
   | { type: "newTask"; botId: string; projectId?: string }
@@ -2766,6 +2769,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 reviewedSha256: action.reviewedSha256,
                 always: action.always,
                 rememberCommand: action.rememberCommand,
+                scope: action.scope,
               }),
             });
           void waitForExecutionSettings(executionBotsBeforeAction, action.threadId)
@@ -3546,6 +3550,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [state, dispatch, flushBotPatches, refreshInstances, refreshModels],
   );
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+export function useOptionalStore() {
+  return useContext(StoreContext);
 }
 
 export function useStore() {

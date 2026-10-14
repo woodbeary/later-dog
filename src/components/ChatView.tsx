@@ -59,6 +59,10 @@ import type { PlaceRow } from "../../shared/place-view";
 import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_URL } from "../../shared/provider-safety";
 import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
+import { ExchangeLine } from "./QuietLines";
+import { ExchangeViewHost } from "./ExchangeViewHost";
+import { foldExchanges } from "@/lib/quiet-lines";
+import { freshenDogName } from "@/lib/dog-refs";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
@@ -693,7 +697,7 @@ function PeerLabel({ peer }: { peer: PeerLine }) {
         motionKey={0}
         animated={false}
       />
-      <span className="text-[11px] font-medium text-ink-secondary">{peer.name}</span>
+      <span className="text-[11px] font-medium text-ink-secondary">{author?.name ?? peer.name}</span>
       <span className="text-[11px] text-ink-tertiary">· {how}</span>
     </div>
   );
@@ -716,7 +720,7 @@ const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { m
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
           <BotAvatar bot={withBot ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
-          <span className="max-w-[480px] truncate">{tool.name}</span>
+          <span className="max-w-[480px] truncate">{freshenDogName(tool.name, withBot)}</span>
           <ChevronRight size={13} />
         </button>
       </div>
@@ -794,7 +798,10 @@ const MessagesList = memo(function MessagesList({
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
-  const items = useMemo(() => groupTranscript(messages, plan), [messages, plan, locale]);
+  const items = useMemo(
+    () => foldExchanges(groupTranscript(messages, plan), (item) => item.kind !== "run" || showToolCalls),
+    [messages, plan, locale, showToolCalls],
+  );
   const unreadSince = useUnreadBoundary(`${botId}/${threadId}`, messages);
   let unreadPlaced = false;
   const unreadDivider = (rows: readonly Message[]) => {
@@ -839,6 +846,15 @@ const MessagesList = memo(function MessagesList({
                   </div>
                 ))}
               </TurnNarrationRun>
+            </div>
+          );
+        }
+        if (item.kind === "exchange") {
+          return (
+            <div key={item.id} className="contents" data-mid={item.messages[0]!.id} data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
+              {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
+              <ExchangeLine item={item} />
             </div>
           );
         }
@@ -1188,6 +1204,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       <CallOverlay bot={bot} />
+      <ExchangeViewHost botId={bot.id} />
       <GlassScrollFrame className="flex-1 [--glass-tint:var(--color-app)]">
       <GlassBar edge="top" className="z-[25]">
       <div

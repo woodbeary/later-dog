@@ -20,6 +20,7 @@ import { CloudTaskCard, CloudTaskUpdateRow } from "./CloudTaskCard";
 import { cloudWakeupOf } from "@/lib/cloud-tasks";
 import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
+import { freshenDogName } from "@/lib/dog-refs";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
@@ -102,7 +103,7 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
           <BotAvatar bot={withBot ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
-          <span className="max-w-[480px] truncate">{tool.name}</span>
+          <span className="max-w-[480px] truncate">{freshenDogName(tool.name, withBot)}</span>
           <ChevronRight size={13} />
         </button>
       </div>
@@ -118,7 +119,7 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
         )}
       >
         {comm && <BotAvatar bot={state.bots.find(b => b.id === comm.withBotId) ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />}
-        <span className={cn("max-w-[480px] truncate", !comm && "font-mono")}>{tool.name}</span>
+        <span className={cn("max-w-[480px] truncate", !comm && "font-mono")}>{freshenDogName(tool.name, state.bots.find((b) => b.id === comm.withBotId))}</span>
       </div>
     </div>
   );
@@ -169,6 +170,7 @@ export const Transcript = memo(function Transcript({
   transcript,
   emergingId,
   onReply,
+  readOnly = false,
 }: {
   group: Group;
   members: Bot[];
@@ -177,6 +179,7 @@ export const Transcript = memo(function Transcript({
   transcript: Message[];
   emergingId?: string | null;
   onReply: (message: Message) => void;
+  readOnly?: boolean;
 }) {
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
@@ -213,7 +216,7 @@ export const Transcript = memo(function Transcript({
               )}
               {unreadDivider(item.messages)}
               {first.from && cluster && (
-                <ClusterLabel bot={memberOf(first.from.botId)} name={first.from.name} color={first.from.color} />
+                <ClusterLabel bot={memberOf(first.from.botId)} name={memberOf(first.from.botId)?.name ?? first.from.name} color={memberOf(first.from.botId)?.color ?? first.from.color} />
               )}
               <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
                 {item.messages.map((step) => (
@@ -292,7 +295,7 @@ export const Transcript = memo(function Transcript({
                 <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId: group.threadId, messageId: m.id }} eager={m.id === newestMessageId || m.id === newestUserMessageId} className="mb-1.5 max-w-[min(42rem,78%)]" />
               )}
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
-                {user && (
+                {user && !readOnly && (
                   <>
                     <button
                       type="button"
@@ -371,7 +374,7 @@ export const Transcript = memo(function Transcript({
                     </>
                   )}
                 </div>
-                {!user && (
+                {!user && !readOnly && (
                   <>
                     <button
                       type="button"
@@ -401,7 +404,7 @@ export const Transcript = memo(function Transcript({
             )}
             {unreadDivider([m])}
             {!user && m.from && newCluster && !(m.kind === "activity" && m.comm) && (
-              <ClusterLabel bot={memberOf(m.from.botId)} name={m.from.name} color={m.from.color} />
+              <ClusterLabel bot={memberOf(m.from.botId)} name={memberOf(m.from.botId)?.name ?? m.from.name} color={memberOf(m.from.botId)?.color ?? m.from.color} />
             )}
             {row}
           </div>
