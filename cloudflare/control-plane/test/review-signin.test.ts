@@ -45,6 +45,27 @@ describe("App Review sign-in", () => {
     expect(signedIn.headers.get("set-auth-token")).toBeTruthy();
   });
 
+  it("signs a returning reviewer in again and again, right after each code request", async () => {
+    const worker = createWorker(fetch);
+    const request = (path: string, body: unknown) => new Request(`${BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.42" },
+      body: JSON.stringify(body),
+    });
+    const pending: ExecutionContext[] = [];
+    for (let round = 0; round < 5; round += 1) {
+      const sendContext = createExecutionContext();
+      pending.push(sendContext);
+      const sent = await worker.fetch(request("/api/auth/email-otp/send-verification-otp", { email: REVIEW_EMAIL, type: "sign-in" }), env, sendContext);
+      expect(sent.status).toBe(200);
+      const signInContext = createExecutionContext();
+      pending.push(signInContext);
+      const signedIn = await worker.fetch(request("/api/auth/sign-in/email-otp", { email: REVIEW_EMAIL, otp: REVIEW_CODE }), env, signInContext);
+      expect({ round, status: signedIn.status, body: signedIn.ok ? null : await signedIn.json() }).toEqual({ round, status: 200, body: null });
+    }
+    for (const context of pending) await waitOnExecutionContext(context);
+  });
+
   it("gives everyone else their own random code", async () => {
     const ctx = createExecutionContext();
     const auth = createAuth(env, ctx, readConfig(env), crypto.randomUUID());

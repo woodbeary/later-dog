@@ -6,6 +6,7 @@ import { isReviewEmail, reviewSignIn } from "./review-signin";
 const OTP_SEND_PATH = "/api/auth/email-otp/send-verification-otp";
 const RECIPIENT_WINDOW_MS = 15 * 60 * 1_000;
 const RECIPIENT_MAX_ATTEMPTS = 3;
+const REVIEW_MAX_ATTEMPTS = 20;
 const RETENTION_MS = 24 * 60 * 60 * 1_000;
 const recipientSchema = z.object({
   email: z.string().trim().min(1).max(254).toLowerCase(),
@@ -42,6 +43,8 @@ export async function limitedOTPResponse(request: Request, env: Env): Promise<Re
   const email = await normalizedRecipient(request);
   if (!email) return null;
 
+  const review = reviewSignIn(env as unknown as Partial<Record<"REVIEW_EMAIL" | "REVIEW_SIGNIN_CODE", unknown>>);
+  const reviewer = isReviewEmail(review, email);
   const now = Date.now();
   const windowCutoff = now - RECIPIENT_WINDOW_MS;
   const key = await recipientKey(email, env.BETTER_AUTH_SECRET);
@@ -61,7 +64,7 @@ export async function limitedOTPResponse(request: Request, env: Env): Promise<Re
          END,
          updated_at = excluded.updated_at
        WHERE window_started_at <= ? OR attempts < ?`,
-    ).bind(key, now, now, windowCutoff, windowCutoff, windowCutoff, RECIPIENT_MAX_ATTEMPTS),
+    ).bind(key, now, now, windowCutoff, windowCutoff, windowCutoff, reviewer ? REVIEW_MAX_ATTEMPTS : RECIPIENT_MAX_ATTEMPTS),
     env.DB.prepare(
       "DELETE FROM otp_recipient_rate_limits WHERE updated_at < ?",
     ).bind(now - RETENTION_MS),
@@ -70,6 +73,5 @@ export async function limitedOTPResponse(request: Request, env: Env): Promise<Re
 
   if (result.meta.changes === 0) return json({ success: true });
   const blocked = (health?.results[0]?.blocked_until ?? 0) > now;
-  const review = reviewSignIn(env as unknown as Partial<Record<"REVIEW_EMAIL" | "REVIEW_SIGNIN_CODE", unknown>>);
-  return blocked && !isReviewEmail(review, email) ? errorResponse(503, "email_unavailable") : null;
+  return blocked && !reviewer ? errorResponse(503, "email_unavailable") : null;
 }
