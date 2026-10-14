@@ -30,13 +30,20 @@ const copy = (credentials) => {
   return structuredClone(document);
 };
 
-export function createSecureCredentialState(initialCredentials, persist, { writable = true } = {}) {
+export function createSecureCredentialState(initialCredentials, persist, { writable = true, reload, afterReload } = {}) {
   let current = copy(initialCredentials);
   let transition = Promise.resolve();
 
-  const assertWritable = () => {
-    if (writable) return;
-    throw new Error("The credential store could not be read on this launch, so credentials cannot be saved");
+  const recover = async () => {
+    if (writable) return true;
+    if (!reload) return false;
+    const result = await reload();
+    if (result.status !== "ok") return false;
+    const restored = copy(result.credentials);
+    await afterReload?.(copy(restored));
+    current = restored;
+    writable = true;
+    return true;
   };
 
   const serialize = (work) => {
@@ -53,9 +60,15 @@ export function createSecureCredentialState(initialCredentials, persist, { writa
       return copy(current);
     },
 
+    retry() {
+      return serialize(recover);
+    },
+
     update(derive, afterPersist) {
       return serialize(async () => {
-        assertWritable();
+        if (!(await recover())) {
+          throw new Error("The credential store is locked. Unlock your keychain and try again. Your saved keys have not been changed.");
+        }
         const previous = copy(current);
         const next = copy(await derive(copy(previous)));
         await persist(copy(next));

@@ -3273,7 +3273,7 @@
   "screenLoad.failed": "This screen couldn’t load. Reload the window to open it.",
   "screenLoad.reload": "Reload",
   "credentialStore.title": "Saved sign-ins are locked",
-  "credentialStore.unavailable": "macOS didn't unlock them this time. Quit and reopen {app}, then choose Always Allow when it asks.",
+  "credentialStore.unavailable": "Saved sign-ins could not be read. Try unlocking again, or quit and reopen {app}. Allow keychain access if asked.",
   "credentialStore.relaunch": "Quit and reopen",
   "credentialStore.later": "Later",
   "profileSwitcher.switch": "Switch profile",
@@ -3382,5 +3382,8 @@
   "cloudTask.update.reviewed": "Cloud task was reviewed",
   "cloudTask.update.merged": "Cloud task is done",
   "cloudTask.update.attention": "Cloud task needs you",
-  "cloudTask.update.other": "Cloud task update"
+  "cloudTask.update.other": "Cloud task update",
+  "credentialStore.retry": "Try unlocking again",
+  "credentialStore.retryFailed": "Saved sign-ins still cannot be read. Try again, or quit and reopen {app}.",
+  "credentialStore.saveFailed": "The key could not be saved securely. It is still in this field. Try saving again."
 }

@@ -1497,5 +1497,9 @@
   "cloudTask.update.published": "Cloud-Aufgabe ist bereit zur Prüfung",
   "cloudTask.update.verified": "Änderungen der Cloud-Aufgabe wurden geprüft",
   "cloudTask.update.merged": "Cloud-Aufgabe ist erledigt",
-  "cloudTask.update.attention": "Cloud-Aufgabe braucht dich"
+  "cloudTask.update.attention": "Cloud-Aufgabe braucht dich",
+  "credentialStore.retry": "Erneut entsperren",
+  "credentialStore.retryFailed": "Gespeicherte Anmeldedaten können weiterhin nicht gelesen werden. Versuche es erneut oder beende und öffne {app} neu.",
+  "credentialStore.saveFailed": "Der Schlüssel konnte nicht sicher gespeichert werden. Er steht noch in diesem Feld. Versuche erneut, ihn zu speichern.",
+  "credentialStore.unavailable": "Gespeicherte Anmeldedaten konnten nicht gelesen werden. Versuche erneut, sie zu entsperren, oder beende und öffne {app} neu. Erlaube den Zugriff auf den Schlüsselbund, wenn du dazu aufgefordert wirst."
 }

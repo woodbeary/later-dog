@@ -107,3 +107,59 @@ describe("serialized secure credential state", () => {
     expect(state.read()).toEqual({ value: "old" });
   });
 });
+
+
+describe("credential recovery after a failed launch read", () => {
+  it("reopens before saving and preserves every previously saved key", async () => {
+    const persist = vi.fn();
+    const afterReload = vi.fn();
+    const reload = vi.fn().mockResolvedValue({ status: "ok", credentials: { existing: "kept", phone: { id: "stable" } } });
+    const state = createSecureCredentialState({}, persist, { writable: false, reload, afterReload });
+    await state.update((draft) => ({ ...draft, ttsKey: "new-key" }));
+    expect(afterReload).toHaveBeenCalledWith({ existing: "kept", phone: { id: "stable" } });
+    expect(persist).toHaveBeenCalledWith({ existing: "kept", phone: { id: "stable" }, ttsKey: "new-key" });
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("serializes retry and simultaneous saves without losing any keys", async () => {
+    const reload = vi.fn().mockResolvedValue({ status: "ok", credentials: { previous: "kept" } });
+    const state = createSecureCredentialState({}, vi.fn(), { writable: false, reload });
+    const results = await Promise.all([
+      state.retry(),
+      state.update((draft) => ({ ...draft, ttsKey: "voice" })),
+      state.update((draft) => ({ ...draft, boxToken: "computer" })),
+    ]);
+    expect(results[0]).toBe(true);
+    expect(state.read()).toEqual({ previous: "kept", ttsKey: "voice", boxToken: "computer" });
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it.each(["unavailable", "empty"])("does not replace the old store when reopening returns %s", async (status) => {
+    const persist = vi.fn();
+    const afterReload = vi.fn();
+    const state = createSecureCredentialState({}, persist, {
+      writable: false,
+      reload: async () => ({ status, credentials: {} }),
+      afterReload,
+    });
+    expect(await state.retry()).toBe(false);
+    await expect(state.update(() => ({ ttsKey: "new" }))).rejects.toThrow(/try again/);
+    expect(persist).not.toHaveBeenCalled();
+    expect(afterReload).not.toHaveBeenCalled();
+  });
+
+  it("keeps retry available when restoring the running server failed", async () => {
+    const persist = vi.fn();
+    const afterReload = vi.fn().mockRejectedValueOnce(new Error("server offline")).mockResolvedValue(undefined);
+    const state = createSecureCredentialState({}, persist, {
+      writable: false,
+      reload: async () => ({ status: "ok", credentials: { previous: "kept" } }),
+      afterReload,
+    });
+    await expect(state.retry()).rejects.toThrow("server offline");
+    expect(state.read()).toEqual({});
+    expect(persist).not.toHaveBeenCalled();
+    expect(await state.retry()).toBe(true);
+    expect(state.read()).toEqual({ previous: "kept" });
+  });
+});

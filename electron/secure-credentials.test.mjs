@@ -66,3 +66,31 @@ describe("readSecureCredentials", () => {
     expect(decrypt).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe("same-keychain fallback", () => {
+  it("recovers through the compatible OS API when the async encryptor stays unavailable", async () => {
+    const decryptFallback = vi.fn().mockReturnValue(JSON.stringify({ existing: "preserved" }));
+    const result = await readSecureCredentials(deps({
+      decrypt: vi.fn().mockRejectedValue(new Error("ciphertext unavailable")),
+      decryptFallback,
+    }));
+    expect(result).toEqual({ status: "ok", credentials: { existing: "preserved" }, usedFallback: true });
+    expect(decryptFallback).toHaveBeenCalledExactlyOnceWith(Buffer.from("cipher"));
+  });
+
+  it("does not invoke a blocking fallback when async decryption succeeds", async () => {
+    const decryptFallback = vi.fn();
+    expect((await readSecureCredentials(deps({ decryptFallback }))).status).toBe("ok");
+    expect(decryptFallback).not.toHaveBeenCalled();
+  });
+
+  it.each(["not json", "null", "[]"])("rejects invalid fallback documents: %s", async (text) => {
+    const result = await readSecureCredentials(deps({
+      decrypt: vi.fn().mockRejectedValue(new Error("ciphertext unavailable")),
+      decryptFallback: () => text,
+    }));
+    expect(result.status).toBe("unavailable");
+    expect(result.credentials).toEqual({});
+  });
+});

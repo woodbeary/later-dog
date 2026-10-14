@@ -260,6 +260,7 @@ const __APP_VERSION__: string;
       exportDiagnostics?(): Promise<string | null>;
       saveFile?(filePath: string): Promise<string | null>;
       revealInFolder?(filePath: string): Promise<"shown" | "missing" | "invalid">;
+      retryCredentialStore?(): Promise<{ available: boolean }>;
       setCredential?(
         name: "composioApiKey" | "xaiApiKey" | "boxToken" | "opencodeGoApiKey" | "ttsKey" | "fishAudioKey" | "jevApiKey" | "openaiImageApiKey" | "customImageApiKey" | "openaiLiveKey",
         value: string,

@@ -152,3 +152,19 @@ test("a Cloud link arriving before React subscriptions is delivered exactly once
   assert.deepEqual(calls, ["cloud"], "later subscriptions must not reopen Settings");
   late();
 });
+
+
+test("credential recovery uses its dedicated channel and removes the IPC wrapper from save failures", async () => {
+  const before = invocations.length;
+  await exposed.api.retryCredentialStore();
+  assert.deepEqual(invocations.slice(before), [["credential:retry"]]);
+  const invoke = fakeIpcRenderer.invoke;
+  fakeIpcRenderer.invoke = async () => { throw new Error("Error invoking remote method 'credential:set': Error: Saved credentials could not be read. Try again."); };
+  try {
+    await assert.rejects(exposed.api.setCredential("ttsKey", "fixture-key"), { message: "Saved credentials could not be read. Try again." });
+    fakeIpcRenderer.invoke = async () => { throw new Error("Error invoking remote method 'credential:set': Error: Rejected fixture-private-key"); };
+    await assert.rejects(exposed.api.setCredential("ttsKey", "fixture-private-key"), { message: "The key could not be saved securely. Try again." });
+  } finally {
+    fakeIpcRenderer.invoke = invoke;
+  }
+});

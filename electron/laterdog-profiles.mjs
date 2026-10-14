@@ -149,29 +149,56 @@ export function createProfileRunner({
   function openVault(id) {
     if (!vaults.has(id)) {
       const target = credentialFile(id);
-      vaults.set(id, readSecureCredentials({
-        exists: () => fs.existsSync(target),
-        isAvailable: () => secrets.available(),
-        readFile: () => fs.readFileSync(target),
-        decrypt: (buffer) => secrets.decrypt(buffer),
-        sleep,
-      }).then((result) => {
+      let useFallback = false;
+      const read = async () => {
+        const result = await readSecureCredentials({
+          exists: () => fs.existsSync(target),
+          isAvailable: () => secrets.available(),
+          readFile: () => fs.readFileSync(target),
+          decrypt: (buffer) => secrets.decrypt(buffer),
+          decryptFallback: secrets.decryptFallback && ((buffer) => secrets.decryptFallback(buffer)),
+          sleep,
+        });
+        if (result.status === "ok") useFallback = result.usedFallback === true;
+        return result;
+      };
+      vaults.set(id, read().then((result) => {
         const writable = result.status !== "unavailable";
         if (!writable) log(`profile ${id} keys could not be read (${result.error}); they are not loaded this launch`);
-        return {
+        const vault = {
           status: writable ? "ok" : "unavailable",
-          store: createSecureCredentialState(result.credentials, (credentials) => persistCredentials(id, credentials), { writable }),
+          store: createSecureCredentialState(result.credentials, (credentials) => persistCredentials(id, credentials, useFallback), {
+            writable,
+            reload: read,
+            afterReload: async (credentials) => {
+              const profile = find(id);
+              if (closed || !profile || statusOf(id) !== "running") throw new Error("This profile's bot server is unavailable");
+              const patch = {};
+              for (const { section, field, name } of WORKSPACE_CREDENTIALS) {
+                if (typeof credentials[name] !== "string") continue;
+                (patch[section] ??= {})[field] = credentials[name];
+              }
+              if (typeof credentials.composioApiKey === "string") patch.composio = { apiKey: credentials.composioApiKey };
+              await applyCredential({ port: profile.port, patch });
+              runs.get(id)?.proc?.postMessage({ type: "laterdog:managed-composio", access: null, credentialStore: "ok" });
+              vault.status = "ok";
+              onChange();
+            },
+          }),
         };
+        return vault;
       }));
     }
     return vaults.get(id);
   }
 
-  async function persistCredentials(id, credentials) {
-    if (!(await secrets.available())) throw new Error("The operating-system credential store is unavailable");
+  async function persistCredentials(id, credentials, useFallback = false) {
+    if (useFallback ? !secrets.encryptFallback : !(await secrets.available())) throw new Error("The operating-system credential store is unavailable");
     const target = credentialFile(id);
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-    const encrypted = await secrets.encrypt(JSON.stringify(credentials));
+    const encrypted = useFallback
+      ? await secrets.encryptFallback(JSON.stringify(credentials))
+      : await secrets.encrypt(JSON.stringify(credentials));
     const temporary = `${target}.${process.pid}.tmp`;
     fs.writeFileSync(temporary, encrypted, { mode: 0o600 });
     fs.renameSync(temporary, target);
@@ -461,6 +488,12 @@ export function createProfileRunner({
     );
   }
 
+  async function retryCredentials(id) {
+    if (closed || !find(id) || statusOf(id) !== "running") throw new Error("This profile's bot server is unavailable");
+    const vault = await openVault(id);
+    return vault.store.retry();
+  }
+
   async function stopAll() {
     closed = true;
     await Promise.all([...runs.keys()].map((id) => stopRun(id)));
@@ -514,6 +547,7 @@ export function createProfileRunner({
     ownsPort,
     remove,
     rename,
+    retryCredentials,
     saveCredential,
     start,
     stopAll,

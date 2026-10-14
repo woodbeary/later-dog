@@ -1500,7 +1500,11 @@
       "cloudTask.update.published": "fe1b1062d25c8fbdfe76b386f6e2373118223e508ed9bcc7aea9ebc67d3fcc53",
       "cloudTask.update.verified": "64ce23c582d530f445c400abdab6e98ecc292e80a206e67cf7845a3bb17d550b",
       "cloudTask.update.merged": "9b452c29c7ce8295549e566bf4d0a1b6a1b4fd2114f01240bc65242d64bd5c4f",
-      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0"
+      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0",
+      "credentialStore.retry": "9011ac35c85d42b14195ecbbbdf0f47a12b2900b9819e7ab97a03a88e570a010",
+      "credentialStore.retryFailed": "5c92715e528567c7ddb6b3aa2853389e7266c9898cf7d3bfbaaa4d5a09e2f3e4",
+      "credentialStore.saveFailed": "937084e676a98f5dfef70e151bd6828279f813fe3393afa7c74de156158271f8",
+      "credentialStore.unavailable": "fffafc7c70be8ccdc8666d4403363ef24e65382f8bde5428172ac4dd0299ec5b"
     },
     "es": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -2993,7 +2997,11 @@
       "cloudTask.update.published": "fe1b1062d25c8fbdfe76b386f6e2373118223e508ed9bcc7aea9ebc67d3fcc53",
       "cloudTask.update.verified": "64ce23c582d530f445c400abdab6e98ecc292e80a206e67cf7845a3bb17d550b",
       "cloudTask.update.merged": "9b452c29c7ce8295549e566bf4d0a1b6a1b4fd2114f01240bc65242d64bd5c4f",
-      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0"
+      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0",
+      "credentialStore.retry": "9011ac35c85d42b14195ecbbbdf0f47a12b2900b9819e7ab97a03a88e570a010",
+      "credentialStore.retryFailed": "5c92715e528567c7ddb6b3aa2853389e7266c9898cf7d3bfbaaa4d5a09e2f3e4",
+      "credentialStore.saveFailed": "937084e676a98f5dfef70e151bd6828279f813fe3393afa7c74de156158271f8",
+      "credentialStore.unavailable": "fffafc7c70be8ccdc8666d4403363ef24e65382f8bde5428172ac4dd0299ec5b"
     },
     "fr": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -4486,7 +4494,11 @@
       "cloudTask.update.published": "fe1b1062d25c8fbdfe76b386f6e2373118223e508ed9bcc7aea9ebc67d3fcc53",
       "cloudTask.update.verified": "64ce23c582d530f445c400abdab6e98ecc292e80a206e67cf7845a3bb17d550b",
       "cloudTask.update.merged": "9b452c29c7ce8295549e566bf4d0a1b6a1b4fd2114f01240bc65242d64bd5c4f",
-      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0"
+      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0",
+      "credentialStore.retry": "9011ac35c85d42b14195ecbbbdf0f47a12b2900b9819e7ab97a03a88e570a010",
+      "credentialStore.retryFailed": "5c92715e528567c7ddb6b3aa2853389e7266c9898cf7d3bfbaaa4d5a09e2f3e4",
+      "credentialStore.saveFailed": "937084e676a98f5dfef70e151bd6828279f813fe3393afa7c74de156158271f8",
+      "credentialStore.unavailable": "fffafc7c70be8ccdc8666d4403363ef24e65382f8bde5428172ac4dd0299ec5b"
     },
     "hi": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -5979,7 +5991,11 @@
       "cloudTask.update.published": "fe1b1062d25c8fbdfe76b386f6e2373118223e508ed9bcc7aea9ebc67d3fcc53",
       "cloudTask.update.verified": "64ce23c582d530f445c400abdab6e98ecc292e80a206e67cf7845a3bb17d550b",
       "cloudTask.update.merged": "9b452c29c7ce8295549e566bf4d0a1b6a1b4fd2114f01240bc65242d64bd5c4f",
-      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0"
+      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0",
+      "credentialStore.retry": "9011ac35c85d42b14195ecbbbdf0f47a12b2900b9819e7ab97a03a88e570a010",
+      "credentialStore.retryFailed": "5c92715e528567c7ddb6b3aa2853389e7266c9898cf7d3bfbaaa4d5a09e2f3e4",
+      "credentialStore.saveFailed": "937084e676a98f5dfef70e151bd6828279f813fe3393afa7c74de156158271f8",
+      "credentialStore.unavailable": "fffafc7c70be8ccdc8666d4403363ef24e65382f8bde5428172ac4dd0299ec5b"
     },
     "ja": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -7474,7 +7490,11 @@
       "cloudTask.update.published": "fe1b1062d25c8fbdfe76b386f6e2373118223e508ed9bcc7aea9ebc67d3fcc53",
       "cloudTask.update.verified": "64ce23c582d530f445c400abdab6e98ecc292e80a206e67cf7845a3bb17d550b",
       "cloudTask.update.merged": "9b452c29c7ce8295549e566bf4d0a1b6a1b4fd2114f01240bc65242d64bd5c4f",
-      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0"
+      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0",
+      "credentialStore.retry": "9011ac35c85d42b14195ecbbbdf0f47a12b2900b9819e7ab97a03a88e570a010",
+      "credentialStore.retryFailed": "5c92715e528567c7ddb6b3aa2853389e7266c9898cf7d3bfbaaa4d5a09e2f3e4",
+      "credentialStore.saveFailed": "937084e676a98f5dfef70e151bd6828279f813fe3393afa7c74de156158271f8",
+      "credentialStore.unavailable": "fffafc7c70be8ccdc8666d4403363ef24e65382f8bde5428172ac4dd0299ec5b"
     },
     "pt-br": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -8980,7 +9000,11 @@
       "cloudTask.update.published": "fe1b1062d25c8fbdfe76b386f6e2373118223e508ed9bcc7aea9ebc67d3fcc53",
       "cloudTask.update.verified": "64ce23c582d530f445c400abdab6e98ecc292e80a206e67cf7845a3bb17d550b",
       "cloudTask.update.merged": "9b452c29c7ce8295549e566bf4d0a1b6a1b4fd2114f01240bc65242d64bd5c4f",
-      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0"
+      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0",
+      "credentialStore.retry": "9011ac35c85d42b14195ecbbbdf0f47a12b2900b9819e7ab97a03a88e570a010",
+      "credentialStore.retryFailed": "5c92715e528567c7ddb6b3aa2853389e7266c9898cf7d3bfbaaa4d5a09e2f3e4",
+      "credentialStore.saveFailed": "937084e676a98f5dfef70e151bd6828279f813fe3393afa7c74de156158271f8",
+      "credentialStore.unavailable": "fffafc7c70be8ccdc8666d4403363ef24e65382f8bde5428172ac4dd0299ec5b"
     },
     "zh": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -10996,7 +11020,11 @@
       "cloudTask.update.published": "fe1b1062d25c8fbdfe76b386f6e2373118223e508ed9bcc7aea9ebc67d3fcc53",
       "cloudTask.update.verified": "64ce23c582d530f445c400abdab6e98ecc292e80a206e67cf7845a3bb17d550b",
       "cloudTask.update.merged": "9b452c29c7ce8295549e566bf4d0a1b6a1b4fd2114f01240bc65242d64bd5c4f",
-      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0"
+      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0",
+      "credentialStore.retry": "9011ac35c85d42b14195ecbbbdf0f47a12b2900b9819e7ab97a03a88e570a010",
+      "credentialStore.retryFailed": "5c92715e528567c7ddb6b3aa2853389e7266c9898cf7d3bfbaaa4d5a09e2f3e4",
+      "credentialStore.saveFailed": "937084e676a98f5dfef70e151bd6828279f813fe3393afa7c74de156158271f8",
+      "credentialStore.unavailable": "fffafc7c70be8ccdc8666d4403363ef24e65382f8bde5428172ac4dd0299ec5b"
     },
     "zh-tw": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -13012,7 +13040,11 @@
       "cloudTask.update.published": "fe1b1062d25c8fbdfe76b386f6e2373118223e508ed9bcc7aea9ebc67d3fcc53",
       "cloudTask.update.verified": "64ce23c582d530f445c400abdab6e98ecc292e80a206e67cf7845a3bb17d550b",
       "cloudTask.update.merged": "9b452c29c7ce8295549e566bf4d0a1b6a1b4fd2114f01240bc65242d64bd5c4f",
-      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0"
+      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0",
+      "credentialStore.retry": "9011ac35c85d42b14195ecbbbdf0f47a12b2900b9819e7ab97a03a88e570a010",
+      "credentialStore.retryFailed": "5c92715e528567c7ddb6b3aa2853389e7266c9898cf7d3bfbaaa4d5a09e2f3e4",
+      "credentialStore.saveFailed": "937084e676a98f5dfef70e151bd6828279f813fe3393afa7c74de156158271f8",
+      "credentialStore.unavailable": "fffafc7c70be8ccdc8666d4403363ef24e65382f8bde5428172ac4dd0299ec5b"
     },
     "uk": {
       "noEngines.title": "91925671ff9403383e723a3afbbc39cb6015c35db9f0564ce4b43ec463ac22de",
@@ -14815,7 +14847,11 @@
       "cloudTask.update.published": "fe1b1062d25c8fbdfe76b386f6e2373118223e508ed9bcc7aea9ebc67d3fcc53",
       "cloudTask.update.verified": "64ce23c582d530f445c400abdab6e98ecc292e80a206e67cf7845a3bb17d550b",
       "cloudTask.update.merged": "9b452c29c7ce8295549e566bf4d0a1b6a1b4fd2114f01240bc65242d64bd5c4f",
-      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0"
+      "cloudTask.update.attention": "54a062367410f86f7b8d4ff645a2038cea9e8cabf0ec058305429cacf34f1cc0",
+      "credentialStore.retry": "9011ac35c85d42b14195ecbbbdf0f47a12b2900b9819e7ab97a03a88e570a010",
+      "credentialStore.retryFailed": "5c92715e528567c7ddb6b3aa2853389e7266c9898cf7d3bfbaaa4d5a09e2f3e4",
+      "credentialStore.saveFailed": "937084e676a98f5dfef70e151bd6828279f813fe3393afa7c74de156158271f8",
+      "credentialStore.unavailable": "fffafc7c70be8ccdc8666d4403363ef24e65382f8bde5428172ac4dd0299ec5b"
     }
   }
 }

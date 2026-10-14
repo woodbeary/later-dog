@@ -7,6 +7,7 @@ export async function readSecureCredentials({
   isAvailable,
   readFile,
   decrypt,
+  decryptFallback,
   sleep,
   delays = CREDENTIAL_READ_DELAYS_MS,
 }) {
@@ -34,6 +35,15 @@ export async function readSecureCredentials({
     } catch (error) {
       lastError = message(error);
     }
+  }
+  if (decryptFallback) {
+    try {
+      const text = await decryptFallback(readFile());
+      const credentials = JSON.parse(text);
+      if (credentials && typeof credentials === "object" && !Array.isArray(credentials)) {
+        return { status: "ok", credentials, usedFallback: true };
+      }
+    } catch {}
   }
   return { status: "unavailable", credentials: {}, error: lastError };
 }

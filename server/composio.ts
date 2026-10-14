@@ -163,7 +163,7 @@ function normalizeManagedBrokerUrl(value: string): string {
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
-export function applyManagedBrokerMessage(message: unknown): boolean {
+export function applyManagedBrokerMessage(message: unknown, env: NodeJS.ProcessEnv = process.env): boolean {
   const parsed = managedBrokerMessageSchema.safeParse(message);
   if (
     !parsed.success ||
@@ -172,7 +172,10 @@ export function applyManagedBrokerMessage(message: unknown): boolean {
   ) {
     return false;
   }
+  const store = parsed.data.credentialStore;
+  if (store !== undefined && store !== "ok" && store !== "unavailable") return false;
   setManagedBrokerAccess(parsed.data.access);
+  if (store !== undefined) env.LATERDOG_CREDENTIAL_STORE = store;
   return true;
 }
 

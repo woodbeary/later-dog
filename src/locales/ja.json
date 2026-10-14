@@ -1491,5 +1491,9 @@
   "cloudTask.update.published": "クラウドタスクを確認できます",
   "cloudTask.update.verified": "クラウドタスクの変更を検証しました",
   "cloudTask.update.merged": "クラウドタスクが完了しました",
-  "cloudTask.update.attention": "クラウドタスクであなたの対応が必要です"
+  "cloudTask.update.attention": "クラウドタスクであなたの対応が必要です",
+  "credentialStore.retry": "ロック解除を再試行",
+  "credentialStore.retryFailed": "保存済みのログイン情報をまだ読み取れません。再試行するか、{app} を終了して開き直してください。",
+  "credentialStore.saveFailed": "キーを安全に保存できませんでした。キーはこの入力欄に残っています。もう一度保存してください。",
+  "credentialStore.unavailable": "保存済みのログイン情報を読み取れませんでした。ロック解除を再試行するか、{app} を終了して開き直してください。求められた場合はキーチェーンへのアクセスを許可してください。"
 }
