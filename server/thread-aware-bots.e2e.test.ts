@@ -497,7 +497,7 @@ describe("coordinate_bots on a teammate", () => {
       expect((await botState(qa.id)).tasks).toHaveLength(1);
       expect(await messages(qa.threadId)).toEqual(originalConversation);
       expect((await api("POST", `/api/bots/${pm.id}/respond`, { threadId: pm.threadId, requestId: card.card.requestId, behavior: "deny" })).status).toBe(200);
-      expect(await pending).toMatchObject({ status: 403, body: { error: "Denied by user; no work sent." } });
+      expect(await pending).toMatchObject({ status: 403, body: { error: "The person said no; no work sent." } });
       expect((await botState(qa.id)).tasks).toHaveLength(1);
       expect(await messages(qa.threadId)).toEqual(originalConversation);
       release(pm.threadId);

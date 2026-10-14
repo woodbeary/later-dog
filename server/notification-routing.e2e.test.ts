@@ -411,7 +411,7 @@ describe("bot-to-bot coordination is recorded, not announced", () => {
       expect(card?.card?.tool).toBe("ask_bot");
       const denied = await api("POST", `/api/bots/${asker.id}/respond`, { requestId: card.card.requestId, behavior: "deny" });
       expect(denied.status).toBe(200);
-      expect((await asking).body).toMatchObject({ error: "denied by user" });
+      expect((await asking).body).toMatchObject({ error: "the person said no" });
     } finally {
       stream.close();
       await asking.catch(() => undefined);

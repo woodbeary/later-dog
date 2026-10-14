@@ -512,14 +512,14 @@ describe("drainDelegations", () => {
         approvalOutcome: outcome,
         approvalSource: outcome === "deny" ? "user" : "system",
       });
-      expect(receipt.result).toBe(outcome === "deny" ? "the user denied this handoff"
+      expect(receipt.result).toBe(outcome === "deny" ? "the person denied this handoff"
         : outcome === "expired" ? "the approval card expired without an answer" : "the approval was cancelled before a decision");
       expect(settled).toHaveBeenCalledTimes(1);
       expect(_pendingCount(from.threadId)).toBe(0);
       expect(runTarget).not.toHaveBeenCalled();
       expect(resolvePeerComms(approvalBus, card.card!.requestId!, "allow")).toBe(false);
       if (outcome !== "deny") {
-        expect(store.messagesFor(from.threadId).some(m => m.tool?.name?.includes("denied by user"))).toBe(false);
+        expect(store.messagesFor(from.threadId).some(m => m.tool?.name?.includes("declined"))).toBe(false);
         expect(buildDelegationFailurePrompt(target.name, receipt.result!)).not.toContain("user denied");
       }
       _resetPending();
@@ -641,7 +641,7 @@ describe("drainDelegations", () => {
     const chip = await waitFor(() =>
       store
         .messagesFor(from.threadId)
-        .find((m) => m.kind === "activity" && (m.tool?.name ?? "").includes("denied by user")),
+        .find((m) => m.kind === "activity" && (m.tool?.name ?? "").includes("declined")),
     );
     expect(chip.tool?.ok).toBe(false);
     expect(runTargetCalls).toEqual([]);
@@ -1504,7 +1504,7 @@ describe("peer wake helpers", () => {
   it("buildDelegationRevivalPrompt names the peer and instructs the source to answer", () => {
     const prompt = buildDelegationRevivalPrompt("Helper");
     expect(prompt).toContain("@Helper");
-    expect(prompt).toContain("answer the user with the outcome");
+    expect(prompt).toContain("answer the person with the outcome");
     expect(prompt).toContain("Do not re-delegate the same task");
   });
 
@@ -1512,7 +1512,7 @@ describe("peer wake helpers", () => {
     const prompt = buildDelegationFailurePrompt("Helper", "delegated turn stalled");
     expect(prompt).toContain("@Helper");
     expect(prompt).toContain("delegated turn stalled");
-    expect(prompt).toContain("tell the user what failed");
+    expect(prompt).toContain("tell the person what failed");
     expect(prompt).toContain("Do not re-delegate the exact same task unchanged");
   });
 

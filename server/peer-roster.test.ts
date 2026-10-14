@@ -356,7 +356,7 @@ describe("teammate availability stays out of the cached prompt half", () => {
   it.each([
     ["busy", { busy: true }, "Quill (working right now) [id: writer]"],
     ["working", { activity: "working", busy: true }, "Quill (working right now) [id: writer]"],
-    ["waiting on the user", { activity: "waiting-on-you", busy: true }, "Quill (waiting on the user) [id: writer]"],
+    ["waiting on the person", { activity: "waiting-on-you", busy: true }, "Quill (waiting on the person) [id: writer]"],
     ["not responding", { activity: "no-signal", busy: true }, "Quill (not responding) [id: writer]"],
     ["needing setup", { activity: "dead" }, "Quill (unavailable — needs setup) [id: writer]"],
   ] as const)("keeps the stable half byte-identical when a teammate is %s", (_label, quill, line) => {
@@ -445,7 +445,7 @@ describe("live peer roster for coordination briefs", () => {
     expect(block.endsWith("[/LIVE TEAMMATES]")).toBe(true);
     expect(block).toContain("- Midnight — working right now [id: running]");
     expect(block).toContain("- Just Now — available [id: idle-new]");
-    expect(block).toContain("- Waiting — waiting on the user [id: parked]");
+    expect(block).toContain("- Waiting — waiting on the person [id: parked]");
     expect(block).toContain("- No Signal — not responding [id: silent]");
     expect(block).not.toContain("Ghost");
     expect(block).toContain("1 teammate is unavailable right now (no live engine) — counted here, not listed.");

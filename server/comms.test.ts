@@ -1330,7 +1330,7 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
       const finalText = askerBot.messages.findLast(
         (m: any) => m.role === "bot" && m.kind === "text" && m.text,
       );
-      if (finalText?.text?.includes("denied by user") && !askerBot.busy) break;
+      if (finalText?.text?.includes("the person said no") && !askerBot.busy) break;
       if (Date.now() > settledDeadline) {
         throw new Error(
           `deny test: denial didn't reach A\nasker tail: ${JSON.stringify(askerBot.messages.slice(-8))}\nstderr: ${stderr.slice(-2000)}`,

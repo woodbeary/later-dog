@@ -107,7 +107,7 @@ describe("independent bot tasks through the isolated control surface", () => {
     const roster = await internal(token, "GET", "/api/internal/agents");
     expect(roster.status).toBe(200);
     expect(roster.body.bots.find((bot: any) => bot.id === peer.id)).toMatchObject({
-      status: "waiting-on-user", statusText: "waiting on the user", busy: true,
+      status: "waiting-on-user", statusText: "waiting on the person", busy: true,
     });
     const queued = await internal(token, "POST", "/api/internal/coordinate-bots", {
       botIds: [peer.id], message: "MAILBOX_REVIEW: check the release notes.",

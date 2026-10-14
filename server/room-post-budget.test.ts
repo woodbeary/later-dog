@@ -106,7 +106,7 @@ describe("decideRoomPost", () => {
     const third = post(budget, "c", "three", T0 + 2_000);
     expect(third.allowed).toBe(false);
     expect(third.allowed === false && third.refusal).toBe("escalate");
-    expect(third.allowed === false && third.message).toMatch(/ask the user/i);
+    expect(third.allowed === false && third.message).toMatch(/ask the person/i);
     expect(third.allowed === false && third.message).toMatch(/write in the room themselves re-opens it/i);
 
     const later = post(budget, "c", "three", T0 + 5 * 60_000 + 1_001);

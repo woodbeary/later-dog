@@ -65,7 +65,7 @@ export function decideRoomPost(budget: RoomPostBudget, attempt: RoomPostAttempt)
   if (tripped !== undefined) {
     return refuse(
       "breaker",
-      "Posting into this room is closed: its bots were answering each other in a loop. Do not call post_to_room again for this room — say what you wanted to post in your own reply, where the user will read it.",
+      "Posting into this room is closed: its bots were answering each other in a loop. Do not call post_to_room again for this room — say what you wanted to post in your own reply, where the person will read it.",
     );
   }
   const duplicate = posts.some(
@@ -80,7 +80,7 @@ export function decideRoomPost(budget: RoomPostBudget, attempt: RoomPostAttempt)
   if (closesRing(recentSenders(posts, now), botId)) {
     return refuse(
       "ring",
-      `Posting into this room is now closed: ${botName} is completing a loop the room's bots have been passing between themselves. Do not retry, and do not post to another room instead — tell the user what is going round and let them decide.`,
+      `Posting into this room is now closed: ${botName} is completing a loop the room's bots have been passing between themselves. Do not retry, and do not post to another room instead — tell the person what is going round and let them decide.`,
       { posts, trippedAt: now },
     );
   }
@@ -88,7 +88,7 @@ export function decideRoomPost(budget: RoomPostBudget, attempt: RoomPostAttempt)
   if (bySender >= SENDER_MAX) {
     return refuse(
       "sender-rate",
-      `You have posted ${SENDER_MAX} times in this room in the last minute, which is the limit. Do not retry this call — finish your turn and say anything further to the user directly.`,
+      `You have posted ${SENDER_MAX} times in this room in the last minute, which is the limit. Do not retry this call — finish your turn and say anything further to the person directly.`,
     );
   }
   const unanswered = posts.filter(
@@ -97,7 +97,7 @@ export function decideRoomPost(budget: RoomPostBudget, attempt: RoomPostAttempt)
   if (unanswered >= ESCALATE_MAX) {
     return refuse(
       "escalate",
-      `This room has already taken ${unanswered} bot posts that nobody has answered, which is as far as bots go without a person. Stop posting and ask the user what they want said in the room — tell them that anything they write in the room themselves re-opens it, and that it also re-opens by itself after a few minutes. Do not retry this call.`,
+      `This room has already taken ${unanswered} bot posts that nobody has answered, which is as far as bots go without a person. Stop posting and ask the person what they want said in the room — tell them that anything they write in the room themselves re-opens it, and that it also re-opens by itself after a few minutes. Do not retry this call.`,
     );
   }
   return { allowed: true, budget: { posts: [...posts, { botId, text, at: now }] } };

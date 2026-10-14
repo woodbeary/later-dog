@@ -15,7 +15,7 @@ export function peerApprovalFailure(outcome: PeerApprovalFailure): {
   approvalSource: "user" | "system";
 } {
   return {
-    error: outcome === "deny" ? "denied by user"
+    error: outcome === "deny" ? "the person said no"
       : outcome === "expired" ? "the approval card expired without an answer"
         : "the approval was cancelled before a decision",
     approvalOutcome: outcome,

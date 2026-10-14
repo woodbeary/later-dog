@@ -56,15 +56,15 @@ describe("spoken prompts", () => {
   });
   it("sends reviews to the chat and reads questions with their options", () => {
     expect(spokenReviewPrompt(card({ requestId: "r1", title: "Enable the invoice skill" }))).toBe(
-      "Tell the user, in your own words, that you need their decision in the chat: Enable the invoice skill. They review it on screen and choose there; it cannot be decided by voice.",
+      "Tell the person, in your own words, that you need their decision in the chat: Enable the invoice skill. They review it on screen and choose there; it cannot be decided by voice.",
     );
     expect(spokenQuestionPrompt(card({ requestId: "r1", subtitle: "Which account?", options: ["Main", "Savings"] }))).toBe(
-      "Ask the user, in your own words: Which account? The options are Main, Savings. Then delegate their answer.",
+      "Ask the person, in your own words: Which account? The options are Main, Savings. Then delegate their answer.",
     );
   });
   it("never doubles the question mark of a question that ends in one", () => {
     expect(spokenQuestionPrompt(card({ requestId: "r1", subtitle: "Which one??", options: [] }))).toBe(
-      "Ask the user, in your own words: Which one? Then delegate their answer.",
+      "Ask the person, in your own words: Which one? Then delegate their answer.",
     );
   });
   it("has fixed copy for the call", () => {

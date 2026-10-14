@@ -181,7 +181,8 @@ export const ASK_USER_TOOL_DEFINITION = {
   },
 } as const;
 
-export const ANSWER_PREAMBLE = "The user answered your questions.";
+export const ANSWER_PREAMBLE = "The person answered your questions.";
+export const LEGACY_ANSWER_PREAMBLE = "The user answered your questions.";
 
 export function formatQuestionAnswers(
   questions: readonly AskQuestion[],
@@ -198,7 +199,8 @@ export function formatQuestionAnswers(
 }
 
 export function answerWithoutPreamble(answer: string): string {
-  return answer.startsWith(`${ANSWER_PREAMBLE}\n\n`) ? answer.slice(ANSWER_PREAMBLE.length + 2) : answer;
+  const preamble = [ANSWER_PREAMBLE, LEGACY_ANSWER_PREAMBLE].find((candidate) => answer.startsWith(`${candidate}\n\n`));
+  return preamble ? answer.slice(preamble.length + 2) : answer;
 }
 
 export function questionAnswersByQuestion(

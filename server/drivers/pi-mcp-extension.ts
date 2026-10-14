@@ -620,7 +620,7 @@ export default async function (pi: PiExtensionApi): Promise<void> {
                 detail || `Run ${serverName}:${shown}`,
               );
               if (!allowed) {
-                return { content: [{ type: "text", text: "Blocked by the user." }], details: {} };
+                return { content: [{ type: "text", text: "Blocked by the person." }], details: {} };
               }
             }
             const res = await client.callTool(toolName, params, signal);

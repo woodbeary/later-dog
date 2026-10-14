@@ -14,13 +14,13 @@ const MAX_TURNS = 2_000;
 export const CONTINUE_AFTER_SWITCH =
   "[later.dog: the account this conversation was running on reached its usage limit partway through your last turn, " +
   "so it continues on another account. Anything that turn already did (files written, commands run) is still in place, " +
-  "but its tool results are not in this session. Check the current state, then continue the user's last request from " +
+  "but its tool results are not in this session. Check the current state, then continue the person's last request from " +
   "where it stopped. Do not redo what was already done.]";
 
 export const CONTINUE_AFTER_RESET =
   "[later.dog: your last turn stopped partway because this conversation ran out of usage on every account it can use. " +
   "A limit has reset, so it carries on now. Anything that turn already did (files written, commands run) is still in place, " +
-  "though its tool results may not be in this session. Check the current state, then continue the user's last request from " +
+  "though its tool results may not be in this session. Check the current state, then continue the person's last request from " +
   "where it stopped. Do not redo what was already done.]";
 
 export interface AccountBatteryConfig {
