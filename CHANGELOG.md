@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.29 — Unreleased
+## 0.3.29 — 2026-10-14
 
 - **Quiet lines when dogs talk to each other.** You see one line, "Messaged ◯ Name", that opens their conversation, instead of extra chats.
 - **Routines a dog makes show up in chat** as "Created routine ⏲ name", one click from Routines.
@@ -21,7 +21,6 @@
 - **Sends survive a dropped connection.** If the network blips, later.dog tries again without sending your message twice.
 - **A full Mac gets plain words,** and a dog no longer gets stuck "working" after the disk fills up.
 - **Approvals left open by a restart close** instead of looking like they still wait for you.
-- **later.dog Dev.** A separate Dev app can sit beside later.dog with its own dogs, data, ports and updates, so trying a new build never touches your real dogs.
 
 ## 0.3.28 — 2026-10-14
 
