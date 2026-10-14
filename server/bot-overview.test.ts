@@ -42,11 +42,12 @@ const WONT_ORDER = [
 ];
 
 describe("buildBotOverview", () => {
-  it("describes additional teams only for an authorized Chief", () => {
+  it("separates workspace communication from additional Chief setup authority", () => {
     const facts = baseFacts({ bot: { ...baseFacts().bot, chiefOfStaff: true, managedSections: ["Engineering", "Research"], peers: undefined }, engine: { agentsMcp: true }, sectionPeers: 3 });
-    expect(buildBotOverview(facts).reaches).toContain("Can talk to 3 other dogs in its allowed packs.");
-    expect(buildBotOverview(facts).reaches).toContain("May also coordinate these packs: Engineering, Research.");
+    expect(buildBotOverview(facts).reaches).toContain("Can talk to 3 other dogs across packs in this workspace.");
+    expect(buildBotOverview(facts).reaches).toContain("May also propose setup changes for these packs: Engineering, Research.");
     facts.bot.chiefOfStaff = false;
+    expect(buildBotOverview(facts).reaches).toContain("Can talk to 3 other dogs across packs in this workspace.");
     expect(buildBotOverview(facts).reaches.join(" ")).not.toContain("Engineering");
   });
   it("yields all six wont lines in order and no does lines for a fresh bot", () => {

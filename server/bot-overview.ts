@@ -216,12 +216,11 @@ function reachesLines(facts: OverviewFacts): string[] {
   }
   if (facts.browserEnabled && facts.engine?.browserMcp && facts.bot.browser !== false && facts.bot.computer !== "off") lines.push("Has the built-in browser.");
   if (facts.engine?.agentsMcp && facts.sectionPeers > 0 && facts.bot.peers?.length !== 0) {
-    const scope = facts.bot.chiefOfStaff && facts.bot.managedSections?.length ? "its allowed packs" : "its section";
-    lines.push(`Can talk to ${facts.sectionPeers} other dog${facts.sectionPeers === 1 ? "" : "s"} in ${scope}.`);
+    lines.push(`Can talk to ${facts.sectionPeers} other dog${facts.sectionPeers === 1 ? "" : "s"} across packs in this workspace.`);
   }
   if (facts.bot.chiefOfStaff) lines.push("Coordinates its section as Chief of Staff.");
   if (facts.bot.chiefOfStaff && facts.bot.managedSections?.length) {
-    lines.push(`May also coordinate these packs: ${facts.bot.managedSections.map(name => name || "General").join(", ")}.`);
+    lines.push(`May also propose setup changes for these packs: ${facts.bot.managedSections.map(name => name || "General").join(", ")}.`);
   }
   return lines;
 }
