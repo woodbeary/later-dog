@@ -18,13 +18,14 @@ test("the window opens the home once per home, never again after the person was 
   assert.equal(enterHomeNow({ state: connected({ status: "provisioning", origin: HOME }), activeOrigin: "x", enteredOrigin: null }), false);
 });
 
-test("signing out leaves the home for this Mac, but the quiet start-up state does not", () => {
+test("signing out leaves the home for this Mac, whether or not it was showing, but the quiet start-up state does not", () => {
   const entry = { id: "cloud-1" };
-  assert.equal(leaveHomeNow({ state: { status: "signed-out" }, homeEntry: entry, environments: { activeId: "cloud-1" } }), true);
-  assert.equal(leaveHomeNow({ state: { status: "signed-out", message: "restoring" }, homeEntry: entry, environments: { activeId: "cloud-1" } }), false);
-  assert.equal(leaveHomeNow({ state: { status: "signed-out" }, homeEntry: entry, environments: { activeId: "local" } }), false);
-  assert.equal(leaveHomeNow({ state: connected(), homeEntry: entry, environments: { activeId: "cloud-1" } }), false);
-  assert.equal(leaveHomeNow({ state: { status: "reauth-required", account: { id: "a" } }, homeEntry: entry, environments: { activeId: "cloud-1" } }), false);
+  assert.equal(leaveHomeNow({ state: { status: "signed-out" }, homeEntry: entry }), true);
+  assert.equal(leaveHomeNow({ state: { status: "signed-out", message: "restoring" }, homeEntry: entry }), false);
+  assert.equal(leaveHomeNow({ state: { status: "signed-out" }, homeEntry: null }), false);
+  assert.equal(leaveHomeNow({ state: connected(), homeEntry: entry }), false);
+  assert.equal(leaveHomeNow({ state: { status: "reauth-required", account: { id: "a" } }, homeEntry: entry }), false);
+  assert.equal(leaveHomeNow({ state: { status: "unavailable", message: "restore-failed" }, homeEntry: entry }), false);
 });
 
 test("a signed-in person sees no Server menu, and a signed-out person sees what they always saw", () => {

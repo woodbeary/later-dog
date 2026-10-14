@@ -6,7 +6,7 @@ const DEST = { id: "cloud", name: "My Cloud", origin: "https://home.fixture.test
 const LOCAL = { bots: 4, rooms: 1, chats: 9, bytes: 1000, files: 3 };
 
 function setup(options = {}) {
-  const stored = { raw: options.saved ?? null }, timers = [], moves = [], logs = [];
+  const stored = { raw: options.saved ?? null }, timers = [], moves = [], logs = [], arrivals = [];
   const results = [...(options.results ?? [])];
   const move = {
     running: () => Boolean(options.running),
@@ -14,8 +14,8 @@ function setup(options = {}) {
     move: async (dest, flags) => { moves.push([dest, flags]); return results.shift() ?? { phase: "done", action: "move", moved: { bots: 4, rooms: 1, chats: 9 } }; },
   };
   const engine = createCloudAutoMove({ move, read: () => stored.raw, write: contents => { if (options.writeFails) throw new Error("disk full"); stored.raw = contents; }, now: () => 1_800_000_000_000,
-    setTimer: (callback, delay) => { timers.push({ callback, delay }); return { unref() {} }; }, clearTimer: () => { timers.length = 0; }, log: message => logs.push(message), retryDelaysMs: [10, 20] });
-  return { engine, stored, timers, moves, logs };
+    setTimer: (callback, delay) => { timers.push({ callback, delay }); return { unref() {} }; }, clearTimer: () => { timers.length = 0; }, log: message => logs.push(message), retryDelaysMs: [10, 20], onMoved: destination => arrivals.push(destination) });
+  return { engine, stored, timers, moves, logs, arrivals };
 }
 const failed = (code, extra = {}) => ({ phase: "failed", action: "move", error: { code, message: code, ...extra } });
 
@@ -25,7 +25,9 @@ test("dogs with chats move once, with the home required to be empty and to prove
   assert.deepEqual(f.moves, [[DEST, { requireEmpty: true, verifyArrival: true }]]);
   assert.equal(f.engine.status("acct"), "moved");
   assert.deepEqual(parseMoveRecords(f.stored.raw).acct.contents, { bots: 4, rooms: 1, chats: 9 });
+  assert.deepEqual(f.arrivals, [DEST], "the window is told so it can show the dogs that arrived");
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "moved" });
+  assert.equal(f.arrivals.length, 1);
   assert.equal(f.moves.length, 1, "a finished move is never started again");
 });
 

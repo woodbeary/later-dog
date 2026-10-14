@@ -23,4 +23,5 @@ export declare function createCloudAutoMove(options: {
   clearTimer?: typeof clearTimeout;
   retryDelaysMs?: readonly number[];
   log?: (message: string) => void;
+  onMoved?: (destination: MoveTarget) => void;
 }): CloudAutoMove;

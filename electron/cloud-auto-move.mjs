@@ -27,7 +27,7 @@ export function serializeMoveRecords(records) {
   return `${JSON.stringify({ version: 1, homes: records }, null, 2)}\n`;
 }
 
-export function createCloudAutoMove({ move, read, write, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, retryDelaysMs = AUTO_MOVE_RETRY_MS, log = () => {} }) {
+export function createCloudAutoMove({ move, read, write, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, retryDelaysMs = AUTO_MOVE_RETRY_MS, log = () => {}, onMoved = () => {} }) {
   let busy = false, timer = null, failures = 0, closed = false, scheduled = null;
   const records = () => { try { return parseMoveRecords(read()); } catch { return {}; } };
   const remember = (accountId, entry) => {
@@ -52,12 +52,14 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, setTime
       if (result.phase === "done" && arrivedInFull(local, result.moved)) {
         failures = 0;
         remember(accountId, { status: "moved", origin: destination.origin, contents: result.moved });
+        onMoved(destination);
         return { status: "moved" };
       }
       const code = result.error?.code;
       if (code === "not_empty") {
         if (arrivedInFull(local, result.error.contents)) {
           remember(accountId, { status: "moved", origin: destination.origin, contents: result.error.contents });
+          onMoved(destination);
           return { status: "moved" };
         }
         remember(accountId, { status: "kept-local", origin: destination.origin });

@@ -148,3 +148,10 @@ test("native window identity distinguishes hosted HTML, companion data, and the 
   assert.equal(env.workspaceWindowTitle(state, { serverName: "Office", endpoint: "https://c-office.later.dog" }), "later.dog — Connected to: Office (c-office.later.dog)");
   assert.equal(env.workspaceWindowTitle(env.withActive(state, "local")), "later.dog");
 });
+
+test("a signed-in person's window is just later.dog, while any other hosted server still names itself", () => {
+  const state = { environments: [{ id: "cloud", name: "My Cloud", origin: "https://home.example" }, { id: "old", name: "Old team", origin: "https://old.example" }], activeId: "cloud" };
+  assert.equal(env.workspaceWindowTitle(state, null, "https://home.example"), "later.dog");
+  assert.equal(env.workspaceWindowTitle(env.withActive(state, "old"), null, "https://home.example"), "later.dog — Hosted: Old team (old.example)");
+  assert.equal(env.workspaceWindowTitle(state), "later.dog — Hosted: My Cloud (home.example)");
+});

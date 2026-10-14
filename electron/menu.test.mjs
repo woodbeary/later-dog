@@ -58,4 +58,10 @@ describe("buildApplicationMenu", () => {
     submenu.find(entry => entry.label === "Add Server from Copied Pairing Link…").click();
     expect(onAddFromClipboard).toHaveBeenCalledOnce();
   });
+
+  it.each(["darwin", "linux", "win32"])("has no Server menu for a signed-in person on %s, and keeps every other menu", platform => {
+    const template = build(platform, { serverMenu: false });
+    expect(template.find(entry => entry.label === "Server")).toBeUndefined();
+    expect(template.map(entry => entry.role).filter(Boolean)).toEqual(["fileMenu", "editMenu", "viewMenu", "windowMenu"]);
+  });
 });

@@ -266,6 +266,10 @@ const bridge = {
     openDashboard: () => ipcRenderer.invoke("cloud-account:openDashboard"),
     connectHome: () => ipcRenderer.invoke("cloud-account:connectHome"),
     connectHomeForPhone: () => ipcRenderer.invoke("cloud-account:connectHomeForPhone"),
+    sendCode: email => ipcRenderer.invoke("cloud-account:sendCode", typeof email === "string" ? email : ""),
+    verifyCode: (email, code) => ipcRenderer.invoke("cloud-account:verifyCode", typeof email === "string" ? email : "", typeof code === "string" ? code : ""),
+    offer: () => ipcRenderer.invoke("cloud-account:offer"),
+    declineOffer: () => ipcRenderer.invoke("cloud-account:declineOffer"),
     onState: cb => {
       const handler = (_event, state) => cb(state);
       ipcRenderer.on("cloud-account:state-changed", handler);

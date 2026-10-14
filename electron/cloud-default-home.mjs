@@ -10,9 +10,9 @@ export function enterHomeNow({ state, activeOrigin, enteredOrigin }) {
   return Boolean(home) && activeOrigin !== home.origin && enteredOrigin !== home.origin;
 }
 
-export function leaveHomeNow({ state, homeEntry, environments }) {
+export function leaveHomeNow({ state, homeEntry }) {
   if (state?.status !== "signed-out" || state.message === "restoring") return false;
-  return Boolean(homeEntry) && environments.activeId === homeEntry.id;
+  return Boolean(homeEntry);
 }
 
 export function hasCloudAccount(state) {
