@@ -5,7 +5,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import {
-  cloudTaskActive, cloudTaskPatch, cloudTaskWorking, cloudTaskScreen, cloudTaskStatus, cloudTaskStatusClass, elapsedLabel, filesChangedLabel, plainStep, projectName,
+  cloudTaskActive, cloudTaskPatch, cloudTaskTraceUrl, cloudTaskWorking, cloudTaskScreen, cloudTaskStatus, cloudTaskStatusClass, elapsedLabel, filesChangedLabel, modelLabel, plainStep, projectName, traceKeptUntil,
   publishCloudTask, stageLabel, stopCloudTask, useCloudTask, useCloudTaskActivity,
 } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
@@ -278,6 +278,22 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
           )}
         </div>
         {summary?.publishable && <p className="mt-2 text-[12px] leading-5 text-ink-tertiary">{t("cloudTask.publishHint")}</p>}
+        {summary && (summary.model || summary.effort || summary.account || summary.computerSize) && (
+          <dl data-testid="cloud-task-choices" className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-[12.5px] leading-5">
+            {summary.account && <><dt className="text-ink-tertiary">{t("cloudTask.account")}</dt><dd className="min-w-0 truncate text-ink">{summary.account}</dd></>}
+            {summary.model && <><dt className="text-ink-tertiary">{t("cloudTask.model")}</dt><dd className="min-w-0 truncate text-ink" title={summary.model}>{modelLabel(summary.model)}</dd></>}
+            {summary.effort && <><dt className="text-ink-tertiary">{t("cloudTask.effort")}</dt><dd className="text-ink">{summary.effort}</dd></>}
+            {summary.computerSize && <><dt className="text-ink-tertiary">{t("cloudTask.computer")}</dt><dd className="text-ink">{t(`cloudTask.size.${summary.computerSize}`)}</dd></>}
+          </dl>
+        )}
+        {summary?.trace && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <a href={cloudTaskTraceUrl(jobId)} download aria-label={t("cloudTask.traceAria", { title: summary.title })} className="inline-flex items-center rounded-lg bg-control px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-control-hover">
+              {t("cloudTask.trace")}
+            </a>
+            <span className="text-[12px] leading-5 text-ink-tertiary">{t("cloudTask.traceHint", { date: traceKeptUntil(summary) ?? "" })}{summary.trace.truncated ? ` ${t("cloudTask.traceCut")}` : ""}</span>
+          </div>
+        )}
         {actionError && <p role="alert" className="mt-2 rounded-lg bg-inset px-3 py-2 text-[12px] text-ink-secondary">{actionError}</p>}
 
         {changes && changes.files > 0 && (

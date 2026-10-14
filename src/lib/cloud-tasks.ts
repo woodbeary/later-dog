@@ -196,6 +196,7 @@ async function act(jobId: string, body: Record<string, unknown>): Promise<void> 
 export const stopCloudTask = (jobId: string) => act(jobId, { action: "cancel" });
 export const publishCloudTask = (jobId: string) => act(jobId, { action: "publish" });
 export const cloudTaskScreen = (jobId: string) => api<{ url: string; expiresAt: number | string }>(`/api/laterdog/jobs/${jobId}/screen`, { method: "POST", body: "{}" });
+export const cloudTaskTraceUrl = (jobId: string) => `/api/laterdog/jobs/${jobId}/trace`;
 export const cloudTaskPatch = (jobId: string) => api<{ patch: string }>(`/api/laterdog/jobs/${jobId}/patch`);
 
 const WAKEUP_SEND_ID = /^laterdog_([0-9a-f]{32})_\d+$/;
@@ -391,4 +392,19 @@ export function elapsedLabel(summary: CloudTaskSummary | undefined, now = Date.n
   if (minutes < 1) return t("cloudTask.elapsed.underMinute");
   if (minutes < 60) return t("cloudTask.elapsed.minutes", { minutes });
   return t("cloudTask.elapsed.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
+}
+
+export function modelLabel(model: string): string {
+  return model.replace(/^claude-/, "").replace(/\[.*\]$/, "").split("-").map((part) => (/^\d+$/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1))).join(" ").replace(/(\d) (\d)/, "$1.$2");
+}
+
+export function runsWithLabel(summary: CloudTaskSummary | undefined): string | null {
+  if (!summary) return null;
+  const parts = [summary.model ? modelLabel(summary.model) : null, summary.effort ?? null].filter((part): part is string => Boolean(part));
+  return parts.length ? parts.join(" · ") : null;
+}
+
+export function traceKeptUntil(summary: CloudTaskSummary | undefined): string | null {
+  const expires = summary?.trace ? Date.parse(summary.trace.expiresAt) : NaN;
+  return Number.isFinite(expires) ? new Date(expires).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : null;
 }
