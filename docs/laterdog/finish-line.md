@@ -52,7 +52,7 @@ Work stops at a gate before the next one starts.
 | L9 Motion and tokens | `laterdog/motion` | #43 | done, on the staging branch |
 | L10 Typing suggestions | `laterdog/tab` | | running |
 | L11 later.dog Dev | `laterdog/dev-app` | #46 | fixing the data-safety review's findings; the person picks an icon (`/Volumes/laterdog-phone/tmp/l11-sheet/index.html`) |
-| L12 Factory and computer tools | | | waiting for a slot |
+| L12 Factory and computer tools | `laterdog/factory` (L12b) | draft, into `laterdog/cloud-desktop` | L12b done: traces kept in R2, per-job model, account and effort, small default computer, cost and approvals notes (`cloud-jobs.md`, `factory-approvals.md`); computer tools waiting for a slot; one real job still to run |
 | L13 Stability sweep | `laterdog/stability` | | running |
 | L14 Launch and hiring copy | | | waiting for a slot |
 
