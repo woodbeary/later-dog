@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { t } from "@/lib/i18n";
+import { effortName } from "@/lib/model-friendly";
 import { api } from "@/state/store";
 import type { CloudTaskActivityPage, CloudTaskStep, CloudTaskSummary } from "../../shared/cloud-task";
 
@@ -196,6 +197,34 @@ async function act(jobId: string, body: Record<string, unknown>): Promise<void> 
 export const stopCloudTask = (jobId: string) => act(jobId, { action: "cancel" });
 export const publishCloudTask = (jobId: string) => act(jobId, { action: "publish" });
 export const cloudTaskScreen = (jobId: string) => api<{ url: string; expiresAt: number | string }>(`/api/laterdog/jobs/${jobId}/screen`, { method: "POST", body: "{}" });
+export const cloudTaskTraceUrl = (jobId: string) => `/api/laterdog/jobs/${jobId}/trace`;
+
+export async function saveCloudTaskTrace(jobId: string): Promise<void> {
+  const response = await fetch(cloudTaskTraceUrl(jobId));
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { error?: unknown };
+    throw new Error(typeof body.error === "string" ? body.error : t("cloudTask.err.trace"));
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `laterdog-job-${jobId}-trace.jsonl`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+export function useTraceSave(jobId: string): { save: () => Promise<void>; saving: boolean; error: string | null } {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try { await saveCloudTaskTrace(jobId); } catch (failure) { setError(failure instanceof Error ? failure.message : t("cloudTask.err.trace")); } finally { setSaving(false); }
+  };
+  return { save, saving, error };
+}
 export const cloudTaskPatch = (jobId: string) => api<{ patch: string }>(`/api/laterdog/jobs/${jobId}/patch`);
 
 const WAKEUP_SEND_ID = /^laterdog_([0-9a-f]{32})_\d+$/;
@@ -391,4 +420,19 @@ export function elapsedLabel(summary: CloudTaskSummary | undefined, now = Date.n
   if (minutes < 1) return t("cloudTask.elapsed.underMinute");
   if (minutes < 60) return t("cloudTask.elapsed.minutes", { minutes });
   return t("cloudTask.elapsed.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
+}
+
+export function modelLabel(model: string): string {
+  return model.replace(/^claude-/, "").replace(/\[.*\]$/, "").replace(/-\d{8}$/, "").split("-").map((part) => (/^\d+$/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1))).join(" ").replace(/(\d) (\d)/, "$1.$2");
+}
+
+export function runsWithLabel(summary: CloudTaskSummary | undefined): string | null {
+  if (!summary) return null;
+  const parts = [summary.model ? modelLabel(summary.model) : null, summary.effort ? effortName(summary.effort, "claudeAgent") : null].filter((part): part is string => Boolean(part));
+  return parts.length ? parts.join(" · ") : null;
+}
+
+export function traceKeptUntil(summary: CloudTaskSummary | undefined): string | null {
+  const expires = summary?.trace ? Date.parse(summary.trace.expiresAt) : NaN;
+  return Number.isFinite(expires) ? new Date(expires).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : null;
 }

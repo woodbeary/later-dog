@@ -641,6 +641,8 @@ import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { createHelpersRoutes } from "./routes/helpers.ts";
 import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
+import { dogJobEnvironment } from "./laterdog/job-defaults.ts";
+import { createJobTraceRoutes } from "./routes/job-trace.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
 import { GROUP_CHAT_REFUSAL, mayMakeGroupChats } from "./laterdog/group-chats.ts";
 import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
@@ -13256,7 +13258,7 @@ function engineMcpServers(bot: BotRecord) {
       ? { command: process.env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", `set ELECTRON_RUN_AS_NODE=1&& "${process.execPath}" "${file}"`] }
       : { command: "/bin/sh", args: ["-c", 'ELECTRON_RUN_AS_NODE=1 exec "$0" "$@"', process.execPath, file] })
     : { command: process.execPath, args: [file] };
-  return managedPolicy.filterMcp({ ...configured, laterdog: { ...launch, env: dogMcpEnvironment(bot.id, bot.threadId) } });
+  return managedPolicy.filterMcp({ ...configured, laterdog: { ...launch, env: { ...dogMcpEnvironment(bot.id, bot.threadId), ...dogJobEnvironment(bot.modelSelection, registry.get(bot.modelSelection.instanceId)?.driverKind) } } });
 }
 
 function persistMcpServers(next: Record<string, unknown>): void {
@@ -13539,6 +13541,7 @@ ROUTES.push(createBotMemoryRoutes({
   },
 }));
 ROUTES.push(createDeciderRoutes({ decider }));
+ROUTES.push(createJobTraceRoutes());
 ROUTES.push(typingSuggestions.routes);
 ROUTES.push(createLaterDogRoutes());
 ROUTES.push(createHelpersRoutes({

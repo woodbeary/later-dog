@@ -22,6 +22,14 @@ export const repositorySchema = z.object({
 }).strict();
 export type Repository = z.infer<typeof repositorySchema>;
 
+export const JOB_COMPUTER_SIZES = ["small", "standard", "large", "xlarge"] as const;
+export type JobComputerSize = typeof JOB_COMPUTER_SIZES[number];
+export const DEFAULT_JOB_COMPUTER_SIZE: JobComputerSize = "small";
+export const JOB_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"] as const;
+export type JobEffort = typeof JOB_EFFORTS[number];
+export const jobModel = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/, "Use a model id such as claude-opus-5-5");
+export const jobAccount = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
+
 export const createJobSchema = z.object({
   requestKey: z.string().min(8).max(200),
   repository: repoSlug,
@@ -35,6 +43,10 @@ export const createJobSchema = z.object({
   conversationId: z.string().max(200).optional(),
   botId: z.string().regex(/^[\w-]+$/).max(100).optional(),
   parentId: z.string().uuid().optional(),
+  model: jobModel.optional(),
+  effort: z.enum(JOB_EFFORTS).optional(),
+  account: jobAccount.optional(),
+  computerSize: z.enum(JOB_COMPUTER_SIZES).optional(),
 }).strict();
 export type CreateJob = z.infer<typeof createJobSchema>;
 export const ACTIVE_STATES = ["preparing", "submitting", "submission_unknown", "running", "collecting", "publishing", "verifying"] as const;
@@ -46,6 +58,13 @@ export interface Verification {
   commands: string[][];
   evidence: string;
   at: string;
+}
+export interface JobTrace {
+  where: "r2" | "local";
+  bytes: number;
+  storedAt: string;
+  expiresAt: string;
+  truncated: boolean;
 }
 export interface Job extends CreateJob {
   id: string;
@@ -73,6 +92,7 @@ export interface Job extends CreateJob {
   lastStep?: import("./cloud-task.ts").CloudTaskStep;
   changes?: import("./cloud-task.ts").CloudTaskChanges;
   activityArtifact?: string;
+  trace?: JobTrace;
 }
 export interface JobEvent { sequence: number; jobId: string; at: string; type: string; detail: string }
 export interface Profile {
@@ -83,7 +103,10 @@ export interface Profile {
   cli?: string;
   routineId?: string;
   routineTokenEnv?: string;
-  computerSize?: "small" | "standard" | "large" | "xlarge";
+  computerSize?: JobComputerSize;
+  maxComputerSize?: JobComputerSize;
+  claudeTokenEnv?: string;
+  account?: string;
 }
 export interface BackendCapabilities {
   id: string;

@@ -5,10 +5,11 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import {
-  cloudTaskActive, cloudTaskPatch, cloudTaskWorking, cloudTaskScreen, cloudTaskStatus, cloudTaskStatusClass, elapsedLabel, filesChangedLabel, plainStep, projectName,
-  publishCloudTask, stageLabel, stopCloudTask, useCloudTask, useCloudTaskActivity,
+  cloudTaskActive, cloudTaskPatch, cloudTaskWorking, cloudTaskScreen, cloudTaskStatus, cloudTaskStatusClass, elapsedLabel, filesChangedLabel, modelLabel, plainStep, projectName, traceKeptUntil,
+  publishCloudTask, stageLabel, stopCloudTask, useCloudTask, useCloudTaskActivity, useTraceSave,
 } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
+import { effortName } from "@/lib/model-friendly";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import { useStore, type Bot } from "@/state/store";
 import { patchFiles, type CloudTaskFileChange, type CloudTaskStep, type CloudTaskTodo } from "../../shared/cloud-task";
@@ -144,6 +145,7 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
   const status = cloudTaskStatus(entry);
   const [pending, setPending] = useState<null | "screen" | "stop" | "publish">(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const traceSave = useTraceSave(jobId);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
@@ -278,6 +280,23 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
           )}
         </div>
         {summary?.publishable && <p className="mt-2 text-[12px] leading-5 text-ink-tertiary">{t("cloudTask.publishHint")}</p>}
+        {summary && (summary.model || summary.effort || summary.account || summary.computerSize) && (
+          <dl data-testid="cloud-task-choices" className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-[12.5px] leading-5">
+            {summary.account && <><dt className="text-ink-tertiary">{t("cloudTask.account")}</dt><dd className="min-w-0 truncate text-ink">{summary.account}</dd></>}
+            {summary.model && <><dt className="text-ink-tertiary">{t("cloudTask.model")}</dt><dd className="min-w-0 truncate text-ink" title={summary.model}>{modelLabel(summary.model)}</dd></>}
+            {summary.effort && <><dt className="text-ink-tertiary">{t("cloudTask.effort")}</dt><dd className="text-ink">{effortName(summary.effort, "claudeAgent")}</dd></>}
+            {summary.computerSize && <><dt className="text-ink-tertiary">{t("cloudTask.computer")}</dt><dd className="text-ink">{t(`cloudTask.size.${summary.computerSize}`)}</dd></>}
+          </dl>
+        )}
+        {summary?.trace && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button type="button" onClick={() => { void traceSave.save(); }} disabled={traceSave.saving} aria-label={t("cloudTask.traceAria", { title: summary.title })} className="inline-flex items-center rounded-lg bg-control px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-control-hover disabled:opacity-60">
+              {t("cloudTask.trace")}
+            </button>
+            <span className="text-[12px] leading-5 text-ink-tertiary">{t("cloudTask.traceHint", { date: traceKeptUntil(summary) ?? "" })}{summary.trace.truncated ? ` ${t("cloudTask.traceCut")}` : ""}</span>
+          </div>
+        )}
+        {traceSave.error && <p role="alert" className="mt-2 rounded-lg bg-inset px-3 py-2 text-[12px] text-ink-secondary">{traceSave.error}</p>}
         {actionError && <p role="alert" className="mt-2 rounded-lg bg-inset px-3 py-2 text-[12px] text-ink-secondary">{actionError}</p>}
 
         {changes && changes.files > 0 && (

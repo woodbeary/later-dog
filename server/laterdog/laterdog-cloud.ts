@@ -1,19 +1,23 @@
 import { z } from "zod";
-import { gitRef, repoSlug, type BackendCapabilities, type Profile } from "../../shared/laterdog.ts";
+import { JOB_COMPUTER_SIZES, JOB_EFFORTS, gitRef, jobModel, repoSlug, type BackendCapabilities, type JobEffort, type Profile } from "../../shared/laterdog.ts";
 import { COMPUTER_ID, ComputersApiError, readCapped } from "./cloud-computers.ts";
 import { SubmissionUnknown, type ExecutionAdapter, type JobContext } from "./codex-cloud.ts";
+import { MAX_TRACE_GZIP_BYTES, TRACE_COMMAND, captureTrace, parseTraceReport, type TraceCapture } from "./job-trace.ts";
+import { claudeEffortArg } from "./effort-levels.ts";
+import { clampComputerSize, computerCeiling } from "./job-defaults.ts";
 import { ACTIVITY_SCRIPT, AUTO_SETUP_SCRIPT, SETUP_FAILED_NOTE, WATCH_SCRIPT } from "./cloud-task-files.ts";
 import { MAX_ACTIVITY_PAGE_BYTES, cloudTaskStep, parseCloudTaskSteps, type CloudTaskActivityPage, type CloudTaskStep } from "../../shared/cloud-task.ts";
 
 export const LATERDOG_CLOUD_CAPABILITIES: BackendCapabilities = {
   id: "laterdog-cloud", label: "later.dog Cloud", enabled: true, submission: true, continuation: false, cancellation: true,
   activity: "polled", billing: "subscription",
-  limitation: "Runs Claude Code only, signed in with the owner's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN), on the owner's own later.dog cloud computers on Cloudflare. Each job boots a fresh Linux computer and installs Claude Code and the repository's setup, so its first minutes are setup. Linux only; no Docker inside a computer. Status is polled from files the job writes; a computer that falls asleep (15 minutes without API activity, or 8 hours awake) or errors is reported failed and kept for inspection. Corrections start a new computer. Stopping a running job deletes its computer; its progress log is kept, its files are not. Progress is read from the job's own computer while it runs, and its screen can be watched live; a finished job keeps its progress log but not its computer.",
+  limitation: "Runs Claude Code only, signed in with the owner's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN, or the token a profile names), with the model and effort the job asks for, on the owner's own later.dog cloud computers on Cloudflare. Each job boots a fresh Linux computer and installs Claude Code and the repository's setup, so its first minutes are setup. Linux only; no Docker inside a computer. Status is polled from files the job writes; a computer that falls asleep (15 minutes without API activity, or 8 hours awake) or errors is reported failed and kept for inspection. Corrections start a new computer. Stopping a running job deletes its computer; its progress log and full trace are kept, its files are not. Progress is read from the job's own computer while it runs, and its screen can be watched live; a finished job keeps its progress log and its full trace (30 days by default) but not its computer. Computers default to the small size unless a job asks for more.",
 };
 
-export const COMPUTER_SIZES = ["small", "standard", "large", "xlarge"] as const;
+export const COMPUTER_SIZES = JOB_COMPUTER_SIZES;
 export type ComputerSize = typeof COMPUTER_SIZES[number];
 export const COMPUTER_PREFIX = "laterdog-job-";
+export const DEFAULT_CLAUDE_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
 export const SECRET_ENV_NAMES = ["CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN"] as const;
 export const MAX_PATCH_BYTES = 16 * 1000 * 1000;
 const SHA = /^[0-9a-f]{40}$/;
@@ -50,26 +54,33 @@ export function computersApi(raw: string): string {
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
-export function laterdogCloudSettings(env: NodeJS.ProcessEnv): LaterdogCloudSettings {
+export function laterdogCloudSettings(env: NodeJS.ProcessEnv, tokenEnv: string = DEFAULT_CLAUDE_TOKEN_ENV): LaterdogCloudSettings {
   const api = computersApi(env.LATERDOG_COMPUTERS_URL?.trim() || INTERNAL_COMPUTERS_API);
   const key = env.LATERDOG_COMPUTERS_KEY?.trim();
   if (key && !OWNER_KEY.test(key)) throw new Error("LATERDOG_COMPUTERS_KEY does not hold a later.dog computers key (they start with ldc_)");
-  const claudeToken = env.CLAUDE_CODE_OAUTH_TOKEN?.replace(/\s+/g, "");
-  if (!claudeToken) throw new Error("later.dog Cloud needs CLAUDE_CODE_OAUTH_TOKEN in the supervisor's environment");
-  if (!/^sk-ant-oat\d{2}-[A-Za-z0-9_-]{90,}$/.test(claudeToken)) throw new Error(`CLAUDE_CODE_OAUTH_TOKEN is not a whole Claude token (${claudeToken.length} characters, starts ${claudeToken.startsWith("sk-ant-oat") ? "like" : "unlike"} one); store the full output of claude setup-token again`);
+  const claudeToken = env[tokenEnv]?.replace(/\s+/g, "");
+  if (!claudeToken) throw new Error(`later.dog Cloud needs ${tokenEnv} in the supervisor's environment`);
+  if (!/^sk-ant-oat\d{2}-[A-Za-z0-9_-]{90,}$/.test(claudeToken)) throw new Error(`${tokenEnv} is not a whole Claude token (${claudeToken.length} characters, starts ${claudeToken.startsWith("sk-ant-oat") ? "like" : "unlike"} one); store the full output of claude setup-token again`);
   const githubToken = env.GH_TOKEN?.trim();
   return { api, claudeToken, ...(key ? { key } : {}), ...(githubToken ? { githubToken } : {}) };
 }
 
 export function shellQuote(value: string): string { return `'${value.replace(/'/g, `'\\''`)}'`; }
 
-export interface TaskInput { repository: string; sourceRef: string; baseSha: string; maxRunMinutes: number; setup?: SetupMode }
+export interface TaskInput { repository: string; sourceRef: string; baseSha: string; maxRunMinutes: number; setup?: SetupMode; model?: string; effort?: JobEffort }
+
+export function claudeOptions(input: Pick<TaskInput, "model" | "effort">): string {
+  if (input.model !== undefined && !jobModel.safeParse(input.model).success) throw new Error("Invalid model for a later.dog Cloud job");
+  if (input.effort !== undefined && !(JOB_EFFORTS as readonly string[]).includes(input.effort)) throw new Error("Invalid effort for a later.dog Cloud job");
+  return [...(input.model ? ["--model", shellQuote(input.model)] : []), ...(input.effort ? ["--effort", shellQuote(claudeEffortArg(input.effort))] : [])].join(" ");
+}
 
 export function taskScript(input: TaskInput): string {
   if (!repoSlug.safeParse(input.repository).success) throw new Error("Invalid repository for a later.dog Cloud job");
   if (!gitRef.safeParse(input.sourceRef).success) throw new Error("Invalid source ref for a later.dog Cloud job");
   if (!SHA.test(input.baseSha)) throw new Error("Invalid starting commit for a later.dog Cloud job");
   if (!Number.isInteger(input.maxRunMinutes) || input.maxRunMinutes < 1 || input.maxRunMinutes > 24 * 60) throw new Error("maxRunMinutes must be 1 to 1440");
+  const options = claudeOptions(input);
   return [
     "#!/usr/bin/env bash",
     "set -euo pipefail",
@@ -122,7 +133,7 @@ export function taskScript(input: TaskInput): string {
     "  fi",
     "  unset GH_TOKEN",
     "  stage claude",
-    '  timeout --kill-after=60 "$MAX_RUN_SECONDS" claude -p --dangerously-skip-permissions --output-format stream-json --verbose < "$TASK/prompt.md" | tee "$TASK/out.jsonl" | { node "$TASK/activity.mjs" || cat > /dev/null; }',
+    `  timeout --kill-after=60 "$MAX_RUN_SECONDS" claude -p --dangerously-skip-permissions --output-format stream-json --verbose${options ? ` ${options}` : ""} < "$TASK/prompt.md" | tee "$TASK/out.jsonl" | { node "$TASK/activity.mjs" || cat > /dev/null; }`,
     "  stage done",
     "}",
     'main "$@"',
@@ -277,7 +288,7 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
   private readonly profile: Profile;
   private readonly fetchImpl: typeof fetch;
   private readonly env: NodeJS.ProcessEnv;
-  private readonly size: ComputerSize;
+  private readonly ceiling: ComputerSize;
   private readonly bootTimeoutMs: number;
   private readonly pollMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -286,14 +297,14 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
   private readonly progressById = new Map<string, { stage?: string; lastStep?: CloudTaskStep }>();
   constructor(profile: Profile, options: LaterdogCloudAdapterOptions = {}) {
     this.profile = profile; this.fetchImpl = options.fetch ?? fetch; this.env = options.env ?? process.env;
-    this.size = options.size ?? profile.computerSize ?? "xlarge";
+    this.ceiling = options.size ?? computerCeiling(profile);
     this.bootTimeoutMs = options.bootTimeoutMs ?? 180_000; this.pollMs = options.pollMs ?? 2_000;
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.maxRunMinutes = options.maxRunMinutes ?? 180;
   }
 
   private client(): { computers: LaterdogComputers; settings: LaterdogCloudSettings } {
-    const settings = laterdogCloudSettings(this.env);
+    const settings = laterdogCloudSettings(this.env, this.profile.claudeTokenEnv);
     return { computers: new LaterdogComputers(settings, this.fetchImpl), settings };
   }
 
@@ -303,7 +314,7 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
   }
 
   async doctor(): Promise<{ version: string; authenticated: boolean; cloudCommands: string }> {
-    laterdogCloudSettings(this.env);
+    laterdogCloudSettings(this.env, this.profile.claudeTokenEnv);
     return { version: "laterdog-computers-v1", authenticated: true,
       cloudCommands: "POST /v1/computers, POST /v1/computers/:id/exec, GET and PUT /v1/computers/:id/files, DELETE /v1/computers/:id; Claude Code runs headless in each job's own computer" };
   }
@@ -328,13 +339,14 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
     if (!context?.jobId || !context.baseSha) throw new Error("later.dog Cloud submission needs the job context with its pinned starting commit");
     const mode = setupMode(environmentId);
     const setup = mode === "auto" ? AUTO_SETUP_SCRIPT : mode === "command" ? `set -euo pipefail\n${environmentId.trim()}\n` : "";
-    const script = taskScript({ repository: context.repository, sourceRef, baseSha: context.baseSha, maxRunMinutes: this.maxRunMinutes, setup: mode });
+    const script = taskScript({ repository: context.repository, sourceRef, baseSha: context.baseSha, maxRunMinutes: this.maxRunMinutes, setup: mode, model: context.model, effort: context.effort });
     const { computers, settings } = this.client();
+    const size = clampComputerSize(context.computerSize, this.ceiling).size;
     let computer: Computer;
-    try { computer = await computers.create(`${COMPUTER_PREFIX}${context.jobId}`, this.size, context.jobId); }
+    try { computer = await computers.create(`${COMPUTER_PREFIX}${context.jobId}`, size, context.jobId); }
     catch (error) {
       if (error instanceof ComputersApiError && error.httpStatus !== 0 && error.httpStatus < 500) {
-        throw new Error(`later.dog's computers service refused a ${this.size} computer: ${error.message}${error.code === "invalid_size" || error.code === "invalid_request" ? `; deploy a computers service that offers size ${this.size}, or set computerSize on profile ${this.profile.id}` : ""}`);
+        throw new Error(`later.dog's computers service refused a ${size} computer: ${error.message}${error.code === "invalid_size" || error.code === "invalid_request" ? `; deploy a computers service that offers size ${size}, or set computerSize on profile ${this.profile.id}` : ""}`);
       }
       throw new ComputerSubmissionUnknown(`Creating the computer for job ${context.jobId} had an uncertain outcome (${error instanceof Error ? error.message : "unknown error"}).`);
     }
@@ -444,6 +456,27 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
       return text.slice(text.indexOf("\n") + 1);
     }
     return (await computers.read(id, "task/activity.jsonl", MAX_TRANSCRIPT_BYTES)).toString("utf8");
+  }
+
+  private knownSecrets(settings: LaterdogCloudSettings): string[] {
+    const named = Object.entries(this.env).filter(([name, value]) => /^CLAUDE_CODE_OAUTH_TOKEN(_[A-Z0-9_]+)?$/.test(name) && typeof value === "string").map(([, value]) => value as string);
+    return [settings.claudeToken, settings.githubToken, settings.key, this.env.LATERDOG_COMPUTERS_KEY, this.env.LATERDOG_TOKEN, ...named]
+      .filter((secret): secret is string => typeof secret === "string" && secret.trim().length > 0);
+  }
+
+  async trace(taskId: string, budgetMs = 120_000): Promise<TraceCapture | null> {
+    const id = LaterdogCloudAdapter.id(taskId);
+    const { computers, settings } = this.client();
+    const computer = await computers.get(id);
+    if (!computer || computer.state !== "running") return null;
+    const report = await computers.exec(id, TRACE_COMMAND, budgetMs);
+    if (report.exitCode !== 0) throw new Error(`Packing the trace on computer ${id} exited ${report.exitCode ?? "without a code"}: ${report.stderr.trim().slice(-200)}`);
+    const parsed = parseTraceReport(report.stdout);
+    if (parsed.kind === "none") return null;
+    if (parsed.gzipBytes > MAX_TRACE_GZIP_BYTES) throw new Error(`The packed trace on computer ${id} is ${parsed.gzipBytes} bytes, over the ${MAX_TRACE_GZIP_BYTES}-byte limit`);
+    const gz = await computers.read(id, "task/trace.jsonl.gz", MAX_TRACE_GZIP_BYTES);
+    if (gz.length !== parsed.gzipBytes) throw new Error(`The trace read from computer ${id} was ${gz.length} bytes, not the ${parsed.gzipBytes} it reported`);
+    return captureTrace(gz, parsed.truncated, this.knownSecrets(settings));
   }
 
   async screen(taskId: string): Promise<{ url: string; expiresAt: number | string }> {

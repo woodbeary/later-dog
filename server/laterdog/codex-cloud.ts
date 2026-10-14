@@ -12,7 +12,7 @@ export interface CodexCloudAdapterOptions {
   loginPromptMs?: number;
 }
 export interface LoginStart { started: boolean; instructions: string; startedAt: string }
-export interface JobContext { jobId: string; repository: string; sourceRef?: string; baseSha?: string; createdAt: string }
+export interface JobContext { jobId: string; repository: string; sourceRef?: string; baseSha?: string; createdAt: string; model?: string; effort?: import("../../shared/laterdog.ts").JobEffort; account?: string; computerSize?: import("../../shared/laterdog.ts").JobComputerSize }
 export interface ExecutionAdapter {
   capabilities: BackendCapabilities;
   submit(environmentId: string, sourceRef: string, prompt: string, context?: JobContext): Promise<{ taskId: string; taskUrl: string }>;
@@ -26,6 +26,7 @@ export interface ExecutionAdapter {
   progress?(taskId: string): { stage?: string; lastStep?: import("../../shared/cloud-task.ts").CloudTaskStep } | undefined;
   activity?(taskId: string, after: number): Promise<import("../../shared/cloud-task.ts").CloudTaskActivityPage>;
   transcript?(taskId: string): Promise<string>;
+  trace?(taskId: string, budgetMs?: number): Promise<import("./job-trace.ts").TraceCapture | null>;
   screen?(taskId: string): Promise<{ url: string; expiresAt: number | string }>;
   cancel?(taskId: string): Promise<void>;
 }

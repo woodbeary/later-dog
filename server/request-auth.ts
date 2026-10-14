@@ -308,6 +308,7 @@ const CLI_OWNER_HEADER = "x-laterdog-cli-owner";
 const CLI_OWNER_ROUTE = /^\/api\/auth\/pairing$/;
 
 const DESKTOP_OWNER_HEADER = "x-laterdog-desktop-owner";
+const JOB_TRACE_ROUTE = /^\/api\/laterdog\/jobs\/[\w-]+\/trace$/;
 
 function mutatingPublicRoute(method: string, path: string): boolean {
   const upper = method.toUpperCase();
@@ -316,6 +317,7 @@ function mutatingPublicRoute(method: string, path: string): boolean {
     /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/status$/.test(path)
   ) return true;
   if (path.startsWith("/api/desktop-viewer/")) return true;
+  if (upper === "GET" && JOB_TRACE_ROUTE.test(path)) return true;
   if (["GET", "HEAD", "OPTIONS"].includes(upper)) return false;
   return !path.startsWith("/api/internal/") &&
     path !== "/api/testing/internal-capability" &&

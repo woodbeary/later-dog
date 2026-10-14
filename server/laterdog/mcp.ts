@@ -6,6 +6,7 @@ import { assistanceSchema } from "./bridge-store.ts";
 import { supervisorOrigin } from "./config.ts";
 import { credentialHeaders, mcpCredential, type SupervisorCredential } from "./dog-access.ts";
 import { jobReceipt, startsCloudJob } from "./job-receipt.ts";
+import { dogJobDefaults } from "./job-defaults.ts";
 
 const jobId = z.string().uuid();
 const tools = [
@@ -14,7 +15,7 @@ const tools = [
   { name: "list_provider_tasks", description: "List existing tasks under a selected profile to investigate an uncertain submission before attaching its identity; this never starts or resumes work.", schema: z.object({ profileId: z.string().regex(/^[a-zA-Z0-9_-]+$/) }).strict(), method: "GET", path: (a: Record<string,unknown>) => `/profiles/${a.profileId}/tasks` },
   { name: "record_job_observation", description: "Record a durable agent decision, human intervention, regression, or sourced usage/cost receipt. Reuse requestKey for retries; missing costs remain unknown.", schema: observationSchema, method: "POST", path: () => "/observations" },
   { name: "laterdog_workspace", description: "Inspect cloud jobs, configured repositories, account profiles, native limitations and measured PR outcomes.", schema: z.object({}).strict(), method: "GET", path: () => "/workspace" },
-  { name: "delegate_cloud_job", description: "Delegate a scoped task to the selected profile's cloud backend: later.dog Cloud (Claude Code in its own cloud computer on the owner's Cloudflare; best for running several jobs in parallel), native Codex Cloud, or Claude Code cloud through a routine. laterdog_workspace lists the profiles and which backends are enabled. Leave profileId out to use later.dog Cloud when it is set up. Reuse requestKey on retries. Dependencies and standing instructions are durable; the starting ref is pinned separately from the output branch.", schema: createJobSchema.extend({ profileId: z.string().regex(/^[a-zA-Z0-9_-]+$/).optional() }), method: "POST", path: () => "/jobs" },
+  { name: "delegate_cloud_job", description: "Delegate a scoped task to the selected profile's cloud backend: later.dog Cloud (Claude Code in its own cloud computer on the owner's Cloudflare; best for running several jobs in parallel), native Codex Cloud, or Claude Code cloud through a routine. laterdog_workspace lists the profiles and which backends are enabled. Leave profileId out to use later.dog Cloud when it is set up. Reuse requestKey on retries. Dependencies and standing instructions are durable; the starting ref is pinned separately from the output branch. Optional model, effort (low, medium, high, xhigh, max, ultra) and account choose how Claude Code runs this job; leave them out to run with your own model, effort and account when you are on Claude. computerSize (small, standard, large, xlarge) defaults to small; ask for more only when the work needs it.", schema: createJobSchema.extend({ profileId: z.string().regex(/^[a-zA-Z0-9_-]+$/).optional() }), method: "POST", path: () => "/jobs" },
   { name: "inspect_cloud_job", description: "Read a job and its event receipts without resuming or duplicating the provider task.", schema: z.object({ jobId }).strict(), method: "GET", path: (a: Record<string,unknown>) => `/jobs/${a.jobId}` },
   { name: "collect_cloud_diff", description: "Read a previously collected provider diff. It is not a verification verdict.", schema: z.object({ jobId }).strict(), method: "GET", path: (a: Record<string,unknown>) => `/jobs/${a.jobId}/patch` },
   ...["publish", "verify", "merge", "cancel"].map((action) => ({
@@ -35,7 +36,7 @@ export const MCP_TOOLS = tools.map((tool) => ({ name: tool.name, description: to
 export async function callTool(name: string, args: unknown, origin = supervisorOrigin(), credential: string | SupervisorCredential = mcpCredential()): Promise<unknown> {
   const tool = tools.find((candidate) => candidate.name === name); if (!tool) throw new Error("Unknown later.dog tool");
   const contextual = name === "delegate_cloud_job" && args && typeof args === "object"
-    ? { ...args, ...(process.env.LATERDOG_BOT_ID ? { botId: process.env.LATERDOG_BOT_ID } : {}), ...(process.env.LATERDOG_CONVERSATION_ID ? { conversationId: process.env.LATERDOG_CONVERSATION_ID } : {}) }
+    ? { ...dogJobDefaults(process.env), ...args, ...(process.env.LATERDOG_BOT_ID ? { botId: process.env.LATERDOG_BOT_ID } : {}), ...(process.env.LATERDOG_CONVERSATION_ID ? { conversationId: process.env.LATERDOG_CONVERSATION_ID } : {}) }
     : args;
   const input = tool.schema.parse(contextual) as Record<string,unknown>; const { jobId: _id, ...body } = input;
   const action = "action" in tool ? tool.action : undefined;

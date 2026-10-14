@@ -1,4 +1,4 @@
-import type { BackendId, Job, JobState } from "./laterdog.ts";
+import type { BackendId, Job, JobComputerSize, JobEffort, JobState } from "./laterdog.ts";
 
 export interface CloudTaskRef { jobId: string; title: string; repository?: string; backend?: string }
 
@@ -37,6 +37,11 @@ export interface CloudTaskSummary {
   screen: boolean;
   stoppable: boolean;
   publishable: boolean;
+  model?: string;
+  effort?: JobEffort;
+  account?: string;
+  computerSize?: JobComputerSize;
+  trace?: { bytes: number; expiresAt: string; truncated: boolean };
 }
 
 export interface CloudTaskActivityPage { steps: CloudTaskStep[]; cursor: number; live: boolean; available: boolean; reason?: string }
@@ -162,7 +167,7 @@ export function patchFiles(patch: string): CloudTaskFileChange[] {
   return files;
 }
 
-export function cloudTaskSummary(job: Job): CloudTaskSummary {
+export function cloudTaskSummary(job: Job, accountLabel?: string, now = Date.now()): CloudTaskSummary {
   const running = job.state === "running" && Boolean(job.taskId);
   return {
     id: job.id, title: job.title, state: job.state, backend: job.backend, repository: job.repository, kind: job.kind,
@@ -178,6 +183,11 @@ export function cloudTaskSummary(job: Job): CloudTaskSummary {
     ...(job.lastStep ? { lastStep: job.lastStep } : {}),
     ...(job.botId ? { botId: job.botId } : {}),
     ...(job.conversationId ? { conversationId: job.conversationId } : {}),
+    ...(job.model ? { model: job.model } : {}),
+    ...(job.effort ? { effort: job.effort } : {}),
+    ...(accountLabel ? { account: accountLabel } : {}),
+    ...(job.computerSize ? { computerSize: job.computerSize } : {}),
+    ...(job.trace && Date.parse(job.trace.expiresAt) > now ? { trace: { bytes: job.trace.bytes, expiresAt: job.trace.expiresAt, truncated: job.trace.truncated } } : {}),
     screen: running && job.backend === "laterdog-cloud",
     stoppable: ["queued", "preparing"].includes(job.state) || (running && job.backend === "laterdog-cloud" && !job.cancelRequested),
     publishable: job.kind !== "review" && !job.prUrl && !job.cancelRequested && ["ready", "needs_attention"].includes(job.state) && Boolean(job.patchArtifact) && (job.changes ? job.changes.files > 0 : true),

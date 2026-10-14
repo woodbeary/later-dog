@@ -1,6 +1,7 @@
 import { Container, ContainerProxy, getContainer } from "@cloudflare/containers";
 import { DOG_BOT_ID, DOG_HEADER, dogToken } from "./dog-token";
 import { WAKEUP_BOTS_HEADER, mayHaveWakeups } from "./wakeup-hint";
+import { TRACE_PREFIX, handleTrace, sweepIfDue } from "./traces";
 
 export { ContainerProxy };
 
@@ -19,6 +20,7 @@ const COMPUTERS_HOST = "computers.internal";
 const STATE_PREFIX = "latest/";
 const STATE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
 const SUPERVISOR_PORT = 9010;
+const CLAUDE_ACCOUNT_TOKEN = /^CLAUDE_CODE_OAUTH_TOKEN_[A-Z0-9_]+$/;
 
 export class SupervisorHost extends Container<Env> {
   defaultPort = SUPERVISOR_PORT;
@@ -35,6 +37,10 @@ export class SupervisorHost extends Container<Env> {
     if (env.GH_TOKEN) envVars.GH_TOKEN = env.GH_TOKEN;
     if (env.CLAUDE_CODE_OAUTH_TOKEN) envVars.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN;
     if (env.LATERDOG_WORKSPACE_URL) envVars.LATERDOG_WORKSPACE_URL = env.LATERDOG_WORKSPACE_URL;
+    if (env.TRACE_RETENTION_DAYS) envVars.LATERDOG_TRACE_RETENTION_DAYS = env.TRACE_RETENTION_DAYS;
+    for (const [name, value] of Object.entries(env as unknown as Record<string, unknown>)) {
+      if (CLAUDE_ACCOUNT_TOKEN.test(name) && typeof value === "string") envVars[name] = value;
+    }
     this.envVars = envVars;
   }
 
@@ -91,8 +97,22 @@ async function computersHandler(request: Request, env: Env): Promise<Response> {
   }
 }
 
+async function traceHandler(request: Request, env: Env, key: string): Promise<Response> {
+  try {
+    if (!env?.STATE) throw new Error("R2 binding STATE is not available to the outbound handler");
+    const response = await handleTrace(request, env.STATE as unknown as Parameters<typeof handleTrace>[1], key, { configuredDays: env.TRACE_RETENTION_DAYS });
+    if (request.method === "PUT") console.log(`laterdog traces: ${key} answered ${response.status}`);
+    return response;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`laterdog traces: ${request.method} ${key} failed: ${message}`);
+    return new Response(`Trace store error: ${message}`, { status: 500 });
+  }
+}
+
 async function stateHandler(request: Request, env: Env): Promise<Response> {
   const name = new URL(request.url).pathname.replace(/^\/+/, "");
+  if (name.startsWith(TRACE_PREFIX)) return traceHandler(request, env, name);
   if (!STATE_KEY.test(name)) return new Response("Invalid state key", { status: 400 });
   const key = `${STATE_PREFIX}${name}`;
   try {
@@ -204,5 +224,8 @@ export default {
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(watchdog(env));
+    ctx.waitUntil(sweepIfDue(env.STATE as unknown as Parameters<typeof sweepIfDue>[0], Date.now())
+      .then((removed) => { if (removed) console.log(`laterdog traces: removed ${removed} expired`); })
+      .catch((error: unknown) => console.error(`laterdog traces: sweep failed: ${String(error)}`)));
   },
 } satisfies ExportedHandler<Env>;

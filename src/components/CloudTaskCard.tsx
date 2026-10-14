@@ -4,8 +4,8 @@ import { Check, ChevronRight, CircleStop, Cloud, Hand, Info } from "lucide-react
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import {
-  cloudTaskStatus, cloudTaskStatusClass, cloudTaskWorking, cloudWakeupOf, elapsedLabel, plainSteps, projectName, stopCloudTask,
-  useCloudTask, useCloudTaskActivity, wakeupLine, type CloudTaskStatusView,
+  cloudTaskStatus, cloudTaskStatusClass, cloudTaskWorking, cloudWakeupOf, elapsedLabel, plainSteps, projectName, runsWithLabel, stopCloudTask,
+  useCloudTask, useCloudTaskActivity, useTraceSave, wakeupLine, type CloudTaskStatusView,
 } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
 import { useStore, type Message } from "@/state/store";
@@ -91,6 +91,8 @@ function CloudTaskSteps({ jobId, title, summary, view, panelLink }: {
   const empty = activity.loading ? t("cloudTask.loadingSteps")
     : activity.reason ?? activity.error ?? (view.live ? t("cloudTask.noStepsYet") : t("cloudTask.noSteps"));
   const stoppable = Boolean(summary?.stoppable);
+  const trace = summary?.trace;
+  const traceSave = useTraceSave(jobId);
 
   return (
     <div className="border-t border-hairline/30 px-3.5 pb-3 pt-2.5" data-cloud-task-steps>
@@ -119,7 +121,7 @@ function CloudTaskSteps({ jobId, title, summary, view, panelLink }: {
           </li>
         ))}
       </ol>
-      {(panelLink || stoppable || stopFailed) && (
+      {(panelLink || stoppable || stopFailed || trace || traceSave.error) && (
         <div className="mt-2 flex min-h-7 items-center gap-1">
           {panelLink && (
             <button
@@ -142,7 +144,19 @@ function CloudTaskSteps({ jobId, title, summary, view, panelLink }: {
               {stopping ? t("cloudTask.stopping") : t("cloudTask.stop")}
             </button>
           )}
+          {trace && (
+            <button
+              type="button"
+              onClick={() => { void traceSave.save(); }}
+              disabled={traceSave.saving}
+              aria-label={t("cloudTask.traceAria", { title })}
+              className="rounded-md px-2 py-1 text-[12.5px] font-medium text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-60"
+            >
+              {t("cloudTask.trace")}
+            </button>
+          )}
           {stopFailed && <span role="alert" className="text-[12px] text-ink-secondary">{t("cloudTask.err.stop")}</span>}
+          {traceSave.error && <span role="alert" className="text-[12px] text-ink-secondary">{traceSave.error}</span>}
         </div>
       )}
     </div>
@@ -162,6 +176,7 @@ export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message:
   const project = projectName(summary?.repository ?? ref.repository);
   const elapsed = view.phase === "working" ? elapsedLabel(summary, now) : null;
   const line = [view.note, elapsed].filter(Boolean).join(" · ");
+  const runsWith = runsWithLabel(summary);
   const openTask = () => dispatch({ type: "openCloudTask", jobId: ref.jobId });
   const prUrl = view.phase === "review" ? summary?.prUrl : undefined;
   const primary = view.phase === "review"
@@ -212,7 +227,13 @@ export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message:
             <ChevronRight size={13} aria-hidden="true" className={cn("shrink-0 transition-transform", open && "rotate-90")} />
             {t("cloudTask.steps")}
           </button>
-          {project && <span className="ml-auto min-w-0 truncate text-[12px] text-ink-tertiary">{project}</span>}
+          {(runsWith || project) && (
+            <span className="ml-auto flex min-w-0 items-center gap-1.5 text-[12px] text-ink-tertiary">
+              {runsWith && <span data-cloud-task-runs-with className="shrink-0" title={t("cloudTask.runsWith")}>{runsWith}</span>}
+              {runsWith && project && <span aria-hidden="true">·</span>}
+              {project && <span className="min-w-0 truncate">{project}</span>}
+            </span>
+          )}
         </div>
         {open && <CloudTaskSteps jobId={ref.jobId} title={title} summary={summary} view={view} panelLink={prUrl ? openTask : undefined} />}
       </section>

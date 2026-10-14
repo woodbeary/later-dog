@@ -52,7 +52,7 @@ Work stops at a gate before the next one starts.
 | L9 Motion and tokens | `laterdog/motion` | #43 | done, on the staging branch |
 | L10 Typing suggestions | `laterdog/tab` | #52 (on the staging branch) | done: local suggestions on by default; Smarter suggestions (Cloudflare) off by default; the Worker route `/v1/complete` waits for a deploy from a branch with `laterdog/home`'s computers Worker |
 | L11 later.dog Dev | `laterdog/dev-app` | #46 (on the staging branch) | done: Dev shares nothing with the release (data, ports, scheme, companion, container, keychain, updates); two data-safety reviews passed; the person picks an icon (`/Volumes/laterdog-phone/tmp/l11-sheet/index.html`); the first push to `dev` runs its build |
-| L12 Factory and computer tools | | | waiting for a slot |
+| L12 Factory and computer tools | `laterdog/factory` (L12b) | draft, into `laterdog/cloud-desktop` | L12b done: traces kept in R2, per-job model, account and effort, small default computer, cost and approvals notes (`cloud-jobs.md`, `factory-approvals.md`); computer tools waiting for a slot; one real job still to run |
 | L13 Stability sweep | `laterdog/stability` | #53 (on the staging branch) | done: 34-row checklist in `docs/verification/stability-sweep.md`; 21 pass, 9 fixed with tests, 3 with the smallest fix written down, 1 different by design |
 | L14 Launch and hiring copy | | | waiting for a slot |
 
