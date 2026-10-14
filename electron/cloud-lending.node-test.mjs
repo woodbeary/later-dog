@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import { isDeepStrictEqual } from "node:util";
 import { cloudLendingVerdict, computerName, createComputerSharing } from "./computer-sharing.mjs";
 import { createLendingIndicator } from "./lending-indicator.mjs";
 
@@ -300,7 +301,7 @@ test("turning it off is instant and remembered; turning it on again reconnects w
   server.push({ action: "computer_call", tool_name: "click", arguments: {} });
   await delay(300);
   assert.equal((await readFile(driver.calls, "utf8")).trim(), "drag");
-  assert.deepEqual(summaries.at(-1), { lending: [], busy: null });
+  await until(() => isDeepStrictEqual(summaries.at(-1), { lending: [], busy: null }), "the indicator to show the Mac is no longer lent");
   assert.equal((await saved()).homeOff, true);
   setCloud(signedOut);
   sharing.cloudChanged();
