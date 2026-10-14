@@ -268,7 +268,7 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { confirmRememberedCommand, recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing } from "./message-db.ts";
+import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { chiefForBot, INCIDENTS_THREAD_TITLE, IncidentLedger, incidentChip, incidentText, type Incident, type IncidentKind } from "./incidents.ts";
@@ -677,6 +677,10 @@ import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
+import { isStorageFailure, plainFailure, tooBigMessage } from "./laterdog/plain-error.ts";
+import { retryUntilDone } from "./laterdog/retry-until.ts";
+import { guardTurnEnd } from "./laterdog/turn-end-guard.ts";
+import { expireStaleApprovals } from "./laterdog/stale-approvals.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
@@ -6318,7 +6322,36 @@ async function localVmInventoryPayload() {
   return { instances, maxInstances: localVmMaxInstances(cfg), available: true, problem: null };
 }
 
-bus.subscribe((event: RuntimeEvent) => {
+function recoverUnsettledTurn(event: RuntimeEvent, error: unknown): void {
+  if (event.type !== "turn.completed" || !isStorageFailure(error)) return;
+  const bot = store.botByThread(event.threadId);
+  if (!bot) return;
+  const threadId = event.threadId;
+  const generation = directTurnGenerationByThread.get(threadId);
+  retryUntilDone(() => {
+    if (directTurnGenerationByThread.get(threadId) !== generation) return;
+    if (!directTurnBots.has(threadId) && store.taskByThread(bot.id, threadId)?.activity !== "working") return;
+    const owner = turnResourceOwners.get(threadId);
+    if (owner) {
+      vpsThreadEnded(bot.id, threadId);
+      releaseLocalVmThread(threadId);
+    }
+    releaseTurnResources(owner);
+    store.setTaskActivity(bot.id, threadId, "idle");
+    directTurnBots.delete(threadId);
+    retryDelegationsWaitingOn(bot.id);
+    drainQueuedSends();
+    drainConnectorResumes();
+    drainComputerResumes();
+    drainSecretResumes();
+    drainTakeoverResumes();
+    drainTeamSetupResumes();
+    drainDelegationWakes();
+    settleTrackedRequest(threadId);
+  }, { everyMs: 3_000, forMs: 10 * 60_000, onGiveUp: (giveUp) => console.error(`turn end: ${threadId} is still marked working after a failed save`, giveUp) });
+}
+
+bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   const localVmTarget = localVmThreadTargets.get(event.threadId);
   if (localVmTarget) {
@@ -6901,7 +6934,7 @@ bus.subscribe((event: RuntimeEvent) => {
       break;
     }
   }
-});
+}, recoverUnsettledTurn));
 
 const delegationWatch = new Map<string, {
   channelId?: string;
@@ -16745,7 +16778,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (declaredLength !== undefined && declaredLength > IMAGE_MAX_BYTES) {
         req.resume();
-        return json(res, 413, { error: `image exceeds ${IMAGE_MAX_BYTES} bytes` });
+        return json(res, 413, { error: tooBigMessage("image", IMAGE_MAX_BYTES) });
       }
       const saved = await new Promise<SavedAttachment>((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -16802,7 +16835,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (declaredLength !== undefined && declaredLength > FILE_MAX_BYTES) {
         req.resume();
-        return json(res, 413, { error: `file exceeds ${FILE_MAX_BYTES} bytes` });
+        return json(res, 413, { error: tooBigMessage("file", FILE_MAX_BYTES) });
       }
       try {
         const chunks = req.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>;
@@ -21750,11 +21783,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     return json(res, 404, { error: `no route: ${method} ${path}` });
   } catch (e) {
-    const status = (e as any)?.status ?? 500;
+    const failure = plainFailure(e);
+    if (failure.internal) console.error(`${method} ${path} failed`, e);
     const candidateCode = (e as { code?: unknown })?.code;
     const code = typeof candidateCode === "string" && ["guarded_busy", "guarded_branch", "guarded_permissions", "guarded_request_changed", "guarded_request_untracked", "outside_workspace"].includes(candidateCode)
       ? candidateCode : undefined;
-    return json(res, status, { error: e instanceof Error ? e.message : String(e), ...(code ? { code } : {}) });
+    return json(res, failure.status, { error: failure.message, ...(code ? { code } : {}) });
   } finally {
     releaseWorkspaceRequest?.();
   }
@@ -21854,6 +21888,16 @@ for (const row of chatFollowups()) {
 restoreSteeredMessages();
 restoreAsideMessages(store);
 restoreChannelMessages();
+
+try {
+  expireStaleApprovals({
+    cards: openPermissionCards,
+    owns: (threadId) => Boolean(store.botByThread(threadId) || store.groupByThread(threadId)),
+    patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
+  });
+} catch (error) {
+  console.warn(`approval cards left open by the last run could not be closed: ${error instanceof Error ? error.message : String(error)}`);
+}
 
 {
   let movedAutoPins = 0;

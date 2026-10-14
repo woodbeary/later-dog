@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { rollbackQuietly } from "./safe-rollback.ts";
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -25,7 +26,7 @@ export class WorkspaceStore {
   transaction<T>(fn: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
     try { const result = fn(); this.db.exec("COMMIT"); return result; }
-    catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    catch (error) { rollbackQuietly(this.db); throw error; }
   }
   jobs(): Job[] {
     return (this.db.prepare("SELECT document FROM jobs ORDER BY rowid DESC").all() as { document: string }[]).map((row) => JSON.parse(row.document) as Job);

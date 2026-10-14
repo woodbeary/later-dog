@@ -47,6 +47,8 @@ import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
+import { plainClientError, statusFallback } from "@/lib/plain-client-error";
+import { SEND_ATTEMPT_TIMEOUT_MS, UncertainSends, isUncertainSendFailure, sendWithRetry } from "@/lib/send-retry";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
 import { receiveReasoningEvent, forgetReasoning } from "@/lib/turn-reasoning";
 
@@ -2202,6 +2204,8 @@ export function duplicateProfileFor(source: Bot) {
 
 export const MESSAGE_PAGE_SIZE = 200;
 
+const uncertainSends = new UncertainSends();
+
 export async function api<T = any>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const { timeoutMs, signal, ...rest } = init ?? {};
   const res = await fetch(path, {
@@ -2214,7 +2218,7 @@ export async function api<T = any>(path: string, init?: RequestInit & { timeoutM
         : AbortSignal.timeout(timeoutMs),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status, body);
+  if (!res.ok) throw new ApiError(body.error ?? statusFallback(res.status), res.status, body);
   return body;
 }
 
@@ -2429,7 +2433,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const olderPagesInFlight = new Set<string>();
     let creatingBot = false;
     const showError = (e: unknown) => {
-      rawDispatch({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      rawDispatch({ type: "error", message: plainClientError(e) });
       setTimeout(() => rawDispatch({ type: "error", message: null }), 6000);
     };
     const cardTarget = (action: { botId: string; messageId: string; groupId?: string }) => {
@@ -2525,7 +2529,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (action.type === "taskSwitched") action = { ...action, bot: withTaskWrites(action.bot) as Bot };
       if (action.type === "botPatched") action = { ...action, bot: withTaskWrites(action.bot) };
       if ((action.type === "send" || action.type === "sendGroup" || action.type === "editMessage") && !action.sendId) {
-        action = { ...action, sendId: crypto.randomUUID() };
+        const { bots, groups } = stateRef.current;
+        let heldSendId: string | undefined;
+        if (action.type === "send") {
+          const { botId, threadId, text, replyToId } = action;
+          heldSendId = uncertainSends.recall(botId, threadId ?? bots.find((bot) => bot.id === botId)?.threadId, text, replyToId);
+        } else if (action.type === "sendGroup") {
+          const { groupId, threadId, text, replyToId, mode } = action;
+          heldSendId = uncertainSends.recall(groupId, threadId ?? groups.find((group) => group.id === groupId)?.threadId, text, `${replyToId ?? ""}|${mode ?? "chat"}`);
+        }
+        action = { ...action, sendId: heldSendId ?? crypto.randomUUID() };
       }
       const botBeforeUpdate =
         action.type === "updateBot" || action.type === "setModel"
@@ -2702,11 +2715,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
           const sendId = action.sendId ?? crypto.randomUUID();
           void waitForExecutionSettings(botBeforeSend ? [botBeforeSend] : [], threadId)
-            .then(() => api(`/api/bots/${action.botId}/messages`, {
+            .then(() => sendWithRetry(() => api(`/api/bots/${action.botId}/messages`, {
                 method: "POST",
                 body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId, deliver: action.deliver }),
-              }))
+                timeoutMs: SEND_ATTEMPT_TIMEOUT_MS,
+              })))
             .then((body) => {
+              uncertainSends.forget(action.botId, threadId, action.text, action.replyToId);
               if (body?.message && typeof body.threadId === "string") {
                 rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
               }
@@ -2730,6 +2745,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
             })
             .catch((error) => {
+              if (isUncertainSendFailure(error)) uncertainSends.remember(action.botId, threadId, action.text, sendId, action.replyToId);
               if (threadId) {
                 rawDispatch({ type: "optimisticMessageRemoved", threadId, sendId });
               }
@@ -2950,7 +2966,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             action.threadId ?? stateRef.current.groups.find((group) => group.id === action.groupId)?.threadId;
           const sendId = action.sendId ?? crypto.randomUUID();
           void waitForExecutionSettings(executionBotsBeforeAction)
-            .then(() => api(`/api/groups/${action.groupId}/messages`, {
+            .then(() => sendWithRetry(() => api(`/api/groups/${action.groupId}/messages`, {
               method: "POST",
               body: JSON.stringify({
                 text: action.text,
@@ -2959,8 +2975,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 sendId,
                 mode: action.mode ?? "chat",
               }),
-            }))
+              timeoutMs: SEND_ATTEMPT_TIMEOUT_MS,
+            })))
             .then((body) => {
+              uncertainSends.forget(action.groupId, threadId, action.text, `${action.replyToId ?? ""}|${action.mode ?? "chat"}`);
               if (body?.message && typeof body.threadId === "string") {
                 rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
               }
@@ -2983,6 +3001,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
             })
             .catch((error) => {
+              if (isUncertainSendFailure(error)) uncertainSends.remember(action.groupId, threadId, action.text, sendId, `${action.replyToId ?? ""}|${action.mode ?? "chat"}`);
               if (threadId) {
                 rawDispatch({ type: "optimisticMessageRemoved", threadId, sendId });
               }
