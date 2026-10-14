@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, useStore, type ConfigStatus } from "@/state/store";
-import { typingSuggestionsEnabled } from "@/lib/feature-flags";
+import { smarterSuggestionsEnabled, typingSuggestionsEnabled } from "@/lib/feature-flags";
 import { forgetPhrases } from "@/lib/typing-suggestions";
 import { t } from "@/lib/i18n";
 import { SettingRow, Switch } from "./SettingsPrimitives";
@@ -21,19 +21,24 @@ function useMounted() {
   return mounted;
 }
 
-function SwitchRow() {
-  const { state, dispatch } = useStore();
+function FeatureRow({ feature, on, title, hint, extra, children }: {
+  feature: "typingSuggestions" | "smarterSuggestions";
+  on: boolean;
+  title: string;
+  hint: string;
+  extra?: ReactNode;
+  children?: ReactNode;
+}) {
+  const { dispatch } = useStore();
   const mounted = useMounted();
-  const on = typingSuggestionsEnabled(state.config);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [forgotten, setForgotten] = useState(false);
   const toggle = async () => {
     if (saving) return;
     setSaving(true);
     setFailed(false);
     try {
-      const config: ConfigStatus = await api("/api/config", { method: "PATCH", body: JSON.stringify({ features: { typingSuggestions: !on } }) });
+      const config: ConfigStatus = await api("/api/config", { method: "PATCH", body: JSON.stringify({ features: { [feature]: !on } }) });
       dispatch({ type: "configStatus", config });
     } catch {
       if (mounted.current) setFailed(true);
@@ -41,33 +46,51 @@ function SwitchRow() {
       if (mounted.current) setSaving(false);
     }
   };
-  const typing = state.config?.typing;
-  const hasService = Boolean(typing?.included || typing?.cloudflare.configured);
   return (
     <SettingRow
-      title={t("settings.typing.switchTitle")}
-      subtitle={
-        <>
-          <span>{t("settings.typing.hint")}</span>
-          {typing && !hasService && <span className="mt-1 block">{t("settings.typing.noService")}</span>}
-          <button
-            type="button"
-            data-typing-forget
-            disabled={forgotten}
-            onClick={() => {
-              forgetPhrases();
-              setForgotten(true);
-            }}
-            className="mt-1.5 block text-[12px] font-medium text-accent hover:underline disabled:text-ink-tertiary disabled:no-underline"
-          >
-            {forgotten ? t("settings.typing.forgotten") : t("settings.typing.forget")}
-          </button>
-        </>
-      }
+      title={title}
+      subtitle={<><span>{hint}</span>{extra}{children}</>}
       message={failed && <span role="alert" className="text-danger">{t("settings.typing.error")}</span>}
     >
-      <Switch checked={on} disabled={saving} aria-label={t("settings.typing.switchTitle")} onClick={() => void toggle()} />
+      <Switch checked={on} disabled={saving} aria-label={title} data-typing-feature={feature} onClick={() => void toggle()} />
     </SettingRow>
+  );
+}
+
+function SwitchRow() {
+  const { state } = useStore();
+  const [forgotten, setForgotten] = useState(false);
+  return (
+    <FeatureRow feature="typingSuggestions" on={typingSuggestionsEnabled(state.config)} title={t("settings.typing.switchTitle")} hint={t("settings.typing.hint")}>
+      <button
+        type="button"
+        data-typing-forget
+        disabled={forgotten}
+        onClick={() => {
+          forgetPhrases();
+          setForgotten(true);
+        }}
+        className="mt-1.5 block text-[12px] font-medium text-accent hover:underline disabled:text-ink-tertiary disabled:no-underline"
+      >
+        {forgotten ? t("settings.typing.forgotten") : t("settings.typing.forget")}
+      </button>
+    </FeatureRow>
+  );
+}
+
+function SmarterRow() {
+  const { state } = useStore();
+  const typing = state.config?.typing;
+  const smarter = smarterSuggestionsEnabled(state.config);
+  const hasService = Boolean(typing?.included || typing?.cloudflare.configured);
+  return (
+    <FeatureRow
+      feature="smarterSuggestions"
+      on={smarter}
+      title={t("settings.typing.smarter.title")}
+      hint={t("settings.typing.smarter.hint")}
+      extra={smarter && typing && !hasService ? <span className="mt-1 block">{t("settings.typing.noService")}</span> : undefined}
+    />
   );
 }
 
@@ -218,6 +241,7 @@ export function TypingSuggestionsRows() {
   return (
     <>
       <SwitchRow />
+      <SmarterRow />
       <CloudflareRow />
     </>
   );

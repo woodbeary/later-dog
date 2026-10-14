@@ -1,5 +1,5 @@
 import type { AppConfig } from "../config.ts";
-import { typingSuggestionsEnabled } from "../config.ts";
+import { smarterSuggestionsEnabled, typingSuggestionsEnabled } from "../config.ts";
 import { trialAi } from "./included-trial.ts";
 import { finishCompletion, looksSecret, typingModelInput, type TypingRequest } from "./typing-context.ts";
 
@@ -15,7 +15,7 @@ const ACCOUNT_ID = /^[0-9a-f]{32}$/i;
 
 export type TypingSource = "cloud" | "cloudflare";
 
-export type TypingFailure = "off" | "no-service" | "sensitive" | "busy" | "unavailable" | "refused" | "timeout" | "failed";
+export type TypingFailure = "off" | "not-allowed" | "no-service" | "sensitive" | "busy" | "unavailable" | "refused" | "timeout" | "failed";
 
 export type TypingResult =
   | { ok: true; completion: string; source: TypingSource; ms: number; cached?: true }
@@ -63,6 +63,7 @@ export function describeTyping(cfg: AppConfig, included: IncludedCompletion | nu
   const own = ownCloudflare(cfg);
   return {
     enabled: typingSuggestionsEnabled(cfg),
+    smarter: smarterSuggestionsEnabled(cfg),
     included: included !== null,
     cloudflare: { configured: own !== null, accountId: cfg.typing?.accountId?.trim() ?? "", model: cfg.typing?.model?.trim() || TYPING_DEFAULT_MODEL },
     ranking,
@@ -149,6 +150,7 @@ export function createTypingService(deps: TypingDeps): TypingService {
     async complete(request, signal) {
       const cfg = deps.config();
       if (!typingSuggestionsEnabled(cfg)) return { ok: false, reason: "off" };
+      if (!smarterSuggestionsEnabled(cfg)) return { ok: false, reason: "not-allowed" };
       const backend = pickBackend(cfg, includedNow());
       if (!backend) return { ok: false, reason: "no-service" };
       if (looksSecret(request.prefix)) return { ok: false, reason: "sensitive" };

@@ -74,9 +74,23 @@ describe.skipIf(process.platform === "win32")("typing suggestions in the real se
     rmSync(home, { recursive: true, force: true });
   });
 
+  it("starts with the model path off, so nothing typed leaves the computer", async () => {
+    const config = (await api("GET", "/api/config")).body;
+    expect(config.typing.smarter).toBe(false);
+    expect(config.features.smarterSuggestions).toBe(false);
+    expect(config.features.typingSuggestions).toBe(true);
+    const answer = await api("POST", "/api/typing/complete", { prefix: "Please fix", dog: "Rex" });
+    expect(answer.body).toEqual({ completion: "", reason: "not-allowed" });
+    expect(asked).toHaveLength(0);
+  });
+
+  it("turns the model path on only when the person flips the switch", async () => {
+    expect((await api("PATCH", "/api/config", { features: { smarterSuggestions: true } })).body.typing.smarter).toBe(true);
+  });
+
   it("says in Settings what is set up, without a token", async () => {
     const config = (await api("GET", "/api/config")).body;
-    expect(config.typing).toEqual({ enabled: true, included: true, cloudflare: { configured: false, accountId: "", model: "@cf/meta/llama-3.2-3b-instruct" }, ranking: false });
+    expect(config.typing).toEqual({ enabled: true, smarter: true, included: true, cloudflare: { configured: false, accountId: "", model: "@cf/meta/llama-3.2-3b-instruct" }, ranking: false });
     expect(config.features.typingSuggestions).toBe(true);
   });
 
@@ -116,6 +130,14 @@ describe.skipIf(process.platform === "win32")("typing suggestions in the real se
 
   it("refuses a bad Cloudflare account id", async () => {
     expect((await api("PATCH", "/api/config", { typing: { accountId: "nope" } })).status).toBe(400);
+  });
+
+  it("stops the model path completely when the person turns smarter suggestions off again", async () => {
+    const before = asked.length;
+    expect((await api("PATCH", "/api/config", { features: { smarterSuggestions: false } })).body.typing.smarter).toBe(false);
+    expect((await api("POST", "/api/typing/complete", { prefix: "Please fix" })).body).toEqual({ completion: "", reason: "not-allowed" });
+    expect(asked).toHaveLength(before);
+    await api("PATCH", "/api/config", { features: { smarterSuggestions: true } });
   });
 
   it("stops completely when the person turns it off", async () => {

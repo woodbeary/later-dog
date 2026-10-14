@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type KeyboardEvent } from "react";
 import { isOpenSecureForm, type SecureFormCardData } from "../../shared/secure-form";
-import { typingSuggestionsEnabled, type FeatureFlagConfig } from "./feature-flags";
+import { smarterSuggestionsEnabled, typingSuggestionsEnabled, type FeatureFlagConfig } from "./feature-flags";
 import {
   buildTypingContext,
   learnSent,
@@ -13,6 +13,7 @@ import { useTypingSuggestion, type SuggestionSource } from "./use-typing-suggest
 
 export interface TypingStatus {
   enabled: boolean;
+  smarter?: boolean;
   included: boolean;
   cloudflare: { configured: boolean };
   ranking: boolean;
@@ -56,6 +57,7 @@ export function useComposerSuggestion(options: ComposerSuggestionOptions): Compo
   const phrases = () => (book.current ??= loadPhrases());
   const enabled = typingSuggestionsEnabled(config);
   const typing = config?.typing;
+  const smarter = smarterSuggestionsEnabled(config);
   const secureFormOpen = options.lines.slice(-RECENT_FOR_SECURE_FORMS).some((line) => line.secureForm !== undefined && isOpenSecureForm(line.secureForm.status));
   const blocked = suggestionsBlocked({
     recording: options.recording,
@@ -72,8 +74,8 @@ export function useComposerSuggestion(options: ComposerSuggestionOptions): Compo
     blocked,
     text,
     caretAtEnd: caret === text.length,
-    modelReady: Boolean(typing?.included || typing?.cloudflare.configured),
-    rankingReady: Boolean(typing?.ranking),
+    modelReady: smarter && Boolean(typing?.included || typing?.cloudflare.configured),
+    rankingReady: smarter && Boolean(typing?.ranking),
     pool: () => ({ phrases: phrases(), dogNames: options.dogNames, commands: options.commands }),
     context: () => buildTypingContext(options.lines, options.dog, phrases()),
   });

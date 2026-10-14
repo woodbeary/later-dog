@@ -101,11 +101,11 @@ describe("the Settings rail", () => {
 });
 
 describe("General", () => {
-  it("stacks Accounts, Profile, Appearance, System and Help, in that order", () => {
+  it("stacks Accounts, Profile, Appearance, Typing suggestions, System and Help, in that order", () => {
     const html = render();
-    expect(groups(html)).toEqual(["accounts", "profile", "appearance", "system", "help"]);
+    expect(groups(html)).toEqual(["accounts", "profile", "appearance", "typing-suggestions", "system", "help"]);
     expect(markers(html)).toEqual(["accounts", "about-me", "permissions=microphone"]);
-    const order = ["Accounts", "Profile", "Your name", "Appearance", "Theme", "Language", "Notification sounds", "System", "Help"].map((word) => html.indexOf(`>${word}</div>`));
+    const order = ["Accounts", "Profile", "Your name", "Appearance", "Theme", "Language", "Notification sounds", "Typing suggestions", "System", "Help"].map((word) => html.indexOf(`>${word}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toContain('aria-label="Your name"');
@@ -134,7 +134,7 @@ describe("General", () => {
       { instanceId: "mistral", driverKind: "mistral", displayName: "Mistral", access: "api", snapshot: { state: "unavailable", authenticated: false }, models },
     ];
     const html = render();
-    expect(groups(html)).toEqual(["accounts", "api-keys", "profile", "appearance", "system", "help"]);
+    expect(groups(html)).toEqual(["accounts", "api-keys", "profile", "appearance", "typing-suggestions", "system", "help"]);
     expect(markers(html)).toEqual(["accounts", "api-keys=openai", "about-me", "permissions=microphone"]);
     expect(html).toContain(">API keys</div>");
   });
@@ -148,9 +148,9 @@ describe("General", () => {
 
   it("leaves System out where it would be empty", () => {
     vi.stubGlobal("window", {});
-    expect(groups(render())).toEqual(["accounts", "profile", "appearance", "help"]);
+    expect(groups(render())).toEqual(["accounts", "profile", "appearance", "typing-suggestions", "help"]);
     fixture.analytics = true;
-    expect(groups(render())).toEqual(["accounts", "profile", "appearance", "system", "help"]);
+    expect(groups(render())).toEqual(["accounts", "profile", "appearance", "typing-suggestions", "system", "help"]);
   });
 
   it("ends with Help: Keyboard shortcuts, Help Center, Send Feedback and About", () => {

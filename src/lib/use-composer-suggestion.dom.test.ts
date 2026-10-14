@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FAST_PAUSE_MS, PHRASE_STORE_KEY, isSecureField } from "./typing-suggestions";
+import { FAST_PAUSE_MS, MODEL_PAUSE_MS, PHRASE_STORE_KEY, isSecureField } from "./typing-suggestions";
 import { useComposerSuggestion, type ComposerSuggestion, type ComposerSuggestionOptions } from "./use-composer-suggestion";
 
 let host: HTMLDivElement;
@@ -53,6 +53,7 @@ beforeEach(() => {
   root = createRoot(host);
 });
 afterEach(() => {
+  vi.unstubAllGlobals();
   act(() => root.unmount());
   host.remove();
   localStorage.clear();
@@ -146,6 +147,38 @@ describe("when it stays away", () => {
     wrapped.append(inner);
     const plain = document.createElement("textarea");
     expect([isSecureField(password), isSecureField(code), isSecureField(inner), isSecureField(plain), isSecureField(null)]).toEqual([true, true, true, false, false]);
+  });
+});
+
+describe("smarter suggestions are opt-in", () => {
+  const served = { enabled: true, included: true, cloudflare: { configured: true }, ranking: true };
+  const noPhrase = { text: "Please take a look", caret: 18 };
+
+  it("never asks a model, or the decision model, until the person turns it on", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ completion: " at it", source: "cloud" })));
+    vi.stubGlobal("fetch", fetcher);
+    await render(base({ ...noPhrase, config: { features: {}, typing: served } }));
+    await wait(MODEL_PAUSE_MS + 500);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(suggestion.ghost).toBe("");
+    await render(base({ ...noPhrase, config: { features: { smarterSuggestions: false }, typing: served } }));
+    await wait(MODEL_PAUSE_MS + 500);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("asks once the switch is on", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ completion: " at it", source: "cloud", ms: 5 })));
+    vi.stubGlobal("fetch", fetcher);
+    await render(base({ ...noPhrase, config: { features: { smarterSuggestions: true }, typing: served } }));
+    await wait(MODEL_PAUSE_MS + 50);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(suggestion.ghost).toBe(" at it");
+  });
+
+  it("still suggests the person's own phrases with the switch off", async () => {
+    await render(base({ config: { features: {}, typing: served } }));
+    await wait(FAST_PAUSE_MS + 1);
+    expect(suggestion.ghost).toBe("x the failing tests");
   });
 });
 

@@ -37,7 +37,7 @@ beforeAll(async () => {
   process.env.LATERDOG_HOME = home;
   writeFileSync(join(home, "computers-trial.json"), JSON.stringify({ api: "https://cloud.later.dog/v1", confirmed: true, included: ["decisions", "voice", "ai"] }));
   writeFileSync(join(home, "computers-trial-key"), `${KEY}\n`);
-  const typing = createTypingService({ config: () => ({}) as AppConfig, fetch: fakeBackend });
+  const typing = createTypingService({ config: () => ({ features: { smarterSuggestions: true } }) as AppConfig, fetch: fakeBackend });
   const routes = [createTypingSuggestionsRoutes({ typing, rankingReady: () => false, rank: async () => ({ ok: false, reason: "unavailable" }) })];
   server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");

@@ -197,6 +197,7 @@ import {
   skillsLibraryEnabled,
   cloudDictationEnabled,
   typingSuggestionsEnabled,
+  smarterSuggestionsEnabled,
   EVENTS_DIR,
   NATIVE_DIR,
   customMcpServers,
@@ -13015,6 +13016,7 @@ function configStatus() {
       llmThreadTitles: llmThreadTitlesEnabled(cfg),
       cloudDictation: cloudDictationEnabled(cfg),
       typingSuggestions: typingSuggestionsEnabled(cfg),
+      smarterSuggestions: smarterSuggestionsEnabled(cfg),
     },
     onboarding: {
       completedAt: cfg.onboarding?.completedAt ?? "",

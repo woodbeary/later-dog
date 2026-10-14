@@ -255,6 +255,7 @@ const featureConfigSchema = z.object({
   skillsLibrary: z.boolean().optional(),
   cloudDictation: z.boolean().optional(),
   typingSuggestions: z.boolean().optional(),
+  smarterSuggestions: z.boolean().optional(),
 });
 const onboardingConfigSchema = z.object({
   completedAt: z.string().trim().max(40).optional(),
@@ -497,7 +498,7 @@ export interface AppConfig {
   context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean };
   memory?: { captureQuietMs?: number; tidyHour?: number };
   localVm?: { mode?: "shared" | "per-bot" | "pool"; maxInstances?: number; idleTimeoutMinutes?: number };
-  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; autoRecall?: boolean; routinesInConversation?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean };
+  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; autoRecall?: boolean; routinesInConversation?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
   onboarding?: { completedAt?: string; version?: number; reelSeen?: boolean; hintsSeen?: string[]; firstTurnAt?: string };
   browserProfiles?: BrowserProfile[];
   browserEngine?: { attachCdpUrl?: string };
@@ -713,6 +714,10 @@ export function skillsLibraryEnabled(cfg: AppConfig): boolean {
 
 export function typingSuggestionsEnabled(cfg: AppConfig): boolean {
   return cfg.features?.typingSuggestions !== false;
+}
+
+export function smarterSuggestionsEnabled(cfg: AppConfig): boolean {
+  return cfg.features?.smarterSuggestions === true;
 }
 
 export function cloudDictationEnabled(cfg: AppConfig): boolean {

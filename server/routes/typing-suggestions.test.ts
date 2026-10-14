@@ -2,13 +2,11 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../config.ts";
-import { createDecider, deciderReady } from "../decider/index.ts";
+import { createDecider } from "../decider/index.ts";
 import { json, readBody } from "../harness/http.ts";
-import { TYPING_RANK_JOB, rankCandidates } from "../laterdog/typing-rank.ts";
-import { createTypingService } from "../laterdog/typing-suggestions.ts";
+import { createTypingWiring } from "../laterdog/typing-wiring.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import { requiredScope } from "../request-auth.ts";
-import { createTypingSuggestionsRoutes } from "./typing-suggestions.ts";
 import { dispatchRoutes } from "./table.ts";
 
 const ACCOUNT = "0123456789abcdef0123456789abcdef";
@@ -20,13 +18,8 @@ afterEach(async () => {
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 async function serve(cfg: AppConfig, fetcher: typeof fetch) {
-  const typing = createTypingService({ config: () => cfg, fetch: fetcher });
   const decider = createDecider({ config: () => cfg, fetch: fetcher });
-  const routes = [createTypingSuggestionsRoutes({
-    typing,
-    rankingReady: () => deciderReady(cfg, TYPING_RANK_JOB),
-    rank: (input, signal) => rankCandidates(decider, input, signal),
-  })];
+  const routes = [createTypingWiring({ config: () => cfg, decider, fetch: fetcher }).routes];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const auth = { kind: "loopback", scopes: ["admin"] } as RequestAuth;
@@ -42,7 +35,7 @@ async function serve(cfg: AppConfig, fetcher: typeof fetch) {
   return Object.assign(post, { get: async (path: string) => answer(await fetch(`${base}${path}`)) });
 }
 
-const own: AppConfig = { typing: { accountId: ACCOUNT, token: "cf-token" } };
+const own: AppConfig = { features: { smarterSuggestions: true }, typing: { accountId: ACCOUNT, token: "cf-token" } };
 
 describe("POST /api/typing/complete", () => {
   it("answers with the completion, never caching it in the browser", async () => {
@@ -55,10 +48,17 @@ describe("POST /api/typing/complete", () => {
   });
 
   it("answers an empty completion with the reason when there is nothing to show", async () => {
-    const post = await serve({ features: { typingSuggestions: false } }, vi.fn() as unknown as typeof fetch);
+    const post = await serve({ features: { typingSuggestions: false, smarterSuggestions: true } }, vi.fn() as unknown as typeof fetch);
     expect((await post("/api/typing/complete", { prefix: "Please fix" })).body).toEqual({ completion: "", reason: "off" });
-    const none = await serve({}, vi.fn() as unknown as typeof fetch);
+    const none = await serve({ features: { smarterSuggestions: true } }, vi.fn() as unknown as typeof fetch);
     expect((await none("/api/typing/complete", { prefix: "Please fix" })).body).toEqual({ completion: "", reason: "no-service" });
+  });
+
+  it("makes no call and answers not-allowed until smarter suggestions are on", async () => {
+    const fetcher = vi.fn();
+    const post = await serve({ typing: { accountId: ACCOUNT, token: "cf-token" } }, fetcher as unknown as typeof fetch);
+    expect((await post("/api/typing/complete", { prefix: "Please fix" })).body).toEqual({ completion: "", reason: "not-allowed" });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("refuses a body that is not a typing request", async () => {
@@ -83,6 +83,13 @@ describe("POST /api/typing/rank", () => {
     const answer = await post("/api/typing/rank", { typed: "Can you", lastMessage: "Two tests fail.", candidates: ["Can you check the build", "Can you fix the failing tests"] });
     expect(answer.body).toMatchObject({ index: 1 });
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes no call while smarter suggestions are off, even with the decision model set up", async () => {
+    const fetcher = vi.fn();
+    const post = await serve({ decider: withJev.decider }, fetcher as unknown as typeof fetch);
+    expect((await post("/api/typing/rank", { typed: "x", candidates: ["a b", "c d"] })).body).toEqual({ index: null, reason: "off" });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("does nothing when the decision model is not set up", async () => {

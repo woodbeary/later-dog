@@ -35,6 +35,8 @@ const startTrial = (included: string[] = ["decisions", "voice", "ai"]) => {
   writeFileSync(join(home, "computers-trial-key"), `${KEY}\n`);
 };
 
+const SMART = { features: { smarterSuggestions: true } } as AppConfig;
+
 const request = { prefix: "Please fix", dog: "Rex", messages: [{ role: "dog" as const, text: "Two tests fail." }], phrasing: [] as string[] };
 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -83,7 +85,7 @@ describe("which service finishes the sentence", () => {
     startTrial();
     const cfg = { typing: { accountId: ACCOUNT, token: "secret-token" } } as AppConfig;
     const described = describeTyping(cfg, includedCompletion(), true);
-    expect(described).toEqual({ enabled: true, included: true, cloudflare: { configured: true, accountId: ACCOUNT, model: TYPING_DEFAULT_MODEL }, ranking: true });
+    expect(described).toEqual({ enabled: true, smarter: false, included: true, cloudflare: { configured: true, accountId: ACCOUNT, model: TYPING_DEFAULT_MODEL }, ranking: true });
     expect(JSON.stringify(described)).not.toContain("secret-token");
     expect(describeTyping({ features: { typingSuggestions: false } } as AppConfig, null, false)).toMatchObject({ enabled: false, included: false });
   });
@@ -93,7 +95,7 @@ describe("the included service path", () => {
   it("sends the chat context with the installation's key and nothing else", async () => {
     startTrial();
     const fetcher = vi.fn(async () => reply({ completion: " the failing tests", model: "m" }));
-    const result = await service({} as AppConfig, fetcher as unknown as typeof fetch).complete(request);
+    const result = await service(SMART, fetcher as unknown as typeof fetch).complete(request);
     expect(result).toMatchObject({ ok: true, completion: " the failing tests", source: "cloud" });
     expect(fetcher).toHaveBeenCalledTimes(1);
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
@@ -104,7 +106,7 @@ describe("the included service path", () => {
 
   it("shows nothing when the model adds nothing", async () => {
     startTrial();
-    const result = await service({} as AppConfig, (async () => reply({ completion: "" })) as unknown as typeof fetch).complete(request);
+    const result = await service(SMART, (async () => reply({ completion: "" })) as unknown as typeof fetch).complete(request);
     expect(result).toMatchObject({ ok: true, completion: "" });
   });
 
@@ -112,7 +114,7 @@ describe("the included service path", () => {
     startTrial();
     const clock = { now: 1_000 };
     const fetcher = vi.fn(async () => reply({ error: {} }, 404));
-    const svc = service({} as AppConfig, fetcher as unknown as typeof fetch, clock);
+    const svc = service(SMART, fetcher as unknown as typeof fetch, clock);
     expect(await svc.complete(request)).toEqual({ ok: false, reason: "unavailable" });
     expect(await svc.complete({ ...request, prefix: "Please fix it" })).toEqual({ ok: false, reason: "unavailable" });
     expect(fetcher).toHaveBeenCalledTimes(1);
@@ -128,7 +130,7 @@ describe("the included service path", () => {
       .mockResolvedValueOnce(new Response("not json", { status: 200 }))
       .mockResolvedValueOnce(reply({ nothing: true }))
       .mockResolvedValueOnce(reply({ completion: " ok" }));
-    const svc = service({} as AppConfig, fetcher as unknown as typeof fetch);
+    const svc = service(SMART, fetcher as unknown as typeof fetch);
     expect(await svc.complete({ ...request, prefix: "a" })).toEqual({ ok: false, reason: "busy" });
     expect(await svc.complete({ ...request, prefix: "b" })).toEqual({ ok: false, reason: "failed" });
     expect(await svc.complete({ ...request, prefix: "c" })).toEqual({ ok: false, reason: "failed" });
@@ -138,7 +140,7 @@ describe("the included service path", () => {
   it("answers an identical question again from memory without calling anyone", async () => {
     startTrial();
     const fetcher = vi.fn(async () => reply({ completion: " the failing tests" }));
-    const svc = service({} as AppConfig, fetcher as unknown as typeof fetch);
+    const svc = service(SMART, fetcher as unknown as typeof fetch);
     await svc.complete(request);
     expect(await svc.complete(request)).toMatchObject({ ok: true, completion: " the failing tests", cached: true, ms: 0 });
     expect(fetcher).toHaveBeenCalledTimes(1);
@@ -150,7 +152,7 @@ describe("the included service path", () => {
       init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
     }));
     const controller = new AbortController();
-    const pending = service({} as AppConfig, fetcher as unknown as typeof fetch).complete(request, controller.signal);
+    const pending = service(SMART, fetcher as unknown as typeof fetch).complete(request, controller.signal);
     controller.abort();
     expect(await pending).toEqual({ ok: false, reason: "busy" });
   });
@@ -159,7 +161,7 @@ describe("the included service path", () => {
     startTrial();
     const release: Array<() => void> = [];
     const fetcher = vi.fn(() => new Promise<Response>((resolve) => release.push(() => resolve(reply({ completion: " x" })))));
-    const svc = service({} as AppConfig, fetcher as unknown as typeof fetch);
+    const svc = service(SMART, fetcher as unknown as typeof fetch);
     const open = Array.from({ length: TYPING_MAX_IN_FLIGHT }, (_, index) => svc.complete({ ...request, prefix: `q${index}` }));
     expect(await svc.complete({ ...request, prefix: "one too many" })).toEqual({ ok: false, reason: "busy" });
     release.forEach((go) => go());
@@ -168,7 +170,7 @@ describe("the included service path", () => {
 });
 
 describe("the person's own Cloudflare account", () => {
-  const cfg = { typing: { accountId: ACCOUNT, token: "cf-token" } } as AppConfig;
+  const cfg = { features: { smarterSuggestions: true }, typing: { accountId: ACCOUNT, token: "cf-token" } } as AppConfig;
 
   it("calls Workers AI directly with the person's token and a small chat", async () => {
     const fetcher = vi.fn(async () => reply({ result: { response: " the failing tests" }, success: true }));
@@ -190,10 +192,44 @@ describe("the person's own Cloudflare account", () => {
 
   it("checks a draft account and token before they are saved", async () => {
     const fetcher = vi.fn(async () => reply({ result: { response: "ok" } }));
-    const svc = service({} as AppConfig, fetcher as unknown as typeof fetch);
+    const svc = service(SMART, fetcher as unknown as typeof fetch);
     expect(await svc.test({ accountId: ACCOUNT, token: "draft-token" })).toMatchObject({ ok: true });
     expect(new Headers((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].headers).get("authorization")).toBe("Bearer draft-token");
     expect(await svc.test({ accountId: "short", token: "x" })).toEqual({ ok: false, reason: "failed" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("smarter suggestions are opt-in", () => {
+  const ownAccount = { typing: { accountId: ACCOUNT, token: "cf-token" } } as AppConfig;
+
+  it("sends nothing by default, with a trial, a plan or the person's own Cloudflare account", async () => {
+    startTrial();
+    const fetcher = vi.fn();
+    for (const cfg of [{} as AppConfig, ownAccount, { features: { typingSuggestions: true } } as AppConfig, { features: { smarterSuggestions: false } } as AppConfig]) {
+      expect(await service(cfg, fetcher as unknown as typeof fetch).complete(request)).toEqual({ ok: false, reason: "not-allowed" });
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("says so in Settings, and an existing config without the switch stays off", () => {
+    expect(describeTyping({} as AppConfig, null, false).smarter).toBe(false);
+    expect(describeTyping({ features: { typingSuggestions: true, cloudDictation: true } } as AppConfig, null, false).smarter).toBe(false);
+    expect(describeTyping(SMART, null, false).smarter).toBe(true);
+  });
+
+  it("calls out once the person turns it on, and stops again when they turn it off", async () => {
+    startTrial();
+    const fetcher = vi.fn(async () => reply({ completion: " the failing tests" }));
+    const cfg = { features: { smarterSuggestions: false } } as AppConfig;
+    const svc = createTypingService({ config: () => cfg, fetch: fetcher as unknown as typeof fetch });
+    expect(await svc.complete(request)).toEqual({ ok: false, reason: "not-allowed" });
+    cfg.features!.smarterSuggestions = true;
+    expect(await svc.complete(request)).toMatchObject({ ok: true });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    cfg.features!.smarterSuggestions = false;
+    expect(await svc.complete({ ...request, prefix: "Please fix it" })).toEqual({ ok: false, reason: "not-allowed" });
+    expect(await svc.complete(request)).toEqual({ ok: false, reason: "not-allowed" });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
@@ -202,21 +238,21 @@ describe("when nothing is sent", () => {
   it("is off after the person turns it off", async () => {
     startTrial();
     const fetcher = vi.fn();
-    const result = await service({ features: { typingSuggestions: false } } as AppConfig, fetcher as unknown as typeof fetch).complete(request);
+    const result = await service({ features: { typingSuggestions: false, smarterSuggestions: true } } as AppConfig, fetcher as unknown as typeof fetch).complete(request);
     expect(result).toEqual({ ok: false, reason: "off" });
     expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("has no service for a self-hoster who has not set one up", async () => {
     const fetcher = vi.fn();
-    expect(await service({} as AppConfig, fetcher as unknown as typeof fetch).complete(request)).toEqual({ ok: false, reason: "no-service" });
+    expect(await service(SMART, fetcher as unknown as typeof fetch).complete(request)).toEqual({ ok: false, reason: "no-service" });
     expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("does not send text that looks like a secret", async () => {
     startTrial();
     const fetcher = vi.fn();
-    const result = await service({} as AppConfig, fetcher as unknown as typeof fetch).complete({ ...request, prefix: `my key is sk-${"a1".repeat(16)}` });
+    const result = await service(SMART, fetcher as unknown as typeof fetch).complete({ ...request, prefix: `my key is sk-${"a1".repeat(16)}` });
     expect(result).toEqual({ ok: false, reason: "sensitive" });
     expect(fetcher).not.toHaveBeenCalled();
   });

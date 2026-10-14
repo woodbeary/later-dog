@@ -492,6 +492,7 @@ export interface ConfigStatus {
   };
   typing?: {
     enabled: boolean;
+    smarter: boolean;
     included: boolean;
     cloudflare: { configured: boolean; accountId: string; model: string };
     ranking: boolean;
@@ -509,7 +510,7 @@ export interface ConfigStatus {
   };
   profile?: { name: string; email: string; aboutMe?: string };
   language?: string;
-  features?: { skillAuthoring: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean };
+  features?: { skillAuthoring: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
   onboarding?: OnboardingStatus;
   browserEngine?: BrowserEngineSummary;
   browserProfiles?: BrowserProfile[];
