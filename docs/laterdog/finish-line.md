@@ -48,7 +48,8 @@ Work stops at a gate before the next one starts.
 | L6 Thinking, scroll, sidebar | `laterdog/thinking` | `/Volumes/laterdog-phone/lanes/thinking` | running | one thinking row, fewer bubbles, green dot, NEW divider and new-messages pill, sidebar collapse, copy id | sheet beside the reference |
 | L7 Accounts, usage, update | `laterdog/accounts-ui` | `/Volumes/laterdog-phone/lanes/accounts` | running | battery rows, account menu usage, add account in place, model never switches account, quiet update pill | sheet beside the reference |
 | L8 Decision layer (Clef) | `laterdog/clef` | `/Volumes/laterdog-phone/lanes/clef` | running | auto-review rules, finished-or-stopped check, screen check, screenshot filter, benchmark | benchmark numbers |
-| L5, L9–L14 | | | waiting for slots | | |
+| L11 Dev app | `laterdog/dev-app` | `/Volumes/laterdog-phone/lanes/dev-app` | built, draft PR into `laterdog/checkpoint`: variant read early (`electron/app-variant.cjs`), separate data, ports, lock, userData, logs, scheme and host id, Dev build config and `dev` workflow, safe dev scripts, placeholder icon, `docs/laterdog/dev-app.md`; first-run copy is designed only | first `dev` push builds it; the person picks an icon from `/Volumes/laterdog-phone/tmp/l11-sheet/index.html`; build the first-run copy | Dev installs beside the release from the rolling prerelease and the first-run copy is built |
+| L5, L9, L10, L12–L14 | | | waiting for slots | | |
 
 ## Notes for whoever picks this up
 

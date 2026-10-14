@@ -3,16 +3,21 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
+import { banner, safeTarget, scriptEnvironment, withoutLiveFlag } from "./dev-safe.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const runtimes = join(homedir(),".nvm","versions","node");
 const installed = existsSync(runtimes) ? readdirSync(runtimes).filter((v) => Number(v.match(/^v(\d+)/)?.[1]) >= 24).sort((a,b) => b.localeCompare(a,undefined,{ numeric: true })) : [];
 const binary = Number(process.versions.node.split(".")[0]) >= 24 ? process.execPath : installed.length ? join(runtimes,installed[0],"bin","node") : undefined;
 if (!binary) { console.error("later.dog needs Node 24 or newer. Install Node 24, then run pnpm laterdog:dev."); process.exit(1); }
-const command = process.argv[2] ?? "dev";
+let target;
+try { target = safeTarget(); } catch (error) { console.error(error.message); process.exit(1); }
+const argv = withoutLiveFlag(process.argv);
+const command = argv[2] ?? "dev";
+console.error(banner(target));
 const children = new Set(); let stopping = false;
-const env = { ...process.env, PATH: `${dirname(binary)}${delimiter}${process.env.PATH ?? ""}` };
-const dataRoot = env.LATERDOG_HOME ?? join(homedir(),".laterdog");
+const env = { ...scriptEnvironment(target), PATH: `${dirname(binary)}${delimiter}${process.env.PATH ?? ""}` };
+const dataRoot = target.home;
 function connection() {
   if (env.LATERDOG_SUPERVISOR_URL) return { url: env.LATERDOG_SUPERVISOR_URL, tokenFile: env.LATERDOG_TOKEN_FILE, source: "environment" };
   const file = join(dataRoot,"supervisor.json");
@@ -20,7 +25,7 @@ function connection() {
     const saved = JSON.parse(readFileSync(file,"utf8"));
     return { url: saved.url, tokenFile: typeof saved.tokenFile === "string" ? saved.tokenFile.replace(/^~(?=\/)/,homedir()) : undefined, source: file };
   }
-  return { url: "http://127.0.0.1:9010", source: "local" };
+  return { url: `http://127.0.0.1:${env.LATERDOG_PORT ?? 9010}`, source: "local" };
 }
 function start(args, extraEnv = {}) {
   const child = spawn(binary,args,{ cwd: root, env: { ...env,...extraEnv }, stdio: "inherit" }); children.add(child);
@@ -37,7 +42,7 @@ if (command === "dev") {
   start(["server/index.ts"],shared); start(["node_modules/vite/bin/vite.js"],shared);
   console.log(`later.dog: http://127.0.0.1:${uiPort}. Supervisor: ${supervisor.url}${supervisor.source === "local" ? " (local, started here)" : ` (hosted, from ${supervisor.source})`}. Agents keep their data in ${dataRoot}.`);
 } else if (["supervisor","mcp","bridge"].includes(command)) {
-  start([`server/laterdog/${command === "supervisor" ? "main" : command}.ts`,...process.argv.slice(3)]);
+  start([`server/laterdog/${command === "supervisor" ? "main" : command}.ts`,...argv.slice(3)]);
 } else if (command === "doctor" || command === "login") {
   const supervisor = connection();
   const dataDir = env.LATERDOG_DATA_DIR ?? join(dataRoot,"supervisor");

@@ -4,10 +4,16 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { DurationSequencer } from "./scripts/testing/duration-sequencer.ts";
+import { createRequire } from "node:module";
 
 const { version } = JSON.parse(
   readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
 ) as { version: string };
+
+const { SCRIPT_DEFAULTS, scriptTarget } = createRequire(import.meta.url)("./electron/app-variant.cjs") as typeof import("./electron/app-variant.mjs");
+const devTarget = scriptTarget();
+if (devTarget.refusal && !process.env.VITEST) throw new Error(devTarget.refusal);
+const proxyPort = devTarget.refusal ? SCRIPT_DEFAULTS.serverPort : devTarget.serverPort ?? (devTarget.live ? 8799 : SCRIPT_DEFAULTS.serverPort);
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -46,10 +52,10 @@ export default defineConfig({
     proxy: {
       "/api": {
         ws: true,
-        target: `http://127.0.0.1:${process.env.LATERDOG_SERVER_PORT || 8799}`,
+        target: `http://127.0.0.1:${proxyPort}`,
       },
       "/.well-known/laterdog/environment": {
-        target: `http://127.0.0.1:${process.env.LATERDOG_SERVER_PORT || 8799}`,
+        target: `http://127.0.0.1:${proxyPort}`,
       },
     },
   },

@@ -14,7 +14,7 @@ const {
 
 const CONNECTION_SCHEMA_VERSION = 1;
 const SETTINGS_SCHEMA_VERSION = 2;
-const HOST_BUNDLE_ID = "dog.later.app";
+const HOST_BUNDLE_ID = require("./app-variant.cjs").resolveVariant().cuaHostBundleId;
 const CERTIFIED_CONTRACT_VERSION = "0.6.0";
 const CERTIFIED_TOOLS_LIST_SCHEMA_VERSION = "1";
 const CERTIFIED_CAPABILITY_VERSION = "1";

@@ -1,4 +1,6 @@
-export const CLOUD_DEEP_LINK = "laterdog://cloud";
+import { deepLink, variant } from "./app-variant.mjs";
+
+export const CLOUD_DEEP_LINK = deepLink(variant, "cloud");
 
 export const isCloudDeepLink = value => value === CLOUD_DEEP_LINK;
 export function takeCloudDeepLink(argv) {

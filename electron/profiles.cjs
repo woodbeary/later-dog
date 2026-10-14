@@ -1,8 +1,11 @@
+const { resolveVariant } = require("./app-variant.cjs");
+
+const PROFILE_PORTS = resolveVariant().ports.profiles;
 const MAIN_ID = "main";
 const MAX_NAME = 40;
 const MAX_PROFILES = 8;
-const FIRST_PORT = 8811;
-const LAST_PORT = 8899;
+const FIRST_PORT = PROFILE_PORTS.first;
+const LAST_PORT = PROFILE_PORTS.last;
 const ID_PATTERN = /^p[a-f0-9]{12}$/;
 const MAX_SEED_TEXT = 320;
 const MAX_HINTS = 100;

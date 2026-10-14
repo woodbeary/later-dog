@@ -1,0 +1,35 @@
+import variantModule from "./app-variant.cjs";
+
+export const {
+  applyVariantEnvironment,
+  DEV,
+  LIVE_DATA_ENV,
+  LIVE_DATA_FLAG,
+  RELEASE,
+  SCRIPT_DEFAULTS,
+  VARIANT_ENV,
+  VARIANT_FIELD,
+  VARIANT_IDS,
+  bundleIsDev,
+  dataDirFor,
+  deepLink,
+  deepLinkPattern,
+  describeVariant,
+  liveDataRequested,
+  logsDirFor,
+  ownedPorts,
+  profilesDataDirFor,
+  readPackageJson,
+  releaseDataDir,
+  resolveVariant,
+  resolveVariantId,
+  safeStorageService,
+  samePath,
+  scriptTarget,
+  serverPortRange,
+  tempName,
+  userDataDirFor,
+  webhookPortFor,
+} = variantModule;
+
+export const variant = resolveVariant();
