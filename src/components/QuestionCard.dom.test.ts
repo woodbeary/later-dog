@@ -118,6 +118,83 @@ describe("answering a dog's question", () => {
 });
 
 
+describe("a card with several questions", () => {
+  const several = () => question({
+    questionRequest: {
+      version: 1,
+      questions: [
+        { question: "What first?", options: [{ label: "Code" }, { label: "Writing" }] },
+        { question: "How often?", options: [{ label: "Daily" }, { label: "Weekly" }] },
+        { question: "Which days?", multiSelect: true, options: [{ label: "Mon" }, { label: "Tue" }] },
+      ],
+    },
+  });
+  const option = (label: string) =>
+    [...host.querySelectorAll<HTMLButtonElement>("[role=radio],[role=checkbox]")].find((button) => button.textContent?.includes(label))!;
+  const nextButton = () => host.querySelector<HTMLButtonElement>("[data-question-next]");
+  const backButton = () => host.querySelector<HTMLButtonElement>("[data-question-back]")!;
+  const submitButton = () => host.querySelector<HTMLButtonElement>("[data-question-submit]");
+  const step = () => host.querySelector("[data-question-step]")?.textContent;
+
+  it("shows one question at a time with its place in the card", () => {
+    mount(several());
+    expect(step()).toBe("1 of 3");
+    expect(host.textContent).toContain("What first?");
+    expect(host.textContent).not.toContain("How often?");
+    expect(nextButton()?.disabled).toBe(true);
+    expect(backButton().disabled).toBe(true);
+  });
+
+  it("moves on by itself after a single choice and goes back with Back", () => {
+    mount(several());
+    act(() => option("Writing").click());
+    expect(step()).toBe("2 of 3");
+    expect(host.textContent).toContain("How often?");
+    act(() => backButton().click());
+    expect(step()).toBe("1 of 3");
+    expect(option("Writing").getAttribute("aria-checked")).toBe("true");
+    expect(nextButton()?.disabled).toBe(false);
+    act(() => nextButton()!.click());
+    expect(step()).toBe("2 of 3");
+  });
+
+  it("jumps to a question from its tab", () => {
+    mount(several());
+    act(() => host.querySelectorAll<HTMLButtonElement>("[role=tab]")[2]!.click());
+    expect(step()).toBe("3 of 3");
+    expect(host.textContent).toContain("Which days?");
+  });
+
+  it("holds multi-select questions until Next and sends everything from the last step", () => {
+    mount(several());
+    act(() => option("Code").click());
+    act(() => option("Weekly").click());
+    expect(step()).toBe("3 of 3");
+    act(() => option("Mon").click());
+    act(() => option("Tue").click());
+    expect(step()).toBe("3 of 3");
+    expect(nextButton()).toBeNull();
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+    act(() => submitButton()!.click());
+    expect(fixture.dispatch).toHaveBeenCalledTimes(1);
+    const sent = fixture.dispatch.mock.calls[0]![0];
+    expect(sent).toMatchObject({ type: "decideRequest", requestId: "req-1", behavior: "answer" });
+    expect(sent.message).toContain("A: Code");
+    expect(sent.message).toContain("A: Weekly");
+    expect(sent.message).toContain("A: Mon, Tue");
+    expect(host.querySelector("[data-folded-line]")?.textContent).toContain("Code");
+    expect(host.querySelector("[role=radio]")).toBeNull();
+  });
+
+  it("keeps Submit off until every question has an answer", () => {
+    mount(several());
+    act(() => host.querySelectorAll<HTMLButtonElement>("[role=tab]")[2]!.click());
+    act(() => option("Mon").click());
+    expect(submitButton()?.disabled).toBe(true);
+  });
+});
+
+
 describe("folded answers", () => {
   it("folds immediately, expands read-only and folds again", () => {
     mount(question());

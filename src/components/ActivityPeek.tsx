@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import type { Helper, HelperMember } from "../../shared/helpers";
@@ -45,11 +45,18 @@ export function ActivityPeek({ label, since, helpers, reasoning, anchor, onClose
     window.addEventListener("keydown", key);
     return () => { window.removeEventListener("keydown", key); if (opener?.isConnected) opener.focus(); };
   }, [anchor]);
-  const box = anchor.current?.getBoundingClientRect();
-  const left = Math.max(12, Math.min(box?.left ?? 12, window.innerWidth - 396));
-  const top = Math.max(12, (box?.top ?? window.innerHeight) - Math.min(420, window.innerHeight - 24) - 8);
+  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const box = anchor.current?.getBoundingClientRect();
+    const height = panel.current?.getBoundingClientRect().height ?? 0;
+    const left = Math.max(12, Math.min(box?.left ?? 12, window.innerWidth - 396));
+    const above = (box?.top ?? window.innerHeight) - height - 8;
+    const below = (box?.bottom ?? 0) + 8;
+    const top = above >= 12 ? above : Math.max(12, Math.min(below, window.innerHeight - height - 12));
+    setPlace({ left, top });
+  }, [anchor, helpers.length, reasoning.text]);
   return createPortal(<div className="fixed inset-0 z-50 bg-black/10" onPointerDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={panel} role="dialog" aria-modal="true" aria-labelledby={title} className="fixed inset-x-3 bottom-3 max-h-[min(70vh,420px)] rounded-2xl border border-hairline bg-panel p-4 text-[13px] shadow-xl sm:inset-x-auto sm:bottom-auto sm:left-(--peek-left) sm:top-(--peek-top) sm:w-96" style={{ "--peek-left": `${left}px`, "--peek-top": `${top}px` } as React.CSSProperties}>
+    <section ref={panel} role="dialog" aria-modal="true" aria-labelledby={title} className="fixed inset-x-3 bottom-3 max-h-[min(70vh,420px)] rounded-2xl border border-hairline bg-panel p-4 text-[13px] shadow-xl sm:inset-x-auto sm:bottom-auto sm:left-(--peek-left) sm:top-(--peek-top) sm:w-96" style={{ "--peek-left": `${place?.left ?? 12}px`, "--peek-top": `${place?.top ?? 12}px`, visibility: place ? undefined : "hidden" } as React.CSSProperties}>
       <div className="mb-3 flex items-center justify-between gap-3"><h2 id={title} className="font-medium text-ink">{t("chat.activity.peek")}</h2><button ref={close} type="button" className="rounded-lg p-1.5 text-ink-secondary hover:bg-ink/5 focus-visible:outline-2" aria-label={t("common.close")} onClick={onClose}><X size={16} /></button></div>
       <div tabIndex={0} className="max-h-[min(55vh,330px)] space-y-4 overflow-y-auto overscroll-contain pr-1 focus-visible:outline-2">
         <div><div className="flex items-center justify-between gap-3"><p className="text-ink">{label}</p>{since !== null && <WorkingTimer since={since} className="shrink-0 text-[11px] text-ink-tertiary" />}</div>{reasoning.tokens !== null && <p className="mt-1 text-[11px] text-ink-tertiary">{t("chat.activity.thinkingTokens", { count: reasoning.tokens.toLocaleString() })}</p>}</div>
