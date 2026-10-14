@@ -26,30 +26,35 @@ Work stops at a gate before the next one starts.
 
 | Gate | Priority | Done when | State |
 | --- | --- | --- | --- |
-| G0 Consolidated | | Every in-flight change committed and pushed; integration branch `laterdog/checkpoint`; this tracker; no-comments check in the phone repo | done except the phone check, which is L2's first step |
-| G1 Phone on production | P0 | Accounts, homes and included AI deployed; the review sign-in reaches a home and a dog replies; the person signs in on their iPhone | done 2026-10-14 00:52 PT: the review check signs in, starts a fresh home (ready in 11 s), pairs over the wildcard record, makes a dog and gets a real AI answer in 8 s. Fixes on the way: seeded services adopted by a new home, a code request wakes the home, the review address may ask for a code 20 times in 15 minutes (`7141d56fc`). The person's own sign-in on the phone is still to try |
-| G2 TestFlight in review | P0 | Build 5 checked on the person's phone through internal testing, then submitted to Beta App Review | submitted 2026-10-14 00:46 PT, waiting for review. External group "later.dog beta"; Test Information and review details set. Build 5 holds `later-dog-phone` `66920e4`; `2341bf6` (in the app while the home starts) waits for an over-the-air update after approval |
-| G3 Desktop 0.3.28 | P1 | Keys save; honest handoffs with Continue; Keep going across engines; local-tool token; question cards work; roster across folders; PR #36 checked on screen; sealed install and update pass | waiting on lanes L3, L4 |
-| G4 Desktop 0.3.29 with Cloud | P1 | `dev` merged; desktop signs in to Cloud; same dogs on phone and Mac; lending checked through Cloudflare | waiting on G1, G3 |
-| G5 Caliber pass | P2 | Chat lines and cards, thinking row, accounts and updates, motion tokens merged with screenshots | waiting on G3 |
-| G6 Decision layer and typing suggestions | P3 | Benchmark numbers recorded; suggestions under 300 ms at the median | waiting |
-| G7 Dev app, factory, computer tools | P3 | later.dog Dev installs beside the release; one cloud job end to end with screenshots and a saved trace; computer tools answer over MCP | waiting |
-| G8 Launch copy | P3 | Site and README lines and the launch post approved by the person | waiting |
+| G0 Consolidated | | Every in-flight change committed and pushed; integration branch `laterdog/checkpoint`; this tracker; no-comments check in the phone repo | done |
+| G1 Phone on production | P0 | Accounts, homes and included AI deployed; the review sign-in reaches a home and a dog replies; the person signs in on their iPhone | done 2026-10-14 00:52 PT for the review account: fresh home ready in 11 s, real AI answer in 8 s. Fixes deployed since: the review address may ask for a code 20 times in 15 minutes (`7141d56fc`); a phone that kept the last sign-in's cookie can sign in again (`8ef743ca1`, accounts `aeeef844`). Waiting on the person: the full reviewer-path check (`/Volumes/laterdog-phone/tmp/reviewer-path-check.mjs`) and their own sign-in on the phone |
+| G2 TestFlight in review | P0 | Build 5 checked on the person's phone, then submitted to Beta App Review | submitted 2026-10-14 00:46 PT, waiting for review. Lesson: it was submitted before a real-device run; never again. Phone `main` has `2341bf6` (in the app while the home starts) and `9d47bec` (no account cookies) for an over-the-air update after approval |
+| G3 Desktop 0.3.28 | P1 | Keys save; honest handoffs with Continue; Keep going across engines; question cards work; roster across folders; PR #36 checked on screen; sealed install and update pass | release commit `b13c4ba19` on `laterdog/checkpoint`, CI running. The local-tools token moved to 0.3.29 (PR #47) after a security review |
+| G4 Desktop with Cloud | P1 | `dev` merged; desktop signs in to Cloud; same dogs on phone and Mac; lending checked through Cloudflare | `dev` and `laterdog/home` merged onto the staging branch in PR #49 (CI running). Live sign-in and moving dogs need the person's account, so they wait for the morning before shipping |
+| G5 Caliber pass | P2 | Chat lines and cards, thinking row, accounts and updates, motion tokens merged with screenshots | #42, #43, #45 merged on the staging branch `laterdog/next` (PR #48); L5 chat lines running |
+| G6 Decision layer and typing suggestions | P3 | Benchmark numbers recorded; suggestions under 300 ms at the median | live Clef benchmark recorded 2026-10-14: clef 270-406 ms median, 90-100% accurate (table in the L8 docs). PR #41 safety fixes running; L10 typing suggestions running |
+| G7 Dev app, factory, computer tools | P3 | later.dog Dev installs beside the release; one cloud job end to end with screenshots and a saved trace; computer tools answer over MCP | Dev app PR #46 data-safety fixes running; factory and computer tools (L12) waiting for a slot |
+| G8 Launch copy | P3 | Site and README lines and the launch post approved by the person | waiting for a slot (L14) |
 
 ## Lanes
 
-| Lane | Branch | Worktree | Status | Next step | Done when |
-| --- | --- | --- | --- | --- | --- |
-| L0 Integration | `laterdog/checkpoint` (PR #38) | `/Volumes/laterdog-phone/lanes/checkpoint` | main + #36 + roster + #37 merged; #37 test fixed; tracker added | CI on PR #38; merge lane PRs as they land | CI green |
-| L1 Cloud ready | `laterdog/home` (PR #39 into dev) | `/Volumes/laterdog-phone/lanes/home` | done, plus fixes after deploy: seeded services adopted (`1a2ddb4b1`), code request wakes the home (`013bfa1ff`), image pin (`4362e2de1`) | none | done |
-| L2 Phone review-ready | `phone/review-ready` → `main` (later-dog-phone, `e174c57`) | the phone repo's own checkout | done: no-comments check, probe fix, live updates recover, data choice before the first send, New dog scrolls, visual pass, Terms and Privacy on sign-in, no plan row; 190 tests; published over the air to `beta` (`857e9992`) | Build 5 and the review submission at G2 | done |
-| L3 Reliability | `laterdog/reliability` (PR #44, token-free) and `laterdog/local-tools-token` | `/Volumes/laterdog-phone/lanes/reliability` | six fixes in PR #44 with tests; the local-tools token was pulled out after a security review and is being redone as a default-deny allow-list on its own branch and draft PR | PR #44 reviewed and merged; token branch: allow-list built from the scripts' real requests, messages from local tools never count as the person, scripts send and check the token file | #44 merged into `laterdog/checkpoint`; the token PR reviewed again by the security pass and merged; live checks: a long dog-to-dog job past 30 minutes, Continue after a time-out, a real Claude-to-Codex continuation, a full disk |
-| L4 PR #36 on screen | `laterdog/visual-36` (PR #40, merged) | `/Volumes/laterdog-phone/lanes/visual36` | done: every #36 change screened beside its reference; questions one at a time with Next and Back, folded answers; account menu, progress peek and model button aligned | none | done |
-| L6 Thinking, scroll, sidebar | `laterdog/thinking` (PR #45) | `/Volumes/laterdog-phone/lanes/thinking` | done, waiting for review: one thinking row, Show every update setting, one steady working dot, NEW divider, new-message pills, End key, stable scroll, sidebar collapse, Copy conversation ID | integrator review; ↑ pill in group chats | sheet at `/Volumes/laterdog-phone/tmp/l6-sheet/index.html` |
-| L7 Accounts, usage, update | `laterdog/accounts-ui` (draft PR into `laterdog/checkpoint`) | `/Volumes/laterdog-phone/lanes/accounts` | done, waiting for review: batteries on every account row with reset times and a hover usage card, weekly usage and Switch account in the menu under your name with hover submenus, add account in place, model menu keeps the account, quiet update pill, blue Update button, confirm that names the version | review the sheet `/Volumes/laterdog-phone/tmp/l7-sheet/index.html`; decide whether the composer model menu should stay limited to the account in use | sheet beside the reference |
-| L8 Decision layer (Clef) | `laterdog/clef` | `/Volumes/laterdog-phone/lanes/clef` | running | auto-review rules, finished-or-stopped check, screen check, screenshot filter, benchmark | benchmark numbers |
-| L9 Motion and tokens | `laterdog/motion` | `/Volumes/laterdog-phone/lanes/motion` | running: tokens in `src/tokens.css`, surfaces on them, press squish, arrivals from their source, reduced motion, `docs/laterdog/motion.md` rewritten | on-screen review sheet | sheet beside the reference |
-| L5, L10–L14 | | | waiting for slots | | |
+| Lane | Branch | PR | Status |
+| --- | --- | --- | --- |
+| L0 Integration | `laterdog/checkpoint`, staging `laterdog/next` | #38, #48, #49 | 0.3.28 on `laterdog/checkpoint`; 0.3.29 staged on `laterdog/next` |
+| L1 Cloud ready | `laterdog/home` | #39 | done; tonight's Cloud fixes also on #49 |
+| L2 Phone review-ready | later-dog-phone `main` | | done |
+| L3 Reliability | `laterdog/reliability`, `laterdog/local-tools-token` | #44 (merged), #47 | token redone as a default-deny allow-list; fixing the re-review's N1-N5 |
+| L4 PR #36 on screen | `laterdog/visual-36` | #40 (merged) | done |
+| L5 Chat lines and cards | `laterdog/chatlines` | | running |
+| L6 Thinking, scroll, sidebar | `laterdog/thinking` | #45 | done, on the staging branch |
+| L7 Accounts, usage, update | `laterdog/accounts-ui` | #42 | done, on the staging branch; two choices for the person (model menu limited to the account in use; accounts that need an approval greyed in Switch account) |
+| L8 Decision layer (Clef) | `laterdog/clef` | #41 | fixing the safety review's findings; live benchmark done |
+| L9 Motion and tokens | `laterdog/motion` | #43 | done, on the staging branch |
+| L10 Typing suggestions | `laterdog/tab` | | running |
+| L11 later.dog Dev | `laterdog/dev-app` | #46 | fixing the data-safety review's findings; the person picks an icon (`/Volumes/laterdog-phone/tmp/l11-sheet/index.html`) |
+| L12 Factory and computer tools | | | waiting for a slot |
+| L13 Stability sweep | `laterdog/stability` | | running |
+| L14 Launch and hiring copy | | | waiting for a slot |
 
 ## Notes for whoever picks this up
 
