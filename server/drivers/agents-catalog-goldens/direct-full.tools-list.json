@@ -30,7 +30,7 @@
     },
     {
       "name": "list_shared_computers",
-      "description": "List online desktop computers explicitly shared with this workspace, and their allowed folders/capabilities. These are the user's computers, not this server. An offline or unshared computer cannot be accessed. Folder paths use opaque folder IDs and relative paths.",
+      "description": "List the person's own computers that are connected right now (a Mac with later.dog open, signed in to this account) and what each allows. These are the person's computers, not this server. You can usually skip this and call shared_computer directly. If none is connected, the answer says what to tell the person.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -45,7 +45,7 @@
     },
     {
       "name": "shared_computer",
-      "description": "Use a desktop explicitly shared by the user. Discover computer_id and folder_id with list_shared_computers. list_files/read_file/write_file are confined to chosen folders; paths are relative. read_file returns sha256; overwriting requires expected_sha256. Binary files support base64 encoding. A file over 256 KiB is read in parts: pass offset and length (up to 262144 bytes each); every part reports the file's total size. run_command requires a SEPARATE unrestricted terminal grant. computer_tools lists the native computer-control tools; computer_call invokes one with arguments and needs a SEPARATE computer-control grant. Never substitute the server's filesystem when this desktop is offline. Actions are not retried automatically; inspect an uncertain outcome before retrying.",
+      "description": "Use the person's own Mac, where later.dog is open and signed in to this account. computer_id is optional while one computer is connected, and folder_id is optional when it lends one folder: a Mac connected through its later.dog sign-in lends its home folder, so paths look like Downloads/report.pdf or ~/Downloads/report.pdf. The first time in a request that you look at files, save a file, run a command or use apps there, the person gets an Allow card on their phone and desktop and this call waits for the answer, up to about three minutes. If they don't allow it, say so in one line and don't retry. list_files/read_file/write_file stay inside lent folders. read_file returns sha256; overwriting requires expected_sha256. Binary files support base64 encoding. A file over 256 KiB is read in parts: pass offset and length (up to 262144 bytes each); every part reports the file's total size. run_command requires a SEPARATE unrestricted terminal grant. computer_tools lists the native computer-control tools; computer_call invokes one with arguments and needs a SEPARATE computer-control grant. Never substitute the server's filesystem when this desktop is offline. Actions are not retried automatically; inspect an uncertain outcome before retrying.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -104,7 +104,6 @@
           }
         },
         "required": [
-          "computer_id",
           "action"
         ]
       }

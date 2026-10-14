@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.29 — 2026-10-14
+
+- **Quiet lines when dogs talk to each other.** You see one line, "Messaged ◯ Name", that opens their conversation, instead of extra chats.
+- **Routines a dog makes show up in chat** as "Created routine ⏲ name", one click from Routines.
+- **Mentions show the dog's face and colour,** and a renamed dog shows its new name everywhere.
+- **Answered approvals fold** to one grey line: "Allowed once", "Always allowed", "Allowed for this chat" or "Denied". Allow once is the main button, and Always allow sits apart so you never grant it by habit.
+- **Typing suggestions.** Grey words appear as you type, from your own phrases, dog names and commands, worked out on this Mac; Tab takes them. Turn on Smarter suggestions to let Cloudflare suggest the rest; it stays off unless you choose it.
+- **One thinking row.** While a dog works you see one line with its face and what it is doing; click it for the steps. Updates it gives along the way fold into its reply, or turn on Show every update to see them all.
+- **New messages are easy to find.** A New divider, "N new messages" pills above and below, Jump to latest and the End key, and your place stays put when messages arrive above it.
+- **One steady green dot** shows a dog is working, everywhere it appears.
+- **Sidebar lists open and close smoothly,** and a list you close stays closed.
+- **Copy conversation ID** copies just the ID.
+- **Batteries for every account.** Each account shows what is left as a battery with the time it refills; hover for the five-hour and weekly details and Manage usage.
+- **Weekly usage and Switch account** sit in the menu under your name.
+- **Picking a model keeps your account.** The model menu lists the models of the account in use; switch provider from the account button.
+- **A quieter update.** A small "Downloading update" pill, then a blue Update button that names the version and warns you if a dog is still working.
+- **Motion that feels right.** Menus grow from their button, sheets rise from the edge, messages slide in from their side, and buttons give a little squish when pressed. With Reduce Motion on, things fade instead.
+- **Local tools work without pairing.** Claude Code, Codex and scripts on this Mac can talk to later.dog through a private key file. They can never approve anything, answer a dog's question, or reach a dog on Full access, and a dog sees their messages as coming from a tool, not from you.
+- **Sends survive a dropped connection.** If the network blips, later.dog tries again without sending your message twice.
+- **A full Mac gets plain words,** and a dog no longer gets stuck "working" after the disk fills up.
+- **Approvals left open by a restart close** instead of looking like they still wait for you.
+
 ## 0.3.28 — 2026-10-14
 
 - **Keep going on your other accounts.** When an account runs out, your dog carries on with the next account that has room, and a line in the chat says so, for example "Claude is recharging. Continuing on Codex." It keeps the model you chose for that engine.

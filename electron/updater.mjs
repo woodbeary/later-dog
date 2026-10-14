@@ -11,6 +11,7 @@ import {
 import { startReleaseCheck } from "./release-check.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { updateFeedUrl } from "./update-feed.mjs";
+import { variant } from "./app-variant.mjs";
 import { createUpdaterCoordinator } from "./updater-coordinator.mjs";
 
 const require = createRequire(import.meta.url);
@@ -94,7 +95,7 @@ export function startUpdater() {
   if (!feed) {
     updaterCoordinator = null;
     setState({ status: "idle" });
-    if (app.isPackaged && !releaseCheck) {
+    if (app.isPackaged && !releaseCheck && variant.updates.releaseCheck) {
       const logger = updaterLogger();
       releaseCheck = startReleaseCheck({ userData: app.getPath("userData"), currentVersion: app.getVersion(), setState, log: (line) => logger.info(line) });
     }
@@ -113,7 +114,7 @@ export function startUpdater() {
     setState({ status: "error", message: feed.error });
     return;
   }
-  autoUpdater.setFeedURL({ provider: "generic", url: feed.url });
+  autoUpdater.setFeedURL({ provider: "generic", url: feed.url, ...(variant.updates.channel ? { channel: variant.updates.channel } : {}) });
   autoUpdater.logger = updaterLogger();
 
   const packageType = linuxPackageType({ readMarker: (file) => (existsSync(file) ? readFileSync(file, "utf8") : null) });

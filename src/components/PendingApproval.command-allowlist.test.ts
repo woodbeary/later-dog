@@ -80,6 +80,27 @@ describe("remembering exact command approvals", () => {
     }
   });
 
+  it("puts Allow once first and primary, and a durable grant last, outlined and set apart", () => {
+    for (const extra of [{}, { commandAllowlist: undefined }, { allowKey: "peer:teammate" }] as const) {
+      const { buttons } = view(extra);
+      const labels = buttons.map((button) => String(button.props.children));
+      expect(labels[0]).toBe("Allow once");
+      expect(labels[1]).toBe("Don't allow");
+      expect(labels.at(-1)).toMatch(/^(Always allow|Allow for this chat)$/);
+      const classes = (button: (typeof buttons)[number]) => String((button.props as unknown as { className?: string }).className);
+      expect(classes(buttons[0]!)).toContain("bg-accent");
+      expect(classes(buttons.at(-1)!)).not.toContain("bg-accent");
+      expect(classes(buttons.at(-1)!)).toContain("border");
+      expect(classes(buttons.at(-1)!)).toContain("ml-3");
+    }
+  });
+
+  it("never puts a durable grant on a durable confirmation or ahead of the single-use choice", () => {
+    const { buttons } = view({ allowKey: "peer:teammate" });
+    expect(buttons.findIndex((button) => button.props.children === "Allow once"))
+      .toBeLessThan(buttons.findIndex((button) => button.props.children === "Always allow"));
+  });
+
   it.each([false, null])("keeps bot-wide grants unavailable without owner/admin authority (%s)", (admin) => {
     fixture.admin = admin;
     const result = view();

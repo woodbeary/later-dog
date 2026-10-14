@@ -1493,5 +1493,20 @@
   "credentialStore.retry": "Réessayer le déverrouillage",
   "credentialStore.retryFailed": "Les identifiants enregistrés restent illisibles. Réessaie, ou quitte et rouvre {app}.",
   "credentialStore.saveFailed": "La clé n’a pas pu être enregistrée de façon sécurisée. Elle est toujours dans ce champ. Réessaie de l’enregistrer.",
-  "credentialStore.unavailable": "Les identifiants enregistrés n’ont pas pu être lus. Réessaie de les déverrouiller, ou quitte et rouvre {app}. Autorise l’accès au trousseau si cela t’est demandé."
+  "credentialStore.unavailable": "Les identifiants enregistrés n’ont pas pu être lus. Réessaie de les déverrouiller, ou quitte et rouvre {app}. Autorise l’accès au trousseau si cela t’est demandé.",
+  "chat.exchange.messaged": "Message à",
+  "chat.exchange.messageFrom": "Message de",
+  "chat.exchange.messagesWith": "{count} messages avec",
+  "chat.exchange.open": "Lire ce que {first} et {second} se sont dit",
+  "chat.exchange.close": "Fermer la discussion",
+  "chat.exchange.readOnly": "Les chiens se sont écrit ceci. Vous pouvez lire, mais pas répondre ici.",
+  "chat.exchange.empty": "Rien n'a encore été dit entre eux.",
+  "chat.routine.created": "Routine créée",
+  "chat.routine.open": "Ouvrir la routine {name}",
+  "approval.status.allowedOnce": "Autorisé une fois",
+  "approval.status.alwaysAllowed": "Toujours autorisé",
+  "approval.status.allowedForChat": "Autorisé pour cette discussion",
+  "approval.tool.messageDog": "écrire à un autre chien",
+  "approval.tool.delegateDog": "confier du travail à un autre chien",
+  "approval.tool.postRoom": "publier dans un salon"
 }

@@ -207,6 +207,9 @@ process.stdin.on("data", (chunk) => {
     }
 
     if (msg.method) calls.push({ method: msg.method, params: msg.params ?? null });
+    if (msg.method && process.env.FAKE_CODEX_CALLS_LOG) {
+      appendFileSync(process.env.FAKE_CODEX_CALLS_LOG, `${JSON.stringify({ pid: process.pid, method: msg.method, params: msg.params ?? null })}\n`);
+    }
 
     switch (msg.method) {
       case "initialize":

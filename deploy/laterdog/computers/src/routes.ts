@@ -21,6 +21,7 @@ export type Route =
   | { kind: "decide" }
   | { kind: "voices" }
   | { kind: "chat" }
+  | { kind: "complete" }
   | { kind: "plan"; op: "status" | "checkout" | "cancel" }
   | { kind: "plan_done" }
   | { kind: "speak"; voiceId: string }
@@ -61,6 +62,7 @@ export function route(method: string, pathname: string): Route {
   if (pathname === "/v1/systemone") return method === "POST" ? { kind: "decide" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/voice/voices") return method === "GET" ? { kind: "voices" } : { kind: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/v1/voice/speech-to-text") return method === "POST" ? { kind: "transcribe" } : { kind: "method_not_allowed", allow: ["POST"] };
+  if (pathname === "/v1/complete") return method === "POST" ? { kind: "complete" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/ai/chat/completions") return method === "POST" ? { kind: "chat" } : { kind: "method_not_allowed", allow: ["POST"] };
   if (pathname === "/v1/plan") {
     const op = method === "GET" ? "status" : method === "DELETE" ? "cancel" : undefined;

@@ -1501,5 +1501,20 @@
   "credentialStore.retry": "Erneut entsperren",
   "credentialStore.retryFailed": "Gespeicherte Anmeldedaten können weiterhin nicht gelesen werden. Versuche es erneut oder beende und öffne {app} neu.",
   "credentialStore.saveFailed": "Der Schlüssel konnte nicht sicher gespeichert werden. Er steht noch in diesem Feld. Versuche erneut, ihn zu speichern.",
-  "credentialStore.unavailable": "Gespeicherte Anmeldedaten konnten nicht gelesen werden. Versuche erneut, sie zu entsperren, oder beende und öffne {app} neu. Erlaube den Zugriff auf den Schlüsselbund, wenn du dazu aufgefordert wirst."
+  "credentialStore.unavailable": "Gespeicherte Anmeldedaten konnten nicht gelesen werden. Versuche erneut, sie zu entsperren, oder beende und öffne {app} neu. Erlaube den Zugriff auf den Schlüsselbund, wenn du dazu aufgefordert wirst.",
+  "chat.exchange.messaged": "Nachricht an",
+  "chat.exchange.messageFrom": "Nachricht von",
+  "chat.exchange.messagesWith": "{count} Nachrichten mit",
+  "chat.exchange.open": "Lies, was {first} und {second} einander geschrieben haben",
+  "chat.exchange.close": "Chat schließen",
+  "chat.exchange.readOnly": "Die Hunde haben sich das gegenseitig geschrieben. Du kannst mitlesen, aber hier nicht antworten.",
+  "chat.exchange.empty": "Zwischen ihnen wurde noch nichts gesagt.",
+  "chat.routine.created": "Routine erstellt",
+  "chat.routine.open": "Routine {name} öffnen",
+  "approval.status.allowedOnce": "Einmal erlaubt",
+  "approval.status.alwaysAllowed": "Immer erlaubt",
+  "approval.status.allowedForChat": "Für diesen Chat erlaubt",
+  "approval.tool.messageDog": "einem anderen Hund schreiben",
+  "approval.tool.delegateDog": "einem anderen Hund Arbeit übergeben",
+  "approval.tool.postRoom": "in einem Raum posten"
 }

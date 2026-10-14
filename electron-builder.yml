@@ -24,6 +24,7 @@ files:
   - "!electron/resources/recorder-helper-Info.plist"
   - "!electron/resources/later.dog Recorder.app/**"
   - "!electron/resources/app-update.yml"
+  - "!electron/resources/app-update-dev.yml"
   - "!**/node_modules/**"
   - package.json
 

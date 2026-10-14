@@ -153,6 +153,7 @@ export interface WireBot {
   tasks?: WireTask[];
   projects?: BotProject[];
   name: string;
+  formerNames?: string[];
   title: string;
   description: string;
   soul?: string;
@@ -282,7 +283,7 @@ export interface WireMessage {
   routedBy?: { provider: "jev"; probability: number };
   peerAsk?: { botId: string; name: string; unattended?: boolean };
   reactions?: Array<{ emoji: string; by: string }>;
-  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: string };
+  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: string; direction?: "to" | "from" };
   threadRef?: { botId: string; threadId: string; title: string };
   cloudTask?: import("./cloud-task.ts").CloudTaskRef;
   queued?: boolean;
@@ -307,6 +308,7 @@ export interface OptionCardData {
   heldCode?: string;
   allowKey?: string;
   allowSession?: boolean;
+  answerScope?: "once" | "always" | "chat";
   commandAllowlist?: CommandAllowlistCandidate;
   approvalScope?: "local-computer";
   autoApplied?: boolean;

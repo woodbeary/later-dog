@@ -59,7 +59,7 @@ export function supervisorConnection(): SupervisorConnection {
     const saved = connectionSchema.parse(JSON.parse(readFileSync(file,"utf8")));
     return { origin: validOrigin(saved.url), tokenFile: saved.tokenFile, source: "file" };
   }
-  return { origin: "http://127.0.0.1:9010", source: "local" };
+  return { origin: `http://127.0.0.1:${Number(process.env.LATERDOG_PORT) || 9010}`, source: "local" };
 }
 export function supervisorOrigin(): string { return supervisorConnection().origin; }
 export function desktopSupervisorToken(): string {

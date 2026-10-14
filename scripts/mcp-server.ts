@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import readline from "node:readline";
+import { localControlTokenPath, localToolsHeaders } from "./local-control-token.ts";
+
+const NEEDS_AUTHORIZATION = new Set(["this change must come from the desktop app or a paired device", "desktop owner capability required"]);
 
 export function validateBaseUrl(url: string): string {
   const trimmed = url.replace(/\/+$/, "");
@@ -31,10 +34,12 @@ export function validateBaseUrl(url: string): string {
 const configuredUrl = process.env.LATERDOG_URL ||
   (process.env.LATERDOG_SERVER_PORT ? `http://127.0.0.1:${process.env.LATERDOG_SERVER_PORT}` : undefined);
 
-export const LATERDOG_BASE_URL = validateBaseUrl(configuredUrl || "http://127.0.0.1:8799");
+export const VARIANT_SERVER_PORTS = { release: [8799, 18799, 28799], dev: [8999, 18999, 28999] } as const;
+const targetPorts = process.env.LATERDOG_VARIANT?.trim().toLowerCase() === "dev" ? VARIANT_SERVER_PORTS.dev : VARIANT_SERVER_PORTS.release;
+export const LATERDOG_BASE_URL = validateBaseUrl(configuredUrl || `http://127.0.0.1:${targetPorts[0]}`);
 const DISCOVERY_URLS = configuredUrl
   ? [LATERDOG_BASE_URL]
-  : [8799, 18799, 28799].map((port) => `http://127.0.0.1:${port}`);
+  : targetPorts.map((port) => `http://127.0.0.1:${port}`);
 let discoveredBaseUrl: string | undefined;
 
 export function log(msg: string) {
@@ -48,29 +53,29 @@ function requestTimeoutMs(): number {
   return Number.isFinite(raw) && raw >= 1_000 && raw <= 120_000 ? Math.floor(raw) : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
-function requestHeaders(options: RequestInit): NonNullable<RequestInit["headers"]> {
+function requestHeaders(url: string, options: RequestInit, discovery: boolean): NonNullable<RequestInit["headers"]> {
   const token = process.env.LATERDOG_SERVER_TOKEN?.trim();
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+  if (!discovery) for (const [name, value] of Object.entries(localToolsHeaders(url))) if (!headers.has(name)) headers.set(name, value);
   return headers;
 }
 
-async function fetchJson(url: string, options: RequestInit = {}): Promise<any> {
+async function fetchJson(url: string, options: RequestInit = {}, discovery = false): Promise<any> {
   const timeout = AbortSignal.timeout(requestTimeoutMs());
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   const response = await fetch(url, {
     ...options,
     signal,
-    headers: requestHeaders(options),
+    headers: requestHeaders(url, options, discovery),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     if (response.status === 403 && !process.env.LATERDOG_SERVER_TOKEN?.trim()) {
-      throw new Error(
-        "later.dog refused this write because the installed desktop app requires a paired session token. " +
-        "Set LATERDOG_SERVER_TOKEN as described in docs/mcp-server.md.",
-      );
+      const reason = (() => { try { const error = JSON.parse(text)?.error; return typeof error === "string" ? error.replace(/^forbidden: /, "") : undefined; } catch { return undefined; } })();
+      if (reason && !NEEDS_AUTHORIZATION.has(reason)) throw new Error(`later.dog refused this: ${reason}`);
+      throw new Error(`later.dog refused this write. The installed desktop app lets local tools make changes with the token it writes to ${localControlTokenPath()} when it starts; restart later.dog if that file is missing, or set LATERDOG_SERVER_TOKEN to a paired session token as described in docs/mcp-server.md.`);
     }
     throw new Error(`later.dog API error (${response.status}): ${text || response.statusText}`);
   }
@@ -88,7 +93,7 @@ export async function probeBaseUrls(candidates: string[]): Promise<string> {
     try {
       const health = await fetchJson(`${candidate}/api/health`, {
         signal: AbortSignal.timeout(Math.min(requestTimeoutMs(), 2_000)),
-      });
+      }, true);
       if (health?.app !== "laterdog") {
         failures.push(`${candidate} answered, but it was not later.dog`);
         continue;

@@ -141,3 +141,13 @@ describe("workspace credential env", () => {
     expect(Object.keys(env).sort()).toEqual(WORKSPACE_CREDENTIALS.map((c) => c.env).sort());
   });
 });
+
+describe("the typing suggestions Cloudflare token", () => {
+  it("moves out of the config file into the credential store, keeping the account id and model", () => {
+    const result = migrateWorkspaceCredentials({ typing: { accountId: "0123456789abcdef0123456789abcdef", token: "cf-secret", model: "@cf/meta/llama-3.2-3b-instruct" } }, {});
+    expect(result.credentials).toEqual({ cloudflareAiToken: "cf-secret" });
+    expect(result.config.typing).toEqual({ accountId: "0123456789abcdef0123456789abcdef", model: "@cf/meta/llama-3.2-3b-instruct" });
+    expect(workspaceCredentialEnv(result.credentials)).toEqual({ LATERDOG_CLOUDFLARE_AI_TOKEN: "cf-secret" });
+    expect(WORKSPACE_CREDENTIALS.some((entry) => entry.name === "cloudflareAiToken")).toBe(true);
+  });
+});

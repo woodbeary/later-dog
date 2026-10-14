@@ -9,10 +9,9 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { companionDefaults } from "./variant.ts";
 
-export const DATA_DIR = process.env.LATERDOG_COMPANION_DIR ?? join(homedir(), ".laterdog-companion");
+export const DATA_DIR = process.env.LATERDOG_COMPANION_DIR ?? companionDefaults().dataDir;
 
 const DIR_MODE = 0o700;
 export const FILE_MODE = 0o600;

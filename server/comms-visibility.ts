@@ -64,7 +64,7 @@ export function mirrorExchange(
     kind: "activity",
     tool: { name: `Messaged @${target.name}` },
     comm: channel
-      ? { groupId: channel.id, withBotId: target.id, withName: target.name, withColor: target.color }
+      ? { groupId: channel.id, withBotId: target.id, withName: target.name, withColor: target.color, direction: "to" }
       : undefined,
   });
   note(target.threadId, {
@@ -72,7 +72,7 @@ export function mirrorExchange(
     kind: "activity",
     tool: { name: `Message from @${from.name}` },
     comm: channel
-      ? { groupId: channel.id, withBotId: from.id, withName: from.name, withColor: from.color }
+      ? { groupId: channel.id, withBotId: from.id, withName: from.name, withColor: from.color, direction: "from" }
       : undefined,
   });
   if (channel) markMirrored(bus, channel, notify);

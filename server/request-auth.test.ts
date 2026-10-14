@@ -586,3 +586,99 @@ describe("loopback trust: owner on one person's machine, service on a shared wor
     expect(as("POST", "/api/auth/pairing", secret, null).auth).toBeNull();
   });
 });
+
+describe("local tools token: local tools work on a packaged desktop, but a dog cannot approve itself", () => {
+  let dir: string;
+  let sessions: SessionRegistry;
+  const cookieName = "laterdog_session_8799_env";
+  const OWNER = "o".repeat(43);
+  const TOOLS = "t".repeat(43);
+  const local = { host: "127.0.0.1:8799" };
+  const check = (method: string, path: string, headers: Record<string, string> = {}, options: { localToolsToken?: string | null } = {}) =>
+    resolveRequestAuth(request({ ...local, ...headers }, method), {
+      sessions, cookieName, streamPath: "/api/events", url: new URL(path, "http://x"),
+      loopbackMutationToken: OWNER, loopbackTrust: "owner",
+      ...(options.localToolsToken === null ? {} : { localToolsToken: options.localToolsToken ?? TOOLS }),
+    });
+  const tools = { "x-laterdog-local-tools": TOOLS };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "laterdog-auth-local-tools-"));
+    sessions = new SessionRegistry({ file: join(dir, "sessions.json") });
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const ALLOWED: Array<[string, string]> = [
+    ["POST", "/api/bots"], ["PATCH", "/api/bots/bot-1"],
+    ["POST", "/api/bots/bot-1/messages"], ["POST", "/api/groups/room-1/messages"], ["POST", "/api/bots/bot-1/messages/m-1/edit"],
+    ["POST", "/api/bots/bot-1/interrupt"], ["POST", "/api/groups/room-1/interrupt"],
+    ["POST", "/api/bots/bot-1/tasks"], ["POST", "/api/bots/bot-1/tasks/thread-1"], ["PATCH", "/api/bots/bot-1/tasks/thread-1"],
+    ["POST", "/api/groups"], ["PATCH", "/api/groups/room-1"], ["POST", "/api/groups/room-1/tasks"], ["PATCH", "/api/groups/room-1/tasks/thread-1"],
+  ];
+  const REFUSED: Array<[string, string]> = [
+    ["POST", "/api/bots/bot-1/respond"], ["POST", "/api/threads/thread-1/respond"], ["PATCH", "/api/bots/bot-1/cards/card-1"],
+    ["POST", "/api/bots/bot-1/always-allow"], ["POST", "/api/bots/bot-1/command-allowlist"], ["PUT", "/api/bots/bot-1/command-allowlist/rule-1"],
+    ["POST", "/api/bots/bot-1/secret-cards/card-1/provide"], ["POST", "/api/bots/bot-1/connector-cards/card-1/authorize"],
+    ["GET", "/api/bots/bot-1/connector-cards/card-1/status"], ["POST", "/api/connectors/github/authorize"],
+    ["GET", "/api/desktop-viewer/session"], ["POST", "/api/desktop-viewer/open"],
+    ["POST", "/api/keys/test"], ["PUT", "/api/config"], ["PATCH", "/api/config"],
+    ["POST", "/api/live/session"], ["POST", "/api/laterdog/jobs/job-1/action"], ["POST", "/api/bots/bot-1/computer/exec"],
+    ["POST", "/api/computers/boxes/box-1/delete"], ["POST", "/api/team-computers"],
+    ["POST", "/api/auth/pairing"], ["DELETE", "/api/auth/pairing/pair-1"], ["PATCH", "/api/instances/claude"], ["POST", "/api/mcp/servers"],
+    ["POST", "/api/teams/import"], ["POST", "/api/workspace-backup/restore"], ["DELETE", "/api/bots/bot-1"], ["POST", "/api/routines"],
+    ["POST", "/api/handoffs/root-1/continue"], ["POST", "/api/bots/bot-1/messages/guarded"], ["PUT", "/api/bots/bot-1"],
+  ];
+
+  it("keeps refusing every change from a local tool that has no token", () => {
+    for (const [method, path] of [...ALLOWED, ...REFUSED].filter(([method]) => method !== "GET")) {
+      const denied = check(method, path);
+      expect(denied.auth, `${method} ${path}`).toBeNull();
+      expect(denied.status).toBe(403);
+      expect(denied.error).toBe("forbidden: this change must come from the desktop app or a paired device");
+    }
+  });
+
+  it("lets a local tool with the token do what a paired device can, as a loopback caller marked as local tools", () => {
+    for (const [method, path] of ALLOWED) {
+      expect(check(method, path, tools).auth, `${method} ${path}`).toEqual({ kind: "loopback", scopes: ["admin", "client"], localTools: true });
+    }
+  });
+
+  it("refuses, even with the token, everything that would let a dog approve itself", () => {
+    for (const [method, path] of REFUSED) {
+      const denied = check(method, path, tools);
+      expect(denied.auth, `${method} ${path}`).toBeNull();
+      expect(denied.status).toBe(403);
+      expect(denied.error, `${method} ${path}`).toMatch(/must not be able to approve its own work.*desktop app or a paired device/);
+      expect(denied.error).not.toMatch(/\buser\b/i);
+    }
+  });
+
+  it("refuses a wrong or stale token, and ignores the header when the desktop has not handed one to the server", () => {
+    const stale = check("POST", "/api/bots/bot-1/messages", { "x-laterdog-local-tools": "s".repeat(43) });
+    expect(stale.auth).toBeNull();
+    expect(stale.error).toMatch(/token is out of date; restart the tool/);
+    expect(check("POST", "/api/bots/bot-1/messages", { "x-laterdog-local-tools": "" }).error).toMatch(/out of date/);
+    const unset = check("POST", "/api/bots/bot-1/messages", tools, { localToolsToken: null });
+    expect(unset.auth).toBeNull();
+    expect(unset.error).toBe("forbidden: this change must come from the desktop app or a paired device");
+  });
+
+  it("never lets the token work through a proxy or from another origin", () => {
+    expect(check("POST", "/api/bots/bot-1/messages", { ...tools, "x-forwarded-for": "203.0.113.9" }).auth).toBeNull();
+    expect(check("POST", "/api/bots/bot-1/messages", { ...tools, origin: "https://evil.example" }).auth).toBeNull();
+    expect(check("POST", "/api/bots/bot-1/messages", { ...tools, host: "c-1.later.dog" }).auth).toBeNull();
+  });
+
+  it("leaves the desktop's own header and reads exactly as they were", () => {
+    expect(check("POST", "/api/bots/bot-1/respond", { "x-laterdog-desktop-owner": OWNER }).auth).toEqual({ kind: "loopback", scopes: ["admin", "client"] });
+    expect(check("POST", "/api/bots/bot-1/respond", { "x-laterdog-desktop-owner": OWNER, ...tools }).auth).toEqual({ kind: "loopback", scopes: ["admin", "client"] });
+    expect(check("GET", "/api/bots", tools).auth).toEqual({ kind: "loopback", scopes: ["admin", "client"] });
+    expect(check("GET", "/api/bots").auth).toEqual({ kind: "loopback", scopes: ["admin", "client"] });
+  });
+
+  it("still lets a paired device approve, since only the desktop and paired devices may", () => {
+    const paired = sessions.issue({ label: "Phone", scopes: ["admin", "client"] });
+    expect(check("POST", "/api/bots/bot-1/respond", { authorization: `Bearer ${paired.token}` }).auth?.kind).toBe("session");
+  });
+});

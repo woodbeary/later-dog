@@ -1,13 +1,14 @@
 import { cn } from "@/lib/cn";
-import { useCallback, useLayoutEffect, useRef, type RefObject, type TextareaHTMLAttributes } from "react";
+import { useCallback, useLayoutEffect, useRef, type ReactNode, type RefObject, type TextareaHTMLAttributes } from "react";
 import { type MentionPeer } from "@/lib/mentions";
 import { MentionText } from "./MentionText";
 
-export function MentionTextarea({ inputRef, peers, everyone = false, wrapperClassName, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+export function MentionTextarea({ inputRef, peers, everyone = false, wrapperClassName, ghost, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & {
   wrapperClassName?: string;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   peers: readonly MentionPeer[];
   everyone?: boolean;
+  ghost?: ReactNode;
 }) {
   const mirrorRef = useRef<HTMLDivElement>(null);
   const sync = useCallback(() => {
@@ -41,7 +42,7 @@ export function MentionTextarea({ inputRef, peers, everyone = false, wrapperClas
   }, [inputRef, resize, sync]);
   return <div className={cn("mention-editor relative min-w-0 flex-1 self-center", wrapperClassName)}>
     <div ref={mirrorRef} dir={props.dir} aria-hidden="true" className="mention-editor-mirror pointer-events-none absolute inset-0 overflow-hidden">
-      <MentionText text={String(props.value ?? "")} peers={peers} everyone={everyone} />{"\n"}
+      <MentionText text={String(props.value ?? "")} peers={peers} everyone={everyone} />{ghost}{"\n"}
     </div>
     <textarea {...props} ref={inputRef} onScroll={(event) => { sync(); props.onScroll?.(event); }} />
   </div>;
