@@ -10,7 +10,7 @@ export function MentionText({ text, peers, everyone = false, faces = false }: {
     const prefix = text.slice(end, range.start);
     end = range.end;
     const style = range.color ? { "--mention-color": range.color } as CSSProperties : undefined;
-    return <Fragment key={range.start}>{prefix}<span className="mention-highlight" style={style}>{faces && <MentionFace color={range.dog} body={range.body} />}{range.display ?? text.slice(range.start, range.end)}</span></Fragment>;
+    return <Fragment key={range.start}>{prefix}<span className="mention-highlight" style={style}>{faces && <MentionFace color={range.dog} body={range.body} />}{(faces && range.display) || text.slice(range.start, range.end)}</span></Fragment>;
   });
   return <>{parts}{text.slice(end)}</>;
 }

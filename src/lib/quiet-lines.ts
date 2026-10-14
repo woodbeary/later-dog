@@ -1,21 +1,28 @@
 import type { Message } from "@/state/store";
+import type { DogColor } from "./mascot";
 import type { TranscriptItem } from "./activity-runs";
+import { peerLine } from "./peer-message";
 
 export type ExchangeDirection = "to" | "from";
 
-type Comm = NonNullable<Message["comm"]>;
+export type ExchangeTarget =
+  | { kind: "group"; groupId: string }
+  | { kind: "thread"; botId: string; threadId: string; title: string };
 
 export interface ExchangeRow {
   message: Message;
-  comm: Comm;
+  withBotId: string;
+  withName: string;
+  withColor: DogColor;
   direction: ExchangeDirection;
+  target: ExchangeTarget;
 }
 
 export interface ExchangeItem {
   kind: "exchange";
   id: string;
   withBotId: string;
-  groupId: string;
+  target: ExchangeTarget;
   messages: Message[];
   rows: ExchangeRow[];
 }
@@ -24,13 +31,63 @@ export type QuietTranscriptItem = TranscriptItem | ExchangeItem;
 
 const LEGACY_TO = /^Messaged @/;
 const LEGACY_FROM = /^Message from @/;
+const SENT_TO = /^Sent to (.+)$/;
+const TEAMMATE_THREAD = /^(?:Opened|Added to) thread #.* on (.+)$/s;
+const ROOM_SUFFIX = / · .*$/;
+
+function teammateName(toolName: string): string | undefined {
+  const named = TEAMMATE_THREAD.exec(toolName)?.[1] ?? SENT_TO.exec(toolName)?.[1];
+  return named?.replace(ROOM_SUFFIX, "").trim() || undefined;
+}
 
 export function exchangeRow(message: Message): ExchangeRow | null {
+  const tool = message.tool;
+  if (message.kind !== "activity" || !tool) return null;
   const comm = message.comm;
-  if (message.kind !== "activity" || !message.tool || !comm) return null;
-  const direction = comm.direction
-    ?? (LEGACY_TO.test(message.tool.name) ? "to" : LEGACY_FROM.test(message.tool.name) ? "from" : undefined);
-  return direction ? { message, comm, direction } : null;
+  if (comm) {
+    const direction = comm.direction
+      ?? (LEGACY_TO.test(tool.name) ? "to" : LEGACY_FROM.test(tool.name) ? "from" : undefined);
+    return direction
+      ? { message, withBotId: comm.withBotId, withName: comm.withName, withColor: comm.withColor, direction, target: { kind: "group", groupId: comm.groupId } }
+      : null;
+  }
+  const ref = message.threadRef;
+  const name = ref ? teammateName(tool.name) : undefined;
+  if (ref && name) {
+    return {
+      message, withBotId: ref.botId, withName: name, withColor: "blue", direction: "to",
+      target: { kind: "thread", botId: ref.botId, threadId: ref.threadId, title: ref.title },
+    };
+  }
+  return null;
+}
+
+function sameTarget(a: ExchangeTarget, b: ExchangeTarget): boolean {
+  return a.kind === "group" ? b.kind === "group" && a.groupId === b.groupId : b.kind === "thread" && a.botId === b.botId;
+}
+
+export function singleExchange(message: Message): ExchangeItem | null {
+  const row = exchangeRow(message);
+  return row
+    ? { kind: "exchange", id: `exchange:${message.id}`, withBotId: row.withBotId, target: row.target, messages: [message], rows: [row] }
+    : null;
+}
+
+function lastRendered(
+  folded: readonly QuietTranscriptItem[],
+  renders: (item: TranscriptItem) => boolean,
+): QuietTranscriptItem | undefined {
+  for (let index = folded.length - 1; index >= 0; index -= 1) {
+    const candidate = folded[index]!;
+    if (candidate.kind === "exchange" || candidate.kind === "turn" || renders(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function isPeerMessageOf(item: ExchangeItem, message: Message): boolean {
+  const peer = peerLine(message);
+  if (peer?.delivery !== "ask_bot") return false;
+  return peer.botId ? peer.botId === item.withBotId : peer.name === item.rows[0]!.withName;
 }
 
 export function foldExchanges(
@@ -39,20 +96,17 @@ export function foldExchanges(
 ): QuietTranscriptItem[] {
   const folded: QuietTranscriptItem[] = [];
   for (const item of items) {
+    const last = lastRendered(folded, renders);
+    if (item.kind === "message" && last?.kind === "exchange" && isPeerMessageOf(last, item.message)) {
+      last.messages.push(item.message);
+      continue;
+    }
     const row = item.kind === "message" ? exchangeRow(item.message) : null;
     if (!row) {
       folded.push(item);
       continue;
     }
-    let last: QuietTranscriptItem | undefined;
-    for (let index = folded.length - 1; index >= 0; index -= 1) {
-      const candidate = folded[index]!;
-      if (candidate.kind === "exchange" || candidate.kind === "turn" || renders(candidate)) {
-        last = candidate;
-        break;
-      }
-    }
-    if (last?.kind === "exchange" && last.withBotId === row.comm.withBotId && last.groupId === row.comm.groupId) {
+    if (last?.kind === "exchange" && last.withBotId === row.withBotId && sameTarget(last.target, row.target)) {
       last.messages.push(row.message);
       last.rows.push(row);
       continue;
@@ -60,8 +114,8 @@ export function foldExchanges(
     folded.push({
       kind: "exchange",
       id: `exchange:${row.message.id}`,
-      withBotId: row.comm.withBotId,
-      groupId: row.comm.groupId,
+      withBotId: row.withBotId,
+      target: row.target,
       messages: [row.message],
       rows: [row],
     });

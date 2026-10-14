@@ -1517,7 +1517,10 @@
       "approval.status.allowedOnce": "c9b7022361744c24049bbcf48872753fa5de737dc62361e390ca0ba940bbea00",
       "approval.status.alwaysAllowed": "94387772bc12e3d7a51d8cbe503f9fdea7e74fee165d521fb8bae0803ad22087",
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
-      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f"
+      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f",
+      "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
+      "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
     },
     "es": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -3027,7 +3030,10 @@
       "approval.status.allowedOnce": "c9b7022361744c24049bbcf48872753fa5de737dc62361e390ca0ba940bbea00",
       "approval.status.alwaysAllowed": "94387772bc12e3d7a51d8cbe503f9fdea7e74fee165d521fb8bae0803ad22087",
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
-      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f"
+      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f",
+      "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
+      "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
     },
     "fr": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -4537,7 +4543,10 @@
       "approval.status.allowedOnce": "c9b7022361744c24049bbcf48872753fa5de737dc62361e390ca0ba940bbea00",
       "approval.status.alwaysAllowed": "94387772bc12e3d7a51d8cbe503f9fdea7e74fee165d521fb8bae0803ad22087",
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
-      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f"
+      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f",
+      "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
+      "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
     },
     "hi": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -6047,7 +6056,10 @@
       "approval.status.allowedOnce": "c9b7022361744c24049bbcf48872753fa5de737dc62361e390ca0ba940bbea00",
       "approval.status.alwaysAllowed": "94387772bc12e3d7a51d8cbe503f9fdea7e74fee165d521fb8bae0803ad22087",
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
-      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f"
+      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f",
+      "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
+      "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
     },
     "ja": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -7559,7 +7571,10 @@
       "approval.status.allowedOnce": "c9b7022361744c24049bbcf48872753fa5de737dc62361e390ca0ba940bbea00",
       "approval.status.alwaysAllowed": "94387772bc12e3d7a51d8cbe503f9fdea7e74fee165d521fb8bae0803ad22087",
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
-      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f"
+      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f",
+      "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
+      "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
     },
     "pt-br": {
       "engines.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
@@ -9082,7 +9097,10 @@
       "approval.status.allowedOnce": "c9b7022361744c24049bbcf48872753fa5de737dc62361e390ca0ba940bbea00",
       "approval.status.alwaysAllowed": "94387772bc12e3d7a51d8cbe503f9fdea7e74fee165d521fb8bae0803ad22087",
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
-      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f"
+      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f",
+      "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
+      "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
     },
     "zh": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -11115,7 +11133,10 @@
       "approval.status.allowedOnce": "c9b7022361744c24049bbcf48872753fa5de737dc62361e390ca0ba940bbea00",
       "approval.status.alwaysAllowed": "94387772bc12e3d7a51d8cbe503f9fdea7e74fee165d521fb8bae0803ad22087",
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
-      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f"
+      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f",
+      "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
+      "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
     },
     "zh-tw": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -13148,7 +13169,10 @@
       "approval.status.allowedOnce": "c9b7022361744c24049bbcf48872753fa5de737dc62361e390ca0ba940bbea00",
       "approval.status.alwaysAllowed": "94387772bc12e3d7a51d8cbe503f9fdea7e74fee165d521fb8bae0803ad22087",
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
-      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f"
+      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f",
+      "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
+      "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
     },
     "uk": {
       "noEngines.title": "91925671ff9403383e723a3afbbc39cb6015c35db9f0564ce4b43ec463ac22de",
@@ -14968,7 +14992,10 @@
       "approval.status.allowedOnce": "c9b7022361744c24049bbcf48872753fa5de737dc62361e390ca0ba940bbea00",
       "approval.status.alwaysAllowed": "94387772bc12e3d7a51d8cbe503f9fdea7e74fee165d521fb8bae0803ad22087",
       "approval.status.allowedForChat": "650a2fcf85b2a6220c7cedd943c4be32c7b22c79ff46cd3fdf8a3db51f594770",
-      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f"
+      "approval.action.never": "6300ef800bb884295b0b4b35682b75cecd7cc550d202db56d04a0643b8fb873f",
+      "approval.tool.messageDog": "bd118394b69267ac1dba7cad568aed73b1f4a2ea407b4f529fe6d684c4176de7",
+      "approval.tool.delegateDog": "6d4f54356e1fed7e741f5f8440c25c4364f27fcfbed10a49c380e42349a64e7c",
+      "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653"
     }
   }
 }

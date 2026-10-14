@@ -1508,5 +1508,8 @@
   "approval.status.allowedOnce": "1回だけ許可",
   "approval.status.alwaysAllowed": "常に許可",
   "approval.status.allowedForChat": "このチャットで許可",
-  "approval.action.never": "常に許可しない"
+  "approval.action.never": "常に許可しない",
+  "approval.tool.messageDog": "別の犬にメッセージを送る",
+  "approval.tool.delegateDog": "別の犬に仕事を任せる",
+  "approval.tool.postRoom": "ルームに投稿する"
 }

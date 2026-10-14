@@ -1506,5 +1506,8 @@
   "approval.status.allowedOnce": "Autorisé une fois",
   "approval.status.alwaysAllowed": "Toujours autorisé",
   "approval.status.allowedForChat": "Autorisé pour cette discussion",
-  "approval.action.never": "Jamais"
+  "approval.action.never": "Jamais",
+  "approval.tool.messageDog": "écrire à un autre chien",
+  "approval.tool.delegateDog": "confier du travail à un autre chien",
+  "approval.tool.postRoom": "publier dans un salon"
 }

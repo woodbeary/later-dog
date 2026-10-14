@@ -21,6 +21,9 @@ import { cloudWakeupOf } from "@/lib/cloud-tasks";
 import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { freshenDogName } from "@/lib/dog-refs";
+import { singleExchange } from "@/lib/quiet-lines";
+import { ExchangeLine } from "./QuietLines";
+import { ExchangeViewHost } from "./ExchangeViewHost";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
@@ -28,7 +31,7 @@ import { UnreadDivider } from "./UnreadDivider";
 import { CompactionChip, DigestChip } from "./DigestChip";
 import { roomActivityVisible, transcriptRowShown } from "@/lib/room-activity";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
-import { normalizeState } from "@/lib/mascot";
+import { DOG_COLORS, normalizeState } from "@/lib/mascot";
 import { defaultResponderName, effectiveDefaultResponder, groupResponseHint, jevRoomRoutingOn } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { FailedTurnRow } from "./ChatView";
@@ -85,6 +88,8 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
   if (failedTurnCause(tool.name) !== null) {
     return <FailedTurnRow tool={tool} engine={botEngine(state.bots.find((b) => b.id === message.from?.botId), state.instances)} botId={message.from?.botId} />;
   }
+  const solo = singleExchange(message);
+  if (solo && !(solo.target.kind === "group" && solo.target.groupId === roomId)) return <ExchangeLine item={solo} />;
   const comm = message.comm;
   if (comm && comm.groupId !== roomId) {
     const withBot = state.bots.find((b) => b.id === comm.withBotId);
@@ -125,7 +130,8 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
   );
 }
 
-function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: string }) {
+function ClusterLabel({ bot, name, color, tinted = false }: { bot?: Bot; name: string; color: string; tinted?: boolean }) {
+  const tint = tinted && Object.hasOwn(DOG_COLORS, color) ? DOG_COLORS[color as Bot["color"]] : undefined;
   return (
     <div className="mt-1 flex items-center gap-1.5 pl-0.5">
       <BotAvatar
@@ -136,7 +142,12 @@ function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: st
         motionKey={0}
         animated={false}
       />
-      <span className="text-[11px] font-medium text-ink-secondary">{name}</span>
+      <span
+        className={cn("font-medium", tint ? "text-[12px]" : "text-[11px] text-ink-secondary")}
+        style={tint ? { color: `color-mix(in oklab, ${tint} 72%, var(--color-ink))` } : undefined}
+      >
+        {name}
+      </span>
     </div>
   );
 }
@@ -216,7 +227,7 @@ export const Transcript = memo(function Transcript({
               )}
               {unreadDivider(item.messages)}
               {first.from && cluster && (
-                <ClusterLabel bot={memberOf(first.from.botId)} name={memberOf(first.from.botId)?.name ?? first.from.name} color={memberOf(first.from.botId)?.color ?? first.from.color} />
+                <ClusterLabel bot={memberOf(first.from.botId)} name={memberOf(first.from.botId)?.name ?? first.from.name} color={memberOf(first.from.botId)?.color ?? first.from.color} tinted={readOnly} />
               )}
               <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
                 {item.messages.map((step) => (
@@ -404,7 +415,7 @@ export const Transcript = memo(function Transcript({
             )}
             {unreadDivider([m])}
             {!user && m.from && newCluster && !(m.kind === "activity" && m.comm) && (
-              <ClusterLabel bot={memberOf(m.from.botId)} name={memberOf(m.from.botId)?.name ?? m.from.name} color={memberOf(m.from.botId)?.color ?? m.from.color} />
+              <ClusterLabel bot={memberOf(m.from.botId)} name={memberOf(m.from.botId)?.name ?? m.from.name} color={memberOf(m.from.botId)?.color ?? m.from.color} tinted={readOnly} />
             )}
             {row}
           </div>
@@ -1126,6 +1137,7 @@ export function GroupView({ group }: { group: Group }) {
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       <GroupCallOverlay group={group} members={members} />
+      <ExchangeViewHost botId={group.id} />
       {membersOpen && !remoteClient && !group.dm && (
         <ManageMembersPanel group={group} onClose={closeMembers} triggerRef={membersTriggerRef} />
       )}

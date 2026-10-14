@@ -113,6 +113,9 @@ export function toolLabel(tool?: string, where?: "local-computer"): string {
     other: "approval.tool.takeAction",
     tool: "approval.tool.useTool",
     select_computer: "approval.tool.chooseComputer",
+    ask_bot: "approval.tool.messageDog",
+    delegate_bot: "approval.tool.delegateDog",
+    post_to_room: "approval.tool.postRoom",
   };
   const key = nice[tool] ?? nice[tool.replace(/^mcp__[^_]+__/, "").replace(/^agents_/, "")];
   if (key) return t(key);
@@ -205,13 +208,16 @@ function useCardUndo(card: OptionCardData, threadId?: string) {
   return { undoing, error, undo };
 }
 
-function UndoButton({ undoing, onUndo }: { undoing: boolean; onUndo: () => void }) {
+function UndoButton({ undoing, onUndo, quiet = false }: { undoing: boolean; onUndo: () => void; quiet?: boolean }) {
   return (
     <button
       type="button"
       onClick={onUndo}
       disabled={undoing}
-      className="rounded-md px-1.5 py-0.5 font-medium text-accent hover:bg-inset disabled:opacity-60"
+      className={cn(
+        "rounded-md px-1.5 py-0.5 disabled:opacity-60",
+        quiet ? "text-[13px] leading-[18px] text-ink-tertiary hover:text-ink-secondary" : "font-medium text-accent hover:bg-inset",
+      )}
     >
       {undoing ? t("approval.applied.undoing") : t("approval.applied.undo")}
     </button>
@@ -294,7 +300,7 @@ function RoutineCreatedRow({
         onOpen={live && dispatch && !undone ? () => dispatch({ type: "showRoutines", routineId: live.id, botId: live.botId }) : undefined}
         trailing={undone
           ? <span className="text-[13px] text-ink-tertiary">· {t("approval.applied.undone")}</span>
-          : canUndo && threadId ? <UndoButton undoing={undoing} onUndo={undo} /> : undefined}
+          : canUndo && threadId ? <UndoButton quiet undoing={undoing} onUndo={undo} /> : undefined}
       />
       {error && <div role="alert" className="text-[12.5px] text-warning">{error}</div>}
     </div>
@@ -423,6 +429,7 @@ export function ApprovalCard({
       summary={<><span className="min-w-0 truncate">{outcome}{foldedAction && <span className="text-ink-tertiary"> · {foldedAction}</span>}</span>{byVoice}</>}
       title={foldedAction ? `${outcome} · ${foldedAction}` : outcome}
       arriving={false}
+      centered={Boolean(foldedAction)}
     >
       {body}
     </FoldedCard>

@@ -44,6 +44,12 @@ describe("how an approval was answered", () => {
     expect(store.patches[0]!.patch.card).not.toHaveProperty("answered");
   });
 
+  it("does not label a proposal, which already says what it changed", () => {
+    const routine = fakeStore([card({ routineRequest: { version: 1, requestId: "r1", botId: "b", threadId: "t", createdAt: 1, operation: { action: "delete", routineId: "x", expectedUpdatedAt: 1 } } })]);
+    recordAnswerScope(routine, "t1", "r1", "allow", {});
+    expect(routine.patches).toEqual([]);
+  });
+
   it("leaves a refusal, an answered card and a question alone", () => {
     const refusal = fakeStore([card()]);
     recordAnswerScope(refusal, "t1", "r1", "deny", {});

@@ -1514,5 +1514,8 @@
   "approval.status.allowedOnce": "Einmal erlaubt",
   "approval.status.alwaysAllowed": "Immer erlaubt",
   "approval.status.allowedForChat": "Für diesen Chat erlaubt",
-  "approval.action.never": "Nie"
+  "approval.action.never": "Nie",
+  "approval.tool.messageDog": "einem anderen Hund schreiben",
+  "approval.tool.delegateDog": "einem anderen Hund Arbeit übergeben",
+  "approval.tool.postRoom": "in einem Raum posten"
 }

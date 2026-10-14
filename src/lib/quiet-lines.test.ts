@@ -9,6 +9,11 @@ const comm = (direction: "to" | "from" | undefined, withBotId = "d2", name = "St
   tool: { name: direction === "from" ? `Message from @${name}` : `Messaged @${name}` },
   comm: { groupId, withBotId, withName: name, withColor: "purple", ...(direction ? { direction } : {}) },
 });
+const sent = (botId: string, name: string, threadId = `t-${botId}`): Message => ({
+  id: `m${++n}`, role: "bot", kind: "activity", at: n * 1000,
+  tool: { name: `Sent to ${name}`, ok: true },
+  threadRef: { botId, threadId, title: "Teammate work" },
+});
 const text = (body: string): Message => ({ id: `m${++n}`, role: "bot", kind: "text", at: n * 1000, text: body });
 const tool = (name: string): Message => ({ id: `m${++n}`, role: "bot", kind: "activity", at: n * 1000, tool: { name, ok: true } });
 
@@ -33,6 +38,45 @@ describe("dog-to-dog lines", () => {
     expect(exchangeRow(post)).toBeNull();
     expect(exchangeRow(result)).toBeNull();
     expect(exchangeRow(tool("Bash"))).toBeNull();
+  });
+
+  it("treats a hand-off to a teammate's thread as a Messaged line that opens that thread", () => {
+    const row = exchangeRow(sent("d5", "Engineer"));
+    expect(row).toMatchObject({ direction: "to", withBotId: "d5", withName: "Engineer", target: { kind: "thread", botId: "d5", threadId: "t-d5" } });
+    const room = sent("d5", "Engineer");
+    room.tool = { name: "Sent to Engineer · Launch", ok: true };
+    expect(exchangeRow(room)?.withName).toBe("Engineer");
+  });
+
+  it("collapses repeat hand-offs to the same teammate and keeps different teammates apart", () => {
+    const items = fold([sent("d5", "Engineer"), sent("d5", "Engineer"), sent("d6", "Writer")]);
+    expect(items.map((item) => item.kind)).toEqual(["exchange", "exchange"]);
+    const first = items[0]!;
+    expect(first.kind === "exchange" && exchangeWording(first)).toEqual({ key: "chat.exchange.messagesWith", count: 2 });
+  });
+
+  it("reads the chips a dog's hand-off really leaves: opened a thread, added to a thread", () => {
+    const opened = sent("d5", "x");
+    opened.tool = { name: "Opened thread #Colour question on Study Helper", ok: true };
+    const added = sent("d5", "x");
+    added.tool = { name: "Added to thread #Colour question on Study Helper", ok: true };
+    expect(exchangeRow(opened)).toMatchObject({ withName: "Study Helper", direction: "to" });
+    expect(exchangeRow(added)).toMatchObject({ withName: "Study Helper", direction: "to" });
+    const items = fold([opened, added]);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind === "exchange" && exchangeWording(items[0]!)).toEqual({ key: "chat.exchange.messagesWith", count: 2 });
+  });
+
+  it("leaves a thread a dog opened on itself as the ordinary chip", () => {
+    const own = sent("d1", "x");
+    own.tool = { name: "Opened thread #Review PR 4", ok: true };
+    expect(exchangeRow(own)).toBeNull();
+  });
+
+  it("does not call a teammate's result a sent message", () => {
+    const result = sent("d5", "Engineer");
+    result.tool = { name: "Engineer finished", ok: true, output: "done" };
+    expect(exchangeRow(result)).toBeNull();
   });
 
   it("shows one quiet Messaged line for one message", () => {
@@ -65,6 +109,22 @@ describe("dog-to-dog lines", () => {
     expect(hidden.filter((item) => item.kind === "exchange")).toHaveLength(1);
     const shown = fold([comm("to"), tool("Bash"), tool("Read"), comm("to")], true);
     expect(shown.filter((item) => item.kind === "exchange")).toHaveLength(2);
+  });
+
+  it("tucks the other dog's written message into the line instead of showing it as a bubble", () => {
+    const asked: Message = { id: `m${++n}`, role: "user", kind: "text", at: n * 1000, text: "what color is the sky?", peerAsk: { botId: "d2", name: "Study Helper" } };
+    const reply = text("Blue, most days.");
+    const items = fold([comm("from"), asked, reply]);
+    expect(items.map((item) => item.kind)).toEqual(["exchange", "message"]);
+    const line = items[0]!;
+    expect(line.kind === "exchange" && line.messages.map((m) => m.id)).toEqual([line.kind === "exchange" ? line.messages[0]!.id : "", asked.id]);
+    expect(line.kind === "exchange" && exchangeWording(line)).toEqual({ key: "chat.exchange.messageFrom", count: 1 });
+  });
+
+  it("keeps a peer message that has no line before it, and one from a different dog", () => {
+    const asked: Message = { id: `m${++n}`, role: "user", kind: "text", at: n * 1000, text: "hi", peerAsk: { botId: "d9", name: "Other" } };
+    expect(fold([asked]).map((item) => item.kind)).toEqual(["message"]);
+    expect(fold([comm("from", "d2"), asked]).map((item) => item.kind)).toEqual(["exchange", "message"]);
   });
 
   it("never reorders or drops anything else", () => {

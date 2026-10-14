@@ -1506,5 +1506,8 @@
   "approval.status.allowedOnce": "एक बार अनुमति दी",
   "approval.status.alwaysAllowed": "हमेशा के लिए अनुमति दी",
   "approval.status.allowedForChat": "इस चैट के लिए अनुमति दी",
-  "approval.action.never": "कभी नहीं"
+  "approval.action.never": "कभी नहीं",
+  "approval.tool.messageDog": "दूसरे कुत्ते को संदेश भेजना",
+  "approval.tool.delegateDog": "दूसरे कुत्ते को काम सौंपना",
+  "approval.tool.postRoom": "किसी रूम में पोस्ट करना"
 }

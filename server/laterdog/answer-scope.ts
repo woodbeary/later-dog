@@ -11,6 +11,11 @@ export function answerScopeOf(behavior: string, body: ScopeBody): AnswerScope | 
   return "once";
 }
 
+function isProposal(card: NonNullable<Message["card"]>): boolean {
+  return Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest ||
+    card.teamSetupRequest || card.questionRequest || card.takeoverRequest);
+}
+
 export function recordAnswerScope(
   store: Pick<Store, "messagesFor" | "patchMessage">,
   threadId: string,
@@ -22,6 +27,6 @@ export function recordAnswerScope(
   if (!scope) return;
   const message: Message | undefined = store.messagesFor(threadId).find((candidate) =>
     candidate.card?.requestId === requestId && candidate.card.tool && !candidate.card.answered);
-  if (!message?.card) return;
+  if (!message?.card || isProposal(message.card)) return;
   store.patchMessage(threadId, message.id, { card: { ...message.card, answerScope: scope } });
 }

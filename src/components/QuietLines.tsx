@@ -1,6 +1,6 @@
 import { memo, type ReactNode } from "react";
 import { Timer } from "lucide-react";
-import { useStore } from "@/state/store";
+import { openThread, useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { currentDogName } from "@/lib/dog-refs";
@@ -52,20 +52,24 @@ export const ExchangeLine = memo(function ExchangeLine({ item }: { item: Exchang
   const { state, dispatch } = useStore();
   const first = item.rows[0]!;
   const withBot = state.bots.find((bot) => bot.id === item.withBotId);
-  const name = currentDogName(state.bots, item.withBotId, first.comm.withName);
+  const name = currentDogName(state.bots, item.withBotId, first.withName);
   const wording = exchangeWording(item);
-  const group = state.groups.find((candidate) => candidate.id === item.groupId);
+  const target = item.target;
+  const group = target.kind === "group" ? state.groups.find((candidate) => candidate.id === target.groupId) : undefined;
+  const readOnly = target.kind === "group" && (!group || group.dm);
   const members = group?.memberIds.map((id) => currentDogName(state.bots, id, "")) ?? [];
   const [one, two] = members.length === 2 ? members : [name, name];
+  const label = readOnly ? t("chat.exchange.open", { first: one, second: two }) : t("chat.openConversationWith", { name });
+  const open = () => {
+    if (target.kind === "thread") openThread(dispatch, { botId: target.botId, threadId: target.threadId }, state);
+    else if (readOnly) openExchange(target.groupId);
+    else dispatch({ type: "select", id: target.groupId });
+  };
   return (
-    <QuietLine
-      onClick={() => (group && !group.dm ? dispatch({ type: "select", id: item.groupId }) : openExchange(item.groupId))}
-      label={t("chat.exchange.open", { first: one, second: two })}
-      title={t("chat.exchange.open", { first: one, second: two })}
-    >
+    <QuietLine onClick={open} label={label} title={label}>
       <span data-exchange-label>{t(wording.key, { count: wording.count })}</span>
       <BotAvatar
-        bot={withBot ?? { name, color: first.comm.withColor }}
+        bot={withBot ?? { name, color: first.withColor }}
         state="happy"
         size={QUIET_FACE_SIZE}
         motion="none"

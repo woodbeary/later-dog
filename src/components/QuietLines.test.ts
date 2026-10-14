@@ -57,6 +57,18 @@ describe("the quiet exchange line", () => {
   });
 });
 
+describe("the quiet line for a hand-off to a teammate's thread", () => {
+  const sent: Message = {
+    id: "s1", role: "bot", kind: "activity", at: 1, tool: { name: "Sent to Study Helper", ok: true },
+    threadRef: { botId: "d2", threadId: "t2", title: "Colour question" },
+  };
+  it("reads Messaged and the current name, and says it opens the conversation", () => {
+    const html = render([boss, { ...helper, name: "Tutor", formerNames: ["Study Helper"] }], [sent]);
+    expect(html).toMatch(/Messaged<\/span>.*<svg.*Tutor<\/span>/);
+    expect(html).toContain('aria-label="Open the conversation with Tutor"');
+  });
+});
+
 describe("the quiet routine line", () => {
   it("reads Created routine, a timer, and the name", () => {
     const html = renderToStaticMarkup(createElement(RoutineCreatedLine, { name: "Weekday check", onOpen: () => {} }));

@@ -1506,5 +1506,8 @@
   "approval.status.allowedOnce": "Permitido una vez",
   "approval.status.alwaysAllowed": "Permitido siempre",
   "approval.status.allowedForChat": "Permitido para este chat",
-  "approval.action.never": "Nunca"
+  "approval.action.never": "Nunca",
+  "approval.tool.messageDog": "escribir a otro perro",
+  "approval.tool.delegateDog": "pasarle trabajo a otro perro",
+  "approval.tool.postRoom": "publicar en una sala"
 }

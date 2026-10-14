@@ -107,6 +107,35 @@ reason otherwise; `LATERDOG_UI_E2E=1` forces the verified download. The `ui-smok
 job in `.github/workflows/ci.yml` runs every renderer test in `scripts/testing`
 on Ubuntu 24.04 and uploads the screenshots; it is not one of the required checks.
 
+## Quiet dog lines, routine line, mentions, renames and approvals
+
+A dog that hands work to another dog leaves one small grey line in the person's
+chat: `Messaged ◯ Name`, or `2 messages with ◯ Name` when repeats sit together.
+Older `Messaged @Name` rows (the dog-to-dog channel kind) read the same way and
+open a read-only view of the exchange with a Close chat button; a hand-off into
+a teammate's thread opens that thread. A routine a dog creates reads
+`Created routine ⏲ name` and opens that routine in Routines. An answered
+permission folds to `Allowed once`, `Always allowed`, `Allowed for this chat`
+or `Denied` with the tool's short name; the open card offers Always allow,
+Allow once and Never.
+
+Names are read by dog id, and the server keeps a dog's earlier names
+(`formerNames`), so a rename shows everywhere (sidebar, lines, mentions, the
+exchange header, room labels) while old message text stays as written.
+
+```sh
+pnpm exec vitest run src/lib/quiet-lines.test.ts src/lib/dog-refs.test.ts \
+  src/components/QuietLines.test.ts src/components/ApprovalCard.test.ts \
+  src/lib/mentions.test.ts server/laterdog/rename-everywhere.test.ts \
+  server/laterdog/rename-capability.test.ts server/laterdog/answer-scope.test.ts
+```
+
+For the screen, launch `ui launch` with `FAKE_CLAUDE_ROOM_PLAN` pointing at a
+plan that has one dog call `send_to_bot`, `propose_routine` and
+`propose_profile` (its own new name) and answer the cards it raises from the
+approval panel. `scripts/testing/exchange-preview.tsx` mounts the real chat
+against fixed data, including an older channel exchange, for the read-only view.
+
 ## Thinking timer across thread switches
 
 `scripts/testing/thinking-timer-ui.e2e.test.ts` holds the working row's
