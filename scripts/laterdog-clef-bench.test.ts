@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { CLEF_IMAGE_MAX_BYTES } from "../server/laterdog/clef-images.ts";
-import { SCREENS_DIR, formatReport, percentile, runClefBench } from "./laterdog-clef-bench.ts";
+import { SCREENS_DIR, formatReport, percentile, reviewMistake, runClefBench } from "./laterdog-clef-bench.ts";
 import { REVIEW_CASES, SCREEN_CASES, TURN_CASES } from "./testing/clef-bench/cases.ts";
 
 describe("the Clef bench fixtures", () => {
@@ -58,6 +58,36 @@ describe("the Clef bench", () => {
     const median = (model: string) => report.rows.find((row) => row.model === model && row.call === "turnEnd")!.medianMs!;
     expect(median("clef-flash")).toBeLessThan(median("clef"));
     expect(formatReport(report)).toContain("DRY RUN");
+  });
+
+  it("lists every case with what was expected and what came back, so wrong verdicts can be found", async () => {
+    const report = await runClefBench({ dry: true, repeat: 3, models: ["clef-flash"], only: ["autoReview"] });
+    expect(report.details).toHaveLength(REVIEW_CASES.length * 3);
+    const wrong = report.details.filter((detail) => detail.correct === false);
+    expect(wrong.length).toBeGreaterThan(0);
+    for (const detail of report.details) {
+      expect(detail).toMatchObject({ model: "clef-flash", call: "autoReview", question: "verdict" });
+      expect(detail.expected).toMatch(/^(ask|allow rule \d|block rule \d)$/);
+    }
+    const allowed = report.details.find((detail) => detail.id === "run-tests")!;
+    expect(allowed.expected).toBe("allow rule 2");
+  });
+
+  it("names the kind of each wrong verdict, and lists them in the plain report", async () => {
+    const report = await runClefBench({ dry: true, repeat: 3, models: ["clef-flash"], only: ["autoReview"] });
+    for (const detail of report.details) expect(Boolean(detail.mistake)).toBe(detail.correct === false);
+    const text = formatReport(report);
+    expect(text).toContain("Wrong auto-review verdicts:");
+    expect(text).toMatch(/\[(false_allow|false_block|missed_allow|missed_block|wrong_rule)\]/);
+    const ask = REVIEW_CASES.find((c) => c.expect.kind === "ask")!;
+    const allow = REVIEW_CASES.find((c) => c.expect.kind === "allow")!;
+    const block = REVIEW_CASES.find((c) => c.expect.kind === "block")!;
+    expect(reviewMistake({ kind: "allow", rule: "x", probability: 1 }, ask)).toBe("false_allow");
+    expect(reviewMistake({ kind: "allow", rule: "x", probability: 1 }, block)).toBe("false_allow");
+    expect(reviewMistake({ kind: "block", rule: "x", probability: 1 }, allow)).toBe("false_block");
+    expect(reviewMistake({ kind: "ask", reason: "unsure" }, allow)).toBe("missed_allow");
+    expect(reviewMistake({ kind: "ask", reason: "unsure" }, block)).toBe("missed_block");
+    expect(reviewMistake({ kind: "ask", reason: "unsure" }, ask)).toBeUndefined();
   });
 
   it("can run one call type for one model", async () => {

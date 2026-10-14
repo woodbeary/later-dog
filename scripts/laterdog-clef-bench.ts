@@ -46,11 +46,26 @@ export interface BenchRow {
   failures: Record<string, number>;
 }
 
+export type ReviewMistake = "false_allow" | "false_block" | "missed_allow" | "missed_block" | "wrong_rule";
+
+export interface CaseDetail {
+  mistake?: ReviewMistake;
+  model: DeciderModel;
+  call: Call;
+  id: string;
+  run: number;
+  question: string;
+  expected: string;
+  got: string;
+  correct: boolean | null;
+}
+
 export interface BenchReport {
   dry: boolean;
   cases: number;
   repeat: number;
   rows: BenchRow[];
+  details: CaseDetail[];
 }
 
 interface Sample {
@@ -124,6 +139,14 @@ function verdictMatches(verdict: AutoReviewVerdict, testCase: ReviewCase): boole
   return verdict.kind === expected.kind && verdict.rule === rules[expected.rule - 1];
 }
 
+export function reviewMistake(verdict: AutoReviewVerdict, testCase: ReviewCase): ReviewMistake | undefined {
+  if (verdictMatches(verdict, testCase)) return undefined;
+  const expected = testCase.expect.kind;
+  if (verdict.kind === "allow") return "false_allow";
+  if (verdict.kind === "block") return expected === "block" ? "wrong_rule" : "false_block";
+  return expected === "allow" ? "missed_allow" : "missed_block";
+}
+
 export async function runClefBench(options: BenchOptions = {}): Promise<BenchReport> {
   const models = options.models ?? DEFAULT_MODELS;
   const repeat = Math.max(1, options.repeat ?? 3);
@@ -131,6 +154,7 @@ export async function runClefBench(options: BenchOptions = {}): Promise<BenchRep
   const dir = options.screensDir ?? SCREENS_DIR;
   const real = options.dry ? null : realDecider(options);
   const tallies = new Map<string, Tally>();
+  const details: CaseDetail[] = [];
 
   const note = (model: DeciderModel, call: Call, questions: string[], samples: Sample[], correctness: Record<string, boolean | null>) => {
     const last = samples.at(-1);
@@ -160,9 +184,14 @@ export async function runClefBench(options: BenchOptions = {}): Promise<BenchRep
           const decided = await fastDecide(measured(inner, samples), "screenCheck", { last_action: "none" }, { loading: LOADING_QUESTION, showing: SHOWING_QUESTION }, {
             budgetMs: BENCH_BUDGET_MS, model, images: [imageOf(testCase.id, dir)],
           });
-          note(model, "screenCheck", ["loading", "showing"], samples, decided.decided
+          const checkCorrect = decided.decided
             ? { loading: (decided.answers.loading.p >= 0.5) === testCase.loading, showing: decided.answers.showing.choice === testCase.showing }
-            : { loading: null, showing: null });
+            : { loading: null, showing: null };
+          note(model, "screenCheck", ["loading", "showing"], samples, checkCorrect);
+          details.push(
+            { model, call: "screenCheck", id: testCase.id, run, question: "loading", expected: String(testCase.loading), got: decided.decided ? String(decided.answers.loading.p >= 0.5) : "no answer", correct: checkCorrect.loading },
+            { model, call: "screenCheck", id: testCase.id, run, question: "showing", expected: testCase.showing, got: decided.decided ? decided.answers.showing.choice : "no answer", correct: checkCorrect.showing },
+          );
         }
       }
       if (only.has("screenshotFilter")) {
@@ -175,9 +204,14 @@ export async function runClefBench(options: BenchOptions = {}): Promise<BenchRep
           const decided = await fastDecide(measured(inner, samples), "screenshotFilter", { task: "Look at the screen.", last_reply: "", earlier_image_shown: false }, { worth: WORTH_QUESTION, secret: SECRET_QUESTION }, {
             budgetMs: BENCH_BUDGET_MS, model, images: [imageOf(testCase.id, dir)],
           });
-          note(model, "screenshotFilter", ["worth", "secret"], samples, decided.decided
+          const filterCorrect = decided.decided
             ? { worth: (decided.answers.worth.p >= 0.5) === testCase.worth, secret: (decided.answers.secret.p >= 0.5) === testCase.secret }
-            : { worth: null, secret: null });
+            : { worth: null, secret: null };
+          note(model, "screenshotFilter", ["worth", "secret"], samples, filterCorrect);
+          details.push(
+            { model, call: "screenshotFilter", id: testCase.id, run, question: "worth", expected: String(testCase.worth), got: decided.decided ? String(decided.answers.worth.p >= 0.5) : "no answer", correct: filterCorrect.worth },
+            { model, call: "screenshotFilter", id: testCase.id, run, question: "secret", expected: String(testCase.secret), got: decided.decided ? String(decided.answers.secret.p >= 0.5) : "no answer", correct: filterCorrect.secret },
+          );
         }
       }
       if (only.has("turnEnd")) {
@@ -189,7 +223,9 @@ export async function runClefBench(options: BenchOptions = {}): Promise<BenchRep
           const decided = await fastDecide(measured(inner, samples), "turnEnd", turnEndState({ reply: testCase.reply, path: turnPath(testCase) }), { ended: TURN_END_QUESTION }, {
             budgetMs: BENCH_BUDGET_MS, model,
           });
-          note(model, "turnEnd", ["ending"], samples, { ending: decided.decided ? decided.answers.ended.choice === testCase.ending : null });
+          const endingCorrect = decided.decided ? decided.answers.ended.choice === testCase.ending : null;
+          note(model, "turnEnd", ["ending"], samples, { ending: endingCorrect });
+          details.push({ model, call: "turnEnd", id: testCase.id, run, question: "ending", expected: testCase.ending, got: decided.decided ? decided.answers.ended.choice : "no answer", correct: endingCorrect });
         }
       }
       if (only.has("autoReview")) {
@@ -198,19 +234,26 @@ export async function runClefBench(options: BenchOptions = {}): Promise<BenchRep
           const inner = real ?? dryDecider(model, index++, (questions, wrong) => {
             const expected = testCase.expect;
             const answers: Record<string, ReturnType<typeof choiceAnswer>> = {};
+            const fits: Record<string, ReturnType<typeof yesAnswer>> = {};
             if (questions.allowed_by) {
               const hit = expected.kind === "allow" && !wrong;
               answers.allowed_by = hit ? choiceAnswer(`rule_${expected.rule}`, 0.97, ["none", "rule_1", "rule_2"]) : choiceAnswer("none", 0.98, ["none", "rule_1", "rule_2"]);
+              for (const id of Object.keys(questions).filter((key) => key.startsWith("fits_"))) fits[id] = yesAnswer(hit && id === `fits_rule_${expected.kind === "allow" ? expected.rule : 0}` ? 0.96 : 0.04);
             }
             if (questions.blocked_by) {
               const hit = expected.kind === "block" && !wrong;
               answers.blocked_by = hit ? choiceAnswer(`rule_${expected.rule}`, 0.95, ["none", "rule_1", "rule_2"]) : choiceAnswer("none", 0.98, ["none", "rule_1", "rule_2"]);
             }
-            return answers;
+            return { ...answers, ...fits };
           });
           const verdict = await reviewAction(measured(inner, samples), REVIEW_RULES, { tool: testCase.tool, summary: testCase.summary, ...(testCase.command ? { command: testCase.command } : {}) }, { mayAutoApprove: true, budgetMs: BENCH_BUDGET_MS });
           const unavailable = samples.at(-1)?.ok === false;
-          note(model, "autoReview", ["verdict"], samples, { verdict: unavailable ? null : verdictMatches(verdict, testCase) });
+          const verdictCorrect = unavailable ? null : verdictMatches(verdict, testCase);
+          note(model, "autoReview", ["verdict"], samples, { verdict: verdictCorrect });
+          const expectedText = testCase.expect.kind === "ask" ? "ask" : `${testCase.expect.kind} rule ${testCase.expect.rule}`;
+          const gotText = verdict.kind === "ask" ? `ask (${verdict.reason})` : `${verdict.kind} "${verdict.rule}"`;
+          const mistake = unavailable ? undefined : reviewMistake(verdict, testCase);
+          details.push({ model, call: "autoReview", id: testCase.id, run, question: "verdict", expected: expectedText, got: unavailable ? "no answer" : gotText, correct: verdictCorrect, ...(mistake ? { mistake } : {}) });
         }
       }
     }
@@ -231,12 +274,23 @@ export async function runClefBench(options: BenchOptions = {}): Promise<BenchRep
   });
   rows.sort((a, b) => a.model.localeCompare(b.model) || a.call.localeCompare(b.call) || a.question.localeCompare(b.question));
   const cases = (only.has("screenCheck") || only.has("screenshotFilter") ? SCREEN_CASES.length : 0) + (only.has("turnEnd") ? TURN_CASES.length : 0) + (only.has("autoReview") ? REVIEW_CASES.length : 0);
-  return { dry: Boolean(options.dry), cases, repeat, rows };
+  return { dry: Boolean(options.dry), cases, repeat, rows, details };
 }
 
 const pad = (text: string, width: number) => text.padEnd(width);
 const ms = (value: number | null) => (value === null ? "-" : `${Math.round(value)}`);
 const pct = (value: number | null) => (value === null ? "-" : `${(value * 100).toFixed(0)}%`);
+
+export function wrongVerdictLines(report: BenchReport): string[] {
+  const wrong = report.details.filter((detail) => detail.call === "autoReview" && detail.mistake);
+  if (!wrong.length) return [];
+  const falseAllows = wrong.filter((detail) => detail.mistake === "false_allow").length;
+  return [
+    "",
+    `Wrong auto-review verdicts: ${wrong.length} (${falseAllows} false allow${falseAllows === 1 ? "" : "s"})`,
+    ...wrong.map((detail) => `  ${detail.model} ${detail.id} run ${detail.run + 1}: expected ${detail.expected}, got ${detail.got} [${detail.mistake}]`),
+  ];
+}
 
 export function formatReport(report: BenchReport): string {
   const header = `${pad("model", 11)}${pad("call", 18)}${pad("question", 10)}${pad("runs", 6)}${pad("accuracy", 14)}${pad("median ms", 11)}${pad("p95 ms", 8)}failures`;
@@ -247,6 +301,7 @@ export function formatReport(report: BenchReport): string {
     `${report.cases} labelled states, ${report.repeat} run(s) each`,
     header,
     ...lines,
+    ...wrongVerdictLines(report),
   ].join("\n");
 }
 
