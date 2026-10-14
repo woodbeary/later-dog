@@ -5,7 +5,7 @@ import { CloudSignInError, createCloudSignIn, normalizeCode, normalizeEmail } fr
 import { startFakeAccounts } from "./fixtures/fake-accounts.mjs";
 
 async function setup(t, options = {}) {
-  const accounts = await startFakeAccounts();
+  const accounts = await startFakeAccounts({ requireTrustedOrigin: true });
   const saved = { value: null };
   const states = [];
   const client = createCloudAccountClient({
@@ -48,6 +48,7 @@ test("an email and a code sign this Mac in without a browser and leave no accoun
   assert.equal(f.accounts.requests[3].authorization.startsWith("Bearer session."), true);
   assert.ok(!JSON.stringify(f.states).includes(grant.accessToken), "the credential never reaches published state");
   assert.equal(f.accounts.requests[0].body.type, "sign-in");
+  assert.ok(f.accounts.requests.filter(row => row.route.startsWith("/api/auth/")).every(row => row.origin === f.accounts.origin));
 });
 
 test("a wrong code, an expired code, too many tries and a dead network each say what happened and change nothing", async t => {

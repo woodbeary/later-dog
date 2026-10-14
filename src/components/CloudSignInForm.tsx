@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
 import { codeComplete, codeDigits, PRIVACY_URL, SIGN_IN_CODE_LENGTH, SIGN_IN_RESEND_SECONDS, signInProblem, TERMS_URL, validEmail, type SignInStep } from "@/lib/cloud-sign-in-view";
 import { t } from "@/lib/i18n";
-import { inputClass, PrimaryButton, QuietButton } from "@/components/onboarding/beats/shared";
+import { inputClass, QuietButton } from "@/components/onboarding/beats/shared";
 
 type SignInBridge = Pick<CloudAccountBridge, "sendCode" | "verifyCode">;
 
@@ -119,7 +119,7 @@ export function CloudSignInForm({ bridge, onSignedIn, onSkip, skipLabel, intro }
           <QuietButton type="button" disabled={resendIn > 0 || busy} onClick={() => void sendCode()} className="disabled:opacity-50">
             {resendIn > 0 ? t("cloudSignIn.resendIn", { seconds: resendIn }) : t("cloudSignIn.resend")}
           </QuietButton>
-          <QuietButton type="button" onClick={() => { setStep("email"); setProblem(null); }}>{t("cloudSignIn.otherEmail")}</QuietButton>
+          <QuietButton type="button" disabled={busy} onClick={() => { setStep("email"); setProblem(null); }}>{t("cloudSignIn.otherEmail")}</QuietButton>
         </div>
       </div>
     );
@@ -135,11 +135,21 @@ export function CloudSignInForm({ bridge, onSignedIn, onSkip, skipLabel, intro }
         aria-label={t("cloudSignIn.email")}
         placeholder={t("cloudSignIn.emailPlaceholder")}
         value={email}
+        disabled={busy}
         onChange={(event) => setEmail(event.target.value)}
         onKeyDown={(event) => { if (event.key === "Enter") void sendCode(); }}
         className={inputClass}
       />
-      <PrimaryButton type="button" disabled={busy || !validEmail(email)} onClick={() => void sendCode()}>{t("cloudSignIn.agree")}</PrimaryButton>
+      <button
+        type="button"
+        data-primary=""
+        disabled={busy || !validEmail(email)}
+        aria-busy={busy}
+        onClick={() => void sendCode()}
+        className="w-full shrink-0 rounded-lg bg-accent py-2.5 text-[15px] font-medium text-white transition-[transform,opacity] duration-150 active:scale-[0.98] disabled:opacity-40"
+      >
+        {busy ? <span role="status">{t("cloudSignIn.sendingCode")}</span> : t("cloudSignIn.agree")}
+      </button>
       <Agreement />
       {problemLine}
       {skip}

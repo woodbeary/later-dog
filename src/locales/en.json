@@ -330,6 +330,7 @@
   "cloudSignIn.email": "Email",
   "cloudSignIn.emailPlaceholder": "you@example.com",
   "cloudSignIn.agree": "Agree and continue",
+  "cloudSignIn.sendingCode": "Sending code…",
   "cloudSignIn.agreement": "You accept the {terms} and {privacy}, and that what you send your dogs goes to the AI that answers them, like Kimi on Cloudflare or Grok by xAI.",
   "cloudSignIn.terms": "Terms",
   "cloudSignIn.privacy": "Privacy Policy",
