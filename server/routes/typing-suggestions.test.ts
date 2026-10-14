@@ -36,12 +36,10 @@ async function serve(cfg: AppConfig, fetcher: typeof fetch) {
   servers.push(server);
   await new Promise<void>((ready) => server.listen(0, "127.0.0.1", ready));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return async (path: string, body: unknown, method = "POST") => {
-    const response = method === "GET"
-      ? await fetch(`${base}${path}`)
-      : await fetch(`${base}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    return { status: response.status, headers: response.headers, body: (await response.json()) as Record<string, unknown> };
-  };
+  const answer = async (response: Response) => ({ status: response.status, headers: response.headers, body: (await response.json()) as Record<string, unknown> });
+  const post = async (path: string, body: unknown) =>
+    answer(await fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+  return Object.assign(post, { get: async (path: string) => answer(await fetch(`${base}${path}`)) });
 }
 
 const own: AppConfig = { typing: { accountId: ACCOUNT, token: "cf-token" } };
@@ -71,7 +69,7 @@ describe("POST /api/typing/complete", () => {
 
   it("leaves other paths and methods alone", async () => {
     const post = await serve(own, vi.fn() as unknown as typeof fetch);
-    expect((await post("/api/typing/complete", undefined, "GET")).status).toBe(404);
+    expect((await post.get("/api/typing/complete")).status).toBe(404);
     expect((await post("/api/typing/other", {})).status).toBe(404);
   });
 });
