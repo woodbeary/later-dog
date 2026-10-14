@@ -48,7 +48,8 @@ Work stops at a gate before the next one starts.
 | L6 Thinking, scroll, sidebar | `laterdog/thinking` | `/Volumes/laterdog-phone/lanes/thinking` | running | one thinking row, fewer bubbles, green dot, NEW divider and new-messages pill, sidebar collapse, copy id | sheet beside the reference |
 | L7 Accounts, usage, update | `laterdog/accounts-ui` | `/Volumes/laterdog-phone/lanes/accounts` | running | battery rows, account menu usage, add account in place, model never switches account, quiet update pill | sheet beside the reference |
 | L8 Decision layer (Clef) | `laterdog/clef` | `/Volumes/laterdog-phone/lanes/clef` | running | auto-review rules, finished-or-stopped check, screen check, screenshot filter, benchmark | benchmark numbers |
-| L5, L9–L14 | | | waiting for slots | | |
+| L13 Stability sweep | `laterdog/stability` | `/Volumes/laterdog-phone/lanes/stability` | running: sends retry with one id, plain failures, full disk, restart-orphaned approval cards, sweep e2e; checklist in `docs/verification/stability-sweep.md` | draft PR into `laterdog/checkpoint`; the three unfixed rows in the sweep doc | each checklist row has pass or fail, evidence and a fix or the smallest fix |
+| L5, L9–L12, L14 | | | waiting for slots | | |
 
 ## Notes for whoever picks this up
 

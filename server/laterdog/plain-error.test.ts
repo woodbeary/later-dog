@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { plainFailure, tooBigMessage } from "./plain-error.ts";
+import { isStorageFailure, plainFailure, tooBigMessage } from "./plain-error.ts";
 
 const coded = (code: string, message: string, status?: number) => Object.assign(new Error(message), { code, ...(status ? { status } : {}) });
 
@@ -67,6 +67,17 @@ describe("plain failures", () => {
       message: "That wasn't something later.dog could use (name: Invalid input: expected string, received array; settings.limit: Too small). Check it and try again.",
     });
     expect(plainFailure(Object.assign(new Error("[not a report]"), { status: 400 })).message).toBe("[not a report]");
+  });
+
+  it("tells a failure to save from any other failure", () => {
+    expect(isStorageFailure(coded("ENOSPC", "x"))).toBe(true);
+    expect(isStorageFailure(coded("EACCES", "x"))).toBe(true);
+    expect(isStorageFailure(coded("EIO", "x"))).toBe(true);
+    expect(isStorageFailure(Object.assign(new Error("database or disk is full"), { errcode: 13 }))).toBe(true);
+    expect(isStorageFailure(new Error("no space left on device"))).toBe(true);
+    expect(isStorageFailure(new TypeError("Cannot read properties of undefined"))).toBe(false);
+    expect(isStorageFailure(coded("ENOENT", "x"))).toBe(false);
+    expect(isStorageFailure(undefined)).toBe(false);
   });
 
   it("never says the user", () => {

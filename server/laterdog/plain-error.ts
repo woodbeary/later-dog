@@ -63,6 +63,14 @@ function looksInternal(error: unknown, failure: Failure, message: string): boole
   return STACK_LINE.test(message) || DATABASE_WORDS.test(message);
 }
 
+export function isStorageFailure(error: unknown): boolean {
+  const failure = (error && typeof error === "object" ? error : {}) as Failure;
+  const message = error instanceof Error ? error.message : "";
+  return (typeof failure.code === "string" && (OUT_OF_SPACE_CODES.has(failure.code) || NOT_ALLOWED_CODES.has(failure.code) || failure.code === "EIO"))
+    || typeof failure.errcode === "number"
+    || OUT_OF_SPACE_WORDS.test(message);
+}
+
 export function plainFailure(error: unknown, platform: NodeJS.Platform = process.platform): PlainFailure {
   const failure = (error && typeof error === "object" ? error : {}) as Failure;
   const raw = error instanceof Error ? error.message : typeof failure.message === "string" ? failure.message : String(error);

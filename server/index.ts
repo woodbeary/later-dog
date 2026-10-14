@@ -671,7 +671,9 @@ import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
-import { plainFailure, tooBigMessage } from "./laterdog/plain-error.ts";
+import { isStorageFailure, plainFailure, tooBigMessage } from "./laterdog/plain-error.ts";
+import { retryUntilDone } from "./laterdog/retry-until.ts";
+import { guardTurnEnd } from "./laterdog/turn-end-guard.ts";
 import { expireStaleApprovals } from "./laterdog/stale-approvals.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
@@ -6288,7 +6290,36 @@ async function localVmInventoryPayload() {
   return { instances, maxInstances: localVmMaxInstances(cfg), available: true, problem: null };
 }
 
-bus.subscribe((event: RuntimeEvent) => {
+function recoverUnsettledTurn(event: RuntimeEvent, error: unknown): void {
+  if (event.type !== "turn.completed" || !isStorageFailure(error)) return;
+  const bot = store.botByThread(event.threadId);
+  if (!bot) return;
+  const threadId = event.threadId;
+  const generation = directTurnGenerationByThread.get(threadId);
+  retryUntilDone(() => {
+    if (directTurnGenerationByThread.get(threadId) !== generation) return;
+    if (!directTurnBots.has(threadId) && store.taskByThread(bot.id, threadId)?.activity !== "working") return;
+    const owner = turnResourceOwners.get(threadId);
+    if (owner) {
+      vpsThreadEnded(bot.id, threadId);
+      releaseLocalVmThread(threadId);
+    }
+    releaseTurnResources(owner);
+    store.setTaskActivity(bot.id, threadId, "idle");
+    directTurnBots.delete(threadId);
+    retryDelegationsWaitingOn(bot.id);
+    drainQueuedSends();
+    drainConnectorResumes();
+    drainComputerResumes();
+    drainSecretResumes();
+    drainTakeoverResumes();
+    drainTeamSetupResumes();
+    drainDelegationWakes();
+    settleTrackedRequest(threadId);
+  }, { everyMs: 3_000, forMs: 10 * 60_000, onGiveUp: (giveUp) => console.error(`turn end: ${threadId} is still marked working after a failed save`, giveUp) });
+}
+
+bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   const localVmTarget = localVmThreadTargets.get(event.threadId);
   if (localVmTarget) {
@@ -6871,7 +6902,7 @@ bus.subscribe((event: RuntimeEvent) => {
       break;
     }
   }
-});
+}, recoverUnsettledTurn));
 
 const delegationWatch = new Map<string, {
   channelId?: string;
