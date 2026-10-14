@@ -22,6 +22,7 @@ interface BatteryFixture {
   release: string;
   dataDir: string;
   thirdPrompts: () => any[];
+  codexCalls: () => Array<{ method: string; params: any }>;
   bookedTo: (threadId: string) => string[];
   evidence: unknown[];
 }
@@ -35,6 +36,7 @@ async function withBatteryFixture(
   const gate = join(dataDir, "account-1-out-of-usage");
   const firstFile = join(dataDir, "account-1-prompts.jsonl");
   const thirdFile = join(dataDir, "account-3-prompts.jsonl");
+  const codexDump = join(dataDir, "codex-calls.json");
   const release = join(dataDir, "usage-limit-release");
   const roomPlan = options.scripted ? { FAKE_CLAUDE_ROOM_PLAN: join(dataDir, "room-plan.json") } : {};
   const secondFile = join(dataDir, "account-2-prompts.jsonl");
@@ -88,7 +90,7 @@ async function withBatteryFixture(
     if (options.crossProvider) config.instances["codex-last"] = {
       driver: "codex", displayName: "Codex final account",
       config: { cli: fileURLToPath(new URL("./testing/fake-codex-app-server.ts", import.meta.url)) },
-      environment: { FAKE_CODEX_MODE: "resume", FAKE_CODEX_PROMPTS: thirdFile, FAKE_CODEX_REPLY: "Finished on Codex", FAKE_CODEX_ACCOUNT_EMAIL: "codex@example.test" },
+      environment: { FAKE_CODEX_MODE: "resume", FAKE_CODEX_PROMPTS: thirdFile, FAKE_CODEX_DUMP: codexDump, FAKE_CODEX_REPLY: "Finished on Codex", FAKE_CODEX_ACCOUNT_EMAIL: "codex@example.test" },
     };
     config.accountBattery = { enabled: options.enabled !== false, order: { claudeAgent: ["claude", "claude-two"] } };
     if (options.defaultEnabled) delete config.accountBattery;
@@ -104,7 +106,8 @@ async function withBatteryFixture(
     }, { timeout: 20_000 }).toBe(true);
     const bookedTo = (threadId: string) => readUsage(dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) })
       .filter((row) => row.threadId === threadId).map((row) => row.instanceId);
-    await check({ api, control, release, dataDir, thirdPrompts: () => jsonLines(thirdFile), firstPrompts: () => jsonLines(firstFile), secondPrompts: () => jsonLines(secondFile), gate, bookedTo, evidence });
+    const codexCalls = () => existsSync(codexDump) ? (JSON.parse(readFileSync(codexDump, "utf8")).calls ?? []) : [];
+    await check({ api, control, release, dataDir, thirdPrompts: () => jsonLines(thirdFile), codexCalls, firstPrompts: () => jsonLines(firstFile), secondPrompts: () => jsonLines(secondFile), gate, bookedTo, evidence });
   } finally {
     evidence.push({ firstPrompts: jsonLines(firstFile), secondPrompts: jsonLines(secondFile) });
     const evidencePath = `${logPath}.account-battery.json`;
@@ -132,6 +135,7 @@ async function batteryBot({ api, control }: BatteryFixture, name: string) {
 }
 
 const switches = (rows: any[]) => rows.filter((row) => row.tool?.name?.startsWith("recovery: Switched to"));
+const carried = (rows: any[]) => rows.filter((row) => row.tool?.carry);
 const limitRows = (rows: any[]) => rows.filter((row) => row.tool?.ok === false && /hit your session limit/.test(row.tool.name));
 const lastReply = (rows: any[]) => rows.findLast((row) => row.role === "bot" && row.kind === "text");
 const repliesAfter = (rows: any[], text: string) =>
@@ -373,10 +377,54 @@ it("tries the full account list through Codex after every Claude account runs ou
     const prompt = JSON.stringify(fixture.thirdPrompts()[0]);
     expect(prompt).toContain("CONTINUE_ALL_THE_WAY_TO_CODEX");
     expect(prompt).toContain("Do not redo what was already done.");
-    expect(switches(await chat.messages()).map((row) => row.tool.carry)).toEqual([
+    const rows = await chat.messages();
+    expect(carried(rows).map((row) => row.tool.carry)).toEqual([
       { from: "claude", to: "claude-two" }, { from: "claude-two", to: "codex-last" },
     ]);
+    expect(carried(rows).map((row) => row.tool.name)).toEqual([
+      expect.stringMatching(/^recovery: Switched to Claude account 2 — /),
+      "recovery: Claude is recharging. Continuing on Codex.",
+    ]);
     expect((await chat.task()).modelSelection).toMatchObject(FIRST);
+  });
+}, 90_000);
+
+it("keeps going on Codex when every Claude account is recharging, on the model the dog chose there, then sends the next message straight to Codex", async () => {
+  await withBatteryFixture({ crossProvider: true, secondOutOfUsage: true, afterTool: true }, async (fixture) => {
+    const chat = await batteryBot(fixture, "Cross-engine battery");
+    await fixture.api("PATCH", `/api/bots/${chat.bot.id}`, { fallback: [{ instanceId: "codex-last", model: "gpt-page-two" }] });
+    writeFileSync(fixture.gate, "limited");
+    await chat.send("KEEP_GOING_ON_CODEX");
+    await chat.settled((rows) => lastReply(rows)?.text === "Finished on Codex");
+    const rows = await chat.messages();
+    fixture.evidence.push({ afterCodex: rows });
+    expect(limitRows(rows)).toHaveLength(0);
+    expect(carried(rows).map((row) => row.tool.name).at(-1)).toBe("recovery: Claude is recharging. Continuing on Codex.");
+    const started = fixture.codexCalls().filter((call) => call.method === "thread/start");
+    expect(started).toHaveLength(1);
+    expect(started[0]!.params.model).toBe("gpt-page-two");
+    await chat.send("NEXT_MESSAGE_STRAIGHT_TO_CODEX");
+    await chat.settled((rows) => repliesAfter(rows, "NEXT_MESSAGE_STRAIGHT_TO_CODEX").some((row) => row.text === "Finished on Codex"));
+    expect(fixture.firstPrompts()).toHaveLength(1);
+    expect(fixture.secondPrompts()).toHaveLength(1);
+    expect(fixture.thirdPrompts()).toHaveLength(2);
+    expect(JSON.stringify(fixture.thirdPrompts()[1])).toContain("NEXT_MESSAGE_STRAIGHT_TO_CODEX");
+    expect(limitRows(await chat.messages())).toHaveLength(0);
+    expect((await chat.task()).modelSelection).toMatchObject(FIRST);
+  });
+}, 90_000);
+
+it("does not leave Claude for Codex while the keep-going switch is off, and says the account is out", async () => {
+  await withBatteryFixture({ crossProvider: true, secondOutOfUsage: true, enabled: false }, async (fixture) => {
+    const chat = await batteryBot(fixture, "Switch off battery");
+    writeFileSync(fixture.gate, "limited");
+    await chat.send("STAY_ON_CLAUDE");
+    await chat.settled((rows) => limitRows(rows).length === 1);
+    const rows = await chat.messages();
+    expect(carried(rows)).toHaveLength(0);
+    expect(fixture.secondPrompts()).toHaveLength(0);
+    expect(fixture.thirdPrompts()).toHaveLength(0);
+    expect(fixture.codexCalls().filter((call) => call.method === "thread/start")).toHaveLength(0);
   });
 }, 90_000);
 
