@@ -16,6 +16,22 @@ afterEach(async () => {
   while (cleanups.length) await cleanups.pop()!();
 });
 
+async function restartOnSameHome(fixture: VerificationServer, env: NodeJS.ProcessEnv): Promise<ChildProcess> {
+  const { url, dataDir, logPath } = fixture.info;
+  await waitForExit(fixture.child, { signal: "SIGKILL" });
+  const log = openSync(logPath, "a", 0o600);
+  const restarted = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    env: verificationServerEnvironment({ ...process.env, ...env }, dataDir, Number(new URL(url).port)),
+    stdio: ["ignore", log, log],
+  });
+  closeSync(log);
+  await expect.poll(async () => {
+    try { return (await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1_000) })).ok; } catch { return false; }
+  }, { timeout: 20_000 }).toBe(true);
+  return restarted;
+}
+
 function client(url: string) {
   return async (method: string, path: string, body?: unknown, status = 200) => {
     const response = await fetch(url + path, {
@@ -35,7 +51,7 @@ describe("a send that the server already accepted", () => {
     const prompts = join(mkdtempSync(join(tmpdir(), "laterdog-sweep-prompts-")), "prompts.ndjson");
     const env = { FAKE_CLAUDE_PROMPTS: prompts };
     const fixture = await launchVerificationServer({ ...process.env, ...env });
-    const { url, dataDir, logPath } = fixture.info;
+    const { url } = fixture.info;
     let restarted: ChildProcess | undefined;
     cleanups.push(async () => {
       await waitForExit(restarted, { signal: "SIGTERM" });
@@ -50,17 +66,7 @@ describe("a send that the server already accepted", () => {
     await expect.poll(async () => (await api("GET", `/api/threads/${bot.threadId}/messages?limit=50`)).messages
       .some((message: any) => message.role === "bot" && message.kind === "text" && message.text === "hello from fake claude"), { timeout: 15_000 }).toBe(true);
 
-    await waitForExit(fixture.child, { signal: "SIGKILL" });
-    const log = openSync(logPath, "a", 0o600);
-    restarted = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
-      cwd: fileURLToPath(new URL("..", import.meta.url)),
-      env: verificationServerEnvironment({ ...process.env, ...env }, dataDir, Number(new URL(url).port)),
-      stdio: ["ignore", log, log],
-    });
-    closeSync(log);
-    await expect.poll(async () => {
-      try { return (await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1_000) })).ok; } catch { return false; }
-    }, { timeout: 20_000 }).toBe(true);
+    restarted = await restartOnSameHome(fixture, env);
 
     const retried = await api("POST", `/api/bots/${bot.id}/messages`, body, 202);
     expect(retried.message.id).toBe(first.message.id);
@@ -145,6 +151,40 @@ describe("approval cards", () => {
     const decisions = (await api("GET", "/api/decisions")).decisions as Array<{ requestId?: string; decision?: string }>;
     const approvals = decisions.filter((row) => row.decision === "user-approved").map((row) => row.requestId);
     expect(approvals).toEqual([first.id]);
+  }, 90_000);
+
+  it("left open by a hard restart close as not run, and a late Allow runs nothing", async () => {
+    const env = { FAKE_CLAUDE_MODE: "hang" };
+    const fixture = await launchVerificationServer({ ...process.env, ...env });
+    const { url, dataDir } = fixture.info;
+    let restarted: ChildProcess | undefined;
+    let socket: Socket | undefined;
+    cleanups.push(async () => {
+      socket?.destroy();
+      await waitForExit(restarted, { signal: "SIGTERM" });
+      await fixture.close();
+    });
+    const api = client(url);
+    const messages = async (thread: string): Promise<any[]> => (await api("GET", `/api/threads/${thread}/messages?limit=100`)).messages;
+    const bot = (await api("POST", "/api/bots", { name: "Card across restart", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } }, 201)).bot;
+    await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { approvalMode: "ask" });
+    const dump = join(dataDir, "fake-claude-dump.json");
+    await api("POST", `/api/bots/${bot.id}/messages`, { threadId: bot.threadId, text: "Hold this task." }, 202);
+    await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
+    const socketPath = JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.dog.args.at(-1) as string;
+    socket = connect(socketPath);
+    await new Promise<void>((resolve, reject) => { socket!.once("connect", resolve); socket!.once("error", reject); });
+    socket.write(JSON.stringify({ t: "ask", id: "req-before-restart", tool: "Bash", input: { command: "rm -rf build" } }) + "\n");
+    await expect.poll(async () => (await messages(bot.threadId)).filter((message) => message.card?.requestId === "req-before-restart").length).toBe(1);
+
+    restarted = await restartOnSameHome(fixture, env);
+    const card = (await messages(bot.threadId)).find((message) => message.card?.requestId === "req-before-restart")!.card;
+    expect(card).toMatchObject({ expired: true, options: [], held: "later.dog restarted before this was answered, so the action was not run." });
+    expect(card.answered).toBeUndefined();
+
+    expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: "req-before-restart", behavior: "allow" })).outcome).toBe("unavailable");
+    const decisions = (await api("GET", "/api/decisions")).decisions as Array<{ decision?: string }>;
+    expect(decisions.filter((row) => row.decision === "user-approved")).toEqual([]);
   }, 90_000);
 });
 

@@ -265,7 +265,7 @@ import type { GroupGoalRunCardData, GroupGoalRunStatus } from "../shared/group-g
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing } from "./message-db.ts";
+import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { chiefForBot, INCIDENTS_THREAD_TITLE, IncidentLedger, incidentChip, incidentText, type Incident, type IncidentKind } from "./incidents.ts";
@@ -672,6 +672,7 @@ import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
 import { plainFailure, tooBigMessage } from "./laterdog/plain-error.ts";
+import { expireStaleApprovals } from "./laterdog/stale-approvals.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
@@ -21791,6 +21792,16 @@ for (const row of chatFollowups()) {
 restoreSteeredMessages();
 restoreAsideMessages(store);
 restoreChannelMessages();
+
+try {
+  expireStaleApprovals({
+    cards: openPermissionCards,
+    owns: (threadId) => Boolean(store.botByThread(threadId) || store.groupByThread(threadId)),
+    patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
+  });
+} catch (error) {
+  console.warn(`approval cards left open by the last run could not be closed: ${error instanceof Error ? error.message : String(error)}`);
+}
 
 {
   let movedAutoPins = 0;
