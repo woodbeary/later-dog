@@ -503,6 +503,8 @@ export interface ConfigStatus {
   };
   clef?: {
     ready: boolean;
+    sendsTo?: string;
+    available?: { autoReview: boolean; turnEnd: boolean; screenCheck: boolean; screenshotFilter: boolean };
     model?: "clef" | "clef-flash" | "clef-omni";
     autoReview: { allow: string[]; block: string[] };
     jobs: { autoReview: boolean; turnEnd: boolean; screenCheck: boolean; screenshotFilter: boolean };
