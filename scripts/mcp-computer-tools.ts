@@ -18,7 +18,10 @@ export interface ComputerToolResult {
 }
 
 export class ComputerToolOutput {
-  constructor(readonly result: ComputerToolResult) {}
+  readonly result: ComputerToolResult;
+  constructor(result: ComputerToolResult) {
+    this.result = result;
+  }
 }
 
 export interface ComputerProxyDeps {
