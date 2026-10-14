@@ -10,8 +10,9 @@ import { Switch } from "./SettingsPrimitives";
 import { ClaudeMark, CodexMark } from "./ProviderIcons";
 import { ClaudeSignIn } from "./ClaudeSignIn";
 import { DeviceSignIn } from "./DeviceSignIn";
-import { USAGE_TEXT, UsageBar, usageLines, usageReading, usageTone, usePlanUsage, type PlanProvider, resetDistance } from "./PlanUsage";
-import { backAt, rechargeProgress, RechargeLine, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
+import { usageLines, usageReading, usePlanUsage, type PlanProvider, resetDistance } from "./PlanUsage";
+import { backAt, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
+import { AccountCharge } from "./AccountBattery";
 import { useAccountDrag, type AccountDrag } from "./account-drag";
 import { MoreProviders, ProviderKeyFields, keyProviders, keyStepTitle } from "./AddAccountProviders";
 
@@ -258,7 +259,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
           aria-keyshortcuts="ArrowUp ArrowDown"
           title={t("accounts.dragHint")}
           onKeyDown={(event) => drag.step(event, instance.instanceId, true)}
-          className="absolute inset-y-0 left-0 flex w-4 cursor-grab items-center justify-center rounded-md text-ink-tertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus touch:opacity-100"
+          className="absolute inset-y-0 left-0 flex w-4 cursor-grab items-center justify-center rounded-md text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus touch:opacity-100"
         >
           <GripVertical size={12} />
         </button>
@@ -310,11 +311,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
               <p className="h-4 truncate text-[12px] leading-4 text-ink-secondary">
                 {isSignedIn ? [email, plan].filter(Boolean).join(" · ") || t("accounts.signedIn") : t("accounts.signedOut")}
               </p>
-              <div data-account-meter className="mt-1 flex h-3 items-center gap-2">
-                {usage?.rest ? <><RechargeLine progress={usage.rest.estimated ? null : rechargeProgress(usage.rest, now)} /><span className="text-[11px] text-ink-secondary">{t("accounts.recharging")}</span></>
-                  : usage && <UsageBar used={usage.used} label={usage.label} />}
-              </div>
-              <p data-account-resets className="mt-1 h-4 truncate text-[11px] leading-4 text-ink-secondary">{provider?.ok ?
+              <p data-account-resets className="mt-0.5 h-4 truncate text-[11px] leading-4 text-ink-secondary">{provider?.ok ?
                 ([[t("planUsage.fiveHour"), provider.fiveHour], [t("planUsage.weekly"), provider.weekly]] as const).flatMap(([label, window]) => {
                   const when = window.available ? resetDistance(window.resetsAt, now) : null;
                   return when ? [`${label} ${t("planUsage.resetsIn", { when })}`] : [];
@@ -322,12 +319,8 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
               }</p>
             </div>
             {usage && (
-              <span
-                data-account-usage
-                title={usage.detail}
-                className={cn("flex shrink-0 items-center gap-1.5 text-[12px] tabular-nums", usage.rest ? "text-ink-secondary" : USAGE_TEXT[usageTone(usage.used)])}
-              >
-                {usage.text}
+              <span data-account-usage title={usage.detail} className="shrink-0">
+                <AccountCharge used={usage.rest ? undefined : usage.used} rest={usage.rest} now={now} />
               </span>
             )}
             {!isSignedIn && (

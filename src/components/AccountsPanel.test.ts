@@ -338,7 +338,7 @@ describe("Accounts", () => {
     await act(async () => publish({}));
     expect(usageOf("claude")).toBeNull();
     expect(usageOf("chatgpt")).toBeNull();
-    expect(usageOf("claude-work")?.textContent).toBe("88% left");
+    expect(usageOf("claude-work")?.textContent).toBe("88%");
     expect(usageOf("claude-work")?.getAttribute("title")).toContain("5-hour · 88% left · resets in 2h");
     expect(box("claude-work").querySelector('[role="meter"]')!.getAttribute("aria-valuenow")).toBe("88");
     expect(box("claude").querySelector('[role="meter"]')).toBeNull();
@@ -356,17 +356,16 @@ describe("Accounts", () => {
     });
     const before = shape("claude");
     expect(before.box).toContain("min-h-16");
-    expect(before.lines).toHaveLength(4);
+    expect(before.lines).toHaveLength(3);
     expect(before.lines[1]).toContain("h-4");
-    expect(before.lines[2]).toContain("h-3");
-    expect(before.lines[3]).toContain("h-4");
+    expect(before.lines[2]).toContain("h-4");
     expect(box("claude").querySelector('[role="meter"]')).toBeNull();
     expect(line("claude")).toBe("Signed in");
 
     fixture.report = { providers: [usage("claude", 40)] };
     await act(async () => publish({ instances: signedInAs("claude", "me@example.test") }));
     expect(line("claude")).toBe("me@example.test · Max");
-    expect(usageOf("claude")?.textContent).toBe("60% left");
+    expect(usageOf("claude")?.textContent).toBe("60%");
     expect(box("claude").querySelector('[role="meter"]')!.getAttribute("aria-valuenow")).toBe("60");
     expect(usageOf("claude")?.parentElement).toBe(box("claude"));
     expect(shape("claude")).toEqual(before);
@@ -397,7 +396,7 @@ describe("Accounts", () => {
     fixture.report = { providers: [usage("claude", 100), usage("chatgpt", 99.6)] };
     await remount({});
     expect(box("claude").querySelector("[data-sleeping-dog]")).not.toBeNull();
-    expect(usageOf("claude")?.textContent).toBe("0% left");
+    expect(usageOf("claude")?.textContent).toBe("0%");
     expect(box("claude").querySelector("[data-recharge]")).toBeNull();
     expect(box("chatgpt").querySelector("[data-sleeping-dog]")).toBeNull();
   });

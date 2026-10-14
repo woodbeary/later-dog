@@ -193,7 +193,7 @@ export function usageTone(used: number): UsageTone {
 
 export const USAGE_TEXT: Record<UsageTone, string> = { good: "text-ink-secondary", caution: "text-ink-secondary", warning: "text-warning", danger: "text-danger" };
 
-const BAR_TONE: Record<UsageTone, string> = { good: "bg-success", caution: "bg-caution", warning: "bg-warning", danger: "bg-danger" };
+export const BAR_TONE: Record<UsageTone, string> = { good: "bg-success", caution: "bg-caution", warning: "bg-warning", danger: "bg-danger" };
 
 export function UsageBar({ used, label, className }: { used: number; label: string; className?: string }) {
   const left = usageLeft(used);

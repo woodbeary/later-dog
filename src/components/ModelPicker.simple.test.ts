@@ -1019,12 +1019,12 @@ describe("the chat header's account chip and the message field's model menu", ()
   const accountMenu = (rendered: ReturnType<typeof renderPart>) =>
     rendered.nodes.find((node) => node.type === AccountMenu) as ReactElement<ComponentProps<typeof AccountMenu>> | undefined;
 
-  it("lists Claude's models once, from the account in use, so picking one never switches account", () => {
+  it("lists only the models of the account in use, so picking one never switches account", () => {
     fixture.instances = [claude(), work(), codex];
     const forBot = bot(undefined, "claude-work", "claude-sonnet-5-5");
     const opened = openPart(forBot, "model");
     const groups = modelMenu(opened)!.props.groups;
-    expect(groups.map((group) => group.instance.instanceId)).toEqual(["claude-work", "codex"]);
+    expect(groups.map((group) => group.instance.instanceId)).toEqual(["claude-work"]);
     expect(menu(opened.html).match(/Opus 5\.5/g)).toHaveLength(1);
     expect(menu(opened.html).match(/Sonnet 5\.5/g)).toHaveLength(1);
     modelMenu(opened)!.props.onPick(groups[0]!.instance, "claude-opus-5-5");
@@ -1033,10 +1033,31 @@ describe("the chat header's account chip and the message field's model menu", ()
     }));
   });
 
-  it("lists the models of a ready account when the one in use is signed out", () => {
+  it("keeps the account in use even when it is signed out, instead of moving to a ready one", () => {
     fixture.instances = [claude(false), work()];
     const opened = openPart(bot(), "model");
-    expect(modelMenu(opened)!.props.groups.map((group) => group.instance.instanceId)).toEqual(["claude-work"]);
+    const groups = modelMenu(opened)!.props.groups;
+    expect(groups.map((group) => group.instance.instanceId)).toEqual(["claude"]);
+    modelMenu(opened)!.props.onPick(groups[0]!.instance, "claude-opus-5-5");
+    expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "setModel", selection: expect.objectContaining({ instanceId: "claude" }),
+    }));
+  });
+
+  it("never changes the account whichever model is picked, on every kind of account in use", () => {
+    fixture.instances = [claude(), work(), codex];
+    for (const accountId of ["claude", "claude-work", "codex"]) {
+      const forBot = bot(undefined, accountId, accountId === "codex" ? codex.models.options[0]!.id : "claude-sonnet-5-5");
+      const opened = openPart(forBot, "model");
+      const menu = modelMenu(opened)!;
+      expect(menu.props.groups.map((group) => group.instance.instanceId)).toEqual([accountId]);
+      for (const entry of menu.props.groups[0]!.models) {
+        menu.props.onPick(menu.props.groups[0]!.instance, entry.id);
+        expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+          type: "setModel", selection: expect.objectContaining({ instanceId: accountId, model: entry.id }),
+        }));
+      }
+    }
   });
 
   it("shows the initials of the account in use on the header chip once there is more than one", () => {
