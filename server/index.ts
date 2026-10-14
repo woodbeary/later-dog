@@ -359,6 +359,7 @@ import { createDecider, deciderIncludedHere, deciderReady, deciderSavePatch, des
 import { decideRoomResponder, type RoomRoutingInput } from "./decider/room-routing.ts";
 import { describeClef } from "./laterdog/clef-config.ts";
 import { createClef } from "./laterdog/clef-wiring.ts";
+import { screenGuard } from "./laterdog/clef-screen-check.ts";
 import { createLiveSession, liveAttachUrl, LiveSessionError, type LiveBot, type LiveHistoryMessage } from "./live-call.ts";
 import { LiveCallController, LiveCallSignedOutError, type LiveSocket } from "./live-call-controller.ts";
 import { toUtterances } from "./tts/speech-text.ts";
@@ -6406,6 +6407,8 @@ const clef = createClef({
     await startTurn(botId, text, { threadId, cardContinuation: true, requestMessageId: directRequestOwners.get(threadId)?.messageId });
   },
 });
+
+screenGuard.current = clef.screen;
 
 const onProviderEvent = guardTurnEnd((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;

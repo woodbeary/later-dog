@@ -91,6 +91,24 @@ describe("cloud computer tools", () => {
     expect(calls[1].path).toContain("laterdog-panel.jpg.model.jpg");
   });
 
+  it("puts the screen check beside the image and tells the check what was done", async () => {
+    const { screenGuard } = await import("./laterdog/clef-screen-check.ts");
+    const noted: unknown[][] = [];
+    screenGuard.current = {
+      noteAction: (...args: unknown[]) => { noted.push(args); },
+      afterScreenshot: async ({ shot }: { shot: { png: string } }) => ({ shot, text: "Screen check: Nothing needs attention.", decision: null, waits: 0 }),
+    } as never;
+    try {
+      await rpc({ method: "tools/call", params: { name: "click", arguments: { x: 3, y: 4 } } }).done;
+      const result = await rpc({ method: "tools/call", params: { name: "screenshot", arguments: {} } }).done as { content: Array<{ type: string; text?: string }> };
+      expect(noted).toEqual([["bx_23456789", "click", { x: 3, y: 4 }]]);
+      expect(result.content.map((part) => part.type)).toEqual(["image", "text"]);
+      expect(result.content[1]!.text).toBe("Screen check: Nothing needs attention.");
+    } finally {
+      screenGuard.current = null;
+    }
+  });
+
   it.each([
     ["a shell fragment in a coordinate", "click", { x: "1; touch marker", y: 4 }],
     ["a file URL", "open_url", { url: "file:///etc/passwd" }],

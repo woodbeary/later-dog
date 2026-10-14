@@ -3,10 +3,12 @@ import type { RuntimeEvent } from "../../shared/runtime-events.ts";
 import type { AppConfig } from "../config.ts";
 import { autoVerdict } from "../auto-approve.ts";
 import type { RequestOutcome } from "../contracts.ts";
-import { deciderReady, type Decider } from "../decider/index.ts";
+import { deciderImagesReady, deciderReady, type Decider } from "../decider/index.ts";
 import { createAutoReview, type ReviewContext } from "./clef-auto-review.ts";
 import { autoReviewRules } from "./clef-config.ts";
+import { sipsShrinker } from "./clef-image-shrink.ts";
 import { appendClefLog } from "./clef-log.ts";
+import { createScreenCheck } from "./clef-screen-check.ts";
 import { createTurnEndWatcher, type TurnEndInput } from "./clef-turn-end.ts";
 
 type Opened = Extract<RuntimeEvent, { type: "request.opened" }>;
@@ -88,5 +90,11 @@ export function createClef(deps: ClefDeps) {
     nudge: deps.nudge,
     record: (row) => appendClefLog(deps.dataDir, row),
   });
-  return { review, turnEnd };
+  const screen = createScreenCheck({
+    decider: deps.decider,
+    enabled: () => deciderImagesReady(deps.config(), "screenCheck"),
+    record: (row) => appendClefLog(deps.dataDir, row),
+    shrink: sipsShrinker(),
+  });
+  return { review, turnEnd, screen };
 }

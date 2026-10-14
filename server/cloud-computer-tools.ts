@@ -3,6 +3,7 @@ import { isolatedRemoteCommand, runCommand, screenshotBoat } from "./computers.t
 import type { AppConfig } from "./config.ts";
 import { CONTROL_REFUSAL_PLAIN } from "./control-client.ts";
 import { compileToolSchema } from "./mcp-schema-validator.ts";
+import { screenGuard } from "./laterdog/clef-screen-check.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
 
 const coordinate = { type: "integer", minimum: 0, maximum: 32767 };
@@ -57,7 +58,8 @@ export async function runCloudComputerTool(
   if (name === "screenshot") {
     const shot = await screenshotBoat(cfg, "", boxId, { signal, nativeSize: true });
     signal.throwIfAborted();
-    return { content: [{ type: "image", mimeType: "image/jpeg", data: shot.png }] };
+    const checked = await screenGuard.current?.afterScreenshot({ boxId, shot, signal, capture: () => screenshotBoat(cfg, "", boxId, { signal, nativeSize: true }) });
+    return { content: [{ type: "image", mimeType: "image/jpeg", data: (checked?.shot ?? shot).png }, ...(checked?.text ? [{ type: "text" as const, text: checked.text }] : [])] };
   }
   const a = args;
   const mouse = `xdotool mousemove --sync ${a.x} ${a.y}`;
@@ -76,6 +78,7 @@ export async function runCloudComputerTool(
   }
   const result = await runCommand(cfg, boxId, isolatedRemoteCommand(command), { signal });
   signal.throwIfAborted();
+  if (result.ok) screenGuard.current?.noteAction(boxId, name, a);
   if (name === "open_url" && result.ok) return { content: [{ type: "text", text: "Browser launch requested. Page loading is not confirmed; inspect the screen before continuing." }] };
   return { isError: !result.ok, content: [{ type: "text", text: JSON.stringify(result) }] };
 }
