@@ -20,6 +20,7 @@ import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck"
 import { AboutMeSettings } from "./AboutMeSettings";
 import { AccountsPanel, AccountsRefresh } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
+import { TypingSuggestionsRows } from "./TypingSuggestionsSettings";
 import { HelpRows } from "./SettingsHelp";
 import { CloudComputerRows } from "./CloudComputerRows";
 import { ExecutionRows, ThisComputerRow } from "./ComputerSettings";
@@ -346,6 +347,11 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <VoiceModeRow />
           <StepUpdatesRow />
           <ShowEveryUpdateRow />
+        </SettingsRows>
+      </SettingsGroup>
+      <SettingsGroup label={t("settings.typing.title")} testId="typing-suggestions">
+        <SettingsRows>
+          <TypingSuggestionsRows />
         </SettingsRows>
       </SettingsGroup>
       {(mac || analytics) && (
