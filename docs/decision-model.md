@@ -128,30 +128,66 @@ failing decider only ever means today's behaviour.
 
 | Job | Sends | Does |
 | --- | --- | --- |
-| Auto-review | the action's kind and a short description (secrets removed, 600 characters per field) and your rules | A clear match to a go-ahead rule approves with a grey line; a clear match to an ask-first rule pauses the action with a grey line; anything else shows the card |
+| Auto-review | what the dog asks to do (every argument, such as a command, a URL and a fetch prompt, up to 600 characters, secrets removed on a best-effort basis; this can include the start of a file's content), the dog's working folder and project folder, and your rules | A clear match to a go-ahead rule approves with a grey line; a match to an ask-first rule shows the usual card with a grey line "Matches one of your Ask first rules"; anything else shows the card |
 | Keep going | the task, the dog's last reply and its last eight steps | A dog that stopped midway (0.8 or more) is nudged with "Keep going until it's done.", at most 3 in a row |
 | Screen check | cloud-computer screenshots (and the one before it) | Waits for a loading page, flags sign-in and captcha screens, says whether the last action changed anything |
-| Screenshot filter | the final screenshot of a turn | Posts it to the chat only when it is worth showing and no secret is likely |
+| Screenshot filter | the task, the dog's last reply, the final screenshot of a turn and the one posted before it (kept 10 minutes) | Posts it to the chat only when it is worth showing and no secret is likely; a screen it holds back is noted with "Screenshot held back: ..."; when the model cannot answer, the screenshot is posted as it would be without the filter |
 
 Rules that bind:
 
+- **What is reviewed.** Every driver (Claude, Codex, ACP agents, Pi) sends the
+  full input of an approval request as `reviewInput` on `request.opened`; the
+  one-line summary the card shows is clipped to 200 characters, so it is not
+  used. A request longer than 600 characters, with more than 24 arguments, or
+  without a `reviewInput` (a driver that does not send one) is never approved
+  automatically; its ask-first side still runs.
+- **A floor under the classifier** (`server/laterdog/clef-floor.ts`, plain
+  code). The classifier can only narrow, never widen: an approval is skipped
+  and the card shows for a command with `;`, `&&`, `||`, `|`, `$(`, a backtick,
+  `>`, `>>`, `<(`, `<<`, a newline or a variable; for a `..` path segment or a
+  `~`; for an absolute path outside the dog's project folder; for credential
+  paths (`.ssh`, `.aws`, `.env*`, `.npmrc`, `.netrc`, `.git-credentials`,
+  `id_rsa`, `*.pem`, keychains); and for later.dog's own data folder and
+  `.laterdog`. Only command and path arguments are checked, not the text of a
+  prompt or a file being written.
 - Go-ahead rules never apply to anything that always asks (messages sent for
-  you, the local computer, requests with their own choices), to Off-leash or
-  Custom requests, or to an action whose text was cut short for the question.
-  A block rule that is the top answer, at any strength, means no auto-approval.
-  An approval also needs a second answer, 0.9 or more, that the action stays
-  entirely within the rule that was picked.
-- Ask-first rules are also checked in Full access and for saved commands
-  and web searches.
+  you, the local computer), to Off-leash or Custom requests, or to a request
+  that carries its own `choices` (a dog can add those to its own input, so they
+  only ever skip an approval, never the ask-first review). An approval also
+  needs a second answer, 0.9 or more, that the action stays entirely within the
+  rule that was picked.
+- **Ask-first rules ask the person.** A match (0.75 or more for the top rule)
+  shows the usual approval card with a grey line, and the engine is not told
+  anything, so the rule text never reaches the dog. If any ask-first rule is
+  0.25 or more likely, or is the top answer at any strength, nothing is
+  approved automatically. They are checked before Full access, saved commands
+  and web searches are approved, wherever a dog asks the app. They cannot stop an action an
+  engine never asks the app about (an engine's own sandbox or its own
+  auto-accept).
+- **Ask-first rules fail closed.** While any ask-first rule exists, a review that
+  cannot run (error, timeout, circuit open, rate limit, a thrown exception)
+  shows the card and the mode's own approval (Full access, a saved command, a
+  web search) is not applied to that request.
 - Auto-review is limited to 30 reviews a minute per dog. Past that, the card
-  shows as before.
+  shows (see above).
 - Each job has a 1.5 s budget that covers preparing the image and the call.
   A screen check is capped at about 3 s in total, and the final screenshot is
   filtered after the turn has settled, so it never delays it. After three
   failures in a row a job is skipped for 60 s.
-- Changing these from a script on this machine, while a dog is working, is
-  refused when it would loosen things: a new go-ahead rule, a removed ask-first
-  rule, or a job switched on. The app and paired devices can.
+- **Who may loosen these.** Changing them from a script on this machine, while
+  a dog is working, is refused when it would loosen anything: a new go-ahead
+  rule, a removed ask-first rule, a job switched on or off, decisions turned off
+  (`enabled: false`, `provider: "off"`), or a different endpoint, key or model.
+  The app and paired devices can. This is the same guard as for changing a
+  dog's approval level, and it has the same limit: it only refuses *while a dog
+  is working*, and a script on this machine that runs when no dog is working
+  is not stopped. On a self-hosted server that is not the desktop app, local
+  requests count as the owner by default; start the server with
+  `LATERDOG_LOOPBACK_TRUST=service` so a local request is only a service that
+  cannot change settings at all (this is the hardening to use on a machine
+  where dogs run shell commands).
+- `GET /api/config` returns the rule texts only to the owner and paired devices;
+  other viewers see how many rules there are.
 
 Models: `decider.model` picks one model for everything, `decider.models`
 picks per job. With neither, an included or custom endpoint uses `clef` for
@@ -160,15 +196,16 @@ the TypeSafe endpoint keeps `jev-latest` and cannot read images. The included
 Cloud relay only accepts room routing today, so these jobs do nothing there
 until it accepts their questions.
 
-Every Keep going, Screen check and Screenshot filter outcome is one line in
-`~/.laterdog/clef-log/YYYY-MM.ndjson` (no text, no images). Auto-review
-outcomes are in the approvals log with source `auto-review`.
+Every Keep going, Screen check, Screenshot filter and Auto-review hand-back is one line in
+`~/.laterdog/clef-log/YYYY-MM.ndjson` (no text, no images). Automatic approvals are also in the approvals log with
+source `auto-review`.
 
 ### Measured
 
 `node --experimental-strip-types scripts/laterdog-clef-bench.ts`
-runs 34 labelled states (14 screenshots in `scripts/testing/clef-bench/`, 10
-turn endings, 10 approval requests) through the same code the app uses. It
+runs 41 labelled states (14 screenshots in `scripts/testing/clef-bench/`, 10
+turn endings, 17 approval requests, 7 of them traps that a fooled classifier
+would approve and the floor must still turn into a card) through the same code the app uses. It
 reads `LATERDOG_DECIDER_URL` and `LATERDOG_DECIDER_KEY` from the environment
 only; `--dry` runs against a fake backend, `--only autoReview --json` adds
 every case with what was expected and what came back.

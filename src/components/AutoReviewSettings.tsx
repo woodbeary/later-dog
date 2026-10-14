@@ -97,6 +97,15 @@ export function AutoReviewSettings() {
     }
   };
 
+  const counts = state.config?.clef?.autoReview.hidden ? state.config.clef.autoReview.counts : undefined;
+  if (counts) {
+    return (
+      <div className="py-4 text-[13px] leading-relaxed text-ink-secondary" data-auto-review="hidden">
+        {t("settings.autoReview.hidden", { allow: String(counts.allow), block: String(counts.block) })}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4 py-4" data-auto-review="">
       <p className="text-[13px] leading-relaxed text-ink-secondary">{t("settings.autoReview.explain")}</p>

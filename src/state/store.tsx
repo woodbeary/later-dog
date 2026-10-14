@@ -506,7 +506,7 @@ export interface ConfigStatus {
     sendsTo?: string;
     available?: { autoReview: boolean; turnEnd: boolean; screenCheck: boolean; screenshotFilter: boolean };
     model?: "clef" | "clef-flash" | "clef-omni";
-    autoReview: { allow: string[]; block: string[] };
+    autoReview: { allow: string[]; block: string[]; hidden?: boolean; counts?: { allow: number; block: number } };
     jobs: { autoReview: boolean; turnEnd: boolean; screenCheck: boolean; screenshotFilter: boolean };
   };
   live?: LiveSettings;
