@@ -23,7 +23,7 @@ it("decorates known names while preserving whitespace and escaping text", () => 
   expect(html).toBe('&lt;script&gt;\n<span class="mention-highlight">@Atlas</span> &amp; @Ghost\n<span class="mention-highlight">@Atlas</span>');
 });
 
-it("removes decoration when a peer is renamed or archived", () => {
+it("leaves a name plain when no identity history exists or its peer is archived", () => {
   for (const peers of [[{ name: "Renamed" }], [{ name: "Atlas", hidden: true }]]) {
     expect(renderToStaticMarkup(createElement(MentionText, { text: "@Atlas", peers }))).toBe("@Atlas");
   }
@@ -42,4 +42,15 @@ it("keeps exactly what was typed, with no face, inside the composer so the caret
   const html = renderToStaticMarkup(createElement(MentionText, { text: "Thanks @Study Helper", peers: renamed }));
   expect(html).not.toContain("data-mention-face");
   expect(html).toContain("@Study Helper</span>");
+});
+
+
+it("leaves reused historical mentions plain while the composer still highlights the current owner", () => {
+  const peers = [
+    { id: "old", name: "Tutor", formerNames: ["Atlas"], color: "blue" as const },
+    { id: "new", name: "Atlas", color: "red" as const },
+  ];
+  expect(renderToStaticMarkup(createElement(MentionText, { text: "@Atlas", peers, faces: true }))).toBe("@Atlas");
+  expect(renderToStaticMarkup(createElement(MentionText, { text: "@Atlas", peers })))
+    .toContain(`style="--mention-color:${DOG_COLORS.red}">@Atlas`);
 });

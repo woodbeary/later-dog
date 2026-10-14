@@ -2,6 +2,7 @@ import type { Message } from "@/state/store";
 import type { DogColor } from "./mascot";
 import type { TranscriptItem } from "./activity-runs";
 import { peerLine } from "./peer-message";
+import { localDay } from "./transcript-derivations";
 
 export type ExchangeDirection = "to" | "from";
 
@@ -15,6 +16,7 @@ export interface ExchangeRow {
   withName: string;
   withColor: DogColor;
   direction: ExchangeDirection;
+  action?: "opened";
   target: ExchangeTarget;
 }
 
@@ -44,6 +46,14 @@ function teammateName(toolName: string): string | undefined {
 export function exchangeRow(message: Message): ExchangeRow | null {
   const tool = message.tool;
   if (message.kind !== "activity" || !tool) return null;
+  const ref = message.threadRef;
+  if (ref && tool.name.startsWith("Opened thread #")) {
+    if (tool.ok !== true || message.role !== "bot") return null;
+    return {
+      message, withBotId: ref.botId, withName: teammateName(tool.name) ?? "", withColor: "blue", direction: "to", action: "opened",
+      target: { kind: "thread", botId: ref.botId, threadId: ref.threadId, title: ref.title },
+    };
+  }
   const comm = message.comm;
   if (comm) {
     const direction = comm.direction
@@ -52,7 +62,6 @@ export function exchangeRow(message: Message): ExchangeRow | null {
       ? { message, withBotId: comm.withBotId, withName: comm.withName, withColor: comm.withColor, direction, target: { kind: "group", groupId: comm.groupId } }
       : null;
   }
-  const ref = message.threadRef;
   const name = ref ? teammateName(tool.name) : undefined;
   if (ref && name) {
     return {
@@ -99,14 +108,15 @@ export function foldedPreview(item: Pick<ExchangeItem, "folded">, limit = 140): 
   return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
 }
 
-export function foldExchanges(
-  items: readonly TranscriptItem[],
-  { renders = () => true, hasGroup = () => false }: {
+export function foldExchanges<T extends TranscriptItem>(
+  items: readonly T[],
+  { renders = () => true, hasGroup = () => false, openedOnly = false }: {
     renders?: (item: TranscriptItem) => boolean;
     hasGroup?: (groupId: string) => boolean;
+    openedOnly?: boolean;
   } = {},
-): QuietTranscriptItem[] {
-  const folded: QuietTranscriptItem[] = [];
+): Array<T | ExchangeItem> {
+  const folded: Array<T | ExchangeItem> = [];
   for (const item of items) {
     const last = lastRendered(folded, renders);
     if (item.kind === "message" && last?.kind === "exchange" && isPeerMessageOf(last, item.message, hasGroup)) {
@@ -114,15 +124,29 @@ export function foldExchanges(
       last.folded.push(item.message);
       continue;
     }
-    const row = item.kind === "message" ? exchangeRow(item.message) : null;
+    const candidate = item.kind === "message" ? exchangeRow(item.message) : null;
+    const row = openedOnly && candidate?.action !== "opened" ? null : candidate;
     if (!row) {
       folded.push(item);
       continue;
     }
-    if (last?.kind === "exchange" && last.withBotId === row.withBotId && sameTarget(last.target, row.target)) {
-      last.messages.push(row.message);
-      last.rows.push(row);
-      continue;
+    if (last?.kind === "exchange") {
+      const prior = last.rows.at(-1)!;
+      const opened = row.action === "opened";
+      const sameOpeningRun = opened && prior.action === "opened"
+        && localDay(prior.message.at) === localDay(row.message.at)
+        && prior.message.turnId === row.message.turnId
+        && row.message.at >= prior.message.at
+        && (Boolean(row.message.turnId) || row.message.at - last.rows[0]!.message.at <= 60_000)
+        && prior.message.from?.botId === row.message.from?.botId;
+      const sameExchange = !opened && prior.action !== "opened" && last.withBotId === row.withBotId && sameTarget(last.target, row.target);
+      if (sameOpeningRun || sameExchange) {
+        if (!opened || !last.rows.some(previous => previous.message.id === row.message.id)) {
+          last.messages.push(row.message);
+          last.rows.push(row);
+        }
+        continue;
+      }
     }
     folded.push({
       kind: "exchange",
@@ -137,10 +161,15 @@ export function foldExchanges(
   return folded;
 }
 
-export type ExchangeWording = { key: "chat.exchange.messaged" | "chat.exchange.messageFrom" | "chat.exchange.messagesWith"; count: number };
+export function openedExchange(item: Pick<ExchangeItem, "rows">): boolean {
+  return item.rows[0]?.action === "opened";
+}
+
+export type ExchangeWording = { key: "chat.exchange.messaged" | "chat.exchange.messageFrom" | "chat.exchange.messagesWith" | "chat.threads.opened" | "chat.threads.openedOne"; count: number };
 
 export function exchangeWording(item: Pick<ExchangeItem, "rows">): ExchangeWording {
   const count = item.rows.length;
+  if (openedExchange(item)) return { key: count === 1 ? "chat.threads.openedOne" : "chat.threads.opened", count };
   if (count > 1) return { key: "chat.exchange.messagesWith", count };
   return { key: item.rows[0]!.direction === "to" ? "chat.exchange.messaged" : "chat.exchange.messageFrom", count };
 }

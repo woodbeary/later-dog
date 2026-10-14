@@ -61,8 +61,8 @@ import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
 import { ExchangeLine } from "./QuietLines";
 import { ExchangeViewHost } from "./ExchangeViewHost";
-import { foldExchanges } from "@/lib/quiet-lines";
-import { freshenDogName } from "@/lib/dog-refs";
+import { foldExchanges, openedExchange } from "@/lib/quiet-lines";
+import { currentDogName, freshenDogName } from "@/lib/dog-refs";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
@@ -864,10 +864,10 @@ const MessagesList = memo(function MessagesList({
         }
         if (item.kind === "exchange") {
           return (
-            <div key={item.id} className="contents" data-mid={item.messages[0]!.id} data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
+            <div key={item.id} className="contents" data-mid={openedExchange(item) && item.rows.length > 1 ? undefined : item.messages[0]!.id} data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
               {newDay && <DaySeparator at={first.at} today={today} />}
               {unreadDivider(item.messages)}
-              <ExchangeLine item={item} />
+              <ExchangeLine item={item} forceOpen={item.messages.some(message => message.id === focusedId)} />
             </div>
           );
         }
@@ -971,14 +971,16 @@ const MessagesList = memo(function MessagesList({
   );
 });
 
-function PinnedBanner({
+export function PinnedBanner({
   bot,
+  bots,
   pinnedId,
   messages,
   onJump,
   onUnpin,
 }: {
   bot: Bot;
+  bots: readonly Bot[];
   pinnedId?: string;
   messages: Message[];
   onJump: (messageId: string) => void;
@@ -987,8 +989,10 @@ function PinnedBanner({
   const pinned = messages.find((m) => m.id === pinnedId);
   if (!pinned || pinned.kind !== "text") return null;
   const pinnedPeer = peerLine(pinned);
-  const sender =
-    pinned.role === "user" ? (pinnedPeer?.name ?? t("chat.you")) : (pinned.from?.name ?? bot.name);
+  const visibleBots = bots.filter((candidate) => !candidate.hidden);
+  const sender = pinned.role === "user"
+    ? (pinnedPeer ? currentDogName(visibleBots, pinnedPeer.botId, pinnedPeer.name) : t("chat.you"))
+    : currentDogName(visibleBots, pinned.from?.botId, pinned.from?.name ?? bot.name);
   const text = citationPreviewText(pinnedPeer?.body ?? pinned.text ?? "").replace(/\s+/g, " ").trim();
   if (!text) return null;
   return (
@@ -1309,6 +1313,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
       <PinnedBanner
         bot={bot}
+        bots={state.bots}
         pinnedId={bot.pinnedMessageId}
         messages={messages}
         onJump={(messageId) =>

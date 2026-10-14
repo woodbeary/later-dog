@@ -176,6 +176,19 @@ describe("bot-first sidebar", () => {
 });
 
 describe("group preview", () => {
+  it("resolves the cached author by id after a rename even when the old name is reused", () => {
+    fixture.state.bots = [{ ...bot, name: "Scout" }, { ...bot, id: "replacement", name: "Atlas" }];
+    const group: Group = {
+      id: "group", name: "Planning", threadId: "group-thread", memberIds: [], defaultResponder: { kind: "mentions" },
+      bulletin: "", unread: false, createdAt: 0,
+      messages: [{ id: "b1", role: "bot", kind: "text", text: "Plan drafted.", at: 2,
+        from: { botId: "atlas", name: "Atlas", color: "green" } }],
+    };
+    const markup = renderToStaticMarkup(createElement(GroupListItem, { group, density: "comfortable", onMenu: vi.fn() }));
+    expect(markup).toContain("Scout: Plan drafted.");
+    expect(markup).not.toContain("Atlas: Plan drafted.");
+    expect(group.messages[0].from?.name).toBe("Atlas");
+  });
   it("previews the last reply, not the digest receipt that follows it", () => {
     const group: Group = {
       id: "group", name: "Planning", threadId: "group-thread", memberIds: [], defaultResponder: { kind: "mentions" }, bulletin: "", unread: false, createdAt: 0,

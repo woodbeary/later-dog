@@ -1,12 +1,13 @@
-import { memo, type ReactNode } from "react";
-import { Timer } from "lucide-react";
+import { memo, useEffect, useId, useState, type ReactNode } from "react";
+import { ChevronRight, MessagesSquare, Timer } from "lucide-react";
 import { openThread, useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { currentDogName } from "@/lib/dog-refs";
 import { openExchange } from "@/lib/exchange-view";
-import { exchangeWording, foldedPreview, type ExchangeItem } from "@/lib/quiet-lines";
+import { exchangeWording, foldedPreview, openedExchange, type ExchangeItem } from "@/lib/quiet-lines";
 import { BotAvatar } from "./Avatar";
+import { ThreadChip } from "./ThreadChip";
 
 export const QUIET_FACE_SIZE = 14;
 
@@ -48,8 +49,29 @@ export function QuietLine({
   );
 }
 
-export const ExchangeLine = memo(function ExchangeLine({ item }: { item: ExchangeItem }) {
+function OpenedThreadsLine({ item, forceOpen }: { item: ExchangeItem; forceOpen: boolean }) {
+  const [open, setOpen] = useState(forceOpen);
+  const expanded = forceOpen || open;
+  const details = useId();
+  useEffect(() => { if (forceOpen) setOpen(true); }, [forceOpen]);
+  const wording = exchangeWording(item);
+  return <div data-opened-threads="" className="flex min-w-0 flex-col items-center gap-1.5">
+    <button type="button" aria-expanded={expanded} aria-controls={details} onClick={() => setOpen(value => !value)} className="flex h-6 max-w-full items-center gap-1.5 rounded-full border border-hairline/50 bg-control/60 px-2 text-[12px] leading-4 text-ink-secondary transition-colors hover:bg-control hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+      <MessagesSquare size={13} aria-hidden="true" className="shrink-0" />
+      <span>{t(wording.key, { count: wording.count })}</span>
+      <ChevronRight size={12} aria-hidden="true" className={cn("shrink-0 transition-transform motion-reduce:transition-none", expanded && "rotate-90")} />
+    </button>
+    <div id={details} hidden={!expanded} className="w-full min-w-0 max-w-[560px]">
+      {expanded && <ul className="space-y-1.5 rounded-xl border border-hairline/50 bg-panel/50 p-2">{item.rows.map(row => <li key={row.message.id} data-mid={row.message.id}><ThreadChip message={row.message} /></li>)}</ul>}
+    </div>
+  </div>;
+}
+
+export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false }: { item: ExchangeItem; forceOpen?: boolean }) {
   const { state, dispatch } = useStore();
+  if (openedExchange(item)) return item.rows.length === 1
+    ? <div data-opened-threads="" className="flex justify-center"><ThreadChip message={item.rows[0]!.message} /></div>
+    : <OpenedThreadsLine item={item} forceOpen={forceOpen} />;
   const first = item.rows[0]!;
   const withBot = state.bots.find((bot) => bot.id === item.withBotId);
   const name = currentDogName(state.bots, item.withBotId, first.withName);

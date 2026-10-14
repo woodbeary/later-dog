@@ -8,11 +8,21 @@ export type MentionRange = {
   start: number; end: number; color?: string; botId?: string; display?: string; dog?: DogColor; body?: string;
 };
 
-type MentionCandidate = { name: string; peer: MentionPeer; former: boolean };
+type MentionCandidate = { name: string; peer: MentionPeer; former: boolean; ambiguous?: boolean };
 
 const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
-function mentionCandidates(peers: readonly MentionPeer[]): MentionCandidate[] {
+function mentionCandidates(peers: readonly MentionPeer[], historical: boolean): MentionCandidate[] {
+  if (historical) {
+    const all = peers.flatMap((peer) => [peer.name, ...(peer.formerNames ?? [])]
+      .filter((name) => name.trim())
+      .map((name): MentionCandidate => ({ name, peer, former: !sameName(name, peer.name) })));
+    return all.map((candidate) => ({
+      ...candidate,
+      ambiguous: candidate.peer.hidden || all.some((other) => sameName(other.name, candidate.name)
+        && other.peer !== candidate.peer && !(other.peer.id && other.peer.id === candidate.peer.id)),
+    })).sort((a, b) => b.name.length - a.name.length || Number(a.former) - Number(b.former));
+  }
   const visible = peers.filter((p) => !p.hidden && p.name.trim());
   const current = visible.map((peer): MentionCandidate => ({ name: peer.name, peer, former: false }));
   const aliases = visible.flatMap((peer) => (peer.formerNames ?? [])
@@ -29,8 +39,8 @@ export function mentionChoicesForQuery<T extends { name: string }>(pool: readonl
   return pool.filter((choice) => !normalized || choice.name.toLowerCase().includes(normalized));
 }
 
-export function mentionRanges(text: string, peers: readonly MentionPeer[], everyone = false): MentionRange[] {
-  const candidates = mentionCandidates(peers);
+export function mentionRanges(text: string, peers: readonly MentionPeer[], everyone = false, historical = false): MentionRange[] {
+  const candidates = mentionCandidates(peers, historical);
   const ranges: MentionRange[] = [];
   let at = -1;
   while ((at = text.indexOf("@", at + 1)) !== -1) {
@@ -43,6 +53,7 @@ export function mentionRanges(text: string, peers: readonly MentionPeer[], every
       && !isMentionNameContinuation(rest.slice(8));
     const length = all ? 8 : found?.name.length;
     if (length === undefined) continue;
+    if (!all && found?.ambiguous) { at += length; continue; }
     const color = !all && peer?.color && Object.hasOwn(DOG_COLORS, peer.color) ? DOG_COLORS[peer.color] : undefined;
     ranges.push({
       start: at, end: at + length + 1, ...(color ? { color } : {}),
@@ -70,7 +81,7 @@ export function remarkMentions({ peers, everyone = false }: { peers: readonly Me
       node.children = node.children.flatMap((child) => {
         if (child.type !== "text" || !child.value) { visit(child); return [child]; }
         const text = child.value;
-        const ranges = mentionRanges(text, peers, everyone);
+        const ranges = mentionRanges(text, peers, everyone, true);
         if (!ranges.length) return [child];
         const result: MarkdownNode[] = [];
         let end = 0;

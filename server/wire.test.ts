@@ -38,6 +38,16 @@ const fullTask: TaskRecord = {
 const botModel = { instanceId: "codex", model: "bot-model" };
 
 describe("shared wire model", () => {
+  it("refreshes generated work titles and bylines by stable id without changing stored snapshots", () => {
+    const task: TaskRecord = { ...fullTask, title: "@Opener · work", openedBy: { botId: "b1", name: "Opener", kind: "work", at: 1 } };
+    const bots = [{ id: "b1", name: "Scout" }, { id: "replacement", name: "Opener" }];
+    expect(toWireTask(task, botModel, bots)).toMatchObject({ title: "@Scout · work", openedBy: { name: "Scout" }, closedBy: { name: "Scout" } });
+    expect(task).toMatchObject({ title: "@Opener · work", openedBy: { name: "Opener" }, closedBy: { name: "Opener" } });
+    expect(toWireTask({ ...task, title: "Opener's custom project" }, botModel, bots).title).toBe("Opener's custom project");
+    expect(toWireTask({ ...task, openedBy: { ...task.openedBy!, kind: undefined } }, botModel, bots).title).toBe("@Opener · work");
+    expect(toWireTask(task, botModel, [{ id: "b1", name: "Hidden name", hidden: true }]).title).toBe("@Opener · work");
+    expect(toWireTask(task, botModel, []).title).toBe("@Opener · work");
+  });
   it("toWireTask emits exactly the WireTask key set and never the server-private fields", () => {
     const wire = toWireTask(fullTask, botModel);
     expect(Object.keys(wire).sort()).toEqual([

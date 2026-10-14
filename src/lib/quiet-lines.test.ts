@@ -66,14 +66,15 @@ describe("dog-to-dog lines", () => {
     expect(exchangeRow(opened)).toMatchObject({ withName: "Study Helper", direction: "to" });
     expect(exchangeRow(added)).toMatchObject({ withName: "Study Helper", direction: "to" });
     const items = fold([opened, added]);
-    expect(items).toHaveLength(1);
-    expect(items[0]!.kind === "exchange" && exchangeWording(items[0]!)).toEqual({ key: "chat.exchange.messagesWith", count: 2 });
+    expect(items).toHaveLength(2);
+    expect(items[0]!.kind === "exchange" && exchangeWording(items[0]!)).toEqual({ key: "chat.threads.openedOne", count: 1 });
+    expect(items[1]!.kind === "exchange" && exchangeWording(items[1]!)).toEqual({ key: "chat.exchange.messaged", count: 1 });
   });
 
-  it("leaves a thread a dog opened on itself as the ordinary chip", () => {
+  it("includes a thread a dog opened on itself in the opened-thread disclosure", () => {
     const own = sent("d1", "x");
     own.tool = { name: "Opened thread #Review PR 4", ok: true };
-    expect(exchangeRow(own)).toBeNull();
+    expect(exchangeRow(own)).toMatchObject({ action: "opened", target: { botId: "d1", threadId: "t-d1" } });
   });
 
   it("does not call a teammate's result a sent message", () => {
@@ -161,5 +162,83 @@ describe("dog-to-dog lines", () => {
     const messages = [text("a"), comm("to"), comm("from"), text("b")];
     const items = fold(messages);
     expect(items.flatMap((item) => item.kind === "message" ? [item.message.id] : item.kind === "exchange" ? item.messages.map((m) => m.id) : [])).toEqual(messages.map((m) => m.id));
+  });
+});
+
+
+const opening = (id: string, botId = "d2", patch: Partial<Message> = {}): Message => ({
+  id, role: "bot", kind: "activity", at: new Date(2026, 9, 14, 10).getTime(), turnId: "turn-a",
+  tool: { name: `Opened thread #Work ${id} on Helper`, ok: true },
+  threadRef: { botId, threadId: `thread-${id}`, title: `Work ${id}` }, ...patch,
+});
+
+describe("opened-thread runs", () => {
+  it("groups consecutive opens across destinations while preserving every receipt and destination", () => {
+    const messages = [opening("a", "d2"), opening("b", "d3")];
+    const [item] = fold(messages);
+    expect(item!.kind).toBe("exchange");
+    if (item!.kind !== "exchange") return;
+    expect(exchangeWording(item)).toEqual({ key: "chat.threads.opened", count: 2 });
+    expect(item.rows.map(row => row.target)).toEqual([
+      { kind: "thread", botId: "d2", threadId: "thread-a", title: "Work a" },
+      { kind: "thread", botId: "d3", threadId: "thread-b", title: "Work b" },
+    ]);
+    expect(item.messages).toEqual(messages);
+  });
+
+  it("counts distinct receipt ids, including separate events for the same destination", () => {
+    const a = opening("a");
+    const b = { ...a, id: "b" };
+    const [item] = fold([a, a, b]);
+    expect(item!.kind === "exchange" && exchangeWording(item!)).toEqual({ key: "chat.threads.opened", count: 2 });
+  });
+
+  it("leaves failed or pending opens, replies and added-to-thread sends outside the opened run", () => {
+    for (const separator of [
+      opening("bad", "d2", { tool: { name: "Opened thread #bad on Helper", ok: false, output: "Permission denied" } }),
+      opening("pending", "d2", { tool: { name: "Opened thread #pending on Helper" } }),
+      opening("reply", "d2", { tool: { name: "Helper finished", ok: true, output: "All done" } }),
+      opening("added", "d2", { tool: { name: "Added to thread #Work on Helper", ok: true } }),
+      text("Visible progress"),
+    ]) {
+      const items = fold([opening("a"), separator, opening("b")]);
+      expect(items).toHaveLength(3);
+      expect(items[0]!.kind === "exchange" && exchangeWording(items[0]!)).toEqual({ key: "chat.threads.openedOne", count: 1 });
+      expect(items[2]!.kind === "exchange" && exchangeWording(items[2]!)).toEqual({ key: "chat.threads.openedOne", count: 1 });
+    }
+  });
+
+  it("keeps days, known turns and room speakers separate", () => {
+    const first = opening("a");
+    for (const patch of [
+      { turnId: "turn-b" },
+      { turnId: undefined },
+      { at: first.at + 86_400_000 },
+      { from: { botId: "other", name: "Other", color: "blue" as const } },
+    ]) expect(fold([first, opening("b", "d2", patch)])).toHaveLength(2);
+  });
+
+  it("bounds legacy runs without a turn id to one minute from the first event", () => {
+    const a = opening("a", "d2", { turnId: undefined });
+    const b = opening("b", "d2", { turnId: undefined, at: a.at + 40_000 });
+    const c = opening("c", "d2", { turnId: undefined, at: a.at + 80_000 });
+    const items = fold([a, b, c]);
+    expect(items).toHaveLength(2);
+    expect(items[0]!.kind === "exchange" && exchangeWording(items[0]!)).toEqual({ key: "chat.threads.opened", count: 2 });
+  });
+
+  it("groups across hidden tool calls and separates the same receipts when calls are visible", () => {
+    const messages = [opening("a"), tool("Bash"), tool("Read"), opening("b")];
+    const hidden = fold(messages, false);
+    expect(hidden.filter(item => item.kind === "exchange")).toHaveLength(1);
+    expect(hidden.some(item => item.kind === "run")).toBe(true);
+    const visible = fold(messages, true);
+    expect(visible.filter(item => item.kind === "exchange")).toHaveLength(2);
+  });
+
+  it("lets rooms fold only opened receipts without changing messages with teammates", () => {
+    const messages = [comm("to"), opening("a"), opening("b"), comm("from")];
+    const items = foldExchanges(groupTranscript(messages), { openedOnly: true });
+    expect(items.map(item => item.kind)).toEqual(["message", "exchange", "message"]);
   });
 });

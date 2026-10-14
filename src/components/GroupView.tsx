@@ -21,7 +21,7 @@ import { cloudWakeupOf } from "@/lib/cloud-tasks";
 import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { freshenDogName } from "@/lib/dog-refs";
-import { singleExchange } from "@/lib/quiet-lines";
+import { foldExchanges, singleExchange } from "@/lib/quiet-lines";
 import { ExchangeLine } from "./QuietLines";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { TurnPresence } from "./TurnPresence";
@@ -197,8 +197,8 @@ export const Transcript = memo(function Transcript({
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
-  const items = useMemo(() => groupActivityRuns(messages.filter(message =>
-    message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), [messages, showToolCalls]);
+  const items = useMemo(() => foldExchanges(groupActivityRuns(messages.filter(message =>
+    message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), { openedOnly: true }), [messages, showToolCalls]);
   const newestMessageId = messages.at(-1)?.id;
   const newestUserMessageId = [...messages].reverse().find((message) => message.role === "user")?.id;
   const unreadSince = useUnreadBoundary(`room/${group.id}/${group.threadId}`, messages);
@@ -214,12 +214,19 @@ export const Transcript = memo(function Transcript({
     <>
       {items.map((item, i) => {
         const previous = items[i - 1];
-        const prev = previous && (previous.kind === "run" ? previous.messages.at(-1) : previous.message);
-        const first = item.kind === "run" ? item.messages[0] : item.message;
+        const prev = previous && (previous.kind === "message" ? previous.message : previous.messages.at(-1));
+        const first = item.kind === "message" ? item.message : item.messages[0];
         const newDay = !prev || localDay(prev.at) !== localDay(first.at);
+        if (item.kind === "exchange") {
+          return <div key={item.id} className="contents" data-mid={item.rows.length === 1 ? item.messages[0]!.id : undefined}>
+            {newDay && <div className="py-3 text-center text-[13px] text-ink-secondary">{dayLabel(first.at)} {formatTime(first.at)}</div>}
+            {unreadDivider(item.messages)}
+            <ExchangeLine item={item} forceOpen={item.messages.some(message => message.id === focusedId)} />
+          </div>;
+        }
         if (item.kind === "run") {
           if (!showToolCalls) return null;
-          const cluster = !prev || prev.role !== first.role || prev.from?.botId !== first.from?.botId || newDay;
+          const cluster = previous?.kind === "exchange" || !prev || prev.role !== first.role || prev.from?.botId !== first.from?.botId || newDay;
           return (
             <div key={item.id} className="contents">
               {newDay && (
@@ -252,7 +259,7 @@ export const Transcript = memo(function Transcript({
         const sentWords = Boolean((attachments?.display ?? m.text ?? "").trim());
         const sentAbove = sentAttachments && sentWords;
         const sentOnly = sentAttachments && !sentWords && !m.replyToId;
-        const newCluster = !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || Boolean(prev.comm) || newDay;
+        const newCluster = previous?.kind === "exchange" || !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || Boolean(prev.comm) || newDay;
         const routineOwner = m.kind === "routine.run" ? memberOf(m.from?.botId) : undefined;
         const routineExecutionThreadId = m.routineRun?.executionThreadId;
         const routineTarget = routineOwner && hasRoutineExecutionTask(routineOwner.tasks, routineExecutionThreadId)

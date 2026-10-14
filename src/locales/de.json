@@ -1516,5 +1516,7 @@
   "approval.status.allowedForChat": "Für diesen Chat erlaubt",
   "approval.tool.messageDog": "einem anderen Hund schreiben",
   "approval.tool.delegateDog": "einem anderen Hund Arbeit übergeben",
-  "approval.tool.postRoom": "in einem Raum posten"
+  "approval.tool.postRoom": "in einem Raum posten",
+  "chat.threads.opened": "{count} Unterhaltungen geöffnet",
+  "chat.threads.openedOne": "Eine Unterhaltung geöffnet"
 }
