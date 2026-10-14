@@ -6,6 +6,7 @@ import { setVoiceMode, useVoiceMode } from "@/lib/voice-mode";
 import { Boxes, Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus, type InstanceInfo } from "@/state/store";
 import { cloudDictationEnabled, stepUpdatesEnabled } from "@/lib/feature-flags";
+import { setShowEveryUpdate, useShowEveryUpdate } from "@/lib/show-every-update";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { analyticsConfigured } from "@/lib/laterdog-analytics";
 import { checklistHost, COMPUTER_PERMISSIONS, type DesktopPermission } from "@/lib/desktop-permissions";
@@ -271,6 +272,15 @@ export function CloudDictationRow() {
   );
 }
 
+export function ShowEveryUpdateRow() {
+  const on = useShowEveryUpdate();
+  return (
+    <SettingRow title={t("settings.everyUpdate.title")} subtitle={t("settings.everyUpdate.hint")}>
+      <Switch checked={on} aria-label={t("settings.everyUpdate.title")} onClick={() => setShowEveryUpdate(!on)} />
+    </SettingRow>
+  );
+}
+
 function NotificationSoundsRow() {
   const enabled = useNotificationSounds();
   return (
@@ -335,6 +345,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <NotificationSoundsRow />
           <VoiceModeRow />
           <StepUpdatesRow />
+          <ShowEveryUpdateRow />
         </SettingsRows>
       </SettingsGroup>
       {(mac || analytics) && (

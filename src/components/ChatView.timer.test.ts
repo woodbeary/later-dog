@@ -31,6 +31,7 @@ const draw = async (profile: Bot) => {
   const value = { state, dispatch: vi.fn(), flushBotPatches: async () => null, refreshInstances: async () => {}, refreshModels: async () => {} };
   await act(async () => root.render(createElement(BotEditorStore, { value, children: createElement(ChatView, { bot: profile }) })));
 };
+const settleRow = () => act(async () => { await new Promise((done) => setTimeout(done, 350)); });
 const timer = async () => {
   const trigger = host.querySelector<HTMLButtonElement>('.turn-presence button[aria-haspopup="dialog"]');
   expect(trigger).toBeTruthy();
@@ -66,6 +67,7 @@ describe("the progress peek timer", () => {
     const resumed = { ...profile, tasks: profile.tasks!.map((task) => ({ ...task, workingStartedAt: 1_046_000 })) };
     vi.setSystemTime(1_049_000);
     await draw(resumed);
+    await settleRow();
     expect(await timer()).toBe("3s");
     expect(resumed.tasks![0]!.turnStartedAt).toBe(997_000);
     await act(async () => root.unmount());

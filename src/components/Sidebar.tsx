@@ -41,13 +41,12 @@ import { llmThreadTitlesEnabled } from "@/lib/feature-flags";
 import { BotAvatar, InitialsAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { cn } from "@/lib/cn";
-import { searchMatchesThreads, useSearchDisclosure } from "@/lib/search-disclosure";
+import { disclosureChoice, searchMatchesThreads, useSearchDisclosure } from "@/lib/search-disclosure";
 import { useHeldMenuMotion, useMenuMotion } from "./MenuMotion";
 import { UpdatePill } from "./UpdateButton";
 import { lastNonReceipt } from "@/lib/receipts";
 import { activityPreview, botEngine } from "@/lib/failed-turn";
 import { activeLocale, t } from "@/lib/i18n";
-import { copyText } from "@/lib/copy-text";
 import type { LocaleKey } from "@/locales";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FullAccessWarning } from "./FullAccessWarning";
@@ -125,6 +124,10 @@ import { ShortcutHint } from "./ShortcutHint";
 import { citationPreviewText } from "@/lib/citations";
 import { markdownPreview } from "../../shared/markdown-preview";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
+import { StatusDot } from "./StatusDot";
+import { Collapsible } from "./Collapsible";
+import { copyConversationId } from "@/lib/copy-conversation-id";
+import { dogStatusKind } from "@/lib/dog-status";
 
 export const MAC_TRAFFIC_LIGHT_CENTER_Y = 23;
 
@@ -277,7 +280,10 @@ export function GroupListItem({
       title={density === "icons" ? group.name : undefined}
       aria-label={density === "icons" ? group.name : undefined}
     >
-      <StackedDogs members={members} density={density} />
+      <span className="relative flex shrink-0">
+        <StackedDogs members={members} density={density} />
+        <StatusDot kind={dogStatusKind({ waiting: false, working: groupStatus })} ring="border-panel" size={density === "icons" ? "size-3" : "size-2.5"} announce={false} />
+      </span>
       <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
         <div className="flex items-baseline justify-between gap-2">
           <span className="truncate text-[14px] font-semibold text-ink">{group.name}</span>
@@ -301,7 +307,7 @@ export function GroupListItem({
       onClick={() => { setThreadsOpen(true); dispatch({ type: "newGroupTask", groupId: group.id }); }}
       className="pointer-events-none absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-ink-secondary opacity-0 hover:bg-raised hover:text-ink disabled:opacity-40 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 max-md:pointer-events-auto max-md:opacity-70 touch:pointer-events-auto touch:opacity-70 touch:disabled:opacity-40"><Plus size={14} /></button>}
     </div>
-    {expanded && <GroupThreadList group={group} selected={selected} density={density} query={group.name.toLowerCase().includes(query.toLowerCase()) ? "" : query} />}
+    <Collapsible open={expanded}><GroupThreadList group={group} selected={selected} density={density} query={group.name.toLowerCase().includes(query.toLowerCase()) ? "" : query} /></Collapsible>
     </>
   );
 }
@@ -480,7 +486,7 @@ function RoomContextMenu({
       )}
       <button
         onClick={() => {
-          void copyText(group.threadId);
+          void copyConversationId(group.threadId);
           onClose();
         }}
         className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
@@ -824,7 +830,7 @@ export function BotContextMenu({
           dispatch({ type: "toggleSettings", open: true });
         }),
         item(<ClipboardCopy size={16} className="text-ink-secondary" />, t("sidebar.copyConversationId"), () => {
-          void copyText(bot.threadId);
+          void copyConversationId(bot.threadId);
         }),
       ] : [
         item(
@@ -858,7 +864,7 @@ export function BotContextMenu({
         ),
         divider("d2"),
         item(<ClipboardCopy size={16} className="text-ink-secondary" />, t("sidebar.copyConversationId"), () => {
-          void copyText(bot.threadId);
+          void copyConversationId(bot.threadId);
         }),
         divider("d3"),
         item(
@@ -1225,21 +1231,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
         {unread && (
           <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-panel bg-accent" aria-label={t("task.unreadMany")} />
         )}
-        {working && (
-          <span
-            data-testid="working-dot"
-            className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-panel bg-success"
-          />
-        )}
-        {waiting && (
-          <span
-            data-testid="waiting-dot"
-            role="status"
-            aria-label={t("sidebar.preview.waiting")}
-            title={t("sidebar.preview.waiting")}
-            className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-panel bg-warning"
-          />
-        )}
+        <StatusDot kind={dogStatusKind({ waiting, working })} ring="border-panel" size="size-3" announce={waiting} />
       </span>
       <span className="w-full truncate text-center text-[11px] leading-4 text-ink">{bot.name}</span>
     </button>
@@ -1310,6 +1302,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
   const [renaming, setRenaming] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [threadsOpen, setThreadsOpen] = useSearchDisclosure(`bot:${bot.id}`, showThreads ? query : "", searchMatchesThreads(query, bot.tasks, bot.projects));
+  const collapsedByYou = !threadsOpen && !query.trim() && disclosureChoice(`bot:${bot.id}`) === false;
   useEffect(() => { if (reveal && showThreads) setThreadsOpen(true); }, [reveal, showThreads]);
   const hasThreadList = (bot.tasks?.filter((task) => !task.routineRunId).length ?? 1) > 1 || (bot.projects?.length ?? 0) > 0 || Boolean(query);
   const iconOnly = density === "icons";
@@ -1349,21 +1342,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
           motionKey={mascotMotion?.nonce ?? 0}
           animated={working || unread || (mascotMotion?.kind ?? "none") !== "none"}
         />
-        {working && (
-          <span
-            data-testid="working-dot"
-            className={cn(
-              "animate-dot-in absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-panel bg-success",
-              iconOnly ? "size-3" : "size-2.5",
-            )}
-          />
-        )}
-        {waiting && <span data-testid="waiting-dot" role="status" aria-label={t("sidebar.preview.waiting")} title={t("sidebar.preview.waiting")}
-          className={cn("animate-dot-in absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-panel bg-warning", iconOnly ? "size-3" : "size-2.5")} />}
-        {teammateWait && <span data-testid="teammate-wait-dot" role="status" aria-label={t("sidebar.preview.waitingOnTeammate")} title={t("sidebar.preview.waitingOnTeammate")}
-          className={cn("animate-dot-in absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-panel bg-accent", iconOnly ? "size-3" : "size-2.5")} />}
-        {!teammateWait && !waiting && !working && queued && <span data-testid="queued-dot" role="status" aria-label={t("task.queued")} title={t("task.queued")}
-          className={cn("animate-dot-in absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-panel bg-ink-secondary", iconOnly ? "size-3" : "size-2.5")} />}
+        <StatusDot kind={dogStatusKind({ waiting, working, teammates: teammateWait, queued })} ring="border-panel" size={iconOnly ? "size-3" : "size-2.5"} announce={waiting || teammateWait || (queued && !working)} />
         {onLiveCall && iconOnly && (
           <span className="absolute -right-1 -top-1 flex rounded-full bg-panel p-0.5">
             <Phone className="size-3 shrink-0 text-success" role="img" aria-label={t("call.live.badge")} data-testid="live-call-badge">
@@ -1507,10 +1486,10 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
         </span>
       )}
     </div>
-    {!iconOnly && threadsOpen && hasThreadList && <BotThreadList {...props} hidden={!showThreads}
+    <Collapsible open={!iconOnly && threadsOpen && hasThreadList}><BotThreadList {...props} hidden={!showThreads}
       activityLabel={liveActivityLabel(last)}
-      query={bot.name.toLowerCase().includes(query.toLowerCase()) || bot.title.toLowerCase().includes(query.toLowerCase()) ? "" : query} />}
-    {!expanded && <SidebarBotActivity bot={bot} density={density} pendingQueued={pendingQueued} dispatch={dispatch} />}
+      query={bot.name.toLowerCase().includes(query.toLowerCase()) || bot.title.toLowerCase().includes(query.toLowerCase()) ? "" : query} /></Collapsible>
+    {!expanded && <SidebarBotActivity bot={bot} density={density} pendingQueued={pendingQueued} dispatch={dispatch} onlyWaiting={collapsedByYou} />}
     {showThreads && creatingProject && <BotProjectDialog bot={bot} onClose={() => setCreatingProject(false)} />}
     </>
   );
@@ -2377,7 +2356,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
                 {collapsed && queued.length > 0 && <button type="button" onClick={() => toggleSection(id)}
                   title={`${t("task.queued")} · ${queued.join(", ")}`} aria-label={`${t("sidebar.section.expand", { name: sectionLabel(id) })} · ${t("task.queued")} · ${queued.join(", ")}`}
                   className="mx-3 mb-1 self-start rounded bg-raised/50 px-2 py-0.5 text-[10px] text-ink-secondary hover:text-ink">{t("task.queued")} · {queued.length}</button>}
-                {!collapsed && (
+                <Collapsible open={!collapsed} className="flex flex-col gap-0.5">
                   <>
                     {sectionChiefItems.map((bot) => <BotListItem key={bot.id} {...botRow(bot)} />)}
                     {sectionGroupItems.map((group) => (
@@ -2405,7 +2384,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
                       </button>
                     )}
                   </>
-                )}
+                </Collapsible>
                 {dropTarget?.id === id && dropTarget.place === "after" && draggingSectionId !== id && (
                   <div className="mx-2 h-0.5 rounded-full bg-accent" />
                 )}

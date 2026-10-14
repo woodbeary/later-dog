@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./tokens.css";
+@import "./chat-calm.css";
 
 @custom-variant touch {
   @media (hover: none), (pointer: coarse) {

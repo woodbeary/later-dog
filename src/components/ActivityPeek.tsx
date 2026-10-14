@@ -1,8 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { Check, Loader2, X, TriangleAlert } from "lucide-react";
 import type { Helper, HelperMember } from "../../shared/helpers";
 import type { TurnReasoning } from "@/lib/turn-reasoning";
+import type { TurnStep } from "@/lib/turn-details";
 import { t } from "@/lib/i18n";
 import { WorkingTimer } from "./WorkingIndicator";
 import { helperStateText } from "./Puppies";
@@ -21,8 +22,14 @@ function HelperDetails({ helper }: { helper: Helper | HelperMember }) {
   </div>;
 }
 
-export function ActivityPeek({ label, since, helpers, reasoning, anchor, onClose }: {
-  label: string; since: number | null; helpers: readonly Helper[]; reasoning: TurnReasoning; anchor: RefObject<HTMLButtonElement | null>; onClose: () => void;
+function StepIcon({ state }: { state: TurnStep["state"] }) {
+  if (state === "running") return <Loader2 size={12} className="shrink-0 animate-spin text-success motion-reduce:animate-none" aria-label={t("chat.row.stepRunning")} />;
+  if (state === "failed") return <TriangleAlert size={12} className="shrink-0 text-warning" aria-label={t("chat.row.stepFailed")} />;
+  return <Check size={12} className="shrink-0 text-ink-tertiary" aria-label={t("chat.row.stepDone")} />;
+}
+
+export function ActivityPeek({ label, since, helpers, reasoning, steps = [], updates = [], anchor, onClose }: {
+  label: string; since: number | null; helpers: readonly Helper[]; reasoning: TurnReasoning; steps?: readonly TurnStep[]; updates?: readonly string[]; anchor: RefObject<HTMLButtonElement | null>; onClose: () => void;
 }) {
   const title = useId();
   const panel = useRef<HTMLElement>(null);
@@ -54,12 +61,14 @@ export function ActivityPeek({ label, since, helpers, reasoning, anchor, onClose
     const below = (box?.bottom ?? 0) + 8;
     const top = above >= 12 ? above : Math.max(12, Math.min(below, window.innerHeight - height - 12));
     setPlace({ left, top });
-  }, [anchor, helpers.length, reasoning.text]);
+  }, [anchor, helpers.length, reasoning.text, steps.length, updates.length]);
   return createPortal(<div className="fixed inset-0 z-50 bg-black/10" onPointerDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={panel} role="dialog" aria-modal="true" aria-labelledby={title} className="fixed inset-x-3 bottom-3 max-h-[min(70vh,420px)] rounded-2xl border border-hairline bg-panel p-4 text-[13px] shadow-xl sm:inset-x-auto sm:bottom-auto sm:left-(--peek-left) sm:top-(--peek-top) sm:w-96" style={{ "--peek-left": `${place?.left ?? 12}px`, "--peek-top": `${place?.top ?? 12}px`, visibility: place ? undefined : "hidden" } as React.CSSProperties}>
       <div className="mb-3 flex items-center justify-between gap-3"><h2 id={title} className="font-medium text-ink">{t("chat.activity.peek")}</h2><button ref={close} type="button" className="rounded-lg p-1.5 text-ink-secondary hover:bg-ink/5 focus-visible:outline-2" aria-label={t("common.close")} onClick={onClose}><X size={16} /></button></div>
       <div tabIndex={0} className="max-h-[min(55vh,330px)] space-y-4 overflow-y-auto overscroll-contain pr-1 focus-visible:outline-2">
         <div><div className="flex items-center justify-between gap-3"><p className="text-ink">{label}</p>{since !== null && <WorkingTimer since={since} className="shrink-0 text-[11px] text-ink-tertiary" />}</div>{reasoning.tokens !== null && <p className="mt-1 text-[11px] text-ink-tertiary">{t("chat.activity.thinkingTokens", { count: reasoning.tokens.toLocaleString() })}</p>}</div>
+        {steps.length > 0 && <div data-peek-steps=""><h3 className="mb-1 text-[11px] font-medium text-ink-tertiary">{t("chat.row.steps")}</h3><ul className="space-y-1">{steps.map(step => <li key={step.id} className="flex items-center gap-2 text-ink-secondary"><StepIcon state={step.state} /><span className="min-w-0 break-words">{step.label}</span></li>)}</ul></div>}
+        {updates.length > 0 && <div data-peek-updates=""><h3 className="mb-1 text-[11px] font-medium text-ink-tertiary">{t("chat.row.updates")}</h3><ul className="space-y-1.5">{updates.map((line, index) => <li key={index} className="whitespace-pre-wrap break-words text-ink-secondary">{line}</li>)}</ul></div>}
         {reasoning.streamed ? <div><h3 className="mb-1 text-[11px] font-medium text-ink-tertiary">{t("chat.activity.summary")}</h3><p className="whitespace-pre-wrap break-words text-ink-secondary">{reasoning.clipped ? "… " : ""}{reasoning.text}</p></div> : <p className="text-[11px] text-ink-tertiary">{t("chat.activity.noSummary")}</p>}
         {helpers.length > 0 && <ul className="space-y-3 border-t border-hairline pt-3">{helpers.map(helper => <li key={helper.id}><HelperDetails helper={helper} />{helper.members?.length ? <ul className="mt-2 space-y-2 border-l border-hairline pl-3">{helper.members.map(member => <li key={member.id}><HelperDetails helper={member} /></li>)}</ul> : null}</li>)}</ul>}
       </div>

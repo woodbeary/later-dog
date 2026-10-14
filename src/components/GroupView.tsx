@@ -24,6 +24,8 @@ import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
+import { StatusDot } from "./StatusDot";
+import { useScrollAnchor } from "@/lib/scroll-anchor";
 import { CompactionChip, DigestChip } from "./DigestChip";
 import { roomActivityVisible, transcriptRowShown } from "@/lib/room-activity";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
@@ -63,7 +65,7 @@ import { shortPath } from "@/lib/short-path";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { awaitedMemberId, showWorkingDots } from "@/lib/turn-tail";
-import { liveActivityLabel } from "@/lib/live-activity";
+import { liveActivity } from "@/lib/live-activity";
 import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
 import { appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
@@ -997,7 +999,7 @@ export function GroupView({ group }: { group: Group }) {
 
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
-  const activityLabel = liveActivityLabel(lastGroupMessage);
+  const groupActivity = liveActivity(lastGroupMessage);
   const awaited = members.find(
     (b) => b.id === awaitedMemberId(group.working, group.busyBotId, lastGroupMessage),
   );
@@ -1060,6 +1062,7 @@ export function GroupView({ group }: { group: Group }) {
     transcriptRef,
     transcriptKey,
     following,
+    followingRef,
     windowedMessages,
     hiddenCount,
     laterCount,
@@ -1078,6 +1081,7 @@ export function GroupView({ group }: { group: Group }) {
     counts: countsInWindow,
   });
 
+  useScrollAnchor(scrollRef, transcriptRef, followingRef, !setupPending);
   useEffect(() => setBulletinDraft(group.bulletin), [group.id, group.bulletin]);
   useEffect(() => setFolderOpen(false), [group.id]);
   useEffect(() => setMembersOpen(false), [group.id]);
@@ -1113,7 +1117,7 @@ export function GroupView({ group }: { group: Group }) {
               <PlaceIcon place={effective} size={9} strokeWidth={2.5} aria-hidden="true" />
             </span>
           ) : (
-            <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-app bg-accent" />
+            <StatusDot kind="working" ring="border-app" size="size-2.5" announce={false} />
           )
         )}
       </span>
@@ -1371,7 +1375,8 @@ export function GroupView({ group }: { group: Group }) {
                 />
               }
               visible={presenceVisible}
-              label={activityLabel}
+              label={groupActivity.spoken ?? undefined}
+              kind={groupActivity.kind}
               answering={popping !== null}
               since={speaker ? group.turnStartedAt ?? null : null}
             />

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Bot, Group, GroupTask, Task } from "@/state/store";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { t } from "@/lib/i18n";
-import { attentionJumpAction, attentionOwnerName, attentionRowStatus, attentionUnpinAction, crossBotAttentionThreads, crossBotPinnedThreads, sidebarGroupActivityTasks } from "./SidebarBotActivity";
+import { attentionJumpAction, attentionOwnerName, attentionRowStatus, attentionUnpinAction, crossBotAttentionThreads, crossBotPinnedThreads, sidebarGroupActivityTasks, threadsLeftWhenCollapsed } from "./SidebarBotActivity";
 
 const task = (threadId: string, title: string, extra: Partial<Task>): Task =>
   ({ threadId, title, createdAt: 0, ...extra }) as Task;
@@ -238,5 +238,21 @@ describe("attentionUnpinAction", () => {
     const room = group("g", "Crew", "g0", { tasks: [{ threadId: "g0", title: "Crew", createdAt: 0, pinned: true }] });
     const [entry] = crossBotPinnedThreads([], [room], {});
     expect(attentionUnpinAction(entry)).toEqual({ type: "pinGroupTask", groupId: "g", threadId: "g0", pinned: false, title: "Crew" });
+  });
+});
+
+describe("a dog you collapsed", () => {
+  const rows = [
+    { threadId: "a", activity: "working" },
+    { threadId: "b", activity: "waiting-on-you" },
+    { threadId: "c", activity: "idle" },
+  ];
+
+  it("hides its busy, unread, queued and pinned threads, and still tells you when one needs you", () => {
+    expect(threadsLeftWhenCollapsed(rows, true).map((row) => row.threadId)).toEqual(["b"]);
+  });
+
+  it("keeps showing every thread that wants attention when the list was never collapsed by hand", () => {
+    expect(threadsLeftWhenCollapsed(rows, false).map((row) => row.threadId)).toEqual(["a", "b", "c"]);
   });
 });

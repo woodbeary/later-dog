@@ -66,9 +66,11 @@ import { transcriptRowShown } from "@/lib/room-activity";
 import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
+import { StatusDot } from "./StatusDot";
+import { dogStatusKind, sendInFlight } from "@/lib/dog-status";
 import { MOTION } from "@/lib/motion";
 import { useArrivals } from "@/lib/arrivals";
-import { liveActivityLabel } from "@/lib/live-activity";
+import { liveActivity } from "@/lib/live-activity";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
@@ -122,6 +124,11 @@ import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
 import { useNewBelow } from "@/lib/new-below";
+import { useShowEveryUpdate } from "@/lib/show-every-update";
+import { turnSteps, turnUpdates } from "@/lib/turn-details";
+import { dismissKey, useUnreadPosition, useVisitUnreadCount } from "@/lib/unread-pill";
+import { NewMessagesPill } from "./NewMessagesPill";
+import { useScrollAnchor } from "@/lib/scroll-anchor";
 import { appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
 import { dayLabel, localDay, transcriptLookups, type TranscriptLookups } from "@/lib/transcript-derivations";
 import { citationPreviewText, splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
@@ -133,7 +140,7 @@ import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
 
 const USER_COLLAPSE_CHARS = 600;
-const newBelowLabel = (count: number) => count === 1 ? t("chat.newBelowOne") : t("chat.newBelowMany", { count });
+const HEADER_INSET = 60;
 const USER_COLLAPSE_LINES = 8;
 
 interface ChatRows {
@@ -766,6 +773,7 @@ const MessagesList = memo(function MessagesList({
   emergingId,
   canRetryLast,
   engine,
+  unreadSince,
   onStartEdit,
   onCancelEdit,
   onSubmitEdit,
@@ -789,13 +797,13 @@ const MessagesList = memo(function MessagesList({
   onSubmitEdit: (id: string, text: string) => void;
   onRegenerate: () => void;
   onReply: (message: Message) => void;
+  unreadSince: number | null;
 }) {
   const { botId, threadId, botName, focus, showToolCalls, locale } = useChatRows();
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
   const items = useMemo(() => groupTranscript(messages, plan), [messages, plan, locale]);
-  const unreadSince = useUnreadBoundary(`${botId}/${threadId}`, messages);
   let unreadPlaced = false;
   const unreadDivider = (rows: readonly Message[]) => {
     if (unreadPlaced || !rows.some((row) => isUnread(row, unreadSince))) return null;
@@ -989,17 +997,8 @@ function PinnedBanner({
 
 function HeaderStatusDot({ bot }: { bot: Bot }) {
   const waiting = bot.activity === "waiting-on-you";
-  if (!waiting && !bot.busy) return null;
-  const label = waiting ? t("sidebar.preview.waiting") : t("chat.activity.working");
-  return (
-    <span
-      data-testid={waiting ? "waiting-dot" : "working-dot"}
-      role="status"
-      aria-label={label}
-      title={label}
-      className={cn("animate-dot-in absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-composer", waiting ? "bg-warning" : "bg-success")}
-    />
-  );
+  const working = Boolean(bot.busy) || sendInFlight(bot.messages);
+  return <StatusDot kind={dogStatusKind({ waiting, working })} ring="border-composer" announce />;
 }
 
 const CHATHEAD_PILL ="flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-ink/10 bg-composer py-1.5 pl-1.5 text-ink shadow-[0_4px_12px_-1px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.06)]";
@@ -1049,10 +1048,11 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     [messages],
   );
   const showToolCalls = showToolCallsEnabled(state.config);
+  const everyUpdate = useShowEveryUpdate();
   const runningSince = bot.busy ? bot.turnStartedAt ?? null : null;
   const plan = useMemo(
-    () => planTranscript(messages, { runningSince, quiet: !showToolCalls }),
-    [messages, runningSince, showToolCalls],
+    () => planTranscript(messages, { runningSince, quiet: !showToolCalls, foldAll: !everyUpdate && !showToolCalls }),
+    [messages, runningSince, showToolCalls, everyUpdate],
   );
   const shownMessages = useMemo(
     () => plan.hiddenIds.size ? messages.filter((message) => !plan.hiddenIds.has(message.id)) : messages,
@@ -1067,6 +1067,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     transcriptRef,
     transcriptKey,
     following,
+    followingRef,
     windowedMessages,
     hiddenCount,
     laterCount,
@@ -1075,6 +1076,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     showLater,
     loadOlder,
     jumpToLatest,
+    scrollToUnread,
     scrollHandlers,
   } = useTranscriptViewport({
     ownerId: bot.id,
@@ -1083,8 +1085,22 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     pinOn: [bot.busy, composerDock.pad],
     counts: countsInWindow,
   });
+  useScrollAnchor(scrollRef, transcriptRef, followingRef, true);
   const shownRows = useMemo(() => messages.filter(countsInWindow), [messages, countsInWindow]);
   const newBelow = useNewBelow(following, shownRows);
+  const threadKey = `${bot.id}/${bot.threadId}`;
+  const unreadSince = useUnreadBoundary(threadKey, messages);
+  const visitUnread = useVisitUnreadCount(threadKey, unreadSince, shownRows);
+  const unreadPlace = useUnreadPosition(scrollRef, unreadSince !== null, HEADER_INSET, composerDock.height, windowedMessages.length);
+  const [aboveDismissed, setAboveDismissed] = useState<string | null>(null);
+  const [belowDismissed, setBelowDismissed] = useState(0);
+  useEffect(() => { if (following) setBelowDismissed(0); }, [following]);
+  useEffect(() => {
+    if (unreadPlace === "visible") setAboveDismissed(dismissKey(threadKey, unreadSince));
+  }, [unreadPlace, threadKey, unreadSince]);
+  const unreadAboveShown = unreadPlace === "above" && visitUnread > 0 && aboveDismissed !== dismissKey(threadKey, unreadSince);
+  const belowCount = Math.max(newBelow, unreadPlace === "below" ? visitUnread : 0);
+  const belowShown = belowCount > belowDismissed ? belowCount : 0;
 
   const lastBotTextId = useMemo(
     () => [...shownMessages].reverse().find((m) => m.role === "bot" && m.kind === "text")?.id,
@@ -1130,7 +1146,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   }, [lastUserMessage]);
 
   const lastMessage = shownMessages.at(-1);
-  const activityLabel = liveActivityLabel(lastMessage);
+  const live = useMemo(() => liveActivity(lastMessage), [lastMessage]);
   const working = useWorkingDots(bot.busy, lastMessage, bot.turnStartedAt);
   const waiting = Boolean(bot.busy && bot.activity !== "waiting-on-you" && working);
   const wasWaiting = useRef(false);
@@ -1159,7 +1175,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       setPopping((current) => current === messageId ? null : current);
     }, MOTION.enter + MOTION.base);
   }, [lastMessage?.id, lastMessage?.role, lastMessage?.kind]);
-  const presenceVisible = waiting || popping !== null;
+  const sending = sendInFlight(messages);
+  const presenceVisible = waiting || popping !== null || sending;
   const announcement = useMemo((): TranscriptSnapshot => {
     const approval = pendingApprovals(messages)[0];
     const question = openQuestion(messages);
@@ -1174,6 +1191,11 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   useEffect(() => {
     setBusySince(bot.busy ? bot.workingStartedAt ?? bot.turnStartedAt ?? Date.now() : null);
   }, [bot.busy, bot.id, bot.threadId, bot.turnStartedAt, bot.workingStartedAt]);
+
+  const turnSince = busySince ?? lastUserMessage?.at ?? null;
+  const steps = useMemo(() => (presenceVisible ? turnSteps(messages, turnSince) : []), [presenceVisible, messages, turnSince]);
+  const updates = useMemo(() => (presenceVisible ? turnUpdates(messages, plan.hiddenIds, turnSince) : []), [presenceVisible, messages, plan, turnSince]);
+  const sendingSince = lastUserMessage?.at ?? null;
 
   const regenerate = useCallback(() => {
     if (lastUserMessage?.text && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")) {
@@ -1326,6 +1348,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               emergingId={popping}
               canRetryLast={!bot.busy && Boolean(lastUserMessage)}
               engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
+              unreadSince={unreadSince}
               onStartEdit={startEdit}
               onCancelEdit={cancelEdit}
               onSubmitEdit={submitEdit}
@@ -1366,29 +1389,48 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               />
             }
             visible={presenceVisible}
-            label={activityLabel}
+            label={live.spoken ?? undefined}
+            kind={live.kind}
             answering={popping !== null}
-            since={busySince}
+            since={busySince ?? (sending ? sendingSince : null)}
+            steps={steps}
+            updates={updates}
           />
         </div>
       </div>
 
       <TranscriptAnnouncer threadKey={transcriptKey} snapshot={announcement} />
 
-      {!following && (
+      {unreadAboveShown && (
+        <NewMessagesPill
+          direction="up"
+          tint={bot.color}
+          count={visitUnread}
+          onJump={scrollToUnread}
+          onDismiss={() => setAboveDismissed(dismissKey(threadKey, unreadSince))}
+          style={{ top: HEADER_INSET + 8 }}
+        />
+      )}
+
+      {!following && (belowShown > 0 ? (
+        <NewMessagesPill
+          direction="down"
+          tint={bot.color}
+          count={belowShown}
+          onJump={jumpToLatest}
+          onDismiss={() => setBelowDismissed(belowCount)}
+          style={{ bottom: composerDock.height + 8 }}
+        />
+      ) : (
         <button
           onClick={jumpToLatest}
-          aria-label={newBelow ? newBelowLabel(newBelow) : t("chat.jumpToLatestAria")}
-          data-new-below={newBelow || undefined}
-          className={cn(
-            "animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] shadow-lg transition-colors motion-reduce:transition-none",
-            newBelow ? "bg-accent font-medium text-accent-ink hover:bg-accent/85" : "border border-hairline/40 bg-raised text-ink hover:bg-raised-hover",
-          )}
-          style={{ bottom: composerDock.height }}
+          aria-label={t("chat.jumpToLatestAria")}
+          className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg transition-colors hover:bg-raised-hover motion-reduce:transition-none"
+          style={{ bottom: composerDock.height + 8 }}
         >
-          <ArrowDown size={13} /> {newBelow ? newBelowLabel(newBelow) : t("chat.jumpToLatest")}
+          <ArrowDown size={13} /> {t("chat.jumpToLatest")}
         </button>
-      )}
+      ))}
 
       <div ref={composerDockRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]">
       <LiveCallBar bot={bot} />

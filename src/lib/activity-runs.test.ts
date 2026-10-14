@@ -280,6 +280,34 @@ describe("groupTranscript", () => {
     expect(planTranscript(transcript, { runningSince: 90_000, quiet: true }).hiddenIds.size).toBe(0);
   });
 
+  it("folds every spoken update while the turn runs when asked to, keeping only the first thing said", () => {
+    const user: Message = { id: "u20", at: 10_000, role: "user", kind: "text", text: "book it" };
+    const first = assistant("Opening the booking page.", "turn-fold", false, 11_000);
+    const second = assistant("Picking a time.", "turn-fold", false, 15_000);
+    const update = assistant("Still waiting on the confirmation page.", "turn-fold", false, 80_000);
+    const transcript = [user, first, second, update];
+
+    const folded = planTranscript(transcript, { runningSince: 10_500, foldAll: true });
+    expect([...folded.hiddenIds]).toEqual([second.id, update.id]);
+    expect(planTranscript(transcript, { runningSince: 10_500 }).hiddenIds.size).toBe(0);
+    expect(planTranscript(transcript, { runningSince: 90_000, foldAll: true }).hiddenIds.size).toBe(0);
+  });
+
+  it("folds a long run's spoken updates into the worked line afterwards when asked to", () => {
+    const user: Message = { id: "u21", at: 1_000, role: "user", kind: "text", text: "go" };
+    const first = assistant("On it.", "turn-long", false, 2_000);
+    const a = step("Read", "turn-long");
+    const update = assistant("Halfway through the notes.", "turn-long", false, 120_000);
+    const b = step("Bash", "turn-long");
+    const final = assistant("All done.", "turn-long", true, 200_000);
+    const transcript = [user, first, a, update, b, final];
+
+    expect(planTranscript(transcript).hiddenIds.has(update.id)).toBe(false);
+    const plan = planTranscript(transcript, { foldAll: true });
+    expect(plan.hiddenIds.has(update.id)).toBe(true);
+    expect([...plan.byAnchorId.values()][0]).toMatchObject({ kind: "turn", messages: [update] });
+  });
+
   it("keeps a lone terminal message as the answer", () => {
     const only = assistant("I could not finish, but here is what I found.", "turn-short", true);
     expect(groupTranscript([only])).toEqual([{ kind: "message", message: only }]);
