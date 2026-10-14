@@ -42,10 +42,13 @@ Work stops at a gate before the next one starts.
 | --- | --- | --- | --- | --- | --- |
 | L0 Integration | `laterdog/checkpoint` (PR #38) | `/Volumes/laterdog-phone/lanes/checkpoint` | main + #36 + roster + #37 merged; #37 test fixed; tracker added | CI on PR #38; merge lane PRs as they land | CI green |
 | L1 Cloud ready | `laterdog/home` (PR #39 into dev) | `/Volumes/laterdog-phone/lanes/home` | done: production configs, decisions accept images and a model, optional CI image push, deploy sheet; tests 211 + 39 + 96 green | none | done |
-| L2 Phone review-ready | `phone/review-ready` (later-dog-phone) | the phone repo's own checkout (served to the test iPhone) | running | no-comments check; probe fix; live updates recover; data choice before first send; New dog scroll; visual pass; review notes | proven on the test iPhone; production check after G1 |
+| L2 Phone review-ready | `phone/review-ready` → `main` (later-dog-phone, `e174c57`) | the phone repo's own checkout | done: no-comments check, probe fix, live updates recover, data choice before the first send, New dog scrolls, visual pass, Terms and Privacy on sign-in, no plan row; 190 tests; published over the air to `beta` (`857e9992`) | Build 5 and the review submission at G2 | done |
 | L3 Reliability | `laterdog/reliability` | `/Volumes/laterdog-phone/lanes/reliability` | running | honest handoffs; one thread per teammate; Keep going across engines; scoped local-tools token; never "the user"; plain disk-full words; deleted dog frees its trial computer | focused tests and fixture proof |
-| L4 PR #36 on screen | `laterdog/visual-36` | `/Volumes/laterdog-phone/lanes/visual36` | running | screenshot every #36 change beside its reference; fix; question card works and folds | sheet with every item passing |
-| L5–L14 | | | wave 2 and 3 | | |
+| L4 PR #36 on screen | `laterdog/visual-36` (PR #40, merged) | `/Volumes/laterdog-phone/lanes/visual36` | done: every #36 change screened beside its reference; questions one at a time with Next and Back, folded answers; account menu, progress peek and model button aligned | none | done |
+| L6 Thinking, scroll, sidebar | `laterdog/thinking` | `/Volumes/laterdog-phone/lanes/thinking` | running | one thinking row, fewer bubbles, green dot, NEW divider and new-messages pill, sidebar collapse, copy id | sheet beside the reference |
+| L7 Accounts, usage, update | `laterdog/accounts-ui` | `/Volumes/laterdog-phone/lanes/accounts` | running | battery rows, account menu usage, add account in place, model never switches account, quiet update pill | sheet beside the reference |
+| L8 Decision layer (Clef) | `laterdog/clef` | `/Volumes/laterdog-phone/lanes/clef` | running | auto-review rules, finished-or-stopped check, screen check, screenshot filter, benchmark | benchmark numbers |
+| L5, L9–L14 | | | waiting for slots | | |
 
 ## Evidence
 
