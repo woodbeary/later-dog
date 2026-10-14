@@ -224,7 +224,7 @@ async function releaseOrphanedTrialComputers(client: ComputersClient, owners: Ma
   return freed;
 }
 
-export async function releaseDeletedDogsComputers(cfg: AppConfig, owners?: ManagedBoatOwner[]): Promise<number> {
+export async function releaseDeletedDogsComputers(_cfg: AppConfig, owners?: ManagedBoatOwner[]): Promise<number> {
   if (!trialInUse() || ownComputersChosen()) return 0;
   let client: ComputersClient;
   try { client = ownClient(); } catch { return 0; }
