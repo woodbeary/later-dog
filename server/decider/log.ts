@@ -17,6 +17,7 @@ export interface DeciderLogRow {
   reason?: DeciderFailure;
   status?: number;
   choice?: string;
+  model?: string;
   pTop: number | null;
   margin: number | null;
   latencyMs: number;

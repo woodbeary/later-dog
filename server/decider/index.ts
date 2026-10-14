@@ -3,12 +3,13 @@ import { deciderCredential, type ServiceCredential } from "../included-services.
 import { jevBackend } from "./jev.ts";
 import { appendDeciderLog, stateHash } from "./log.ts";
 import { KEY_CHECK_QUESTION, KEY_CHECK_STATE, relayAccepts, relaySeam } from "./relay.ts";
+import { DECIDER_MODELS } from "./types.ts";
 import type {
-  Answers, AskOptions, BackendResult, ChoiceAnswer, ChoiceQuestion, DeciderBackend, DeciderFailure, DeciderJob,
+  Answers, AskOptions, BackendResult, ChoiceAnswer, ChoiceQuestion, DeciderBackend, DeciderFailure, DeciderJob, DeciderModel,
   DeciderProvider, DeciderQuestion, DeciderResult, DeciderSeam, ScoreAnswer, YesNoAnswer,
 } from "./types.ts";
 
-export { DECIDER_JOBS } from "./types.ts";
+export { DECIDER_JOBS, DECIDER_MODELS } from "./types.ts";
 
 export const DEFAULT_DECIDER_TIMEOUT_MS = 1_500;
 export const KEY_CHECK_TIMEOUT_MS = 10_000;
@@ -53,6 +54,15 @@ export function deciderJobOn(cfg: AppConfig, job: DeciderJob): boolean {
 
 export function deciderReady(cfg: AppConfig, job: DeciderJob): boolean {
   return deciderEnabled(cfg) && deciderJobOn(cfg, job) && Boolean(deciderAccount(cfg, job));
+}
+
+export function deciderModel(cfg: AppConfig): DeciderModel | undefined {
+  const model = cfg.decider?.model;
+  return model && DECIDER_MODELS.includes(model) ? model : undefined;
+}
+
+export function deciderImagesReady(cfg: AppConfig, job: DeciderJob): boolean {
+  return deciderReady(cfg, job) && deciderModel(cfg) !== undefined;
 }
 
 export function describeDecider(cfg: AppConfig) {
@@ -136,7 +146,7 @@ export function createDecider(deps: DeciderDeps): Decider {
   async function call<Qs extends Record<string, DeciderQuestion>>(
     seam: DeciderSeam,
     backend: DeciderBackend | typeof offBackend,
-    request: { key: string; baseUrl?: string; state: unknown; questions: Qs },
+    request: { key: string; baseUrl?: string; state: unknown; questions: Qs; images?: string[]; model?: DeciderModel },
     options: AskOptions,
   ): Promise<DeciderResult<Answers<Qs>>> {
     const provider = backend.id === "off" ? undefined : backend.id;
@@ -174,6 +184,7 @@ export function createDecider(deps: DeciderDeps): Decider {
         ok: outcome.ok,
         ...(!outcome.ok ? { reason: outcome.reason, ...(outcome.status ? { status: outcome.status } : {}) } : {}),
         ...(first ? { choice: first.choice } : {}),
+        ...(request.model ? { model: request.model } : {}),
         pTop: first?.pTop ?? null,
         margin: first?.margin ?? null,
         latencyMs,
@@ -206,7 +217,12 @@ export function createDecider(deps: DeciderDeps): Decider {
       const backend = provider === "off" ? offBackend : BACKENDS[provider];
       const account = deciderAccount(cfg, seam)!;
       if (account.included && !relayAccepts(seam, state, questions)) return { ok: false, reason: "misconfigured" };
-      return await call(seam, backend, { key: account.token, baseUrl: account.api, state, questions }, options);
+      const model = options.model ?? deciderModel(cfg);
+      const images = options.images?.length ? options.images : undefined;
+      return await call(seam, backend, {
+        key: account.token, baseUrl: account.api, state, questions,
+        ...(images ? { images } : {}), ...(model ? { model } : {}),
+      }, options);
     } catch {
       return { ok: false, reason: "malformed" };
     }

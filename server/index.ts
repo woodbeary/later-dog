@@ -357,6 +357,7 @@ import {
 import * as tts from "./tts/index.ts";
 import { createDecider, deciderIncludedHere, deciderReady, deciderSavePatch, describeDecider } from "./decider/index.ts";
 import { decideRoomResponder, type RoomRoutingInput } from "./decider/room-routing.ts";
+import { describeClef } from "./laterdog/clef-config.ts";
 import { createLiveSession, liveAttachUrl, LiveSessionError, type LiveBot, type LiveHistoryMessage } from "./live-call.ts";
 import { LiveCallController, LiveCallSignedOutError, type LiveSocket } from "./live-call-controller.ts";
 import { toUtterances } from "./tts/speech-text.ts";
@@ -13052,6 +13053,7 @@ function configStatus() {
     tts: tts.describeVoice(cfg),
     decider: describeDecider(cfg),
     typing: typingSuggestions.describe(),
+    clef: describeClef(cfg),
     imageGen: avatarImageStatus(cfg),
     live: liveSettingsFor(cfg),
     profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "", aboutMe: cfg.profile?.aboutMe ?? "" },
