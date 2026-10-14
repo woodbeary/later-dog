@@ -50,10 +50,18 @@ export declare function createCloudAccountStore(options: {
     decrypt(value: Buffer): string | { result: string } | Promise<string | { result: string }>;
   };
 }): CloudAccountStore;
+export interface CloudDeviceGrant {
+  cloudContractVersion: 1;
+  accessToken: string;
+  expiresAt: number;
+  device: { id: string };
+  account: { id: string; email: string };
+}
 export interface CloudAccountClient {
   state(): CloudAccountState;
   start(): Promise<CloudAccountState>;
   begin(): Promise<CloudAccountState>;
+  adopt(result: CloudDeviceGrant): Promise<CloudAccountState>;
   signInAgain(): Promise<CloudAccountState>;
   reopen(): Promise<CloudAccountState>;
   cancel(): Promise<CloudAccountState>;
