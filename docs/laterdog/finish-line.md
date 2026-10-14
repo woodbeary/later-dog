@@ -26,7 +26,7 @@ Work stops at a gate before the next one starts.
 
 | Gate | Priority | Done when | State |
 | --- | --- | --- | --- |
-| G0 Consolidated | | Every in-flight change committed and pushed; integration branch `laterdog/checkpoint`; this tracker; no-comments check in the phone repo | in progress |
+| G0 Consolidated | | Every in-flight change committed and pushed; integration branch `laterdog/checkpoint`; this tracker; no-comments check in the phone repo | done except the phone check, which is L2's first step |
 | G1 Phone on production | P0 | Accounts, homes and included AI deployed; the review sign-in reaches a home and a dog replies; the person signs in on their iPhone | waiting on G0 |
 | G2 TestFlight in review | P0 | Build 5 checked on the person's phone through internal testing, then submitted to Beta App Review | waiting on G1 |
 | G3 Desktop 0.3.28 | P1 | Keys save; honest handoffs with Continue; Keep going across engines; local-tool token; question cards work; roster across folders; PR #36 checked on screen; sealed install and update pass | waiting on lanes L3, L4 |
@@ -40,11 +40,11 @@ Work stops at a gate before the next one starts.
 
 | Lane | Branch | Worktree | Status | Next step | Done when |
 | --- | --- | --- | --- | --- | --- |
-| L0 Integration | `laterdog/checkpoint` | `/Volumes/laterdog-phone/lanes/checkpoint` | main + #36 + roster + #37 merged | fix the #37 test wording, start CI | CI green |
-| L1 Cloud ready | `laterdog/home` | `/Volumes/laterdog-phone/lanes/home` | uncommitted Cloud work committed (`b8831e86a`); image build running | image build green; deploy commands ready | image built, checks green |
-| L2 Phone review-ready | `phone/review-ready` (later-dog-phone) | `/Volumes/laterdog-phone/lanes/phone` | not started | data choice before first send; New dog scroll; reconnect fix | proven on the person's iPhone against production |
-| L3 Reliability | `laterdog/reliability` | `/Volumes/laterdog-phone/lanes/reliability` | not started | honest handoffs; Keep going across engines; local-tool token | focused tests and fixture proof |
-| L4 PR #36 on screen | `laterdog/visual-36` | `/Volumes/laterdog-phone/lanes/visual36` | not started | screenshot every #36 change in a fixture | every item passes on screen |
+| L0 Integration | `laterdog/checkpoint` (PR #38) | `/Volumes/laterdog-phone/lanes/checkpoint` | main + #36 + roster + #37 merged; #37 test fixed; tracker added | CI on PR #38; merge lane PRs as they land | CI green |
+| L1 Cloud ready | `laterdog/home` | `/Volumes/laterdog-phone/lanes/home` | running: Cloud work committed (`b8831e86a`); image build passed and pushed to the GitHub registry | production config dry-runs, decisions with images, image into Cloudflare, deploy sheet | dry-runs pass; deploy sheet ready |
+| L2 Phone review-ready | `phone/review-ready` (later-dog-phone) | the phone repo's own checkout (served to the test iPhone) | running | no-comments check; probe fix; live updates recover; data choice before first send; New dog scroll; visual pass; review notes | proven on the test iPhone; production check after G1 |
+| L3 Reliability | `laterdog/reliability` | `/Volumes/laterdog-phone/lanes/reliability` | running | honest handoffs; one thread per teammate; Keep going across engines; scoped local-tools token; never "the user"; plain disk-full words; deleted dog frees its trial computer | focused tests and fixture proof |
+| L4 PR #36 on screen | `laterdog/visual-36` | `/Volumes/laterdog-phone/lanes/visual36` | running | screenshot every #36 change beside its reference; fix; question card works and folds | sheet with every item passing |
 | L5–L14 | | | wave 2 and 3 | | |
 
 ## Evidence
