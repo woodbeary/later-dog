@@ -330,7 +330,7 @@ describe("ModelPicker trigger", () => {
     const markup = renderToStaticMarkup(createElement(ModelPicker, {
       bot: { ...bot(), modelSelection: { instanceId: "claude-work", model: "gpt-5.6" } },
     }));
-    expect(markup).toMatch(/<span data-model-account[^>]*>Work · <\/span>/);
+    expect(markup).toMatch(/<span data-model-account[^>]*>Work<\/span><span aria-hidden="true"[^>]*> · <\/span>/);
     expect(markup).not.toMatch(/<span data-model-account[^>]*>Personal/);
     expect(markup).toMatch(/<span data-model-account-compact="true" class="hidden max-w-20 truncate @max-4xl\/chathead:inline">Work<\/span><span class="[^"]*@max-4xl\/chathead:hidden"/);
     expect(markup).not.toContain("@max-4xl/chathead:size-[30px]");

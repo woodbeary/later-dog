@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, MessageCircleQuestion, X } from "lucide-react";
+import { Check, ChevronLeft, MessageCircleQuestion, X } from "lucide-react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -60,6 +60,8 @@ export function QuestionCard({
   const draft = drafts[currentIndex] ?? EMPTY;
   const answeredCount = answered.filter(Boolean).length;
   const complete = answeredCount === questions.length;
+  const lastStep = currentIndex === questions.length - 1;
+  const stepAnswered = answered[currentIndex] === true;
   const answerText = card.answeredText ?? sent;
   const shownAnswer = settled && answerText ? settledAnswer(answerText, questions) : "";
   const listsQuestions = questions.length > 1 && shownAnswer.startsWith("Q: ");
@@ -81,9 +83,10 @@ export function QuestionCard({
       send([[label]]);
       return;
     }
-    const next = questions.findIndex((_, index) => index !== currentIndex && !answered[index]);
-    if (next >= 0) setActive(next);
+    if (!lastStep) setActive(currentIndex + 1);
   };
+
+  const step = (offset: number) => setActive(Math.max(0, Math.min(questions.length - 1, currentIndex + offset)));
 
   const toggleOther = () => {
     if (settled) return;
@@ -144,8 +147,8 @@ export function QuestionCard({
         {!settled && (
           <div className="-my-1 -mr-1 flex shrink-0 items-center gap-2">
             {questions.length > 1 && (
-              <span className="text-[11px] tabular-nums text-ink-secondary">
-                {t("question.progress", { answered: answeredCount, count: questions.length })}
+              <span data-question-step className="text-[12px] tabular-nums text-ink-secondary">
+                {t("question.step", { current: currentIndex + 1, count: questions.length })}
               </span>
             )}
             {card.requestId && (
@@ -168,23 +171,25 @@ export function QuestionCard({
         <div className="mt-1 text-[12px] text-ink-secondary">{t("question.origin.badge")}</div>
       )}
 
-      {questions.length > 1 && !listsQuestions && (
-        <div role="tablist" aria-label={t("question.aria.tabs")} className="mt-3 flex flex-wrap gap-1">
+      {questions.length > 1 && !listsQuestions && !settled && (
+        <div role="tablist" aria-label={t("question.aria.tabs")} className="mt-2.5 flex gap-1.5">
           {questions.map((question, index) => (
             <button
               key={`${index}-${question.question}`}
               role="tab"
+              type="button"
               aria-selected={index === currentIndex}
+              aria-label={tabLabel(question, index)}
+              title={tabLabel(question, index)}
               onClick={() => setActive(index)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] transition-colors",
-                index === currentIndex
-                  ? "bg-control text-ink"
-                  : "text-ink-secondary hover:bg-control/60 hover:text-ink",
-              )}
+              className="group -my-1.5 flex h-5 w-6 items-center justify-center"
             >
-              {answered[index] && <Check size={12} className="text-success" />}
-              {tabLabel(question, index)}
+              <span
+                className={cn(
+                  "h-1 w-full rounded-full transition-colors",
+                  index === currentIndex ? "bg-ink" : answered[index] ? "bg-success" : "bg-hairline group-hover:bg-ink-tertiary",
+                )}
+              />
             </button>
           ))}
         </div>
@@ -216,7 +221,7 @@ export function QuestionCard({
                   picked ? "bg-raised-hover" : "hover:bg-raised-hover/60",
                 )}
               >
-                <Marker checked={picked} multi={Boolean(current.multiSelect)} />
+                <Marker checked={picked} multi={Boolean(current.multiSelect)} index={index} />
                 <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{option.label}</span>
               </button>
             );
@@ -231,7 +236,7 @@ export function QuestionCard({
               draft.other ? "bg-raised-hover" : "hover:bg-raised-hover/60",
             )}
           >
-            <Marker checked={draft.other} multi={Boolean(current.multiSelect)} />
+            <Marker checked={draft.other} multi={Boolean(current.multiSelect)} index={current.options.length} />
             <span className="text-[14px] text-ink">{t("question.other")}</span>
           </button>
           {draft.other && (
@@ -242,7 +247,9 @@ export function QuestionCard({
                 maxLength={MAX_CUSTOM_ANSWER}
                 onChange={(event) => update(currentIndex, { custom: event.target.value })}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && complete) submit();
+                  if (event.key !== "Enter") return;
+                  if (lastStep && complete) submit();
+                  else if (!lastStep && stepAnswered) step(1);
                 }}
                 placeholder={t("question.otherPlaceholder")}
                 className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[14.5px] text-ink placeholder:text-ink-secondary focus:outline-none"
@@ -257,7 +264,42 @@ export function QuestionCard({
           <Check size={14} className="mt-0.5 shrink-0 text-success" />
           <span className="whitespace-pre-wrap break-words">{shownAnswer || t("question.status.answered")}</span>
         </div>
-      ) : (questions.length > 1 || current.multiSelect || draft.other) && (
+      ) : questions.length > 1 ? (
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => step(-1)}
+            disabled={currentIndex === 0}
+            aria-label={t("question.back")}
+            data-question-back
+            className="flex items-center gap-0.5 rounded-full py-1 pl-1.5 pr-2.5 text-[13px] text-ink-secondary transition-colors hover:bg-control hover:text-ink disabled:invisible"
+          >
+            <ChevronLeft size={14} />
+            {t("question.back")}
+          </button>
+          {lastStep ? (
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!complete}
+              data-question-submit
+              className="rounded-full bg-accent px-3.5 py-1 text-[13px] font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t("question.submitAll")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => step(1)}
+              disabled={!stepAnswered}
+              data-question-next
+              className="rounded-full bg-accent px-3.5 py-1 text-[13px] font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t("question.next")}
+            </button>
+          )}
+        </div>
+      ) : (current.multiSelect || draft.other) && (
         <div className="mt-3 flex items-center justify-end gap-3">
           <span className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
             <MessageCircleQuestion size={14} className="text-accent" />
@@ -268,7 +310,7 @@ export function QuestionCard({
             disabled={!complete}
             className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {questions.length > 1 ? t("question.submitAll") : t("question.submit")}
+            {t("question.submit")}
           </button>
         </div>
       )}
@@ -290,22 +332,18 @@ export function QuestionCard({
   );
 }
 
-function Marker({ checked, multi }: { checked: boolean; multi: boolean }) {
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+function Marker({ checked, multi, index }: { checked: boolean; multi: boolean; index: number }) {
   return (
     <span
       aria-hidden
       className={cn(
-        "mt-0.5 flex size-4 shrink-0 items-center justify-center border",
-        multi ? "rounded-[5px]" : "rounded-full",
-        checked ? "border-accent bg-accent" : "border-hairline",
+        "flex size-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-medium leading-none transition-colors",
+        checked ? "border-accent bg-accent text-white" : "border-hairline text-ink-secondary",
       )}
     >
-      {checked &&
-        (multi ? (
-          <Check size={11} className="text-white" strokeWidth={3} />
-        ) : (
-          <span className="size-1.5 rounded-full bg-white" />
-        ))}
+      {checked && multi ? <Check size={12} strokeWidth={3} /> : LETTERS[index % LETTERS.length]}
     </span>
   );
 }

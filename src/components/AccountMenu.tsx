@@ -55,12 +55,14 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, auto =
                 grips && "pr-1",
               )}
             >
-              {row.rest || (reading && reading.used >= 100) ? <SleepingDog size={19} /> : <InstanceProviderMark instance={row.instance} size={16} />}
+              <span className="flex size-5 shrink-0 items-center justify-center">
+                {row.rest || (reading && reading.used >= 100) ? <SleepingDog size={19} /> : <InstanceProviderMark instance={row.instance} size={16} />}
+              </span>
               <span className="min-w-0 flex-1 truncate">{row.label}</span>
               {row.inUse && <span data-account-in-use className="text-[11px] text-accent-text">{t("accounts.inUseNow")}</span>}
               {row.rest ? <><RechargeLine progress={row.rest.estimated ? null : rechargeProgress(row.rest, now)} /><span className="text-[11px] tabular-nums text-ink-secondary">{backAt(row.rest, now)}</span></>
                 : reading && <span className={cn("text-[12px] tabular-nums", USAGE_TEXT[usageTone(reading.used)])}>{t("planUsage.left", { left: usageLeft(reading.used) })}</span>}
-              {row.selected && <Check size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />}
+              <Check size={14} aria-hidden="true" className={cn("shrink-0 text-ink-secondary", !row.selected && "invisible")} />
               {grips && (
                 <span
                   aria-hidden="true"
@@ -78,7 +80,7 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, auto =
           </div>
         );
       })}
-      {onSettings && <button type="button" role="menuitem" onClick={onSettings} className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-ink-secondary hover:bg-raised-hover"><Settings size={16} />{t("accounts.title")}</button>}
+      {onSettings && <button type="button" role="menuitem" onClick={onSettings} className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-ink-secondary hover:bg-raised-hover"><span className="flex size-5 shrink-0 items-center justify-center"><Settings size={16} /></span>{t("accounts.title")}</button>}
       {onAdd && (
         <button
           type="button"
@@ -87,7 +89,7 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, auto =
           onClick={onAdd}
           className={cn("flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13.5px] text-ink-secondary hover:bg-raised-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus", rows.length > 0 && "mt-1")}
         >
-          <Plus size={16} aria-hidden="true" className="shrink-0" />
+          <span className="flex size-5 shrink-0 items-center justify-center"><Plus size={16} aria-hidden="true" /></span>
           {t("accounts.add")}
         </button>
       )}

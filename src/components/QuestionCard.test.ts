@@ -94,7 +94,7 @@ describe("QuestionCard", () => {
     const markup = render(message());
     expect(markup).toContain("Model");
     expect(markup).toContain("Style");
-    expect(markup).toContain("0 of 2 answered");
+    expect(markup).toContain("1 of 2");
     expect(markup).toContain("Other");
   });
 

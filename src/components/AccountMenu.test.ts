@@ -20,7 +20,7 @@ function render(auto = false, used = 27) {
 describe("compact account batteries", () => {
   it("replaces the resting provider mark with a dog and a filling battery", () => {
     const row = render().querySelector('[data-account-row="a"]')!;
-    expect(row.firstElementChild?.hasAttribute("data-sleeping-dog")).toBe(true);
+    expect(row.firstElementChild?.firstElementChild?.hasAttribute("data-sleeping-dog")).toBe(true);
     expect(row.querySelector('[data-recharge="50"]')).not.toBeNull();
     expect(row.textContent).toContain("Back at");
     expect(row.querySelector("[data-account-grip]")?.className).not.toContain("opacity-0");
