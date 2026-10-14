@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import type { ServiceCredential } from "../included-services.ts";
 import { isXaiVoice, transcribeWithXai, type Transcriber } from "./transcribe-xai.ts";
 
-export const TRANSCRIBE_MAX_BYTES = 10 * 1024 * 1024;
+export const TRANSCRIBE_MAX_BYTES = 60 * 1024 * 1024;
 export const TRANSCRIBE_MODEL = "scribe_v2";
 const TRANSCRIBE_TIMEOUT_MS = 60_000;
 const LANGUAGE = /^[a-z]{2}$/;

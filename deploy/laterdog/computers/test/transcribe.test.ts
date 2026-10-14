@@ -64,7 +64,7 @@ function fmt({ format = 1, channels = 1, rate = 16_000, bits = 16 } = {}): Chunk
 const wav = (seconds: number, options: Parameters<typeof fmt>[0] = {}) =>
   riff([fmt(options), ["data", new Uint8Array(Math.round(seconds * (options.rate ?? 16_000)) * (options.channels ?? 1) * 2).fill(7)]]);
 
-const whisperAnswer = { text: " Hello from later.dog. ", word_count: 3, segments: [], transcription_info: { language: "en", language_probability: 0.98, duration: 1.5 } };
+const whisperAnswer = { results: { channels: [{ alternatives: [{ transcript: " Hello from later.dog. ", confidence: 0.99 }], detected_language: "en", language_confidence: 0.98 }] } };
 
 async function included() {
   const run = vi.fn(async () => whisperAnswer);
@@ -85,7 +85,7 @@ const note = (audio: Uint8Array, type = "audio/wav") => new Blob([audio], { type
 const plainBase64 = (bytes: Uint8Array) => btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
 
 describe("included transcription", () => {
-  it("writes down a voice note with Whisper on Workers AI through the AI Gateway, logging no content", async () => {
+  it("writes down a voice note with Nova-3 on Workers AI through the AI Gateway, logging no content", async () => {
     const { w, run, key } = await included();
     const audio = wav(1.5);
     const response = await w.fetch(transcribe(key, { model_id: "scribe_v2", file: note(audio), language_code: "en" }));
@@ -93,12 +93,12 @@ describe("included transcription", () => {
     expect(await body(response)).toEqual({ language_code: "en", language_probability: 0.98, text: "Hello from later.dog.", words: [] });
     expect(run).toHaveBeenCalledWith(
       TRANSCRIBE_MODEL,
-      { audio: plainBase64(audio), task: "transcribe", vad_filter: true, language: "en" },
+      { audio: { body: expect.any(ReadableStream), contentType: "audio/wav" }, smart_format: true, punctuate: true, language: "en" },
       { gateway: { id: "default", collectLog: false } },
     );
   });
 
-  it("leaves the language to the model when none is named, or Whisper doesn't know it", async () => {
+  it("leaves the language to the model when none is named, or Nova-3 doesn't know it", async () => {
     const { w, run, key } = await included();
     expect((await w.fetch(transcribe(key, { file: note(wav(2)) }))).status).toBe(200);
     expect((await w.fetch(transcribe(key, { file: note(wav(2)), language_code: "" }))).status).toBe(200);
@@ -116,7 +116,7 @@ describe("included transcription", () => {
       [transcribe(key, { file: note(wav(1, { bits: 8 })) }), 415, "unsupported_audio"],
       [transcribe(key, { file: note(wav(1, { format: 3, bits: 16 })) }), 415, "unsupported_audio"],
       [transcribe(key, { file: note(wav(0)) }), 422, "no_audio"],
-      [transcribe(key, { file: note(wav(301, { rate: 8_000 })) }), 413, "too_long"],
+      [transcribe(key, { file: note(wav(1_801, { rate: 8_000 })) }), 413, "too_long"],
       [transcribe(key, { file: note(wav(1)), language_code: "english" }), 422, "unsupported_language"],
       [new Request(`${ORIGIN}/v1/voice/speech-to-text`, { method: "POST", headers: { "xi-api-key": key, "content-type": "application/json" }, body: "{}" }), 415, "unsupported_media_type"],
       [new Request(`${ORIGIN}/v1/voice/speech-to-text`, { method: "POST", headers: { "xi-api-key": key, "content-type": "multipart/form-data; boundary=x" }, body: "nope" }), 400, "invalid_form"],
@@ -129,9 +129,9 @@ describe("included transcription", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("refuses a body larger than five minutes of voice can be, without reading it all", async () => {
+  it("refuses a body larger than thirty minutes of voice can be, without reading it all", async () => {
     const { w, run, key } = await included();
-    const response = await w.fetch(transcribe(key, { file: note(new Uint8Array(11 * 1024 * 1024)) }));
+    const response = await w.fetch(transcribe(key, { file: note(new Uint8Array(61 * 1024 * 1024)) }));
     expect(response.status).toBe(413);
     expect((await body(response)).error.code).toBe("too_large");
     expect(run).not.toHaveBeenCalled();
@@ -160,7 +160,7 @@ describe("included transcription", () => {
     expect((await w.fetch(transcribe(key, { file: note(wav(1)) }))).status).toBe(200);
   });
 
-  it("says the service failed when Whisper throws or answers without text", async () => {
+  it("says the service failed when Nova-3 throws or answers without text", async () => {
     const { w, run, key } = await included();
     run.mockRejectedValueOnce(new Error("3010: Invalid or incomplete input for the model"));
     expect((await w.fetch(transcribe(key, { file: note(wav(1)) }))).status).toBe(502);
@@ -193,10 +193,10 @@ describe("how long a WAV recording is", () => {
   });
 });
 
-describe("what Whisper answers", () => {
+describe("what Nova-3 answers", () => {
   it("reads the text with or without the result wrapper and keeps the detected language", () => {
     expect(transcriptFrom({ result: whisperAnswer })).toEqual({ language_code: "en", language_probability: 0.98, text: "Hello from later.dog.", words: [] });
-    expect(transcriptFrom({ text: "hola" })).toEqual({ language_code: null, language_probability: null, text: "hola", words: [] });
+    expect(transcriptFrom({ results: { channels: [{ alternatives: [{ transcript: "hola" }] }] } })).toEqual({ language_code: null, language_probability: null, text: "hola", words: [] });
     expect(transcriptFrom({ text: 3 })).toBeNull();
     expect(transcriptFrom("text")).toBeNull();
   });

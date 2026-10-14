@@ -31,6 +31,7 @@ describe("the cloud computer facade", () => {
   let nextId = 1;
   let wakeTo: State = "running";
   let startsOnPoll = false;
+  let runsAt = 0;
   let dropCreateAnswer = false;
   let trialOne = false;
   let concurrentCreate: string | null = null;
@@ -87,6 +88,7 @@ describe("the cloud computer facade", () => {
         if (!computer) return send(404, { error: { code: "not_found", message: "no such computer" } });
         if (!action && method === "GET") {
           if (startsOnPoll && computer.state === "starting") computer.state = "running";
+          if (runsAt && computer.state === "starting" && Date.now() >= runsAt) computer.state = "running";
           return send(200, { computer });
         }
         if (!action && method === "PATCH") { computer.name = JSON.parse(body).name; return send(200, { computer }); }
@@ -116,7 +118,7 @@ describe("the cloud computer facade", () => {
 
   beforeEach(() => {
     fleet.clear(); keys.clear(); failures.clear(); requests.length = 0;
-    wakeTo = "running"; startsOnPoll = false; dropCreateAnswer = false; trialOne = false; concurrentCreate = null; frame = JPEG;
+    wakeTo = "running"; startsOnPoll = false; runsAt = 0; dropCreateAnswer = false; trialOne = false; concurrentCreate = null; frame = JPEG;
     vi.stubEnv("LATERDOG_COMPUTERS_API", `http://127.0.0.1:${port}/v1`);
     vi.stubEnv("LATERDOG_COMPUTERS_KEY_FILE", join(keyDir, "computers-key"));
   });
@@ -236,6 +238,17 @@ describe("the cloud computer facade", () => {
     computer.state = "sleeping"; wakeTo = "running";
     expect(await computers.joinBoat(noBoat, "sleepy-bot")).toEqual(link);
     await expect(computers.joinBoat(noBoat, "no-computer-bot")).rejects.toThrow("no computer yet");
+  });
+
+  it("hands back the desktop link within one short poll of a waking computer running", async () => {
+    const computer = add("quick-bot", "sleeping");
+    wakeTo = "starting";
+    const woke = Date.now();
+    runsAt = woke + 1_600;
+    expect(await computers.joinBoat(noBoat, "quick-bot")).toEqual({ joinUrl: `https://desktop.example.test/${computer.id}?token=signed`, state: "running" });
+    const waited = Date.now() - woke;
+    expect(waited).toBeGreaterThanOrEqual(1_600);
+    expect(waited).toBeLessThan(2_300);
   });
 
   it("keeps a refused wake's status and code for reading the failed place, and stops on a computer that keeps failing", async () => {
