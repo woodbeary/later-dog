@@ -7,7 +7,7 @@ import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { executeSharedOperation, sharedCommand, createSharedCua } from "./shared-computer-access.mjs";
+import { executeSharedOperation, sharedCommand, createSharedCua, homeRelative, macFolderAccess, primeHomeFolders, sharedComputerError } from "./shared-computer-access.mjs";
 import { createComputerSharing, validateSharedFolders } from "./computer-sharing.mjs";
 
 async function fixture(t) {
@@ -117,6 +117,27 @@ test("folder boundary rejects traversal, links, oversized files and unknown fold
   await assert.rejects(run({ action: "read_file", path: "large.txt" }), /256 KiB/);
   await assert.rejects(run({ action: "list_files", folder_id: randomUUID() }), /not been shared/);
   await assert.rejects(validateSharedFolders([{ id: randomUUID(), path: path.parse(dir).root, write: false }]), /specific folders/);
+});
+
+test("big lent files are read in parts of at most 256 KiB, up to 25 MiB", async t => {
+  const { dir, run } = await fixture(t);
+  const big = Buffer.alloc(600_000);
+  for (let index = 0; index < big.length; index++) big[index] = index % 251;
+  await writeFile(path.join(dir, "report.pdf"), big);
+  await assert.rejects(run({ action: "read_file", path: "report.pdf" }), /read in parts/);
+  const parts = [];
+  for (let offset = 0; offset < big.length; offset += 262144) {
+    const part = payload(await run({ action: "read_file", path: "report.pdf", encoding: "base64", offset, length: 262144 }));
+    assert.equal(part.size, 600_000);
+    assert.equal(part.offset, offset);
+    parts.push(Buffer.from(part.content, "base64"));
+  }
+  assert.equal(Buffer.compare(Buffer.concat(parts), big), 0);
+  const past = payload(await run({ action: "read_file", path: "report.pdf", encoding: "base64", offset: 700_000, length: 1000 }));
+  assert.equal(past.bytes, 0);
+  await assert.rejects(run({ action: "read_file", path: "report.pdf", offset: 0, length: 262145 }), /at most 256 KiB/);
+  await assert.rejects(run({ action: "read_file", path: "report.pdf", offset: -1, length: 10 }), /whole-number offset/);
+  await assert.rejects(run({ action: "write_file", path: "other.txt", content: "x", offset: 0 }), /read-only/);
 });
 
 test("terminal and computer control are separately off, and revocation fails closed", async t => {
@@ -400,4 +421,74 @@ test("a harness data directory that does not exist yet still saves and connects"
   assert.equal(result.isError, undefined);
   assert.equal(JSON.parse(result.content[0].text).content, "ordinary file");
   assert.equal(stub.state.connected.folders.length, 1);
+});
+
+test("a home grant takes ~, home and relative paths, and refuses anything outside the home", async t => {
+  const { dir } = await fixture(t);
+  const folder = { id: randomUUID(), name: "Home", path: dir, write: true };
+  assert.equal(homeRelative(folder, "~"), "");
+  assert.equal(homeRelative(folder, " ~/ "), "");
+  assert.equal(homeRelative(folder, "~/Downloads/report.pdf"), "Downloads/report.pdf");
+  assert.equal(homeRelative(folder, "Downloads/report.pdf"), "Downloads/report.pdf");
+  assert.equal(homeRelative(folder, path.join(dir, "Downloads", "report.pdf")), "Downloads/report.pdf");
+  assert.equal(homeRelative(folder, dir), "");
+  assert.equal(homeRelative(folder, path.join(homedir(), "notes.txt")), "notes.txt");
+  assert.equal(homeRelative(folder, undefined), undefined);
+  assert.throws(() => homeRelative(folder, "/etc/hosts"), /^Error: later\.dog can only use files in this computer's home folder\.$/);
+});
+
+test("on a Mac, Downloads, Desktop and Documents are checked before use, so a macOS refusal reads plainly", async t => {
+  const { dir } = await fixture(t);
+  await mkdir(path.join(dir, "Downloads"));
+  await writeFile(path.join(dir, "Downloads", "report.txt"), "quarterly");
+  const folder = { id: randomUUID(), name: "Home", path: dir, write: true };
+  const grant = { enabled: true, home: true, folders: [folder], terminal: true, computer: false };
+  const asked = [];
+  let answer = Object.assign(new Error("ls: Downloads: Operation not permitted"), { code: "EPERM" });
+  const access = { platform: "darwin", probe: async target => { asked.push(path.basename(target)); return answer; } };
+  const run = operation => executeSharedOperation(grant, { folder_id: folder.id, ...operation }, new AbortController().signal, undefined, access);
+  const refused = await run({ action: "read_file", path: "~/Downloads/report.txt" }).catch(error => error);
+  assert.equal(refused.message, "macOS blocked later.dog from Downloads. On the Mac, open System Settings → Privacy & Security → Files & Folders and turn on Downloads under later.dog.");
+  assert.equal(sharedComputerError(refused).content[0].text, refused.message, "the advice survives path scrubbing");
+  await assert.rejects(run({ action: "run_command", command: "ls ~/downloads" }), /blocked later\.dog from Downloads/);
+  answer = null;
+  assert.equal(payload(await run({ action: "read_file", path: "Downloads/report.txt" })).content, "quarterly");
+  assert.equal(payload(await run({ action: "read_file", path: path.join(dir, "Downloads", "report.txt") })).content, "quarterly");
+  assert.deepEqual(asked, ["Downloads", "Downloads", "Downloads"], "a refusal is checked again next time; an allowance is remembered");
+  assert.equal(payload(await run({ action: "read_file", path: "Downloads/report.txt" })).content, "quarterly");
+  const shared = { ...grant, home: undefined };
+  assert.equal(payload(await executeSharedOperation(shared, { folder_id: folder.id, action: "list_files", path: "Downloads" }, new AbortController().signal, undefined, { platform: "darwin", probe: () => assert.fail("a picked folder is not probed") })).entries.length, 1);
+  await executeSharedOperation(grant, { folder_id: folder.id, action: "list_files", path: "Downloads" }, new AbortController().signal, undefined, { platform: "linux", probe: () => assert.fail("no probe off macOS") });
+});
+
+test("while macOS is still asking on the Mac, the request says so instead of hanging", async t => {
+  const { dir } = await fixture(t);
+  let release;
+  const started = Date.now();
+  await assert.rejects(
+    macFolderAccess(dir, "Desktop", { platform: "darwin", probe: () => new Promise(resolve => { release = resolve; }) }),
+    /^Error: macOS is asking on the Mac whether later\.dog can open Desktop\. Tell the person to click Allow on their Mac, then try again\.$/,
+  );
+  assert.ok(Date.now() - started < 4500);
+  release(null);
+  await macFolderAccess(dir, "Desktop", { platform: "darwin", probe: () => assert.fail("asked twice") });
+});
+
+test("macOS is asked about Downloads, Desktop and Documents once, up front, and only on a Mac", async t => {
+  const { dir } = await fixture(t);
+  const asked = [];
+  const probe = async target => { asked.push(path.basename(target)); return null; };
+  await primeHomeFolders(dir, { platform: "linux", probe });
+  assert.deepEqual(asked, []);
+  await primeHomeFolders(dir, { platform: "darwin", probe });
+  assert.deepEqual(asked, ["Downloads", "Desktop", "Documents"]);
+  await macFolderAccess(dir, "Documents", { platform: "darwin", probe });
+  assert.equal(asked.length, 3);
+});
+
+test("the real macOS check passes a readable folder and a missing one", { skip: process.platform !== "darwin" }, async t => {
+  const { dir } = await fixture(t);
+  await mkdir(path.join(dir, "Desktop"));
+  await macFolderAccess(dir, "Desktop");
+  await macFolderAccess(dir, "Documents");
 });

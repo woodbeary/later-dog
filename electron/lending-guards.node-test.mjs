@@ -283,6 +283,9 @@ test("malformed jobs are refused before anything runs, and the connector keeps s
   assert.equal(validSharedOperation({ computer_id: "x", action: "read_file" }, "x"), true);
   assert.equal(validSharedOperation({ computer_id: "x", action: "delete_file" }, "x"), false);
   assert.equal(validSharedOperation({ computer_id: "x", action: "read_file", encoding: "hex" }, "x"), false);
+  assert.equal(validSharedOperation({ computer_id: "x", action: "read_file", offset: 524288, length: 262144 }, "x"), true);
+  assert.equal(validSharedOperation({ computer_id: "x", action: "read_file", offset: 0, length: 262145 }, "x"), false);
+  assert.equal(validSharedOperation({ computer_id: "x", action: "read_file", offset: 1.5 }, "x"), false);
   assert.equal(validSharedOperation(null, "x"), false);
 });
 

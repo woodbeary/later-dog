@@ -21,3 +21,17 @@ Before the release, every check on the release commit passed in GitHub Actions: 
 ## Not covered
 
 A dog's reply on a provider, the tour and the composer were not driven this time; the 2026-10-12 record covers them for 0.3.24. A Claude or ChatGPT account, the phone, and later.dog Cloud sign-in were not part of this run.
+
+## 0.3.29, the same morning
+
+Released from `4c0df2619` after every check passed in GitHub Actions, then run the same way.
+
+| Check | Result |
+| --- | --- |
+| Release assets | The zip matched `SHA256SUMS.txt`, and `latest-mac.yml` matched the zip. |
+| Signature and Gatekeeper | Notarized Developer ID (The Interpreting App, LLC); the stapled ticket validated. |
+| First start | The server answered `/api/health`; the window showed the first-run welcome (name, Continue, Maybe later, Skip tour). |
+| Read Aloud and dictation | 200 with 8,784 bytes of `audio/mpeg`; the WAV came back as "Hello later dog, please say hi back." |
+| A dog answers | From the copy's window, a new dog on the included Kimi K2.6 answered "Say hello in five words." with "Hello!", followed by its turn digest. |
+| In-place update 0.3.28 → 0.3.29 | Staged by itself, installed on quit without a relaunch, still notarized, reported 0.3.29, and all 33 data files were still there. |
+| Real data | No file changed in the real later.dog folders; the trials were ended and the temporary homes removed. |

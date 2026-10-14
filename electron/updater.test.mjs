@@ -37,9 +37,10 @@ function mainRule() {
   expect(start).toBeGreaterThanOrEqual(0);
   expect(end).toBeGreaterThan(start);
   expect(source.includes("registerUpdaterIpc({ pageAllowed: updaterPageAllowed });"), "main.mjs wires the updater to updaterPageAllowed").toBe(true);
-  const signInStart = source.indexOf("function ensureCloudAccount() {"), signInEnd = source.indexOf("\n}\n", signInStart) + 3;
+  const signInStart = source.indexOf("function ensureCloudAccount() {"), signInEnd = source.indexOf("function ensureCloudSignIn() {", signInStart);
   expect(signInStart).toBeGreaterThanOrEqual(0);
-  const window = { isDestroyed: () => false, webContents: null };
+  expect(signInEnd).toBeGreaterThan(signInStart);
+  const window = { isDestroyed: () => false, webContents: null, setTitle: vi.fn() };
   const listeners = new Map();
   const signIn = { options: null, state: { status: "signed-out", message: "restoring" } };
   const context = vm.createContext({
@@ -50,11 +51,12 @@ function mainRule() {
     environmentsState: { environments: [], activeId: environments.LOCAL_ID },
     cloudAccount: { homeTarget: () => ({ origin: CLOUD }), state: () => ({ status: "connected", account: { id: "a1" } }) },
     configuredCloudOrigin: () => CLOUD,
-    rememberedHome: null, savedCloudHomeOrigin, cloudSignInRestored: true,
+    rememberedHome: null, savedCloudHomeOrigin, cloudSignInRestored: true, homeFellBack: false,
     app: { isPackaged: true, getPath: () => "/unused", getVersion: () => "1.0.0" }, process: { platform: "darwin" },
     path: { join: (...parts) => parts.join("/") }, os: { hostname: () => "mac" }, shell: {}, safeStorage: {},
     createCloudAccountStore: () => ({}), rememberCloudHome: () => {}, rememberedCloudHome, computerSharing: null,
     sendUpdaterState: () => {},
+    refreshApplicationMenu: vi.fn(), currentWindowTitle: () => "later.dog", observeCloudHome: vi.fn(),
     profilePageSender: (event) => Boolean(window.webContents) && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === `${PROFILE}/`,
     createCloudAccountClient: (options) => {
       signIn.options = options;

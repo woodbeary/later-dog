@@ -1,12 +1,11 @@
 import { createManagedDesktopStore, retryDelay, unreadableRecord } from "./managed-desktop.mjs";
 import { CLOUD_MACHINE_CONNECTABLE, parseCloudPurchase, parseCloudSummary, parsePairingGrant } from "./cloud-home.mjs";
 
+export const DEFAULT_CLOUD_ORIGIN = "https://accounts.later.dog";
 export function configuredCloudOrigin(environment = process.env) {
-  for (const name of ["LATERDOG_CLOUD_ORIGIN"]) {
-    const value = typeof environment[name] === "string" ? environment[name].trim() : "";
-    if (value) return value;
-  }
-  return "";
+  const value = typeof environment.LATERDOG_CLOUD_ORIGIN === "string" ? environment.LATERDOG_CLOUD_ORIGIN.trim() : "";
+  if (value === "off") return "";
+  return value || DEFAULT_CLOUD_ORIGIN;
 }
 const TOKEN = /^omc_[A-Za-z0-9_-]{43}$/;
 const CODE = /^[A-HJ-NP-Z2-9]{5}-[A-HJ-NP-Z2-9]{5}$/;
@@ -185,21 +184,24 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
     entry.operation = synchronize(generation).finally(() => { if (refreshing === entry) refreshing = null; });
     refreshing = entry; return entry.operation;
   }
+  async function install(result, stamp) {
+    const next = validateGrant({ origin, token: result.accessToken, ...identity(result) });
+    if (!current(stamp)) { await revoke(next).catch(() => {}); return state(); }
+    if (next.expiresAt <= now()) throw new Error("Expired Cloud credential.");
+    issued = next;
+    await store.write(next);
+    if (!current(stamp)) return state();
+    grant = next; issued = null; pending = null; savedHint = null;
+    if (plan?.accountId !== next.account.id) plan = null;
+    return refresh();
+  }
   async function poll() {
     const attempt = pending, stamp = generation;
     if (!attempt || !current(stamp)) return state();
     if (now() >= attempt.expiresAt) { pending = null; return publish({ status: "signed-out", message: "enrollment-expired" }); }
     try {
       const result = await request("token", { method: "POST", body: { deviceCode: attempt.deviceCode } });
-      const next = validateGrant({ origin, token: result.accessToken, ...identity(result) });
-      if (!current(stamp)) { await revoke(next).catch(() => {}); return state(); }
-      if (next.expiresAt <= now()) throw new Error("Expired Cloud credential.");
-      issued = next;
-      await store.write(next);
-      if (!current(stamp)) return state();
-      grant = next; issued = null; pending = null; savedHint = null;
-      if (plan?.accountId !== next.account.id) plan = null;
-      return refresh();
+      return await install(result, stamp);
     } catch (error) {
       if (!current(stamp)) return state();
       if (issued) return signOut();
@@ -208,6 +210,24 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
       else if (error?.status && !error.opaque && error.code !== "authorization_pending" && error.status !== 429) { pending = null; return publish({ status: "signed-out", message: "signin-failed" }); }
       schedule(poll, Math.min(attempt.interval, attempt.expiresAt - now()));
       return state();
+    }
+  }
+  async function adopt(result) {
+    if (closed || restoring || clearing || issued) throw new Error("This Mac is busy with its sign-in. Try again in a moment.");
+    if (grant) {
+      if (state().status !== "reauth-required") throw new Error("This Mac is already signed in to later.dog Cloud.");
+      const forgotten = await forget({ quiet: true });
+      if (forgotten.status === "unavailable") return forgotten;
+    }
+    if (cleanupNeeded) throw new Error("Sign out before starting another Cloud connection.");
+    const stamp = reset();
+    try {
+      return await install(result, stamp);
+    } catch (error) {
+      if (!current(stamp)) return state();
+      if (issued) return signOut();
+      publish({ status: "signed-out", message: "signin-failed" });
+      throw error;
     }
   }
   async function begin() {
@@ -259,6 +279,7 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
     state,
     start,
     begin,
+    adopt,
     async signInAgain() {
       if (state().status !== "reauth-required") throw new Error("This computer is still signed in to later.dog Cloud.");
       publish({ status: "connecting" });

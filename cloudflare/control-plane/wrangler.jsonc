@@ -14,6 +14,8 @@
   "vars": {
     "BETTER_AUTH_URL": "https://accounts.later.dog",
     "EMAIL_FROM": "noreply@later.dog",
+    "REVIEW_EMAIL": "appreview@later.dog",
+    "PHONE_APP_URL": "",
     "ALLOWED_ORIGINS": "",
     "CLOUDFLARE_ACCOUNT_ID": "",
     "CLOUDFLARE_ZONE_ID": "",
@@ -22,7 +24,9 @@
     "LATERDOG_DNS_RECORD_LIMIT": "1000",
     "LATERDOG_TUNNEL_RECLAIM": "on",
     "LATERDOG_TUNNEL_OFFLINE_RECLAIM_DAYS": "14",
-    "LATERDOG_CLEANUP_SWEEP_LIMIT": "4"
+    "LATERDOG_CLEANUP_SWEEP_LIMIT": "4",
+    "CLOUD_HOME_CAP": "200",
+    "MANAGED_ENDPOINTS": "off"
   },
   "secrets": {
     "required": ["BETTER_AUTH_SECRET", "CLOUDFLARE_API_TOKEN"]
@@ -40,6 +44,9 @@
       "name": "EMAIL",
       "allowed_sender_addresses": ["noreply@later.dog"]
     }
+  ],
+  "services": [
+    { "binding": "HOMES", "service": "laterdog-home", "entrypoint": "HomesApi" }
   ],
   "triggers": {
     "crons": ["*/5 * * * *"]

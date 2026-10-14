@@ -266,6 +266,10 @@ const bridge = {
     openDashboard: () => ipcRenderer.invoke("cloud-account:openDashboard"),
     connectHome: () => ipcRenderer.invoke("cloud-account:connectHome"),
     connectHomeForPhone: () => ipcRenderer.invoke("cloud-account:connectHomeForPhone"),
+    sendCode: email => ipcRenderer.invoke("cloud-account:sendCode", typeof email === "string" ? email : ""),
+    verifyCode: (email, code) => ipcRenderer.invoke("cloud-account:verifyCode", typeof email === "string" ? email : "", typeof code === "string" ? code : ""),
+    offer: () => ipcRenderer.invoke("cloud-account:offer"),
+    declineOffer: () => ipcRenderer.invoke("cloud-account:declineOffer"),
     onState: cb => {
       const handler = (_event, state) => cb(state);
       ipcRenderer.on("cloud-account:state-changed", handler);
@@ -273,9 +277,7 @@ const bridge = {
     },
     lending: {
       state: () => ipcRenderer.invoke("lending:state"),
-      chooseFolder: () => ipcRenderer.invoke("lending:folder"),
-      save: input => ipcRenderer.invoke("lending:save", input),
-      stop: () => ipcRenderer.invoke("lending:stop"),
+      setHome: on => ipcRenderer.invoke("lending:home", on === true),
     },
   } : undefined,
   cloudMove: process.argv.includes("--laterdog-company-desktop=1") ? {
@@ -298,8 +300,8 @@ const bridge = {
     state: () => ipcRenderer.invoke("cloud-plan:state"),
     manage: () => isLocalPage || navigator.userActivation?.isActive === true
       ? ipcRenderer.invoke("cloud-plan:manage") : Promise.reject(new Error("Choose Manage to open your Plan page.")),
-    useThisComputer: () => isLocalPage || navigator.userActivation?.isActive === true
-      ? ipcRenderer.invoke("cloud-plan:local") : Promise.reject(new Error("Choose Use this computer to switch.")),
+    signOut: () => isLocalPage || navigator.userActivation?.isActive === true
+      ? ipcRenderer.invoke("cloud-plan:signOut") : Promise.reject(new Error("Choose Sign out to sign out.")),
   } : undefined,
   organization: process.argv.includes("--laterdog-company-desktop=1") ? {
     defaultPortalOrigin: process.argv.find((arg) => arg.startsWith("--laterdog-admin-origin="))?.slice("--laterdog-admin-origin=".length) ?? "",

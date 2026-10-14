@@ -17,6 +17,7 @@ import {
   installAgentBrowserBinary,
   resolveAgentBrowserBinary,
 } from "../../server/browser-engine.ts";
+import { desktopSigninRoutes } from "./desktop-signin-bridge.ts";
 import { fixtureApi, mountPreview, type MountedPreview } from "./preview-fixture.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -26,6 +27,7 @@ export const UI_MUTATING = new Set(["click", "type", "press", "flag", "eval"]);
 const ENTRIES = {
   threads: { entry: "/scripts/testing/threads-preview.tsx", route: "/__threads.html", title: "Isolated later.dog Chat" },
   settings: { entry: "/src/testing/bot-settings.tsx", route: "/__bot-settings.html", title: "Isolated Bot Settings" },
+  "desktop-signin": { entry: "/scripts/testing/desktop-signin-preview.tsx", route: "/__desktop-signin.html", title: "Isolated desktop sign-in", extraRoutes: desktopSigninRoutes() },
 } as const satisfies Record<string, Parameters<typeof mountPreview>[1]>;
 const FAKE_MODES = ["happy", "exit-early", "hang", "malformed", "stream", "not-logged-in", "slow", "background-result", "puppies"];
 const SEEDED_BOT = "Pepper";

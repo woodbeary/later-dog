@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
 import { CLOUD_LINK_SETTINGS, StoreProvider, useStore } from "@/state/store";
+import { CloudQuietLine } from "@/components/CloudQuietLine";
+import { CloudSignInGate, useCloudSignInGate } from "@/components/CloudSignInGate";
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
 import { cloudSignInDue, spotlightsQuiet, type WelcomeViewer } from "@/lib/onboarding";
 import { FirstConversationTour } from "@/components/onboarding/FirstConversationTour";
@@ -300,6 +302,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       <AddAccountHost />
       <UpdateDialog />
       </div>
+      <CloudQuietLine />
       <WindowCaptionButtons
         visible={capabilities.windowChrome === "win-caption" && Boolean(window.laterdog?.windowControls)}
       />
@@ -312,13 +315,15 @@ function Application() {
     initAnalytics();
   }, []);
   const viewer = useWelcomeViewer();
+  const signInGate = useCloudSignInGate();
   return (
     <DesktopCapabilitiesProvider>
       <StoreProvider>
         <ThreadRefsProvider>
           <Shell viewer={viewer} />
         </ThreadRefsProvider>
-        <WelcomeGate viewer={viewer} />
+        <WelcomeGate viewer={viewer} hold={signInGate.holding} />
+        <CloudSignInGate gate={signInGate} />
         <GuidedTour />
         <LiveCallHost />
         <FirstConversationTour quiet={spotlightsQuiet(viewer)} />

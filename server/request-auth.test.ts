@@ -290,6 +290,13 @@ describe("resolveRequestAuth", () => {
     );
     expect(connectorRefresh.auth).toBeNull();
     expect(connectorRefresh.status).toBe(403);
+    const traceRoute = "/api/laterdog/jobs/5f2d8c0e-1111-4222-8333-444455556666/trace";
+    const traceWithoutOwner = resolveRequestAuth(request({ host: "127.0.0.1:8799" }, "GET"), options(traceRoute));
+    expect(traceWithoutOwner.auth).toBeNull();
+    expect(traceWithoutOwner.status).toBe(403);
+    expect(resolveRequestAuth(request({ host: "127.0.0.1:8799", "x-laterdog-desktop-owner": "wrong-token-123" }, "GET"), options(traceRoute)).auth).toBeNull();
+    expect(resolveRequestAuth(request({ host: "127.0.0.1:8799", "x-laterdog-desktop-owner": "owner-token-123" }, "GET"), options(traceRoute)).auth?.kind).toBe("loopback");
+    expect(resolveRequestAuth(request({ host: "127.0.0.1:8799" }, "GET"), options("/api/laterdog/jobs/5f2d8c0e-1111-4222-8333-444455556666/activity")).auth?.kind).toBe("loopback");
     for (const path of ["/api/desktop-viewer/vps/bot-1", "/api/desktop-viewer/local/shared/websockify"]) {
       expect(resolveRequestAuth(request({ host: "127.0.0.1:8799" }, "GET"), options(path)).status).toBe(403);
     }
@@ -620,7 +627,7 @@ describe("local tools token: local tools work on a packaged desktop, but a dog c
     ["POST", "/api/bots/bot-1/always-allow"], ["POST", "/api/bots/bot-1/command-allowlist"], ["PUT", "/api/bots/bot-1/command-allowlist/rule-1"],
     ["POST", "/api/bots/bot-1/secret-cards/card-1/provide"], ["POST", "/api/bots/bot-1/connector-cards/card-1/authorize"],
     ["GET", "/api/bots/bot-1/connector-cards/card-1/status"], ["POST", "/api/connectors/github/authorize"],
-    ["GET", "/api/desktop-viewer/session"], ["POST", "/api/desktop-viewer/open"],
+    ["GET", "/api/desktop-viewer/session"], ["POST", "/api/desktop-viewer/open"], ["GET", "/api/laterdog/jobs/job-1/trace"],
     ["POST", "/api/keys/test"], ["PUT", "/api/config"], ["PATCH", "/api/config"],
     ["POST", "/api/live/session"], ["POST", "/api/laterdog/jobs/job-1/action"], ["POST", "/api/bots/bot-1/computer/exec"],
     ["POST", "/api/computers/boxes/box-1/delete"], ["POST", "/api/team-computers"],

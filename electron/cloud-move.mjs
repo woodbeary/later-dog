@@ -122,6 +122,8 @@ export function moveFit({ localBytes, freeBytes, uploadReceived = 0, volumeBytes
   }
   return { fit: "never", neededBytes, freeBytes: available, ...(maxBytes ? { maxBytes, ...(disk?.largest === true ? { largest: true } : {}) } : volume ? { volumeBytes: volume } : {}) };
 }
+export const arrivedInFull = (local, contents) => record(local) && record(contents) &&
+  ["bots", "rooms", "chats"].every(key => count(local[key]) && count(contents[key]) && contents[key] >= local[key]);
 export function parseCloudMoveStatus(value) {
   if (!record(value) || !record(value.contents) || !["bots", "rooms", "chats"].every(key => count(value.contents[key])) ||
     typeof value.empty !== "boolean" || !count(value.freeBytes)) return null;
@@ -444,14 +446,14 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
   return {
     state,
     estimate,
-    move: (dest, { requireEmpty = false } = {}) => run("move", dest, async (session, signal) => {
+    move: (dest, { requireEmpty = false, verifyArrival = false } = {}) => run("move", dest, async (session, signal) => {
       const [cloud, local] = await Promise.all([cloudStatus(session, signal), estimate(signal)]);
       const why = moveBlocked({ kind: dest.kind, local, cloud });
       if (why) {
         fail(why, why === "outdated" ? `${There()} runs ${cloud.appVersion}; this computer runs ${local.appVersion}. Update it, then copy again.` : `${There()} can't receive this copy.`,
           { destVersion: cloud.appVersion, localVersion: local.appVersion });
       }
-      if (requireEmpty && !cloud.empty) fail("not_empty", `${There()} already has bots or chats of its own, so nothing was copied.`);
+      if (requireEmpty && !cloud.empty) fail("not_empty", `${There()} already has bots or chats of its own, so nothing was copied.`, { contents: cloud.contents });
       if (cloud.pendingRestore || cloud.busy || cloud.job?.state === "running") fail("cloud_busy", `${There()} is busy. Try again in a minute.`);
       if (local.bytes > CLOUD_MOVE_MAX_BYTES) fail("too_large", "This workspace is larger than a copy can carry.");
       let disk = null;
@@ -481,6 +483,9 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
       }
       await disposeArchive();
       const after = await waitForRestart(session, "restore", { id: preview.id }, signal);
+      if (verifyArrival && !arrivedInFull(local, after.contents)) {
+        fail("not_verified", `${There()} did not receive every bot and chat. Everything is still on this computer.`, { contents: after.contents });
+      }
       return publish({ phase: "done", action: "move", moved: after.contents, previous: Boolean(after.previous), ...(local.routines > 0 ? { routines: local.routines } : {}) });
     }),
     restorePrevious: dest => run("restore", dest, async (session, signal) => {

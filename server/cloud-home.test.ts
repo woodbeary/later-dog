@@ -261,6 +261,21 @@ it("binds a fresh volume to its machine and refuses anyone else's data", () => {
   expect(readFileSync(join(unmarked, "notes.txt"), "utf8")).toBe("someone's data");
 });
 
+it("adopts a fresh volume that holds only the included services the home seeded before its first start", () => {
+  const home = directory();
+  writeFileSync(join(home, ".bashrc"), "");
+  mkdirSync(join(home, ".laterdog"));
+  writeFileSync(join(home, ".laterdog", "computers-trial-key"), "ldt_key\n");
+  writeFileSync(join(home, ".laterdog", "computers-trial.json"), "{}\n");
+  expect(prepareCloudHomeVolume(home, "home-7f3k2")).toBe("new");
+  const used = directory();
+  mkdirSync(join(used, ".laterdog"));
+  writeFileSync(join(used, ".laterdog", "computers-trial-key"), "ldt_key\n");
+  writeFileSync(join(used, ".laterdog", "messages.db"), "someone's chats");
+  expect(() => prepareCloudHomeVolume(used, "home-7f3k2")).toThrow(/Refusing to adopt/);
+  expect(readFileSync(join(used, ".laterdog", "messages.db"), "utf8")).toBe("someone's chats");
+});
+
 it("gives the edge only its routing name and the server the contract, never a gateway's settings or a secret", () => {
   const relay = { LATERDOG_CLOUD_BOAT_TOKEN: `box_laterdog_${"b".repeat(43)}`, LATERDOG_CLOUD_VOICE_TOKEN: `laterdog_voice_${"v".repeat(43)}`, LATERDOG_CLOUD_DECIDER_TOKEN: `laterdog_decide_${"d".repeat(43)}` };
   const config = cloudHomeConfiguration(withGateway())!;

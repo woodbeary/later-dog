@@ -29,12 +29,12 @@ export function useWelcomeViewer(): WelcomeViewer | null {
   return viewer;
 }
 
-export function WelcomeGate({ viewer }: { viewer: WelcomeViewer | null }) {
+export function WelcomeGate({ viewer, hold = false }: { viewer: WelcomeViewer | null; hold?: boolean }) {
   const { state, dispatch } = useStore();
   const [dismissed, setDismissed] = useState(false);
   const [resumeAt, setResumeAt] = useState<BeatId | undefined>(undefined);
   const remoteClient = window.laterdog?.remoteClient?.active === true;
-  if (!viewer) return null;
+  if (!viewer || hold) return null;
   if (hostedMember(viewer)) {
     return remoteClient ? null : (
       <SharedWorkspaceHint

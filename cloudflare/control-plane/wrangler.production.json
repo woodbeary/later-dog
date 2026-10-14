@@ -1,0 +1,78 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "laterdog-control-plane",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-25",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "accounts.later.dog",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "BETTER_AUTH_URL": "https://accounts.later.dog",
+    "EMAIL_FROM": "noreply@auth.later.dog",
+    "REVIEW_EMAIL": "appreview@later.dog",
+    "PHONE_APP_URL": "",
+    "ALLOWED_ORIGINS": "",
+    "CLOUDFLARE_ACCOUNT_ID": "da1336ec3e3f7d9a4971022ae074c5d7",
+    "CLOUDFLARE_ZONE_ID": "58286feb8a4801bd7710ed2d365dbeec",
+    "COMPANION_HOST_SUFFIX": "later.dog",
+    "LATERDOG_TUNNEL_LIMIT": "1000",
+    "LATERDOG_DNS_RECORD_LIMIT": "1000",
+    "LATERDOG_TUNNEL_RECLAIM": "observe",
+    "LATERDOG_TUNNEL_OFFLINE_RECLAIM_DAYS": "14",
+    "LATERDOG_CLEANUP_SWEEP_LIMIT": "4",
+    "CLOUD_HOME_CAP": "200",
+    "MANAGED_ENDPOINTS": "off"
+  },
+  "secrets": {
+    "required": [
+      "BETTER_AUTH_SECRET"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "laterdog-control-plane",
+      "database_id": "68ebf54f-c3cc-47c7-bc46-760bdb76f2aa",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": [
+        "noreply@auth.later.dog"
+      ]
+    }
+  ],
+  "services": [
+    {
+      "binding": "HOMES",
+      "service": "laterdog-home",
+      "entrypoint": "HomesApi"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05
+    }
+  },
+  "account_id": "da1336ec3e3f7d9a4971022ae074c5d7"
+}

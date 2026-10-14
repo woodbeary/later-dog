@@ -12,7 +12,11 @@ export interface CloudAccountState {
   lastPlan?: { tier?: string; active: boolean };
   machine?: import("./cloud-home.mjs").CloudMachine;
   purchase?: import("./cloud-home.mjs").CloudPurchase;
+  fellBack?: true;
 }
+export type CloudSignInFailure = import("./cloud-sign-in.mjs").CloudSignInFailure;
+export type CloudSendCodeResult = { ok: true; email: string } | { ok: false; code: CloudSignInFailure };
+export type CloudVerifyCodeResult = { ok: true; account: CloudAccountState } | { ok: false; code: CloudSignInFailure };
 export interface CloudAccountBridge {
   state(): Promise<CloudAccountState>;
   begin(): Promise<CloudAccountState>;
@@ -24,6 +28,10 @@ export interface CloudAccountBridge {
   openDashboard(): Promise<CloudAccountState>;
   connectHome(): Promise<CloudAccountState>;
   connectHomeForPhone(): Promise<CloudAccountState>;
+  sendCode(email: string): Promise<CloudSendCodeResult>;
+  verifyCode(email: string, code: string): Promise<CloudVerifyCodeResult>;
+  offer(): Promise<{ due: boolean }>;
+  declineOffer(): Promise<{ due: boolean }>;
   onState(callback: (state: CloudAccountState) => void): () => void;
   lending?: import("./computer-sharing.mjs").CloudLendingBridge;
 }
@@ -31,10 +39,12 @@ export interface CloudPlanSnapshot { status: "paid" | "attention" | "checking" |
 export interface CloudPlanBridge {
   state(): Promise<CloudPlanSnapshot>;
   manage(): Promise<void>;
-  useThisComputer(): Promise<void>;
+  signOut(): Promise<void>;
 }
 
 export declare const CLOUD_ORIGIN: string;
+export declare const DEFAULT_CLOUD_ORIGIN: string;
+export declare function configuredCloudOrigin(environment?: NodeJS.ProcessEnv): string;
 export declare function cloudOrigin(value?: string, fixture?: boolean): string;
 export interface CloudAccountStore {
   read(): Promise<unknown>;
@@ -48,10 +58,18 @@ export declare function createCloudAccountStore(options: {
     decrypt(value: Buffer): string | { result: string } | Promise<string | { result: string }>;
   };
 }): CloudAccountStore;
+export interface CloudDeviceGrant {
+  cloudContractVersion: 1;
+  accessToken: string;
+  expiresAt: number;
+  device: { id: string };
+  account: { id: string; email: string };
+}
 export interface CloudAccountClient {
   state(): CloudAccountState;
   start(): Promise<CloudAccountState>;
   begin(): Promise<CloudAccountState>;
+  adopt(result: CloudDeviceGrant): Promise<CloudAccountState>;
   signInAgain(): Promise<CloudAccountState>;
   reopen(): Promise<CloudAccountState>;
   cancel(): Promise<CloudAccountState>;
@@ -74,6 +92,8 @@ export declare function createCloudAccountClient(options: {
   fetch?: typeof fetch;
   now?: () => number;
   onState?: (state: CloudAccountState) => void;
+  setTimer?: typeof setTimeout;
+  clearTimer?: typeof clearTimeout;
   warn?: (message: string) => void;
 }): CloudAccountClient;
 export declare function cloudPlanSnapshot(state: CloudAccountState | null | undefined): CloudPlanSnapshot;

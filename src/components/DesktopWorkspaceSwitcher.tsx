@@ -17,7 +17,7 @@ export function DesktopWorkspaceSwitcher({ compact = false, inline = false, clou
     void bridge?.state().then((state) => { if (alive) setCurrent(state); }).catch(() => {});
     return () => { alive = false; };
   }, [bridge]);
-  if (!bridge) {
+  if (!bridge || cloudHome) {
     if (!cloudHome) return null;
     const whose = owner ? t("sidebar.cloudOwner", { email: owner }) : "";
     const label = `${t("cloudSetup.myCloud")} · ${t("cloudSetup.alwaysOn")}${whose ? ` · ${whose}` : ""}`;

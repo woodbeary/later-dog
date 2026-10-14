@@ -198,21 +198,23 @@ await import(${JSON.stringify(fake)});
   };
   await boot();
   owner = await adminPairing();
-  const folderPath = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-cloud-lent-memory-")));
-  writeFileSync(join(folderPath, "plan.md"), "from the Mac");
+  const macHome = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-cloud-lent-memory-")));
+  writeFileSync(join(macHome, "plan.md"), "from the Mac");
   const env = { id: "my-cloud", name: "My Cloud", origin: base };
   connector = createComputerSharing({
     file: join(home, "desktop-profile", "computer-sharing.json"), environments: () => [env], cuaConnection: async () => null,
-    enabled: async () => false, cloud: () => ({ status: "connected", accountId: "acct_fixture", origin: base }), home: join(home, "mac-home"),
+    enabled: async () => false, cloud: () => ({ status: "connected", accountId: "acct_fixture", origin: base }), home: macHome, retryMs: 500,
     fetch: (url: string, init: RequestInit) => fetch(url, { ...init, headers: { ...init.headers as Record<string, string>, authorization: `Bearer ${owner}`, host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https", origin: `https://${HOST}` } }),
   });
-  folderId = randomUUID();
-  await connector.saveCloud(env, { folders: [{ id: folderId, name: "Plans", path: folderPath, write: false }], screen: false });
+  connector.start({ maintainer: false });
   for (const deadline = Date.now() + 8000; !connector.cloudState(env).connected;) {
     if (Date.now() > deadline) throw new Error(`the Mac never connected: ${JSON.stringify(connector.cloudState(env))}`);
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  lentId = (await api("GET", "/api/shared-computers", { token: owner })).body.computers[0].id;
+  expect((await api("PUT", "/api/mac-access", { token: owner, body: { mode: "always" } })).body.mode).toBe("always");
+  const lent = (await api("GET", "/api/shared-computers", { token: owner })).body.computers[0];
+  lentId = lent.id;
+  folderId = lent.scopes.folders[0].id;
 }, 40_000);
 
 afterAll(async () => {

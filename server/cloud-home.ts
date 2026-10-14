@@ -168,6 +168,15 @@ export function readSignedBody(req: IncomingMessage, limit = 4096): Promise<Buff
 }
 
 const ADOPTABLE = new Set(["lost+found", ".bash_logout", ".bashrc", ".profile"]);
+const SEEDED_DATA_DIR = ".laterdog";
+const SEEDED_DATA_FILES = new Set(["computers-trial-key", "computers-trial.json"]);
+
+function adoptable(home: string, name: string): boolean {
+  if (ADOPTABLE.has(name)) return true;
+  if (name !== SEEDED_DATA_DIR) return false;
+  const seeded = join(home, name);
+  return lstatSync(seeded).isDirectory() && readdirSync(seeded).every((entry) => SEEDED_DATA_FILES.has(entry));
+}
 
 export function prepareCloudHomeVolume(home: string, machineId: string): "new" | "existing" {
   mkdirSync(home, { recursive: true, mode: 0o700 });
@@ -182,7 +191,7 @@ export function prepareCloudHomeVolume(home: string, machineId: string): "new" |
     if ((saved as { machine?: unknown })?.machine !== machineId) throw new Error("This volume belongs to another Cloud machine. No data was changed.");
     return "existing";
   }
-  if (readdirSync(home).some((name) => !ADOPTABLE.has(name))) {
+  if (readdirSync(home).some((name) => !adoptable(home, name))) {
     throw new Error("Refusing to adopt a data volume that was not made for this Cloud machine. No data was changed.");
   }
   writeFileAtomic(marker, JSON.stringify({ version: 1, machine: machineId }) + "\n", { mode: 0o600 });

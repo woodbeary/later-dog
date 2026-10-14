@@ -257,7 +257,8 @@ test("a server's card offers a copy only when it can fit and nothing blocks it: 
   let result = await mainOverview({ dest: cloud({ status: "ready", origin: ORIGIN }), peek });
   assert.equal(result.fit.fit, "never"); assert.equal(result.fit.volumeBytes, 10 * GB); assert.equal(result.suggest, false);
   result = await mainOverview({ dest: cloud({ status: "ready", origin: ORIGIN, disk: { gb: 10, maxGb: 100 } }), peek });
-  assert.equal(result.fit.fit, "grow"); assert.equal(result.suggest, true); assert.deepEqual(result.destination, CLOUD); assert.equal(result.blocked, null);
+  assert.equal(result.fit.fit, "grow"); assert.equal(result.suggest, false, "the Cloud is moved to automatically, so it is never suggested"); assert.equal(result.automatic, true);
+  assert.deepEqual(result.destination, CLOUD); assert.equal(result.blocked, null);
   const roomy = { ...peek, status: { ...peek.status, freeBytes: 50 * GB } };
   const server = { ...VPS_ENTRY, disk: () => { throw new Error("a server has no plan"); } };
   result = await mainOverview({ dest: server, peek });
@@ -641,6 +642,7 @@ function mainIpc(extra = {}) {
       restorePrevious: async dest => { calls.push(["restorePrevious", describe(dest)]); return context.result ?? { phase: "idle" }; } }),
     cloudMoveOverview: (dest, onServerPage) => { calls.push(["overview", dest && describe(dest), onServerPage]); return { suggest: false }; },
     dismissCloudMove: origin => calls.push(["dismiss", origin]),
+    runCloudAutoMove: manual => { calls.push(["autoMove", manual]); return Promise.resolve(null); },
     connectCloudHome: async () => calls.push(["connectCloudHome"]), switchEnvironment: async id => calls.push(["switch", id]),
     navigateMainWindow: url => calls.push(["navigate", url]), slog: () => {},
     openWorkspaceSettings: (id, panel) => calls.push(["openSettings", id, panel]),
@@ -723,7 +725,7 @@ test("production IPC: a server's own page gets only itself, never starts a copy 
   context.mainWindow.webContents = cloudContents;
   context.environmentsState = { environments: SAVED, activeId: "cloud-entry" };
   await handlers.get("cloud-move:start")({ sender: cloudContents, senderFrame: cloudFrame });
-  assert.deepEqual(calls, [["move", CLOUD_DEST, { requireEmpty: true }]]);
+  assert.deepEqual(calls, [["autoMove", true]], "the Cloud's own page retries through the automatic move, which requires an empty home");
   for (const event of [{ sender: cloudContents, senderFrame: { url: `${ORIGIN}/` } }, { sender: {}, senderFrame: cloudFrame }, { sender: cloudContents, senderFrame: { url: "https://evil.example.test/" } }]) {
     for (const channel of ["cloud-move:state", "cloud-move:start", "cloud-move:cancel", "cloud-move:dismiss", "cloud-move:restore-previous"]) assert.throws(() => handlers.get(channel)(event), /only available/);
   }
@@ -742,11 +744,11 @@ test("production IPC: a finished copy opens the server it went to", async () => 
   context.environmentsState = { environments: SAVED, activeId: "cloud-entry" };
   const cloudPage = { sender: cloudContents, senderFrame: cloudFrame };
   await handlers.get("cloud-move:start")(cloudPage);
-  assert.deepEqual(calls.filter(([kind]) => kind !== "move"), [["switch", "vps"], ["connectCloudHome"], ["navigate", ORIGIN]]);
+  assert.deepEqual(calls.filter(([kind]) => kind !== "move"), [["switch", "vps"], ["connectCloudHome"], ["autoMove", true]]);
   calls.length = 0;
   context.result = { phase: "failed", error: { code: "network" } };
   await handlers.get("cloud-move:start")(cloudPage);
-  assert.deepEqual(calls.filter(([kind]) => kind !== "move"), []);
+  assert.deepEqual(calls.filter(([kind]) => kind !== "move"), [["autoMove", true]]);
 });
 
 test("a server's Copy opens this computer's Settings → Servers on that server's copy, in this window or by switching it to this computer", () => {
@@ -811,17 +813,17 @@ test("the Cloud's setup checklist can open the lending switch here, and nothing 
   assert.equal(opened.length, 2);
 });
 
-test("Settings on the person's own Cloud shows the plan read only, and can only open the dashboard or switch back", async () => {
+test("Settings on the person's own Cloud shows the plan read only, and can only open the dashboard or sign out", async () => {
   const page = preload({ remote: true });
-  assert.deepEqual(Object.keys(page.bridge.cloudPlan), ["state", "manage", "useThisComputer"]);
+  assert.deepEqual(Object.keys(page.bridge.cloudPlan), ["state", "manage", "signOut"]);
   assert.equal(page.bridge.cloudAccount, undefined, "no account, credential or address reaches the Cloud's page");
   await page.bridge.cloudPlan.state({ origin: "https://evil.example.test" });
   await assert.rejects(page.bridge.cloudPlan.manage(), /Choose Manage/);
-  await assert.rejects(page.bridge.cloudPlan.useThisComputer(), /Choose Use this computer/);
+  await assert.rejects(page.bridge.cloudPlan.signOut(), /Choose Sign out/);
   assert.deepEqual(page.invoked, [["cloud-plan:state"]]);
   const clicked = preload({ remote: true, activation: true });
-  await clicked.bridge.cloudPlan.manage("https://evil.example.test"); await clicked.bridge.cloudPlan.useThisComputer("vps");
-  assert.deepEqual(clicked.invoked, [["cloud-plan:manage"], ["cloud-plan:local"]]);
+  await clicked.bridge.cloudPlan.manage("https://evil.example.test"); await clicked.bridge.cloudPlan.signOut("vps");
+  assert.deepEqual(clicked.invoked, [["cloud-plan:manage"], ["cloud-plan:signOut"]]);
 
   const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const start = source.indexOf(IPC_START), end = source.indexOf(IPC_END, start);
@@ -837,7 +839,7 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
     mainWindow: { isDestroyed: () => false, webContents: cloudContents },
     environmentsState: { environments: [{ id: "cloud", name: "My Cloud", origin: ORIGIN }], activeId: "cloud" },
     cloudAccount: { homeTarget: () => ({ origin: ORIGIN }), state: () => account }, cloudPlanSnapshot, LOCAL_ID: environments.LOCAL_ID, myCloudOrigin, rememberedHome: null,
-    ensureCloudAccount: () => ({ openDashboard: async (...args) => { calls.push(["dashboard", ...args]); return account; } }),
+    ensureCloudAccount: () => ({ openDashboard: async (...args) => { calls.push(["dashboard", ...args]); return account; }, signOut: async () => { calls.push(["signOut"]); return account; } }),
     openLendingSettings: async () => { calls.push(["lending"]); },
     workspaceMenuAction: action => action(), switchEnvironment: id => { calls.push(["switch", id]); },
   });
@@ -845,10 +847,10 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
   const event = { sender: cloudContents, senderFrame: cloudFrame };
   assert.deepEqual(await handlers.get("cloud-plan:state")(event, { tier: "personal" }), { status: "paid", tier: "max" });
   assert.equal(await handlers.get("cloud-plan:manage")(event, "https://evil.example.test"), undefined);
-  await handlers.get("cloud-plan:local")(event, "vps");
-  assert.deepEqual(calls, [["dashboard"], ["switch", environments.LOCAL_ID]]);
+  await handlers.get("cloud-plan:signOut")(event, "vps");
+  assert.deepEqual(calls, [["dashboard"], ["signOut"]]);
   for (const sender of [{ sender: cloudContents, senderFrame: { url: "https://other.example.test/" } }, { sender: {}, senderFrame: cloudFrame }]) {
-    for (const channel of ["cloud-plan:state", "cloud-plan:manage", "cloud-plan:local"]) assert.throws(() => handlers.get(channel)(sender), /only available/);
+    for (const channel of ["cloud-plan:state", "cloud-plan:manage", "cloud-plan:signOut"]) assert.throws(() => handlers.get(channel)(sender), /only available/);
   }
   let current = { status: "reauth-required", message: "expired", account: account.account, lastPlan: { tier: "max", active: true } };
   context.cloudAccount = { homeTarget: () => null, state: () => current };
@@ -857,8 +859,8 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
   assert.deepEqual(await handlers.get("cloud-plan:state")(event), { status: "signin", tier: "max" });
   current = { status: "unavailable", account: account.account, lastPlan: { tier: "max", active: true } };
   assert.deepEqual(await handlers.get("cloud-plan:state")(event), { status: "checking", tier: "max" });
-  await handlers.get("cloud-plan:local")(event);
-  assert.deepEqual(calls.at(-1), ["switch", environments.LOCAL_ID]);
+  await handlers.get("cloud-plan:signOut")(event);
+  assert.deepEqual(calls.at(-1), ["signOut"]);
   context.rememberedHome = { accountId: "someone-else", origin: ORIGIN };
   assert.throws(() => handlers.get("cloud-plan:state")(event), /only available/);
   assert.throws(() => handlers.get("cloud-lending:open")(event), /only available/);
@@ -873,4 +875,41 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
   assert.deepEqual(cloudPlanSnapshot({ status: "unavailable", lastPlan: { tier: "pro", active: true } }), { status: "checking", tier: "pro" });
   assert.deepEqual(cloudPlanSnapshot({ ...account, entitlement: { ...account.entitlement, status: "inactive" } }), { status: "attention", tier: "max" });
   assert.deepEqual(cloudPlanSnapshot({ status: "signed-out" }), { status: "none" });
+});
+
+test("an automatic move can ask the home to prove every bot, room and chat arrived before it calls the move done", async () => {
+  const f = harness();
+  try {
+    const result = await f.move.move({ requireEmpty: true, verifyArrival: true });
+    assert.equal(result.phase, "done");
+    assert.deepEqual(result.moved, { bots: 3, rooms: 1, chats: 7 });
+  } finally { f.done(); }
+  const short = harness();
+  try {
+    const original = short.cloud.fetchImpl;
+    short.cloud.fetchImpl = async (url, init) => {
+      const response = await original(url, init);
+      if (new URL(url).pathname === "/api/cloud-move/restore") short.cloud.state.contents = { bots: 3, rooms: 1, chats: 6 };
+      return response;
+    };
+    const engine = createCloudMove({ localRequest: short.local.request, fetchImpl: (...args) => short.cloud.fetchImpl(...args), tempRoot: join(short.temp, "move2"),
+      availableBytes: async () => 1024 ** 4, sleep: async (_ms, signal) => signal?.throwIfAborted(), pollMs: 0, retryDelaysMs: [0, 0] });
+    const result = await engine.move(short.dest, { requireEmpty: true, verifyArrival: true });
+    assert.equal(result.phase, "failed");
+    assert.equal(result.error.code, "not_verified");
+    assert.deepEqual(result.error.contents, { bots: 3, rooms: 1, chats: 6 });
+    assert.deepEqual(readdirSync(join(short.temp, "move2")), [], "nothing is left behind on this computer");
+  } finally { short.done(); }
+});
+
+test("a home that already has dogs refuses an automatic move and says what it holds, so the caller can tell a finished move from a different home", async () => {
+  const f = harness({ cloud: { empty: false } });
+  try {
+    f.cloud.state.contents = { bots: 3, rooms: 1, chats: 7 };
+    const result = await f.move.move({ requireEmpty: true, verifyArrival: true });
+    assert.equal(result.phase, "failed");
+    assert.equal(result.error.code, "not_empty");
+    assert.deepEqual(result.error.contents, { bots: 3, rooms: 1, chats: 7 });
+    assert.equal(f.cloud.log.some(([method, path]) => method === "PUT" && path.startsWith("/api/cloud-move/upload/")), false, "nothing was uploaded");
+  } finally { f.done(); }
 });
