@@ -5832,6 +5832,8 @@ function managedBoatOwners(): boat.ManagedBoatOwner[] {
   }))];
 }
 
+boat.useBoatOwners(managedBoatOwners);
+
 function botHasActiveTurn(botId: string): boolean {
   const bot = store.bot(botId);
   return bot?.busy === true ||
@@ -9599,6 +9601,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
           localVmIdles.delete(target.key);
           revalidate();
           store.deleteBot(bot.id, setupRequest);
+          await boat.releaseDeletedDogsComputers(cfg).catch((error: unknown) => console.warn(`free trial computer: could not release a deleted dog's computer: ${error instanceof Error ? error.message : String(error)}`));
           routines!.disableForBot(bot.id);
           webhooks.disableForBot(bot.id);
           calendarCalls!.removeBot(bot.id);

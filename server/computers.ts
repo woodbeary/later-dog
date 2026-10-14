@@ -31,6 +31,12 @@ const QUIESCE_BROWSER = [
   'for i in 1 2 3 4 5 6 7 8; do if ! pgrep -x chrome >/dev/null 2>&1 && ! pgrep -x google-chrome >/dev/null 2>&1 && ! pgrep -x chromium >/dev/null 2>&1 && ! pgrep -x chromium-browser >/dev/null 2>&1; then break; fi; sleep 0.25; done',
 ].join("; ");
 
+let ownerSource: (() => ManagedBoatOwner[]) | null = null;
+
+export function useBoatOwners(source: () => ManagedBoatOwner[]): void {
+  ownerSource = source;
+}
+
 let installation: { environmentId: string; prefix: string } | null = null;
 function scope() {
   if (installation) return installation;
@@ -124,10 +130,15 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
 
 async function createOwn(client: ComputersClient, botId: string, name: string): Promise<OwnComputer> {
   let replacing = "";
+  let releasedForTrial = false;
   for (let hop = 0; hop < MAX_CREATE_HOPS; hop += 1) {
     let created: Computer;
     try { created = await client.create({ name }, createKey(botId, replacing)); }
     catch (error) {
+      if (error instanceof ComputersApiError && error.code === "trial_one_computer" && !releasedForTrial && trialInUse() && !ownComputersChosen()) {
+        releasedForTrial = true;
+        if (await releaseOrphanedTrialComputers(client) > 0) { hop -= 1; continue; }
+      }
       if (error instanceof ComputersApiError && error.httpStatus === 409) {
         await pause(1_000);
         const found = await findOwn(client, botId);
@@ -198,6 +209,26 @@ async function listOwn(owners: ManagedBoatOwner[], client?: ComputersClient): Pr
   }
   instances.sort((a, b) => a.orphaned !== b.orphaned ? (a.orphaned ? 1 : -1) : (a.ownerName ?? a.name).localeCompare(b.ownerName ?? b.name));
   return { configured: true, available: true, problem: null, instances };
+}
+
+async function releaseOrphanedTrialComputers(client: ComputersClient, owners: ManagedBoatOwner[] = ownerSource?.() ?? []): Promise<number> {
+  if (!ownerSource && owners.length === 0) return 0;
+  const inventory = await listOwn(owners, client);
+  if (!inventory.available) return 0;
+  let freed = 0;
+  for (const instance of inventory.instances) {
+    if (!instance.orphaned || instance.inUse) continue;
+    try { await client.remove(instance.boxId); forget(instance.boxId); freed += 1; }
+    catch (error) { if (!(error instanceof ComputersApiError)) throw error; }
+  }
+  return freed;
+}
+
+export async function releaseDeletedDogsComputers(cfg: AppConfig, owners?: ManagedBoatOwner[]): Promise<number> {
+  if (!trialInUse() || ownComputersChosen()) return 0;
+  let client: ComputersClient;
+  try { client = ownClient(); } catch { return 0; }
+  return releaseOrphanedTrialComputers(client, owners ?? ownerSource?.() ?? []);
 }
 
 async function revalidateOwn(client: ComputersClient, owners: ManagedBoatOwner[], id: string): Promise<ManagedBoatInventoryInstance> {
