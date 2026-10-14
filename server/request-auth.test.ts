@@ -609,25 +609,24 @@ describe("local tools token: local tools work on a packaged desktop, but a dog c
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   const ALLOWED: Array<[string, string]> = [
-    ["POST", "/api/bots"], ["PATCH", "/api/bots/bot-1"], ["DELETE", "/api/bots/bot-1"],
-    ["POST", "/api/bots/bot-1/messages"], ["POST", "/api/bots/bot-1/messages/guarded"], ["POST", "/api/bots/bot-1/interrupt"],
-    ["POST", "/api/bots/bot-1/tasks"], ["PATCH", "/api/bots/bot-1/tasks/thread-1"], ["POST", "/api/bots/bot-1/model"],
-    ["POST", "/api/threads/thread-1/undo"], ["POST", "/api/groups"], ["POST", "/api/groups/room-1/messages"],
-    ["POST", "/api/routines"], ["POST", "/api/routines/routine-1/run"], ["POST", "/api/webhooks"],
-    ["PUT", "/api/config"], ["PATCH", "/api/config"], ["POST", "/api/handoffs/root-1/continue"],
-    ["DELETE", "/api/bots/bot-1/command-allowlist/rule-1"], ["POST", "/api/bots/bot-1/compact"],
+    ["POST", "/api/bots"], ["PATCH", "/api/bots/bot-1"],
+    ["POST", "/api/bots/bot-1/messages"], ["POST", "/api/groups/room-1/messages"], ["POST", "/api/bots/bot-1/messages/m-1/edit"],
+    ["POST", "/api/bots/bot-1/interrupt"], ["POST", "/api/groups/room-1/interrupt"],
+    ["POST", "/api/bots/bot-1/tasks"], ["POST", "/api/bots/bot-1/tasks/thread-1"], ["PATCH", "/api/bots/bot-1/tasks/thread-1"],
+    ["POST", "/api/groups"], ["PATCH", "/api/groups/room-1"], ["POST", "/api/groups/room-1/tasks"], ["PATCH", "/api/groups/room-1/tasks/thread-1"],
   ];
   const REFUSED: Array<[string, string]> = [
     ["POST", "/api/bots/bot-1/respond"], ["POST", "/api/threads/thread-1/respond"], ["PATCH", "/api/bots/bot-1/cards/card-1"],
     ["POST", "/api/bots/bot-1/always-allow"], ["POST", "/api/bots/bot-1/command-allowlist"], ["PUT", "/api/bots/bot-1/command-allowlist/rule-1"],
-    ["POST", "/api/bots/bot-1/secret-cards/card-1/provide"], ["POST", "/api/bots/bot-1/secret-cards/card-1/resume"],
-    ["POST", "/api/bots/bot-1/connector-cards/card-1/authorize"], ["GET", "/api/bots/bot-1/connector-cards/card-1/status"],
-    ["POST", "/api/connectors/github/authorize"], ["DELETE", "/api/connectors/github/accounts/work"],
-    ["POST", "/api/auth/pairing"], ["DELETE", "/api/auth/pairing/pair-1"],
-    ["PATCH", "/api/instances/claude"], ["POST", "/api/instances/claude-accounts"], ["POST", "/api/cli-test"],
-    ["POST", "/api/mcp/servers"], ["POST", "/api/mcp/servers/import"],
-    ["POST", "/api/teams/import"], ["POST", "/api/org-library/add"], ["POST", "/api/team-library/github"],
-    ["POST", "/api/workspace-backup/restore"], ["POST", "/api/desktop-viewer/open"],
+    ["POST", "/api/bots/bot-1/secret-cards/card-1/provide"], ["POST", "/api/bots/bot-1/connector-cards/card-1/authorize"],
+    ["GET", "/api/bots/bot-1/connector-cards/card-1/status"], ["POST", "/api/connectors/github/authorize"],
+    ["GET", "/api/desktop-viewer/session"], ["POST", "/api/desktop-viewer/open"],
+    ["POST", "/api/keys/test"], ["PUT", "/api/config"], ["PATCH", "/api/config"],
+    ["POST", "/api/live/session"], ["POST", "/api/laterdog/jobs/job-1/action"], ["POST", "/api/bots/bot-1/computer/exec"],
+    ["POST", "/api/computers/boxes/box-1/delete"], ["POST", "/api/team-computers"],
+    ["POST", "/api/auth/pairing"], ["DELETE", "/api/auth/pairing/pair-1"], ["PATCH", "/api/instances/claude"], ["POST", "/api/mcp/servers"],
+    ["POST", "/api/teams/import"], ["POST", "/api/workspace-backup/restore"], ["DELETE", "/api/bots/bot-1"], ["POST", "/api/routines"],
+    ["POST", "/api/handoffs/root-1/continue"], ["POST", "/api/bots/bot-1/messages/guarded"], ["PUT", "/api/bots/bot-1"],
   ];
 
   it("keeps refusing every change from a local tool that has no token", () => {

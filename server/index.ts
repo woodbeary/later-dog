@@ -630,7 +630,7 @@ import {
   type PhoneSecretContext,
 } from "./phone-secret.ts";
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
-import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal } from "./laterdog/local-tools-scope.ts";
+import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
@@ -1215,6 +1215,8 @@ function decisionActorFor(auth: RequestAuth): DecisionActor {
     ...(session.userId && !session.userId.startsWith("portal:") ? { userId: session.userId } : {}),
   };
 }
+
+const fromLocalTools = (auth: RequestAuth): boolean => auth.kind === "loopback" && auth.localTools === true;
 
 function cardAnswererFor(auth: RequestAuth): CardAnswerer {
   if (auth.kind === "loopback") return auth.trust === "service" ? { kind: "worker" } : { kind: "loopback" };
@@ -7490,7 +7492,7 @@ function drainAsideLane() {
   }).catch((error) => console.warn("aside-queue: drain failed", error));
 }
 
-async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "call") {
+async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "api" | "call") {
   const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId));
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
@@ -7553,7 +7555,7 @@ async function acceptDirectSend(
     replyTo?: Message;
     sender?: ResolvedSender;
     trigger: UsageTrigger;
-    via?: "call";
+    via?: "api" | "call";
     personPresent: boolean;
     deliver?: SendDelivery;
     answerer?: CardAnswerer;
@@ -7949,7 +7951,7 @@ async function startTurn(
     computerSelectionContinuation?: boolean;
     replyTo?: Message;
     sendId?: string;
-    via?: "call";
+    via?: "api" | "call";
     relayed?: boolean;
     onDispatchError?: (message: string) => void;
     compactOnly?: boolean;
@@ -17461,7 +17463,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const replyTo = resolveReplyTarget(threadId, body.replyToId);
       const browserOrigin = typeof req.headers.origin === "string" && req.headers.origin.trim() !== "";
       const via: "api" | undefined =
-        auth.kind === "loopback" && !DESKTOP_MANAGED && !browserOrigin ? "api" : undefined;
+        auth.kind === "loopback" && (fromLocalTools(auth) || (!DESKTOP_MANAGED && !browserOrigin)) ? "api" : undefined;
       if (via) {
         console.warn(`room message from ${requestSource(req)} through the local API (no session, no browser origin) into "${group.name}"`);
       }
@@ -19090,9 +19092,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       try {
         const receipt = await acceptDirectSend({
           botId: bot.id, threadId, text, sendId, replyTo, sender, trigger,
-          personPresent: auth.kind === "session" || DESKTOP_MANAGED,
           deliver: deliver.data,
-          answerer: cardAnswererFor(auth),
+          ...typedMessageAuthority({ fromLocalTools: fromLocalTools(auth), session: auth.kind === "session", desktopManaged: DESKTOP_MANAGED }, () => cardAnswererFor(auth)),
         }, guardedStart);
         return json(res, 202, receipt);
       } catch (error) {
@@ -19228,6 +19229,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (rerunRefusal) return json(res, 409, { error: rerunRefusal });
       const replyTo = source.replyToId ? resolveReplyTarget(bot.threadId, source.replyToId) : undefined;
       const message = await startTurn(bot.id, text, { threadId: bot.threadId, editedMessageId: messageId, replyTo, sendId, trigger: usageTriggerFor(auth),
+        ...(fromLocalTools(auth) ? { via: "api" as const } : {}),
         ...(CLOUD_HOME ? { sender: messageSender(auth) } : {}) });
       return json(res, 202, { ok: true, message });
     }

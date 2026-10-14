@@ -1,84 +1,76 @@
 export const LOCAL_TOOLS_HEADER = "x-laterdog-local-tools";
 export const LOCAL_TOOLS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
-export const SELF_APPROVAL_REFUSAL =
-  "A dog must not be able to approve its own work, so this needs the desktop app or a paired device. Local tools can do everything else.";
+export const LOCAL_TOOLS_REFUSAL =
+  "A dog must not be able to approve its own work, so local tools may only do what the later.dog scripts do: send messages, make and change dogs, rooms and threads, switch models, edit a message and stop a conversation. Anything else needs the desktop app or a paired device.";
 
-interface RefusedRoute {
+type Shape = (value: unknown) => boolean;
+
+interface AllowedRoute {
   methods: readonly string[];
   path: RegExp;
+  keys: Readonly<Record<string, Shape>>;
 }
-
-const ANY = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
-const WRITES = ["POST", "PUT", "PATCH", "DELETE"] as const;
-
-export const LOCAL_TOOLS_REFUSED_ROUTES: readonly RefusedRoute[] = [
-  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/respond$/ },
-  { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/respond$/ },
-  { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+\/cards\/[\w-]+$/ },
-  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/always-allow$/ },
-  { methods: ["POST", "PUT", "PATCH"], path: /^\/api\/bots\/[\w-]+\/command-allowlist(?:\/[\w-]+)?$/ },
-  { methods: ANY, path: /^\/api\/bots\/[\w-]+\/secret-cards\/[\w-]+\/[\w-]+$/ },
-  { methods: ANY, path: /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/[\w-]+$/ },
-  { methods: WRITES, path: /^\/api\/connectors\/[\w-]+(?:\/authorize|\/accounts\/[\w-]+)?$/ },
-  { methods: WRITES, path: /^\/api\/auth\/pairing(?:\/[\w-]+)?$/ },
-  { methods: WRITES, path: /^\/api\/desktop-viewer\// },
-  { methods: WRITES, path: /^\/api\/desktop\/shared-computer-control$/ },
-  { methods: WRITES, path: /^\/api\/instances(?:\/.*)?$/ },
-  { methods: ["POST"], path: /^\/api\/cli-test$/ },
-  { methods: WRITES, path: /^\/api\/mcp\/servers(?:\/.*)?$/ },
-  { methods: ["POST"], path: /^\/api\/(?:teams\/import|org-library\/add|team-library\/github)$/ },
-  { methods: ["POST"], path: /^\/api\/workspace-backup\/restore$/ },
-];
-
-export function localToolsRouteRefusal(method: string, path: string): string | null {
-  const upper = method.toUpperCase();
-  return LOCAL_TOOLS_REFUSED_ROUTES.some((rule) => rule.methods.includes(upper) && rule.path.test(path))
-    ? SELF_APPROVAL_REFUSAL : null;
-}
-
-const GRANT_KEYS = [
-  "acknowledgeLocalAuto", "refreshPermissions", "toolScope", "connectorScopes", "outbound",
-  "mcpServers", "peers", "acknowledgePeerScope", "managedSections", "chiefOfStaff", "approvePeerComms",
-  "computer", "browser", "composio",
-] as const;
-const CHANGE_ONLY_GRANT_KEYS = ["cwd"] as const;
-
-const BOT_CREATE = /^\/api\/bots$/;
-const BOT_CHANGE = /^\/api\/bots\/[\w-]+$/;
-const TASK_CREATE = /^\/api\/bots\/[\w-]+\/tasks$/;
-const TASK_CHANGE = /^\/api\/bots\/[\w-]+\/tasks\/[\w-]+$/;
-const CONFIG = /^\/api\/config$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-const looserThanHeel = (body: Record<string, unknown>): boolean =>
-  (body.approvalMode !== undefined && body.approvalMode !== "ask") || body.autoApprove === true;
+const text: Shape = (value) => typeof value === "string" && value.length <= 200_000;
+const flag: Shape = (value) => typeof value === "boolean";
+const strings: Shape = (value) => Array.isArray(value) && value.length <= 200 && value.every((item) => typeof item === "string" && item.length <= 200);
 
-const approvalFieldsNeedingOwner = (body: Record<string, unknown>): boolean =>
-  looserThanHeel(body) || (Array.isArray(body.alwaysAllow) ? body.alwaysAllow.length > 0 : body.alwaysAllow !== undefined);
+function exactly(allowed: Readonly<Record<string, Shape>>): Shape {
+  return (value) => isRecord(value) && Object.entries(value).every(([key, item]) => Object.hasOwn(allowed, key) && allowed[key]!(item));
+}
+
+const modelSelection = exactly({ instanceId: text, model: text, effort: text });
+const responder = exactly({ kind: text, botId: text });
+const roomSetup = exactly({ bulletin: text, defaultResponder: responder });
+
+const SEND = { text, threadId: text } as const;
+const NO_BODY = {} as const;
+
+export const LOCAL_TOOLS_ALLOWED_ROUTES: readonly AllowedRoute[] = [
+  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/messages$/, keys: SEND },
+  { methods: ["POST"], path: /^\/api\/groups\/[\w-]+\/messages$/, keys: SEND },
+  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/messages\/[\w-]+\/edit$/, keys: SEND },
+  { methods: ["POST"], path: /^\/api\/(?:bots|groups)\/[\w-]+\/interrupt$/, keys: { threadId: text } },
+  { methods: ["POST"], path: /^\/api\/bots$/, keys: { name: text, title: text, description: text, section: text, modelSelection, requireAvailableModel: flag } },
+  { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+$/, keys: { name: text, title: text, description: text, modelSelection, requireAvailableModel: flag } },
+  { methods: ["POST"], path: /^\/api\/groups$/, keys: { name: text, memberIds: strings, section: text, setup: roomSetup } },
+  { methods: ["PATCH"], path: /^\/api\/groups\/[\w-]+$/, keys: { name: text, memberIds: strings, bulletin: text, defaultResponder: responder } },
+  { methods: ["POST"], path: /^\/api\/(?:bots|groups)\/[\w-]+\/tasks$/, keys: { title: text } },
+  { methods: ["POST"], path: /^\/api\/(?:bots|groups)\/[\w-]+\/tasks\/[\w-]+$/, keys: NO_BODY },
+  { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+\/tasks\/[\w-]+$/, keys: { title: text, modelSelection, requireAvailableModel: flag } },
+  { methods: ["PATCH"], path: /^\/api\/groups\/[\w-]+\/tasks\/[\w-]+$/, keys: { title: text } },
+];
+
+function allowedRoute(method: string, path: string): AllowedRoute | undefined {
+  const upper = method.toUpperCase();
+  return LOCAL_TOOLS_ALLOWED_ROUTES.find((rule) => rule.methods.includes(upper) && rule.path.test(path));
+}
+
+export function localToolsRouteRefusal(method: string, path: string): string | null {
+  return allowedRoute(method, path) ? null : LOCAL_TOOLS_REFUSAL;
+}
 
 export function localToolsBodyRefusal(method: string, path: string, body: unknown): string | null {
-  const upper = method.toUpperCase();
-  if (upper === "GET" || upper === "HEAD" || upper === "OPTIONS" || !isRecord(body)) return null;
-  const refuse = SELF_APPROVAL_REFUSAL;
-  const creatingDog = BOT_CREATE.test(path) && upper === "POST";
-  const changingDog = BOT_CHANGE.test(path) && (upper === "PATCH" || upper === "PUT");
-  if (creatingDog || changingDog) {
-    if (approvalFieldsNeedingOwner(body)) return refuse;
-    const keys = changingDog ? [...GRANT_KEYS, ...CHANGE_ONLY_GRANT_KEYS] : GRANT_KEYS;
-    return keys.some((key) => body[key] !== undefined) ? refuse : null;
-  }
-  if (TASK_CREATE.test(path) && upper === "POST" || TASK_CHANGE.test(path) && (upper === "PATCH" || upper === "PUT")) {
-    if (looserThanHeel(body) || body.acknowledgeLocalAuto !== undefined || body.refreshPermissions !== undefined) return refuse;
-    if (Array.isArray(body.alwaysAllow) ? body.alwaysAllow.length > 0 : body.alwaysAllow !== undefined) return refuse;
-    return null;
-  }
-  if (CONFIG.test(path) && (upper === "PUT" || upper === "PATCH")) {
-    const defaults = isRecord(body.newBotDefaults) ? body.newBotDefaults : undefined;
-    const profile = defaults && isRecord(defaults.profile) ? defaults.profile : undefined;
-    if (profile && (looserThanHeel(profile) || approvalFieldsNeedingOwner(profile))) return refuse;
-  }
-  return null;
+  const rule = allowedRoute(method, path);
+  if (!rule) return LOCAL_TOOLS_REFUSAL;
+  const supplied = body === undefined ? {} : body;
+  return exactly(rule.keys)(supplied) ? null : LOCAL_TOOLS_REFUSAL;
+}
+
+export interface TypedMessageSource {
+  fromLocalTools: boolean;
+  session: boolean;
+  desktopManaged: boolean;
+}
+
+export function typedMessageAuthority<Answerer>(
+  source: TypedMessageSource,
+  answerer: () => Answerer,
+): { personPresent: boolean; via?: "api"; answerer?: Answerer } {
+  if (source.fromLocalTools) return { personPresent: false, via: "api" };
+  return { personPresent: source.session || source.desktopManaged, answerer: answerer() };
 }

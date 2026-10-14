@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -19,13 +19,28 @@ export function localControlTokenPath(
   return join(appData, "later.dog", LOCAL_CONTROL_TOKEN_FILE);
 }
 
-export function readLocalControlToken(file: string = localControlTokenPath()): string | undefined {
+export interface TokenFileChecks {
+  uid?: number;
+  platform?: NodeJS.Platform;
+}
+
+export function readLocalControlToken(file: string = localControlTokenPath(), checks: TokenFileChecks = {}): string | undefined {
+  let fd: number | undefined;
   try {
-    if (!statSync(file).isFile()) return undefined;
-    const token = readFileSync(file, "utf8").trim();
+    fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const info = fstatSync(fd);
+    if (!info.isFile()) return undefined;
+    if ((checks.platform ?? process.platform) !== "win32") {
+      const uid = "uid" in checks ? checks.uid : process.getuid?.();
+      if (uid !== undefined && info.uid !== uid) return undefined;
+      if ((info.mode & 0o077) !== 0) return undefined;
+    }
+    const token = readFileSync(fd, "utf8").trim();
     return TOKEN.test(token) ? token : undefined;
   } catch {
     return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
@@ -38,8 +53,14 @@ export function isLoopbackUrl(url: string): boolean {
   }
 }
 
-export function localToolsHeaders(url: string, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+export function localToolsHeaders(url: string, env: NodeJS.ProcessEnv = process.env, checks: TokenFileChecks = {}): Record<string, string> {
   if (env.LATERDOG_SERVER_TOKEN?.trim() || !isLoopbackUrl(url)) return {};
-  const token = readLocalControlToken(localControlTokenPath(env));
+  const token = readLocalControlToken(localControlTokenPath(env), checks);
   return token ? { [LOCAL_TOOLS_HEADER]: token } : {};
+}
+
+export function withLocalTools(options: RequestInit, url: string, env: NodeJS.ProcessEnv = process.env): RequestInit {
+  const headers = new Headers(options.headers);
+  for (const [name, value] of Object.entries(localToolsHeaders(url, env))) if (!headers.has(name)) headers.set(name, value);
+  return { ...options, headers };
 }

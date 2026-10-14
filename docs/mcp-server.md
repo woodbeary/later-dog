@@ -46,38 +46,49 @@ same token to its server:
 | Linux | `$XDG_CONFIG_HOME/later.dog/local-control-token` (else `~/.config/later.dog/local-control-token`) |
 
 `scripts/mcp-server.ts` (the MCP server, including the one bundled in release builds) and `scripts/control-laterdog.ts`
-read that file by themselves, so Claude Code, Codex and your own scripts on this Mac just work with no setup. They send
-the token as `X-LaterDog-Local-Tools` only to a loopback address, never while probing ports for the server, and not at
-all when `LATERDOG_SERVER_TOKEN` is set (a paired session token wins). Each launch writes a new token, and the
-file is removed at quit; a tool that cached an old one gets "token is out of date; restart the tool". Point
+read that file by themselves, so Claude Code, Codex and your own scripts on this Mac just work with no setup. A script
+uses the file only if you own it and nobody else can read it (mode 0600, not a symlink; on Windows the folder's own
+permissions apply), and sends the token as `X-LaterDog-Local-Tools` only to a loopback address, never while probing ports for the
+server, and not at all when `LATERDOG_SERVER_TOKEN` is set (a paired session token wins). Each launch writes a new token,
+and the file is removed at quit; a tool that cached an old one gets "token is out of date; restart the tool". Point
 `LATERDOG_LOCAL_CONTROL_TOKEN_FILE` at another file to override the location. Your own scripts can read the same file and
 send the same header to `http://127.0.0.1:<port>`.
 
-A request carrying the token may do what a paired device can, except what would let a dog approve itself. These stay with
-the desktop app or a paired device, and a local tool is refused with "a dog must not be able to approve its own work":
+**The token gets nothing unless a route is on an allow-list.** The list is what the two scripts really send, and nothing
+more (`LOCAL_TOOLS_ALLOWED_ROUTES` in `server/laterdog/local-tools-scope.ts`). For each route only the listed body fields,
+of the listed shapes, are accepted; any other field, nested field or wrong shape is refused. Everything else gets "a dog
+must not be able to approve its own work" and needs the desktop app or a paired device.
 
-- answering any card: `POST /api/bots/:id/respond`, `POST /api/threads/:id/respond`, `PATCH /api/bots/:id/cards/:id`, and
-  the secret and connector cards (`/api/bots/:id/secret-cards/*`, `/api/bots/:id/connector-cards/*`);
-- permission grants: `POST /api/bots/:id/always-allow`, writes to `/api/bots/:id/command-allowlist`, connecting an app
-  (`/api/connectors/:slug` writes, `authorize` and `accounts`);
-- changing how a dog asks: any `approvalMode` other than `ask` (Heel), `autoApprove: true`, `alwaysAllow` entries,
-  `acknowledgeLocalAuto`, `refreshPermissions`, on `POST /api/bots`, `PATCH /api/bots/:id`, `POST /api/bots/:id/tasks`,
-  `PATCH /api/bots/:id/tasks/:id`, and in `newBotDefaults` through `PUT /api/config`. Tightening to Heel is allowed. A
-  dog created through a local tool always starts on Heel;
-- widening a dog on `PATCH /api/bots/:id` or `POST /api/bots`: `toolScope`, `connectorScopes`, `outbound`, `mcpServers`,
-  `peers`, `managedSections`, `chiefOfStaff`, `approvePeerComms`, `computer`, `browser`, `composio`, and `cwd` on an
-  existing dog;
-- minting or running credentials: `POST|DELETE /api/auth/pairing`, `/api/desktop-viewer/*`,
-  `/api/desktop/shared-computer-control`, writes to `/api/instances/*` and `/api/mcp/servers*`, `POST /api/cli-test`,
-  installing packs (`/api/teams/import`, `/api/org-library/add`, `/api/team-library/github`) and
-  `POST /api/workspace-backup/restore`.
+| Request | Fields the token may send |
+| --- | --- |
+| `POST /api/bots/:id/messages`, `POST /api/groups/:id/messages` | `text`, `threadId` |
+| `POST /api/bots/:id/messages/:id/edit` | `text`, `threadId` |
+| `POST /api/bots/:id/interrupt`, `POST /api/groups/:id/interrupt` | `threadId` |
+| `POST /api/bots` | `name`, `title`, `description`, `section`, `modelSelection`, `requireAvailableModel` |
+| `PATCH /api/bots/:id` | `name`, `title`, `description`, `modelSelection`, `requireAvailableModel` |
+| `POST /api/groups` | `name`, `memberIds`, `section`, `setup` (`bulletin`, `defaultResponder`) |
+| `PATCH /api/groups/:id` | `name`, `memberIds`, `bulletin`, `defaultResponder` |
+| `POST /api/bots/:id/tasks`, `POST /api/groups/:id/tasks` | `title` |
+| `POST /api/bots/:id/tasks/:id`, `POST /api/groups/:id/tasks/:id` (switch) | none |
+| `PATCH /api/bots/:id/tasks/:id` | `title`, `modelSelection`, `requireAvailableModel` |
+| `PATCH /api/groups/:id/tasks/:id` | `title` |
 
-The list lives in `server/laterdog/local-tools-scope.ts` and is enforced in `server/request-auth.ts` (routes) and in
-`readBody` (fields), with tests in `server/request-auth.test.ts` and `server/laterdog/local-tools-scope.test.ts`.
+A `modelSelection` is `instanceId`, `model` and optionally `effort`. Reads need no token on loopback; the reads that
+return secrets (the desktop viewer's links and passwords, connector card status) are not on the list, so the token does not
+open them. Two tool arguments are refused on purpose: `section` on `update_bot_profile` and `update_channel`, because
+moving a dog or a room to another pack widens who it can reach.
+
+Messages sent with the token are never you. They do not count as you being there, so they cannot answer a dog's question
+card by typing, cannot end a take-over, and do not clear a dog's "nobody is at the keyboard" state. The record marks them
+`via: "api"` ("sent through the local API, not typed"), which is how the dog reads them too. A dog created with the token
+always starts on Heel, whatever the new-dog defaults say.
 
 Any program running as you on this Mac can read that file, a dog's shell included when its mode lets it read your files
-and reach the network. That is why the token cannot approve anything, answer a card or grant a permission, and why those
-need the desktop app (the owner header never leaves the app) or a paired device.
+and reach the network. That is why the token can only do what the scripts do, why it cannot approve anything, answer a
+card or grant a permission, and why those need the desktop app (the owner header never leaves the app) or a paired
+device. `server/laterdog/local-tools-scope.test.ts` runs every MCP tool and checks that each change it sends is allowed,
+scans the server's source for its routes (over 300) and checks that exactly the allow-list's routes accept the token;
+`server/local-tools-token.e2e.test.ts` runs the scripts against a desktop-managed fixture with only the token.
 
 ## Pairing a device or an MCP client from outside this Mac
 
