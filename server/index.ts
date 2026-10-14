@@ -671,6 +671,7 @@ import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
+import { plainFailure, tooBigMessage } from "./laterdog/plain-error.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
@@ -16698,7 +16699,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (declaredLength !== undefined && declaredLength > IMAGE_MAX_BYTES) {
         req.resume();
-        return json(res, 413, { error: `image exceeds ${IMAGE_MAX_BYTES} bytes` });
+        return json(res, 413, { error: tooBigMessage("image", IMAGE_MAX_BYTES) });
       }
       const saved = await new Promise<SavedAttachment>((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -16755,7 +16756,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (declaredLength !== undefined && declaredLength > FILE_MAX_BYTES) {
         req.resume();
-        return json(res, 413, { error: `file exceeds ${FILE_MAX_BYTES} bytes` });
+        return json(res, 413, { error: tooBigMessage("file", FILE_MAX_BYTES) });
       }
       try {
         const chunks = req.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>;
@@ -21685,11 +21686,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     return json(res, 404, { error: `no route: ${method} ${path}` });
   } catch (e) {
-    const status = (e as any)?.status ?? 500;
+    const failure = plainFailure(e);
+    if (failure.internal) console.error(`${method} ${path} failed`, e);
     const candidateCode = (e as { code?: unknown })?.code;
     const code = typeof candidateCode === "string" && ["guarded_busy", "guarded_branch", "guarded_permissions", "guarded_request_changed", "guarded_request_untracked", "outside_workspace"].includes(candidateCode)
       ? candidateCode : undefined;
-    return json(res, status, { error: e instanceof Error ? e.message : String(e), ...(code ? { code } : {}) });
+    return json(res, failure.status, { error: failure.message, ...(code ? { code } : {}) });
   } finally {
     releaseWorkspaceRequest?.();
   }
