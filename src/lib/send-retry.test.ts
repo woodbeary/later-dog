@@ -67,6 +67,7 @@ describe("remembering an uncertain send", () => {
     expect(sends.recall("bot", "thread", "ship it now")).toBeUndefined();
     expect(sends.recall("bot", "other-thread", "ship it")).toBeUndefined();
     expect(sends.recall("other-bot", "thread", "ship it")).toBeUndefined();
+    expect(sends.recall("bot", "thread", "ship it", "reply-to-1")).toBeUndefined();
     sends.forget("bot", "thread", "ship it");
     expect(sends.recall("bot", "thread", "ship it")).toBeUndefined();
     sends.remember("bot", "thread", "ship it", "send-id-two-0000000002");

@@ -2521,11 +2521,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const { bots, groups } = stateRef.current;
         let heldSendId: string | undefined;
         if (action.type === "send") {
-          const { botId, threadId, text } = action;
-          heldSendId = uncertainSends.recall(botId, threadId ?? bots.find((bot) => bot.id === botId)?.threadId, text);
+          const { botId, threadId, text, replyToId } = action;
+          heldSendId = uncertainSends.recall(botId, threadId ?? bots.find((bot) => bot.id === botId)?.threadId, text, replyToId);
         } else if (action.type === "sendGroup") {
-          const { groupId, threadId, text } = action;
-          heldSendId = uncertainSends.recall(groupId, threadId ?? groups.find((group) => group.id === groupId)?.threadId, text);
+          const { groupId, threadId, text, replyToId, mode } = action;
+          heldSendId = uncertainSends.recall(groupId, threadId ?? groups.find((group) => group.id === groupId)?.threadId, text, `${replyToId ?? ""}|${mode ?? "chat"}`);
         }
         action = { ...action, sendId: heldSendId ?? crypto.randomUUID() };
       }
@@ -2710,7 +2710,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 timeoutMs: SEND_ATTEMPT_TIMEOUT_MS,
               })))
             .then((body) => {
-              uncertainSends.forget(action.botId, threadId, action.text);
+              uncertainSends.forget(action.botId, threadId, action.text, action.replyToId);
               if (body?.message && typeof body.threadId === "string") {
                 rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
               }
@@ -2734,7 +2734,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
             })
             .catch((error) => {
-              if (isUncertainSendFailure(error)) uncertainSends.remember(action.botId, threadId, action.text, sendId);
+              if (isUncertainSendFailure(error)) uncertainSends.remember(action.botId, threadId, action.text, sendId, action.replyToId);
               if (threadId) {
                 rawDispatch({ type: "optimisticMessageRemoved", threadId, sendId });
               }
@@ -2964,7 +2964,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               timeoutMs: SEND_ATTEMPT_TIMEOUT_MS,
             })))
             .then((body) => {
-              uncertainSends.forget(action.groupId, threadId, action.text);
+              uncertainSends.forget(action.groupId, threadId, action.text, `${action.replyToId ?? ""}|${action.mode ?? "chat"}`);
               if (body?.message && typeof body.threadId === "string") {
                 rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
               }
@@ -2987,7 +2987,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
             })
             .catch((error) => {
-              if (isUncertainSendFailure(error)) uncertainSends.remember(action.groupId, threadId, action.text, sendId);
+              if (isUncertainSendFailure(error)) uncertainSends.remember(action.groupId, threadId, action.text, sendId, `${action.replyToId ?? ""}|${action.mode ?? "chat"}`);
               if (threadId) {
                 rawDispatch({ type: "optimisticMessageRemoved", threadId, sendId });
               }

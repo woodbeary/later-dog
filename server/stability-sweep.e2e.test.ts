@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { request } from "node:http";
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { connect, type Socket } from "node:net";
@@ -145,4 +146,64 @@ describe("approval cards", () => {
     const approvals = decisions.filter((row) => row.decision === "user-approved").map((row) => row.requestId);
     expect(approvals).toEqual([first.id]);
   }, 90_000);
+});
+
+describe("error messages", () => {
+  it("are plain sentences: no stack, no errno, no path, no validation report, no byte counts", async () => {
+    const fixture = await launchVerificationServer();
+    cleanups.push(() => fixture.close());
+    const { url } = fixture.info;
+    const api = client(url);
+    const bot = (await api("POST", "/api/bots", { name: "Honest errors" }, 201)).bot;
+    const attempts: Array<[string, string, unknown, number]> = [
+      ["POST", "/api/bots/nope/messages", { text: "hi" }, 404],
+      ["POST", `/api/bots/${bot.id}/messages`, { text: "", threadId: bot.threadId }, 400],
+      ["POST", `/api/bots/${bot.id}/messages`, { text: "x", threadId: "no-such-thread" }, 409],
+      ["GET", "/api/threads/nope/messages", undefined, 404],
+      ["POST", "/api/threads/nope/respond", { requestId: "r", behavior: "allow" }, 404],
+      ["POST", `/api/threads/${bot.threadId}/respond`, { requestId: "r", behavior: "maybe" }, 400],
+      ["PATCH", `/api/bots/${bot.id}`, { name: 5 }, 400],
+      ["POST", "/api/bots", { name: ["x"] }, 400],
+      ["DELETE", "/api/bots/nope", undefined, 404],
+      ["POST", "/api/attachments", undefined, 400],
+      ["DELETE", `/api/bots/${bot.id}/queue/nope`, { threadId: bot.threadId }, 404],
+      ["POST", "/api/groups", { name: "" }, 400],
+    ];
+    const raw = /\n\s+at\s|\bE(?:NOENT|ACCES|NOSPC|PERM|BUSY|XIST)\b|\/Users\/|\/home\/|\/tmp\/|[A-Za-z]:\\|SQLITE|TypeError|undefined|\[object Object\]|"code":|\bthe user\b|\d{6,} bytes/;
+    const seen: string[] = [];
+    for (const [method, path, body, status] of attempts) {
+      const response = await fetch(url + path, {
+        method, headers: { origin: url, "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const result = await response.json() as { error?: string };
+      expect(response.status, `${method} ${path}`).toBe(status);
+      expect(typeof result.error, `${method} ${path}`).toBe("string");
+      expect(result.error, `${method} ${path}`).not.toMatch(raw);
+      expect(result.error!.length, `${method} ${path}`).toBeGreaterThan(5);
+      seen.push(result.error!);
+    }
+    expect(seen).toContain("That wasn't something later.dog could use (name: Invalid input: expected string, received array). Check it and try again.");
+  }, 60_000);
+
+  it("state a size limit in megabytes", async () => {
+    const fixture = await launchVerificationServer();
+    cleanups.push(() => fixture.close());
+    const { url } = fixture.info;
+    const upload = (path: string, declared: number, type: string) => new Promise<{ status: number; error: string }>((resolve, reject) => {
+      const outgoing = request(url + path, { method: "POST", headers: { origin: url, "content-length": String(declared), "content-type": type } }, (response) => {
+        let text = "";
+        response.on("data", (chunk) => { text += chunk; });
+        response.on("end", () => { resolve({ status: response.statusCode ?? 0, error: JSON.parse(text).error }); outgoing.destroy(); });
+      });
+      outgoing.on("error", reject);
+      outgoing.write("x");
+    });
+    expect(await upload("/api/files?name=big.bin", 30 * 1024 * 1024, "application/octet-stream")).toEqual({
+      status: 413, error: "That file is bigger than 25 MB, which is the most later.dog takes. Try a smaller one.",
+    });
+    expect(await upload("/api/attachments", 12 * 1024 * 1024, "image/png")).toEqual({
+      status: 413, error: "That picture is bigger than 10 MB, which is the most later.dog takes. Try a smaller one.",
+    });
+  }, 60_000);
 });

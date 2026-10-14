@@ -56,6 +56,19 @@ describe("plain failures", () => {
     expect(tooBigMessage("audio", 1.5 * 1024 * 1024)).toMatch(/bigger than 1\.5 MB/);
   });
 
+  it("says which field was wrong instead of printing a validation report", () => {
+    const report = JSON.stringify([
+      { expected: "string", code: "invalid_type", path: ["name"], message: "Invalid input: expected string, received array" },
+      { code: "too_small", path: ["settings", "limit"], message: "Too small" },
+    ], null, 2);
+    expect(plainFailure(Object.assign(new Error(report), { status: 400 }))).toEqual({
+      status: 400,
+      internal: false,
+      message: "That wasn't something later.dog could use (name: Invalid input: expected string, received array; settings.limit: Too small). Check it and try again.",
+    });
+    expect(plainFailure(Object.assign(new Error("[not a report]"), { status: 400 })).message).toBe("[not a report]");
+  });
+
   it("never says the user", () => {
     for (const error of [coded("ENOSPC", "x"), coded("EACCES", "x"), new TypeError("x")]) {
       expect(plainFailure(error).message).not.toMatch(/\bthe user\b|errno|sqlite|stack/i);

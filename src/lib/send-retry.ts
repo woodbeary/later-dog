@@ -53,22 +53,22 @@ export class UncertainSends {
     this.now = now;
   }
 
-  private key(host: string, threadId: string | undefined, text: string): string {
-    return JSON.stringify([host, threadId ?? null, text]);
+  private key(host: string, threadId: string | undefined, text: string, shape: string): string {
+    return JSON.stringify([host, threadId ?? null, text, shape]);
   }
 
-  remember(host: string, threadId: string | undefined, text: string, sendId: string): void {
+  remember(host: string, threadId: string | undefined, text: string, sendId: string, shape = ""): void {
     this.prune();
-    this.held.set(this.key(host, threadId, text), { sendId, at: this.now() });
+    this.held.set(this.key(host, threadId, text, shape), { sendId, at: this.now() });
   }
 
-  recall(host: string, threadId: string | undefined, text: string): string | undefined {
+  recall(host: string, threadId: string | undefined, text: string, shape = ""): string | undefined {
     this.prune();
-    return this.held.get(this.key(host, threadId, text))?.sendId;
+    return this.held.get(this.key(host, threadId, text, shape))?.sendId;
   }
 
-  forget(host: string, threadId: string | undefined, text: string): void {
-    this.held.delete(this.key(host, threadId, text));
+  forget(host: string, threadId: string | undefined, text: string, shape = ""): void {
+    this.held.delete(this.key(host, threadId, text, shape));
   }
 
   private prune(): void {

@@ -30,6 +30,25 @@ export function tooBigMessage(kind: "file" | "image" | "audio", bytes: number): 
   return `That ${kind === "image" ? "picture" : kind} is bigger than ${megabytes(bytes)} MB, which is the most later.dog takes. Try a smaller one.`;
 }
 
+function checkedFields(raw: string): string | null {
+  if (!raw.startsWith("[")) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const lines: string[] = [];
+  for (const issue of parsed) {
+    const found = issue as { path?: unknown; message?: unknown };
+    if (!found || typeof found.message !== "string" || !Array.isArray(found.path)) return null;
+    const field = found.path.map(String).join(".");
+    lines.push(field ? `${field}: ${found.message}` : found.message);
+  }
+  return lines.slice(0, 3).join("; ");
+}
+
 function isOutOfSpace(failure: Failure, message: string): boolean {
   return (typeof failure.code === "string" && OUT_OF_SPACE_CODES.has(failure.code))
     || failure.errcode === SQLITE_FULL
@@ -58,6 +77,8 @@ export function plainFailure(error: unknown, platform: NodeJS.Platform = process
   if (typeof failure.code === "string" && NOT_ALLOWED_CODES.has(failure.code)) {
     return { status, internal: true, message: "later.dog isn't allowed to write to its data folder, so it couldn't save that. Check that folder's permissions and try again." };
   }
+  const fields = checkedFields(raw);
+  if (fields) return { status, internal: false, message: `That wasn't something later.dog could use (${fields}). Check it and try again.` };
   if (typeof failure.status === "number" && failure.status < 500) return { status, internal: false, message: raw };
   if (looksInternal(error, failure, raw)) return { status, internal: true, message: FALLBACK };
   return { status, internal: false, message: raw };
