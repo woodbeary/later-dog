@@ -186,11 +186,12 @@ describe("the menu under your name", () => {
     expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
   });
 
-  it("ends with Sign out, under a line, once an account here is signed in", () => {
+  it("ends with Add account and Sign out, under a line, once an account here is signed in", () => {
     menu.instances = [claude, { ...claude, instanceId: "claude-api", authentication: { method: "paste-code" } } as InstanceInfo];
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["settings", "plugins", "signOut"]);
-    expect(items[2]).toMatchObject({ label: "Sign out", separatorBefore: true });
+    expect(items.map((item) => item.key)).toEqual(["settings", "plugins", "add-account", "signOut"]);
+    expect(items[2]).toMatchObject({ label: "Add account", separatorBefore: true });
+    expect(items[3]).toMatchObject({ label: "Sign out", separatorBefore: false });
     menu.instances = [{ ...claude, snapshot: { state: "available", authenticated: false } } as InstanceInfo];
     expect(open().map((item) => item.key)).toEqual(["settings", "plugins"]);
   });

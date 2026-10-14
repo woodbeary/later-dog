@@ -15,6 +15,7 @@ import {
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { SignOutDialog, useSignOutTargets, type SignOutTargets } from "./SignOutAll";
+import { useAccountMenuItems } from "./SidebarAccountItems";
 import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { brand } from "../lib/brand";
@@ -154,6 +155,7 @@ export function useUpdateItem(): UpdateEntry | null {
 export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
   const update = useUpdateItem();
+  const accountItems = useAccountMenuItems();
   const profiles = useProfiles();
   const signOut = useSignOutTargets();
   const [signingOut, setSigningOut] = useState<SignOutTargets | null>(null);
@@ -202,6 +204,7 @@ export function SidebarProfileMenu() {
   const updateReady = update?.phase === "downloaded" || update?.phase === "available";
   const mainItems: SidebarMenuItem[] = [
     ...(profiles ? [profileEntryItem(() => setPage("profiles"))] : []),
+    ...(accountItems.usage ? [accountItems.usage] : []),
     {
       key: "settings",
       label: t("sidebar.menu.settings"),
@@ -218,11 +221,13 @@ export function SidebarProfileMenu() {
       tourId: "nav-apps",
       onSelect: () => dispatch({ type: "togglePlugins", open: true }),
     },
+    ...(accountItems.accounts ? [accountItems.accounts] : []),
+    ...(accountItems.add ? [{ ...accountItems.add, separatorBefore: !accountItems.accounts }] : []),
     ...(signOut.names.length > 0 ? [{
       key: "signOut",
       label: t("accounts.signOut"),
       icon: <LogOut size={18} />,
-      separatorBefore: true,
+      separatorBefore: !accountItems.accounts && !accountItems.add,
       onSelect: () => {
         focusTrigger();
         setSigningOut(signOut);

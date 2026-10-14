@@ -1897,6 +1897,8 @@
   "accounts.add": "Add account",
   "accounts.usageDetails": "Details",
   "accounts.manageUsage": "Manage usage",
+  "accounts.switch": "Switch account",
+  "accounts.switchFromChat": "Use the account button in the chat to switch to this one.",
   "accounts.signIn": "Sign in",
   "accounts.signOut": "Sign out",
   "accounts.remove": "Remove",

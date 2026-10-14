@@ -20,6 +20,7 @@ import { requestAccountSignIn, requestAddAccount } from "@/lib/add-account-reque
 import { fastModeFits } from "@/lib/fast-mode";
 import { modelShown, useHiddenModels } from "@/lib/model-visibility";
 import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
+import { modelForAccount } from "./account-switch";
 import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
 import { declaredEffort, effortLevelsFor, effortName, effortNote, simpleEffortLevels } from "@/lib/model-friendly";
 import { t } from "@/lib/i18n";
@@ -770,8 +771,7 @@ export function ModelPicker({
   const chooseAccount = (account: InstanceInfo) => {
     setOpen(false);
     if (account.instanceId === selection.instanceId) return;
-    const model = [selection.model, account.models.default].find((id) => id && account.models.options.some((option) => option.id === id))
-      ?? account.models.options.find((option) => !option.custom)?.id ?? account.models.default;
+    const model = modelForAccount(selection, account);
     if (model) pick(account, model);
   };
   const menuModels = (instance: InstanceInfo) => {
