@@ -266,7 +266,8 @@ managed desktop keeps so Firefox can start, with before/after acceptance evidenc
 The [Hetzner launch record](hetzner-launch-2026-09-07.md) is a dated self-hosting
 run on a disposable VPS: what passed, what was corrected, and what it does not prove.
 The [installed release record](installed-release-2026-10-12.md) does the same for the
-macOS builds people download, run sealed with `scripts/sealed-installed-app.sh`.
+macOS builds people download, run sealed with `scripts/sealed-installed-app.sh`; the
+[0.3.28 record](installed-release-2026-10-14.md) adds voice and the in-place update.
 
 Keep the JSON from `wait` and `messages`, the exact command sequence, and the
 fixture's printed log path. Evidence must show both the action and the resulting

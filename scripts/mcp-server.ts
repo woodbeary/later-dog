@@ -2,6 +2,8 @@
 import readline from "node:readline";
 import { localControlTokenPath, localToolsHeaders } from "./local-control-token.ts";
 
+const NEEDS_AUTHORIZATION = new Set(["this change must come from the desktop app or a paired device", "desktop owner capability required"]);
+
 export function validateBaseUrl(url: string): string {
   const trimmed = url.replace(/\/+$/, "");
   let parsed: URL;
@@ -72,7 +74,7 @@ async function fetchJson(url: string, options: RequestInit = {}, discovery = fal
     const text = await response.text().catch(() => "");
     if (response.status === 403 && !process.env.LATERDOG_SERVER_TOKEN?.trim()) {
       const reason = (() => { try { const error = JSON.parse(text)?.error; return typeof error === "string" ? error.replace(/^forbidden: /, "") : undefined; } catch { return undefined; } })();
-      if (reason && reason !== "this change must come from the desktop app or a paired device") throw new Error(`later.dog refused this: ${reason}`);
+      if (reason && !NEEDS_AUTHORIZATION.has(reason)) throw new Error(`later.dog refused this: ${reason}`);
       throw new Error(`later.dog refused this write. The installed desktop app lets local tools make changes with the token it writes to ${localControlTokenPath()} when it starts; restart later.dog if that file is missing, or set LATERDOG_SERVER_TOKEN to a paired session token as described in docs/mcp-server.md.`);
     }
     throw new Error(`later.dog API error (${response.status}): ${text || response.statusText}`);

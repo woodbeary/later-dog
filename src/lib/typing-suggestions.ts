@@ -206,11 +206,11 @@ export interface BlockedBy {
 const SECURE_AUTOCOMPLETE = /\b(?:current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp)\b/i;
 
 export function isSecureField(field: Element | null): boolean {
-  if (!field) return false;
-  if (field instanceof HTMLInputElement && field.type === "password") return true;
+  if (!field || typeof field.getAttribute !== "function") return false;
+  if (field.tagName === "INPUT" && (field.getAttribute("type") ?? "").toLowerCase() === "password") return true;
   const autocomplete = field.getAttribute("autocomplete") ?? "";
   if (SECURE_AUTOCOMPLETE.test(autocomplete)) return true;
-  return field.closest("[data-secure-form],[data-secure-field]") !== null;
+  return typeof field.closest === "function" && field.closest("[data-secure-form],[data-secure-field]") !== null;
 }
 
 export function suggestionsBlocked(by: BlockedBy): boolean {
