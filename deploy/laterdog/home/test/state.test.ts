@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authorizedState, forgetHomeState, handleState, stateKey, type StateBucket } from "../src/state.ts";
+import { authorizedState, forgetHomeState, handleState, stateKey, stateOwner, type StateBucket } from "../src/state.ts";
 
 const CONTAINER = "a".repeat(64);
 
@@ -45,6 +45,15 @@ describe("home state store", () => {
     bucket.objects.set(`homes/${"c".repeat(64)}/manifest.json`, new ArrayBuffer(1));
     expect(await forgetHomeState(bucket, CONTAINER)).toBe(1);
     expect(bucket.objects.has(`homes/${"c".repeat(64)}/manifest.json`)).toBe(true);
+  });
+
+  it("keeps a moved home's data under the home it was first saved as", () => {
+    const standard = "a".repeat(64);
+    const large = "b".repeat(64);
+    expect(stateOwner({ containerId: standard, params: { token: "t" } as { home?: string } })).toBe(standard);
+    expect(stateOwner({ containerId: standard, params: { home: standard } })).toBe(standard);
+    expect(stateOwner({ containerId: large, params: { home: standard } })).toBe(standard);
+    expect(stateKey(stateOwner({ containerId: large, params: { home: standard } }), "http://state.r2/manifest.json")).toBe(`homes/${standard}/manifest.json`);
   });
 
   it("answers only the home's own sync token", async () => {
