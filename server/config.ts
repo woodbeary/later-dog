@@ -254,6 +254,7 @@ const featureConfigSchema = z.object({
   autoRecall: z.boolean().optional(),
   skillsLibrary: z.boolean().optional(),
   cloudDictation: z.boolean().optional(),
+  typingSuggestions: z.boolean().optional(),
 });
 const onboardingConfigSchema = z.object({
   completedAt: z.string().trim().max(40).optional(),
@@ -392,6 +393,11 @@ const appConfigSchema = z.object({
       .optional(),
     jobs: z.object({ roomRouting: z.boolean().optional() }).optional(),
   }).optional(),
+  typing: z.object({
+    accountId: z.string().trim().max(64).refine((value) => !value || /^[0-9a-f]{32}$/i.test(value), "a Cloudflare account id is 32 letters and digits").optional(),
+    token: optionalText,
+    model: z.string().trim().max(200).refine((value) => !value || /^@cf\/[A-Za-z0-9._/-]+$/.test(value), "a Workers AI model id looks like @cf/meta/llama-3.2-3b-instruct").optional(),
+  }).optional(),
   live: z.object({
     key: optionalText,
     voice: z.string().trim().max(40).regex(/^[a-z]*$/, "a Live voice is a lowercase built-in voice name").optional(),
@@ -482,6 +488,7 @@ export interface AppConfig {
   tts?: { key?: string; fishKey?: string; voice?: string; provider?: "elevenlabs" | "fish" | "system" | "chatterbox" | "xai"; baseUrl?: string; model?: string; fishModel?: FishTtsModel };
   decider?: { enabled?: boolean; provider?: "jev" | "off"; key?: string; baseUrl?: string; jobs?: { roomRouting?: boolean } };
   imageGen?: ImageGenerationConfig;
+  typing?: { accountId?: string; token?: string; model?: string };
   live?: { key?: string; voice?: string; readTypedReplies?: boolean; idleMinutes?: number };
   profile?: { name?: string; email?: string; aboutMe?: string };
   rooms?: { turnTimeoutMinutes: number; handoffIdleMinutes?: number; handoffLifetimeMinutes?: number; handoffMinRunwayMinutes?: number; handoffHardCapMinutes?: number };
@@ -490,7 +497,7 @@ export interface AppConfig {
   context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean };
   memory?: { captureQuietMs?: number; tidyHour?: number };
   localVm?: { mode?: "shared" | "per-bot" | "pool"; maxInstances?: number; idleTimeoutMinutes?: number };
-  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; autoRecall?: boolean; routinesInConversation?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean };
+  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; autoRecall?: boolean; routinesInConversation?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean };
   onboarding?: { completedAt?: string; version?: number; reelSeen?: boolean; hintsSeen?: string[]; firstTurnAt?: string };
   browserProfiles?: BrowserProfile[];
   browserEngine?: { attachCdpUrl?: string };
@@ -704,6 +711,10 @@ export function skillsLibraryEnabled(cfg: AppConfig): boolean {
   return cfg.features?.skillsLibrary === true;
  }
 
+export function typingSuggestionsEnabled(cfg: AppConfig): boolean {
+  return cfg.features?.typingSuggestions !== false;
+}
+
 export function cloudDictationEnabled(cfg: AppConfig): boolean {
   return cfg.features?.cloudDictation !== false;
 }
@@ -714,6 +725,7 @@ export const FLEET_NEUTRAL_KEYS: ReadonlySet<string> = new Set([
   "tts",
   "decider",
   "imageGen",
+  "typing",
   "live",
   "vps",
   "rooms",
@@ -814,6 +826,8 @@ export function loadConfig(): AppConfig {
   if (process.env.LATERDOG_FISH_AUDIO_API_KEY !== undefined) cfg.tts.fishKey = process.env.LATERDOG_FISH_AUDIO_API_KEY;
   cfg.decider = { ...cfg.decider };
   if (process.env.LATERDOG_JEV_API_KEY !== undefined) cfg.decider.key = process.env.LATERDOG_JEV_API_KEY;
+  cfg.typing = { ...cfg.typing };
+  if (process.env.LATERDOG_CLOUDFLARE_AI_TOKEN !== undefined) cfg.typing.token = process.env.LATERDOG_CLOUDFLARE_AI_TOKEN;
   cfg.live = { ...cfg.live };
   if (process.env.LATERDOG_OPENAI_LIVE_KEY !== undefined) cfg.live.key = process.env.LATERDOG_OPENAI_LIVE_KEY;
   cfg.imageGen = { ...cfg.imageGen };
@@ -860,6 +874,7 @@ export function syncCredentialEnv(patch: Partial<Omit<AppConfig, "threads" | "ne
     [patch.decider?.key, "LATERDOG_JEV_API_KEY"],
     [patch.imageGen?.key, "LATERDOG_OPENAI_IMAGE_KEY"],
     [patch.imageGen?.customApiKey, "LATERDOG_CUSTOM_IMAGE_KEY"],
+    [patch.typing?.token, "LATERDOG_CLOUDFLARE_AI_TOKEN"],
     [patch.live?.key, "LATERDOG_OPENAI_LIVE_KEY"],
   ];
   for (const [value, name] of secrets) {
@@ -900,6 +915,7 @@ export const WORKSPACE_CREDENTIAL_ENV = [
   "LATERDOG_OPENAI_IMAGE_KEY",
   "LATERDOG_CUSTOM_IMAGE_KEY",
   "LATERDOG_OPENAI_LIVE_KEY",
+  "LATERDOG_CLOUDFLARE_AI_TOKEN",
   "COMPOSIO_API_KEY",
   "LATERDOG_COMPOSIO_BROKER_TOKEN",
   "LATERDOG_TOKEN",
@@ -1025,7 +1041,7 @@ export function saveConfig(
   const before = configSaveListeners.size ? structuredClone(disk) : disk;
   const storedProfiles = storedBrowserProfilesSchema.safeParse(disk.browserProfiles);
   if (storedProfiles.success) disk.browserProfiles = storedProfiles.data;
-  for (const key of ["xai", "anthropic", "mistral", "cerebras", "openai", "openrouter", "openaiCompat", "composio", "box", "opencodeGo", "tts", "decider", "imageGen", "live", "profile", "rooms", "mcp", "threads", "context", "memory", "localVm", "features", "budgets", "billing", "decisions", "onboarding", "browserEngine", "newBots"] as const) {
+  for (const key of ["xai", "anthropic", "mistral", "cerebras", "openai", "openrouter", "openaiCompat", "composio", "box", "opencodeGo", "tts", "decider", "imageGen", "typing", "live", "profile", "rooms", "mcp", "threads", "context", "memory", "localVm", "features", "budgets", "billing", "decisions", "onboarding", "browserEngine", "newBots"] as const) {
     const section = checkedPatch[key];
     if (!section) continue;
     const current = jsonObjectSchema.safeParse(disk[key]);

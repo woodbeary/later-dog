@@ -2972,6 +2972,7 @@ const CREDENTIAL_PATCH = {
   jevApiKey: (value) => ({ decider: { key: value } }),
   openaiImageApiKey: (value) => ({ imageGen: { key: value } }),
   customImageApiKey: (value) => ({ imageGen: { customApiKey: value } }),
+  cloudflareAiToken: (value) => ({ typing: { token: value } }),
   openaiLiveKey: (value) => ({ live: { key: value } }),
 };
 

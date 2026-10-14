@@ -196,6 +196,7 @@ import {
   DATA_DIR,
   skillsLibraryEnabled,
   cloudDictationEnabled,
+  typingSuggestionsEnabled,
   EVENTS_DIR,
   NATIVE_DIR,
   customMcpServers,
@@ -666,6 +667,7 @@ import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
+import { createTypingWiring } from "./laterdog/typing-wiring.ts";
 import { createThreadModelRoutes } from "./routes/thread-models.ts";
 import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
@@ -806,6 +808,7 @@ if (hostedModels) {
 bindThreadLogCapProvider(() => threadEventLogMaxBytes(cfg));
 bindDecisionRetention(() => decisionRetentionDays(cfg.decisions?.retentionDays));
 const decider = createDecider({ config: () => cfg, dataDir: DATA_DIR });
+const typingSuggestions = createTypingWiring({ config: () => cfg, decider });
 const customDomainVerifier = createCustomDomainVerifier({ environmentId: ENVIRONMENT_ID });
 const emailSignIn = createEmailSignIn({
   allow: signInAllowList,
@@ -12977,6 +12980,7 @@ function configStatus() {
     opencodeGo: { configured: Boolean(cfg.opencodeGo?.apiKey), providerKeys: Object.keys(openCodeProviderKeys(cfg)) },
     tts: tts.describeVoice(cfg),
     decider: describeDecider(cfg),
+    typing: typingSuggestions.describe(),
     imageGen: avatarImageStatus(cfg),
     live: liveSettingsFor(cfg),
     profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "", aboutMe: cfg.profile?.aboutMe ?? "" },
@@ -13010,6 +13014,7 @@ function configStatus() {
       autoRecall: autoRecallEnabled(cfg),
       llmThreadTitles: llmThreadTitlesEnabled(cfg),
       cloudDictation: cloudDictationEnabled(cfg),
+      typingSuggestions: typingSuggestionsEnabled(cfg),
     },
     onboarding: {
       completedAt: cfg.onboarding?.completedAt ?? "",
@@ -13358,6 +13363,7 @@ ROUTES.push(createBotMemoryRoutes({
   },
 }));
 ROUTES.push(createDeciderRoutes({ decider }));
+ROUTES.push(typingSuggestions.routes);
 ROUTES.push(createLaterDogRoutes());
 ROUTES.push(createHelpersRoutes({
   board: helperBoard,
@@ -21162,6 +21168,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (persisted.tts?.key !== undefined) persisted.tts.key = "";
           if (persisted.tts?.fishKey !== undefined) persisted.tts.fishKey = "";
           if (persisted.decider?.key !== undefined) persisted.decider.key = "";
+          if (persisted.typing?.token !== undefined) persisted.typing.token = "";
           if (persisted.imageGen?.key !== undefined) persisted.imageGen.key = "";
           if (persisted.imageGen?.customApiKey !== undefined) persisted.imageGen.customApiKey = "";
           if (persisted.live?.key !== undefined) persisted.live.key = "";
