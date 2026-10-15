@@ -44,6 +44,11 @@ jobs:
             "$IMAGE"
           HOME_BOOTSTRAP_SECRET="$secret" node deploy/laterdog/home/smoke.mjs || { docker logs home; exit 1; }
           docker logs home 2>&1 | tail -20
+      - name: Stopped dogs leave no processes behind
+        run: |
+          check="$PWD/deploy/laterdog/home/reaping-check.mjs"
+          docker run --rm --entrypoint node -v "$check:/check.mjs:ro" "$IMAGE" /check.mjs --expect-leak
+          docker run --rm -v "$check:/check.mjs:ro" "$IMAGE" node /check.mjs
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
