@@ -36,7 +36,9 @@ async function hostForMachine(env: Env, machineId: string) {
 
 export class HomesApi extends WorkerEntrypoint<Env> {
   async open(accountId: string): Promise<HomeSummary> {
-    const { identity, stub } = await homeFor(this.env, accountId);
+    const { identity, size, stub } = await homeFor(this.env, accountId);
+    if (size === "large") await hostFor(this.env, "standard", identity.machineId).reopen();
+    await stub.reopen();
     await stub.adopt(identity);
     const summary = await stub.summary();
     if (!summary) throw new Error("The home could not be opened.");
@@ -59,6 +61,7 @@ export class HomesApi extends WorkerEntrypoint<Env> {
   async remove(accountId: string): Promise<{ removed: number }> {
     const { identity, size } = await homeFor(this.env, accountId);
     const standard = hostFor(this.env, "standard", identity.machineId);
+    await standard.bury();
     if (size === "large" || (await standard.standing()) === "released") await hostFor(this.env, "large", identity.machineId).forget();
     return standard.remove();
   }

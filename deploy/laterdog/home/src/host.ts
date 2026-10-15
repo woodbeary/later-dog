@@ -5,7 +5,7 @@ import { hex, randomToken, sha256 } from "./encoding.ts";
 import { bootstrapSecret, type HomeIdentity } from "./identity.ts";
 import { parsePairingGrant, signedPairingRequest, type PairingGrant } from "./pairing.ts";
 import { handleOwnerEmail, type OwnerMail } from "./email.ts";
-import { Handover, HANDING_OVER, type HandoverPeer, type HomeStanding } from "./handover.ts";
+import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
 import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
@@ -18,6 +18,8 @@ export const PAIR_WAKE_WAIT_MS = 15_000;
 const BUSY_MEMORY_MS = 10_000;
 const STARTED_KEY = "started-included-key";
 const STANDING_KEY = "standing";
+const REMOVED_KEY = "removed";
+const REMOVED = "This home was removed.";
 export const PERSON_SLEEP_AFTER = "2h";
 export const ROUTINE_SLEEP_AFTER = "15m";
 export const MAINTAIN_EVERY_S = 6 * 60 * 60;
@@ -54,6 +56,7 @@ export class CloudHomeHost extends Container<Env> {
   private lastStart: { wake: HomeWake; at: number } | null = null;
   private storedStanding: HomeStanding | null = null;
   private signalled = false;
+  private removed = false;
   private readonly handover = new Handover({
     standing: () => this.storedStanding ?? (this.size === "standard" ? "holding" : "released"),
     stand: async (standing) => {
@@ -70,6 +73,7 @@ export class CloudHomeHost extends Container<Env> {
     void ctx.blockConcurrencyWhile(async () => {
       this.record = (await ctx.storage.get<HomeRecord>(RECORD_KEY)) ?? null;
       this.storedStanding = (await ctx.storage.get<HomeStanding>(STANDING_KEY)) ?? null;
+      this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
       if (this.record) this.envVars = await this.environment(this.record);
     });
   }
@@ -102,8 +106,8 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   override startAndWaitForPorts(...args: Parameters<Container<Env>["startAndWaitForPorts"]>): Promise<void> {
-    if (!this.handover.holds()) return Promise.reject(new Error(HANDING_OVER));
-    return super.startAndWaitForPorts(...args);
+    if (this.removed) return Promise.reject(new Error(REMOVED));
+    return this.handover.launch(() => super.startAndWaitForPorts(...args));
   }
 
   private async environment(record: HomeRecord): Promise<Record<string, string>> {
@@ -120,7 +124,18 @@ export class CloudHomeHost extends Container<Env> {
     };
   }
 
+  async bury(): Promise<void> {
+    this.removed = true;
+    await this.ctx.storage.put(REMOVED_KEY, true);
+  }
+
+  async reopen(): Promise<void> {
+    this.removed = false;
+    await this.ctx.storage.delete(REMOVED_KEY);
+  }
+
   async adopt(identity: HomeIdentity): Promise<void> {
+    if (this.removed) return;
     if (this.record) {
       if (this.record.machineId !== identity.machineId || this.record.accountId !== identity.accountId) throw new Error("This home belongs to another account.");
       return;
@@ -210,6 +225,7 @@ export class CloudHomeHost extends Container<Env> {
 
   async remove(): Promise<{ removed: number }> {
     const home = this.record ? this.stateHome(this.record.machineId) : this.size === "standard" ? this.ctx.id.toString() : null;
+    await this.bury();
     await this.silence();
     const removed = home ? await forgetHomeState(this.env.STATE, home) : 0;
     await this.erase();
@@ -217,6 +233,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async forget(): Promise<void> {
+    await this.bury();
     await this.silence();
     await this.erase();
   }
@@ -230,6 +247,7 @@ export class CloudHomeHost extends Container<Env> {
     await this.ctx.storage.deleteAll();
     this.record = null;
     this.storedStanding = null;
+    await this.bury();
   }
 
   override async onActivityExpired(): Promise<void> {
@@ -246,7 +264,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   async wakeForRoutine(): Promise<void> {
-    if (!this.record || !this.handover.holds()) return;
+    if (!this.record || this.removed || !this.handover.holds()) return;
     this.sleepAfter = ROUTINE_SLEEP_AFTER;
     this.boot(this.record, false);
   }
@@ -260,7 +278,7 @@ export class CloudHomeHost extends Container<Env> {
 
   override async fetch(request: Request): Promise<Response> {
     const record = this.record;
-    if (!record) return new Response("Not found", { status: 404 });
+    if (!record || this.removed) return new Response("Not found", { status: 404 });
     const background = isBackground(request);
     if (!background) this.sleepAfter = PERSON_SLEEP_AFTER;
     if (await this.running()) return background ? this.quietly(request) : super.fetch(request);
@@ -290,7 +308,7 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   private boot(known: HomeRecord, claim: boolean): void {
-    if (this.booting) return;
+    if (this.booting || this.removed) return;
     let record = known;
     this.booting = this.handover.start(claim, {
       prepare: async () => {

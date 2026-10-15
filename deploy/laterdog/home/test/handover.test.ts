@@ -134,3 +134,33 @@ describe("handing a home between its two computers", () => {
     expect(overlaps).toEqual([]);
   });
 });
+
+describe("starts that begin inside a request", () => {
+  it("makes a release wait for a start that is still before its container exists", async () => {
+    const { standard, large } = pair();
+    const gate = deferred();
+    const launched = standard.handover.launch(async () => {
+      await gate.promise;
+      standard.running = true;
+    });
+    let answered: boolean | null = null;
+    const released = large.handover.release().then(() => standard.handover.release()).then((idle) => {
+      answered = idle;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(answered).toBeNull();
+    expect(standard.handover.idle()).toBe(false);
+    gate.open();
+    await launched;
+    await released;
+    expect(answered).toBe(false);
+    expect(standard.signals).toBe(1);
+  });
+
+  it("refuses to launch once the home was released", async () => {
+    const { standard } = pair();
+    await standard.handover.release();
+    await expect(standard.handover.launch(async () => undefined)).rejects.toThrow();
+  });
+});

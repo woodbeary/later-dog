@@ -275,3 +275,64 @@ describe("removing a home that moved", () => {
     expect(await host(HOMES_LARGE, owner).summary()).toBeNull();
   });
 });
+
+describe("a start that begins inside a request", () => {
+  it("is not missed by the other computer taking the home", async () => {
+    const { HOMES, HOMES_LARGE, api, settle } = cloud();
+    const owner = await machineOf(OWNER);
+    await api.open(OWNER);
+    await settle();
+    HOMES.machine(owner).exit?.();
+    const standard = host(HOMES, owner);
+    const large = host(HOMES_LARGE, owner);
+    await large.adopt(await homeIdentity(SECRET, OWNER, SUFFIX));
+    const request = () => new Request(`https://${owner}${SUFFIX}/api/bots`, { headers: { accept: "application/json" } });
+    const inside = standard.containerFetch(request(), 8080);
+    await Promise.all([large.fetch(request()), inside]);
+    await settle();
+    expect(world.overlaps).toEqual([]);
+  });
+});
+
+describe("deleting a listed owner's home", () => {
+  it("does not let any later request adopt or boot a home", async () => {
+    const { HOMES, HOMES_LARGE, STATE, api, settle, visit } = cloud(OWNER);
+    const owner = await machineOf(OWNER);
+    await api.open(OWNER);
+    await settle();
+    expect(await api.remove(OWNER)).toEqual({ removed: 0 });
+    HOMES_LARGE.machine(owner).exit?.();
+    expect((await visit(owner)).status).toBe(404);
+    await api.summary(OWNER);
+    await settle();
+    expect(await host(HOMES_LARGE, owner).summary()).toBeNull();
+    expect(HOMES_LARGE.machine(owner).running).toBe(false);
+    expect(HOMES.machine(owner).running).toBe(false);
+    expect(STATE.objects.size).toBe(0);
+    expect(world.overlaps).toEqual([]);
+  });
+
+  it("does not restore data into a request that lands while the account is being removed", async () => {
+    const { HOMES, HOMES_LARGE, api, settle, visit } = cloud(OWNER);
+    const owner = await machineOf(OWNER);
+    await api.open(OWNER);
+    await settle();
+    const removing = api.remove(OWNER);
+    const visits = [visit(owner), visit(owner), visit(owner)];
+    await Promise.all([removing, ...visits]);
+    await settle();
+    expect(HOMES.machine(owner).running).toBe(false);
+    expect(HOMES_LARGE.machine(owner).running).toBe(false);
+    expect(world.overlaps).toEqual([]);
+  });
+
+  it("opens again when the same account signs up again", async () => {
+    const { HOMES_LARGE, api, settle } = cloud(OWNER);
+    const owner = await machineOf(OWNER);
+    await api.open(OWNER);
+    await api.remove(OWNER);
+    await api.open(OWNER);
+    await settle();
+    expect(HOMES_LARGE.machine(owner).running).toBe(true);
+  });
+});

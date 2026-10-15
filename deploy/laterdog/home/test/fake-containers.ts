@@ -45,6 +45,9 @@ export class FakeStorage {
   async put(key: string, value: unknown): Promise<void> {
     this.values.set(key, structuredClone(value));
   }
+  async delete(key: string): Promise<boolean> {
+    return this.values.delete(key);
+  }
   async deleteAll(): Promise<void> {
     this.values.clear();
   }
