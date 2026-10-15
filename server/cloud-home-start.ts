@@ -6,7 +6,7 @@ import {
   CLOUD_SECRETS_FD_ENV, cloudHomeConfiguration, cloudHomeHost, cloudHomeSecrets, prepareCloudHomeVolume,
   withoutCloudSecrets, withoutIgnoredCloudKeys, type CloudHomeConfig,
 } from "./cloud-home.ts";
-import { restartPolicy } from "./restart.ts";
+import { superviseHomeServer } from "./laterdog/home-server-restart.ts";
 
 const SERVICE_USER = "dog";
 const SECRETS_FD = 3;
@@ -63,8 +63,8 @@ export function codeTrustProblem(files: readonly string[], home: string, stat: (
 }
 
 export function spawnWithSecrets(command: string, args: string[], env: NodeJS.ProcessEnv, secrets: Record<string, string>,
-  ids?: { uid: number; gid: number } | null): ChildProcess {
-  const child = spawn(command, args, { env, stdio: ["inherit", "inherit", "inherit", "pipe"], ...(ids ? { uid: ids.uid, gid: ids.gid } : {}) });
+  ids?: { uid: number; gid: number } | null, stderr: "inherit" | "pipe" = "inherit"): ChildProcess {
+  const child = spawn(command, args, { env, stdio: ["inherit", "inherit", stderr, "pipe"], ...(ids ? { uid: ids.uid, gid: ids.gid } : {}) });
   const pipe = child.stdio[SECRETS_FD] as NodeJS.WritableStream | null;
   pipe?.on("error", () => {});
   pipe?.end(JSON.stringify(secrets));
@@ -104,32 +104,27 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
   if (dropped.length) console.log(`cloud home: not passed to the server: ${dropped.join(", ")}`);
   const children: ChildProcess[] = [];
   let stopping = false;
+  const homeServer = superviseHomeServer(() => spawnWithSecrets(process.execPath, [join(here, "index.js")], server, secrets, ids, "pipe"), { failed: () => stop(true) });
+  const running = () => [...children, homeServer.child()].filter((child): child is ChildProcess => child !== null && child.exitCode === null);
   const stop = (failed: boolean) => {
     if (stopping) return;
     stopping = true;
     process.exitCode = failed ? 1 : 0;
-    for (const child of children) if (child.exitCode === null) child.kill("SIGTERM");
-    const force = setTimeout(() => { for (const child of children) if (child.exitCode === null) child.kill("SIGKILL"); }, 20_000);
+    homeServer.stop();
+    for (const child of running()) child.kill("SIGTERM");
+    const force = setTimeout(() => { for (const child of running()) child.kill("SIGKILL"); }, 20_000);
     force.unref();
   };
-  const watch = (child: ChildProcess, again?: (code: number | null) => boolean) => {
+  const watchEdge = (child: ChildProcess) => {
     children.push(child);
     child.once("error", () => stop(true));
-    child.once("exit", (code) => {
+    child.once("exit", (code, signal) => {
       children.splice(children.indexOf(child), 1);
-      if (!again?.(code)) stop(true);
+      console.error(`cloud home: the edge stopped (exit code ${code ?? "none"}, signal ${signal ?? "none"})`);
+      stop(true);
     });
   };
-  const policy = restartPolicy();
-  const runServer = () => {
-    watch(spawnWithSecrets(process.execPath, [join(here, "index.js")], server, secrets, ids), (code) => {
-      if (!policy.again(code, stopping)) return false;
-      runServer();
-      return true;
-    });
-  };
-  runServer();
-  watch(spawn(edgeBin, ["run", "--config", edgeConfig, "--adapter", "caddyfile"],
+  watchEdge(spawn(edgeBin, ["run", "--config", edgeConfig, "--adapter", "caddyfile"],
     { env: edge, stdio: "inherit", ...(ids ? { uid: ids.uid, gid: ids.gid } : {}) }));
   process.once("SIGTERM", () => stop(false));
   process.once("SIGINT", () => stop(false));

@@ -335,10 +335,10 @@ it("builds a Cloud home image that refuses any code the root supervisor runs tha
   expect(check).toBeLessThan(image.indexOf("CMD ["));
 });
 
-it("the Cloud launcher starts the server again only when it asks to after a restore, and only a few times in a row", () => {
+it("the Cloud launcher hands the server, with its stderr, to the crash supervisor and keeps the edge up; 75 still restarts only a few times in a row", () => {
   const launcher = readFileSync(join(import.meta.dirname, "cloud-home-start.ts"), "utf8");
-  expect(launcher).toContain("const policy = restartPolicy();");
-  expect(launcher).toContain("if (!policy.again(code, stopping)) return false;");
+  expect(launcher).toContain('superviseHomeServer(() => spawnWithSecrets(process.execPath, [join(here, "index.js")], server, secrets, ids, "pipe"), { failed: () => stop(true) });');
+  expect(launcher).not.toContain("restartPolicy");
   for (const code of [0, 1, null]) expect(restartPolicy().again(code)).toBe(false);
   expect(restartPolicy().again(RESTART_EXIT_CODE, true)).toBe(false);
   const policy = restartPolicy(() => 0);
