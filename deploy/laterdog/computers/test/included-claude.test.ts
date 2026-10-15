@@ -288,6 +288,16 @@ describe("turning an OpenAI chat into a Claude request", () => {
     ]);
   });
 
+  it("keeps tool call ids another provider wrote in a form Claude accepts, on both sides of the pair", () => {
+    const { turns } = claudeMessages([
+      { role: "user", content: "go" },
+      { role: "assistant", content: null, tool_calls: [{ id: "functions.look:0", type: "function", function: { name: "look", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "functions.look:0", content: "seen" },
+    ]);
+    expect(turns[1]!.content).toEqual([{ type: "tool_use", id: "functions_look_0", name: "look", input: {} }]);
+    expect(turns[2]!.content).toEqual([{ type: "tool_result", tool_use_id: "functions_look_0", content: [{ type: "text", text: "seen" }] }]);
+  });
+
   it("never starts with the dog or ends on it, and drops empty turns", () => {
     expect(claudeMessages([{ role: "assistant", content: "Woof!" }, { role: "user", content: "" }, { role: "assistant", content: null }]).turns).toEqual([
       { role: "user", content: [{ type: "text", text: CLAUDE_OPENING }] },

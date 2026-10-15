@@ -24,6 +24,7 @@ type Turn = { role: "user" | "assistant"; content: Block[] };
 type Thinking = { thinking: string; signature: string } | { data: string };
 
 const seconds = () => Math.floor(Date.now() / 1000);
+const toolId = (id: string) => id.replace(/[^A-Za-z0-9_-]/g, "_");
 const words = (value: string): Block[] => (value ? [{ type: "text", text: value }] : []);
 const finishOf = (reason: unknown) => (typeof reason === "string" ? FINISH[reason] ?? "stop" : "stop");
 
@@ -74,7 +75,7 @@ function assistantBlocks(message: Record<string, unknown>): Block[] {
   const uses = (Array.isArray(message.tool_calls) ? message.tool_calls : []).flatMap((call): Block[] => {
     if (!isRecord(call) || typeof call.id !== "string" || !call.id || !isRecord(call.function)) return [];
     const name = call.function.name;
-    return typeof name === "string" && name ? [{ type: "tool_use", id: call.id, name, input: toolInput(call.function.arguments) }] : [];
+    return typeof name === "string" && name ? [{ type: "tool_use", id: toolId(call.id), name, input: toolInput(call.function.arguments) }] : [];
   });
   const said = partsOf(message.content).filter((block) => block.type === "text");
   if (!said.length && !uses.length) return [];
@@ -84,7 +85,7 @@ function assistantBlocks(message: Record<string, unknown>): Block[] {
 function toolResult(message: Record<string, unknown>): Block[] {
   if (typeof message.tool_call_id !== "string" || !message.tool_call_id) return [];
   const content = partsOf(message.content);
-  return [{ type: "tool_result", tool_use_id: message.tool_call_id, ...(content.length ? { content } : {}) }];
+  return [{ type: "tool_result", tool_use_id: toolId(message.tool_call_id), ...(content.length ? { content } : {}) }];
 }
 
 export function claudeMessages(messages: readonly unknown[]): { system: string; turns: Turn[] } {
