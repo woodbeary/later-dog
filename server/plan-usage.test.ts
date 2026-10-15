@@ -298,6 +298,22 @@ describe("plan usage fetcher", () => {
     expect(JSON.stringify(report)).not.toContain(defaultToken);
   });
 
+  it("asks for the suffixed item and the login account when the default folder is named explicitly, as the CLI does", async () => {
+    const configDir = normalize(join(tmpdir(), ".claude"));
+    const asked: Array<[string, string]> = [];
+    await fetchPlanUsage([account("claude", { configDir })], {
+      fetch: vi.fn<PlanFetch>(async () => jsonResponse({})),
+      now: () => NOW,
+      credentials: fileCredentialReader({
+        now: () => NOW,
+        env: { HOME: tmpdir(), USERPROFILE: tmpdir(), USER: "fixture.user" },
+        readText: () => null,
+        readClaudeKeychain: (service, user) => { asked.push([service, user]); return null; },
+      }),
+    });
+    expect(asked).toEqual([[`Claude Code-credentials-${createHash("sha256").update(configDir).digest("hex").slice(0, 8)}`, "fixture.user"]]);
+  });
+
   it("turns a 401 into ok:false without throwing and still returns the other provider", async () => {
     const fetchImpl = vi.fn<PlanFetch>(async (url) => {
       if (url.includes("anthropic.com")) return jsonResponse(SECRET, 401);

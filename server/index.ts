@@ -698,6 +698,9 @@ import { expireStaleApprovals } from "./laterdog/stale-approvals.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
 import { createTimeZoneRoutes, restoreTimeZone } from "./laterdog/time-zone.ts";
+import { heldAccountReason } from "./laterdog/held-accounts.ts";
+import { createHomeAccountRoutes } from "./laterdog/home-accounts.ts";
+import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
@@ -860,7 +863,8 @@ function customDomainStatus() {
     serverIpv4: DESKTOP_MANAGED ? null : customDomainIpv4(),
   };
 }
-const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
+const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
+const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId) });
 const supportsApprovalMode = createApprovalModeSupport(registry);
 registerEnginesBinDir();
 registerNativeBinDir();
@@ -13437,6 +13441,29 @@ async function reloadProviders() {
 
 let providerConfigBusy = false;
 const providerInstancesChanging = new Set<string>();
+function busyProviderSelections() {
+  return store.bots.flatMap((bot) => {
+    const busyTasks = store.tasks(bot.id).filter((task) => threadBusy(bot.id, task.threadId));
+    const selections = busyTasks.map((task) => botForThread(bot.id, task.threadId)!.modelSelection);
+    if (activeGroupTurnForBot(bot.id) || (bot.busy && busyTasks.length === 0)) selections.push(bot.modelSelection);
+    return selections;
+  });
+}
+async function withProviderConfig<T>(work: () => Promise<T>): Promise<T | null> {
+  if (providerConfigBusy) return null;
+  providerConfigBusy = true;
+  try { return await work(); } finally { providerConfigBusy = false; }
+}
+async function reloadProviderInstance(instanceId: string) {
+  providerAuthSessions.clearInstance(instanceId);
+  bus.detach(instanceId);
+  const entry = providerConfigs()[instanceId];
+  if (!entry) return;
+  await registry.load({ [instanceId]: entry }, decorateHostedProvider);
+  const live = registry.get(instanceId);
+  if (live) bus.attach([live]);
+}
+const accountInUse = (instanceId: string) => busyProviderSelections().some((selection) => selection.instanceId === instanceId);
 let mcpConfigBusy = false;
 const MAX_CONCURRENT_MCP_PROBES = 2;
 let mcpProbesInFlight = 0;
@@ -13616,6 +13643,30 @@ ROUTES.push(createContinueOnRoutes({
 ROUTES.push(createUndoRoutes({
   refusal: (auth, threadId, requestId) => cardAnswerRefusal(auth, threadId, requestId, "allow"),
   undo: (auth, res, threadId, requestId) => withDecisionActor(decisionActorFor(auth), () => undoAppliedChange(res, threadId, requestId)),
+}));
+ROUTES.push(createMacAccountRoutes({
+  cloudHome: Boolean(CLOUD_HOME),
+  dataDir: DATA_DIR,
+  file: HELD_ACCOUNTS_FILE,
+  instances: () => providerConfigs(),
+  busy: accountInUse,
+  exclusive: withProviderConfig,
+  reload: reloadProviderInstance,
+}));
+ROUTES.push(createHomeAccountRoutes({
+  cloudHome: Boolean(CLOUD_HOME),
+  dataDir: DATA_DIR,
+  file: HELD_ACCOUNTS_FILE,
+  instances: () => persistableInstanceConfigs(cfg),
+  save: persistProviderInstance,
+  reload: reloadProviderInstance,
+  busy: accountInUse,
+  exclusive: withProviderConfig,
+  signedIn: async (instanceId) => {
+    const live = registry.get(instanceId);
+    if (!live) return null;
+    try { return (await live.snapshot()).authenticated === true; } catch { return null; }
+  },
 }));
 ROUTES.push(createTimeZoneRoutes({
   file: TIME_ZONE_FILE,
@@ -20720,12 +20771,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, probe);
     }
 
-    const busyProviderSelections = () => store.bots.flatMap((bot) => {
-      const busyTasks = store.tasks(bot.id).filter((task) => threadBusy(bot.id, task.threadId));
-      const selections = busyTasks.map((task) => botForThread(bot.id, task.threadId)!.modelSelection);
-      if (activeGroupTurnForBot(bot.id) || (bot.busy && busyTasks.length === 0)) selections.push(bot.modelSelection);
-      return selections;
-    });
     const claudeUpdate = /^\/api\/instances\/([\w.-]+)\/claude-update$/.exec(path);
     if (method === "POST" && claudeUpdate) {
       if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {

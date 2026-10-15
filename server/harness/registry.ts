@@ -54,10 +54,12 @@ export class ProviderRegistry {
   private driversByKind: Map<string, AnyProviderDriver>;
   private readonly enginesBaseDir: string | undefined;
   private readonly npmPresent: () => boolean;
+  private readonly heldReason: (instanceId: InstanceId) => string | null;
 
-  constructor(drivers: readonly AnyProviderDriver[], options: { enginesBaseDir?: string; npmAvailable?: () => boolean } = {}) {
+  constructor(drivers: readonly AnyProviderDriver[], options: { enginesBaseDir?: string; npmAvailable?: () => boolean; held?: (instanceId: InstanceId) => string | null } = {}) {
     this.enginesBaseDir = options.enginesBaseDir;
     this.npmPresent = options.npmAvailable ?? npmAvailable;
+    this.heldReason = options.held ?? (() => null);
     this.driversByKind = new Map(drivers.map((d) => [d.driverKind, d]));
   }
 
@@ -83,6 +85,13 @@ export class ProviderRegistry {
   ): Promise<RegistryEntry> {
     await this.dispose(instanceId);
     const driver = this.driversByKind.get(entry.driver);
+    const held = this.heldReason(instanceId);
+    if (held) {
+      return {
+        instanceId,
+        shadow: { instanceId, driverKind: entry.driver, displayName: entry.displayName ?? driver?.metadata.displayName, cli: cliOfRaw(entry.config), shadow: true, reason: held },
+      };
+    }
     if (!driver) {
       return {
         instanceId,

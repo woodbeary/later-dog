@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { InstanceConfigMap } from "./contracts.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { harnessHome } from "./env-path.ts";
+import { claudeKeychainAccount, claudeKeychainService } from "./laterdog/claude-keychain.ts";
 
 export type PlanDriver = "claude" | "codex" | "grok";
 
@@ -94,7 +94,7 @@ export interface CredentialSource {
   readText: (path: string) => string | null;
   env?: NodeJS.ProcessEnv;
   now?: () => number;
-  readClaudeKeychain?: (service: string) => string | null | Promise<string | null>;
+  readClaudeKeychain?: (service: string, account: string) => string | null | Promise<string | null>;
 }
 
 const PROVIDER_TIMEOUT_MS = 8_000;
@@ -102,7 +102,6 @@ const PLAN_USAGE_CACHE_MS = 45_000;
 const CREDENTIAL_READ_MAX_BYTES = 1_000_000;
 const KEYCHAIN_TIMEOUT_MS = 5_000;
 const KEYCHAIN_MAX_BUFFER = 1_000_000;
-const CLAUDE_KEYCHAIN_SERVICE = "Claude Code-credentials";
 const CLAUDE_MODEL_FAMILIES = ["opus", "sonnet", "haiku"];
 
 const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
@@ -632,27 +631,17 @@ function decodeKeychainSecret(raw: string | null): string | null {
 }
 
 function claudeKeychainServices(account: PlanAccount, env: NodeJS.ProcessEnv, resolvedDir: string): string[] {
-  if (!account.configDir?.trim() && !env.CLAUDE_CONFIG_DIR?.trim()) return [CLAUDE_KEYCHAIN_SERVICE];
-  let defaultDir: string | null = null;
-  try {
-    const withoutConfig = { ...env };
-    delete withoutConfig.CLAUDE_CONFIG_DIR;
-    defaultDir = resolveClaudeConfigDir(undefined, withoutConfig);
-  } catch {
-    defaultDir = null;
-  }
-  if (defaultDir != null && resolvedDir === defaultDir) return [CLAUDE_KEYCHAIN_SERVICE];
-  const suffix = createHash("sha256").update(resolvedDir).digest("hex").slice(0, 8);
-  return [`${CLAUDE_KEYCHAIN_SERVICE}-${suffix}`];
+  const configured = account.configDir?.trim() || env.CLAUDE_CONFIG_DIR?.trim() ? resolvedDir : undefined;
+  return [claudeKeychainService({ CLAUDE_CONFIG_DIR: configured, CLAUDE_SECURESTORAGE_CONFIG_DIR: env.CLAUDE_SECURESTORAGE_CONFIG_DIR })];
 }
 
-function readDarwinClaudeKeychain(service: string): Promise<string | null> {
+function readDarwinClaudeKeychain(service: string, account: string): Promise<string | null> {
   if (process.platform !== "darwin") return Promise.resolve(null);
   return new Promise((resolve) => {
     try {
       execFile(
         "security",
-        ["find-generic-password", "-s", service, "-w"],
+        ["find-generic-password", "-a", account, "-s", service, "-w"],
         {
           timeout: KEYCHAIN_TIMEOUT_MS,
           maxBuffer: KEYCHAIN_MAX_BUFFER,
@@ -688,7 +677,7 @@ async function readClaudeCredential(
   for (const service of claudeKeychainServices(account, env, resolvedDir)) {
     let raw: string | null = null;
     try {
-      raw = (await source.readClaudeKeychain(service)) ?? null;
+      raw = (await source.readClaudeKeychain(service, claudeKeychainAccount(env))) ?? null;
     } catch {
       raw = null;
     }
