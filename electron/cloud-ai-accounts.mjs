@@ -7,8 +7,9 @@ import { Readable } from "node:stream";
 
 const ACCOUNT_HANDOVER_RETRY_MS = Object.freeze([20_000, 60_000, 5 * 60_000, 15 * 60_000]);
 
-export const MAC_ACCOUNT_ROUTES = /^\/api\/laterdog\/mac-accounts(?:\/(?:claude|codex|claude-\d{1,4}|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/hold)?$/;
-const ACCOUNT_ID = /^(?:claude|codex|claude-\d{1,4}|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+export const MAC_ACCOUNT_ROUTES = /^\/api\/laterdog\/mac-accounts(?:\/(?:claude|codex|claude-\d{1,4}|codex-\d{1,4}|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/hold)?$/;
+const ACCOUNT_ID = /^(?:claude|codex|claude-\d{1,4}|codex-\d{1,4}|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const CODEX_ACCOUNT_ID = /^codex(?:-\d{1,4})?$/;
 const KEYCHAIN_SERVICE = /^Claude Code-credentials(?:-[0-9a-f]{8})?$/;
 const KEYCHAIN_ACCOUNT = /^[a-zA-Z0-9._-]+$/;
 const SECRET_FILES = new Set([".credentials.json", "auth.json"]);
@@ -51,7 +52,7 @@ export function parseMacAccountSource(value) {
   const displayName = plainName(value.displayName);
   if (!displayName) return null;
   if (value.kind === "chatgpt-plan") return { instanceId: value.instanceId, kind: "chatgpt-plan", displayName };
-  if ((value.kind !== "claude" && value.kind !== "codex") || !ACCOUNT_ID.test(value.instanceId) || (value.instanceId === "codex") !== (value.kind === "codex")) return null;
+  if ((value.kind !== "claude" && value.kind !== "codex") || !ACCOUNT_ID.test(value.instanceId) || CODEX_ACCOUNT_ID.test(value.instanceId) !== (value.kind === "codex")) return null;
   if (typeof value.file !== "string" || !isAbsolute(value.file) || !SECRET_FILES.has(basename(value.file))) return null;
   const keychain = record(value.keychain) && KEYCHAIN_SERVICE.test(value.keychain.service) && KEYCHAIN_ACCOUNT.test(value.keychain.account)
     ? { service: value.keychain.service, account: value.keychain.account } : null;
@@ -67,7 +68,7 @@ export function parseAccountRecords(raw) {
   const saved = record(value) && record(value.accounts) ? value.accounts : {};
   const fallbackOrigin = record(value) && typeof value.origin === "string" ? value.origin : null;
   for (const [id, entry] of Object.entries(saved)) {
-    if (!ACCOUNT_ID.test(id) || !record(entry) || !["claude", "codex"].includes(entry.kind) || !["keychain", "file"].includes(entry.source) || !plainName(entry.name)) continue;
+    if (!ACCOUNT_ID.test(id) || !record(entry) || !["claude", "codex"].includes(entry.kind) || CODEX_ACCOUNT_ID.test(id) !== (entry.kind === "codex") || !["keychain", "file"].includes(entry.source) || !plainName(entry.name)) continue;
     accounts[id] = { kind: entry.kind, name: plainName(entry.name), source: entry.source, origin: typeof entry.origin === "string" ? entry.origin : fallbackOrigin, at: Number.isSafeInteger(entry.at) ? entry.at : 0 };
   }
   return { origin: fallbackOrigin, deviceId: record(value) && DEVICE_ID.test(value.deviceId) ? value.deviceId : null, accounts };

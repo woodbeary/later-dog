@@ -28,7 +28,8 @@ test("only talks to this Mac's account routes and to a home over HTTPS", () => {
   assert.ok(MAC_ACCOUNT_ROUTES.test("/api/laterdog/mac-accounts"));
   assert.ok(MAC_ACCOUNT_ROUTES.test("/api/laterdog/mac-accounts/claude-0f6c5a52-8d1e-4c3b-9a7e-2b1d0c9e8f7a/hold"));
   assert.ok(MAC_ACCOUNT_ROUTES.test("/api/laterdog/mac-accounts/claude-2/hold"));
-  for (const route of ["/api/laterdog/mac-accounts/chatgpt/hold", "/api/workspace-backup/export", "/api/laterdog/mac-accounts/../../x"]) assert.equal(MAC_ACCOUNT_ROUTES.test(route), false);
+  assert.ok(MAC_ACCOUNT_ROUTES.test("/api/laterdog/mac-accounts/codex-2/hold"));
+  for (const route of ["/api/laterdog/mac-accounts/chatgpt/hold", "/api/workspace-backup/export", "/api/laterdog/mac-accounts/../../x", "/api/laterdog/mac-accounts/codex-12345/hold", "/api/laterdog/mac-accounts/codex-two/hold"]) assert.equal(MAC_ACCOUNT_ROUTES.test(route), false);
   assert.ok(homeOriginAllowed("https://home.fixture.test"));
   assert.ok(homeOriginAllowed("http://127.0.0.1:8123"));
   for (const origin of ["http://home.fixture.test", "https://home.fixture.test/path", "ftp://x", 7]) assert.equal(homeOriginAllowed(origin), false);
@@ -39,10 +40,18 @@ test("accepts only account sources it can move and only secret files it expects"
   assert.equal(parseMacAccountSource({ instanceId: "claude", kind: "claude", displayName: "Claude", file: "/etc/passwd" }), null);
   assert.equal(parseMacAccountSource({ instanceId: "claude-2", kind: "claude", displayName: "Claude 2", file: "/Users/f/.laterdog/providers/claude-2/.credentials.json" }).instanceId, "claude-2");
   assert.equal(parseMacAccountSource({ instanceId: "codex", kind: "claude", displayName: "X", file: "/a/auth.json" }), null);
+  assert.deepEqual(parseMacAccountSource({ instanceId: "codex-2", kind: "codex", displayName: "ChatGPT 2", held: true, file: "/Users/f/.laterdog/providers/codex-2/auth.json" }),
+    { instanceId: "codex-2", kind: "codex", displayName: "ChatGPT 2", held: true, file: "/Users/f/.laterdog/providers/codex-2/auth.json" });
+  assert.equal(parseMacAccountSource({ instanceId: "codex-2", kind: "claude", displayName: "X", file: "/a/.credentials.json" }), null);
+  assert.equal(parseMacAccountSource({ instanceId: "claude-2", kind: "codex", displayName: "X", file: "/a/auth.json" }), null);
+  assert.equal(parseMacAccountSource({ instanceId: "codex-12345", kind: "codex", displayName: "X", file: "/a/auth.json" }), null);
   assert.equal(parseMacAccountSource({ instanceId: "claude", kind: "claude", displayName: "C", file: "/a/.credentials.json", keychain: { service: "Other", account: "f" } }).keychain, undefined);
   assert.deepEqual(parseMacAccountSource({ instanceId: "chatgpt", kind: "chatgpt-plan", displayName: "ChatGPT plan" }), { instanceId: "chatgpt", kind: "chatgpt-plan", displayName: "ChatGPT plan" });
   assert.deepEqual(parseAccountRecords("{bad"), { origin: null, deviceId: null, accounts: {} });
   assert.deepEqual(parseAccountRecords({ origin: "https://h", deviceId: "a".repeat(32), accounts: { codex: { kind: "codex", name: "ChatGPT", source: "file", at: 5 }, evil: { kind: "codex", name: "x", source: "file" } } }).accounts, { codex: { kind: "codex", name: "ChatGPT", source: "file", origin: "https://h", at: 5 } });
+  assert.deepEqual(Object.keys(parseAccountRecords({ origin: "https://h", accounts: {
+    "codex-2": { kind: "codex", name: "ChatGPT 2", source: "file", at: 6 }, "codex-3": { kind: "claude", name: "x", source: "file" }, "claude-2": { kind: "codex", name: "x", source: "file" },
+  } }).accounts), ["codex-2"]);
 });
 
 test("reads the Keychain only through the system security tool, never through a shell, and has no way to write a login", async () => {
@@ -136,4 +145,40 @@ test("will not move accounts recorded for another home to this one", async () =>
   const summary = await accounts.handAccountsToCloud({ homeOrigin: "https://home.fixture.test", session: async () => ({ origin: "https://home.fixture.test", code: "x" }) });
   assert.deepEqual(summary, { moved: { claude: 0, chatgpt: 0 }, stayed: [{ name: "ChatGPT", why: "elsewhere" }], waiting: [] });
   assert.equal(reached, false);
+});
+
+test("hands a numbered ChatGPT account to the home under its own name and counts it as ChatGPT", async () => {
+  const calls = [], sent = [];
+  let saved = null;
+  const file = "/fixture/.laterdog/providers/codex-2/auth.json";
+  const localRequest = async (route, init) => {
+    calls.push(`${init.method} ${route}`);
+    if (route === "/api/laterdog/mac-accounts") return Response.json({ accounts: [{ instanceId: "codex-2", kind: "codex", displayName: "ChatGPT 2", held: false, file }] });
+    return Response.json({ held: true });
+  };
+  const read = [];
+  const accounts = createCloudAiAccounts({
+    localRequest, readFile: async path => { read.push(path); return JSON.stringify(codexLogin); }, read: () => saved, write: contents => { saved = contents; },
+    fetchImpl: async (url, init) => {
+      if (String(url).endsWith("/api/auth/pair")) return Response.json({ token: "laterdog_sess_fixture" });
+      if (String(url).includes("/api/auth/logout")) return new Response("{}");
+      sent.push({ url: String(url), method: init.method, body: JSON.parse(init.body) });
+      return Response.json({ instanceId: "codex-2", signedIn: true });
+    },
+    setTimer: () => ({ unref() {} }), clearTimer: () => {},
+  });
+  const summary = await accounts.handAccountsToCloud({ homeOrigin: "https://home.fixture.test", session: async () => ({ origin: "https://home.fixture.test", code: "FIXT-URE0-CODE" }) });
+  assert.deepEqual(summary, { moved: { claude: 0, chatgpt: 1 }, stayed: [], waiting: [] });
+  assert.ok(calls.includes("PUT /api/laterdog/mac-accounts/codex-2/hold"));
+  assert.ok(!calls.some(call => call.startsWith("DELETE")));
+  assert.ok(read.every(path => path === file));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].url, "https://home.fixture.test/api/laterdog/accounts/codex-2");
+  assert.equal(sent[0].method, "PUT");
+  const { deviceId, ...handed } = sent[0].body;
+  assert.match(deviceId, /^[0-9a-f]{32}$/);
+  assert.deepEqual(handed, { kind: "codex", displayName: "ChatGPT 2", login: codexLogin });
+  const { at, ...remembered } = JSON.parse(saved).accounts["codex-2"];
+  assert.ok(Number.isSafeInteger(at));
+  assert.deepEqual(remembered, { kind: "codex", name: "ChatGPT 2", source: "file", origin: "https://home.fixture.test" });
 });

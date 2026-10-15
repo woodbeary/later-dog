@@ -64,11 +64,13 @@ describe("a signed-in desktop hands its Claude and ChatGPT sign-ins to My Cloud 
   let mac: Awaited<ReturnType<typeof serve>>, home: Awaited<ReturnType<typeof serve>>;
   let logs: string[], timers: Array<() => void>, summaries: unknown[];
   let records: string | null;
+  let macExtra: InstanceConfigMap;
 
   const macInstances = (): InstanceConfigMap => ({
     claude: { driver: "claudeAgent" },
     [WORK]: { driver: "claudeAgent", displayName: "Work Claude", config: { configDir: join(macData, "providers", WORK) } },
     codex: { driver: "codex" },
+    ...macExtra,
   });
   const macHeldFile = () => join(macData, "providers", "held-accounts.json");
   const homeHeldFile = () => join(homeData, "providers", "held-accounts.json");
@@ -87,7 +89,7 @@ describe("a signed-in desktop hands its Claude and ChatGPT sign-ins to My Cloud 
     vi.stubEnv("USER", "fixture.user");
     vi.stubEnv("CLAUDE_CONFIG_DIR", "");
     vi.stubEnv("CODEX_HOME", "");
-    logs = []; timers = []; summaries = []; records = null; servers = [];
+    logs = []; timers = []; summaries = []; records = null; servers = []; macExtra = {};
     for (const level of ["log", "info", "warn", "error", "debug"] as const) vi.spyOn(console, level).mockImplementation((...args: unknown[]) => { logs.push(args.map(String).join(" ")); });
 
     keychain = fakeKeychain();
@@ -178,6 +180,21 @@ describe("a signed-in desktop hands its Claude and ChatGPT sign-ins to My Cloud 
     expect(homeInstances.codex).toMatchObject({ environment: { CODEX_HOME: join(homeData, "providers", "codex") } });
     for (const id of ["claude", WORK, "codex"]) expect(macRegistry.get(id)).toBeNull();
     expect(Object.keys(JSON.parse(records!).accounts).sort()).toEqual(["claude", "codex", WORK].sort());
+  });
+
+  it("moves a numbered ChatGPT account like ChatGPT 2 into its own folder on the home, and this Mac stops using it", async () => {
+    const own = join(macData, "providers", "codex-2");
+    mkdirSync(own, { recursive: true });
+    writeFileSync(join(own, "auth.json"), JSON.stringify(fixtureCodexLogin(2)), { mode: 0o600 });
+    macExtra = { "codex-2": { driver: "codex", displayName: "ChatGPT 2", environment: { CODEX_HOME: own } } };
+    await macRegistry.load(macInstances());
+    expect(macRegistry.get("codex-2")).not.toBeNull();
+    expect(await hand(engine())).toEqual({ moved: { claude: 2, chatgpt: 2 }, stayed: [], waiting: [] });
+    expect(JSON.parse(readFileSync(join(homeData, "providers", "codex-2", "auth.json"), "utf8"))).toEqual(fixtureCodexLogin(2));
+    expect(JSON.parse(readFileSync(join(homeData, "providers", "codex", "auth.json"), "utf8"))).toEqual(fixtureCodexLogin(1));
+    expect(homeInstances["codex-2"]).toEqual({ driver: "codex", displayName: "ChatGPT 2", environment: { CODEX_HOME: join(homeData, "providers", "codex-2") } });
+    for (const id of ["codex", "codex-2"]) expect(macRegistry.get(id)).toBeNull();
+    expect(JSON.parse(records!).accounts["codex-2"]).toMatchObject({ kind: "codex", name: "ChatGPT 2", source: "file" });
   });
 
   it("reports a failed account by name only, keeps it paused on this Mac and retries it with the move's backoff", async () => {
