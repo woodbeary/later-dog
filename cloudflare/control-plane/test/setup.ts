@@ -20,6 +20,8 @@ beforeAll(async () => {
 afterEach(async () => {
   await forgetCachedCapacity(readConfig(env));
   await env.DB.batch([
+    env.DB.prepare("DELETE FROM workspace_pairings"),
+    env.DB.prepare("DELETE FROM account_workspaces"),
     env.DB.prepare("DELETE FROM cloud_device_authorizations"),
     env.DB.prepare("DELETE FROM cloud_devices"),
     env.DB.prepare("DELETE FROM cloud_homes"),

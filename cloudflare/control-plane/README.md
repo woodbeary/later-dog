@@ -52,6 +52,40 @@ would make operator cleanup impossible.
 | `DELETE` | `/v1/installations/:id` | owning account bearer |
 | `GET` | `/v1/installations/self` | installation credential |
 | `GET`, `POST`, `DELETE` | `/v1/installations/self/endpoint` | installation credential |
+| `POST` | `/api/cloud/desktop/workspace/installation` | Cloud desktop device token |
+| `POST` | `/api/cloud/desktop/workspace` | linked Cloud desktop device token |
+| `POST` | `/api/cloud/workspace` | account bearer |
+
+### Existing Mac workspace
+
+Migration `0011_account_workspaces.sql` pins the first desktop installation to
+its account. Desktop registration accepts the existing installation fields,
+reuses that account's stable client ID, and returns an installation credential
+for the existing managed endpoint API. Another Mac cannot silently replace the
+binding. Repeating enrollment retains the installation ID and rotates its
+credential using the existing rotation cooldown.
+
+The desktop sends `{ installationId, ready }` to its workspace route every five
+seconds. Only an active owned installation, an active linked desktop grant, a
+ready managed endpoint and a heartbeat less than 60 seconds old make the
+workspace ready. The public origin is derived from the managed endpoint;
+clients cannot supply it. This route never enables general installation APIs
+to accept a Cloud desktop token.
+
+The phone posts `{}` to `/api/cloud/workspace` to resolve without creating a
+pairing. Adding `{ requestId, label }` requests an opaque companion pairing. The
+desktop receives the oldest pending request from its heartbeat, opens a local
+pairing window, then posts
+`pairing: { requestId, credential, expiresAt }` with its next heartbeat. The
+phone receives the credential only on that same account and request. Requests
+expire within two minutes, accept idempotent completion, and are capped at four
+outstanding requests and twenty new attempts per minute per account.
+
+An offline or unlinked desktop account never falls back to its separate Cloud
+home. Accounts with no desktop sign-in history receive `workspace: null` and
+retain the existing Cloud-only behavior. Signing out, an expired desktop grant,
+or installation revocation invalidates workspace resolution. Existing Cloud
+data and the older home/pairing routes are preserved.
 
 Installation registration requires a stable `clientInstanceId`, a display
 `name`, and a `platform` of `darwin`, `windows`, or `linux`; `appVersion` is
