@@ -146,7 +146,7 @@ describe("the dev scripts", () => {
     expect(planCommand("server", target).environment).toEqual({ LATERDOG_SERVER_PORT: "9011" });
     const desktop = planCommand("desktop", target);
     expect(desktop.environment.LATERDOG_VARIANT).toBe("dev");
-    expect(desktop.steps).toHaveLength(2);
+    expect(desktop.steps).toHaveLength(1);
     expect(() => planCommand("everything", target)).toThrow();
   });
 

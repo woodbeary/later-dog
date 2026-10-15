@@ -118,7 +118,7 @@ and the files above plus `server/index.test.ts`,
 `server/chat-followups-restart.test.ts`, `server/steer-e2e.test.ts`,
 `server/routines-startup.test.ts`, `server/enterprise.test.ts`,
 `server/store.test.ts`, `server/cli-lifecycle.test.ts`,
-`server/cli-pair.test.ts`, `server/cli.test.ts` and
+`server/cli.test.ts` and
 `scripts/testing/verification-docs.test.ts` passed on macOS. Mutation checks,
 each restored afterwards, turned a named test red: the resolver ignoring
 `service`; a hosted workspace defaulting to `owner`; the server gate not
