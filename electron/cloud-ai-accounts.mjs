@@ -7,8 +7,8 @@ import { Readable } from "node:stream";
 
 const ACCOUNT_HANDOVER_RETRY_MS = Object.freeze([20_000, 60_000, 5 * 60_000, 15 * 60_000]);
 
-export const MAC_ACCOUNT_ROUTES = /^\/api\/laterdog\/mac-accounts(?:\/(?:claude|codex|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/hold)?$/;
-const ACCOUNT_ID = /^(?:claude|codex|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+export const MAC_ACCOUNT_ROUTES = /^\/api\/laterdog\/mac-accounts(?:\/(?:claude|codex|claude-\d{1,4}|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/hold)?$/;
+const ACCOUNT_ID = /^(?:claude|codex|claude-\d{1,4}|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 const KEYCHAIN_SERVICE = /^Claude Code-credentials(?:-[0-9a-f]{8})?$/;
 const KEYCHAIN_ACCOUNT = /^[a-zA-Z0-9._-]+$/;
 const SECRET_FILES = new Set([".credentials.json", "auth.json"]);

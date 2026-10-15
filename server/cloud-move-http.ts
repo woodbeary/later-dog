@@ -159,8 +159,9 @@ export function createCloudMoveRoutes(options: {
       }
       const part = /^\/api\/cloud-move\/upload\/([a-f0-9]{64})$/.exec(path);
       if (method === "PUT" && part) {
-        const offset = Number(new URL(req.url ?? "/", "http://cloud-move.invalid").searchParams.get("offset"));
-        const length = Number(req.headers["content-length"]);
+        const query = new URL(req.url ?? "/", "http://cloud-move.invalid").searchParams;
+        const offset = Number(query.get("offset"));
+        const length = Number(req.headers["content-length"] ?? query.get("length"));
         if (!Number.isSafeInteger(length) || length <= 0 || length > CLOUD_MOVE_MAX_PART_BYTES) throw failure("Send each part with its length, at most 64 MB.", 411);
         ready();
         writing = true;

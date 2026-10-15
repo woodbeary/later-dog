@@ -102,6 +102,7 @@ export declare function createCloudMove(options: {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   onState?: (state: CloudMoveState) => void;
   log?: (line: string) => void;
+  waitDelaysMs?: number[];
   retryDelaysMs?: number[];
   pollMs?: number;
   restartTimeoutMs?: number;

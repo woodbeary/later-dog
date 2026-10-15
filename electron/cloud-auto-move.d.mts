@@ -3,7 +3,7 @@ import type { CloudMove, CloudMoveState, MoveContents, MoveEstimate, MoveTarget 
 export type AutoMoveStatus = "moved" | "joined";
 export interface StayedOnMac { name: string; bytes: number }
 export interface AutoMoveRecord { status: AutoMoveStatus; at: number; origin: string; contents?: MoveContents; stayedOnMac?: StayedOnMac[] }
-export type AutoMoveOutcome = { status: AutoMoveStatus | "nothing" | "busy" } | { status: "failed"; code?: string };
+export type AutoMoveOutcome = { status: AutoMoveStatus | "nothing" | "busy" } | { status: "failed"; code?: string; retryInMs?: number };
 export declare function worthMoving(local: Pick<MoveEstimate, "bots" | "rooms" | "chats"> | null | undefined): boolean;
 export declare function parseMoveRecords(raw: unknown): Record<string, AutoMoveRecord>;
 export declare function serializeMoveRecords(records: Record<string, AutoMoveRecord>): string;
@@ -20,6 +20,7 @@ export declare function createCloudAutoMove(options: {
   write(contents: string): void;
   now?: () => number;
   log?: (message: string) => void;
+  pause?: (held: boolean) => Promise<unknown>;
   onMoved?: (destination: MoveTarget, result: CloudMoveState) => void;
   onJoined?: (destination: MoveTarget) => void;
   onFailed?: (reason: { code: string; message: string }) => void;

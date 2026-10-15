@@ -23,7 +23,9 @@ const failed = (code, extra = {}) => ({ phase: "failed", action: "move", error: 
 test("the first sign-in moves the Mac's dogs with replacement allowed, the slim profile and proof of arrival, and records account and home", async () => {
   const f = setup();
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "moved" });
-  assert.deepEqual(f.moves, [[DEST, { requireEmpty: false, verifyArrival: true, profile: "cloud-move", yieldToOtherComputer: true }]]);
+  const [[destination, { onPacked, ...flags }]] = f.moves;
+  assert.deepEqual([destination, flags], [DEST, { requireEmpty: false, verifyArrival: true, profile: "cloud-move", yieldToOtherComputer: true }]);
+  assert.equal(typeof onPacked, "function");
   const record = parseMoveRecords(f.stored.raw).acct;
   assert.equal(record.status, "moved");
   assert.equal(record.origin, DEST.origin);
@@ -101,9 +103,19 @@ test("a new launch tries a failed move again, and so does an explicit retry", as
   assert.deepEqual(await g.engine.ensure("acct", DEST), { status: "moved" });
 });
 
+test("a failure that can pass on its own is tried again on a growing schedule; one that cannot is not, and the log keeps the reason", async () => {
+  const f = setup({ results: [failed("network"), failed("busy"), failed("upload_failed"), failed("cloud_unavailable"), failed("network")] });
+  const waits = [];
+  for (let i = 0; i < 5; i++) waits.push((await f.engine.retry("acct", DEST)).retryInMs);
+  assert.deepEqual(waits, [20_000, 60_000, 300_000, 900_000, undefined]);
+  assert.match(f.logs[0], /not moved \(network\): network Trying again in 20 s\./);
+  const full = setup({ results: [failed("cloud_full")] });
+  assert.deepEqual(await full.engine.ensure("acct", DEST), { status: "failed", code: "cloud_full" });
+});
+
 test("an unmeasurable Mac or a move already running does nothing harmful", async () => {
   const unmeasured = setup({ estimateFails: true });
-  assert.deepEqual(await unmeasured.engine.ensure("acct", DEST), { status: "failed", code: "unmeasured" });
+  assert.deepEqual(await unmeasured.engine.ensure("acct", DEST), { status: "failed", code: "unmeasured", retryInMs: 20_000 });
   const running = setup({ running: true });
   assert.deepEqual(await running.engine.ensure("acct", DEST), { status: "busy" });
   assert.equal(running.moves.length, 0);

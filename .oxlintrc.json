@@ -19,5 +19,19 @@
     "release/**",
     "third_party/**",
     "electron/resources/**"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "electron/**/*.mjs"
+      ],
+      "env": {
+        "node": true,
+        "es2024": true
+      },
+      "rules": {
+        "no-undef": "error"
+      }
+    }
   ]
 }

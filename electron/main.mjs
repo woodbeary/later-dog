@@ -703,7 +703,7 @@ function observeCloudHome(state) {
   try {
     if (state.status === "connected") cloudOfferState().signedIn();
     const homeEntry = environmentsState.environments.find(entry => entry.name === CLOUD_HOME_NAME) ?? null;
-    if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); return; }
+    if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); void syncCloudWindow(state); return; }
     if (state.status === "signed-out") { homeFellBack = false; cloudAutoMove?.stop(); }
     void syncCloudWindow(state);
   } catch (error) {
@@ -2492,6 +2492,7 @@ function ensureCloudAutoMove() {
     read: () => readUserData("cloud-auto-move.json"),
     write: contents => writeUserData("cloud-auto-move.json", contents),
     log: slog,
+    pause: held => ensureMacHold().set(held),
   });
   return cloudAutoMove;
 }
@@ -2505,6 +2506,12 @@ function ensureMacHold() {
     log: slog,
   });
   return macHold;
+}
+function cloudHomeDestination() {
+  const home = cloudAccount?.homeTarget();
+  if (!home) return null;
+  const entry = environmentsState.environments.find(candidate => candidate.origin === home.origin);
+  return destinationFor({ id: entry?.id ?? "cloud", name: CLOUD_HOME_NAME, origin: home.origin, cloud: true });
 }
 function ensureCloudWindow() {
   cloudWindow ??= createCloudWindow({

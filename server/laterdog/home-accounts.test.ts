@@ -78,10 +78,17 @@ describe("My Cloud receiving this Mac's Claude and ChatGPT sign-ins", () => {
     expect(existsSync(join(dataDir, "providers", `claude-${UUID}`))).toBe(false);
   });
 
+  it("takes a numbered Claude account like Claude 2 under the same name the Mac's dogs use", async () => {
+    const { deps, state } = fakeHome(dataDir);
+    const answer = await call(deps, "PUT", "/api/laterdog/accounts/claude-2", { kind: "claude", displayName: "Claude 2", deviceId: DEVICE, login: fixtureClaudeLogin() });
+    expect(answer).toMatchObject({ status: 200, body: { instanceId: "claude-2", signedIn: true } });
+    expect(state.instances["claude-2"]).toMatchObject({ driver: "claudeAgent", displayName: "Claude 2", config: { configDir: join(dataDir, "providers", "claude-2") } });
+  });
+
   it("refuses odd names, the wrong kind, other content types and oversized or damaged bodies without echoing them", async () => {
     const { deps } = fakeHome(dataDir);
     const good = { kind: "claude", displayName: "Work Claude", deviceId: DEVICE, login: fixtureClaudeLogin() };
-    for (const id of ["chatgpt-plan", "claude-not-a-uuid", "..", "company.claude"]) expect((await call(deps, "PUT", `/api/laterdog/accounts/${id}`, good)).status).toBe(400);
+    for (const id of ["chatgpt-plan", "claude-not-a-uuid", "claude-12345", "..", "company.claude"]) expect((await call(deps, "PUT", `/api/laterdog/accounts/${id}`, good)).status).toBe(400);
     expect((await call(deps, "PUT", "/api/laterdog/accounts/codex", good)).status).toBe(400);
     expect((await call(deps, "PUT", "/api/laterdog/accounts/claude", good, { contentType: "text/plain" })).status).toBe(415);
     expect((await call(deps, "PUT", "/api/laterdog/accounts/claude", { ...good, displayName: "x".repeat(70_000) })).status).toBe(413);

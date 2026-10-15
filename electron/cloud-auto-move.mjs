@@ -1,6 +1,8 @@
 import { arrivedInFull, CLOUD_MOVE_PROFILE } from "./cloud-move.mjs";
 
 const FINAL = new Set(["moved", "joined"]);
+const RETRY_IN_MS = Object.freeze([20_000, 60_000, 5 * 60_000, 15 * 60_000]);
+const FINAL_FAILURES = new Set(["too_large", "cloud_full", "local_full", "shared_workspace", "outdated", "same_computer", "invalid_backup", "not_verified"]);
 const count = value => Number.isSafeInteger(value) && value >= 0;
 
 export function worthMoving(local) {
@@ -27,8 +29,8 @@ export function serializeMoveRecords(records) {
   return `${JSON.stringify({ version: 2, homes: records }, null, 2)}\n`;
 }
 
-export function createCloudAutoMove({ move, read, write, now = Date.now, log = () => {}, onMoved = () => {}, onJoined = () => {}, onFailed = () => {} }) {
-  let busy = false, failedFor = null, closed = false;
+export function createCloudAutoMove({ move, read, write, now = Date.now, log = () => {}, pause = async () => {}, onMoved = () => {}, onJoined = () => {}, onFailed = () => {} }) {
+  let busy = false, failedFor = null, closed = false, retries = 0;
   const records = () => { try { return parseMoveRecords(read()); } catch { return {}; } };
   const known = (accountId, destination) => {
     const entry = records()[accountId];
@@ -39,9 +41,14 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, log = (
   };
   const fail = (accountId, code, message) => {
     failedFor = accountId;
-    log(`cloud move: not moved (${code})`);
+    const retryInMs = FINAL_FAILURES.has(code) ? undefined : RETRY_IN_MS[retries];
+    if (retryInMs) retries++;
+    log(`cloud move: not moved (${code}): ${message}${retryInMs ? ` Trying again in ${Math.round(retryInMs / 1000)} s.` : ""}`);
     try { onFailed({ code, message }); } catch {}
-    return { status: "failed", code };
+    return { status: "failed", code, ...(retryInMs ? { retryInMs } : {}) };
+  };
+  const paused = async held => {
+    try { await pause(held); } catch (error) { log(`cloud move: could not ${held ? "pause" : "resume"} this Mac's dogs (${error?.message ?? error})`); }
   };
 
   async function attempt(accountId, destination) {
@@ -54,13 +61,21 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, log = (
       try { local = await move.estimate(); } catch { local = null; }
       if (!local) return fail(accountId, "unmeasured", "This Mac's dogs could not be measured. They will be tried again next time the app opens.");
       if (!worthMoving(local)) return { status: "nothing" };
-      const result = await move.move(destination, { requireEmpty: false, verifyArrival: true, profile: CLOUD_MOVE_PROFILE, yieldToOtherComputer: true });
+      let held = false;
+      const onPacked = async () => { held = true; await paused(true); };
+      let result;
+      try { result = await move.move(destination, { requireEmpty: false, verifyArrival: true, profile: CLOUD_MOVE_PROFILE, yieldToOtherComputer: true, onPacked }); } catch (error) {
+        if (held) await paused(false);
+        throw error;
+      }
       if (result.phase === "done" && arrivedInFull(local, result.moved)) {
         failedFor = null;
+        retries = 0;
         remember(accountId, { status: "moved", origin: destination.origin, contents: result.moved, ...(result.stayedOnMac ? { stayedOnMac: result.stayedOnMac } : {}) });
         try { onMoved(destination, result); } catch {}
         return { status: "moved" };
       }
+      if (held) await paused(false);
       const code = result.error?.code ?? "unknown";
       if (code === "other_computer_moved") {
         remember(accountId, { status: "joined", origin: destination.origin });
@@ -83,7 +98,7 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, log = (
       failedFor = null;
       return attempt(accountId, destination);
     },
-    stop() { failedFor = null; },
+    stop() { failedFor = null; retries = 0; },
     close() { closed = true; },
   };
 }

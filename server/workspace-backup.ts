@@ -33,7 +33,7 @@ const EXCLUDED = new Set([
   "team-computers.json",
   "laterdog-server.lease", "box-create-requests.lock", "messages.db-wal", "messages.db-shm",
   "decider-log",
-  "cloud-owner.json", "cloud-hold.json",
+  "cloud-owner.json", "cloud-hold.json", "computers-trial-key", "computers-trial.json",
 ]);
 const EXCLUSION_NOTES = [
   "Device pairing, server identity, live leases and runtime files (existing destination identities are preserved).",

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 export type AiAccountKind = "claude" | "codex";
 
-export const MOVABLE_ACCOUNT_ID = /^(?:claude|codex|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+export const MOVABLE_ACCOUNT_ID = /^(?:claude|codex|claude-\d{1,4}|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 export const HANDOFF_BODY_LIMIT = 64 * 1024;
 
 export const accountKindOf = (instanceId: string): AiAccountKind => (instanceId === "codex" ? "codex" : "claude");

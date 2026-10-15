@@ -27,6 +27,7 @@ test("reads Claude's stored login as plain or hex JSON and refuses a dead one", 
 test("only talks to this Mac's account routes and to a home over HTTPS", () => {
   assert.ok(MAC_ACCOUNT_ROUTES.test("/api/laterdog/mac-accounts"));
   assert.ok(MAC_ACCOUNT_ROUTES.test("/api/laterdog/mac-accounts/claude-0f6c5a52-8d1e-4c3b-9a7e-2b1d0c9e8f7a/hold"));
+  assert.ok(MAC_ACCOUNT_ROUTES.test("/api/laterdog/mac-accounts/claude-2/hold"));
   for (const route of ["/api/laterdog/mac-accounts/chatgpt/hold", "/api/workspace-backup/export", "/api/laterdog/mac-accounts/../../x"]) assert.equal(MAC_ACCOUNT_ROUTES.test(route), false);
   assert.ok(homeOriginAllowed("https://home.fixture.test"));
   assert.ok(homeOriginAllowed("http://127.0.0.1:8123"));
@@ -36,6 +37,7 @@ test("only talks to this Mac's account routes and to a home over HTTPS", () => {
 test("accepts only account sources it can move and only secret files it expects", () => {
   assert.equal(parseMacAccountSource({ instanceId: "claude", kind: "claude", displayName: "Claude", file: "/Users/f/.claude/.credentials.json", keychain: { service: "Claude Code-credentials", account: "f" } }).keychain.service, "Claude Code-credentials");
   assert.equal(parseMacAccountSource({ instanceId: "claude", kind: "claude", displayName: "Claude", file: "/etc/passwd" }), null);
+  assert.equal(parseMacAccountSource({ instanceId: "claude-2", kind: "claude", displayName: "Claude 2", file: "/Users/f/.laterdog/providers/claude-2/.credentials.json" }).instanceId, "claude-2");
   assert.equal(parseMacAccountSource({ instanceId: "codex", kind: "claude", displayName: "X", file: "/a/auth.json" }), null);
   assert.equal(parseMacAccountSource({ instanceId: "claude", kind: "claude", displayName: "C", file: "/a/.credentials.json", keychain: { service: "Other", account: "f" } }).keychain, undefined);
   assert.deepEqual(parseMacAccountSource({ instanceId: "chatgpt", kind: "chatgpt-plan", displayName: "ChatGPT plan" }), { instanceId: "chatgpt", kind: "chatgpt-plan", displayName: "ChatGPT plan" });

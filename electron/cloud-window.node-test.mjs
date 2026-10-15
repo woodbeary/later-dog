@@ -11,7 +11,7 @@ const LOCAL = { bots: 6, rooms: 0, chats: 12, bytes: 1000, files: 3 };
 const STARTER = { bots: 1, rooms: 0, chats: 0, bytes: 10, files: 0 };
 
 function mac({ local = LOCAL, saved = null, homeHasTestDogs = true, otherMacMoved = false, moveFails = null, routines = ["nightly", "weekly"] } = {}) {
-  const log = { window: [], moves: [], hold: [], logs: [], failures: [] };
+  const log = { window: [], moves: [], hold: [], logs: [], failures: [], timers: [] };
   const store = { raw: saved };
   const dogs = { routines: Object.fromEntries(routines.map(id => [id, true])), held: false, paused: [] };
   const home = { workspace: homeHasTestDogs ? "test-dogs" : "empty", previousKept: false, routines: {} };
@@ -19,16 +19,18 @@ function mac({ local = LOCAL, saved = null, homeHasTestDogs = true, otherMacMove
     running: () => false,
     estimate: async () => local,
     move: async (destination, flags) => {
-      log.moves.push({ destination: destination.origin, ...flags });
-      if (moveFails) return { phase: "failed", action: "move", error: { code: moveFails, message: "The home did not answer." } };
+      const { onPacked, ...rest } = flags;
+      log.moves.push({ destination: destination.origin, ...rest });
       if (otherMacMoved && flags.yieldToOtherComputer) return { phase: "failed", action: "move", error: { code: "other_computer_moved", message: "x" } };
+      const packed = { ...dogs.routines };
+      await onPacked();
+      if (moveFails) return { phase: "failed", action: "move", error: { code: moveFails, message: "The home did not answer." } };
       home.previousKept = home.workspace !== "empty";
       home.workspace = "mac-dogs";
-      home.routines = { ...dogs.routines };
+      home.routines = packed;
       return { phase: "done", action: "move", moved: { bots: local.bots, rooms: local.rooms, chats: local.chats }, stayedOnMac: [{ name: "task-workspaces", bytes: 5 }] };
     },
   };
-  const autoMove = createCloudAutoMove({ move, read: () => store.raw, write: contents => { store.raw = contents; }, now: () => 1, log: line => log.logs.push(line), onFailed: reason => log.failures.push(reason) });
   const serverHold = createMacHold({
     request: async (_route, init) => {
       const { held } = JSON.parse(init.body);
@@ -38,8 +40,12 @@ function mac({ local = LOCAL, saved = null, homeHasTestDogs = true, otherMacMove
       return new Response("{}", { status: 200 });
     },
   });
+  const autoMove = createCloudAutoMove({ move, read: () => store.raw, write: contents => { store.raw = contents; }, now: () => 1, log: line => log.logs.push(line),
+    pause: held => serverHold.set(held), onFailed: reason => log.failures.push(reason) });
   const window = createCloudWindow({
     autoMove, hold: serverHold,
+    setTimer: (run, ms) => { const timer = { run, ms }; log.timers.push(timer); return timer; },
+    clearTimer: timer => { timer.cleared = true; },
     destinationFor: choice => ({ id: "cloud", name: "My Cloud", origin: choice.origin, kind: "cloud", grant: async () => ({}) }),
     showHome: destination => log.window.push(`home ${destination.origin}`),
     showLocal: () => log.window.push("local"),
@@ -121,18 +127,32 @@ test("a second Mac with its own dogs shows the home without replacing it, leaves
   assert.equal(m.log.moves.length, 1);
 });
 
-test("a failed move keeps the local workspace on screen with one reason, never holds the Mac, and the next launch tries again", async () => {
+test("a failed move keeps the local workspace on screen, lets the Mac's dogs work again, and tries again on its own a little later", async () => {
   const m = mac({ moveFails: "network" });
   const result = await m.window.sync(connected());
   assert.deepEqual([result.kind, result.screen], ["local", null]);
   assert.deepEqual(m.log.window, ["local"]);
   assert.equal(m.log.failures.length, 1);
+  assert.deepEqual(m.log.hold, [true, false], "the Mac's dogs wait during the copy and work again once it fails");
   assert.equal(m.dogs.held, false);
+  assert.deepEqual(m.log.timers.map(timer => timer.ms), [20_000]);
   await m.window.sync(connected());
-  assert.equal(m.log.moves.length, 1, "no second attempt in the same launch");
-  assert.equal(m.log.failures.length, 1);
+  assert.equal(m.log.moves.length, 1, "an account refresh does not start another copy");
+  await m.log.timers[0].run();
+  assert.equal(m.log.moves.length, 2, "the scheduled retry copies again");
+  assert.deepEqual(m.log.timers.map(timer => timer.ms), [20_000, 60_000]);
+  await m.window.sync(SIGNED_OUT);
+  assert.equal(m.log.timers[1].cleared, true, "signing out drops the pending retry");
   const relaunched = mac({ saved: m.store.raw });
   assert.equal((await relaunched.window.sync(connected())).kind, "cloud");
+});
+
+test("a copy that succeeds keeps the Mac's dogs paused from the start of the copy and opens My Cloud", async () => {
+  const m = mac();
+  assert.equal((await m.window.sync(connected())).kind, "cloud");
+  assert.deepEqual(m.log.hold, [true]);
+  assert.equal(m.dogs.held, true);
+  assert.deepEqual(m.log.timers, []);
 });
 
 test("a Mac with only the starter dog just shows the home and does not hold", async () => {

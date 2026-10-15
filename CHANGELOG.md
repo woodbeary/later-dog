@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.36 — 2026-10-15
+
+- **Your Claude and ChatGPT sign-ins reach My Cloud,** including extra Claude accounts like Claude 2, so your dogs answer there right away.
+- **The first trip to My Cloud waits instead of failing.** If My Cloud is waking up or a dog is busy, it waits a few minutes. If it still can't finish, it tries again on its own after 20 seconds, 1 minute, 5 minutes and 15 minutes.
+- **Nothing you say during the trip is left behind.** Your Mac's dogs pause once your dogs and chats are packed, and carry on in My Cloud.
+- **Signing out lets your Mac's dogs work again** straight away.
+- **My Cloud keeps its included AI and voice** after your dogs arrive.
+
 ## 0.3.35 — 2026-10-14
 
 - **Signing in now brings your dogs along.** A check on this Mac stopped your dogs and chats from reaching your later.dog Cloud, so it failed every time. It now goes through quietly the first time later.dog opens signed in, with no pop-up.

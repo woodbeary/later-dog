@@ -69,6 +69,7 @@ function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut =
     }
     if (pathname.startsWith("/api/cloud-move/upload/")) {
       const offset = Number(searchParams.get("offset")), part = Buffer.from(init.body);
+      if (Number(searchParams.get("length")) !== part.length) return json(411, { error: "Send each part with its length." });
       state.puts = [...(state.puts ?? []), part.length];
       if (part.length > proxyLimit) return new Response("<html><body><h1>413 Request Entity Too Large</h1></body></html>", { status: 413, headers: { "content-type": "text/html" } });
       if (failPut(offset)) throw new TypeError("fetch failed");
@@ -156,8 +157,60 @@ test("an unexpected error on this computer is written to the log with its own wo
       tempRoot: join(temp, "move"), availableBytes: async () => 1024 ** 4, sleep: async () => {}, pollMs: 0, retryDelaysMs: [0, 0], log: line => lines.push(line) });
     const result = await engine.move(cloudDestination(), { profile: "cloud-move" });
     assert.equal(result.error.code, "network");
-    assert.deepEqual(lines, ["cloud move: move stopped: This installation changed. Start the copy again."]);
+    assert.deepEqual(lines, ["cloud move: move stopped (network): This installation changed. Start the copy again."]);
   } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test("waits for a sleeping Cloud to wake, and gives up only after the wait runs out", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-test-"));
+  const local = desktop(), cloud = cloudFake(), waits = [];
+  let grants = 0, pairs = 0;
+  const fetchImpl = async (url, init) => new URL(url).pathname === "/api/auth/pair" && ++pairs === 1 ? new Response("", { status: 502 }) : cloud.fetchImpl(url, init);
+  const engine = createCloudMove({ localRequest: local.request, fetchImpl, tempRoot: join(temp, "move"), availableBytes: async () => 1024 ** 4,
+    sleep: async ms => { waits.push(ms); }, pollMs: 0, retryDelaysMs: [0, 0], waitDelaysMs: [1, 2, 3, 4] });
+  try {
+    const waking = cloudDestination({ pairHome: async () => { if (++grants < 2) throw new Error("My Cloud is waking"); return { origin: ORIGIN, code: "ABCD-EFGH-JKLM", expiresAt: Date.now() + 60_000 }; } });
+    assert.equal((await engine.move(waking, { profile: "cloud-move" })).phase, "done");
+    assert.deepEqual(waits.slice(0, 2), [1, 2]);
+    assert.equal(grants, 3);
+    const asleep = cloudDestination({ pairHome: async () => { throw new Error("My Cloud is waking"); } });
+    assert.equal((await engine.move(asleep, { profile: "cloud-move" })).error.code, "cloud_unavailable");
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test("waits for this computer's dogs to finish before packing the copy", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-test-"));
+  const local = desktop(), cloud = cloudFake();
+  let refusals = 0;
+  const request = async (route, init) => route === "/api/workspace-backup/export" && refusals++ < 2 ? json(409, { error: "A dog is working." }) : local.request(route, init);
+  const engine = createCloudMove({ localRequest: request, fetchImpl: cloud.fetchImpl, tempRoot: join(temp, "move"), availableBytes: async () => 1024 ** 4,
+    sleep: async () => {}, pollMs: 0, retryDelaysMs: [0, 0], waitDelaysMs: [0, 0, 0] });
+  try {
+    assert.equal((await engine.move(cloudDestination(), { profile: "cloud-move" })).phase, "done");
+    assert.equal(refusals, 3);
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test("a Cloud that already holds this computer's copy is not copied over again", async () => {
+  const f = harness({ desktop: { identity: { environmentId: "env-mac" } }, cloud: { receivedFrom: { at: 1, environmentId: "env-mac" } } });
+  try {
+    f.cloud.state.contents = { bots: 3, rooms: 1, chats: 7 };
+    const result = await f.move.move({ profile: "cloud-move", yieldToOtherComputer: true });
+    assert.deepEqual(result.moved, { bots: 3, rooms: 1, chats: 7 });
+    assert.equal(result.phase, "done");
+    assert.equal(f.local.calls.some(([, route]) => route === "/api/workspace-backup/export"), false);
+    assert.equal(puts(f), 0);
+  } finally { f.done(); }
+});
+
+test("tells the caller once the copy is packed, before anything is uploaded", async () => {
+  const f = harness();
+  try {
+    let seen = null;
+    const result = await f.move.move({ profile: "cloud-move", onPacked: async () => { seen = { exported: f.local.calls.some(([, route]) => route === "/api/workspace-backup/export"), puts: puts(f) }; } });
+    assert.equal(result.phase, "done");
+    assert.deepEqual(seen, { exported: true, puts: 0 });
+  } finally { f.done(); }
 });
 
 const puts = f => f.cloud.log.filter(([method, path]) => method === "PUT" && path.startsWith("/api/cloud-move/upload/")).length;
