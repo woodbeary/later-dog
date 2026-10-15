@@ -85,27 +85,9 @@ const bridge = {
     pair: (endpoint, code) => ipcRenderer.invoke("desktop-remote:pair", endpoint, code),
     disconnect: () => ipcRenderer.invoke("desktop-remote:disconnect"),
   },
-  companion: {
-    state: () => ipcRenderer.invoke("companion:state"),
-    start: () => ipcRenderer.invoke("companion:start"),
-    stop: () => ipcRenderer.invoke("companion:stop"),
-    keepAwake: (enabled) => ipcRenderer.invoke("companion:keep-awake", enabled),
-    refreshTailscale: () => ipcRenderer.invoke("companion:refresh-tailscale"),
-    pairing: (open, expectedToken) => ipcRenderer.invoke("companion:pairing", open, expectedToken),
-    cloudDesktop: (deviceId, allowed) => ipcRenderer.invoke("companion:cloud-desktop", deviceId, allowed),
-    browserControl: (deviceId, allowed) => ipcRenderer.invoke("companion:browser-control", deviceId, allowed),
-    revoke: (deviceId) => ipcRenderer.invoke("companion:revoke", deviceId),
-  },
   routines: {
     wakeState: () => ipcRenderer.invoke("routines:wake-state"),
     keepAwake: (enabled) => ipcRenderer.invoke("routines:keep-awake", enabled),
-  },
-  companionAccount: {
-    state: () => ipcRenderer.invoke("companion-account:state"),
-    requestCode: (email) => ipcRenderer.invoke("companion-account:request-code", email),
-    verifyCode: (email, code) => ipcRenderer.invoke("companion-account:verify-code", email, code),
-    retry: () => ipcRenderer.invoke("companion-account:retry"),
-    signOut: () => ipcRenderer.invoke("companion-account:sign-out"),
   },
   approvals: {
     setMode: (botId, mode, options) => ipcRenderer.invoke("approvals:set-trusted-mode", botId, mode, options),

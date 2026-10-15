@@ -1,4 +1,4 @@
-import { resolveCompanionControlPlaneURL } from "../electron/companion-account-service.mjs";
+import { resolveControlPlaneURL } from "../electron/control-plane-url.mjs";
 import { ControlPlaneError, createControlPlaneClient, normalizeAccountEmail, type ControlPlaneClient } from "../electron/control-plane-client.mjs";
 import type { Scope } from "./sessions.ts";
 
@@ -48,13 +48,13 @@ export function createEmailSignIn(options: {
   let client: ControlPlaneClient | null = options.client ?? null;
   const controlPlane = (): ControlPlaneClient => {
     if (client) return client;
-    const url = resolveCompanionControlPlaneURL({ isPackaged: true, environment: env });
+    const url = resolveControlPlaneURL({ isPackaged: true, environment: env });
     if (!url) throw new Error("no account service is configured: set LATERDOG_CONTROL_PLANE_URL to an https address");
     client = createControlPlaneClient({ baseURL: url, fetchImpl: options.fetchImpl });
     return client;
   };
   return {
-    enabled: () => signInEnabled(allow()) && Boolean(client || resolveCompanionControlPlaneURL({ environment: env })),
+    enabled: () => signInEnabled(allow()) && Boolean(client || resolveControlPlaneURL({ environment: env })),
     async start(rawEmail) {
       const email = normalizeAccountEmail(rawEmail);
       if (!email) return { ok: false, status: 400, error: "enter a valid email address" };

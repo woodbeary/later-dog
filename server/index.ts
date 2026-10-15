@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { BOOT_CLOUD_SECRETS } from "./cloud-secrets-boot.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, rmSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, mkdirSync } from "node:fs";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -824,7 +824,6 @@ if (process.env.LATERDOG_CLI_OWNER_STDIN === "1" && LOOPBACK.trust === "service"
 delete process.env.LATERDOG_CLI_OWNER_STDIN;
 let desktopMutationToken: string | undefined = DESKTOP_MANAGED ? "" : undefined;
 let localToolsToken: string | undefined;
-let companionMutationToken: string | undefined = DESKTOP_MANAGED ? "" : undefined;
 const FALLBACK_PUBLIC_URL = process.env.LATERDOG_PUBLIC_URL?.trim().replace(/\/+$/, "") || null;
 const cfg = loadConfig();
 const hostedModels = hostedModelPolicy(DATA_DIR);
@@ -1828,9 +1827,6 @@ function applyDesktopMutationTokenMessage(raw: unknown): boolean {
     throw new Error("invalid desktop mutation capability");
   }
   desktopMutationToken = message.token;
-  if (typeof message.companionToken === "string" && /^[A-Za-z0-9_-]{43}$/.test(message.companionToken)) {
-    companionMutationToken = message.companionToken;
-  }
   if (typeof message.localToolsToken === "string" && LOCAL_TOOLS_TOKEN_PATTERN.test(message.localToolsToken)) {
     localToolsToken = message.localToolsToken;
   }
@@ -13465,7 +13461,7 @@ const workspaceBackupAccess = {
     const current = resolveRequestAuth(req, {
       sessions, cookieName: SESSION_COOKIE, streamPath: "/api/events",
       url: new URL(req.url ?? "/", `http://localhost:${PORT}`),
-      loopbackMutationToken: desktopMutationToken, companionMutationToken, loopbackTrust: LOOPBACK.trust, cliOwnerToken, localToolsToken,
+      loopbackMutationToken: desktopMutationToken, loopbackTrust: LOOPBACK.trust, cliOwnerToken, localToolsToken,
     }).auth;
     return Boolean(current?.scopes.includes("admin") && current.kind === original.kind &&
       (current.kind !== "session" || (original.kind === "session" && current.session.id === original.session.id)));
@@ -13932,7 +13928,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       streamPath: "/api/events",
       url,
       loopbackMutationToken: desktopMutationToken,
-      companionMutationToken,
       features: { sharedComputers: lendingEnabled() },
       loopbackTrust: LOOPBACK.trust,
       cliOwnerToken,
@@ -17023,7 +17018,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const current = resolveRequestAuth(req, {
         sessions, cookieName: SESSION_COOKIE, streamPath: "/api/events", url,
-        loopbackMutationToken: desktopMutationToken, companionMutationToken,
+        loopbackMutationToken: desktopMutationToken,
         features: { sharedComputers: lendingEnabled() }, loopbackTrust: LOOPBACK.trust, cliOwnerToken, localToolsToken,
       });
       if (!current.auth) return json(res, current.status, { error: current.error });
@@ -22067,17 +22062,6 @@ server.listen(PORT, "127.0.0.1", async () => {
   setInterval(expireDelegationsNow, DELEGATION_SWEEP_MS).unref();
 });
 
-const TUNNEL_SOCKET = process.env.LATERDOG_TUNNEL_SOCKET?.trim() || null;
-let tunnelListener: ReturnType<typeof createServer> | null = null;
-if (TUNNEL_SOCKET) {
-  if (process.platform !== "win32") rmSync(TUNNEL_SOCKET, { force: true });
-  tunnelListener = createServer(handleRequest);
-  desktopViewer.attach(tunnelListener, handleRequest);
-  tunnelListener.listen(TUNNEL_SOCKET, () => {
-    console.log(`later.dog tunnel listener on ${TUNNEL_SOCKET}`);
-  });
-}
-
 const gracefulShutdown = createGracefulShutdown({
   cleanup: [
     () => {
@@ -22096,7 +22080,6 @@ const gracefulShutdown = createGracefulShutdown({
       calendarCalls?.stop();
       memoryUpkeep.stop();
       webhookIngress?.server.close();
-      tunnelListener?.close();
     },
     async () => { await managedDesktop.close(); await registry.disposeAll(); },
     async () => {

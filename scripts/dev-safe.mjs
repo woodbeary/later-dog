@@ -73,7 +73,6 @@ export function planCommand(command, target, argv = [], env = process.env) {
   if (command === "desktop") {
     return {
       steps: [
-        { file: process.execPath, args: [join(root, "scripts/prepare-cloudflared.mjs"), "--current"] },
         { file: join(root, "node_modules/.bin/electron"), args: [".", ...argv] },
       ],
       environment: { ...environment, LATERDOG_VARIANT: target.live ? "release" : "dev" },
