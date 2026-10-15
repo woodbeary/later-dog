@@ -2,16 +2,18 @@
 
 <h1 align="center">later.dog</h1>
 
-<p align="center">Your dogs, on your Mac. Open source.</p>
+<p align="center">Your dogs, on your Mac and iPhone. Open source.</p>
 
-<p align="center"><a href="https://later.dog">later.dog</a> · <a href="https://github.com/woodbeary/later-dog/releases/latest">Download for Mac</a> · <a href="docs/laterdog/README.md">User guide</a></p>
+<p align="center"><a href="https://later.dog">later.dog</a> · <a href="https://github.com/woodbeary/later-dog/releases/latest">Download for Mac</a> · <a href="https://testflight.apple.com/join/UH46TVvC">iPhone beta on TestFlight</a> · <a href="docs/laterdog/README.md">User guide</a></p>
 
 <p align="center"><img src="docs/laterdog/images/later-dog.webp" width="900" alt="later.dog on a Mac: Biscuit, the chief of staff, sent two cloud tasks, and the task panel shows one of them step by step."></p>
 
-later.dog is a desktop home for AI agents that do real work. We call them dogs. Each dog is a contact in your sidebar
+later.dog is a home for AI agents that do real work. We call them dogs. Each dog is a contact in your sidebar
 with its own files and its own conversation. Dogs message each other, run on a schedule, and hand coding work to the
-cloud. It runs on the subscriptions you already pay for, ChatGPT and Claude, through their official sign-in flows, so
-there are no API keys to paste. New to later.dog? Start with the [user guide](docs/laterdog/README.md).
+cloud. You sign in once with your email; your dogs and chats live in your later.dog Cloud home, and the Mac app and the
+iPhone app are both screens onto it. Dogs run on the subscriptions you already pay for, ChatGPT and Claude, through
+their official sign-in flows, so there are no API keys to paste, or on the free AI that comes with the trial. New to
+later.dog? Start with the [user guide](docs/laterdog/README.md).
 
 ## Install (macOS, Apple silicon)
 
@@ -20,12 +22,17 @@ there are no API keys to paste. New to later.dog? Start with the [user guide](do
 3. Open **later.dog** from Applications. It is signed with an Apple Developer ID and notarized by Apple, so macOS only
    asks once whether to open an app downloaded from the internet. The keychain access and the Accessibility and Screen
    Recording permissions you grant carry over to later versions.
-4. The welcome asks your name and lets you pick a dog. Your first dog starts chatting right away on the free
-   **Kimi K2.6** and **Grok 4.3** models, with no account. Sign in to **Claude** or **ChatGPT** whenever you like: one
-   button in Settings, General, Add account, and the sign-in finishes in your browser.
+4. Sign in with your email. later.dog sends you a code, and your later.dog Cloud home opens.
+5. The welcome asks your name and lets you pick a dog. Your first dog starts chatting right away on the free AI,
+   **Claude Sonnet** or **Grok**, with no AI account of your own. Sign in to **Claude** or **ChatGPT** whenever you
+   like: one button in Settings, General, Add account, and the sign-in finishes in your browser.
 
-That is the whole setup. Your dogs, chats and memory stay on your Mac. What a dog asks its AI goes to the provider you
-signed in with, and during a free trial, group-chat routing, voice and the free models go through later.dog's cloud service.
+On your iPhone, join the [TestFlight beta](https://testflight.apple.com/join/UH46TVvC), open later.dog and sign in with
+the same email. Your dogs and chats are already there.
+
+That is the whole setup. Your dogs, chats and memory live in your later.dog Cloud home, so they keep working when your
+Mac is closed. What a dog asks its AI goes to the provider you signed in with, or, on the free AI, to Anthropic or xAI
+through later.dog's service.
 
 later.dog updates itself from the newest GitHub release: it downloads the update in the background, a small icon
 appears at the bottom of the sidebar, and **Restart to update** installs it.
@@ -43,7 +50,7 @@ appears at the bottom of the sidebar, and **Restart to update** installs it.
 - **Send it to fetch.** The Fetch chip (or `/goal`) gives a dog something to keep working on until it is done.
 - **Run a pack.** A group chat with a roster; @-mention one dog and it can consult another and relay the answer.
 - **Put it on a clock.** Ask a dog to make itself a routine; you confirm the schedule once and it runs in its own thread.
-- **Switch models any time.** The free Kimi K2.6 and Grok 4.3, Codex on your ChatGPT plan, or Claude Code, per dog or
+- **Switch models any time.** The free Claude Sonnet and Grok, Codex on your ChatGPT plan, or Claude Code, per dog or
   per conversation: the account at the top of the chat, the model and effort (and Fast mode on Opus) beside the message
   field.
 - **Never run dry.** Sign in to several Claude accounts and several ChatGPT (Codex) accounts in Settings → General →
@@ -52,16 +59,18 @@ appears at the bottom of the sidebar, and **Restart to update** installs it.
   picks up where it stopped ([how it works](docs/laterdog/token-battery.md)).
 - **Give a treat.** The bone under a dog's reply makes it happy and counts on its profile. It does nothing else.
 
-## Cloud
+## Computers and cloud
 
-- **Try a cloud computer free.** A dog's Computer panel and Settings, Computer offer **Try a cloud computer free**:
-  30 minutes on a later.dog cloud computer, to use within 7 days. No account and no card; a quick check in your
-  browser starts it.
+- **Every dog has a computer.** A dog gets its own cloud computer, asleep when idle, with a live screen you can watch
+  and take over from its Computer panel. Your Mac is a computer your dogs can use too, while later.dog is open there:
+  macOS asks for its permissions once, and a dog asks you before it uses the Mac unless you choose **Always allow**.
+  **Let My Cloud use this Mac** in Settings, later.dog Cloud switches it off.
+- **Your dogs in other apps.** Apps on your Mac that speak MCP, such as Claude Code or Grok Bot, can use your dogs
+  through later.dog's MCP server ([how](docs/mcp-server.md)).
 - **Cloud tasks.** A dog can hand a coding job to the cloud: a fresh cloud computer clones the repository and does the
   work with Claude Code. A card in the chat shows what it is doing; click it to follow its steps, see the changed files
   and watch its screen, then open a draft pull request with one click. Cloud tasks run on a later.dog supervisor you deploy to your
   own Cloudflare account ([how](docs/laterdog/cloudflare.md)), and they never merge anything.
-- **later.dog Cloud**, cloud computers and cloud tasks with nothing to set up, is coming soon at $10 a month.
 
 ## Send your agent
 
@@ -105,9 +114,8 @@ dictation needs a signed build.
 
 The direction, in order (details and status in the [roadmap](docs/laterdog/roadmap.md)):
 
-1. **A cloud computer per dog**, with a live desktop you can watch and take over, asleep when idle. Works on your own
-   Cloudflare account today ([deploy/laterdog/computers](deploy/laterdog/computers/README.md)), with a free 30-minute
-   trial on later.dog's. The later.dog Cloud plan is next.
+1. **A cloud computer per dog**, with a live desktop you can watch and take over, asleep when idle. Works today on
+   later.dog Cloud and on your own Cloudflare account ([deploy/laterdog/computers](deploy/laterdog/computers/README.md)).
 2. **Any model through Cloudflare AI Gateway** on your own account, next to the Claude and Codex subscriptions. Planned.
 3. **Everything deployable to your own Cloudflare with one command.** Planned.
 

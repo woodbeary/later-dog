@@ -1,9 +1,10 @@
 # Using later.dog
 
-later.dog is a free, open-source Mac app where AI agents, which we call dogs, do real work for you. Each dog is a
-contact in your sidebar with its own conversation, memory and computer. You start free on the Kimi K2.6 and Grok 4.3
-models with no account, and bring the Claude or ChatGPT plan you already have whenever you like. There are no API keys
-to paste.
+later.dog is a free, open-source app for Mac and iPhone where AI agents, which we call dogs, do real work for you.
+Each dog is a contact in your sidebar with its own conversation, memory and computer. You sign in once with your email:
+your dogs and chats live in your later.dog Cloud home, and your Mac and iPhone both show them. You start free on Claude
+Sonnet or Grok, and bring the Claude or ChatGPT plan you already have whenever you like. There are no API keys to
+paste.
 
 ## Install
 
@@ -17,11 +18,15 @@ You need a Mac with Apple silicon.
 If you open later.dog straight from the disk image, it offers to move itself into Applications, where it stays put and
 keeps itself up to date.
 
+On your iPhone, join the public beta on [TestFlight](https://testflight.apple.com/join/UH46TVvC), then open later.dog
+and sign in with the same email you use on your Mac.
+
 ## First run
 
-The welcome asks your name and lets you pick your first dog. It says hello right away on the free Kimi K2.6 model. The
-free trial lasts 7 days: chatting on Kimi K2.6 and Grok 4.3 (with a daily allowance), a voice, sharper dictation, and a
-cloud computer for 30 minutes, with no account and no card.
+later.dog asks for your email and sends you a code. Enter it, and your later.dog Cloud home opens; the first time, it
+takes a minute or two to get ready. Then the welcome asks your name and lets you pick your first dog. It says hello right
+away on the free AI, Claude Sonnet, and you can switch it to Grok. The free trial also includes a voice, sharper
+dictation and a cloud computer, with no card.
 
 ## Make a dog
 
@@ -37,8 +42,8 @@ apps.
 
 ## Cloud tasks
 
-A dog can hand a coding job to its own temporary cloud computer (later.dog Cloud, on your own Cloudflare account). The
-work runs there, not on your Mac, so your Mac stays free and several tasks can run at the same time.
+A dog can hand a coding job to its own temporary cloud computer (on a later.dog supervisor on your own Cloudflare
+account). The work runs there, not on your Mac, so your Mac stays free and several tasks can run at the same time.
 
 To start one, ask a dog in plain words, for example "do this in the cloud" or "split this into cloud tasks and run them
 in parallel".
@@ -53,7 +58,8 @@ cloud tasks too.
 The result goes to GitHub as a draft for you to review: the dog publishes it, or you can press **Publish** beside the
 chat. Merging stays with you.
 
-A cloud task needs later.dog Cloud set up on your Cloudflare account, and a GitHub repository its GitHub login can read.
+A cloud task needs the later.dog supervisor set up on your Cloudflare account, and a GitHub repository its GitHub login
+can read.
 The repository needs no setup: the first task connects it, starts from its default branch and installs its dependencies
 itself.
 
@@ -93,10 +99,14 @@ at the bottom of the sidebar. Click it to see what's new and choose **Restart to
 ## Cloud computers
 
 Every dog has its own computer. Open it with the screen button at the top of a chat: it starts (or wakes) and you see
-its screen. The free trial includes one cloud computer for 30 minutes, to use within 7 days, and Settings, Computer shows
-the minutes left. If another dog already has the trial's computer, later.dog offers later.dog Cloud ($10 a month), which
-gives every dog its own. When the trial ends, its computer and the files on it are deleted. You can also deploy the
-computers service to your own Cloudflare account ([deploy/laterdog/computers](../../deploy/laterdog/computers/README.md)).
+its screen. The free trial includes one cloud computer, and once you start it Settings, Computer shows how much is left.
+When it runs out, or another dog already has the trial's computer, later.dog offers later.dog Cloud, which gives every
+dog its own. When the trial ends, its computer and the files on it are deleted. You can also deploy the computers
+service to your own Cloudflare account ([deploy/laterdog/computers](../../deploy/laterdog/computers/README.md)).
+
+Your Mac is a computer your dogs can use too, while later.dog is open on it. macOS asks for its permissions once. A dog
+asks you before it uses the Mac, and **Always allow** stops it asking. **Let My Cloud use this Mac** in Settings,
+later.dog Cloud switches this off, and lists what your dogs did on the Mac.
 
 Settings, Computer lists every cloud computer with the dog it belongs to (asleep when its computer is). **Sleep** puts an
 awake one to sleep now instead of waiting for it to idle; **Delete** removes it and its files, after you confirm. Both
@@ -109,6 +119,11 @@ into that site's page: the dog never sees them, they never appear in the chat, a
 form names. later.dog keeps them in memory, never on disk, and forgets them two minutes after the last one is typed, or
 ten minutes after you send them. For a CAPTCHA, a passkey or a payment, the dog hands you its screen instead. Fill
 Secure Forms in the desktop app; the phone shows that one is waiting.
+
+## Use your dogs from other apps
+
+Apps on your Mac that speak MCP, such as Claude Code or Grok Bot, can use your dogs through later.dog's MCP server: they
+can list your dogs, read their chats and send them work. [mcp-server.md](../mcp-server.md) shows how to connect one.
 
 ## Get help
 

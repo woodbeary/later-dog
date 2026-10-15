@@ -1,5 +1,7 @@
 # Attach the existing workspace to the account
 
+> **Superseded on 2026-10-14.** This design kept the Mac authoritative and reached it from the phone through a companion tunnel and a pairing broker. later.dog now keeps one workspace per account in the later.dog Cloud home: the Mac and iPhone apps are both screens onto it, the Mac is a computer the dogs can use, and there is no phone pairing, tunnel or server choice. The record below is kept as history.
+
 ## Product decision
 
 The existing Mac workspace is canonical: coordinator, main desk, minor changes, main app, REA, refactor main desk, and their conversations. Account sign-in attaches that workspace to the account. Desktop and phone open the same dogs and chats automatically. Local storage, synchronization and cloud execution are managed behind the scenes. The normal interface has one workspace and no server selector, including no This computer/My Cloud choice in the sidebar. A workspace name or account identity may be shown without becoming a connection picker.

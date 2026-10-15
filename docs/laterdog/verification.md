@@ -46,7 +46,7 @@ Run against the real services the night before launch.
 - **Token battery.** See the [live record of 2026-10-10](token-battery.md#verification-and-limits).
 - **An update.** The released 0.3.7, opened with its own home folder, found v0.3.8 on GitHub, downloaded it and, on quit, installed it in about eight seconds; the bundle then read 0.3.8 with a valid signature and the same designated requirement, and reopened on the same profile with its dog and messages.
 
-Still unproven: a notarized build, and ChatGPT (Codex) accounts at a real limit.
+Still unproven at launch: a notarized build, and ChatGPT (Codex) accounts at a real limit. Since then the notarized build is proven: from 0.3.28 on, every release is signed with the Developer ID, notarized and stapled, and Gatekeeper accepts it without Open Anyway ([installed-release-2026-10-14.md](../verification/installed-release-2026-10-14.md)). ChatGPT (Codex) accounts at a real limit are still unproven.
 
 ## Live Codex Cloud acceptance
 

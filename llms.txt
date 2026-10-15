@@ -1,10 +1,12 @@
 # later.dog
 
-> An open-source desktop home for AI agents that do real work. The app calls them dogs: each dog has its own files and
-> conversation, dogs message each other, run on a schedule, and check with you before they act. It runs on the
-> subscriptions you already have (ChatGPT, Claude) through their official sign-in flows. Dogs can hand coding work to
-> cloud tasks that open draft pull requests, and try a cloud computer free for 30 minutes. Website: https://later.dog.
-> macOS app (Apple silicon), Apache-2.0.
+> An open-source home for AI agents that do real work. The app calls them dogs: each dog has its own files and
+> conversation, dogs message each other, run on a schedule, and check with you before they act. You sign in once with
+> your email; the dogs live in your later.dog Cloud home, and the Mac and iPhone apps are both screens onto it. It runs
+> on the subscriptions you already have (ChatGPT, Claude) through their official sign-in flows, or on the free AI that
+> comes with the trial. Each dog has its own cloud computer and can use your Mac, and dogs can hand coding work to cloud
+> tasks that open draft pull requests. Website: https://later.dog.
+> Mac app (Apple silicon) and iPhone app (public beta on TestFlight), Apache-2.0.
 
 Repository: https://github.com/woodbeary/later-dog
 
@@ -24,7 +26,7 @@ Repository: https://github.com/woodbeary/later-dog
 - [docs/laterdog/token-battery.md](docs/laterdog/token-battery.md): several Claude accounts in a next-up order; a conversation continues on the next one when one runs out.
 - [docs/laterdog/bot-playbook.md](docs/laterdog/bot-playbook.md): how people run bot teams, the starter roster, the gaps.
 - [docs/laterdog/roadmap.md](docs/laterdog/roadmap.md): the direction (later.dog's own repository, a cloud computer per dog and any model through AI Gateway on your own Cloudflare, a one-command deploy), what exists, what is next, in order.
-- [docs/laterdog/cloud-computers.md](docs/laterdog/cloud-computers.md): the per-dog Cloudflare computer design (free trial since 0.3.6).
+- [docs/laterdog/cloud-computers.md](docs/laterdog/cloud-computers.md): the per-dog Cloudflare computer design.
 - [docs/laterdog/motion.md](docs/laterdog/motion.md): motion tokens, the dog's state → ear motion table, reduced motion.
 - [docs/laterdog/support.md](docs/laterdog/support.md): how later.dog is funded and where sponsorships go.
 
