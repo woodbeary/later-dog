@@ -16,6 +16,11 @@ export function parseGitHubDevicePrompt(output: string): { code: string; url: st
   return code && url ? { code, url } : null;
 }
 
+export function githubCliEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const { GH_TOKEN: _gh, GITHUB_TOKEN: _github, ...rest } = env;
+  return { ...rest, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" };
+}
+
 export interface GitHubDeviceLoginOptions {
   spawner?: LoginSpawner;
   run?: CommandRunner;
@@ -33,10 +38,14 @@ export class GitHubDeviceLogin {
     this.spawner = options.spawner ?? ((binary, args, spawnOptions) => spawn(binary, args, { ...spawnOptions, stdio: ["ignore", "pipe", "pipe"], shell: false }));
     this.run = options.run ?? runCommand;
     this.promptMs = options.promptMs ?? 20_000;
-    const { GH_TOKEN: _gh, GITHUB_TOKEN: _github, ...env } = options.env ?? process.env;
-    this.env = { ...env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" };
+    this.env = githubCliEnv(options.env ?? process.env);
   }
   status(): GitHubSignIn { return this.flow ? { ...this.flow.status } : { phase: "idle" }; }
+  cancel(): void {
+    const flow = this.flow;
+    this.flow = undefined;
+    if (flow && flow.child.exitCode === null && !flow.child.killed) flow.child.kill("SIGTERM");
+  }
   async start(): Promise<GitHubSignIn> {
     if (this.flow?.status.phase === "waiting" && this.flow.child.exitCode === null && !this.flow.child.killed) return this.status();
     const child = this.spawner("gh", ["auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web", "--scopes", "workflow"], { env: this.env });
