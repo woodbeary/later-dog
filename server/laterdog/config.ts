@@ -1,6 +1,6 @@
 import { existsSync, linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { JOB_COMPUTER_SIZES, jobAccount } from "../../shared/laterdog.ts";
@@ -50,6 +50,11 @@ function validOrigin(raw: string): string {
 export const connectionSchema = z.object({ url: z.string().url(), tokenFile: z.string().min(1).transform((file) => file.replace(/^~(?=\/)/, homedir()))
   .refine(isAbsolute, "tokenFile must be an absolute path") }).strict();
 export interface SupervisorConnection { origin: string; tokenFile?: string; source: "environment" | "file" | "local" }
+function tokenFileHere(tokenFile: string, folder: string): string {
+  if (existsSync(tokenFile)) return tokenFile;
+  const here = join(folder, basename(tokenFile));
+  return existsSync(here) ? here : tokenFile;
+}
 export function supervisorConnectionFile(): string { return join(process.env.LATERDOG_HOME ?? join(homedir(), ".laterdog"), "supervisor.json"); }
 export function supervisorConnection(): SupervisorConnection {
   if (process.env.LATERDOG_SUPERVISOR_URL) {
@@ -58,7 +63,7 @@ export function supervisorConnection(): SupervisorConnection {
   const file = supervisorConnectionFile();
   if (existsSync(file)) {
     const saved = connectionSchema.parse(JSON.parse(readFileSync(file,"utf8")));
-    return { origin: validOrigin(saved.url), tokenFile: saved.tokenFile, source: "file" };
+    return { origin: validOrigin(saved.url), tokenFile: tokenFileHere(saved.tokenFile, dirname(file)), source: "file" };
   }
   return { origin: `http://127.0.0.1:${Number(process.env.LATERDOG_PORT) || 9010}`, source: "local" };
 }
