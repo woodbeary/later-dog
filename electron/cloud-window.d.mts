@@ -16,4 +16,5 @@ export declare function createCloudWindow(options: {
   log?: (message: string) => void;
   setTimer?: (run: () => void, ms: number) => unknown;
   clearTimer?: (timer: never) => void;
-}): { sync(state: unknown): Promise<WindowChoice>; retry(state: unknown): Promise<WindowChoice>; moving(): boolean };
+  retryWith?: ((state: unknown) => Promise<WindowChoice | null>) | null;
+}): { sync(state: unknown, manual?: boolean): Promise<WindowChoice>; retry(state: unknown): Promise<WindowChoice>; cancelRetry(): void; close(): void; moving(): boolean };

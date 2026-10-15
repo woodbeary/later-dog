@@ -24,7 +24,7 @@ test("the first sign-in moves the Mac's dogs with replacement allowed, the slim 
   const f = setup();
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "moved" });
   const [[destination, { onPacked, ...flags }]] = f.moves;
-  assert.deepEqual([destination, flags], [DEST, { requireEmpty: false, verifyArrival: true, profile: "cloud-move", yieldToOtherComputer: true }]);
+  assert.deepEqual([destination, flags], [DEST, { requireEmpty: false, verifyArrival: true, profile: "cloud-move", yieldToOtherComputer: true, fresh: true }]);
   assert.equal(typeof onPacked, "function");
   const record = parseMoveRecords(f.stored.raw).acct;
   assert.equal(record.status, "moved");
@@ -111,6 +111,21 @@ test("a failure that can pass on its own is tried again on a growing schedule; o
   assert.match(f.logs[0], /not moved \(network\): network Trying again in 20 s\./);
   const full = setup({ results: [failed("cloud_full")] });
   assert.deepEqual(await full.engine.ensure("acct", DEST), { status: "failed", code: "cloud_full" });
+});
+
+test("the Mac's dogs pause only once packed, a pause left by a quit is lifted first, a stop is final, and a copy the Cloud already took keeps them paused", async () => {
+  const pauses = [];
+  const run = async (result) => {
+    const engine = createCloudAutoMove({ read: () => null, write: () => {}, pause: async held => { pauses.push(held); },
+      move: { running: () => false, estimate: async () => LOCAL, move: async (_dest, flags) => { await flags.onPacked(); return result; } } });
+    return engine.ensure("acct", DEST);
+  };
+  assert.deepEqual(await run(failed("upload_failed")), { status: "failed", code: "upload_failed", retryInMs: 20_000 });
+  assert.deepEqual(pauses.splice(0), [false, true, false]);
+  assert.deepEqual(await run(failed("cancelled")), { status: "failed", code: "cancelled" });
+  assert.deepEqual(pauses.splice(0), [false, true, false]);
+  assert.deepEqual(await run(failed("restart_timeout", { committed: true })), { status: "failed", code: "restart_timeout", retryInMs: 20_000 });
+  assert.deepEqual(pauses.splice(0), [false, true], "the Cloud already runs these dogs, so the Mac stays paused");
 });
 
 test("an unmeasurable Mac or a move already running does nothing harmful", async () => {

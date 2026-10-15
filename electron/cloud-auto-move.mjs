@@ -2,7 +2,7 @@ import { arrivedInFull, CLOUD_MOVE_PROFILE } from "./cloud-move.mjs";
 
 const FINAL = new Set(["moved", "joined"]);
 const RETRY_IN_MS = Object.freeze([20_000, 60_000, 5 * 60_000, 15 * 60_000]);
-const FINAL_FAILURES = new Set(["too_large", "cloud_full", "local_full", "shared_workspace", "outdated", "same_computer", "invalid_backup", "not_verified"]);
+const FINAL_FAILURES = new Set(["too_large", "cloud_full", "local_full", "shared_workspace", "outdated", "same_computer", "invalid_backup", "not_verified", "cancelled"]);
 const count = value => Number.isSafeInteger(value) && value >= 0;
 
 export function worthMoving(local) {
@@ -59,12 +59,13 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, log = (
     try {
       let local = null;
       try { local = await move.estimate(); } catch { local = null; }
-      if (!local) return fail(accountId, "unmeasured", "This Mac's dogs could not be measured. They will be tried again next time the app opens.");
+      if (!local) return fail(accountId, "unmeasured", "This Mac's dogs could not be measured.");
       if (!worthMoving(local)) return { status: "nothing" };
+      await paused(false);
       let held = false;
       const onPacked = async () => { held = true; await paused(true); };
       let result;
-      try { result = await move.move(destination, { requireEmpty: false, verifyArrival: true, profile: CLOUD_MOVE_PROFILE, yieldToOtherComputer: true, onPacked }); } catch (error) {
+      try { result = await move.move(destination, { requireEmpty: false, verifyArrival: true, profile: CLOUD_MOVE_PROFILE, yieldToOtherComputer: true, fresh: true, onPacked }); } catch (error) {
         if (held) await paused(false);
         throw error;
       }
@@ -75,7 +76,7 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, log = (
         try { onMoved(destination, result); } catch {}
         return { status: "moved" };
       }
-      if (held) await paused(false);
+      if (held && result.error?.committed !== true) await paused(false);
       const code = result.error?.code ?? "unknown";
       if (code === "other_computer_moved") {
         remember(accountId, { status: "joined", origin: destination.origin });

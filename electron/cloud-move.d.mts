@@ -31,7 +31,7 @@ export interface CloudMoveState {
   destination?: MoveDestination | null;
   progress?: { bytesTransferred: number; totalBytes: number };
   replacing?: boolean;
-  error?: { code: string; message: string; contents?: MoveContents; freeBytes?: number; neededBytes?: number; maxBytes?: number; largest?: true; volumeBytes?: number; destVersion?: string; localVersion?: string;
+  error?: { code: string; message: string; committed?: true; contents?: MoveContents; freeBytes?: number; neededBytes?: number; maxBytes?: number; largest?: true; volumeBytes?: number; destVersion?: string; localVersion?: string;
     other?: string;
     partBytes?: number };
   resumable?: boolean;
@@ -86,7 +86,7 @@ export declare function parseCloudMoveStatus(value: unknown): CloudMoveStatus | 
 export interface CloudMove {
   state(): CloudMoveState;
   estimate(signal?: AbortSignal, profile?: "cloud-move"): Promise<MoveEstimate>;
-  move(dest: MoveTarget, options?: { requireEmpty?: boolean; verifyArrival?: boolean; profile?: "cloud-move"; yieldToOtherComputer?: boolean }): Promise<CloudMoveState>;
+  move(dest: MoveTarget, options?: { requireEmpty?: boolean; verifyArrival?: boolean; profile?: "cloud-move"; yieldToOtherComputer?: boolean; fresh?: boolean; onPacked?: () => Promise<unknown> }): Promise<CloudMoveState>;
   restorePrevious(dest: MoveTarget): Promise<CloudMoveState>;
   cancel(): CloudMoveState;
   reset(): CloudMoveState;

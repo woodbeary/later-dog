@@ -282,7 +282,8 @@ export function createCloudAiAccounts({ localRequest, fetchImpl = fetch, keychai
           summary.waiting.push(source.displayName);
         }
       }
-    } catch {
+    } catch (error) {
+      log(`cloud accounts: could not list this Mac's sign-ins (${error?.message ?? error})`);
       summary.waiting.push("");
     } finally {
       if (session) await closeHome(session);

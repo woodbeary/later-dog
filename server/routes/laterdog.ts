@@ -14,7 +14,7 @@ export function createLaterDogRoutes(): RouteHandler {
   return async ({ req, res, method, path, url, json, readBody }) => {
     if (!path.startsWith("/api/laterdog/")) return PASS;
     const suffix = path.slice("/api/laterdog".length);
-    if (!/^\/(workspace|verification-policy|github\/(?:access|login)|profiles\/[a-zA-Z0-9_-]+\/(access|tasks)|observations|repositories|jobs(?:\/[\w-]+(?:\/(action|patch|activity|screen))?)?|bridge\/(?:devices(?:\/[\w-]+)?|pairing|requests))$/.test(suffix)) return json(res,404,{ error: "Unknown workspace route" });
+    if (!/^\/(workspace|verification-policy|github\/(?:access|login)|profiles\/[a-zA-Z0-9_-]+\/(access|tasks)|observations|repositories|jobs(?:\/[\w-]+(?:\/(action|patch|activity|screen))?)?|bridge\/(?:devices(?:\/[\w-]+)?|pairing|requests))$/.test(suffix)) return PASS;
     let origin: string; let token: string;
     try { origin = supervisorOrigin(); token = desktopSupervisorToken(); }
     catch (error) { return json(res,503,{ error: error instanceof Error ? error.message : String(error) }); }

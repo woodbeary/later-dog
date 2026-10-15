@@ -15,12 +15,26 @@ const laterBy = (run, ms) => {
   return timer;
 };
 
-export function createCloudWindow({ autoMove, hold, showHome, showLocal, destinationFor, log = () => {}, setTimer = laterBy, clearTimer = clearTimeout }) {
-  let working = null, again = null, moving = false, failed = null, latest = null, timer = null;
+const RETRY_AGAIN_MS = 60_000;
+const sameAccount = (state, accountId) => state?.status !== "signed-out" && state?.account?.id === accountId;
+
+export function createCloudWindow({ autoMove, hold, showHome, showLocal, destinationFor, log = () => {}, setTimer = laterBy, clearTimer = clearTimeout, retryWith = null }) {
+  let working = null, again = null, againManual = false, moving = false, failed = null, latest = null, timer = null, attempts = 0, closed = false;
+
+  function cancelRetry() {
+    if (timer) clearTimer(timer);
+    timer = null;
+  }
 
   function retryLater(ms) {
-    if (timer) clearTimer(timer);
-    timer = setTimer(() => { timer = null; return retry(latest); }, ms);
+    cancelRetry();
+    if (closed) return;
+    timer = setTimer(async () => {
+      timer = null;
+      const before = attempts;
+      const result = await (retryWith ? retryWith(latest) : retry(latest));
+      if (attempts === before && !result?.signedOut && sameAccount(latest, latest?.account?.id)) retryLater(RETRY_AGAIN_MS);
+    }, ms);
   }
 
   async function settle(state, manual = false) {
@@ -29,15 +43,17 @@ export function createCloudWindow({ autoMove, hold, showHome, showLocal, destina
     if (first.signedOut) {
       autoMove.stop();
       failed = null;
-      if (timer) { clearTimer(timer); timer = null; }
+      cancelRetry();
       await hold.set(false);
       return first;
     }
     if (first.kind === "local") return first;
     const destination = destinationFor(first);
     moving = true;
+    attempts++;
     let outcome;
     try { outcome = await (manual ? autoMove.retry(first.accountId, destination) : autoMove.ensure(first.accountId, destination)); } finally { moving = false; }
+    if (!sameAccount(latest, first.accountId)) return { kind: "keep" };
     if (outcome.status === "busy") return { kind: "local", screen: "moving", accountId: first.accountId };
     if (outcome.status === "failed") {
       failed = first.accountId;
@@ -51,14 +67,25 @@ export function createCloudWindow({ autoMove, hold, showHome, showLocal, destina
     return { kind: "cloud", origin: first.origin, accountId: first.accountId, move: outcome.status };
   }
 
+  async function settleQuietly(state, manual) {
+    try { return await settle(state, manual); } catch (error) {
+      log(`cloud window: ${error?.message ?? error}`);
+      return { kind: "keep" };
+    }
+  }
+
   function sync(state, manual = false) {
     latest = state;
-    if (working) { again = state; return working; }
+    if (working) { again = state; againManual = againManual || manual; return working; }
     working = (async () => {
-      let result = await settle(state, manual);
-      while (again) { const next = again; again = null; result = await settle(next); }
+      let result = await settleQuietly(state, manual);
+      while (again) {
+        const next = again, nextManual = againManual;
+        again = null; againManual = false;
+        result = await settleQuietly(next, nextManual);
+      }
       return result;
-    })().catch(error => { log(`cloud window: ${error?.message ?? error}`); return { kind: "keep" }; }).finally(() => { working = null; });
+    })().finally(() => { working = null; });
     return working;
   }
 
@@ -67,5 +94,5 @@ export function createCloudWindow({ autoMove, hold, showHome, showLocal, destina
     return sync(state, true);
   }
 
-  return { sync, retry, moving: () => moving };
+  return { sync, retry, cancelRetry, close: () => { closed = true; cancelRetry(); }, moving: () => moving };
 }

@@ -79,7 +79,7 @@ test("first sign-in moves the Mac's dogs over a home holding test dogs, keeps th
   const m = mac();
   const result = await m.window.sync(connected());
   assert.equal(result.kind, "cloud");
-  assert.deepEqual(m.log.moves, [{ destination: HOME, requireEmpty: false, verifyArrival: true, profile: "cloud-move", yieldToOtherComputer: true }]);
+  assert.deepEqual(m.log.moves, [{ destination: HOME, requireEmpty: false, verifyArrival: true, profile: "cloud-move", yieldToOtherComputer: true, fresh: true }]);
   assert.equal(m.home.workspace, "mac-dogs");
   assert.equal(m.home.previousKept, true);
   assert.deepEqual(m.log.window, [`home ${HOME}`]);
@@ -94,7 +94,7 @@ test("after the move the Cloud runs the routines that were on and the Mac pauses
   await m.window.sync(SIGNED_OUT);
   assert.equal(m.dogs.held, false);
   assert.deepEqual(m.dogs.routines, { nightly: true, weekly: true });
-  assert.deepEqual(m.log.hold, [true, false]);
+  assert.deepEqual(m.log.hold, [false, true, false], "any pause left by a quit is lifted before packing, held after the move, released on sign-out");
 });
 
 test("a repeat sign-in on the same Mac does not move again, shows the home and holds the Mac's dogs again", async () => {
@@ -111,7 +111,7 @@ test("account refreshes while signed in do not move again, hold again or reload 
   const m = mac();
   for (let i = 0; i < 4; i++) await m.window.sync(connected());
   assert.equal(m.log.moves.length, 1);
-  assert.deepEqual(m.log.hold, [true]);
+  assert.deepEqual(m.log.hold, [false, true]);
 });
 
 test("a second Mac with its own dogs shows the home without replacing it, leaves its data and routines untouched and logs one line", async () => {
@@ -133,7 +133,7 @@ test("a failed move keeps the local workspace on screen, lets the Mac's dogs wor
   assert.deepEqual([result.kind, result.screen], ["local", null]);
   assert.deepEqual(m.log.window, ["local"]);
   assert.equal(m.log.failures.length, 1);
-  assert.deepEqual(m.log.hold, [true, false], "the Mac's dogs wait during the copy and work again once it fails");
+  assert.deepEqual(m.log.hold, [false, true, false], "the Mac's dogs wait during the copy and work again once it fails");
   assert.equal(m.dogs.held, false);
   assert.deepEqual(m.log.timers.map(timer => timer.ms), [20_000]);
   await m.window.sync(connected());
@@ -150,9 +150,29 @@ test("a failed move keeps the local workspace on screen, lets the Mac's dogs wor
 test("a copy that succeeds keeps the Mac's dogs paused from the start of the copy and opens My Cloud", async () => {
   const m = mac();
   assert.equal((await m.window.sync(connected())).kind, "cloud");
-  assert.deepEqual(m.log.hold, [true]);
+  assert.deepEqual(m.log.hold, [false, true]);
   assert.equal(m.dogs.held, true);
   assert.deepEqual(m.log.timers, []);
+});
+
+test("signing out during the copy releases the Mac once it ends and never opens My Cloud for a signed-out person", async () => {
+  const m = mac();
+  const copying = m.window.sync(connected());
+  await m.window.sync(SIGNED_OUT);
+  await copying;
+  assert.deepEqual(m.log.window, []);
+  assert.equal(m.dogs.held, false);
+});
+
+test("a retry that finds My Cloud still waking tries again a minute later, and closing the app drops it", async () => {
+  const m = mac({ moveFails: "network" });
+  await m.window.sync(connected());
+  await m.window.sync(connected({ status: "provisioning" }));
+  await m.log.timers[0].run();
+  assert.equal(m.log.moves.length, 1);
+  assert.deepEqual(m.log.timers.map(timer => timer.ms), [20_000, 60_000]);
+  m.window.close();
+  assert.equal(m.log.timers[1].cleared, true);
 });
 
 test("a Mac with only the starter dog just shows the home and does not hold", async () => {

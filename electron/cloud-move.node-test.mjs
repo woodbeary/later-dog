@@ -250,7 +250,37 @@ test("an upload that keeps failing stops resumable, and moving again continues i
     assert.equal(second.phase, "done", JSON.stringify(second));
     assert.equal(f.local.calls.filter(([, route]) => route === "/api/workspace-backup/export").length, 1);
     assert.ok(f.cloud.state.received.equals(f.local.archive));
+    assert.equal(first.error.committed, undefined);
   } finally { f.done(); }
+});
+
+test("a fresh copy packs again instead of reusing what an earlier try packed", async () => {
+  let failing = true;
+  const f = harness({ cloud: { failPut: offset => failing && offset >= 3072 } });
+  try {
+    assert.equal((await f.move.move({ profile: "cloud-move" })).error.code, "upload_failed");
+    failing = false;
+    let packed = 0;
+    assert.equal((await f.move.move({ profile: "cloud-move", fresh: true, onPacked: async () => { packed++; } })).phase, "done");
+    assert.equal(f.local.calls.filter(([, route]) => route === "/api/workspace-backup/export").length, 2);
+    assert.equal(packed, 1);
+  } finally { f.done(); }
+});
+
+test("stopping while My Cloud wakes up stops at once, with the real wait in place", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-test-"));
+  const local = desktop(), cloud = cloudFake();
+  const engine = createCloudMove({ localRequest: local.request, fetchImpl: cloud.fetchImpl, tempRoot: join(temp, "move"), availableBytes: async () => 1024 ** 4,
+    pollMs: 0, retryDelaysMs: [0, 0], waitDelaysMs: [60_000, 60_000] });
+  try {
+    const started = Date.now();
+    const running = engine.move(cloudDestination({ pairHome: async () => { throw new Error("My Cloud is waking"); } }), { profile: "cloud-move" });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    engine.cancel();
+    const result = await running;
+    assert.equal(result.error.code, "cancelled");
+    assert.ok(Date.now() - started < 5_000);
+  } finally { rmSync(temp, { recursive: true, force: true }); }
 });
 
 test("a proxy that refuses large parts gets smaller ones; one that refuses even 512 KB is named, with what to change, and the copy continues later", async () => {
@@ -979,6 +1009,7 @@ test("an automatic move can ask the home to prove every bot, room and chat arriv
     const result = await engine.move(short.dest, { requireEmpty: true, verifyArrival: true });
     assert.equal(result.phase, "failed");
     assert.equal(result.error.code, "not_verified");
+    assert.equal(result.error.committed, true, "the caller can tell the Cloud already took the copy");
     assert.deepEqual(result.error.contents, { bots: 3, rooms: 1, chats: 6 });
     assert.deepEqual(readdirSync(join(short.temp, "move2")), [], "nothing is left behind on this computer");
   } finally { short.done(); }

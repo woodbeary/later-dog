@@ -703,6 +703,11 @@ function observeCloudHome(state) {
   try {
     if (state.status === "connected") cloudOfferState().signedIn();
     const homeEntry = environmentsState.environments.find(entry => entry.name === CLOUD_HOME_NAME) ?? null;
+    if (state.status === "signed-out" && state.message !== "restoring") {
+      cloudMove?.cancel();
+      cloudAiAccounts?.stop();
+      if (macHold) void macHold.set(false);
+    }
     if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); void syncCloudWindow(state); return; }
     if (state.status === "signed-out") { homeFellBack = false; cloudAutoMove?.stop(); }
     void syncCloudWindow(state);
@@ -2429,6 +2434,7 @@ function ensureCloudMove() {
 }
 
 function publishCloudMoveState(state) {
+  if (state?.phase === "done") cloudWindow?.cancelRetry();
   const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
   if (!contents || desktopRemoteAccess) return;
   const active = activeEnvironment(environmentsState)?.origin;
@@ -2530,6 +2536,7 @@ function ensureCloudWindow() {
       persistEnvironments(withActive(environmentsState, LOCAL_ID));
       navigateMainWindow(activeOrigin());
     },
+    retryWith: () => runCloudAutoMove(),
     log: slog,
   });
   return cloudWindow;
@@ -3115,6 +3122,7 @@ app.on("before-quit", (e) => {
   orgLibrary?.close();
   managedDesktop?.close();
   cloudAccount?.close();
+  cloudWindow?.close();
   void cloudMove?.close();
   companyBackupController?.abort();
   computerSharing?.close();

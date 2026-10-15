@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.37 — 2026-10-15
+
+- **Your Claude and ChatGPT sign-ins actually reach My Cloud.** The address they travel through was answered by another part of the app first, so nothing ever arrived.
+- **Quitting, stopping or signing out during the trip to My Cloud is safe.** Your Mac's dogs work again, routines arrive switched on, and a retry packs a fresh copy instead of an older one.
+- **Older backups restore again** even if they carry the included-services key.
+
 ## 0.3.36 — 2026-10-15
 
 - **Your Claude and ChatGPT sign-ins reach My Cloud,** including extra Claude accounts like Claude 2, so your dogs answer there right away.

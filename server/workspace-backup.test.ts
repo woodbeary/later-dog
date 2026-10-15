@@ -340,6 +340,39 @@ describe("encrypted full workspace backups", () => {
     expect(existsSync(join(target, "hook-tokens"))).toBe(false);
   });
 
+  it("still restores an archive from a release that carried the included-services key, keeping the destination's own key", async () => {
+    const source = directory();
+    const exported = await createWorkspaceBackup(source, { password: PASSWORD });
+    const probe = await stageWorkspaceBackup(source, exported.path, { password: PASSWORD });
+    const base = readJson(join(source, ".backups", probe.id, "staged", "manifest.json"));
+    const key = "SOURCE_INCLUDED_KEY";
+    const note = "kept";
+    const file = (path: string, content: string) => ({ path, type: "file", size: Buffer.byteLength(content), mode: 0o600, sha256: createHash("sha256").update(content).digest("hex") });
+    const manifest = {
+      ...base,
+      entries: [file("computers-trial-key", key), file("note.txt", note)],
+      summary: { ...base.summary, directories: 0, files: 2, bytes: Buffer.byteLength(key) + Buffer.byteLength(note) },
+    };
+    const archive = encryptedPayload(source, Buffer.concat([
+      tarEntry("manifest.json", "File", JSON.stringify(manifest)), tarEntry("data", "Directory"),
+      tarEntry("data/computers-trial-key", "File", key), tarEntry("data/note.txt", "File", note), Buffer.alloc(1024),
+    ]));
+    const target = directory();
+    writeFileSync(join(target, "computers-trial-key"), "DESTINATION_INCLUDED_KEY");
+    const staged = await stageWorkspaceBackup(target, archive, { password: PASSWORD });
+    commitPendingWorkspaceRestore(target, staged.id);
+    expect(applyPendingWorkspaceRestore(target)).toMatchObject({ restored: true });
+    expect(readFileSync(join(target, "note.txt"), "utf8")).toBe(note);
+    expect(readFileSync(join(target, "computers-trial-key"), "utf8")).toBe("DESTINATION_INCLUDED_KEY");
+  });
+
+  it("starts over a restore journal an older release wrote while it still moved the included-services key", () => {
+    const target = directory();
+    mkdirSync(join(target, ".backups"), { recursive: true, mode: 0o700 });
+    json(join(target, ".backups", "restore-journal.json"), { id: "3f9c2a4e-8b1d-4c6e-9a7f-0123456789ab", phase: "committed", existing: ["bots.json", "computers-trial-key"], incoming: ["bots.json", "computers-trial-key"] });
+    expect(applyPendingWorkspaceRestore(target)).toEqual({ restored: false });
+  });
+
   it("rejects authenticated credential metadata, saved auth paths, and connection-bearing config", async () => {
     const source = directory();
     const exported = await createWorkspaceBackup(source, { password: PASSWORD });

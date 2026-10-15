@@ -35,6 +35,8 @@ const EXCLUDED = new Set([
   "decider-log",
   "cloud-owner.json", "cloud-hold.json", "computers-trial-key", "computers-trial.json",
 ]);
+const KEPT_ON_EACH_COMPUTER = new Set(["computers-trial-key", "computers-trial.json"]);
+const keptOnEachComputer = (path: string): boolean => KEPT_ON_EACH_COMPUTER.has(path.toLowerCase());
 const EXCLUSION_NOTES = [
   "Device pairing, server identity, live leases and runtime files (existing destination identities are preserved).",
   "Saved credentials, provider and MCP connections, managed provider login homes and browser login profiles are not transferred. Destination connections are preserved; reconnect on a new device.",
@@ -78,6 +80,7 @@ function excluded(name: string): boolean {
 }
 function forbiddenArchivePath(path: string): boolean {
   const folded = path.toLowerCase();
+  if (keptOnEachComputer(folded)) return false;
   return excluded(folded.split("/")[0]) || excludedWorkspaceAuthPath(folded) ||
     (path !== folded && ["config.json", "webhooks.json"].includes(folded));
 }
@@ -603,7 +606,7 @@ function readJournal(path: string): RestoreJournal {
   const raw = privateJson(path);
   if (!record(raw) || typeof raw.id !== "string" || !ID.test(raw.id) || !["applying", "committed", "rolled-back"].includes(String(raw.phase))) throw new Error("Invalid restore recovery journal. Original data was preserved; recovery needs attention.");
   for (const key of ["existing", "incoming"] as const) {
-    if (!Array.isArray(raw[key]) || !raw[key].every((name) => typeof name === "string" && validRelative(name) && !name.includes("/") && !preserved(name)) || new Set(raw[key]).size !== raw[key].length) throw new Error("Invalid restore recovery paths.");
+    if (!Array.isArray(raw[key]) || !raw[key].every((name) => typeof name === "string" && validRelative(name) && !name.includes("/") && (!preserved(name) || keptOnEachComputer(name))) || new Set(raw[key]).size !== raw[key].length) throw new Error("Invalid restore recovery paths.");
   }
   return raw as unknown as RestoreJournal;
 }
@@ -681,7 +684,7 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
   const prepared = join(job, "apply", "data");
   if (existsSync(join(job, "apply"))) rmSync(join(job, "apply"), { recursive: true, force: true });
   folder(prepared);
-  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path));
+  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path) && !keptOnEachComputer(entry.path));
   for (const entry of installed.filter((entry) => entry.type === "directory")) folder(join(prepared, entry.path));
   for (const entry of installed) {
     const destination = join(prepared, entry.path);
