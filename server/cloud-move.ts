@@ -4,6 +4,8 @@ import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { writeFileAtomic } from "./atomic.ts";
+import { settleReceivedMove } from "./laterdog/cloud-move-received.ts";
+import { type WorkspaceBackupProfile } from "./laterdog/cloud-move-profile.ts";
 import {
   MAX_WORKSPACE_BACKUP_FILES, MAX_WORKSPACE_BACKUP_UPLOAD_BYTES, omittedFromWorkspaceBackup, removeWorkspaceBackupJob,
   stageWorkspaceBackup, type WorkspaceBackupSummary,
@@ -50,12 +52,12 @@ export function isEmptyWorkspace(contents: WorkspaceContents): boolean {
   return contents.bots <= 1 && contents.rooms === 0 && contents.chats === 0;
 }
 
-export function workspaceMoveSize(dataDir: string): { bytes: number; files: number } {
+export function workspaceMoveSize(dataDir: string, profile?: WorkspaceBackupProfile): { bytes: number; files: number } {
   let bytes = 0, files = 0;
   const walk = (directory: string, prefix: string) => {
     for (const name of readdirSync(directory)) {
       const path = prefix ? `${prefix}/${name}` : name;
-      if (omittedFromWorkspaceBackup(path)) continue;
+      if (omittedFromWorkspaceBackup(path, profile)) continue;
       const stat = lstatSync(join(directory, name));
       if (stat.isSymbolicLink()) continue;
       if (stat.isDirectory()) walk(join(directory, name), path);
@@ -322,6 +324,7 @@ export function tidyCloudMoveStorage(dataDir: string, restored: { id?: string; r
       }
     } catch {}
   }
+  settleReceivedMove(dataDir, restored, pending);
   const upload = readUploadMeta(dataDir);
   if ((upload && upload.updatedAt + UPLOAD_STALE_MS <= now) || (!upload && existsSync(uploadPartPath(dataDir)))) discardUpload(dataDir);
 }

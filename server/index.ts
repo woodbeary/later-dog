@@ -329,6 +329,8 @@ import {
 } from "./cloud-home.ts";
 import { CLOUD_PERSONAL_REFUSAL, settleCloudOwnership, type CloudOwnership } from "./cloud-owner.ts";
 import { createCloudMoveRoutes, workspaceShared } from "./cloud-move-http.ts";
+import { CloudHold } from "./laterdog/cloud-hold.ts";
+import { createCloudHoldRoutes } from "./laterdog/cloud-hold-http.ts";
 import { RESTART_EXIT_CODE } from "./restart.ts";
 import { holdIncludedServices, voiceCredential } from "./included-services.ts";
 import type { ProviderInstance } from "./contracts.ts";
@@ -745,6 +747,7 @@ if (existsSync(join(DATA_DIR, ".backups"))) {
   }
 }
 const workspaceMaintenance = new WorkspaceBackupMaintenance();
+const cloudHold = new CloudHold(join(DATA_DIR, "cloud-hold.json"));
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
 const signInAllowList = cacheUntilConfigChanges((config) => ({
   admins: parseAllowList(config.signIn?.admins?.join(",")),
@@ -8126,6 +8129,7 @@ async function startTurn(
   },
 ) {
   workspaceMaintenance.assertAvailable();
+  cloudHold.assertAvailable();
   if (store.bots.some((candidate) => candidate.id === botId && hasNoModel(candidate))) await giveFirstEngine();
   const profile = store.bot(botId);
   if (!profile) throw Object.assign(new Error("no such bot"), { status: 404 });
@@ -10444,6 +10448,10 @@ async function runGroupMemberTurn(
 ): Promise<boolean> {
   if (workspaceMaintenance.active) {
     onDispatchError?.("A workspace backup or restore is in progress.");
+    return false;
+  }
+  if (cloudHold.held) {
+    onDispatchError?.("This computer's dogs are working in your Cloud while you are signed in.");
     return false;
   }
   if (isCancelled?.()) return false;
@@ -13502,6 +13510,7 @@ const workspaceBackupRoutes = createWorkspaceBackupRoutes({
   ...workspaceBackupAccess,
 });
 let restartRequested = false;
+const cloudHoldRoutes = createCloudHoldRoutes({ hold: cloudHold, routines: () => routines ?? null, readBody });
 const cloudMoveRoutes = createCloudMoveRoutes({
   dataDir: DATA_DIR,
   appVersion: serverVersion(),
@@ -13973,6 +13982,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (await workspaceBackupRoutes(req, res, path, auth)) return;
     if (await cloudMoveRoutes(req, res, path, auth)) return;
+    if (await cloudHoldRoutes(req, res, path, auth)) return;
     if (path.startsWith("/api/") && path !== "/api/events" && path !== "/api/health" && !path.startsWith("/api/shared-computers/") && !isWorkspaceBackupSessionControl(method, path)) {
       releaseWorkspaceRequest = workspaceMaintenance.request();
     }
