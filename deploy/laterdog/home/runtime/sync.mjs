@@ -187,6 +187,8 @@ function changedShape(before, after) {
   return false;
 }
 
+const RESTORE_PARALLEL = 16;
+
 export async function restore(root, store, owner) {
   const manifest = await store.manifest();
   if (!manifest) return { manifest: null, files: 0 };
@@ -195,30 +197,40 @@ export async function restore(root, store, owner) {
     if (owner) await lchown(path, owner.uid, owner.gid);
   };
   for (const entry of manifest.entries) {
+    if (entry.type !== "dir") continue;
     const path = join(root, entry.path);
-    if (entry.type === "dir") {
-      await mkdir(path, { recursive: true, mode: entry.mode });
-      await own(path);
-    } else if (entry.type === "link") {
-      await rm(path, { force: true, recursive: true });
-      await symlink(entry.target, path);
-      await own(path);
-    } else {
-      const parts = [];
-      for (const hash of entry.chunks) {
-        const bytes = await store.get(hash);
-        if (createHash("sha256").update(bytes).digest("hex") !== hash) throw new Error(`corrupt chunk for ${entry.path}`);
-        parts.push(bytes);
-      }
-      await rm(path, { force: true, recursive: true });
-      await writeFile(path, Buffer.concat(parts), { mode: entry.mode });
-      await chmod(path, entry.mode);
-      await own(path);
-      const moment = new Date(entry.mtimeMs);
-      await utimes(path, moment, moment);
-      files += 1;
-    }
+    await mkdir(path, { recursive: true, mode: entry.mode });
+    await own(path);
   }
+  for (const entry of manifest.entries) {
+    if (entry.type !== "link") continue;
+    const path = join(root, entry.path);
+    await rm(path, { force: true, recursive: true });
+    await symlink(entry.target, path);
+    await own(path);
+  }
+  const pending = manifest.entries.filter((entry) => entry.type !== "dir" && entry.type !== "link");
+  const writeOne = async (entry) => {
+    const path = join(root, entry.path);
+    const parts = [];
+    for (const hash of entry.chunks) {
+      const bytes = await store.get(hash);
+      if (createHash("sha256").update(bytes).digest("hex") !== hash) throw new Error(`corrupt chunk for ${entry.path}`);
+      parts.push(bytes);
+    }
+    await rm(path, { force: true, recursive: true });
+    await writeFile(path, Buffer.concat(parts), { mode: entry.mode });
+    await chmod(path, entry.mode);
+    await own(path);
+    const moment = new Date(entry.mtimeMs);
+    await utimes(path, moment, moment);
+    files += 1;
+  };
+  let next = 0;
+  const worker = async () => {
+    while (next < pending.length) await writeOne(pending[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(RESTORE_PARALLEL, pending.length) }, worker));
   for (const entry of [...manifest.entries].reverse()) {
     if (entry.type !== "dir") continue;
     const moment = new Date(entry.mtimeMs);

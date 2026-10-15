@@ -55,6 +55,25 @@ afterEach(() => {
 });
 
 describe("home data sync", () => {
+  it("fetches many files at once on wake, so a large workspace comes back in minutes, and every file still arrives exactly", async () => {
+    const source = folder();
+    mkdirSync(join(source, "chats"), { recursive: true });
+    for (let i = 0; i < 40; i++) writeFileSync(join(source, "chats", `${i}.json`), `{"chat":${i}}`);
+    const store = memoryStore();
+    await snapshot(source, store, null, { scratch: folder() });
+    let inFlight = 0, most = 0;
+    const slow = { ...store, async get(hash: string) {
+      inFlight += 1; most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return store.get(hash);
+    } };
+    const target = folder();
+    expect((await restore(target, slow, null)).files).toBe(40);
+    expect(most).toBeGreaterThan(8);
+    for (let i = 0; i < 40; i++) expect(readFileSync(join(target, "chats", `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
+  });
+
   it("restores files, folders, links and modes exactly", async () => {
     const source = folder();
     mkdirSync(join(source, ".laterdog", "attachments"), { recursive: true });
