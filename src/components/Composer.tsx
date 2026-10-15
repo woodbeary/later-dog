@@ -16,7 +16,6 @@ import {
   forgetFailedComposerSend,
   markDraftEdited,
   placeDraftPosition,
-  prependComposerDraft,
   recoverFailedComposerSend,
   rememberComposerDraftPosition,
   rememberFailedComposerSend,
@@ -32,7 +31,8 @@ import {
 import { BotAvatar } from "./Avatar";
 import { MentionTextarea } from "./MentionTextarea";
 import { ComposerAttachments, pathForFile } from "./ComposerAttachments";
-import { splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
+import type { CitationAttachment } from "@/lib/citations";
+import { editableMessage, restoreEditableMessage } from "@/lib/composer-message-edit";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { FullAccessWarning } from "./FullAccessWarning";
 import { CommandAllowlistDialog } from "./CommandAllowlistDialog";
@@ -487,15 +487,14 @@ export function Composer({
     if (!queued) return;
     const targetDraftId = draftId;
     const onCancelled = () => {
-      const cited = splitTranscriptCitations(queued.text);
-      if (cited.display) prependComposerDraft(targetDraftId, cited.display);
-      appendDraftAttachments(targetDraftId, cited.citations);
+      const editable = editableMessage(queued.text);
+      restoreEditableMessage(targetDraftId, editable);
       if (targetDraftId !== draftIdRef.current) return;
       requestAnimationFrame(() => {
         const input = inputRef.current;
         if (!input) return;
         input.focus();
-        input.setSelectionRange(cited.display.length, cited.display.length);
+        input.setSelectionRange(editable.text.length, editable.text.length);
       });
     };
     if (group) dispatch({ type: "cancelGroupQueued", groupId: group.id, threadId, queueId, onCancelled });
