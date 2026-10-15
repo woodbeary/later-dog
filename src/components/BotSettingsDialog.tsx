@@ -5,6 +5,7 @@ import { useStore, type Bot } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { skillsLibraryEnabled } from "@/lib/feature-flags";
+import { offLeashActsWithoutAsking } from "@/lib/auto-review";
 import { DOG_COLOR_NAMES, DOG_COLORS } from "@/lib/mascot";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 import { DEFAULT_MASCOT_BODY, MASCOT_BODIES, MASCOT_BODY_IDS } from "../../shared/mascot-bodies";
@@ -148,7 +149,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const approvalHint = customMode
     ? t("botSettings.simple.customMode")
     : displayedApprovalMode === "auto"
-      ? t("botSettings.simple.decideHint")
+      ? t(offLeashActsWithoutAsking(state.config) ? "botSettings.simple.decideHintNoReview" : "botSettings.simple.decideHint")
       : t("botSettings.simple.askHint");
 
   return (

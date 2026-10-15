@@ -73,6 +73,56 @@ own default and its other conversations do not change, and an ordinary bot's
 delegation still uses the recipient's setting. Questions and missing
 credentials still reach you.
 
+## Auto-review: one switch for the whole account
+
+Settings → General → **Approvals** → **Auto-review** is shown on My Cloud (a
+Cloud home). It is on by default and changes nothing about a dog's own level;
+it decides what **Off-leash** means for every Off-leash dog in the account,
+including dogs made later: a dog made in the app starts Off-leash, and a dog a
+dog makes is capped at Off-leash (a dog made through the API with no settings
+starts on Heel). It is saved in the home's config as `features.autoReview`;
+only the owner's own devices (admin sessions) can change it, through
+`PATCH /api/config`, and apps on the Mac (local tools) cannot.
+
+| Auto-review | What an Off-leash dog does |
+| --- | --- |
+| **On** (default) | The engine's own reviewer checks each action and asks you when it wants to (Codex `auto_review`, Claude `auto`, Cursor `--auto-review`, Grok `auto`, Qwen `auto`). Engines without a reviewer ask as described above. |
+| **Off** | The engine starts without its reviewer (in its Heel mode, so nothing is blocked out of sight) and later.dog answers each request it raises with Allow, without a card. Engines without a reviewer keep their Off-leash rules and later.dog answers the rest. The chat gets no line per approved action; the decision log records each one with source `auto-review-off`. |
+
+Off never touches these, so they still ask you first:
+
+- Dogs on **Heel** or **Auto-accept edits** (a per-dog override), and dogs on
+  Full access or Custom keep their own behaviour. Antigravity dogs, whose
+  Off-leash shows as Ask, keep asking too.
+- Questions a dog asks you; no level answers a question.
+- Sending on your behalf (email, messages, posts, invites, payments): an engine
+  request for a sending tool is held ("This sends something on your behalf, so
+  it always asks first"), and the connected-apps proxy shows "Send on your
+  behalf?" unless that dog's send rule (`outbound`, API only) is Allow, which
+  keeps its daily cap.
+- A command that asks to leave the engine's sandbox; only Full access approves
+  that.
+- Your Mac: it has its own setting (Ask, Always allow, Never; "Your Mac" in the
+  phone's Settings, or Always allow on a Mac card), checked on every `mac_*`
+  call.
+- A dog changing another dog, a pack or your team (another dog's profile,
+  model or routines; team setup). A dog's changes to itself already apply
+  directly, with Undo, at every level.
+- Messages between dogs, for a dog whose `approvePeerComms` is on (set through
+  the API; there is no switch for it in the app today).
+- Any turn whose latest message came from an app on your Mac through local tools
+  (Claude Code, Codex, scripts). Such a turn starts with the reviewer on, and
+  if an app steers into a turn that started without it, every later request in
+  that turn asks.
+- Conversations someone other than the owner drives in the Cloud home; they
+  always run on Heel.
+
+On a later.dog that runs only on your Mac, without a Cloud home, the switch is
+not shown and has no effect, because there a dog's commands run on your own
+computer; use a dog's Full access for that. Turning Auto-review back on takes
+effect on each dog's next turn. A request that arrives after you switch is
+judged by the new setting.
+
 ## Answering a request
 
 Approve or deny requests in the conversation to let the bot continue. **Allow

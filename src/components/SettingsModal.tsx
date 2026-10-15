@@ -21,6 +21,8 @@ import { AboutMeSettings } from "./AboutMeSettings";
 import { AccountsPanel, AccountsRefresh } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { TypingSuggestionsRows } from "./TypingSuggestionsSettings";
+import { AutoReviewRow } from "./AutoReviewSettings";
+import { autoReviewSwitchShown } from "@/lib/auto-review";
 import { HelpRows } from "./SettingsHelp";
 import { CloudComputerRows } from "./CloudComputerRows";
 import { CloudAccountSettings } from "./CloudAccountSettings";
@@ -345,6 +347,13 @@ function GeneralPage({ mac }: { mac: boolean }) {
           </div>
         </SettingsRows>
       </SettingsGroup>
+      {autoReviewSwitchShown(state.config) && (
+        <SettingsGroup label={t("settings.group.approvals")} testId="approvals">
+          <SettingsRows>
+            <AutoReviewRow />
+          </SettingsRows>
+        </SettingsGroup>
+      )}
       <SettingsGroup label={t("settings.section.appearance")} testId="appearance">
         <SettingsRows>
           <ThemeRow />

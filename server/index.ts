@@ -200,6 +200,7 @@ import {
   cloudDictationEnabled,
   typingSuggestionsEnabled,
   smarterSuggestionsEnabled,
+  autoReviewEnabled,
   EVENTS_DIR,
   NATIVE_DIR,
   customMcpServers,
@@ -641,6 +642,7 @@ import {
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
 import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, signsItselfOut, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 import { EDIT_REFUSAL, UNGUARDED_REFUSAL, localToolMessageText, localToolSpeaker, unguardedMode } from "./laterdog/local-tool-message.ts";
+import { announcesApproval, approvalGrantName, engineApprovalMode, reviewedVerdict, reviewSkipped, type AutoReviewScope } from "./laterdog/auto-review.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
@@ -3509,6 +3511,15 @@ const approvalModeForTurn = (bot: BotRecord, peerInitiated = false, threadId = b
   }
   return mode;
 };
+
+function autoReviewScope(bot: BotRecord, threadId: string, driverKind = registry.cliTarget(bot.modelSelection.instanceId)?.driverKind): AutoReviewScope {
+  return {
+    autoReview: autoReviewEnabled(cfg),
+    cloudHome: Boolean(CLOUD_HOME),
+    driverKind,
+    lastPersonVia: store.activePath(threadId).findLast((message) => message.role === "user" && !message.peerAsk)?.via,
+  };
+}
 
 function sourceApprovalMode(botId: string, threadId: string): ApprovalMode {
   const owner = connectorThread(botId, threadId);
@@ -6625,10 +6636,11 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
         : null;
       const verdict = permission && asker && event.requestId
-        ? autoVerdict(effectiveApprovalMode, event.tool, {
+        ? reviewedVerdict(autoVerdict(effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
           commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command)),
-        })
+        }), { tool: event.tool, approvalScope: event.approvalScope,
+          skipped: !guestDriven && reviewSkipped(effectiveApprovalMode, autoReviewScope(asker, event.threadId)) })
         : null;
       if (
         permission &&
@@ -6669,12 +6681,12 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             if (outcome !== "unavailable") pushMessage({
               role: "bot", kind: "activity",
               tool: outcome === "rejected"
-                ? { name: `The provider rejected this action despite ${verdict.source === "command-allowlist" ? "the saved command permission" : "Full access"}.`, ok: false }
+                ? { name: `The provider rejected this action despite ${approvalGrantName(verdict.source)}.`, ok: false }
                 : failedTurnTool("could not deliver approval to the provider; retry the task after reconnecting."),
             });
             return;
           }
-          pushMessage({
+          if (announcesApproval(verdict.source)) pushMessage({
             role: "bot",
             kind: "activity",
             tool: { name: `${settled}: ${summary.slice(0, 120)}`, ok: true },
@@ -8966,7 +8978,7 @@ async function startTurn(
           (opts?.automaticRecoveryIndex ?? 0) < ((liveBot ?? bot).fallback?.length || (cfg.automaticRecovery.backup ? 1 : 0)),
         text: withRecalled(recalled, dispatchContext.turnText),
         images: turnImages,
-        approvalMode: approvalModeForTurn(bot, commsDepth > 0, threadId),
+        approvalMode: engineApprovalMode(approvalModeForTurn(bot, commsDepth > 0, threadId), autoReviewScope(bot, threadId, instance.driverKind)),
         toolScope,
         ...(guestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
         model,
@@ -11064,7 +11076,7 @@ async function runGroupMemberTurn(
         botId: readyBot.id,
         text: withRecalled(roomRecalled, text),
         images: turnImages,
-        approvalMode: roomTurnApprovalMode(readyBot, threadId, orchestration),
+        approvalMode: engineApprovalMode(roomTurnApprovalMode(readyBot, threadId, orchestration), autoReviewScope(readyBot, threadId, instance.driverKind)),
         toolScope: toolScopeForTurn(readyBot.id),
         ...(roomGuestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
         ...(stepUpdatesEnabled(cfg) ? {} : { quietWork: true }),
@@ -13207,6 +13219,7 @@ function configStatus() {
       cloudDictation: cloudDictationEnabled(cfg),
       typingSuggestions: typingSuggestionsEnabled(cfg),
       smarterSuggestions: smarterSuggestionsEnabled(cfg),
+      autoReview: autoReviewEnabled(cfg),
     },
     onboarding: {
       completedAt: cfg.onboarding?.completedAt ?? "",
