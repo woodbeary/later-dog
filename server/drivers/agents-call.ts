@@ -610,11 +610,11 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     return { text: `Task ${taskId} ended without a reply — ${String(r.status ?? "unknown")}${r.result ? `: ${String(r.result)}` : ""}.`, isError: true };
   }
   if (name === "select_computer") {
-    if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "local"].includes(args.surface))) {
-      return { text: "Choose auto, cloud or local; omit surface to inspect connected choices.", isError: true };
+    if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "local", "mac"].includes(args.surface))) {
+      return { text: "Choose auto, cloud, local or mac; omit surface to inspect connected choices.", isError: true };
     }
     const result = await api("/api/internal/computer/select", args.surface === undefined ? undefined : {
-      method: "POST", body: JSON.stringify({ surface: args.surface }),
+      method: "POST", body: JSON.stringify({ surface: args.surface, ...(typeof args.needs === "string" ? { needs: args.needs.slice(0, 500) } : {}) }),
     });
     return { text: JSON.stringify(result) };
   }

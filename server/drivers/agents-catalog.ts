@@ -2,6 +2,7 @@ import { CREDENTIAL_TARGETS } from "../../shared/credential-request.ts";
 import { OPTIONS_CARD_LIMITS, WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared/options-card.ts";
 import { TAKEOVER_REASONS } from "../../shared/takeover.ts";
 import { agentToolAnnotations } from "../agent-tool-policy.ts";
+import { COMPUTER_RULE } from "../laterdog/mac-computer.ts";
 
 export interface CatalogProfile {
   externalRuntime: boolean;
@@ -203,7 +204,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
   },
   {
     name: "shared_computer",
-    description: "Use the person's own Mac, where later.dog is open and signed in to this account. computer_id is optional while one computer is connected, and folder_id is optional when it lends one folder: a Mac connected through its later.dog sign-in lends its home folder, so paths look like Downloads/report.pdf or ~/Downloads/report.pdf. The first time in a request that you look at files, save a file, run a command or use apps there, the person gets an Allow card on their phone and desktop and this call waits for the answer, up to about three minutes. If they don't allow it, say so in one line and don't retry. list_files/read_file/write_file stay inside lent folders. read_file returns sha256; overwriting requires expected_sha256. Binary files support base64 encoding. A file over 256 KiB is read in parts: pass offset and length (up to 262144 bytes each); every part reports the file's total size. run_command requires a SEPARATE unrestricted terminal grant. computer_tools lists the native computer-control tools; computer_call invokes one with arguments and needs a SEPARATE computer-control grant. Never substitute the server's filesystem when this desktop is offline. Actions are not retried automatically; inspect an uncertain outcome before retrying.",
+    description: "Use the person's own Mac, where later.dog is open and signed in to this account. computer_id is optional while one computer is connected, and folder_id is optional when it lends one folder: a Mac connected through its later.dog sign-in lends its home folder, so paths look like Downloads/report.pdf or ~/Downloads/report.pdf. On someone else's server the first time in a request that you look at files, save a file, run a command or use apps there, the person gets an Allow card on their phone and desktop and this call waits for the answer, up to about three minutes; if they don't allow it, say so in one line and don't retry. On the person's own cloud home there is no card. list_files/read_file/write_file stay inside lent folders. read_file returns sha256; overwriting requires expected_sha256. Binary files support base64 encoding. A file over 256 KiB is read in parts: pass offset and length (up to 262144 bytes each); every part reports the file's total size. run_command requires a SEPARATE unrestricted terminal grant. computer_tools lists the native computer-control tools; computer_call invokes one with arguments and needs a SEPARATE computer-control grant. If the Mac is offline the result says so: carry on with what you can do on your own computer, and never substitute the server's filesystem for its files. Actions are not retried automatically; inspect an uncertain outcome before retrying.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       computer_id: { type: "string" }, action: { type: "string", enum: ["list_files", "read_file", "write_file", "run_command", "computer_tools", "computer_call"] },
       folder_id: { type: "string" }, path: { type: "string" }, content: { type: "string" }, encoding: { type: "string", enum: ["utf8", "base64"] }, expected_sha256: { type: "string" },
@@ -899,15 +900,19 @@ const EXTERNAL_TOOL_NAMES = new Set(["list_bots", "ask_bot", "delegate_bot", "ch
 const WATCHER_TOOL_NAMES = new Set(["create_options_card"]);
 
 const CLOUD_HOME_SURFACE = {
-  type: "string", enum: ["auto", "cloud"],
-  description: "auto = suitable configured computer, cloud = the dog's own cloud computer. Omit to list. This server runs in the cloud: the user's own computer is not a place here.",
+  type: "string", enum: ["auto", "cloud", "mac"],
+  description: "auto = your own cloud computer, or the person's Mac when `needs` says the task needs it; cloud = your own cloud computer; mac = the person's Mac. Omit to list.",
+};
+const CLOUD_HOME_NEEDS = {
+  type: "string", maxLength: 500,
+  description: "With auto: what the task needs, in a few words, such as \"file in Downloads\" or \"local project folder\". Only the Mac has those.",
 };
 
 export function availableTools(profile: CatalogProfile) {
   const tools = catalogTools(profile);
   return profile.cloudHome
     ? tools.map(tool => tool.name === "select_computer"
-      ? { ...tool, inputSchema: { ...tool.inputSchema, properties: { surface: CLOUD_HOME_SURFACE } } }
+      ? { ...tool, description: `${COMPUTER_RULE} Call with no arguments to inspect the choices. The Mac needs no switch: use shared_computer. A pending result means end this turn at once; later.dog resumes the request on that computer, so don't use the old tools or claim the action is done.`, inputSchema: { ...tool.inputSchema, properties: { surface: CLOUD_HOME_SURFACE, needs: CLOUD_HOME_NEEDS } } }
       : tool)
     : tools;
 }

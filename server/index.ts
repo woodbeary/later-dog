@@ -113,6 +113,7 @@ import { groupTurnCwd } from "./room-cwd.ts";
 import { RoomTurnDeadline, RoomTurnStallRegistry, effectiveRoomTurnTimeoutMinutes, parseConversationTurnTimeout, roomTurnTimeoutMessage } from "./room-turn-timeout.ts";
 import { roomTurnEnd, type RoomClaimEnd } from "./room-turn-end.ts";
 import { pickComputer } from "./computer-selection.ts";
+import { isMacOffline, macOfflineResult, macOptions, macSelectReply, type KnownMac } from "./laterdog/mac-computer.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -1023,6 +1024,12 @@ function macLendingNotice(capability: Pick<InternalCapability, "botId" | "thread
   return why === "someone-else" ? LENDING_SOMEONE_ELSE : why === "memory-changed" ? LENDING_MEMORY_CHANGED : null;
 }
 
+function ownerMacs(capability: InternalCapability): KnownMac[] {
+  const principal = sharedComputerPrincipal(capability);
+  if (!principal || macLendingNotice(capability, principal)) return [];
+  return sharedComputers.known(principal).map((computer) => ({ name: computer.name, online: computer.online }));
+}
+
 function macKnown(): boolean {
   return sharedComputers.known(CLOUD_HOME_LENDER).length > 0 || sharedComputers.status(CLOUD_HOME_LENDER).length > 0;
 }
@@ -1052,7 +1059,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
     if (known.length === 0) throw Object.assign(new Error(CONNECT_MAC), { status: 409 });
     await sharedComputers.waitOnline(principal, MAC_WAIT_MS);
     target = sharedComputers.pick(principal, requested.computer_id);
-    if (!target) throw Object.assign(new Error(macOffline(known)), { status: 409 });
+    if (!target) throw Object.assign(new Error(macOffline(known)), { status: 409, macOffline: true });
   }
   const operation = completeSharedOperation(target, requested);
   const refusal = sharedComputerScopeRefusal(target, operation);
@@ -1061,7 +1068,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   if (!bot) throw Object.assign(new Error("This dog is gone."), { status: 404 });
   const requestMessageId = macRequestMessageId(capability);
   const verdict = await macApprovals.check({
-    bot, threadId: capability.threadId, computer: target.name, operation, active,
+    bot, threadId: capability.threadId, computer: target.name, operation, active, ownerOwned: true,
     ...(requestMessageId ? { requestMessageId } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
@@ -14310,7 +14317,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const bot = store.projectBotForTask(internalSender.id, internalCapability.threadId);
         const canSelect = Boolean(source && source.generation === internalCapability.generation && bot && bot.computer !== "off");
         if (!bot) return json(res, 403, { error: "Computer selection belongs to a direct bot conversation." });
-        const requested = method === "POST" ? (await readInternalBody()).surface : undefined;
+        const selectBody = method === "POST" ? await readInternalBody() : undefined;
+        const requested = selectBody?.surface;
+        const macs = CLOUD_HOME ? ownerMacs(internalCapability) : [];
+        const macReply = method === "POST" ? macSelectReply(requested, selectBody?.needs, macs) : null;
+        if (macReply) return json(res, 200, macReply);
         if (method === "POST" && !canSelect) return json(res, 403, { error: "Computer selection is only available once per direct user request, with computer access enabled." });
         if (method === "POST" && requested !== "auto" && !offersPlace(requested)) {
           return json(res, 400, { error: "surface must be auto, cloud or local" });
@@ -14319,7 +14330,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const options = await selectableComputers(bot);
         const current = source ? source.mounted ?? "off" : await computerPreviewSurface(bot, bot.threadId);
         requireActiveInternalCapability();
-        if (method === "GET") return json(res, 200, { current, canSelect, options });
+        if (method === "GET") return json(res, 200, { current, canSelect, options: [...options, ...macOptions(macs)] });
         if (computerSelectionTurns.get(internalCapability.threadId) !== source) return json(res, 409, { error: "The person request ended before its computer was selected." });
         if (unoffered) return json(res, 409, { error: unoffered, options });
         const claim = autoVmClaims.get(internalCapability.threadId);
@@ -14458,7 +14469,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (["computer_tools", "computer_call"].includes(parsed.data.action) && store.bot(internalCapability.botId)?.computer === "off") {
           return json(res, 403, { error: "This bot has no computer. Change its Computer setting to use a shared computer's apps and screen." });
         }
-        return json(res, 200, { result: await useMac(parsed.data, internalCapability) });
+        try {
+          return json(res, 200, { result: await useMac(parsed.data, internalCapability) });
+        } catch (error) {
+          if (isMacOffline(error)) return json(res, 200, { result: macOfflineResult() });
+          throw error;
+        }
       }
       if (method === "GET" && path === "/api/internal/agents") {
         const sender = internalSender;
