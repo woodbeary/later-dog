@@ -1,19 +1,30 @@
 import type { Refusal } from "./auth";
+import type { UsageKind } from "./decide";
+import { bounded } from "./idle";
 
 export const AI_MAX_BODY_BYTES = 16 * 1024 * 1024;
 export const AI_TOKENS_PER_DAY = 1_500_000;
 export const AI_TOKENS_TOTAL_PER_DAY = 100_000_000;
-export const AI_DEFAULT_MODEL = "grok-4-1-fast-reasoning";
 export const AI_WORKERS_MODEL = "@cf/moonshotai/kimi-k2.6";
+export const CLAUDE_MODELS: readonly string[] = ["claude-sonnet-5", "claude-sonnet-5-5"];
+export const CLAUDE_DEFAULT_MODEL = "claude-sonnet-5";
+export const GROK_MODELS: readonly string[] = ["grok-4.7", "grok-4.6"];
+export const GROK_DEFAULT_MODEL = "grok-4.7";
+export const CLAUDE_TOKENS_PER_DAY = 200_000;
+export const CLAUDE_TOKENS_TOTAL_PER_DAY = 10_000_000;
+export const GROK_TOKENS_PER_DAY = 300_000;
+export const GROK_TOKENS_TOTAL_PER_DAY = 15_000_000;
+export const CLAUDE_CACHED_SHARE = 0.1;
+export const GROK_CACHED_SHARE = 0.25;
 export const AI_BUSY = "later.dog AI is busy right now. Try again in a minute.";
-const BUSY_ERROR = { message: AI_BUSY, type: "server_error", code: "upstream_failed" };
+export const AI_BUSY_ERROR = { message: AI_BUSY, type: "server_error", code: "upstream_failed" };
 export const AI_MAX_OUTPUT_TOKENS = 32_000;
 const MAX_MESSAGES = 1_000;
 const MAX_TOOLS = 256;
 const PASSED = ["messages", "tools", "tool_choice", "parallel_tool_calls", "temperature", "top_p", "response_format", "stop", "seed", "reasoning_effort"] as const;
 
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
-const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+export const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+export const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
 const refuse = (message: string): { ok: false; refusal: Refusal } => ({ ok: false, refusal: { status: 400, code: "invalid_request", message } });
 
 export type ChatRequest = Record<string, unknown> & { model: string; stream: boolean };
@@ -41,17 +52,27 @@ export function tokensOf(usage: unknown): number {
   return Math.ceil(count(usage.prompt_tokens) + count(usage.completion_tokens));
 }
 
+export function billedTokens(usage: unknown, cachedShare: number): number {
+  if (!isRecord(usage)) return 0;
+  const total = tokensOf(usage);
+  const cached = Math.min(total, count(isRecord(usage.prompt_tokens_details) ? usage.prompt_tokens_details.cached_tokens : 0));
+  return Math.ceil(total - cached + cached * cachedShare);
+}
+
 export async function streamedTokens(stream: ReadableStream<Uint8Array>): Promise<number> {
+  return tokensOf(await streamedUsage(stream));
+}
+
+export async function streamedUsage(stream: ReadableStream<Uint8Array>): Promise<unknown> {
   const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
-  let tokens = 0;
+  let usage: unknown;
   const take = (line: string) => {
     const data = line.startsWith("data:") ? line.slice(5).trim() : "";
     if (!data || data === "[DONE]") return;
     try {
       const chunk = JSON.parse(data) as { usage?: unknown };
-      const counted = tokensOf(chunk.usage);
-      if (counted > 0) tokens = counted;
+      if (tokensOf(chunk.usage) > 0) usage = chunk.usage;
     } catch {
       return;
     }
@@ -68,13 +89,89 @@ export async function streamedTokens(stream: ReadableStream<Uint8Array>): Promis
     }
   }
   take(buffer.trim());
-  return tokens;
+  return usage;
 }
 
 export function workersInput(request: ChatRequest): Record<string, unknown> {
-  const input: Record<string, unknown> = { ...request, chat_template_kwargs: { thinking: false } };
+  const input: Record<string, unknown> = { ...openAiRequest(request), chat_template_kwargs: { thinking: false } };
   delete input.model;
   return input;
+}
+
+export function openAiRequest(request: ChatRequest, model = request.model): ChatRequest {
+  const messages = Array.isArray(request.messages) ? request.messages : [];
+  if (!messages.some((message) => isRecord(message) && message.reasoning_details !== undefined)) return { ...request, model };
+  return {
+    ...request,
+    model,
+    messages: messages.map((message) => {
+      if (!isRecord(message) || message.reasoning_details === undefined) return message;
+      const rest = { ...message };
+      delete rest.reasoning_details;
+      return rest;
+    }),
+  };
+}
+
+export type Upstream = { kind: "claude"; model: string } | { kind: "grok"; model: string } | { kind: "workers"; model: string };
+
+export interface ChatSetup {
+  claude: boolean;
+  grok: boolean;
+  first?: string;
+  claudeModel?: string;
+  grokModel?: string;
+  workersModel?: string;
+}
+
+const chosen = (offered: readonly string[], asked: string, configured: string | undefined, fallback: string) => {
+  const preferred = configured?.trim() || fallback;
+  return offered.includes(asked) || asked === preferred ? asked : preferred;
+};
+
+export function chatUpstreams(asked: string, setup: ChatSetup): Upstream[] {
+  const claude: Upstream[] = setup.claude ? [{ kind: "claude", model: chosen(CLAUDE_MODELS, asked, setup.claudeModel, CLAUDE_DEFAULT_MODEL) }] : [];
+  const grok: Upstream[] = setup.grok ? [{ kind: "grok", model: chosen(GROK_MODELS, asked, setup.grokModel, GROK_DEFAULT_MODEL) }] : [];
+  const workers: Upstream[] = [{ kind: "workers", model: setup.workersModel?.trim() || AI_WORKERS_MODEL }];
+  const first = asked.startsWith("claude") ? "anthropic" : asked.startsWith("grok") ? "xai" : asked.startsWith("kimi") ? "workers-ai" : setup.first?.trim();
+  if (first === "anthropic") return [...claude, ...workers, ...grok];
+  if (first === "xai") return [...grok, ...workers];
+  return [...workers, ...grok];
+}
+
+export interface ModelCap {
+  kind: UsageKind;
+  perKey: number;
+  total: number;
+}
+
+export interface CapVars {
+  TRIAL_CLAUDE_TOKENS_PER_DAY?: string;
+  TRIAL_CLAUDE_TOKENS_TOTAL_PER_DAY?: string;
+  TRIAL_GROK_TOKENS_PER_DAY?: string;
+  TRIAL_GROK_TOKENS_TOTAL_PER_DAY?: string;
+}
+
+export function modelCap(upstream: Upstream, vars: CapVars): ModelCap | null {
+  if (upstream.kind === "claude") {
+    return {
+      kind: "claude_tokens",
+      perKey: Math.floor(bounded(vars.TRIAL_CLAUDE_TOKENS_PER_DAY, CLAUDE_TOKENS_PER_DAY, 0, AI_TOKENS_PER_DAY)),
+      total: Math.floor(bounded(vars.TRIAL_CLAUDE_TOKENS_TOTAL_PER_DAY, CLAUDE_TOKENS_TOTAL_PER_DAY, 0, AI_TOKENS_TOTAL_PER_DAY)),
+    };
+  }
+  if (upstream.kind === "grok") {
+    return {
+      kind: "grok_tokens",
+      perKey: Math.floor(bounded(vars.TRIAL_GROK_TOKENS_PER_DAY, GROK_TOKENS_PER_DAY, 0, AI_TOKENS_PER_DAY)),
+      total: Math.floor(bounded(vars.TRIAL_GROK_TOKENS_TOTAL_PER_DAY, GROK_TOKENS_TOTAL_PER_DAY, 0, AI_TOKENS_TOTAL_PER_DAY)),
+    };
+  }
+  return null;
+}
+
+export function cachedShare(upstream: Upstream): number {
+  return upstream.kind === "claude" ? CLAUDE_CACHED_SHARE : upstream.kind === "grok" ? GROK_CACHED_SHARE : 1;
 }
 
 
@@ -106,7 +203,7 @@ export function openAiStream(stream: ReadableStream<Uint8Array>): ReadableStream
     if (!isRecord(chunk)) return;
     if (!Array.isArray(chunk.choices)) {
       if (isRecord(chunk.usage)) usage = chunk.usage;
-      else send(controller, chunk.error !== undefined ? { error: BUSY_ERROR } : chunk);
+      else send(controller, chunk.error !== undefined ? { error: AI_BUSY_ERROR } : chunk);
       return;
     }
     if (isRecord(chunk.usage)) {
@@ -145,7 +242,7 @@ export function plainErrors(stream: ReadableStream<Uint8Array>): ReadableStream<
     if (!data.startsWith("{")) return text;
     try {
       const chunk: unknown = JSON.parse(data);
-      return isRecord(chunk) && chunk.error !== undefined ? `data: ${JSON.stringify({ error: BUSY_ERROR })}` : text;
+      return isRecord(chunk) && chunk.error !== undefined ? `data: ${JSON.stringify({ error: AI_BUSY_ERROR })}` : text;
     } catch {
       return text;
     }

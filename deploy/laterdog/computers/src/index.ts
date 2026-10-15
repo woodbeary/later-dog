@@ -3,7 +3,8 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
-import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
+import { AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, billedTokens, cachedShare, chatRequest, chatUpstreams, grokRequest, modelCap, openAiRequest, openAiStream, plainErrors, streamedUsage, usableStream, workersInput, type ChatRequest, type Upstream } from "./ai";
+import { claudeBody, claudeChunks, claudeCompletion, claudeRequest } from "./claude";
 import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, SCREEN_CHECKS_PER_DAY, SCREEN_CHECKS_TOTAL_PER_DAY, TOOL_DECISIONS_PER_DAY, TOOL_DECISIONS_TOTAL_PER_DAY, type Decision, type UsageKind, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom, toolDecisionFrom } from "./decide";
 import { COMPLETE_DEFAULT_MODEL, COMPLETE_MAX_BODY_BYTES, COMPLETIONS_PER_DAY, COMPLETIONS_TOTAL_PER_DAY, completeInput, completeRequest, completionFrom } from "./complete";
 import { maxComputers } from "./idle";
@@ -49,7 +50,13 @@ declare global {
     SQUARE_ACCESS_TOKEN?: string;
     SQUARE_ENVIRONMENT?: string;
     XAI_API_KEY?: string;
-    TRIAL_AI_MODEL?: string;
+    ANTHROPIC_API_KEY?: string;
+    TRIAL_CLAUDE_MODEL?: string;
+    TRIAL_GROK_MODEL?: string;
+    TRIAL_CLAUDE_TOKENS_PER_DAY?: string;
+    TRIAL_CLAUDE_TOKENS_TOTAL_PER_DAY?: string;
+    TRIAL_GROK_TOKENS_PER_DAY?: string;
+    TRIAL_GROK_TOKENS_TOTAL_PER_DAY?: string;
     TRIAL_AI_WORKERS_MODEL?: string;
     TYPING_AI_MODEL?: string;
   }
@@ -693,9 +700,33 @@ async function grokAnswer(env: Env, request: ChatRequest, key: string): Promise<
   return null;
 }
 
-async function workersAnswer(env: Env, request: ChatRequest): Promise<ChatAnswer | null> {
+async function claudeAnswer(env: Env, request: ChatRequest, model: string, key: string): Promise<ChatAnswer | null> {
+  const body = claudeBody(request, model);
+  if (!body) return null;
   try {
-    const model = env.TRIAL_AI_WORKERS_MODEL?.trim() || AI_WORKERS_MODEL;
+    const upstream = await env.AI.gateway(aiGateway(env).gateway.id).run(claudeRequest(body, key));
+    if (upstream.ok && upstream.body) {
+      if (request.stream) {
+        const stream = await usableStream(claudeChunks(upstream.body));
+        if (stream) return { stream };
+        console.error("laterdog computers: Claude stream opened with an error");
+        return null;
+      }
+      const answer = claudeCompletion(await upstream.json());
+      if (answer) return { answer };
+      console.error("laterdog computers: Claude answered nothing usable");
+      return null;
+    }
+    const detail = (await upstream.text().catch(() => "")).slice(0, 500);
+    console.error(`laterdog computers: Claude answered ${upstream.status}: ${detail}`);
+  } catch (error) {
+    console.error(`laterdog computers: Claude failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return null;
+}
+
+async function workersAnswer(env: Env, request: ChatRequest, model: string): Promise<ChatAnswer | null> {
+  try {
     const result: unknown = await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(model, workersInput(request), aiGateway(env));
     if (result instanceof ReadableStream) {
       const stream = await usableStream(openAiStream(result as ReadableStream<Uint8Array>));
@@ -720,30 +751,52 @@ async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: 
   if (!env.AI) return apiError(NOT_INCLUDED);
   const body = await readBody(request, AI_MAX_BODY_BYTES);
   if (!body.ok) return body.response;
-  const parsed = chatRequest(body.value, env.TRIAL_AI_MODEL?.trim() || AI_DEFAULT_MODEL);
+  const asked = body.value && typeof body.value === "object" ? String((body.value as { model?: unknown }).model ?? "") : "";
+  const parsed = chatRequest(body.value, asked);
   if (!parsed.ok) return apiError(parsed.refusal);
   const registry = trials(env);
   const left = await registry.usageLeft({ keySha256, kind: "ai_tokens", perKey: AI_TOKENS_PER_DAY, total: AI_TOKENS_TOTAL_PER_DAY });
   if (!left.ok) return apiError(left.refusal, left.refusal.status === 401 ? CHALLENGE : {});
-  const charge = (amount: number) => registry.chargeUsage({ keySha256, kind: "ai_tokens", amount });
-  const key = env.XAI_API_KEY?.trim();
-  const workers = () => workersAnswer(env, parsed.request);
-  const grok = key ? () => grokAnswer(env, parsed.request, key) : null;
-  const asked = body.value && typeof body.value === "object" ? String((body.value as { model?: unknown }).model ?? "") : "";
-  const grokFirst = asked.startsWith("grok") || (!asked.startsWith("kimi") && env.TRIAL_AI_FIRST?.trim() === "xai");
-  const order = !grok ? [workers] : grokFirst ? [grok, workers] : [workers, grok];
+  const xaiKey = env.XAI_API_KEY?.trim();
+  const anthropicKey = env.ANTHROPIC_API_KEY?.trim();
+  const upstreams = chatUpstreams(asked, {
+    claude: Boolean(anthropicKey),
+    grok: Boolean(xaiKey),
+    first: env.TRIAL_AI_FIRST,
+    claudeModel: env.TRIAL_CLAUDE_MODEL,
+    grokModel: env.TRIAL_GROK_MODEL,
+    workersModel: env.TRIAL_AI_WORKERS_MODEL,
+  });
+  const answer = (upstream: Upstream) => upstream.kind === "claude"
+    ? claudeAnswer(env, parsed.request, upstream.model, anthropicKey ?? "")
+    : upstream.kind === "grok"
+      ? grokAnswer(env, openAiRequest(parsed.request, upstream.model), xaiKey ?? "")
+      : workersAnswer(env, parsed.request, upstream.model);
   let result: ChatAnswer | null = null;
-  for (const answer of order) {
-    result = await answer();
-    if (result) break;
+  let served: Upstream | null = null;
+  for (const upstream of upstreams) {
+    const cap = modelCap(upstream, env);
+    if (cap && !(await registry.usageLeft({ keySha256, ...cap })).ok) continue;
+    result = await answer(upstream);
+    if (result) {
+      served = upstream;
+      break;
+    }
   }
-  if (!result) return apiError({ status: 502, code: "upstream_failed", message: "The model did not answer. Try again." });
+  if (!result || !served) return apiError({ status: 502, code: "upstream_failed", message: "The model did not answer. Try again." });
+  const cap = modelCap(served, env);
+  const share = cachedShare(served);
+  const charge = async (usage: unknown) => {
+    const tokens = billedTokens(usage, share);
+    await registry.chargeUsage({ keySha256, kind: "ai_tokens", amount: tokens });
+    if (cap) await registry.chargeUsage({ keySha256, kind: cap.kind, amount: tokens });
+  };
   if ("answer" in result) {
-    await charge(tokensOf(result.answer.usage));
+    await charge(result.answer.usage);
     return json(result.answer);
   }
   const [toClient, toCount] = result.stream.tee();
-  waitUntil(streamedTokens(toCount).then((tokens) => charge(tokens)).catch((error) => console.error(`laterdog computers: counting chat tokens failed: ${String(error)}`)));
+  waitUntil(streamedUsage(toCount).then(charge).catch((error) => console.error(`laterdog computers: counting chat tokens failed: ${String(error)}`)));
   return new Response(toClient, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "../src/auth";
-import { AI_BUSY, AI_DEFAULT_MODEL, AI_WORKERS_MODEL, chatRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream } from "../src/ai";
+import { AI_BUSY, AI_WORKERS_MODEL, GROK_DEFAULT_MODEL, chatRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream } from "../src/ai";
 import { DAY } from "../src/trial";
 import { ORIGIN, apiRequest, body, siteverify, startTrial, trialKey, world } from "./fakes";
 
@@ -87,7 +87,7 @@ describe("the included AI", () => {
     expect(gateway).toHaveBeenCalledWith("default");
     const sent = gatewayRun.mock.calls[0]![0] as { provider: string; endpoint: string; headers: Record<string, unknown>; query: Record<string, unknown> };
     expect(sent).toMatchObject({ provider: "grok", endpoint: "v1/chat/completions", headers: { Authorization: "Bearer xai-test", "cf-aig-collect-log": false } });
-    expect(sent.query).toEqual({ model: AI_DEFAULT_MODEL, stream: false, messages: chat(false).messages, max_tokens: 32_000 });
+    expect(sent.query).toEqual({ model: GROK_DEFAULT_MODEL, stream: false, messages: chat(false).messages, max_tokens: 32_000 });
     expect(await used()).toBe(true);
   });
 
@@ -167,11 +167,24 @@ describe("the included AI", () => {
     expect(await none.used()).toBe(true);
   });
 
-  it("asks xAI first when the person picked a Grok model", async () => {
+  it("asks xAI first when the person picked a Grok model, on that model, and moves a retired Grok to Grok 4.7", async () => {
     const { w, key, gatewayRun, run } = await ai({ XAI_API_KEY: "xai-test" });
-    expect((await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false, { model: "grok-4.3" }) }))).status).toBe(200);
-    expect(gatewayRun).toHaveBeenCalledTimes(1);
+    const asked = async (model: string) => {
+      expect((await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false, { model }) }))).status).toBe(200);
+      return (gatewayRun.mock.calls.at(-1)![0] as unknown as { query: { model: string } }).query.model;
+    };
+    expect(await asked("grok-4.6")).toBe("grok-4.6");
+    expect(await asked("grok-4.7")).toBe("grok-4.7");
+    expect(await asked("grok-4.3")).toBe("grok-4.7");
+    expect(await asked("grok-9-unlisted")).toBe("grok-4.7");
+    expect(gatewayRun).toHaveBeenCalledTimes(4);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("follows TRIAL_GROK_MODEL for a Grok request that names no included model", async () => {
+    const { w, key, gatewayRun } = await ai({ XAI_API_KEY: "xai-test", TRIAL_GROK_MODEL: "grok-4.6" });
+    expect((await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false, { model: "grok-4.3" }) }))).status).toBe(200);
+    expect((gatewayRun.mock.calls[0]![0] as unknown as { query: { model: string } }).query.model).toBe("grok-4.6");
   });
 
   it("moves on when an answer opens with an error, even inside a 200 stream", async () => {
