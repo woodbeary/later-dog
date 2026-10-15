@@ -680,7 +680,7 @@ it("runs a message sent while a teammate works, keeps the assignment, and names 
 }), 60_000);
 
 it("parks a message behind outstanding teammate work when the bot opts in, then runs it after", () => fixture(async f => {
-  f.plan[f.lead.id] = { delayMs: 4000, reply: "CSV export implemented" };
+  f.plan[f.lead.id] = { delayMs: 8000, reply: "CSV export implemented" };
   f.plan[f.chief.id] = { turns: [
     { steps: structuredClone(f.plan[f.chief.id].steps), reply: "Assigned to Engineering" },
     { reply: "The requested CSV export is implemented and verified" },
