@@ -1,0 +1,105 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "laterdog-home-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "*-hometest.later.dog/*",
+      "zone_name": "later.dog"
+    }
+  ],
+  "containers": [
+    {
+      "class_name": "CloudHomeHost",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/later-dog-home:c76490f29f38",
+      "instance_type": "standard-1",
+      "max_instances": 2,
+      "observability": {
+        "enabled": true
+      },
+      "ssh": {
+        "enabled": true
+      },
+      "authorized_keys": [
+        {
+          "name": "laterdog-test-home",
+          "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEOMu0i8q6tZMfsFjgFgKHJILbHeLnPvjLG6+Yhomy9E"
+        }
+      ]
+    },
+    {
+      "class_name": "CloudHomeHostLarge",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/later-dog-home:c76490f29f38",
+      "instance_type": "standard-4",
+      "max_instances": 1,
+      "observability": {
+        "enabled": true
+      },
+      "ssh": {
+        "enabled": true
+      },
+      "authorized_keys": [
+        {
+          "name": "laterdog-test-home",
+          "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEOMu0i8q6tZMfsFjgFgKHJILbHeLnPvjLG6+Yhomy9E"
+        }
+      ]
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "HOMES",
+        "class_name": "CloudHomeHost"
+      },
+      {
+        "name": "HOMES_LARGE",
+        "class_name": "CloudHomeHostLarge"
+      }
+    ]
+  },
+  "exports": {
+    "CloudHomeHost": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "CloudHomeHostLarge": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "r2_buckets": [
+    {
+      "binding": "STATE",
+      "bucket_name": "laterdog-homes-test"
+    }
+  ],
+  "services": [
+    {
+      "binding": "COMPUTERS",
+      "service": "laterdog-computers",
+      "entrypoint": "ComputersApi"
+    },
+    {
+      "binding": "ACCOUNTS",
+      "service": "laterdog-control-plane",
+      "entrypoint": "AccountsApi"
+    }
+  ],
+  "vars": {
+    "HOME_HOST_SUFFIX": "-hometest.later.dog",
+    "ADMIN_ORIGIN": "https://accounts.later.dog",
+    "INCLUDED_API": "https://cloud.later.dog/v1",
+    "LARGE_HOME_ACCOUNTS": ""
+  },
+  "secrets": {
+    "required": [
+      "HOME_SECRET"
+    ]
+  }
+}

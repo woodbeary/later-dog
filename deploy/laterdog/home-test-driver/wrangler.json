@@ -1,0 +1,21 @@
+{
+  "name": "laterdog-home-test-driver",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "services": [
+    {
+      "binding": "HOMES",
+      "service": "laterdog-home-test",
+      "entrypoint": "HomesApi"
+    }
+  ],
+  "secrets": {
+    "required": [
+      "DRIVER_TOKEN"
+    ]
+  }
+}
