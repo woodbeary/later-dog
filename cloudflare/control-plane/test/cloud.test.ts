@@ -239,11 +239,14 @@ describe("dogs emailing their owner", () => {
 });
 
 describe("later.dog for iPhone link", () => {
-  it("waits on a plain page until the TestFlight link is set, then sends people there", async () => {
+  it("links the TestFlight beta on a plain page until the link is set, then sends people there", async () => {
     const { cloudPage, phoneAppTarget } = await import("../src/cloud-pages");
     const waiting = cloudPage(new Request(`${BASE_URL}/iphone`));
     expect(waiting?.status).toBe(200);
-    expect(await waiting?.text()).toContain("later.dog for iPhone");
+    const waitingPage = await waiting?.text();
+    expect(waitingPage).toContain("later.dog for iPhone");
+    expect(waitingPage).toContain("https://testflight.apple.com/join/UH46TVvC");
+    expect(waitingPage).not.toContain("very soon");
     const testflight = phoneAppTarget("https://testflight.apple.com/join/AbCdEf12");
     expect(testflight).toBe("https://testflight.apple.com/join/AbCdEf12");
     const sent = cloudPage(new Request(`${BASE_URL}/iphone`), testflight);
@@ -265,6 +268,8 @@ describe("privacy policy and terms", () => {
     expect(text).toContain("Privacy Policy");
     expect(text).toContain("Delete account");
     expect(text).toContain("No ads, no tracking");
+    expect(text).toContain("The free models are Claude from Anthropic and Grok from xAI.");
+    expect(text).not.toContain("Kimi");
     const terms = cloudPage(new Request(`${BASE_URL}/terms`));
     expect(terms?.status).toBe(200);
     expect(await terms!.text()).toContain("Apache License 2.0");

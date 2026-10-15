@@ -1,4 +1,4 @@
-const UPDATED = "October 13, 2026";
+const UPDATED = "October 15, 2026";
 
 function legalPage(title: string, body: string): string {
   return `<!doctype html>
@@ -31,7 +31,7 @@ export const PRIVACY_PAGE = legalPage("Privacy Policy", `
 <li><strong>Your Mac, only if you lend it.</strong> When you turn on Let My Cloud use this Mac, your dogs can read the folders you pick (and save in those you allow), and use apps and screen if you allow it. Your Mac keeps its own list of what they did.</li>
 </ul>
 <h2>Who processes your messages</h2>
-<p>To answer you, your messages go to the AI your dog uses. The free models are Kimi on Cloudflare Workers AI, with Grok from xAI as a backup; we turn off prompt logging there. If you sign in with your own Claude or ChatGPT account, those messages go to Anthropic or OpenAI under your account with them. Spoken replies use Cloudflare Workers AI voices.</p>
+<p>To answer you, your messages go to the AI your dog uses. The free models are Claude from Anthropic and Grok from xAI. If you sign in with your own Claude or ChatGPT account, those messages go to Anthropic or OpenAI under your account with them. Spoken replies use Cloudflare Workers AI voices.</p>
 <h2>What we don't do</h2>
 <p>No ads, no tracking across apps or websites, no selling or sharing your data for marketing. We don't read your chats. We look at your home only if you ask us to help with it.</p>
 <h2>Deleting everything</h2>
