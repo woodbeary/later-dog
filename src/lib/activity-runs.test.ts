@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeRun, groupActivityRuns, groupTranscript, isRecoveryActivity, planTranscript, statusActivity } from "./activity-runs";
+import { describeRun, groupActivityRuns, groupTranscript, isFoldedStatusLine, isRecoveryActivity, planTranscript, statusActivity } from "./activity-runs";
 import type { Message } from "@/state/store";
 
 let seq = 0;
@@ -71,6 +71,20 @@ describe("groupActivityRuns", () => {
       expect(items.map(item => item.kind)).toEqual(["run", "message", "run"]);
       expect(items[1]).toEqual({ kind: "message", message: notice });
     }
+  });
+
+  it("shows a dog's live status line as its own row, and folds it into the run once the server folds it", () => {
+    const live: Message = { ...tool("notice: Still on it: running the tests"), tool: { name: "notice: Still on it: running the tests", ok: true, statusLine: "live", spoken: "running the tests" } };
+    expect(statusActivity(live)).toEqual({ kind: "progress", text: "Still on it: running the tests" });
+    expect(isFoldedStatusLine(live)).toBe(false);
+    const liveItems = groupTranscript([tool("Read"), tool("Edit"), live, tool("Bash"), tool("Write")]);
+    expect(liveItems.map(item => item.kind)).toEqual(["run", "message", "run"]);
+
+    const folded: Message = { ...live, tool: { name: "Still on it: running the tests", ok: true, statusLine: "folded", spoken: "running the tests" } };
+    expect(statusActivity(folded)).toBeNull();
+    expect(isFoldedStatusLine(folded)).toBe(true);
+    const foldedItems = groupTranscript([tool("Read"), tool("Edit"), folded, tool("Bash"), tool("Write")]);
+    expect(foldedItems.map(item => item.kind)).toEqual(["run"]);
   });
 
   it("keeps ordinary failed tools visible between successful runs", () => {
