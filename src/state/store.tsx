@@ -136,6 +136,7 @@ export interface SecretRequestCardData {
 }
 
 export interface Message {
+  roomRequest?: import("../../shared/wire").WireMessage["roomRequest"];
   id: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "goal.run" | "digest" | "compaction";
