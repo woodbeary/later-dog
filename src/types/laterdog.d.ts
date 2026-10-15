@@ -56,7 +56,7 @@ const __APP_VERSION__: string;
       session?: "x11" | "wayland" | "headless" | "unknown";
       compositor?: "gnome-mutter";
     };
-    credentialStore?: "ok" | "unavailable";
+    credentialStore?: "ok" | "unavailable" | "reset";
   };
 
   interface DesktopWorkspaceBounds {

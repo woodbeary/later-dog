@@ -3477,6 +3477,7 @@
   "screenLoad.failed": "This screen couldn’t load. Reload the window to open it.",
   "screenLoad.reload": "Reload",
   "credentialStore.title": "Saved sign-ins are locked",
+  "credentialStore.reset": "Some keys saved by an older version couldn't be read and were set aside. Sign in again where asked.",
   "credentialStore.unavailable": "Saved sign-ins could not be read. Try unlocking again, or quit and reopen {app}. Allow keychain access if asked.",
   "credentialStore.relaunch": "Quit and reopen",
   "credentialStore.later": "Later",

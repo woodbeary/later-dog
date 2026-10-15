@@ -10,8 +10,31 @@ export function CredentialStoreNotice() {
   const [retrying, setRetrying] = useState(false);
   const [retryFailed, setRetryFailed] = useState(false);
   const retryInFlight = useRef(false);
-  if (dismissed || capabilities.credentialStore !== "unavailable") return null;
+  if (dismissed || (capabilities.credentialStore !== "unavailable" && capabilities.credentialStore !== "reset")) return null;
   const app = brand().name;
+  if (capabilities.credentialStore === "reset") {
+    return (
+      <div
+        className="animate-panel-in fixed bottom-4 left-4 z-50 w-[300px] rounded-xl border border-hairline/40 bg-panel p-3.5 shadow-2xl shadow-black/50"
+        data-testid="credential-store-reset-notice"
+      >
+        <div className="flex items-start gap-2.5">
+          <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
+            <KeyRound size={14} aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1 text-[12.5px] text-ink-secondary">{t("credentialStore.reset")}</div>
+          <button
+            type="button"
+            onClick={() => setDismissed(true)}
+            className="shrink-0 rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
+            title={t("credentialStore.later")}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    );
+  }
   const retry = async () => {
     if (retryInFlight.current || !window.laterdog?.retryCredentialStore) return;
     retryInFlight.current = true;

@@ -134,7 +134,7 @@ describe("credential recovery after a failed launch read", () => {
     expect(reload).toHaveBeenCalledOnce();
   });
 
-  it.each(["unavailable", "empty"])("does not replace the old store when reopening returns %s", async (status) => {
+  it.each(["unavailable"])("does not replace the old store when reopening returns %s", async (status) => {
     const persist = vi.fn();
     const afterReload = vi.fn();
     const state = createSecureCredentialState({}, persist, {
@@ -161,5 +161,21 @@ describe("credential recovery after a failed launch read", () => {
     expect(persist).not.toHaveBeenCalled();
     expect(await state.retry()).toBe(true);
     expect(state.read()).toEqual({ previous: "kept" });
+  });
+});
+
+describe("recovery when the saved file is gone or set aside", () => {
+  it.each(["empty", "reset"])("becomes writable and empty after reopening returns %s", async (status) => {
+    const persist = vi.fn();
+    const afterReload = vi.fn();
+    const state = createSecureCredentialState({}, persist, {
+      writable: false,
+      reload: async () => ({ status, credentials: {} }),
+      afterReload,
+    });
+    expect(await state.retry()).toBe(true);
+    expect(afterReload).toHaveBeenCalledWith({});
+    await state.update(() => ({ ttsKey: "new" }));
+    expect(persist).toHaveBeenCalledWith({ ttsKey: "new" });
   });
 });

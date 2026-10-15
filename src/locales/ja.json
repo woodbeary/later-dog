@@ -1509,5 +1509,6 @@
   "approval.tool.delegateDog": "別の犬に仕事を任せる",
   "approval.tool.postRoom": "ルームに投稿する",
   "chat.threads.opened": "{count}件のスレッドを開きました",
-  "chat.threads.openedOne": "スレッドを開きました"
+  "chat.threads.openedOne": "スレッドを開きました",
+  "credentialStore.reset": "古いバージョンで保存されたキーの一部を読み取れず、別に保管しました。求められた場所で再度サインインしてください。"
 }

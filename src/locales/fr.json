@@ -1507,5 +1507,6 @@
   "approval.tool.delegateDog": "confier du travail à un autre chien",
   "approval.tool.postRoom": "publier dans un salon",
   "chat.threads.opened": "{count} conversations ouvertes",
-  "chat.threads.openedOne": "Une conversation ouverte"
+  "chat.threads.openedOne": "Une conversation ouverte",
+  "credentialStore.reset": "Certaines clés enregistrées par une ancienne version n'ont pas pu être lues et ont été mises de côté. Reconnectez-vous là où c'est demandé."
 }
