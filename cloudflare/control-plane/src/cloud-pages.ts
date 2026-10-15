@@ -1,4 +1,5 @@
 import { PRIVACY_PAGE, TERMS_PAGE } from "./legal-pages";
+import { SUPPORT_PAGE } from "./support-page";
 
 const STYLE = `
 :root { color-scheme: light dark; --bg: #ffffff; --ink: #0a0a0a; --muted: #6e6e73; --line: #e5e5ea; --field: #f2f2f7; --accent: #0a0a0a; --on-accent: #ffffff; --danger: #d92d20; }
@@ -229,6 +230,7 @@ export function cloudPage(request: Request, phoneApp: string | null = null): Res
   const path = new URL(request.url).pathname;
   if (path === "/privacy") return new Response(PRIVACY_PAGE, { headers: HTML_HEADERS });
   if (path === "/terms") return new Response(TERMS_PAGE, { headers: HTML_HEADERS });
+  if (path === "/support" || path === "/support/") return new Response(SUPPORT_PAGE, { headers: HTML_HEADERS });
   if (path === "/iphone" || path === "/iphone/") {
     if (phoneApp) return new Response(null, { status: 302, headers: { location: phoneApp, "cache-control": "no-store" } });
     return new Response(PHONE_APP_PAGE, { headers: HTML_HEADERS });
