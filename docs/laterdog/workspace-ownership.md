@@ -31,7 +31,7 @@ This can provide an intermediate phone connection in roughly 2–4 engineering d
 
 ### B. One cloud authority, seeded from the existing Mac workspace
 
-Callers resolve one account workspace, submit commands for that stable workspace ID and subscribe to its ordered events. Hosting location is an implementation detail. The cloud authority owns canonical workspace state; the desktop keeps a local projection. The workspace supervisor remains the sole scheduler of runs. Mac and cloud executors receive scoped leases and return results to the same threads. That supervisor also selects an available executor with the required capabilities, credentials and granted access, within account resource limits. Storage and executor location do not select a different workspace.
+Callers resolve one account workspace, submit commands for that stable workspace ID and subscribe to its ordered events. Hosting location is an implementation detail. The cloud authority owns canonical workspace state; the desktop keeps a local projection. The workspace supervisor remains the sole scheduler of runs. Mac and cloud executors receive scoped leases and return results to the same threads. The dog infers the task requirements and chooses the intended execution location. The supervisor validates that choice against current capabilities, credentials, granted access and account resource limits, then records the execution lease. It resolves availability changes against those same task requirements. Storage and executor location do not select a different workspace.
 
 This is the recommended architecture. It preserves the identity of the existing workspace while allowing access when the Mac is asleep. A disconnected desktop can show its cached conversations and explicitly queued commands; it does not become an independent writer. Autonomous offline execution is outside this estimate.
 
@@ -60,6 +60,61 @@ Rejected: two independently writable stores remain, account routing still select
 - Show a brief synchronization or availability message only when it affects the current action. Detailed storage locations, endpoints, writer epochs and repair controls belong in diagnostics.
 - Retained cloud data remains recoverable through advanced account recovery outside the sidebar. Restoring, importing or deleting it is a deliberate action with its own review, never a side effect of sign-in.
 
+## The dog chooses where each task runs
+
+Location is a task decision made by the dog. There is no placement question, per-dog local/cloud setting or Computer-panel toggle in the ordinary flow. The workspace identity and conversation remain fixed while task steps may use different executors. The model states the requirements; the supervisor owns the durable routing decision and execution lease. This separates understanding the request from enforcing availability and authority.
+
+### Signals and decision order
+
+Before starting a computer, the dog derives requirements from the request, referenced resources and current task state. The supervisor verifies resource identity, available tool capabilities, authenticated session location, fresh device presence, resource limits and any checkpoint. A device being reachable by itself is not enough to make it suitable.
+
+| Signal | Automatic routing |
+| --- | --- |
+| A local path, uncommitted checkout, the running dev app, a Mac app or its existing signed-in session | Use the Mac that owns that resource. Preserve its exact checkout/session identity. |
+| Work meant to continue during Mac sleep, a long independent task, or an explicit cloud-browser requirement | Use an eligible cloud executor, provided all required inputs and permissions are available there. Duration never overrides a Mac-only dependency. |
+| A phone-initiated task while the Mac is offline | Use cloud for portable work; wait automatically for the required Mac capability when the task depends on local-only state. The phone itself does not imply a different workspace. |
+| A mixed task such as reading a local file and doing long-running analysis | Capture an authorized, versioned input on the Mac, run the independent analysis in cloud, and return the result to the same thread. A later local write checks the source version before applying. |
+| Ordinary conversation or an API-only operation | Use existing agent/API execution without provisioning a screen computer. |
+| Several suitable executors | Reuse the executor with the needed data/session and an active valid task lease; otherwise prefer a ready suitable executor, then wake or provision one. Resource locality and continuity outrank a generic current-computer preference. |
+
+The new task requirements record contains resource references and revisions, required tools/session locality, continuity needs, expected duration, a preferred location with a short reason, and checkpoint/resume constraints. The dog may refine it before an unstarted step when new facts arrive. The supervisor revalidates those facts and persists the selected executor, reason, lease epoch and task identity before dispatch. Location changes never modify the dog's standing defaults or make another workspace active.
+
+### Mac offline, unavailable resources and continuation
+
+If the Mac is offline at dispatch, portable steps run in cloud automatically. Local-only steps enter a durable waiting state and resume when that Mac reconnects with the required capability. Independent work can continue while those steps wait. Do not substitute a similarly named cloud file, a clean Git checkout or a different browser login for the requested Mac resource.
+
+If the Mac goes offline during an action, first resolve the action receipt. Resume from a confirmed checkpoint on an equivalent executor only when the task's dependencies permit it. An unknown send, submit or write outcome is not automatically replayed. External operations use a stable idempotency key when supported; otherwise inspect the result before retrying. A reconnect never starts a second copy of the same run.
+
+A cloud outage permits local fallback only when the Mac can satisfy the same requirements and the task's continuity promise. Otherwise the task waits and retries with bounded backoff. No placement dialog appears. Required account sign-in or missing operating-system permission remains a distinct capability issue; automatic routing does not create access or override an explicit denial. Old transport-selection toggles are removed from normal setup, while access permissions remain separate.
+
+### Quiet feedback after the decision
+
+After the executor confirms startup, show one small non-interactive location label on the existing task/progress row, such as On your Mac or Running in cloud. Collapse the reason behind the existing progress details. A completed receipt can say Ran on your Mac or Ran in cloud. These labels report the recorded executor; they never act as selectors or claim a computer started before it did.
+
+Show one Waiting for your Mac line when a required local capability is offline, then update that same row on automatic resumption. Keep executor IDs, heartbeat history and detailed routing reasons in diagnostics. Do not add repeated chat notices or pre-action confirmation cards for choosing a location.
+
+### Existing mechanisms to reuse, and their gaps
+
+| Existing mechanism | Reuse | Required extension |
+| --- | --- | --- |
+| `select_computer` in `server/drivers/agents-catalog.ts` and `agents-call.ts` | A dog can inspect targets and request `auto`, `local` or `cloud` without a menu operation. | Keep it as an internal task-placement operation; remove its dependence on a visible selector and expose task requirements. |
+| `pickComputer` in `server/computer-selection.ts` | Current order is a usable current target, any ready target, then one that can start, then one that can be created. An already-claimed lazy-start target can remain current. Cloud precedes local in the option list and wins equal-state ties. | Today suitability is only availability/current-target state. Filter and rank by required resource/session identity, continuity and capability before applying reuse/wake/provision preference. Initial mounting currently follows a different order; use this same resolver for initial mount, handoff and retry. |
+| `selectableComputers` and `continueComputerSelection` in `server/index.ts` | Existing provider readiness, wake/provision checks and a pending handoff that remounts tools and resumes the original request. | Current selection is scoped to eligible direct requests, lives partly in process memory, and can pin a conversation surface. Move task routing/continuation receipts into the durable supervisor module under `server/laterdog/`, recording the original request, completed actions and continuation cursor; cover phone, room, delegated and routine tasks without replay. Retain immediate invalidation of old computer/browser capabilities after a handoff. |
+| `SharedComputers` in `server/shared-computers.ts` and `useMac` in `server/index.ts` | Signed-in Mac registration, file/terminal/screen scopes, presence, offline detection and remote operations. | Integrate the Mac into the same task-capability inventory. Today cloud-home `select_computer` exposes only auto/cloud and Mac access is a separate bridge. Multiple Macs need resource-based selection, and durable waits/receipts replace turn-limited in-memory jobs. |
+| Placement classification in `server/drivers/chat-mcp-tools.ts` | Distinguishes inspection from computer operations. | Today auto/local selection can still be approval-eligible. Separate placement from operation authorization so choosing an executor creates no approval card; enforce real file/app/action permissions when executing. |
+| `SharedComputerControl` and `TurnResources` | Existing computer ownership and contention handling. | Preserve exclusive screen use while adding durable task/executor leases and automatic resumption after reconnection. |
+
+Today `select_computer` still rejects disabled computer access, missing provider configuration and ineligible request contexts, and some errors direct you to the Computer panel. Existing auto selection is a useful execution mechanism, not yet semantic task routing or unified workspace synchronization. The new flow must resolve ordinary placement/provisioning automatically within account capabilities and show a concrete unavailable capability when it cannot run.
+
+### Routing acceptance cases
+
+- A request to change the existing local repository runs against its actual dirty checkout; opening the running dev app uses its Mac screen.
+- Independent long work continues in cloud after the Mac sleeps, with results in the same thread.
+- Phone requests use cloud while the Mac is offline; a local-only file task waits and resumes without a menu choice.
+- Mixed local/cloud steps preserve resource revisions and do not overwrite concurrent local edits.
+- Restart, lost handoff acknowledgement, late executor results and device revocation produce no duplicate run or external effect.
+- Missing capability, denied access and temporary offline state remain distinguishable; none opens a local/cloud placement question.
+
 ## Implementation stages
 
 1. **Identity and retention.** Inventory IDs, relationships, message content, attachments, memory, durable files, active work and external dependencies. Assign the existing local workspace a stable workspace ID and bind it to the authenticated account. Preserve the existing cloud workspace as a separately identified retained generation with a verified recovery snapshot and no automatic expiration or garbage collection. Existing cloud records are not modified by the canonical-workspace import.
@@ -77,7 +132,7 @@ Workspace content can move without transferring Mac credentials. Provider sessio
 ## Estimate and next decision
 
 - **Safe online migration and one cloud authority:** 8–15 engineering days.
-- **Complete desktop projection, reconnect handling and migration hardening:** 15–25 engineering days total, roughly 3–5 engineer-weeks.
+- **Complete desktop projection, automatic task routing, reconnect handling and migration hardening:** 15–25 engineering days total, roughly 3–5 engineer-weeks.
 - **Not included:** autonomous offline writers, copying native provider sessions, automatic merging of the existing cloud workspace, or deleting any cloud data.
 
 These are planning ranges based on the inspected desktop, storage and home-hosting code. The first implementation checkpoint must validate the accounts-service and phone contracts and measure the workspace inventory before committing to a delivery date. No large implementation or data migration starts as part of this planning request. The proposed scope decision is whether to proceed with design B; deleting the existing cloud data would require a separate explicit decision.
