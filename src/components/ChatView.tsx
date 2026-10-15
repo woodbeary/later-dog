@@ -123,7 +123,8 @@ import { StatusActivityRow } from "@/components/StatusActivityRow";
 import { ActivityRun } from "./ActivityRun";
 import { TurnNarrationRun } from "./TurnNarrationRun";
 import { webhookMessageView } from "@/lib/webhook-message";
-import { splitTranscriptAttachments } from "@/lib/composer-attachments";
+import { composeMessage, splitTranscriptAttachments } from "@/lib/composer-attachments";
+import { editableGallery, editableMessage } from "@/lib/composer-message-edit";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
@@ -345,10 +346,12 @@ class MessageBoundary extends Component<{ children: ReactNode; fallbackText: str
 
 function BubbleEditor({
   initial,
+  allowEmpty = false,
   onCancel,
   onSubmit,
 }: {
   initial: string;
+  allowEmpty?: boolean;
   onCancel: () => void;
   onSubmit: (text: string) => void;
 }) {
@@ -361,7 +364,7 @@ function BubbleEditor({
     el.setSelectionRange(el.value.length, el.value.length);
   }, []);
   const submit = () => {
-    if (draft.trim()) onSubmit(draft.trim());
+    if (draft.trim() || allowEmpty) onSubmit(draft.trim());
   };
   return (
     <div className="w-full max-w-[min(42rem,78%)] rounded-bubble border border-hairline/40 bg-bubble-user px-3 py-2">
@@ -388,7 +391,7 @@ function BubbleEditor({
         </button>
         <button
           onClick={submit}
-          disabled={!draft.trim()}
+          disabled={!draft.trim() && !allowEmpty}
           className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
         >
           {t("chat.send")}
@@ -462,10 +465,20 @@ const Bubble = memo(function Bubble({
     if (focusedSearch && collapsible) setExpanded(true);
   }, [focusedSearch, collapsible, focus?.nonce]);
 
-  if (user && editing && !webhookView && !hasAttachments) {
+  const editable = user && editing && !webhookView && !cited?.citations.length ? editableMessage(text) : null;
+  if (editable) {
+    const kept = editableGallery(editable.attachments);
     return (
-      <div className="flex w-full justify-end">
-        <BubbleEditor initial={text} onCancel={onCancelEdit} onSubmit={(edited) => onSubmitEdit(message.id, edited)} />
+      <div className="flex w-full flex-col items-end">
+        {kept.images.length + kept.files.length > 0 && (
+          <AttachmentGallery sent images={kept.images} files={kept.files} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
+        )}
+        <BubbleEditor
+          initial={editable.text}
+          allowEmpty={editable.attachments.length > 0}
+          onCancel={onCancelEdit}
+          onSubmit={(edited) => onSubmitEdit(message.id, composeMessage(edited, editable.attachments))}
+        />
       </div>
     );
   }
@@ -504,7 +517,7 @@ const Bubble = memo(function Bubble({
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
           <MessageActions side="user" more={pinItem}>
-            {message.kind === "text" && !webhookView && !hasAttachments && !busy && !message.id.startsWith("optimistic-") && (
+            {message.kind === "text" && !webhookView && !cited?.citations.length && !busy && !message.id.startsWith("optimistic-") && (
               <button
                 onClick={() => onStartEdit(message.id)}
                 aria-label={t("chat.editMessage")}
@@ -1164,12 +1177,10 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     () => [...messages].reverse().find((m) => m.role === "user" && m.kind === "text" && !peerLine(m)),
     [messages],
   );
-  const lastUserMessageHasAttachments = useMemo(() => {
-    if (!lastUserMessage?.text) return false;
-    const cited = splitTranscriptCitations(lastUserMessage.text);
-    const attached = splitTranscriptAttachments(cited.display);
-    return cited.citations.length > 0 || attached.images.length > 0 || attached.files.length > 0;
-  }, [lastUserMessage]);
+  const lastUserMessageCites = useMemo(
+    () => Boolean(lastUserMessage?.text && splitTranscriptCitations(lastUserMessage.text).citations.length > 0),
+    [lastUserMessage],
+  );
 
   const lastMessage = shownMessages.at(-1);
   const live = useMemo(() => liveActivity(lastMessage), [lastMessage]);
@@ -1473,7 +1484,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         onClearReply={clearReply}
         onConsumeReply={consumeReply}
         onRestoreReply={restoreReply}
-        onEditLast={lastUserMessage && !lastUserMessageHasAttachments && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")
+        onEditLast={lastUserMessage && !lastUserMessageCites && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")
           ? () => setEditingId(lastUserMessage.id)
           : undefined}
       />

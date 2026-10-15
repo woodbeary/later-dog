@@ -190,7 +190,7 @@ export function ComposerAttachments({
                 <FileIcon size={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
                 <div className="min-w-0">
                   <div className="truncate text-[12px] text-ink">{a.name}</div>
-                  <div className="text-[10.5px] text-ink-tertiary">{formatSize(a.size)}</div>
+                  {a.size > 0 && <div className="text-[10.5px] text-ink-tertiary">{formatSize(a.size)}</div>}
                 </div>
                 <RemoveButton label="Remove file" onClick={() => onRemove(a.id)} />
               </div>
