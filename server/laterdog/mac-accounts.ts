@@ -52,6 +52,11 @@ function codexUsesFile(home: string): boolean {
   }
 }
 
+function numberedCodexSharesHome(instances: InstanceConfigMap, instanceId: string, home: string, env: NodeJS.ProcessEnv): boolean {
+  if (instanceId === "codex") return false;
+  return Object.entries(instances).some(([otherId, other]) => otherId !== instanceId && ownCodex(other) && codexHome({ ...env, ...other.environment }) === home);
+}
+
 export function macAccountSources(instances: InstanceConfigMap, options: { dataDir: string; held: ReadonlySet<string>; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform }): MacAccountSource[] {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
@@ -68,9 +73,9 @@ export function macAccountSources(instances: InstanceConfigMap, options: { dataD
         file: claudeCredentialsFile(storage, home),
         ...(platform === "darwin" ? { keychain: { service: claudeKeychainService(storage), account: claudeKeychainAccount(merged) } } : {}),
       });
-    } else if (instanceId === "codex" && ownCodex(entry)) {
+    } else if (MOVABLE_ACCOUNT_ID.test(instanceId) && accountKindOf(instanceId) === "codex" && ownCodex(entry)) {
       const home = codexHome(merged);
-      if (!home || !codexUsesFile(home)) continue;
+      if (!home || !codexUsesFile(home) || numberedCodexSharesHome(instances, instanceId, home, env)) continue;
       sources.push({ instanceId, kind: "codex", displayName: entry.displayName ?? "ChatGPT", held: options.held.has(instanceId), file: join(home, "auth.json") });
     } else if (entry.driver === "codex" && raw(entry).authMode === "chatgpt-plan" && !raw(entry).managed) {
       const directory = join(options.dataDir, "providers", "chatgpt-plan", createHash("sha256").update(instanceId).digest("hex"));

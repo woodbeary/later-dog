@@ -83,6 +83,35 @@ describe("this Mac's Claude and ChatGPT sign-ins, as the desktop app sees them",
     return { deps, reloads };
   }
 
+  it("moves a numbered ChatGPT account from its own CODEX_HOME, and never one that shares another account's folder", async () => {
+    const own = join(dataDir, "providers", "codex-2");
+    const numbered = (): InstanceConfigMap => ({
+      ...instances(),
+      "codex-2": { driver: "codex", displayName: "ChatGPT 2", environment: { CODEX_HOME: own } },
+      "codex-3": { driver: "codex", displayName: "ChatGPT 3" },
+      "codex-4": { driver: "codex", displayName: "ChatGPT 4", environment: { CODEX_HOME: own } },
+      "codex-12345": { driver: "codex", environment: { CODEX_HOME: join(dataDir, "providers", "codex-12345") } },
+      "codex-5": { driver: "codex", config: { managed: { models: ["x"] } }, environment: { CODEX_HOME: join(dataDir, "providers", "codex-5") } },
+    });
+    const sources = macAccountSources(numbered(), { dataDir, held: new Set(["codex-2"]), platform: "darwin" });
+    expect(sources.filter((source) => source.kind === "codex")).toEqual([
+      { instanceId: "codex", kind: "codex", displayName: "ChatGPT", held: false, file: join(home, ".codex", "auth.json") },
+    ]);
+    const alone = (): InstanceConfigMap => { const map = numbered(); delete map["codex-4"]; return map; };
+    expect(macAccountSources(alone(), { dataDir, held: new Set(["codex-2"]), platform: "darwin" }).filter((source) => source.kind === "codex")).toEqual([
+      { instanceId: "codex", kind: "codex", displayName: "ChatGPT", held: false, file: join(home, ".codex", "auth.json") },
+      { instanceId: "codex-2", kind: "codex", displayName: "ChatGPT 2", held: true, file: join(own, "auth.json") },
+    ]);
+    const { deps, reloads } = fakeMac();
+    const mac = { ...deps, instances: alone };
+    expect(await call(mac, "PUT", "/api/laterdog/mac-accounts/codex-2/hold")).toMatchObject({ status: 200, body: { instanceId: "codex-2", held: true } });
+    expect(heldAccountReason(deps.file, "codex-2")).toBe(HELD_ACCOUNT_REASON.cloud);
+    expect(reloads).toEqual(["codex-2"]);
+    for (const id of ["codex-3", "codex-12345", "codex-5"]) expect((await call(mac, "PUT", `/api/laterdog/mac-accounts/${id}/hold`)).status).toBe(404);
+    expect(await call(mac, "DELETE", "/api/laterdog/mac-accounts/codex-2/hold")).toMatchObject({ status: 200, body: { held: false } });
+    expect(heldAccountReason(deps.file, "codex-2")).toBeNull();
+  });
+
   it("answers only this Mac's own desktop app, never on a Cloud home", async () => {
     const { deps } = fakeMac();
     expect((await call({ ...deps, cloudHome: true }, "GET", "/api/laterdog/mac-accounts")).status).toBe(403);
