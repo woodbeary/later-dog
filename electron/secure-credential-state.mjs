@@ -40,7 +40,7 @@ export function createSecureCredentialState(initialCredentials, persist, { writa
     if (writable) return true;
     if (!reload) return false;
     const result = await reload();
-    if (result.status !== "ok" && result.status !== "empty" && result.status !== "reset") return false;
+    if (result.status !== "ok" && result.status !== "reset") return false;
     const restored = copy(result.credentials);
     await afterReload?.(copy(restored));
     current = restored;

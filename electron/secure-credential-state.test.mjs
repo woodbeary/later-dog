@@ -164,8 +164,19 @@ describe("credential recovery after a failed launch read", () => {
   });
 });
 
-describe("recovery when the saved file is gone or set aside", () => {
-  it.each(["empty", "reset"])("becomes writable and empty after reopening returns %s", async (status) => {
+describe("recovery when the saved file was set aside", () => {
+  it("stays unavailable when the unreadable file merely disappears, so nothing overwrites keys it never read", async () => {
+    const persist = vi.fn();
+    const state = createSecureCredentialState({}, persist, {
+      writable: false,
+      reload: async () => ({ status: "empty", credentials: {} }),
+    });
+    expect(await state.retry()).toBe(false);
+    await expect(state.update(() => ({ ttsKey: "new" }))).rejects.toThrow();
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it.each(["reset"])("becomes writable and empty after reopening returns %s", async (status) => {
     const persist = vi.fn();
     const afterReload = vi.fn();
     const state = createSecureCredentialState({}, persist, {

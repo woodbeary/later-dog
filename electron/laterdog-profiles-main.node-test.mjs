@@ -233,6 +233,7 @@ function ipcFixture(options) {
     localOnly: localOrigin.localOnly,
     cuaReady: Promise.resolve(null),
     credentialStoreUnavailable: false,
+    credentialStoreCapability: () => "ok",
     credentialFallbackAvailable: () => false,
     desktopCapabilities: (capabilities) => plain(capabilities),
     CREDENTIAL_PATCH: { xaiApiKey: (value) => ({ xai: { key: value } }) },
