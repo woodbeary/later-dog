@@ -196,6 +196,17 @@ it("gives up after the sixth crash in ten minutes and hands the stop to the laun
   expect(logs.at(-1)).toMatch(/after 5 restarts in 10 min; stopping the home so it starts fresh/);
 });
 
+it("a server that cannot be started at all stops the home once the launcher holds its supervisor, instead of throwing in the launcher", async () => {
+  const logs: string[] = [];
+  let failures = 0;
+  const supervision = superviseHomeServer(() => { throw new Error("EPERM"); }, { failed: () => { failures++; }, log: (text) => logs.push(text) });
+  expect(supervision.child()).toBeNull();
+  expect(failures).toBe(0);
+  await Promise.resolve();
+  expect(failures).toBe(1);
+  expect(logs).toEqual(["cloud home: the server could not be started: EPERM"]);
+});
+
 it.skipIf(process.platform === "win32")("a real server that throws is started again in place, and its stack reaches the log", async () => {
   const dir = mkdtempSync(join(tmpdir(), "laterdog-home-restart-"));
   directories.push(dir);

@@ -124,7 +124,14 @@ export function superviseHomeServer(start: () => ChildProcess, options: HomeServ
   const run = () => {
     cancelPending = null;
     if (stopping) return;
-    const child = start();
+    let child: ChildProcess;
+    try {
+      child = start();
+    } catch (error) {
+      log(`cloud home: the server could not be started: ${error instanceof Error ? error.message : String(error)}`);
+      queueMicrotask(options.failed);
+      return;
+    }
     const startedAt = now();
     const tail = stderrTail();
     current = child;
