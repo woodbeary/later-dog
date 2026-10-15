@@ -644,6 +644,8 @@ import { EDIT_REFUSAL, UNGUARDED_REFUSAL, localToolMessageText, localToolSpeaker
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
+import { createHomeGitHubRoutes } from "./routes/home-github.ts";
+import { HomeGitHub } from "./laterdog/home-github.ts";
 import { createHelpersRoutes } from "./routes/helpers.ts";
 import { availableDogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { dogJobEnvironment } from "./laterdog/job-defaults.ts";
@@ -13672,6 +13674,7 @@ ROUTES.push(createHomeAccountRoutes({
     try { return (await live.snapshot()).authenticated === true; } catch { return null; }
   },
 }));
+ROUTES.push(createHomeGitHubRoutes({ cloudHome: Boolean(CLOUD_HOME), github: new HomeGitHub() }));
 ROUTES.push(createTimeZoneRoutes({
   file: TIME_ZONE_FILE,
   allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth),
