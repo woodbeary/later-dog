@@ -41,7 +41,9 @@ test("accepts only account sources it can move and only secret files it expects"
   assert.equal(parseMacAccountSource({ instanceId: "codex", kind: "claude", displayName: "X", file: "/a/auth.json" }), null);
   assert.equal(parseMacAccountSource({ instanceId: "claude", kind: "claude", displayName: "C", file: "/a/.credentials.json", keychain: { service: "Other", account: "f" } }).keychain, undefined);
   assert.deepEqual(parseMacAccountSource({ instanceId: "chatgpt", kind: "chatgpt-plan", displayName: "ChatGPT plan" }), { instanceId: "chatgpt", kind: "chatgpt-plan", displayName: "ChatGPT plan" });
-  assert.deepEqual(parseAccountRecords("{bad"), { origin: null, deviceId: null, accounts: {} });
+  assert.deepEqual(parseAccountRecords("{bad"), { origin: null, deviceId: null, accounts: {}, refused: {} });
+  assert.deepEqual(parseAccountRecords({ refused: { codex: { code: "home_signed_in", origin: "https://h", fingerprint: "0123456789abcdef", at: 3 }, claude: { code: "made_up", origin: "https://h" } } }).refused,
+    { codex: { code: "home_signed_in", origin: "https://h", fingerprint: "0123456789abcdef", at: 3 } });
   assert.deepEqual(parseAccountRecords({ origin: "https://h", deviceId: "a".repeat(32), accounts: { codex: { kind: "codex", name: "ChatGPT", source: "file", at: 5 }, evil: { kind: "codex", name: "x", source: "file" } } }).accounts, { codex: { kind: "codex", name: "ChatGPT", source: "file", origin: "https://h", at: 5 } });
 });
 
@@ -136,4 +138,96 @@ test("will not move accounts recorded for another home to this one", async () =>
   const summary = await accounts.handAccountsToCloud({ homeOrigin: "https://home.fixture.test", session: async () => ({ origin: "https://home.fixture.test", code: "x" }) });
   assert.deepEqual(summary, { moved: { claude: 0, chatgpt: 0 }, stayed: [{ name: "ChatGPT", why: "elsewhere" }], waiting: [] });
   assert.equal(reached, false);
+});
+
+function refusingHome({ answer, puts }) {
+  return async (url, init) => {
+    const target = String(url);
+    if (target.endsWith("/api/auth/pair")) return Response.json({ token: "laterdog_sess_fixture" });
+    if (target.includes("/api/auth/logout")) return new Response("{}");
+    puts.push(JSON.parse(init.body));
+    const [status, body] = answer(JSON.parse(init.body));
+    return Response.json(body, { status });
+  };
+}
+
+function macWith(sources, calls) {
+  return async (route, init) => {
+    calls.push(`${init.method} ${route}`);
+    if (route === "/api/laterdog/mac-accounts") return Response.json({ accounts: sources });
+    return Response.json({ held: init.method === "PUT" });
+  };
+}
+
+test("remembers that My Cloud keeps its own sign-in, says why once, and never pauses or resends that account again", async () => {
+  let saved = null;
+  const logs = [], calls = [], puts = [];
+  const source = { instanceId: "codex", kind: "codex", displayName: "ChatGPT", held: false, file: "/fixture/later/codex/auth.json" };
+  const make = () => createCloudAiAccounts({
+    localRequest: macWith([source], calls), readFile: async () => JSON.stringify(codexLogin), read: () => saved, write: contents => { saved = contents; },
+    fetchImpl: refusingHome({ answer: () => [409, { code: "home_signed_in", error: "My Cloud already has its own sign-in for this account." }], puts }),
+    setTimer: () => ({ unref() {} }), clearTimer: () => {}, log: message => logs.push(message),
+  });
+  const request = { homeOrigin: "https://home.fixture.test", session: async () => ({ origin: "https://home.fixture.test", code: "FIXT-URE0-CODE" }) };
+  assert.deepEqual(await make().handAccountsToCloud(request), { moved: { claude: 0, chatgpt: 0 }, stayed: [{ name: "ChatGPT", why: "home" }], waiting: [] });
+  assert.ok(logs.some(line => line.includes("ChatGPT") && line.includes("home_signed_in")));
+  assert.equal(JSON.parse(saved).refused.codex.code, "home_signed_in");
+  assert.equal(puts.length, 1);
+  calls.length = 0;
+  assert.deepEqual(await make().handAccountsToCloud(request), { moved: { claude: 0, chatgpt: 0 }, stayed: [], waiting: [] });
+  assert.deepEqual(calls, ["GET /api/laterdog/mac-accounts"], "the next launch neither pauses nor un-pauses the account");
+  assert.equal(puts.length, 1, "the next launch sends nothing to My Cloud");
+  assert.ok(!logs.join("\n").includes("fixture-codex"));
+});
+
+test("after another computer's sign-in was kept, tries again only once this Mac signs in afresh", async () => {
+  let saved = null, login = codexLogin, accept = false;
+  const calls = [], puts = [];
+  const source = { instanceId: "codex", kind: "codex", displayName: "ChatGPT", held: false, file: "/fixture/later/codex/auth.json" };
+  const make = () => createCloudAiAccounts({
+    localRequest: macWith([source], calls), readFile: async () => JSON.stringify(login), read: () => saved, write: contents => { saved = contents; },
+    fetchImpl: refusingHome({ answer: () => (accept ? [200, { signedIn: true }] : [409, { code: "other_device" }]), puts }),
+    setTimer: () => ({ unref() {} }), clearTimer: () => {},
+  });
+  const request = { homeOrigin: "https://home.fixture.test", session: async () => ({ origin: "https://home.fixture.test", code: "FIXT-URE0-CODE" }) };
+  await make().handAccountsToCloud(request);
+  assert.equal(JSON.parse(saved).refused.codex.fingerprint, loginFingerprint(codexLogin.tokens.refresh_token));
+  await make().handAccountsToCloud(request);
+  assert.equal(puts.length, 1);
+  login = { ...codexLogin, tokens: { ...codexLogin.tokens, refresh_token: "fixture-codex-refresh-2" } };
+  accept = true;
+  assert.deepEqual(await make().handAccountsToCloud(request), { moved: { claude: 0, chatgpt: 1 }, stayed: [], waiting: [] });
+  assert.equal(puts.length, 2);
+  assert.equal(JSON.parse(saved).refused.codex, undefined);
+  assert.ok(JSON.parse(saved).accounts.codex);
+});
+
+test("a refusal recorded for one home does not stop a hand-over to another", async () => {
+  const calls = [], puts = [];
+  const saved = JSON.stringify({ deviceId: "a".repeat(32), accounts: {}, refused: { codex: { code: "home_signed_in", origin: "https://old.fixture.test", fingerprint: null, at: 1 } } });
+  let written = saved;
+  const accounts = createCloudAiAccounts({
+    localRequest: macWith([{ instanceId: "codex", kind: "codex", displayName: "ChatGPT", held: false, file: "/fixture/later/codex/auth.json" }], calls),
+    readFile: async () => JSON.stringify(codexLogin), read: () => written, write: contents => { written = contents; },
+    fetchImpl: refusingHome({ answer: () => [200, { signedIn: true }], puts }), setTimer: () => ({ unref() {} }), clearTimer: () => {},
+  });
+  const summary = await accounts.handAccountsToCloud({ homeOrigin: "https://home.fixture.test", session: async () => ({ origin: "https://home.fixture.test", code: "x" }) });
+  assert.deepEqual(summary.moved, { claude: 0, chatgpt: 1 });
+  assert.equal(JSON.parse(written).accounts.codex.origin, "https://home.fixture.test");
+  assert.equal(JSON.parse(written).refused.codex, undefined);
+});
+
+test("sends the Claude account's email with its sign-in, and sends it again without the email to a home too old to read it", async () => {
+  const calls = [], puts = [];
+  const source = { instanceId: "claude-2", kind: "claude", displayName: "Work", held: false, file: "/fixture/later/claude-2/.credentials.json", email: "work@fixture.test" };
+  assert.equal(parseMacAccountSource({ ...source, email: "not an email" }).email, undefined);
+  assert.equal(parseMacAccountSource(source).email, "work@fixture.test");
+  const accounts = createCloudAiAccounts({
+    localRequest: macWith([source], calls), readFile: async () => JSON.stringify({ claudeAiOauth: claudeLogin }), read: () => null, write: () => {},
+    fetchImpl: refusingHome({ answer: body => ("email" in body ? [400, { error: "The account could not be read." }] : [200, { signedIn: true }]), puts }),
+    setTimer: () => ({ unref() {} }), clearTimer: () => {},
+  });
+  const summary = await accounts.handAccountsToCloud({ homeOrigin: "https://home.fixture.test", session: async () => ({ origin: "https://home.fixture.test", code: "x" }) });
+  assert.deepEqual(summary.moved, { claude: 1, chatgpt: 0 });
+  assert.deepEqual(puts.map(body => body.email ?? null), ["work@fixture.test", null]);
 });

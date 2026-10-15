@@ -221,6 +221,12 @@ describe("account helpers", () => {
     expect(realAccount(chatgpt("chatgpt-team", "Team", { authenticated: false }))).toBe(true);
   });
 
+  it("on a Cloud home leaves out the built-in ChatGPT plan that cannot sign in there, but keeps an added one so it can be removed", () => {
+    const blocked = { authenticated: false, state: "unavailable" as const, authenticationUnavailableReason: "Needs OpenAI's hosted-app approval." };
+    const rows = subscriptionAccounts([claude("claude", "Claude"), chatgpt("chatgpt", "ChatGPT plan", blocked), chatgpt("chatgpt-old", "Old plan", blocked), codexLogin({ authenticated: false })], undefined);
+    expect(rows.map((item) => item.instanceId)).toEqual(["claude", "chatgpt-old", "codex"]);
+  });
+
   it("hides a leftover Codex login nobody signed in to, and keeps it once it is signed in", () => {
     const leftover = { ...codexLogin({ authenticated: false }), instanceId: "codex-2", displayName: "Codex 2" };
     expect(removable(leftover)).toBe(true);
@@ -650,6 +656,21 @@ describe("Accounts", () => {
     expect(sheet()).toBeNull();
     expect(line("chatgpt-team")).toBe("team@openai.test · ChatGPT");
     expect(rowButtons("chatgpt-team")).toEqual([]);
+  });
+
+  it("on a Cloud home adds ChatGPT as its own account with the device code, never the plan sign-in it cannot finish", async () => {
+    const blocked = { authenticated: false, state: "unavailable" as const, chatgptPlan: true, authenticationUnavailableReason: "Needs OpenAI's hosted-app approval." };
+    await remount({ instances: [claude("claude", "Claude"), chatgpt("chatgpt", "ChatGPT plan", blocked)] });
+    expect(ids()).toEqual(["claude"]);
+    await click(button("Add account"));
+    await click(button("ChatGPT", sheet()!));
+    expect(sheet()?.getAttribute("aria-label")).toBe("Name this ChatGPT account");
+    await type(sheet()!.querySelector<HTMLInputElement>("input")!, "Anthony");
+    const added = { ...codexLogin({ authenticated: false }), instanceId: "codex-anthony", displayName: "Anthony" };
+    fixture.api.mockResolvedValueOnce({ instanceId: "codex-anthony", instances: [...fixture.state.instances, added] });
+    await click(button("Continue", sheet()!));
+    expect(fixture.api).toHaveBeenCalledWith("/api/instances/chatgpt-accounts", { method: "POST", body: JSON.stringify({ displayName: "Anthony" }) });
+    expect(lastSignIn()).toMatchObject({ kind: "device", props: { instanceId: "codex-anthony", browserPkce: false, autoStart: true } });
   });
 
   it("keeps the half-added account listed when the sign-in is cancelled, ready to sign in later", async () => {

@@ -14,10 +14,14 @@ const KEYCHAIN_ACCOUNT = /^[a-zA-Z0-9._-]+$/;
 const SECRET_FILES = new Set([".credentials.json", "auth.json"]);
 const MAX_SECRET_BYTES = 256 * 1024;
 const SECURITY = "/usr/bin/security";
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const FINAL_REFUSALS = Object.freeze(["home_signed_in", "different_account"]);
+export const REFUSALS_KEPT = Object.freeze([...FINAL_REFUSALS, "other_device", "not_signed_in"]);
 
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const filled = value => typeof value === "string" && value.length > 0;
 const plainName = value => typeof value === "string" && value.trim() ? value.replace(/\p{Cc}+/gu, " ").trim().slice(0, 80) : null;
+const plainEmail = value => typeof value === "string" && value.length <= 254 && EMAIL.test(value) && !/[\p{Cc}\p{Cf}]/u.test(value) ? value : null;
 
 export function decodeKeychainText(text) {
   const trimmed = typeof text === "string" ? text.trim() : "";
@@ -55,14 +59,26 @@ export function parseMacAccountSource(value) {
   if (typeof value.file !== "string" || !isAbsolute(value.file) || !SECRET_FILES.has(basename(value.file))) return null;
   const keychain = record(value.keychain) && KEYCHAIN_SERVICE.test(value.keychain.service) && KEYCHAIN_ACCOUNT.test(value.keychain.account)
     ? { service: value.keychain.service, account: value.keychain.account } : null;
-  return { instanceId: value.instanceId, kind: value.kind, displayName, held: value.held === true, file: value.file, ...(keychain ? { keychain } : {}) };
+  const email = plainEmail(value.email);
+  return { instanceId: value.instanceId, kind: value.kind, displayName, held: value.held === true, file: value.file, ...(keychain ? { keychain } : {}), ...(email ? { email } : {}) };
 }
 
 const DEVICE_ID = /^[0-9a-f]{32}$/;
 
+const FINGERPRINT = /^[0-9a-f]{16}$/;
+
+function parseRefusals(saved) {
+  const refused = {};
+  for (const [id, entry] of Object.entries(record(saved) ? saved : {})) {
+    if (!ACCOUNT_ID.test(id) || !record(entry) || !REFUSALS_KEPT.includes(entry.code) || typeof entry.origin !== "string") continue;
+    refused[id] = { code: entry.code, origin: entry.origin, fingerprint: FINGERPRINT.test(entry.fingerprint) ? entry.fingerprint : null, at: Number.isSafeInteger(entry.at) ? entry.at : 0 };
+  }
+  return refused;
+}
+
 export function parseAccountRecords(raw) {
   let value;
-  try { value = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return { origin: null, deviceId: null, accounts: {} }; }
+  try { value = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return { origin: null, deviceId: null, accounts: {}, refused: {} }; }
   const accounts = {};
   const saved = record(value) && record(value.accounts) ? value.accounts : {};
   const fallbackOrigin = record(value) && typeof value.origin === "string" ? value.origin : null;
@@ -70,11 +86,11 @@ export function parseAccountRecords(raw) {
     if (!ACCOUNT_ID.test(id) || !record(entry) || !["claude", "codex"].includes(entry.kind) || !["keychain", "file"].includes(entry.source) || !plainName(entry.name)) continue;
     accounts[id] = { kind: entry.kind, name: plainName(entry.name), source: entry.source, origin: typeof entry.origin === "string" ? entry.origin : fallbackOrigin, at: Number.isSafeInteger(entry.at) ? entry.at : 0 };
   }
-  return { origin: fallbackOrigin, deviceId: record(value) && DEVICE_ID.test(value.deviceId) ? value.deviceId : null, accounts };
+  return { origin: fallbackOrigin, deviceId: record(value) && DEVICE_ID.test(value.deviceId) ? value.deviceId : null, accounts, refused: parseRefusals(record(value) ? value.refused : null) };
 }
 
 export function serializeAccountRecords(records) {
-  return `${JSON.stringify({ version: 2, origin: records.origin, deviceId: records.deviceId, accounts: records.accounts }, null, 2)}\n`;
+  return `${JSON.stringify({ version: 2, origin: records.origin, deviceId: records.deviceId, accounts: records.accounts, refused: records.refused ?? {} }, null, 2)}\n`;
 }
 
 export function homeOriginAllowed(origin) {
@@ -141,7 +157,7 @@ export function createCloudAiAccounts({ localRequest, fetchImpl = fetch, keychai
   if (typeof localRequest !== "function" || typeof read !== "function" || typeof write !== "function") throw new Error("Moving accounts needs this Mac's server and a place to remember them.");
   let running = null, timer = null, failures = 0, doneFor = null, closed = false;
 
-  const records = () => { try { return parseAccountRecords(read()); } catch { return { origin: null, deviceId: null, accounts: {} }; } };
+  const records = () => { try { return parseAccountRecords(read()); } catch { return { origin: null, deviceId: null, accounts: {}, refused: {} }; } };
   const save = next => { try { write(serializeAccountRecords(next)); return true; } catch { log("cloud accounts: could not save which accounts are on My Cloud"); return false; } };
   const stopTimer = () => { if (timer !== null) clearTimer(timer); timer = null; };
 
@@ -212,6 +228,23 @@ export function createCloudAiAccounts({ localRequest, fetchImpl = fetch, keychai
   }
 
   const refused = (status, body) => status === 422 || status === 400 || status === 413 || status === 415 || (status === 409 && body?.code !== "busy");
+  const refusalCode = (status, body) => (typeof body?.code === "string" && /^[a-z_]{1,40}$/.test(body.code) ? body.code : `http_${status}`);
+
+  function rememberRefusal(source, destination, refusal) {
+    const saved = records();
+    return save({ ...saved, refused: { ...saved.refused, [source.instanceId]: { ...refusal, origin: destination.origin, at: now() } } });
+  }
+
+  async function stillRefused(source, refusal) {
+    if (FINAL_REFUSALS.includes(refusal.code)) return true;
+    try {
+      const store = await storeOf(source);
+      if (!store?.login) return true;
+      return refusal.fingerprint === loginFingerprint(refreshTokenOf(source.kind, store.login));
+    } catch {
+      return true;
+    }
+  }
 
   async function release(source) {
     try {
@@ -233,12 +266,19 @@ export function createCloudAiAccounts({ localRequest, fetchImpl = fetch, keychai
       else if (!store?.login) { outcome = "absent"; free = true; }
       else {
         session ??= await openHome(destination);
-        const sent = await home(session, "PUT", homeRoute(source.instanceId), { kind: source.kind, displayName: source.displayName, deviceId: device, login: store.login });
+        const handoff = { kind: source.kind, displayName: source.displayName, deviceId: device, login: store.login };
+        let sent = await home(session, "PUT", homeRoute(source.instanceId), source.email ? { ...handoff, email: source.email } : handoff);
+        if (sent.status === 400 && source.email) sent = await home(session, "PUT", homeRoute(source.instanceId), handoff);
         if (sent.status === 200 && sent.body?.signedIn === true) {
           const saved = records();
-          outcome = save({ ...saved, origin: destination.origin, accounts: { ...saved.accounts, [source.instanceId]: { kind: source.kind, name: source.displayName, source: store.from, origin: destination.origin, at: now() } } }) ? "moved" : "waiting";
+          const refusedNow = { ...saved.refused };
+          delete refusedNow[source.instanceId];
+          outcome = save({ ...saved, origin: destination.origin, refused: refusedNow, accounts: { ...saved.accounts, [source.instanceId]: { kind: source.kind, name: source.displayName, source: store.from, origin: destination.origin, at: now() } } }) ? "moved" : "waiting";
         } else if (refused(sent.status, sent.body)) {
-          outcome = sent.status === 409 && sent.body?.code === "home_signed_in" ? "home" : "refused";
+          const code = refusalCode(sent.status, sent.body);
+          log(`cloud accounts: My Cloud did not take ${source.displayName} (${code})`);
+          if (REFUSALS_KEPT.includes(code)) rememberRefusal(source, destination, { code, fingerprint: loginFingerprint(refreshTokenOf(source.kind, store.login)) });
+          outcome = code === "home_signed_in" ? "home" : "refused";
           free = true;
         }
       }
@@ -266,6 +306,11 @@ export function createCloudAiAccounts({ localRequest, fetchImpl = fetch, keychai
           if (entry) {
             if (entry.origin !== destination.origin) { summary.stayed.push({ name: source.displayName, why: "elsewhere" }); continue; }
             if (!source.held) await local("PUT", holdRoute(source.instanceId)).catch(() => {});
+            continue;
+          }
+          const refusal = saved.refused[source.instanceId];
+          if (refusal && refusal.origin === destination.origin && await stillRefused(source, refusal)) {
+            if (source.held) await release(source);
             continue;
           }
           if (!(await present(source))) {

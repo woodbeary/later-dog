@@ -41,9 +41,11 @@ export const DEVICE_ID = /^[0-9a-f]{32}$/;
 const deviceId = z.string().regex(DEVICE_ID);
 const displayName = z.string().trim().min(1).max(80).refine((value) => !/\p{Cc}/u.test(value));
 
+export const accountEmailSchema = z.string().trim().max(254).regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/).refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value));
+
 export const handoffSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("claude"), displayName, deviceId, login: claudeLoginSchema }).strict(),
-  z.object({ kind: z.literal("codex"), displayName, deviceId, login: codexLoginSchema }).strict(),
+  z.object({ kind: z.literal("claude"), displayName, deviceId, login: claudeLoginSchema, email: accountEmailSchema.optional() }).strict(),
+  z.object({ kind: z.literal("codex"), displayName, deviceId, login: codexLoginSchema, email: accountEmailSchema.optional() }).strict(),
 ]);
 
 export type Handoff = z.infer<typeof handoffSchema>;
@@ -56,8 +58,8 @@ export function loginFingerprint(refreshToken: string): string {
   return createHash("sha256").update(refreshToken).digest("hex").slice(0, 16);
 }
 
-export function providerAccountOf(kind: AiAccountKind, login: ClaudeLogin | CodexLogin): string | null {
-  if (kind !== "codex") return null;
+export function providerAccountOf(kind: AiAccountKind, login: ClaudeLogin | CodexLogin, email?: string): string | null {
+  if (kind !== "codex") return email ? `email:${email.toLowerCase()}` : null;
   const id = (login as CodexLogin).tokens.account_id;
   return typeof id === "string" && id.length > 0 ? id : null;
 }

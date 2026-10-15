@@ -10,9 +10,10 @@ import { PASS, type RouteHandler } from "../routes/table.ts";
 import { MOVABLE_ACCOUNT_ID, accountKindOf, type AiAccountKind } from "./ai-account-login.ts";
 import { claudeCredentialsFile, claudeKeychainAccount, claudeKeychainService } from "./claude-keychain.ts";
 import { readHeldAccounts, setHeldAccount } from "./held-accounts.ts";
+import { claudeAccountEmail, claudeLoginIsOwnCli, codexLoginIsOwnCli } from "./own-cli-logins.ts";
 
 export type MacAccountSource =
-  | { instanceId: string; kind: AiAccountKind; displayName: string; held: boolean; file: string; keychain?: { service: string; account: string } }
+  | { instanceId: string; kind: AiAccountKind; displayName: string; held: boolean; file: string; keychain?: { service: string; account: string }; email?: string }
   | { instanceId: string; kind: "chatgpt-plan"; displayName: string; held: false; stays: "chatgpt-plan" };
 
 export interface MacAccountDeps {
@@ -62,15 +63,18 @@ export function macAccountSources(instances: InstanceConfigMap, options: { dataD
       let directory: string;
       try { directory = configuredAccountDirectory(entry); } catch { continue; }
       const storage = { CLAUDE_CONFIG_DIR: directory || undefined, CLAUDE_SECURESTORAGE_CONFIG_DIR: merged.CLAUDE_SECURESTORAGE_CONFIG_DIR };
+      if (!directory || claudeLoginIsOwnCli(storage, env)) continue;
       const home = merged.HOME || merged.USERPROFILE || homedir();
+      const email = claudeAccountEmail(directory);
       sources.push({
         instanceId, kind: "claude", displayName: entry.displayName ?? "Claude", held: options.held.has(instanceId),
         file: claudeCredentialsFile(storage, home),
         ...(platform === "darwin" ? { keychain: { service: claudeKeychainService(storage), account: claudeKeychainAccount(merged) } } : {}),
+        ...(email ? { email } : {}),
       });
     } else if (instanceId === "codex" && ownCodex(entry)) {
       const home = codexHome(merged);
-      if (!home || !codexUsesFile(home)) continue;
+      if (!home || codexLoginIsOwnCli(home, env) || !codexUsesFile(home)) continue;
       sources.push({ instanceId, kind: "codex", displayName: entry.displayName ?? "ChatGPT", held: options.held.has(instanceId), file: join(home, "auth.json") });
     } else if (entry.driver === "codex" && raw(entry).authMode === "chatgpt-plan" && !raw(entry).managed) {
       const directory = join(options.dataDir, "providers", "chatgpt-plan", createHash("sha256").update(instanceId).digest("hex"));
