@@ -163,7 +163,7 @@ describe("Settings, later.dog Cloud on this Mac", () => {
   it("shows the terms line the phone shows, with working links", async () => {
     bridge = makeBridge({ status: "signed-out" });
     await show({ cloudAccount: bridge });
-    expect(host.querySelector("[data-cloud-sign-in-agreement]")?.textContent).toBe("You accept the Terms and Privacy Policy, and that what you send your dogs goes to the AI that answers them, like Kimi on Cloudflare or Grok by xAI.");
+    expect(host.querySelector("[data-cloud-sign-in-agreement]")?.textContent).toBe("You accept the Terms and Privacy Policy, and that what you send your dogs goes to the AI that answers them, like Claude by Anthropic or Grok by xAI.");
     expect([...host.querySelectorAll("[data-cloud-sign-in-agreement] a")].map((link) => (link as HTMLAnchorElement).href)).toEqual(["https://accounts.later.dog/terms", "https://accounts.later.dog/privacy"]);
   });
 

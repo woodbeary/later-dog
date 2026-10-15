@@ -652,6 +652,7 @@ import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } fr
 import { GROUP_CHAT_REFUSAL, mayMakeGroupChats } from "./laterdog/group-chats.ts";
 import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
 import { INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
+import { moveRetiredIncludedDefault, moveRetiredIncludedModels } from "./laterdog/included-ai-moves.ts";
 import { createPhonePush } from "./laterdog/phone-push.ts";
 import { cloudEmailDelivery } from "./laterdog/email-me.ts";
 import { CONNECT_MAC, macOffline, withConnectMac } from "./laterdog/connect-mac.ts";
@@ -3296,6 +3297,8 @@ const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), E
 let followupsReady = false;
 const sendSequencer = new SendSequencer();
 await retryComputerEngineMove();
+moveRetiredIncludedDefault(cfg, saveConfig);
+moveRetiredIncludedModels(store);
 if (store.needsSeed()) bootSelection = await defaultSelection();
 else enginesRead = defaultSelection().then(
   (selection) => { bootSelection = selection; },

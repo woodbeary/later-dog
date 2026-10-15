@@ -16,10 +16,12 @@ export interface DefaultSelectionContext {
 }
 
 const INCLUDED_LAST = new Set(["laterdogAi", "laterdogGrok"]);
+const INCLUDED_FIRST_CHOICE = "laterdogAi";
 
 const claudeFirst = (instances: readonly SelectableInstance[]) =>
   instances.find((instance) => instance.driverKind === "claudeAgent")
     ?? instances.find((instance) => !INCLUDED_LAST.has(instance.driverKind))
+    ?? instances.find((instance) => instance.driverKind === INCLUDED_FIRST_CHOICE)
     ?? instances[0];
 
 export function signedOut(instance: SelectableInstance): boolean {

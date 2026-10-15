@@ -361,9 +361,12 @@ export function railProviders(instances: InstanceInfo[], selectedInstance: Insta
   const opensOn: Record<SignInFamily, InstanceInfo | undefined> = { claude: claudeInstance, openai: openaiInstance };
   const ready = (instance: InstanceInfo) => !needsCli(instance) && !needsSignIn(instance);
   const included = instances.filter((instance) => INCLUDED_DRIVERS.has(instance.driverKind));
+  const freeAnswers = (free: InstanceInfo) => free.snapshot.state === "available";
   const twin = (instance: InstanceInfo) => (INCLUDED_DRIVERS.has(instance.driverKind)
-    ? instances.find((other) => !INCLUDED_DRIVERS.has(other.driverKind) && other.displayName === instance.displayName && ready(other))
-    : !ready(instance) ? included.find((free) => free.displayName === instance.displayName) : undefined);
+    ? instances.find((other) => !INCLUDED_DRIVERS.has(other.driverKind) && other.displayName === instance.displayName
+      && (ready(other) || (signInFamily(other) !== undefined && !freeAnswers(instance))))
+    : !ready(instance) ? included.find((free) => free.displayName === instance.displayName
+      && (!signInFamily(instance) || freeAnswers(free))) : undefined);
   const providers = instances.filter((instance) => {
     const family = signInFamily(instance);
     return (!family || instance === firstOf[family]) && !twin(instance);

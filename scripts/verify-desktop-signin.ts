@@ -68,7 +68,7 @@ assert.equal(await gateOpen(), true);
 assert.equal(await welcomeOpen(), false, "the welcome flow waits behind the sign-in screen");
 const first = await snapshot();
 for (const text of ["Agree and continue", "Use this Mac without an account"]) assert.ok(first.includes(text), text);
-assert.equal(await evaluate("document.querySelector('[data-cloud-sign-in-agreement]').textContent"), "You accept the Terms and Privacy Policy, and that what you send your dogs goes to the AI that answers them, like Kimi on Cloudflare or Grok by xAI.");
+assert.equal(await evaluate("document.querySelector('[data-cloud-sign-in-agreement]').textContent"), "You accept the Terms and Privacy Policy, and that what you send your dogs goes to the AI that answers them, like Claude by Anthropic or Grok by xAI.");
 await shot("01-first-launch-email");
 console.log("PASS first launch opens on the account screen, with the phone's words, before any other step");
 

@@ -169,7 +169,7 @@ export function ProviderMark({ driverKind, size, className }: IconProps & { driv
     case "piAgent":
       return <PiMark size={size} className={className} />;
     case "laterdogAi":
-      return <KimiMark size={size} className={className} />;
+      return <ClaudeMark size={size} className={className} />;
     case "laterdogGrok":
       return <GrokMark size={size} className={className} />;
     case "cerebras":

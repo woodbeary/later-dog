@@ -1,4 +1,4 @@
-import type { ProviderDriver } from "../contracts.ts";
+import type { ModelCatalog, ProviderDriver } from "../contracts.ts";
 import { createOpenAIChatRuntime } from "../drivers/openai-chat.ts";
 import { savedTrial } from "./cloud-computers.ts";
 import { planOfferedNow } from "./cloud-trial.ts";
@@ -10,8 +10,35 @@ export const INCLUDED_GROK_DRIVER = "laterdogGrok";
 export const INCLUDED_GROK_INSTANCE = "laterdogGrok";
 export const INCLUDED_AI_INSTANCES: readonly string[] = [INCLUDED_AI_INSTANCE, INCLUDED_GROK_INSTANCE];
 const FALLBACK_URL = "https://cloud.later.dog/v1/ai";
-const KIMI_MODELS = { default: "kimi-k2.6", options: [{ id: "kimi-k2.6", label: "Kimi K2.6", contextWindow: 256_000 }] };
-const GROK_MODELS = { default: "grok-4.3", options: [{ id: "grok-4.3", label: "Grok 4.3", contextWindow: 256_000 }] };
+export const INCLUDED_CONTEXT_WINDOW = 256_000;
+export const INCLUDED_BACKGROUND_MODEL = "kimi-k2.6";
+export const INCLUDED_CLAUDE_MODELS: ModelCatalog = {
+  default: "claude-sonnet-5",
+  options: [{ id: "claude-sonnet-5", label: "Claude Sonnet 5", contextWindow: INCLUDED_CONTEXT_WINDOW }],
+};
+export const INCLUDED_GROK_MODELS: ModelCatalog = {
+  default: "grok-4.7",
+  options: [
+    { id: "grok-4.7", label: "Grok 4.7", contextWindow: INCLUDED_CONTEXT_WINDOW },
+    { id: "grok-4.6", label: "Grok 4.6", contextWindow: INCLUDED_CONTEXT_WINDOW },
+  ],
+};
+const INCLUDED_CATALOGS: Readonly<Record<string, ModelCatalog>> = {
+  [INCLUDED_AI_INSTANCE]: INCLUDED_CLAUDE_MODELS,
+  [INCLUDED_GROK_INSTANCE]: INCLUDED_GROK_MODELS,
+};
+
+export function offeredIncludedModel(models: ModelCatalog, model: string): string {
+  return models.options.some((option) => option.id === model) ? model : models.default;
+}
+
+export function includedSelectionNow<T extends { instanceId: string; model: string }>(selection: T): T {
+  const models = INCLUDED_CATALOGS[selection.instanceId];
+  if (!models) return selection;
+  const model = offeredIncludedModel(models, selection.model);
+  return model === selection.model ? selection : { ...selection, model };
+}
+
 const NOT_STARTED = "Start the free trial to use the free models.";
 const ENDED = "Your free trial has ended. Sign in to Claude or ChatGPT to keep going.";
 const ENDED_WITH_PLAN = "Your free trial has ended. Sign in to Claude or ChatGPT, or keep going on later.dog Cloud in Settings, Computer.";
@@ -34,7 +61,7 @@ export function includedAiError(status: number, body: string): string | undefine
 
 const notReady = () => (savedTrial()?.ended ? ended() : NOT_STARTED);
 
-function includedDriver(driverKind: string, displayName: string, models: typeof KIMI_MODELS): ProviderDriver<Record<string, never>> {
+function includedDriver(driverKind: string, displayName: string, models: ModelCatalog): ProviderDriver<Record<string, never>> {
   return {
     driverKind,
     metadata: { displayName, supportsMultipleInstances: false },
@@ -49,13 +76,13 @@ function includedDriver(driverKind: string, displayName: string, models: typeof 
         apiKey: () => trialAi()?.token ?? "",
         apiUrl: trialAi()?.api ?? FALLBACK_URL,
         models: () => models,
-        requestBody: (model, messages, stream) => ({ model, messages, stream }),
+        requestBody: (model, messages, stream) => ({ model: model === INCLUDED_BACKGROUND_MODEL ? model : offeredIncludedModel(models, model), messages, stream }),
         httpErrorLabel: displayName,
         errorText: includedAiError,
         missingKeyError: notReady(),
         unavailableReason: notReady(),
         timeoutMs: 120_000,
-        generateModel: () => models.default,
+        generateModel: () => INCLUDED_BACKGROUND_MODEL,
         computerUse: true,
         nudgeAnnouncedAction: true,
         nativeLog: {
@@ -68,5 +95,5 @@ function includedDriver(driverKind: string, displayName: string, models: typeof 
   };
 }
 
-export const IncludedAiDriver = includedDriver(INCLUDED_AI_DRIVER, "Kimi", KIMI_MODELS);
-export const IncludedGrokDriver = includedDriver(INCLUDED_GROK_DRIVER, "Grok", GROK_MODELS);
+export const IncludedAiDriver = includedDriver(INCLUDED_AI_DRIVER, "Claude", INCLUDED_CLAUDE_MODELS);
+export const IncludedGrokDriver = includedDriver(INCLUDED_GROK_DRIVER, "Grok", INCLUDED_GROK_MODELS);

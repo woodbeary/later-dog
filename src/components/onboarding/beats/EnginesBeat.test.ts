@@ -386,8 +386,8 @@ describe("the AI step of first run", () => {
     fixture.routes["POST /api/computers/trial"] = () => (trial = { state: "pending", url: "https://cloud.later.dog/trial?claim=abc" });
     await mount();
     const free = row("free-ai");
-    expect(free.textContent).toBe("Kimi and GrokFree with the trial. No account needed.Try free");
-    expect(document.body.textContent).toContain("or start free on Kimi or Grok");
+    expect(free.textContent).toBe("Claude Sonnet and GrokFree with the trial. No account needed.Try free");
+    expect(document.body.textContent).toContain("or start free on Claude Sonnet or Grok");
     await click(buttonIn(free)!);
     expect(fixture.trialCalls).toContain("POST /api/computers/trial");
     expect(fixture.open).toHaveBeenCalledWith("https://cloud.later.dog/trial?claim=abc");
