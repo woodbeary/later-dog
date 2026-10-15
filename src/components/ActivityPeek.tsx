@@ -57,6 +57,18 @@ function ProgressDisclosure({ id, label, open, onToggle, children }: {
   </div>;
 }
 
+export interface StepGroup { id: string; label: string; state: TurnStep["state"]; count: number }
+
+export function groupSteps(steps: readonly TurnStep[]): StepGroup[] {
+  const groups: StepGroup[] = [];
+  for (const step of steps) {
+    const last = groups[groups.length - 1];
+    if (last && last.label === step.label && last.state === step.state && step.state !== "running") last.count += 1;
+    else groups.push({ id: step.id, label: step.label, state: step.state, count: 1 });
+  }
+  return groups;
+}
+
 const connectedStepClass = "relative pb-1.5 before:absolute before:top-4.5 before:bottom-0 before:start-2 before:border-s before:border-hairline/60 last:pb-0 last:before:hidden";
 
 export function ActivityPeek({ label, since, helpers, reasoning, steps = [], updates = [], anchor, onClose }: {
@@ -106,7 +118,7 @@ export function ActivityPeek({ label, since, helpers, reasoning, steps = [], upd
           <CircleDot size={14} strokeWidth={1.75} aria-hidden="true" className="mt-0.75 text-ink-secondary" />
           <div className="min-w-0"><div className="flex items-start justify-between gap-3"><p className="break-words font-medium leading-5 text-ink">{label}</p>{since !== null && <WorkingTimer since={since} className="shrink-0 pt-0.5 text-[10.5px] text-ink-tertiary" />}</div>{reasoning.tokens !== null && <p className="mt-1 text-[10.5px] text-ink-tertiary">{t("chat.activity.thinkingTokens", { count: reasoning.tokens.toLocaleString() })}</p>}</div>
         </div>
-        {steps.length > 0 && <div data-peek-steps=""><h3 className="mb-2 text-[11px] font-medium text-ink-tertiary">{t("chat.row.steps")}</h3><ul>{steps.map(step => <li key={step.id} className={cn(connectedStepClass, "grid grid-cols-[16px_minmax(0,1fr)] gap-x-2.5 text-[12px] leading-4.5", step.state === "running" ? "text-ink" : "text-ink-secondary")}><span className="relative z-1 flex h-4.5 items-center justify-center bg-panel"><StepIcon state={step.state} /></span><span className="min-w-0 break-words">{step.label}</span></li>)}</ul></div>}
+        {steps.length > 0 && <div data-peek-steps=""><h3 className="mb-2 text-[11px] font-medium text-ink-tertiary">{t("chat.row.steps")}</h3><ul>{groupSteps(steps).map(step => <li key={step.id} className={cn(connectedStepClass, "grid grid-cols-[16px_minmax(0,1fr)] gap-x-2.5 text-[12px] leading-4.5", step.state === "running" ? "text-ink" : "text-ink-secondary")}><span className="relative z-1 flex h-4.5 items-center justify-center bg-panel"><StepIcon state={step.state} /></span><span className="min-w-0 break-words">{step.label}{step.count > 1 && <span className="ms-1.5 text-ink-tertiary tabular-nums">×{step.count}</span>}</span></li>)}</ul></div>}
         {helpers.length > 0 && <ul className="border-t border-hairline/60 pt-3">{helpers.map(helper => <li key={helper.id} className={connectedStepClass}><HelperDetails helper={helper} />{helper.members?.length ? <ul className="mt-2.5 ms-6.5">{helper.members.map(member => <li key={member.id} className={connectedStepClass}><HelperDetails helper={member} /></li>)}</ul> : null}</li>)}</ul>}
         {updates.length > 0 && <div data-peek-updates=""><ProgressDisclosure id={updatesId} label={t("chat.row.updates")} open={updatesOpen} onToggle={() => setUpdatesOpen(value => !value)}><ul className="space-y-3">{updates.map((line, index) => <li key={index} className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink-secondary">{line}</li>)}</ul></ProgressDisclosure></div>}
         <ProgressDisclosure id={summaryId} label={t("chat.activity.summary")} open={summaryOpen} onToggle={() => setSummaryOpen(value => !value)}>

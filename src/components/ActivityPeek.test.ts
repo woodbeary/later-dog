@@ -196,3 +196,18 @@ it("keeps completed, active and failed steps distinct as live results arrive", a
   expect(steps.querySelector('[aria-label="Did not work"]')).not.toBeNull();
   expect(steps.querySelectorAll("li")).toHaveLength(2);
 });
+
+it("merges consecutive finished steps with the same label into a counted row and keeps a running step apart", async () => {
+  const step = (id: string, label: string, state: "running" | "done" | "failed") => ({ id, label, state });
+  const steps = [
+    ...["a", "b", "c"].map(id => step(id, "Running a few commands", "done")),
+    step("d", "Making edits", "done"),
+    step("e", "Running a few commands", "done"),
+    step("f", "Running a few commands", "failed"),
+    step("g", "Running a few commands", "running"),
+    step("h", "Running a few commands", "running"),
+  ];
+  await act(async () => root.render(createElement(ActivityPeek, { label: "Working", since: null, helpers: [], reasoning: NO_REASONING, steps, anchor: createRef<HTMLButtonElement>(), onClose: () => {} })));
+  const rows = [...document.querySelectorAll('[data-peek-steps] li')].map(row => row.textContent);
+  expect(rows).toEqual(["Running a few commands×3", "Making edits", "Running a few commands", "Running a few commands", "Running a few commands", "Running a few commands"]);
+});
