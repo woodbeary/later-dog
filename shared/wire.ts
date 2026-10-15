@@ -258,6 +258,7 @@ export interface WireMessage {
     resume?: { handoffId: string };
     itemId?: string;
     fullResult?: boolean;
+    statusLine?: "live" | "folded";
   };
   webhookPost?: boolean;
   steered?: boolean;

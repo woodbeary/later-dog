@@ -679,6 +679,7 @@ import { SecureForms, secureFormMessageText } from "./laterdog/secure-form.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { workUpdatesPrompt } from "./laterdog/work-updates.ts";
+import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
@@ -5328,6 +5329,23 @@ bus.subscribe((event: RuntimeEvent) => {
     }
   } else if (event.type !== "session.exited") watchdog.touch(event.threadId);
 });
+
+const statusLines = createStatusLines({
+  work: threadWork(store, (threadId) => watchdog.snapshot(threadId)),
+  append: (threadId, message) => store.appendMessage(threadId, message),
+  patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
+  ledger: fileStatusLineLedger(join(DATA_DIR, "status-lines.json")),
+}, statusLineTimingFromEnv());
+statusLines.foldLeftovers();
+store.onChange((change) => {
+  if (change.type === "message") statusLines.observe(change.threadId, change.message);
+});
+bus.subscribe((event: RuntimeEvent) => {
+  if (shouldIgnoreProviderEvent(event)) return;
+  if (event.type === "turn.started") statusLines.begin(event.threadId, event.turnId);
+  else if (event.type === "turn.completed") statusLines.settle(event.threadId);
+});
+statusLines.start();
 
 bus.subscribe(makeCapContinuationSubscriber({ store, startTurn }));
 
