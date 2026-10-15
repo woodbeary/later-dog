@@ -13,6 +13,8 @@ with its own files and its own conversation. Dogs message each other, run on a s
 cloud. It runs on the subscriptions you already pay for, ChatGPT and Claude, through their official sign-in flows, so
 there are no API keys to paste. New to later.dog? Start with the [user guide](docs/laterdog/README.md).
 
+Built by [Jacob Lopez](https://github.com/woodbeary), open to roles. Say hi on [GitHub](https://github.com/woodbeary).
+
 ## Install (macOS, Apple silicon)
 
 1. Download `later.dog-macOS-arm64.dmg` from the [latest release](https://github.com/woodbeary/later-dog/releases/latest).
