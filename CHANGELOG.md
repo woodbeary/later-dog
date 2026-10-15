@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.38 — 2026-10-15
+
+- **Grok Bot, Claude Code and other apps on your Mac can use your dogs in My Cloud.** Add later.dog's MCP server to the app; while your Mac is signed in to later.dog Cloud it reaches your Cloud with full access.
+- **Codex dogs keep working in My Cloud.** A chat whose Codex history stayed on your Mac picks up from the later.dog transcript.
+- **Dogs in My Cloud have their later.dog tools again**, including your Mac and cloud jobs.
+
 ## 0.3.37 — 2026-10-15
 
 - **Your Claude and ChatGPT sign-ins actually reach My Cloud.** The address they travel through was answered by another part of the app first, so nothing ever arrived.

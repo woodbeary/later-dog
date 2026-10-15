@@ -164,6 +164,15 @@ The usual per-user install is under `%LOCALAPPDATA%\\Programs\\later.dog`.
 On Ubuntu `.deb` installs, the executable is normally `/opt/later.dog/laterdog` and the script is
 `/opt/later.dog/resources/server/mcp-server.js`. Use the same environment value.
 
+## Grok Bot, Claude Code and other apps on a Mac signed in to later.dog Cloud
+
+When the desktop app is signed in to later.dog Cloud, it keeps `cloud-access.json` next to the local tools
+token (`~/Library/Application Support/later.dog/` on macOS), readable only by your user account. It holds your
+Cloud's address and an "Apps on this Mac" session. The bundled MCP server uses it automatically, so any app on
+the Mac that runs the server above (Grok Bot, Claude Code, Cursor and others) reaches your dogs in the Cloud with
+the same access the desktop app has. Signing out of later.dog Cloud deletes the file. `LATERDOG_URL` and
+`LATERDOG_SERVER_TOKEN` still win when set.
+
 ## Connection discovery
 
 With no configuration, the MCP process probes later.dog's three desktop ports (`8799`, `18799`, and `28799`)

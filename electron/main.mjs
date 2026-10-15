@@ -16,6 +16,7 @@ if (variantLogsDir) app.setAppLogsPath(variantLogsDir);
 import { startCua, stopCua, registerCuaIpc, setCuaStateListener } from "./cua.mjs";
 import { startLaterDogSupervisor } from "./laterdog-supervisor.mjs";
 import { removeLocalControlToken, startLocalControlToken } from "./local-control-token.mjs";
+import { cloudAccessPath, createCloudAppsAccess } from "./cloud-apps-access.mjs";
 import { createAndroidDeviceController } from "./android-device.mjs";
 import { finishSpeech, startSpeech, stopSpeech, voiceNoteAudio } from "./speech.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
@@ -278,6 +279,7 @@ let cloudAutoMove = null;
 let cloudWindow = null;
 let macHold = null;
 let cloudAiAccounts = null;
+let cloudAppsAccess = null;
 let accountsNote = null;
 let cloudOffer = null;
 let homeFellBack = false;
@@ -706,6 +708,7 @@ function observeCloudHome(state) {
     if (state.status === "signed-out" && state.message !== "restoring") {
       cloudMove?.cancel();
       cloudAiAccounts?.stop();
+      void ensureCloudAppsAccess().forget();
       if (macHold) void macHold.set(false);
     }
     if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); void syncCloudWindow(state); return; }
@@ -2546,6 +2549,7 @@ function syncCloudWindow(state, manual = false) {
   const controller = ensureCloudWindow();
   return (manual ? controller.retry(state) : controller.sync(state)).then(result => {
     if (result?.kind === "cloud" && (result.move === "moved" || result.move === "nothing")) handOverAccounts(cloudHomeDestination());
+    if (result?.kind === "cloud") void ensureCloudAppsAccess().ensure(cloudHomeDestination());
     return result;
   }).catch(error => { slog(`cloud window: ${error?.message ?? error}`); return null; });
 }
@@ -2567,6 +2571,10 @@ function ensureCloudAiAccounts() {
     onChange: summary => showAccountsNote(summary),
   });
   return cloudAiAccounts;
+}
+function ensureCloudAppsAccess() {
+  cloudAppsAccess ??= createCloudAppsAccess({ file: cloudAccessPath(app.getPath("userData")), log: slog });
+  return cloudAppsAccess;
 }
 function handOverAccounts(destination) {
   if (!app.isPackaged || desktopRemoteAccess || !serverReady || destination?.kind !== "cloud" || !destination.origin) return;

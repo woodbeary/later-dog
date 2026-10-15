@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import readline from "node:readline";
+import { readCloudAccess, type CloudAccess } from "./cloud-access.ts";
 import { localControlTokenPath, localToolsHeaders } from "./local-control-token.ts";
 import { COMPUTER_TOOLS, ComputerToolOutput, callComputerTool, computerToolProblem, isComputerTool } from "./mcp-computer-tools.ts";
 
@@ -54,8 +55,13 @@ function requestTimeoutMs(): number {
   return Number.isFinite(raw) && raw >= 1_000 && raw <= 120_000 ? Math.floor(raw) : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
+export function cloudAccess(): CloudAccess | undefined {
+  return configuredUrl || process.env.LATERDOG_SERVER_TOKEN?.trim() ? undefined : readCloudAccess();
+}
+
 function requestHeaders(url: string, options: RequestInit, discovery: boolean): NonNullable<RequestInit["headers"]> {
-  const token = process.env.LATERDOG_SERVER_TOKEN?.trim();
+  const cloud = discovery ? undefined : cloudAccess();
+  const token = process.env.LATERDOG_SERVER_TOKEN?.trim() || (cloud && url.startsWith(`${cloud.url}/`) ? cloud.token : undefined);
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
@@ -111,6 +117,15 @@ export async function resolveBaseUrl(): Promise<string> {
   if (discoveredBaseUrl) return discoveredBaseUrl;
   if (process.env.LATERDOG_SERVER_TOKEN?.trim() && !configuredUrl) {
     throw new Error("Set LATERDOG_URL or LATERDOG_SERVER_PORT when using LATERDOG_SERVER_TOKEN so credentials are never sent during port discovery");
+  }
+  const cloud = cloudAccess();
+  if (cloud) {
+    try {
+      discoveredBaseUrl = await probeBaseUrls([cloud.url]);
+    } catch {
+      throw new Error("later.dog Cloud is waking up or can't be reached right now. Try again in a minute.");
+    }
+    return discoveredBaseUrl;
   }
   discoveredBaseUrl = await probeBaseUrls(DISCOVERY_URLS);
   return discoveredBaseUrl;
