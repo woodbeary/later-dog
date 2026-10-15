@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { InstanceInfo } from "@/state/store";
-import { AccountMenu } from "./AccountMenu";
+import { AccountMenu, activeRowId, restStatus } from "./AccountMenu";
 import type { PlanProvider } from "./PlanUsage";
 const now = Date.parse("2026-10-13T12:00:00Z");
 const instance = (instanceId: string): InstanceInfo => ({ instanceId, displayName: instanceId, driverKind: "claudeAgent", snapshot: { state: "available", authenticated: true }, models: { default: "opus", options: [] } });
@@ -24,13 +24,42 @@ describe("compact account batteries", () => {
     const row = render().querySelector('[data-account-row="a"]')!;
     expect(row.firstElementChild?.firstElementChild?.hasAttribute("data-sleeping-dog")).toBe(true);
     expect(row.querySelector('[data-recharge="50"]')).not.toBeNull();
-    expect(row.textContent).toContain("Back at");
+    expect(row.textContent).toContain("Resting · back at");
+    expect(row.querySelector("[data-charging-bolt]")).not.toBeNull();
+    expect(row.querySelector("[data-account-check]")?.getAttribute("data-account-check")).toBe("off");
     expect(row.querySelector("[data-account-grip]")?.className).not.toContain("opacity-0");
   });
   it("shows the tighter remaining window and identifies the account actually in use", () => {
     const row = render().querySelector('[data-account-row="b"]')!;
     expect(row.textContent).toContain("73%");
-    expect(row.querySelector("[data-account-in-use]")?.textContent).toBe("In use now");
+    expect(row.querySelector("[data-account-check=on] svg")).not.toBeNull();
+    expect(row.textContent).not.toContain("In use now");
+    expect(row.querySelector("[data-charging-bolt]")).toBeNull();
+  });
+  it("puts the check on the row in use, else on the selected row", () => {
+    const rows = [
+      { instance: instance("a"), label: "A", selected: true },
+      { instance: instance("b"), label: "B", selected: false, inUse: true },
+    ];
+    expect(activeRowId(rows)).toBe("b");
+    expect(activeRowId(rows.map((row) => ({ ...row, inUse: false })))).toBe("a");
+    expect(activeRowId([{ instance: instance("c"), label: "C", selected: false }])).toBeUndefined();
+  });
+  it("labels a resting row Resting only when selected", () => {
+    expect(restStatus(rest, true, now)).toMatch(/^Resting · back at /);
+    expect(restStatus(rest, false, now)).toMatch(/^Back at /);
+    expect(restStatus({ ...rest, estimated: true }, true, now)).toBe("Recharging");
+  });
+  it("keeps every column on every row so batteries and numbers line up", () => {
+    const host = render();
+    for (const id of ["a", "b"]) {
+      const row = host.querySelector(`[data-account-row="${id}"]`)!;
+      for (const column of ["[data-account-status]", "[data-account-battery-column]", "[data-account-value-column]", "[data-account-check]"]) expect(row.querySelector(column)).not.toBeNull();
+    }
+    const bare = document.createElement("div");
+    bare.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { now, onPick: vi.fn(), rows: [{ instance: instance("z"), label: "Z", selected: false }] }));
+    expect(bare.querySelector("[data-account-battery-column]")?.className).toContain("w-8");
+    expect(bare.querySelector("[data-battery]")).toBeNull();
   });
   it("sleeps at a verified full limit without a fabricated recharge estimate", () => {
     const row = render(false, 100).querySelector('[data-account-row="b"]')!;

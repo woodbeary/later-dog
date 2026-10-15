@@ -788,6 +788,7 @@
   "botSettings.simple.teachDone": "हो गया",
   "engines.claudeUpdated": "Claude अपडेट हुआ — {version}",
   "accounts.backAt": "{time} पर फिर उपलब्ध",
+  "accounts.restingBackAt": "Resting · back at {time}",
   "accounts.backAround": "लगभग {time} पर फिर उपलब्ध",
   "accounts.inWhen": "{when} में",
   "accounts.recharging": "चार्ज हो रहा है",

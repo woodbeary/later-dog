@@ -991,6 +991,7 @@
   "engines.account.powershell": "Для цієї команди використайте PowerShell.",
   "engines.account.signingOut": "Виходимо…",
   "accounts.backAt": "Знову доступно о {time}",
+  "accounts.restingBackAt": "Resting · back at {time}",
   "accounts.backAround": "Знову доступно приблизно о {time}",
   "accounts.inWhen": "через {when}",
   "accounts.recharging": "Відновлення заряду",

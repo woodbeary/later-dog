@@ -3,8 +3,9 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 import { InstanceProviderMark } from "./ProviderIcons";
-import { SleepingDog, type AccountRest } from "./AccountCharge";
-import { AccountCharge } from "./AccountBattery";
+import { resetClock } from "@/lib/reset-time";
+import { backAt, SleepingDog, type AccountRest } from "./AccountCharge";
+import { AccountChargeColumns } from "./AccountBattery";
 import { AccountUsageCard } from "./AccountUsageGlance";
 import { usageReading, type PlanProvider } from "./PlanUsage";
 import { useAccountDrag } from "./account-drag";
@@ -18,6 +19,15 @@ export interface AccountMenuRow {
   provider?: PlanProvider;
   rest?: AccountRest;
   inUse?: boolean;
+}
+
+export function activeRowId(rows: readonly AccountMenuRow[]): string | undefined {
+  return (rows.find((row) => row.inUse) ?? rows.find((row) => row.selected))?.instance.instanceId;
+}
+
+export function restStatus(rest: AccountRest, selected: boolean, now: number): string {
+  if (!selected || rest.estimated) return backAt(rest, now);
+  return t("accounts.restingBackAt", { time: resetClock(rest.until, now) });
 }
 
 export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, onManageUsage, auto = false, now = Date.now() }: {
@@ -35,6 +45,7 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, onMana
     (ids) => onReorder?.(ids),
   );
   const hover = useHoverCard();
+  const activeId = activeRowId(rows);
   const shown = drag.order.flatMap((id) => rows.filter((row) => row.instance.instanceId === id)).filter((row, index, all) =>
     all.findIndex((other) => other.instance.instanceId === row.instance.instanceId) === index);
   const grips = shown.some((row) => drag.movable(row.instance.instanceId));
@@ -47,6 +58,8 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, onMana
         const id = row.instance.instanceId;
         const canMove = drag.movable(id);
         const reading = usageReading(row.provider);
+        const active = id === activeId;
+        const status = row.rest ? restStatus(row.rest, row.selected, now) : "";
         return (
           <div key={id} role="none" {...drag.row(id)} {...hover.row(id)} className={cn("group", drag.dragging === id && "opacity-50")}>
             <button
@@ -69,9 +82,11 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, onMana
                 {row.rest || (reading && reading.used >= 100) ? <SleepingDog size={19} /> : <InstanceProviderMark instance={row.instance} size={16} />}
               </span>
               <span className="min-w-0 flex-1 truncate">{row.label}</span>
-              {row.inUse && <span data-account-in-use className="text-[11px] text-accent-text">{t("accounts.inUseNow")}</span>}
-              <AccountCharge used={reading?.used} rest={row.rest} now={now} />
-              <Check size={14} aria-hidden="true" className={cn("shrink-0 text-ink-secondary", !row.selected && "invisible")} />
+              <span data-account-status title={status || undefined} className="w-32 shrink-0 truncate text-right text-[11px] text-ink-secondary">{status}</span>
+              <AccountChargeColumns used={reading?.used} rest={row.rest} now={now} />
+              <span data-account-check={active ? "on" : "off"} className="flex w-4 shrink-0 items-center justify-center">
+                {active && <Check size={14} aria-hidden="true" className="text-accent-text" />}
+              </span>
               {grips && (
                 <span
                   aria-hidden="true"

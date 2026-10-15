@@ -1110,6 +1110,7 @@
   "engines.account.powershell": "这道指令请使用 PowerShell 运行。",
   "engines.account.signingOut": "正在注销…",
   "accounts.backAt": "{time} 恢复",
+  "accounts.restingBackAt": "Resting · back at {time}",
   "accounts.backAround": "约 {time} 恢复",
   "accounts.inWhen": "{when}后",
   "accounts.recharging": "正在恢复",
