@@ -1,5 +1,5 @@
 import type { Message } from "@/state/store";
-import { isStatusActivity } from "./activity-runs";
+import { isFoldedStatusLine, isStatusActivity } from "./activity-runs";
 import { stepLabel } from "./live-activity";
 
 export interface TurnStep {
@@ -20,7 +20,7 @@ export function turnSteps(messages: readonly Message[], since: number | null, li
   const steps: TurnStep[] = [];
   for (const message of messages) {
     if (message.role !== "bot" || message.kind !== "activity" || !message.tool) continue;
-    if (message.comm || message.threadRef || message.cloudTask || isStatusActivity(message)) continue;
+    if (message.comm || message.threadRef || message.cloudTask || isStatusActivity(message) || isFoldedStatusLine(message)) continue;
     if (!inTurn(message, since)) continue;
     const { ok } = message.tool;
     steps.push({ id: message.id, label: stepLabel(message), state: ok === undefined ? "running" : ok ? "done" : "failed" });

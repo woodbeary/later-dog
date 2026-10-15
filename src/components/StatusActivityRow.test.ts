@@ -45,6 +45,21 @@ describe("account carry notices", () => {
   });
 });
 
+describe("a dog's status line while it works", () => {
+  it("reads as a plain status row in the same style as other notices, marked as progress", () => {
+    const message: Message = { id: "still", at: Date.now(), role: "bot", kind: "activity", tool: {
+      name: "notice: Still on it: running the tests", ok: true, statusLine: "live", spoken: "running the tests",
+    } };
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(StatusActivityRow, { message }));
+    const row = host.querySelector('[role="status"]');
+    expect(row?.textContent).toBe("Still on it: running the tests");
+    expect(row?.hasAttribute("data-status-line")).toBe(true);
+    expect(row?.className).toContain("bg-panel");
+    expect(render("notice", false).querySelector("[data-status-line]")).toBeNull();
+  });
+});
+
 describe("Continue after time runs out", () => {
   const offer: Message = { id: "offer", at: Date.now(), role: "bot", kind: "activity", tool: {
     name: "notice: Ran out of time after 4 hours. Continue?", ok: true, resume: { handoffId: "root-1" },

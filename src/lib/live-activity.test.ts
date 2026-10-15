@@ -33,6 +33,14 @@ describe("liveActivityLabel", () => {
     expect(liveActivityLabel(activity("post_to_room"))).toBe("Posting in a group");
   });
 
+  it("keeps naming the live work while a status line is the newest row", () => {
+    expect(liveActivityLabel(activity("notice: Still on it: running the tests", { ok: true, statusLine: "live", spoken: "running the tests" })))
+      .toBe("Running the tests");
+    expect(liveActivityLabel(activity("notice: Still on it", { ok: true, statusLine: "live" }))).toBe("Working");
+    expect(liveActivityLabel(activity("Still on it: running the tests", { ok: true, statusLine: "folded", spoken: "running the tests" })))
+      .toBe("Thinking");
+  });
+
   it("does not present bot-to-bot communication chips as the active action", () => {
     expect(
       liveActivityLabel({

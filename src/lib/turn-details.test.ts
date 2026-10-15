@@ -33,6 +33,15 @@ describe("what the dog did this turn", () => {
     expect(steps.map((step) => step.label)).toEqual(["Editing a file"]);
   });
 
+  it("never lists the dog's status line as a step, live or folded", () => {
+    const steps = turnSteps([
+      tool("Bash", undefined, 20, { tool: { name: "Bash", spoken: "running the tests" } }),
+      tool("notice: Still on it: running the tests", true, 21, { tool: { name: "notice: Still on it: running the tests", ok: true, statusLine: "live" } }),
+      tool("Still on it: making edits", true, 22, { tool: { name: "Still on it: making edits", ok: true, statusLine: "folded", spoken: "making edits" } }),
+    ], 10);
+    expect(steps.map((step) => step.label)).toEqual(["Running the tests"]);
+  });
+
   it("keeps only the latest steps of a long turn", () => {
     const many = Array.from({ length: STEP_LIMIT + 5 }, (_, index) => tool("Grep", true, 10 + index));
     const steps = turnSteps(many, 0);

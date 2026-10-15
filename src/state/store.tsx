@@ -151,7 +151,7 @@ export interface Message {
   routineRun?: RoutineRunCardData;
   goalRun?: GroupGoalRunCardData;
   channelMode?: "chat" | "goal";
-  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota; carry?: { from: string; to: string }; resume?: { handoffId: string }; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean };
+  tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota; carry?: { from: string; to: string }; resume?: { handoffId: string }; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean; statusLine?: "live" | "folded" };
   steered?: boolean;
   via?: "api" | "call";
   turnId?: string;
