@@ -261,6 +261,7 @@ export class MacApprovals {
     this.deps.notify(buildNotification("approval", bot, threadId, detail, {
       avatarUrl: bot.avatarUrl,
       group: room && !room.dm ? { id: room.id, name: room.name } : undefined,
+      card: { requestId, threadId },
     }));
     return card;
   }

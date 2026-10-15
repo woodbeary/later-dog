@@ -44,7 +44,7 @@ export function buildNotification(
   bot: NotifyBot,
   threadId: string,
   detail: string,
-  extra?: { avatarUrl?: string; group?: { id: string; name: string } },
+  extra?: { avatarUrl?: string; group?: { id: string; name: string }; card?: { requestId: string; threadId: string } },
 ): Notification | null {
   if (bot.notifications === false) return null;
 
@@ -74,5 +74,6 @@ export function buildNotification(
   const notification: Notification = { kind, botId: bot.id, botName: bot.name, threadId, title, body };
   if (extra?.avatarUrl) notification.avatarUrl = extra.avatarUrl;
   if (extra?.group) notification.groupId = extra.group.id;
+  if (extra?.card?.requestId && extra.card.threadId === threadId) notification.requestId = extra.card.requestId;
   return notification;
 }

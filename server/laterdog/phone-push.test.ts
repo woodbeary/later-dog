@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Notification } from "../notify.ts";
-import { createPhonePush, EXPO_PUSH_URL, phonePushRequest } from "./phone-push.ts";
+import { APPROVAL_CATEGORY, createPhonePush, EXPO_PUSH_URL, phonePushRequest } from "./phone-push.ts";
 
 const TOKEN = "ExponentPushToken[abcdefghij0123456789]";
 const OTHER = "ExponentPushToken[zyxwvutsrq9876543210]";
@@ -65,6 +65,41 @@ describe("push notifications to the phone", () => {
     expect(await category("approval")).toBeUndefined();
     expect(await category("takeover")).toBeUndefined();
     expect(await category("done", "")).toBeUndefined();
+  });
+
+  it("lets the person allow or deny an approval from the notification, naming the card to answer", async () => {
+    const fetcher = vi.fn(async () => Response.json({ data: [{ status: "ok" }] }));
+    const push = createPhonePush({ dataDir: folder(), fetcher: fetcher as unknown as typeof fetch });
+    push.register(TOKEN);
+    await push.send({ ...approval, requestId: "req-7" });
+    expect(JSON.parse(String((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual([{
+      to: TOKEN,
+      title: "Biscuit needs approval",
+      body: "Run the deploy script?",
+      sound: "default",
+      data: { kind: "approval", botId: "b1", threadId: "t1", requestId: "req-7" },
+      priority: "high",
+      interruptionLevel: "time-sensitive",
+      categoryId: APPROVAL_CATEGORY,
+    }]);
+    expect(APPROVAL_CATEGORY).toBe("approval");
+  });
+
+  it("offers Allow and Deny only for an approval it can name, and never for another kind", async () => {
+    const fetcher = vi.fn(async () => Response.json({ data: [{ status: "ok" }] }));
+    const push = createPhonePush({ dataDir: folder(), fetcher: fetcher as unknown as typeof fetch });
+    push.register(TOKEN);
+    const sent = async (notification: Notification) => {
+      fetcher.mockClear();
+      await push.send(notification);
+      const [message] = JSON.parse(String((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+      return { categoryId: message.categoryId, data: message.data };
+    };
+    expect(await sent({ ...approval, requestId: "" })).toEqual({ categoryId: undefined, data: { kind: "approval", botId: "b1", threadId: "t1" } });
+    expect(await sent({ ...approval, requestId: "req-7", threadId: "" })).toEqual({ categoryId: undefined, data: { kind: "approval", botId: "b1", threadId: "" } });
+    expect(await sent({ ...approval, requestId: "req-7", botId: "" })).toEqual({ categoryId: undefined, data: { kind: "approval", botId: "", threadId: "t1" } });
+    expect(await sent({ ...approval, kind: "question", requestId: "req-7" })).toEqual({ categoryId: "reply", data: { kind: "question", botId: "b1", threadId: "t1" } });
+    expect(await sent({ ...approval, kind: "takeover", requestId: "req-7" })).toEqual({ categoryId: undefined, data: { kind: "takeover", botId: "b1", threadId: "t1" } });
   });
 
   it("forgets a phone the push service says is gone, and survives an outage", async () => {

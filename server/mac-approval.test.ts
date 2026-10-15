@@ -80,6 +80,7 @@ describe("Mac approval gate", () => {
       allowKey: MAC_ALLOW_KEY,
     });
     expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ kind: "approval", threadId: dog.threadId, requestId: card!.card!.requestId });
     expect(gate.pending(dog.threadId, dog.id)).toBe(true);
 
     expect(gate.resolve(card!.card!.requestId!, "allow")).toBe(true);

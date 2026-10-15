@@ -6747,6 +6747,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             notificationBot,
             (routineRun && routineSourceThread(routineRun)) || event.threadId,
             event.summary,
+            event.requestId ? { card: { requestId: event.requestId, threadId: event.threadId } } : undefined,
           ));
         }
       }
@@ -16302,7 +16303,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             } else if (store.taskByThread(currentSender.id, threadId)?.busy) {
               store.setTaskActivity(currentSender.id, threadId, "waiting-on-you");
             }
-            notify(buildNotification("approval", currentSender, threadId, summary, { avatarUrl: currentSender.avatarUrl }));
+            notify(buildNotification("approval", currentSender, threadId, summary, {
+              avatarUrl: currentSender.avatarUrl, card: { requestId: held.requestId, threadId },
+            }));
             const answer = await held.answer;
             outboundRequests.forget(held.requestId);
             if (internalCapabilityIsActive(internalCapability)) {

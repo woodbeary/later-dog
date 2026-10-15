@@ -19,5 +19,6 @@ export interface Notification {
   body: string;
   avatarUrl?: string;
   groupId?: string;
+  requestId?: string;
 }
 

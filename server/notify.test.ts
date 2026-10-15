@@ -61,6 +61,13 @@ describe("buildNotification", () => {
     expect(buildNotification("done", bot, "other-thread", "done")?.threadId).toBe("other-thread");
   });
 
+  it("names the card to answer only when the card is in the conversation the notification opens", () => {
+    expect(buildNotification("approval", bot, "thread-1", "deploy?", { card: { requestId: "req-1", threadId: "thread-1" } })?.requestId).toBe("req-1");
+    expect(buildNotification("approval", bot, "source-thread", "deploy?", { card: { requestId: "req-1", threadId: "run-thread" } })?.requestId).toBeUndefined();
+    expect(buildNotification("approval", bot, "thread-1", "deploy?", { card: { requestId: "", threadId: "thread-1" } })?.requestId).toBeUndefined();
+    expect(buildNotification("approval", bot, "thread-1", "deploy?")?.requestId).toBeUndefined();
+  });
+
   it("carries the bot's avatar when one is given", () => {
     const avatarUrl = "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp";
     const frame = buildNotification("done", bot, "thread-1", "pushed the branch", { avatarUrl });

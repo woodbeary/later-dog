@@ -93,6 +93,7 @@ describe("peer approval card lifecycle", () => {
       botId: from.id,
       threadId: from.threadId,
       title: "Asker needs approval",
+      requestId: card.card!.requestId,
     });
     expect(frames[0]?.body).toContain("@Asker wants to contact @Helper");
     expect(frames[0]?.body).toContain("Helper, can you take the deploy?");
@@ -116,7 +117,9 @@ describe("peer approval card lifecycle", () => {
       threadId: room.threadId,
       groupId: room.id,
       title: "Asker in Standup needs approval",
+      requestId: store.messagesFor(room.threadId).find((message) => message.card?.requestId)?.card?.requestId,
     });
+    expect(frames[0]?.requestId).toBeTruthy();
     expect(store.bot(from.id)?.activity).toBe("waiting-on-you");
     expect(store.taskByThread(from.id, from.threadId)?.activity).toBe("idle");
     cancelPeerApprovalsForThread(room.threadId);

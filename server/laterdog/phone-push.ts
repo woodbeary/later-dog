@@ -9,6 +9,18 @@ const MAX_TOKENS = 20;
 const URGENT = new Set<string>(["approval", "question", "takeover"]);
 const NOT_REPLYABLE = new Set<string>(["approval", "takeover"]);
 export const REPLY_CATEGORY = "reply";
+export const APPROVAL_CATEGORY = "approval";
+
+function answerableRequest(notification: Notification): string | undefined {
+  if (notification.kind !== "approval" || !notification.botId || !notification.threadId) return undefined;
+  return notification.requestId || undefined;
+}
+
+function pushCategory(notification: Notification, requestId: string | undefined): string | undefined {
+  if (requestId) return APPROVAL_CATEGORY;
+  if (!notification.botId || !notification.threadId || NOT_REPLYABLE.has(notification.kind)) return undefined;
+  return REPLY_CATEGORY;
+}
 
 export interface PhonePush {
   register(token: string): boolean;
@@ -51,14 +63,16 @@ export function createPhonePush(options: { dataDir: string; fetcher?: typeof fet
       const tokens = read();
       if (!tokens.length) return;
       const urgent = URGENT.has(notification.kind);
+      const requestId = answerableRequest(notification);
+      const categoryId = pushCategory(notification, requestId);
       const messages = tokens.map((to) => ({
         to,
         title: notification.title,
         body: notification.body,
         sound: "default",
-        data: { kind: notification.kind, botId: notification.botId, threadId: notification.threadId },
+        data: { kind: notification.kind, botId: notification.botId, threadId: notification.threadId, ...(requestId ? { requestId } : {}) },
         ...(urgent ? { priority: "high", interruptionLevel: "time-sensitive" } : {}),
-        ...(notification.botId && notification.threadId && !NOT_REPLYABLE.has(notification.kind) ? { categoryId: REPLY_CATEGORY } : {}),
+        ...(categoryId ? { categoryId } : {}),
       }));
       let response: Response;
       try {
