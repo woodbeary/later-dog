@@ -11,6 +11,21 @@ const TEAM_TOOLS: Record<string, (input: Record<string, unknown>, nameOf: NameOf
   create_bot: (input) => (typeof input.name === "string" && input.name.trim() ? `making ${clipName(input.name)}` : "making a new dog"),
 };
 
+const SHELL_TOOL = /^(bash|shell|terminal|run_command|execute|exec_command|computer_exec|vm_exec|local_shell)$/;
+const DESCRIPTION_CHARS = 60;
+
+function describedCommand(input: unknown): string | null {
+  const fields = record(input);
+  for (const field of [fields.description, fields.justification]) {
+    if (typeof field !== "string") continue;
+    const flat = field.replace(/\s+/g, " ").trim();
+    if (!flat) continue;
+    const clipped = flat.length > DESCRIPTION_CHARS ? `${flat.slice(0, DESCRIPTION_CHARS - 1).trimEnd()}\u2026` : flat;
+    return /^[A-Z][^A-Z]/.test(clipped) || /^[A-Z]$/.test(clipped) ? `${clipped[0]!.toLowerCase()}${clipped.slice(1)}` : clipped;
+  }
+  return null;
+}
+
 const PHRASES: Array<[RegExp, string]> = [
   [/^(check_delegation|wait_delegation)$/, "waiting on results"],
   [/^delegate_cloud_job$/, "starting a cloud task"],
@@ -36,7 +51,7 @@ const PHRASES: Array<[RegExp, string]> = [
   [/^send_voice_note$/, "recording a voice note"],
   [/^create_options_card$/, "putting options together"],
   [/^tool_result_read$/, "reading the results"],
-  [/^(bash|shell|terminal|run_command|execute|exec_command|computer_exec|vm_exec|local_shell)$/, "running a few commands"],
+  [SHELL_TOOL, "running a few commands"],
   [/^(read|read_file|view|notebookread)$/, "doing some reading"],
   [/^(write|create_file|edit|multiedit|apply_patch|str_replace|str_replace_based_edit_tool|notebookedit)$/, "making edits"],
   [/^(grep|glob|find|search|ls|list_files)$/, "sniffing around"],
@@ -100,6 +115,7 @@ export function dogActivityWords(toolName: string, input: unknown, nameOf: NameO
   if (team) return team(record(input), nameOf);
   const service = mcp ? serviceName(mcp[1]!, name) : null;
   if (service) return `working in ${service}`;
+  if (SHELL_TOOL.test(bare)) return describedCommand(input) ?? "running a few commands";
   for (const [pattern, phrase] of PHRASES) if (pattern.test(bare)) return phrase;
   return command ? "running a few commands" : "working on it";
 }
