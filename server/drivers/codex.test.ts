@@ -1759,14 +1759,15 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     expect(await instance.snapshot()).toMatchObject({ authenticated: false, chatgptPlan: true, warning: { message } });
   });
 
-  it("fails a rejected resume without silently replacing native history", async () => {
+  it("rebuilds a personal chat whose Codex history stayed on another computer from the later.dog transcript", async () => {
     await create();
     const dump = join(scratch, "personal-missing-thread.json");
     process.env.FAKE_CODEX_DUMP = dump;
     await instance.adapter.sendTurn({ threadId: "t-fallback", text: "go", resumeCursor: "gone-thread", recoveryText: "Previous messages\nUser: go" });
-    await expect(recorder.until((e) => e.type === "turn.completed")).resolves.toMatchObject({ ok: false });
-    expect(recorder.events.some((e) => e.type === "session.started")).toBe(false);
-    expect(JSON.parse(readFileSync(dump, "utf8")).calls.map((call: { method: string }) => call.method)).not.toContain("thread/start");
+    await expect(recorder.until((e) => e.type === "turn.completed")).resolves.toMatchObject({ ok: true });
+    const calls = JSON.parse(readFileSync(dump, "utf8")).calls;
+    expect(calls.map((call: { method: string }) => call.method)).toContain("thread/start");
+    expect(calls.find((call: { method: string }) => call.method === "turn/start").params.input).toEqual([{ type: "text", text: "Previous messages\nUser: go" }]);
   });
 
   it("names the missing Company model prerequisites instead of one blanket refusal", async () => {
