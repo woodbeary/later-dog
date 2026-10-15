@@ -81,20 +81,6 @@ function workspaceSenderAllowed(event, contents, state, localOrigin) {
   }
 }
 
-function workspaceMenuTemplate(state, { onSwitch, onAddFromClipboard, onForget }) {
-  const active = activeEnvironment(state);
-  return [
-    { id: "workspace-local", label: "This computer", type: "radio", checked: !active, click: () => onSwitch(LOCAL_ID) },
-    ...state.environments.map((entry) => ({
-      id: `workspace-${entry.id}`, label: entry.name, sublabel: new URL(entry.origin).host,
-      type: "radio", checked: entry.id === state.activeId, click: () => onSwitch(entry.id),
-    })),
-    { type: "separator" },
-    { id: "workspace-add-from-link", label: "Add Server from Copied Pairing Link…", click: onAddFromClipboard },
-    ...(active ? [{ id: "workspace-forget", label: `Forget “${active.name}”…`, click: () => onForget(active.id) }] : []),
-  ];
-}
-
 function cleanName(value, fallback) {
   const name = typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, MAX_NAME) : "";
   return name || fallback;
@@ -178,7 +164,6 @@ module.exports = {
   withActive,
   withEnvironment,
   withoutEnvironment,
-  workspaceMenuTemplate,
   workspaceNavigationAllowed,
   workspaceSenderAllowed,
   workspaceSummary,

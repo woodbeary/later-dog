@@ -19,15 +19,9 @@ describe("buildApplicationMenu", () => {
     }
   }
 
-  const environments = [{ id: "x", name: "X", origin: "http://localhost" }];
   const build = (platform, overrides = {}) =>
     withPlatform(platform, () =>
       buildApplicationMenu({
-        environments,
-        activeId: "x",
-        onSwitch: vi.fn(),
-        onAddFromClipboard: vi.fn(),
-        onForget: vi.fn(),
         ...overrides,
       }),
     );
@@ -51,17 +45,10 @@ describe("buildApplicationMenu", () => {
     }
   });
 
-  it.each(["darwin", "linux", "win32"])("adds a server only from a copied pairing link on %s", platform => {
-    const onAddFromClipboard = vi.fn();
-    const submenu = build(platform, { onAddFromClipboard }).find(entry => entry.label === "Server").submenu;
-    expect(submenu.map(entry => entry.label)).toEqual(["This computer", "X — localhost", undefined, "Add Server from Copied Pairing Link…", "Forget “X”"]);
-    submenu.find(entry => entry.label === "Add Server from Copied Pairing Link…").click();
-    expect(onAddFromClipboard).toHaveBeenCalledOnce();
-  });
-
-  it.each(["darwin", "linux", "win32"])("has no Server menu for a signed-in person on %s, and keeps every other menu", platform => {
-    const template = build(platform, { serverMenu: false });
+  it.each(["darwin", "linux", "win32"])("has no Server menu, pairing-link item or forget item on %s", platform => {
+    const template = build(platform);
     expect(template.find(entry => entry.label === "Server")).toBeUndefined();
+    expect(JSON.stringify(template.map(entry => entry.submenu ?? []).flat().map(entry => entry.label))).not.toMatch(/Pairing Link|Forget/);
     expect(template.map(entry => entry.role).filter(Boolean)).toEqual(["fileMenu", "editMenu", "viewMenu", "windowMenu"]);
   });
 });

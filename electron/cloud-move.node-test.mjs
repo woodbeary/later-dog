@@ -16,18 +16,18 @@ const MAGIC = Buffer.from("LATERDOG-WORKSPACE-1\n");
 const UUID = () => "3f9c2a4e-8b1d-4c6e-9a7f-" + randomBytes(6).toString("hex");
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-function desktop({ bytes = 5000, busy = false, exportError = null, routines, identity = {} } = {}) {
+function desktop({ bytes = 5000, busy = false, exportError = null, routines, identity = {}, leftOnComputer } = {}) {
   const archive = Buffer.concat([MAGIC, randomBytes(bytes - MAGIC.length)]), calls = [];
   const id = UUID();
   return {
     archive, calls,
     request: async (route, init) => {
       calls.push([init.method, route, init.body ? JSON.parse(init.body) : undefined]);
-      if (route === "/api/cloud-move/estimate") return json(200, { bots: 3, rooms: 1, chats: 7, bytes, files: 12, ...(routines === undefined ? {} : { routines }), ...identity });
+      if (route.split("?")[0] === "/api/cloud-move/estimate") return json(200, { bots: 3, rooms: 1, chats: 7, bytes, files: 12, ...(routines === undefined ? {} : { routines }), ...identity });
       if (route === "/api/workspace-backup/status") return json(200, { busy, pendingRestore: false });
       if (route === "/api/workspace-backup/export") {
         if (exportError) return json(400, { error: exportError });
-        return busy ? json(409, { error: "busy" }) : json(200, { id, bytes, summary: { bots: 3, files: 12, messages: 40 } });
+        return busy ? json(409, { error: "busy" }) : json(200, { id, bytes, summary: { bots: 3, files: 12, messages: 40, ...(leftOnComputer ? { leftOnComputer } : {}) } });
       }
       if (route === `/api/workspace-backup/download/${id}`) return new Response(archive, { status: 200, headers: { "content-length": String(bytes) } });
       return json(404, {});
@@ -35,7 +35,7 @@ function desktop({ bytes = 5000, busy = false, exportError = null, routines, ide
   };
 }
 
-function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut = () => false, dropAnswer = () => false, loseAt = 0, busyRestores = 0, storedPart = 0, previewBots = 3, identity = {}, refuse = null,
+function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut = () => false, dropAnswer = () => false, loseAt = 0, busyRestores = 0, storedPart = 0, previewBots = 3, identity = {}, refuse = null, receivedFrom = null,
   partBytes = 1024, proxyLimit = Infinity } = {}) {
   const state = { freeBytes, upload: storedPart ? { sha256: "e".repeat(64), bytes: storedPart } : null, received: Buffer.alloc(storedPart), job: null, lastRestoreId: null, restarting: 0,
       previous: null, contents: { bots: 1, rooms: 0, chats: 0 }, empty, discards: 0, restoreAsks: [] },
@@ -56,7 +56,7 @@ function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut =
     if (state.restarting > 0) { state.restarting--; throw new TypeError("fetch failed"); }
     if (refuse && pathname.startsWith("/api/cloud-move")) return json(refuse.status, refuse.body);
     if (pathname === "/api/cloud-move" && (init.method ?? "GET") === "GET") {
-      return json(200, { ...identity, contents: state.contents, empty: state.empty, freeBytes: state.freeBytes, ...(volumeBytes ? { volumeBytes } : {}), previous: state.previous, job: state.job, pendingRestore: false, busy: false,
+      return json(200, { ...identity, contents: state.contents, empty: state.empty, freeBytes: state.freeBytes, ...(volumeBytes ? { volumeBytes } : {}), previous: state.previous, job: state.job, pendingRestore: false, busy: false, ...(receivedFrom ? { receivedFrom } : {}),
         lastRestoreId: state.lastRestoreId, rolledBackId: null, partBytes: 1024,
         upload: state.upload && { ...state.upload, received: state.received.length } });
     }
@@ -84,6 +84,7 @@ function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut =
       const hash = createHash("sha256").update(state.received).digest("hex");
       assert.equal(hash, state.upload.sha256);
       assert.ok(body.password.length >= 12);
+      state.previewAsk = body;
       state.job = { kind: "preview", state: "done", id: UUID(), summary: { bots: previewBots, messages: 40 } };
       return json(202, { job: { kind: "preview", state: "running" } });
     }
@@ -642,7 +643,7 @@ function mainIpc(extra = {}) {
       restorePrevious: async dest => { calls.push(["restorePrevious", describe(dest)]); return context.result ?? { phase: "idle" }; } }),
     cloudMoveOverview: (dest, onServerPage) => { calls.push(["overview", dest && describe(dest), onServerPage]); return { suggest: false }; },
     dismissCloudMove: origin => calls.push(["dismiss", origin]),
-    runCloudAutoMove: manual => { calls.push(["autoMove", manual]); return Promise.resolve(null); },
+    runCloudAutoMove: () => { calls.push(["autoMove", true]); return Promise.resolve(null); },
     connectCloudHome: async () => calls.push(["connectCloudHome"]), switchEnvironment: async id => calls.push(["switch", id]),
     navigateMainWindow: url => calls.push(["navigate", url]), slog: () => {},
     openWorkspaceSettings: (id, panel) => calls.push(["openSettings", id, panel]),
@@ -725,7 +726,7 @@ test("production IPC: a server's own page gets only itself, never starts a copy 
   context.mainWindow.webContents = cloudContents;
   context.environmentsState = { environments: SAVED, activeId: "cloud-entry" };
   await handlers.get("cloud-move:start")({ sender: cloudContents, senderFrame: cloudFrame });
-  assert.deepEqual(calls, [["autoMove", true]], "the Cloud's own page retries through the automatic move, which requires an empty home");
+  assert.deepEqual(calls, [["autoMove", true]], "the Cloud's own page retries through the automatic move");
   for (const event of [{ sender: cloudContents, senderFrame: { url: `${ORIGIN}/` } }, { sender: {}, senderFrame: cloudFrame }, { sender: cloudContents, senderFrame: { url: "https://evil.example.test/" } }]) {
     for (const channel of ["cloud-move:state", "cloud-move:start", "cloud-move:cancel", "cloud-move:dismiss", "cloud-move:restore-previous"]) assert.throws(() => handlers.get(channel)(event), /only available/);
   }
@@ -911,5 +912,47 @@ test("a home that already has dogs refuses an automatic move and says what it ho
     assert.equal(result.error.code, "not_empty");
     assert.deepEqual(result.error.contents, { bots: 3, rooms: 1, chats: 7 });
     assert.equal(f.cloud.log.some(([method, path]) => method === "PUT" && path.startsWith("/api/cloud-move/upload/")), false, "nothing was uploaded");
+  } finally { f.done(); }
+});
+
+test("the slim cloud-move profile is asked for on the estimate and the export, the Mac's environment is named on the preview, and what stayed behind is reported", async () => {
+  const stayed = [{ name: "task-workspaces", bytes: 5_000_000 }, { name: "native", bytes: 1_600_000 }, { name: "tool-results", bytes: 260_000 }, { name: "providers", bytes: 900_000 }];
+  const f = harness({ desktop: { identity: { environmentId: "mac-env-1" }, leftOnComputer: stayed } });
+  try {
+    const result = await f.move.move({ profile: "cloud-move" });
+    assert.equal(result.phase, "done");
+    assert.ok(f.local.calls.some(([, route]) => route === "/api/cloud-move/estimate?profile=cloud-move"));
+    assert.equal(f.local.calls.find(([, route]) => route === "/api/workspace-backup/export")[2].profile, "cloud-move");
+    assert.equal(f.cloud.state.previewAsk.source, "mac-env-1");
+    assert.deepEqual(result.stayedOnMac, stayed);
+  } finally { f.done(); }
+});
+
+test("a move without the profile asks for the full workspace and reports nothing left behind", async () => {
+  const f = harness();
+  try {
+    const result = await f.move.move();
+    assert.equal(f.local.calls.find(([, route]) => route === "/api/workspace-backup/export")[2].profile, undefined);
+    assert.equal(result.stayedOnMac, undefined);
+  } finally { f.done(); }
+});
+
+test("a home that already received another Mac's move is not replaced when asked to yield, and nothing is uploaded", async () => {
+  const f = harness({ desktop: { identity: { environmentId: "mac-env-2" } }, cloud: { empty: false, receivedFrom: { at: 1, environmentId: "mac-env-1" } } });
+  try {
+    const result = await f.move.move({ profile: "cloud-move", yieldToOtherComputer: true });
+    assert.equal(result.phase, "failed");
+    assert.equal(result.error.code, "other_computer_moved");
+    assert.equal(f.cloud.state.received.length, 0);
+    assert.equal(f.local.calls.some(([, route]) => route === "/api/workspace-backup/export"), false);
+  } finally { f.done(); }
+});
+
+test("the Mac that made the earlier move is not treated as another computer, and a home with test dogs is replaced with the earlier workspace kept", async () => {
+  const f = harness({ desktop: { identity: { environmentId: "mac-env-1" } }, cloud: { empty: false, receivedFrom: { at: 1, environmentId: "mac-env-1" } } });
+  try {
+    const result = await f.move.move({ profile: "cloud-move", yieldToOtherComputer: true, requireEmpty: false });
+    assert.equal(result.phase, "done");
+    assert.equal(result.previous, true);
   } finally { f.done(); }
 });

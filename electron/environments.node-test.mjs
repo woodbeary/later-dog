@@ -128,20 +128,6 @@ test("renderer links and redirects cannot switch onto the local or another saved
   assert.equal(env.workspaceNavigationAllowed("https://acme.example", switched, local), false);
 });
 
-test("native workspace choices use saved IDs and add a server only from a copied link, without changing state", () => {
-  const state = { environments: [{ id: "cloud", name: "Acme", origin: "https://acme.example" }], activeId: "cloud" };
-  const calls = [];
-  const items = env.workspaceMenuTemplate(state, { onSwitch: (id) => calls.push(["switch", id]), onAddFromClipboard: () => calls.push(["add"]), onForget: (id) => calls.push(["forget", id]) });
-  assert.equal(items.find((item) => item.id === "workspace-cloud").checked, true);
-  assert.equal(items.find((item) => item.id === "workspace-add-from-link").label, "Add Server from Copied Pairing Link…");
-  assert.equal(items.some((item) => item.id === "workspace-connect"), false);
-  items.find((item) => item.id === "workspace-local").click();
-  items.find((item) => item.id === "workspace-add-from-link").click();
-  items.find((item) => item.id === "workspace-forget").click();
-  assert.deepEqual(calls, [["switch", "local"], ["add"], ["forget", "cloud"]]);
-  assert.equal(state.activeId, "cloud");
-});
-
 test("native window identity distinguishes hosted HTML, companion data, and the local workspace", () => {
   const state = { environments: [{ id: "old", name: "Old team", origin: "https://old.example" }], activeId: "old" };
   assert.equal(env.workspaceWindowTitle(state), "later.dog — Hosted: Old team (old.example)");

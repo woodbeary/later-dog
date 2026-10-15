@@ -8,6 +8,8 @@ import {
   workspaceContents, workspaceMoveSize, writeUploadPart, type PreviousCloud,
 } from "./cloud-move.ts";
 import { commitPendingWorkspaceRestore, createWorkspaceBackup, stageWorkspaceBackup } from "./workspace-backup.ts";
+import { CLOUD_MOVE_PROFILE, parseBackupProfile } from "./laterdog/cloud-move-profile.ts";
+import { clearReceivedMove, noteReceivedMovePending, parseMoveSource, readReceivedMove } from "./laterdog/cloud-move-received.ts";
 import type { RequestAuth } from "./request-auth.ts";
 
 export const CLOUD_MOVE_PREFIX = "/api/cloud-move";
@@ -48,6 +50,7 @@ export function createCloudMoveRoutes(options: {
   }
   const identity = { appVersion: options.appVersion, environmentId: options.environmentId };
   const staged = new Set<string>();
+  const stagedFrom = new Map<string, { profile: boolean; source: string | null }>();
   let job: CloudMoveJob | null = null;
   let writing = false, discardPreview = false;
   let held: { at: number; bytes: number } | null = null;
@@ -67,6 +70,7 @@ export function createCloudMoveRoutes(options: {
   const dropStaged = () => {
     for (const id of staged) removeMoveFiles(options.dataDir, id);
     staged.clear();
+    stagedFrom.clear();
     if (job?.kind === "preview" && job.state === "done") job = null;
   };
   function start(kind: CloudMoveJob["kind"], work: () => Promise<CloudMoveJob>, after?: (result: CloudMoveJob) => void) {
@@ -118,7 +122,8 @@ export function createCloudMoveRoutes(options: {
     try {
       if (!auth.scopes.includes("admin")) throw failure("Only the owner can copy a workspace.", 403);
       if (method === "GET" && path === `${CLOUD_MOVE_PREFIX}/estimate`) {
-        json(res, 200, { ...workspaceContents(options.dataDir), ...workspaceMoveSize(options.dataDir), routines: enabledRoutineCount(options.dataDir), maxBytes: CLOUD_MOVE_MAX_BYTES, ...identity });
+        const profile = parseBackupProfile(new URL(req.url ?? "/", "http://cloud-move.invalid").searchParams.get("profile"));
+        json(res, 200, { ...workspaceContents(options.dataDir), ...workspaceMoveSize(options.dataDir, profile), routines: enabledRoutineCount(options.dataDir), maxBytes: CLOUD_MOVE_MAX_BYTES, ...identity });
         return true;
       }
       if (auth.kind !== "session") throw failure("Copying a workspace needs the owner's signed-in app.", 403);
@@ -133,6 +138,7 @@ export function createCloudMoveRoutes(options: {
           contents, empty: isEmptyWorkspace(contents), freeBytes: freeBytes(options.dataDir), volumeBytes: volumeBytes(options.dataDir), maxBytes: CLOUD_MOVE_MAX_BYTES,
           partBytes: CLOUD_MOVE_PART_BYTES, upload: uploadStatus(options.dataDir), previous: previousCloud(options.dataDir), job,
           heldBytes: held.bytes,
+          receivedFrom: readReceivedMove(options.dataDir),
           ...identity,
           ...options.status(),
           lastRestoreId: options.restored.restored ? options.restored.id ?? null : null,
@@ -165,7 +171,7 @@ export function createCloudMoveRoutes(options: {
         return true;
       }
       if (method === "POST" && path === `${CLOUD_MOVE_PREFIX}/preview`) {
-        const body = z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/), password: z.string().min(12).max(1024) }).parse(await options.readBody(req, 8192));
+        const body = z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/), password: z.string().min(12).max(1024), source: z.string().optional() }).parse(await options.readBody(req, 8192));
         ready();
         discardPreview = false;
         start("preview", async () => {
@@ -180,6 +186,7 @@ export function createCloudMoveRoutes(options: {
           }
           try { check(req, auth); } catch (error) { removeMoveFiles(options.dataDir, result.id); throw error; }
           staged.add(result.id);
+          stagedFrom.set(result.id, { profile: result.summary.profile === CLOUD_MOVE_PROFILE, source: parseMoveSource(body.source) });
           const { summary } = result;
           return { kind: "preview", state: "done", id: result.id, summary: {
             appVersion: summary.appVersion, files: summary.files, bytes: summary.bytes, bots: summary.bots,
@@ -204,6 +211,8 @@ export function createCloudMoveRoutes(options: {
         if (!staged.has(body.id)) throw failure("This copy is no longer ready on this server. Start it again.", 404);
         start("restore", async () => {
           const { committed, previous } = await replaceWith(body.id, req, auth);
+          const from = stagedFrom.get(body.id);
+          if (from?.profile) noteReceivedMovePending(options.dataDir, committed.id, from.source);
           return { kind: "restore", state: "done", id: committed.id, previous };
         }, restartSoon);
         json(res, 202, { job });
@@ -219,6 +228,7 @@ export function createCloudMoveRoutes(options: {
         start("undo", async () => {
           const prepared = await stagePreviousCloud(options.dataDir, options.appVersion);
           const { committed, previous } = await replaceWith(prepared.id, req, auth);
+          clearReceivedMove(options.dataDir);
           return { kind: "undo", state: "done", id: committed.id, previous };
         }, restartSoon);
         json(res, 202, { job });
