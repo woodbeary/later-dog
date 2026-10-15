@@ -10,10 +10,21 @@ const RESTORING_PREFIX = ".laterdog-restoring-";
 const SQLITE = /\.(?:sqlite3?|db)$/;
 const SKIPPED_NAMES = new Set(["node_modules", ".cache", ".npm", ".pnpm-store", "Cache", "Code Cache", "GPUCache", "ShaderCache", "Crashpad", ".Trash", "lost+found"]);
 const SKIPPED_SUFFIXES = ["-wal", "-shm", "-journal"];
+const REFRESH_LOCK_NAMES = new Set([".oauth_refresh.lock", ".oauth_refresh.lock.owner"]);
+const LOCK_DIRECTORY_SUFFIX = ".lock";
 const HASH = /^[a-f0-9]{64}$/;
 
 export function skipped(name) {
-  return SKIPPED_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix));
+  return SKIPPED_NAMES.has(name) || REFRESH_LOCK_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix));
+}
+
+export function heldLock(name, type) {
+  return type === "dir" && name.endsWith(LOCK_DIRECTORY_SUFFIX);
+}
+
+export function transient(entry) {
+  const names = entry.path.split("/");
+  return names.some((name, index) => skipped(name) || heldLock(name, index < names.length - 1 ? "dir" : entry.type));
 }
 
 export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS } = {}) {
@@ -92,6 +103,7 @@ async function walk(root, directory, found) {
     }
     const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
     if (info.isDirectory()) {
+      if (heldLock(name, "dir")) continue;
       found.push({ ...entry, type: "dir" });
       await walk(root, path, found);
     } else if (info.isSymbolicLink()) {
@@ -229,24 +241,25 @@ async function clearForFile(path) {
 export async function restore(root, store, owner) {
   const manifest = await store.manifest();
   if (!manifest) return { manifest: null, files: 0 };
+  const kept = manifest.entries.filter((entry) => !transient(entry));
   let files = 0;
   const own = async (path) => {
     if (owner) await lchown(path, owner.uid, owner.gid);
   };
-  for (const entry of manifest.entries) {
+  for (const entry of kept) {
     if (entry.type !== "dir") continue;
     const path = join(root, entry.path);
     await mkdir(path, { recursive: true, mode: entry.mode });
     await own(path);
   }
-  for (const entry of manifest.entries) {
+  for (const entry of kept) {
     if (entry.type !== "link") continue;
     const path = join(root, entry.path);
     await rm(path, { force: true, recursive: true });
     await symlink(entry.target, path);
     await own(path);
   }
-  const pending = manifest.entries.filter((entry) => entry.type !== "dir" && entry.type !== "link");
+  const pending = kept.filter((entry) => entry.type !== "dir" && entry.type !== "link");
   const stopping = new AbortController();
   const failures = [];
   const writeOne = async (entry) => {
@@ -280,7 +293,7 @@ export async function restore(root, store, owner) {
   };
   await Promise.allSettled(Array.from({ length: Math.min(RESTORE_PARALLEL, pending.length) }, worker));
   if (failures.length > 0) throw failures[0];
-  for (const entry of [...manifest.entries].reverse()) {
+  for (const entry of [...kept].reverse()) {
     if (entry.type !== "dir") continue;
     const moment = new Date(entry.mtimeMs);
     await utimes(join(root, entry.path), moment, moment).catch(() => undefined);
