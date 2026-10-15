@@ -128,6 +128,18 @@ describe("the account rows in the menu under your name", () => {
     expect(list.querySelector("[data-switch-add]")?.textContent).toBe("Add account");
   });
 
+  it("keeps a resting account's name ahead of its back-at time", () => {
+    fixture.battery = { enabled: true, auto: false, order: {}, resting: { "claude-b": { since: new Date(NOW - 3_600_000).toISOString(), until: new Date(NOW + 3 * 86_400_000).toISOString() } } };
+    const row = markup(items().accounts!.submenu).querySelector<HTMLElement>('[data-switch-account="claude-b"]')!;
+    expect(row.querySelector("[data-switch-account-name]")!.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "flex-auto"]));
+    const charge = row.querySelector('[data-account-charge="recharging"]')!;
+    expect(charge.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "shrink-[1000]"]));
+    const back = charge.lastElementChild!;
+    expect(back.textContent).toMatch(/^Back at /);
+    expect(back.getAttribute("title")).toBe(back.textContent);
+    expect(back.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "truncate"]));
+  });
+
   it("switches an account of the same engine and keeps the model if the account has it", async () => {
     const { accounts } = items();
     const close = vi.fn();

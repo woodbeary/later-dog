@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { InstanceInfo } from "@/state/store";
-import { AccountMenu, activeRowId, restStatus } from "./AccountMenu";
+import { ACCOUNT_MENU_WIDTH, AccountMenu, activeRowId, restStatus, type AccountMenuRow } from "./AccountMenu";
 import type { PlanProvider } from "./PlanUsage";
 const now = Date.parse("2026-10-13T12:00:00Z");
 const instance = (instanceId: string): InstanceInfo => ({ instanceId, displayName: instanceId, driverKind: "claudeAgent", snapshot: { state: "available", authenticated: true }, models: { default: "opus", options: [] } });
@@ -54,12 +54,20 @@ describe("compact account batteries", () => {
     const host = render();
     for (const id of ["a", "b"]) {
       const row = host.querySelector(`[data-account-row="${id}"]`)!;
-      for (const column of ["[data-account-status]", "[data-account-battery-column]", "[data-account-value-column]", "[data-account-check]"]) expect(row.querySelector(column)).not.toBeNull();
+      for (const column of ["[data-account-battery-column]", "[data-account-value-column]", "[data-account-check]"]) expect(row.querySelector(column)).not.toBeNull();
     }
+    expect(host.querySelector('[data-account-row="a"] [data-account-status]')).not.toBeNull();
+    expect(host.querySelector('[data-account-row="b"] [data-account-status]')).toBeNull();
     const bare = document.createElement("div");
     bare.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { now, onPick: vi.fn(), rows: [{ instance: instance("z"), label: "Z", selected: false }] }));
     expect(bare.querySelector("[data-account-battery-column]")?.className).toContain("w-8");
     expect(bare.querySelector("[data-battery]")).toBeNull();
+  });
+  it("shows how far a resting account has recharged as a number that fits its column", () => {
+    const value = render().querySelector('[data-account-row="a"] [data-account-value-column]')!;
+    expect(value.textContent).toBe("50%");
+    expect(value.getAttribute("title")).toBe("50% recharged");
+    expect(value.className).toContain("w-10");
   });
   it("sleeps at a verified full limit without a fabricated recharge estimate", () => {
     const row = render(false, 100).querySelector('[data-account-row="b"]')!;
@@ -140,5 +148,70 @@ describe("account menu details", () => {
     expect(host.querySelectorAll('[data-account-row="a"]')).toHaveLength(1);
     await act(async () => root.unmount());
     host.remove();
+  });
+});
+
+describe("account names come first", () => {
+  const LIST_CHROME = 2 + 8;
+  const NAME_MINIMUM = 128;
+  const usage = (id: string, used: number): PlanProvider => ({ ...provider, id, weekly: { ...provider.weekly, usedPercent: used, remainingPercent: 100 - used } });
+  const kinds = (instanceId: string, driverKind: string): InstanceInfo => ({ ...instance(instanceId), driverKind });
+  const jacobs: AccountMenuRow[] = [
+    { instance: kinds("claude", "claudeAgent"), label: "Claude", selected: true, inUse: true, movable: true, provider: usage("claude", 0) },
+    { instance: kinds("claude-2", "claudeAgent"), label: "jacob.lopez.work.account@example.com", selected: false, movable: true, rest },
+    { instance: kinds("claude-3", "claudeAgent"), label: "A very long Claude account name for the team", selected: false, movable: true, provider: usage("claude-3", 64) },
+    { instance: kinds("codex", "codex"), label: "ChatGPT", selected: false, provider: usage("codex", 0) },
+    { instance: kinds("laterdogAi", "laterdogAi"), label: "Kimi", selected: false },
+    { instance: kinds("grok", "grokAgent"), label: "Grok", selected: false },
+  ];
+  const draw = (rows: readonly AccountMenuRow[]) => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { now, onPick: vi.fn(), onReorder: vi.fn(), onAdd: vi.fn(), rows }));
+    return host;
+  };
+  const fixedWidth = (element: Element) => {
+    const match = /(?:^|\s)(?:w|size)-(\d+(?:\.\d+)?)(?:\s|$)/.exec(element.getAttribute("class") ?? "");
+    if (!match) throw new Error(`no fixed width on ${element.outerHTML.slice(0, 120)}`);
+    return Number(match[1]) * 4;
+  };
+
+  it("writes every account's name in its row", () => {
+    const host = draw(jacobs);
+    for (const row of jacobs) {
+      const label = host.querySelector(`[data-account-row="${row.instance.instanceId}"] [data-account-label]`)!;
+      expect(label.textContent).toBe(row.label);
+      expect(label.getAttribute("title")).toBe(row.label);
+    }
+  });
+
+  it("lets the name take its own width and shrink last, with the status beside it only when it fits", () => {
+    const row = draw(jacobs).querySelector('[data-account-row="claude-2"]')!;
+    const line = row.querySelector("[data-account-name-line]")!;
+    const label = line.querySelector("[data-account-label]")!;
+    const status = line.querySelector("[data-account-status]")!;
+    expect(line.parentElement).toBe(row);
+    expect(line.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "flex-auto", "flex-wrap", "content-start", "overflow-hidden", "h-[1lh]"]));
+    expect(label.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "flex-auto", "truncate"]));
+    expect(label.className).not.toMatch(/(?:^|\s)(?:flex-1|w-\d|basis-0)/);
+    expect(label.nextElementSibling).toBe(status);
+    expect(status.className.split(" ")).toEqual(expect.arrayContaining(["shrink-0", "whitespace-nowrap"]));
+    expect(status.className).not.toMatch(/(?:^|\s)w-\d/);
+    expect(status.textContent).toMatch(/^Back at /);
+  });
+
+  it("leaves the name at least 8rem beside fixed, aligned columns at the menu's width", () => {
+    const host = draw(jacobs);
+    const widths = new Set<number>();
+    for (const row of jacobs) {
+      const button = host.querySelector(`[data-account-row="${row.instance.instanceId}"]`)!;
+      const columns = [...button.children].filter((child) => !child.hasAttribute("data-account-name-line"));
+      for (const column of columns) expect(column.className).toContain("shrink-0");
+      const fixed = columns.reduce((sum, column) => sum + fixedWidth(column), 0);
+      const gaps = (button.children.length - 1) * 10;
+      const padding = 10 + (button.className.split(" ").includes("pr-1") ? 4 : 10);
+      widths.add(fixed);
+      expect(ACCOUNT_MENU_WIDTH - LIST_CHROME - padding - fixed - gaps).toBeGreaterThanOrEqual(NAME_MINIMUM);
+    }
+    expect(widths.size).toBe(1);
   });
 });
