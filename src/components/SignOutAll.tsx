@@ -1,20 +1,29 @@
 import { useEffect, useState, type RefObject } from "react";
 import { LogOut } from "lucide-react";
-import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
+import type { CloudAccountBridge, CloudAccountState, CloudPlanBridge } from "../../electron/cloud-account.mjs";
 import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
 
+export interface CloudSignOut {
+  signOut(): Promise<CloudAccountState | void>;
+}
+
 export interface SignOutTargets {
-  cloud: CloudAccountBridge | null;
+  cloud: CloudSignOut | null;
 }
 
 export function cloudSignedIn(account: CloudAccountState | null): boolean {
   return account?.status === "connected" || account?.status === "reauth-required";
 }
 
-function useCloudAccount(): { bridge: CloudAccountBridge | undefined; account: CloudAccountState | null } {
-  const bridge = typeof window === "undefined" || window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudAccount;
+function desktopBridges(): { account?: CloudAccountBridge; plan?: CloudPlanBridge } {
+  if (typeof window === "undefined" || window.laterdog?.remoteClient?.active) return {};
+  const account = window.laterdog?.cloudAccount;
+  return account ? { account } : { plan: window.laterdog?.cloudPlan };
+}
+
+function useCloudAccount(bridge: CloudAccountBridge | undefined): CloudAccountState | null {
   const [account, setAccount] = useState<CloudAccountState | null>(null);
   useEffect(() => {
     if (!bridge) return;
@@ -23,18 +32,32 @@ function useCloudAccount(): { bridge: CloudAccountBridge | undefined; account: C
     void bridge.state().then((next) => { if (active && !updated) setAccount(next); }).catch(() => {});
     return () => { active = false; unsubscribe(); };
   }, [bridge]);
-  return { bridge, account };
+  return account;
+}
+
+function useAnsweringPlan(plan: CloudPlanBridge | undefined): CloudPlanBridge | null {
+  const [answering, setAnswering] = useState<CloudPlanBridge | null>(null);
+  useEffect(() => {
+    if (!plan) return;
+    let active = true;
+    void plan.state().then(() => { if (active) setAnswering(plan); }, () => {});
+    return () => { active = false; };
+  }, [plan]);
+  return plan && answering === plan ? plan : null;
 }
 
 export function useSignOutTargets(): SignOutTargets {
-  const { bridge, account } = useCloudAccount();
-  return { cloud: bridge && cloudSignedIn(account) ? bridge : null };
+  const { account: bridge, plan } = desktopBridges();
+  const account = useCloudAccount(bridge);
+  const answeringPlan = useAnsweringPlan(plan);
+  if (bridge) return { cloud: cloudSignedIn(account) ? bridge : null };
+  return { cloud: answeringPlan };
 }
 
 export async function signOutAll(targets: SignOutTargets): Promise<string[]> {
   if (!targets.cloud) return [];
   const reason = await targets.cloud.signOut().then(
-    (next) => (next.status === "signed-out" ? null : t("signOut.tryAgain")),
+    (next) => (!next || next.status === "signed-out" ? null : t("signOut.tryAgain")),
     (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)),
   );
   return reason ? [t("signOut.failed", { name: t("settings.section.cloudAccount"), reason })] : [];

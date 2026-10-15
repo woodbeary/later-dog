@@ -2,7 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
+import type { CloudAccountBridge, CloudAccountState, CloudPlanBridge } from "../../electron/cloud-account.mjs";
+import type { SignOutTargets } from "./SignOutAll";
 
 const store = vi.hoisted(() => ({ dispatch: vi.fn(), api: vi.fn() }));
 vi.mock("@/state/store", async (importOriginal) => ({
@@ -11,7 +12,7 @@ vi.mock("@/state/store", async (importOriginal) => ({
   useStore: () => ({ state: {}, dispatch: store.dispatch }),
 }));
 
-const { signOutAll, SignOutDialog } = await import("./SignOutAll");
+const { signOutAll, SignOutDialog, useSignOutTargets } = await import("./SignOutAll");
 
 const cloud = (signOut: CloudAccountBridge["signOut"]) => ({ signOut } as unknown as CloudAccountBridge);
 const signedOut: CloudAccountState = { status: "signed-out" };
@@ -36,6 +37,76 @@ describe("signing out", () => {
     const refused = await signOutAll({ cloud: cloud(async () => { throw new Error("offline"); }) });
     expect(refused).toEqual(["later.dog Cloud did not sign out: offline"]);
     expect(store.api).not.toHaveBeenCalled();
+  });
+
+  it("signs out of later.dog only through the Cloud home page's plan bridge, which answers with nothing", async () => {
+    const leave = vi.fn(async () => {});
+    expect(await signOutAll({ cloud: { signOut: leave } })).toEqual([]);
+    expect(leave).toHaveBeenCalledTimes(1);
+    expect(store.api).not.toHaveBeenCalled();
+    expect(store.dispatch).not.toHaveBeenCalled();
+    const refused = await signOutAll({ cloud: { signOut: async () => { throw new Error("Choose Sign out to sign out."); } } });
+    expect(refused).toEqual(["later.dog Cloud did not sign out: Choose Sign out to sign out."]);
+  });
+});
+
+describe("what Sign out reaches", () => {
+  let root: Root;
+  let seen: SignOutTargets | null;
+  const Probe = () => { seen = useSignOutTargets(); return null; };
+  const account = (state: CloudAccountState) => ({
+    state: vi.fn(async () => state),
+    onState: vi.fn(() => () => {}),
+    signOut: vi.fn(async () => signedOut),
+  }) as unknown as CloudAccountBridge;
+  const plan = (state: CloudPlanBridge["state"]) => ({ state: vi.fn(state), manage: vi.fn(async () => {}), signOut: vi.fn(async () => {}) }) as CloudPlanBridge;
+  const targetsOn = async (laterdog: Record<string, unknown>) => {
+    vi.stubGlobal("laterdog", laterdog);
+    await act(async () => root.render(createElement(Probe)));
+    return seen;
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    seen = null;
+    root = createRoot(document.createElement("div"));
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  });
+
+  it("uses this Mac's Cloud account while it is signed in, and never the plan bridge beside it", async () => {
+    const connected = account({ status: "connected", account: { id: "a1", email: "a@example.test" } });
+    const beside = plan(async () => ({ status: "none" }));
+    expect((await targetsOn({ cloudAccount: connected, cloudPlan: beside }))?.cloud).toBe(connected);
+    expect(beside.state).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing once this Mac's Cloud account is signed out, even with the plan bridge beside it", async () => {
+    expect((await targetsOn({ cloudAccount: account(signedOut), cloudPlan: plan(async () => ({ status: "none" })) }))?.cloud).toBeNull();
+  });
+
+  it("falls back to the plan bridge on the Cloud home page, where this Mac's account bridge is not offered", async () => {
+    const home = plan(async () => ({ status: "paid", tier: "pro" }));
+    const targets = await targetsOn({ cloudPlan: home });
+    expect(targets?.cloud).toBe(home);
+    expect(await signOutAll(targets!)).toEqual([]);
+    expect(home.signOut).toHaveBeenCalledTimes(1);
+    expect(store.api).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing on another server's page, where the desktop does not answer the plan bridge", async () => {
+    const elsewhere = plan(async () => { throw new Error("cloud-plan:state is only available in this app's window"); });
+    expect((await targetsOn({ cloudPlan: elsewhere }))?.cloud).toBeNull();
+    expect(elsewhere.state).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers nothing to a desktop showing another Mac", async () => {
+    const home = plan(async () => ({ status: "none" }));
+    expect((await targetsOn({ remoteClient: { active: true }, cloudPlan: home }))?.cloud).toBeNull();
+    expect(home.state).not.toHaveBeenCalled();
   });
 });
 
