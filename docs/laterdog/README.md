@@ -1,9 +1,9 @@
 # Using later.dog
 
 later.dog is a free, open-source Mac app where AI agents, which we call dogs, do real work for you. Each dog is a
-contact in your sidebar with its own conversation, memory and computer. You start free on the Kimi K2.6 and Grok 4.3
-models with no account, and bring the Claude or ChatGPT plan you already have whenever you like. There are no API keys
-to paste.
+contact in your sidebar with its own conversation, memory and computer. You start free on Claude Sonnet 5, Grok 4.7
+and Grok 4.6 with no account, and bring the Claude or ChatGPT plan you already have whenever you like. There are no API
+keys to paste.
 
 ## Install
 
@@ -19,9 +19,11 @@ keeps itself up to date.
 
 ## First run
 
-The welcome asks your name and lets you pick your first dog. It says hello right away on the free Kimi K2.6 model. The
-free trial lasts 7 days: chatting on Kimi K2.6 and Grok 4.3 (with a daily allowance), a voice, sharper dictation, and a
-cloud computer for 30 minutes, with no account and no card.
+The welcome asks your name and lets you pick your first dog. It says hello right away on the free Claude Sonnet 5. The
+free trial lasts 7 days: chatting on Claude Sonnet 5, Grok 4.7 and Grok 4.6 (with a daily allowance), a voice, sharper
+dictation, and a cloud computer for 30 minutes, with no account and no card. When a day's free Claude or Grok
+messages run out, the chat carries on with Kimi K2.6 until the next day. How the free models work, their limits and
+their costs: [included-ai.md](included-ai.md).
 
 ## Make a dog
 

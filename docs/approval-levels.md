@@ -15,7 +15,7 @@ Off-leash warning first, a dog that is working keeps its level until its turn
 stops, and Full access and Custom are only shown there for a dog that already
 has them. The list is not shown on a paired remote client or in a browser.
 
-Engines with no reviewer of their own (the free Kimi and Grok models, and other
+Engines with no reviewer of their own (the free Claude Sonnet and Grok models, and other
 OpenAI-compatible chat engines) get one app-side rule: Off-leash runs the tools of
 the dog's own computer (its cloud computer, a Local VM or its own server) and
 built-in browser without a card, while your own Mac, connected apps and custom
