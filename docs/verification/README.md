@@ -105,10 +105,6 @@ The [Connected Apps OAuth fixture](connected-apps-oauth.md) checks blocked-popup
 recovery, safe authorization links and abandoned-account retries through real
 renderer components and isolated HTTP routes.
 
-The [desktop server connection notes](desktop-server-connection.md) cover the
-server switcher, the native Server menu and the optional computer-sharing
-connector tests.
-
 The [loading screen and tray smoke](startup-tray.md) checks the startup close
 button, hidden handoff, tray restore, and Quit in a disposable Electron profile.
 

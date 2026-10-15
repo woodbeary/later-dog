@@ -91,7 +91,7 @@ Mac's dogs stayed (`kept-local`).
 
 For each account (`electron/cloud-ai-accounts.mjs`):
 
-1. The Mac's server lists what can move (`GET /api/laterdog/mac-accounts`,
+1. The Mac's server lists what can move (the mac-accounts route in `server/laterdog/mac-accounts.ts`,
    desktop-only, `server/laterdog/mac-accounts.ts`): the default Claude login,
    each added Claude account (`claude-<uuid>`) and the ordinary Codex (ChatGPT)
    login, with where the CLI keeps each one. The Keychain item name follows
@@ -193,7 +193,7 @@ pnpm exec vitest run src/components/CloudSignInGate.dom.test.ts \
   server/plan-usage.test.ts
 ```
 
-`account-handoff.e2e.test.ts` is the fixture proof for the sign-in move: the
+`server/laterdog/account-handoff.e2e.test.ts` is the fixture proof for the sign-in move: the
 real Mac and home route handlers on loopback HTTP, the real desktop engine, a
 fake Keychain, fixture logins in temporary folders. It covers the happy path, a
 partial failure and its retry, the Mac refusing to start a moved account, the
