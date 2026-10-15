@@ -9,6 +9,7 @@ import {
   withoutIgnoredCloudKeys,
 } from "./cloud-home.ts";
 import { cloudHomeChildEnvironments, codeTrustProblem, passwdIds, spawnWithSecrets } from "./cloud-home-start.ts";
+import { homeGitEnvironment } from "./laterdog/home-git.ts";
 import { RESTART_EXIT_CODE, restartPolicy } from "./restart.ts";
 import { hostedModelPolicy } from "./hosted-models.ts";
 import { resolveRequestAuth } from "./request-auth.ts";
@@ -310,6 +311,14 @@ it("gives the server only an allow-listed environment: a secret added later, a t
     expect(dropped).toContain(name);
   }
   expect(dropped).not.toContain("LATERDOG_CLOUD_BOOTSTRAP_SECRET");
+});
+
+it("gives the server, and so every dog's shell, a git that signs in to GitHub only through the connected gh and never waits on a prompt", () => {
+  const config = cloudHomeConfiguration(contract())!;
+  const { server } = cloudHomeChildEnvironments(config, { ...contract(), PATH: "/usr/bin", GIT_CONFIG_COUNT: "3", GIT_ASKPASS: "/tmp/askpass" }, "/data");
+  expect(server).toMatchObject({ ...homeGitEnvironment(), HOME: "/data" });
+  expect(server).not.toHaveProperty("GIT_ASKPASS");
+  expect(server).not.toHaveProperty("XDG_CONFIG_HOME");
 });
 
 it("the root supervisor runs and trusts only root's code, never the volume's or anything dog could rewrite", () => {
