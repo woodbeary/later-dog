@@ -1,29 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { MIN_WAKE_DELAY_MS, parseActivity, signedActivityRequest, sleepDecision, WAKE_EARLY_MS } from "../src/activity.ts";
+import { parseActivity, signedActivityRequest } from "../src/activity.ts";
 
 const NOW = 1_800_000_000_000;
 
-describe("whether a home may sleep", () => {
-  it("stays awake while a dog is working", () => {
-    expect(sleepDecision({ busy: true, nextAt: null }, NOW)).toEqual({ stay: true });
-    expect(sleepDecision({ busy: true, nextAt: NOW + 3_600_000 }, NOW)).toEqual({ stay: true });
-  });
-
-  it("sleeps, waking a minute before the next routine", () => {
-    expect(sleepDecision({ busy: false, nextAt: NOW + 3_600_000 }, NOW)).toEqual({ stay: false, wakeAt: NOW + 3_600_000 - WAKE_EARLY_MS });
-    expect(sleepDecision({ busy: false, nextAt: NOW + 10_000 }, NOW)).toEqual({ stay: false, wakeAt: NOW + MIN_WAKE_DELAY_MS });
-  });
-
-  it("sleeps with nothing scheduled when there are no routines or the home doesn't answer", () => {
-    expect(sleepDecision({ busy: false, nextAt: null }, NOW)).toEqual({ stay: false, wakeAt: null });
-    expect(sleepDecision(null, NOW)).toEqual({ stay: false, wakeAt: null });
-  });
-
+describe("a home's answer about its work", () => {
   it("trusts only a well-formed answer", () => {
-    expect(parseActivity({ busy: false, nextAt: NOW })).toEqual({ busy: false, nextAt: NOW });
+    expect(parseActivity({ busy: false, nextAt: NOW, work: [] })).toEqual({ busy: false, nextAt: NOW, work: [] });
     expect(parseActivity({ busy: "no", nextAt: null })).toBeNull();
     expect(parseActivity({ busy: false, nextAt: -1 })).toBeNull();
     expect(parseActivity(null)).toBeNull();
+  });
+
+  it("keeps the names of the work going, and reads an older home's answer as naming none", () => {
+    expect(parseActivity({ busy: true, nextAt: null, work: ["turn", "cloud_job"] })).toEqual({ busy: true, nextAt: null, work: ["turn", "cloud_job"] });
+    expect(parseActivity({ busy: true, nextAt: null })).toEqual({ busy: true, nextAt: null, work: [] });
+    expect(parseActivity({ busy: true, nextAt: null, work: ["turn", "<script>", 7, "x".repeat(40)] })?.work).toEqual(["turn"]);
+    expect(parseActivity({ busy: true, nextAt: null, work: Array.from({ length: 30 }, () => "turn") })?.work).toHaveLength(10);
   });
 
   it("asks with a signed GET", async () => {

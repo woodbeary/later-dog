@@ -13,6 +13,7 @@ export interface FakeMachine {
   starts: number;
   signals: number;
   exit: (() => void) | null;
+  activity: unknown;
 }
 
 export interface FakeWorld {
@@ -54,7 +55,7 @@ export class FakeStorage {
 }
 
 export function fakeContext(id: FakeId, storage = new FakeStorage()) {
-  const machine: FakeMachine = { running: false, starts: 0, signals: 0, exit: null };
+  const machine: FakeMachine = { running: false, starts: 0, signals: 0, exit: null, activity: undefined };
   const pending: Promise<unknown>[] = [];
   return {
     id,
@@ -94,6 +95,7 @@ export class Container<E> {
   envVars: Record<string, string> = {};
   outbound: Record<string, { method: string; params?: unknown }> = {};
   schedules = new Map<string, number>();
+  scheduledFor = new Map<string, number>();
   status: "stopped" | "running" | "healthy" = "stopped";
   ctx: Context;
 
@@ -111,12 +113,14 @@ export class Container<E> {
     this.outbound[host] = { method, params };
   }
 
-  async schedule(_when: Date | number, callback: string): Promise<void> {
+  async schedule(when: Date | number, callback: string): Promise<void> {
     this.schedules.set(callback, (this.schedules.get(callback) ?? 0) + 1);
+    this.scheduledFor.set(callback, typeof when === "number" ? Date.now() + when * 1000 : when.getTime());
   }
 
   deleteSchedules(callback: string): void {
     this.schedules.delete(callback);
+    this.scheduledFor.delete(callback);
   }
 
   async getState(): Promise<{ status: string }> {
@@ -164,6 +168,7 @@ export class Container<E> {
     }
     const path = new URL(request.url).pathname;
     if (path === "/api/health") return Response.json({ app: "laterdog" });
+    if (path === "/api/cloud/activity" && this.machine.activity !== undefined) return Response.json(this.machine.activity);
     return new Response(`home ${this.ctx.id.namespace} ${path}`);
   }
 

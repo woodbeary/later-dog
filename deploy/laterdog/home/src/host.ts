@@ -1,5 +1,5 @@
 import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
-import { parseActivity, signedActivityRequest, sleepDecision, type HomeActivity } from "./activity.ts";
+import { parseActivity, signedActivityRequest, type HomeActivity } from "./activity.ts";
 import { includedKeyDue } from "./included.ts";
 import { hex, randomToken, sha256 } from "./encoding.ts";
 import { bootstrapSecret, type HomeIdentity } from "./identity.ts";
@@ -9,6 +9,7 @@ import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
 import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
+import { HOLD_SLEEP_AFTER, noteRequest, NO_WORK_HOLD, parseRhythm, parseWorkHold, stayDecision, type HoldReason, type Rhythm, type StayDecision, type WorkHold } from "./stay-awake.ts";
 
 export const HOME_PORT = 8080;
 const RECORD_KEY = "home";
@@ -19,6 +20,8 @@ const BUSY_MEMORY_MS = 10_000;
 const STARTED_KEY = "started-included-key";
 const STANDING_KEY = "standing";
 const REMOVED_KEY = "removed";
+const RHYTHM_KEY = "rhythm";
+const WORK_HOLD_KEY = "work-hold";
 const REMOVED = "This home was removed.";
 export const PERSON_SLEEP_AFTER = "2h";
 export const ROUTINE_SLEEP_AFTER = "15m";
@@ -57,6 +60,9 @@ export class CloudHomeHost extends Container<Env> {
   private storedStanding: HomeStanding | null = null;
   private signalled = false;
   private removed = false;
+  private rhythm: Rhythm = [];
+  private workHold: WorkHold = NO_WORK_HOLD;
+  private holding: HoldReason | null = null;
   private readonly handover = new Handover({
     standing: () => this.storedStanding ?? (this.size === "standard" ? "holding" : "released"),
     stand: async (standing) => {
@@ -78,6 +84,8 @@ export class CloudHomeHost extends Container<Env> {
       this.record = (await ctx.storage.get<HomeRecord>(RECORD_KEY)) ?? null;
       this.storedStanding = (await ctx.storage.get<HomeStanding>(STANDING_KEY)) ?? null;
       this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
+      this.rhythm = parseRhythm(await ctx.storage.get(RHYTHM_KEY));
+      this.workHold = parseWorkHold(await ctx.storage.get(WORK_HOLD_KEY));
       if (this.record) this.envVars = await this.environment(this.record);
     });
   }
@@ -104,6 +112,7 @@ export class CloudHomeHost extends Container<Env> {
   private async quiet(): Promise<void> {
     this.deleteSchedules("maintain");
     this.deleteSchedules("wakeForRoutine");
+    this.deleteSchedules("wakeForPerson");
     if (!this.ctx.container?.running || this.signalled) return;
     this.signalled = true;
     await this.stop();
@@ -251,24 +260,69 @@ export class CloudHomeHost extends Container<Env> {
     await this.ctx.storage.deleteAll();
     this.record = null;
     this.storedStanding = null;
+    this.rhythm = [];
+    this.workHold = NO_WORK_HOLD;
     await this.bury();
   }
 
   override async onActivityExpired(): Promise<void> {
     const record = this.record;
     if (!record || !this.handover.holds()) return super.onActivityExpired();
-    const decision = sleepDecision(await this.activity(record).catch(() => null), Date.now());
+    const activity = await this.activity(record).catch(() => null);
+    const decision = stayDecision({ activity, rhythm: this.rhythm, hold: this.workHold, now: Date.now() });
+    await this.keepWorkHold(decision.hold);
+    this.tellHold(record, decision, activity);
     if (decision.stay) {
+      this.sleepAfter = HOLD_SLEEP_AFTER;
       this.renewActivityTimeout();
       return;
     }
     this.deleteSchedules("wakeForRoutine");
-    if (decision.wakeAt !== null) await this.schedule(new Date(decision.wakeAt), "wakeForRoutine");
+    this.deleteSchedules("wakeForPerson");
+    if (decision.routineWakeAt !== null) await this.schedule(new Date(decision.routineWakeAt), "wakeForRoutine");
+    if (decision.personWakeAt !== null) await this.schedule(new Date(decision.personWakeAt), "wakeForPerson");
     await super.onActivityExpired();
   }
 
+  private tellHold(record: HomeRecord, decision: StayDecision, activity: HomeActivity | null): void {
+    const reason = decision.stay ? decision.reason : null;
+    const work = activity?.work.length ? activity.work.join(", ") : "nothing named";
+    if (!decision.stay && decision.capped) {
+      console.warn(`laterdog home ${record.machineId}: sleeping with work still going (${work}): it already stayed awake for work ${decision.capped === "stretch" ? "6 hours in a row" : "12 hours today"}`);
+    } else if (reason !== this.holding && reason !== null) {
+      console.log(`laterdog home ${record.machineId}: staying awake ${reason === "usual" ? "for the person's usual hours" : reason === "due" ? "for a routine due soon" : `for work (${work})`}`);
+    }
+    this.holding = reason;
+  }
+
+  private async keepWorkHold(hold: WorkHold): Promise<void> {
+    const known = this.workHold;
+    if (known.day === hold.day && known.usedMs === hold.usedMs && known.since === hold.since) return;
+    this.workHold = hold;
+    await this.ctx.storage.put(WORK_HOLD_KEY, hold);
+  }
+
+  private async attended(now: number): Promise<void> {
+    this.sleepAfter = PERSON_SLEEP_AFTER;
+    this.holding = null;
+    const rhythm = noteRequest(this.rhythm, now);
+    if (rhythm) {
+      this.rhythm = rhythm;
+      await this.ctx.storage.put(RHYTHM_KEY, rhythm);
+    }
+    if (this.workHold.since !== null) await this.keepWorkHold({ ...this.workHold, since: null });
+  }
+
   async wakeForRoutine(): Promise<void> {
-    if (!this.record || this.removed || !this.handover.holds()) return;
+    this.wakeOnSchedule();
+  }
+
+  async wakeForPerson(): Promise<void> {
+    this.wakeOnSchedule();
+  }
+
+  private wakeOnSchedule(): void {
+    if (!this.record || this.removed || !this.handover.holds() || this.ctx.container?.running) return;
     this.sleepAfter = ROUTINE_SLEEP_AFTER;
     this.boot(this.record, false);
   }
@@ -284,7 +338,7 @@ export class CloudHomeHost extends Container<Env> {
     const record = this.record;
     if (!record || this.removed) return new Response("Not found", { status: 404 });
     const background = isBackground(request);
-    if (!background) this.sleepAfter = PERSON_SLEEP_AFTER;
+    if (!background) await this.attended(Date.now());
     if (await this.running()) return background ? this.quietly(request) : super.fetch(request);
     if (!background) this.boot(record, true);
     const busy = this.lastStart?.wake === "busy" && Date.now() - this.lastStart.at < BUSY_MEMORY_MS;
