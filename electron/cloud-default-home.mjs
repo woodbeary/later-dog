@@ -1,26 +1,6 @@
-import { CLOUD_MACHINE_CONNECTABLE } from "./cloud-home.mjs";
-
-export function readyHome(state) {
-  const machine = state?.status === "connected" ? state.machine : undefined;
-  return machine?.origin && CLOUD_MACHINE_CONNECTABLE.includes(machine.status) ? { origin: machine.origin } : null;
-}
-
-export function enterHomeNow({ state, activeOrigin, enteredOrigin }) {
-  const home = readyHome(state);
-  return Boolean(home) && activeOrigin !== home.origin && enteredOrigin !== home.origin;
-}
-
 export function leaveHomeNow({ state, homeEntry }) {
   if (state?.status !== "signed-out" || state.message === "restoring") return false;
   return Boolean(homeEntry);
-}
-
-export function hasCloudAccount(state) {
-  return Boolean(state?.account);
-}
-
-export function showsServerMenu(state) {
-  return !hasCloudAccount(state);
 }
 
 export function parseOffer(raw) {

@@ -18,6 +18,7 @@ import {
   insidePath,
   readBundleIdentifier,
   dataDirFor,
+  desktopUserDataDirFor,
   deepLink,
   deepLinkPattern,
   describeVariant,
@@ -185,6 +186,51 @@ test("Dev never takes the release's data folder, even when LATERDOG_HOME names i
 test("Dev logs go to their own folder", () => {
   assert.equal(logsDirFor(dev, { home: HOME, platform: "darwin" }), "/Users/someone/Library/Logs/later.dog Dev");
   assert.equal(logsDirFor(dev, { home: HOME, platform: "linux", userData: "/u/later.dog Dev" }), "/u/later.dog Dev/logs");
+});
+
+test("packaged and default desktop profiles ignore workspace and user-data overrides", () => {
+  const appData = `${HOME}/Library/Application Support`;
+  const env = { LATERDOG_HOME: `${HOME}/experiment`, LATERDOG_USER_DATA: `${appData}/later.dog` };
+  for (const definition of [release, dev]) {
+    assert.equal(desktopUserDataDirFor(definition, appData, { env, home: HOME }), userDataDirFor(definition, appData));
+  }
+  assert.equal(desktopUserDataDirFor(release, appData, { packaged: false, env, home: HOME }), userDataDirFor(release, appData));
+  assert.equal(desktopUserDataDirFor(dev, appData, { packaged: false, env: { LATERDOG_USER_DATA: env.LATERDOG_USER_DATA }, home: HOME }), userDataDirFor(dev, appData));
+});
+
+test("source Dev derives each native profile from its isolated workspace instead of a user-data override", () => {
+  const appData = `${HOME}/Library/Application Support`;
+  for (const name of ["first-experiment", "second-experiment"]) {
+    assert.equal(desktopUserDataDirFor(dev, appData, { packaged: false, argv: [], home: HOME,
+      env: { LATERDOG_HOME: `${HOME}/${name}`, LATERDOG_USER_DATA: `${appData}/later.dog` } }), `${HOME}/${name}/desktop`);
+  }
+});
+
+test("source Dev refuses release workspaces, live flags and installed desktop profiles", () => {
+  const appData = `${HOME}/Library/Application Support`;
+  const choose = (env, argv = []) => desktopUserDataDirFor(dev, appData, { packaged: false, env, argv, home: HOME });
+  for (const folder of [".laterdog", ".laterdog-profiles/p1", ".laterdog-v0"]) {
+    assert.throws(() => choose({ LATERDOG_HOME: `${HOME}/${folder}` }), /belongs to the released later\.dog app/);
+  }
+  assert.throws(() => choose({ LATERDOG_HOME: `${HOME}/experiment`, [LIVE_DATA_ENV]: "1" }), /cannot use live data/);
+  assert.throws(() => choose({ LATERDOG_HOME: `${HOME}/experiment` }, [LIVE_DATA_FLAG]), /cannot use live data/);
+  for (const definition of [release, dev]) {
+    assert.throws(() => choose({ LATERDOG_HOME: userDataDirFor(definition, appData) }), /cannot share an installed app's profile/);
+  }
+});
+
+test("source Dev rejects a desktop symlink outside its selected workspace", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "laterdog-desktop-profile-"));
+  try {
+    const workspace = path.join(home, "experiment");
+    const elsewhere = path.join(home, "elsewhere");
+    mkdirSync(workspace);
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, path.join(workspace, "desktop"));
+    assert.throws(() => desktopUserDataDirFor(dev, path.join(home, "app-data"), { packaged: false, env: { LATERDOG_HOME: workspace }, argv: [], home }), /must stay inside its isolated workspace/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("the two variants listen on disjoint ports, helpers and profile servers included", () => {

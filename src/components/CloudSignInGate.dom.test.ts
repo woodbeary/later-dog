@@ -41,7 +41,6 @@ async function show(laterdog: Record<string, unknown>) {
 const text = () => host.textContent ?? "";
 const gate = () => host.querySelector("[data-cloud-sign-in-gate]");
 const holding = () => host.querySelector("[data-holding]")?.getAttribute("data-holding");
-const settled = () => new Promise((resolve) => setTimeout(resolve, 650));
 const button = (label: string) => [...host.querySelectorAll("button")].find((candidate) => candidate.textContent === label);
 async function click(label: string) {
   const target = button(label);
@@ -116,49 +115,49 @@ describe("the desktop's one calm sign-in screen", () => {
     expect(gate()).toBeTruthy();
   });
 
-  it("signs in with an email and a code, then stays calm on one line while the window opens the home", async () => {
+  it.each([
+    ["ready", ready],
+    ["provisioning", { ...ready, machine: { status: "provisioning", setup: { step: "starting" } } }],
+    ["full", { status: "connected", account, entitlement: { plan: "free", status: "inactive", expiresAt: null, version: 1 } }],
+    ["failed", { ...ready, machine: { status: "failed" } }],
+    ["stopped", { ...ready, machine: { status: "stopped" } }],
+    ["unreachable after authentication", { status: "unavailable", account, message: "unreachable" }],
+  ] satisfies [string, CloudAccountState][])("finishes sign-in without moving the workspace when the home is %s", async (_home, signedIn) => {
     const bridge = makeBridge({ status: "signed-out" });
+    vi.mocked(bridge.verifyCode).mockResolvedValueOnce({ ok: true, account: signedIn });
     await show({ remoteClient: { active: false }, cloudAccount: bridge });
     await type("input[type=email]", "jo@example.test");
-    await settled();
     await click("Agree and continue");
     await type("input[autocomplete=one-time-code]", "12345678");
     expect(bridge.verifyCode).toHaveBeenCalledWith("jo@example.test", "12345678");
-    expect(gate()).toBeTruthy();
-    expect(host.querySelector("[data-cloud-sign-in-after]")?.getAttribute("data-cloud-sign-in-after")).toBe("opening");
-    expect(text()).toContain("Opening your dogs…");
-    expect(button("Continue on this Mac")).toBeUndefined();
-    expect(text()).not.toContain("Agree and continue");
-  });
-
-  it("says a home is being set up, with the reason it is slow, and never asks for another tap", async () => {
-    const bridge = makeBridge({ status: "signed-out" });
-    vi.mocked(bridge.verifyCode).mockResolvedValueOnce({ ok: true, account: { ...ready, machine: { status: "provisioning", setup: { step: "starting" } } } });
-    await show({ remoteClient: { active: false }, cloudAccount: bridge });
-    await type("input[type=email]", "jo@example.test");
-    await settled();
-    await click("Agree and continue");
-    await type("input[autocomplete=one-time-code]", "12345678");
-    expect(text()).toContain("Getting your home ready");
-    expect(button("Continue on this Mac")).toBeUndefined();
-    await act(async () => push({ ...ready, machine: { status: "provisioning", setup: { step: "starting", slow: true } } }));
-    expect(text()).toContain("taking longer than usual");
-    await act(async () => push(ready));
-    expect(text()).toContain("Opening your dogs…");
-  });
-
-  it("lets a person with no room in Cloud, or a home that cannot start, carry on with this Mac", async () => {
-    const bridge = makeBridge({ status: "signed-out" });
-    vi.mocked(bridge.verifyCode).mockResolvedValueOnce({ ok: true, account: { status: "connected", account, entitlement: { plan: "free", status: "inactive", expiresAt: null, version: 1 } } });
-    await show({ remoteClient: { active: false }, cloudAccount: bridge });
-    await type("input[type=email]", "jo@example.test");
-    await settled();
-    await click("Agree and continue");
-    await type("input[autocomplete=one-time-code]", "12345678");
-    expect(text()).toContain("later.dog Cloud is full right now");
-    await click("Continue on this Mac");
-    expect(bridge.declineOffer).toHaveBeenCalledOnce();
     expect(gate()).toBeNull();
     expect(holding()).toBe("false");
+    expect(bridge.declineOffer).not.toHaveBeenCalled();
+    expect(bridge.connectHome).not.toHaveBeenCalled();
+    expect(bridge.connectHomeForPhone).not.toHaveBeenCalled();
+    for (const next of [{ status: "signed-out" }, { status: "unavailable", account }, ready] satisfies CloudAccountState[]) {
+      await act(async () => push(next));
+      expect(gate()).toBeNull();
+      expect(holding()).toBe("false");
+    }
+  });
+
+  it("closes when an account confirmation arrives through the bridge and stays closed after later refreshes", async () => {
+    const bridge = makeBridge({ status: "signed-out" });
+    await show({ remoteClient: { active: false }, cloudAccount: bridge });
+    await act(async () => push({ status: "connected" }));
+    expect(gate()).toBeTruthy();
+    expect(holding()).toBe("true");
+    await act(async () => push({ status: "unavailable", account, message: "unreachable" }));
+    expect(gate()).toBeTruthy();
+    expect(holding()).toBe("true");
+    await act(async () => push(ready));
+    expect(gate()).toBeNull();
+    expect(holding()).toBe("false");
+    await act(async () => push({ status: "signed-out" }));
+    expect(gate()).toBeNull();
+    expect(holding()).toBe("false");
+    expect(bridge.declineOffer).not.toHaveBeenCalled();
+    expect(bridge.connectHome).not.toHaveBeenCalled();
   });
 });

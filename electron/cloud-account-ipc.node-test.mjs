@@ -50,7 +50,7 @@ test("production personal Cloud IPC guards exact local main frame and forwards n
     ensureCloudSignIn: () => ({ sendCode: async email => { calls.push(["sendCode", email]); return email; }, verifyCode: async (email, code) => { calls.push(["verifyCode", email, code]); return { grant: true }; } }),
     CloudSignInError: class extends Error {},
     cloudOfferState: () => ({ due: () => true, decline: () => calls.push(["decline"]) }),
-    homeEntryPaused: false, cloudAccount: null,
+    cloudAccount: null,
   });
   vm.runInContext(source.slice(start, end), context);
   for (const method of bridgeMethods) {

@@ -5,11 +5,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { applyVariantEnvironment, dataDirFor, deepLinkPattern, logsDirFor, serverPortRange, tempName, userDataDirFor, variant } from "./app-variant.mjs";
+import { applyVariantEnvironment, dataDirFor, deepLinkPattern, desktopUserDataDirFor, logsDirFor, serverPortRange, tempName, variant } from "./app-variant.mjs";
 applyVariantEnvironment(variant);
 app.setName(variant.productName);
-fs.mkdirSync(userDataDirFor(variant, app.getPath("appData")), { recursive: true, mode: 0o700 });
-app.setPath("userData", userDataDirFor(variant, app.getPath("appData")));
+const desktopUserData = desktopUserDataDirFor(variant, app.getPath("appData"), { packaged: app.isPackaged });
+fs.mkdirSync(desktopUserData, { recursive: true, mode: 0o700 });
+app.setPath("userData", desktopUserData);
 const variantLogsDir = logsDirFor(variant, { home: app.getPath("home"), userData: app.getPath("userData") });
 if (variantLogsDir) app.setAppLogsPath(variantLogsDir);
 import { startCua, stopCua, registerCuaIpc, setCuaStateListener } from "./cua.mjs";
@@ -100,7 +101,7 @@ import { createManagedDesktopClient, createManagedDesktopRelay, createManagedDes
 import { cloudOrigin, cloudPlanSnapshot, configuredCloudOrigin, createCloudAccountClient, createCloudAccountStore } from "./cloud-account.mjs";
 import { CloudSignInError, createCloudSignIn } from "./cloud-sign-in.mjs";
 import { createCloudAutoMove } from "./cloud-auto-move.mjs";
-import { createCloudOffer, enterHomeNow, leaveHomeNow, readyHome, showsServerMenu } from "./cloud-default-home.mjs";
+import { createCloudOffer, leaveHomeNow } from "./cloud-default-home.mjs";
 import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, isCloudHomeEntry, myCloudOrigin, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome } from "./cloud-home.mjs";
 import { createCloudEntry } from "./cloud-entry.mjs";
 import { cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, parseCloudMoveStatus } from "./cloud-move.mjs";
@@ -294,8 +295,6 @@ let cloudAccount = null;
 let cloudSignIn = null;
 let cloudAutoMove = null;
 let cloudOffer = null;
-let enteredHomeOrigin = null;
-let homeEntryPaused = false;
 let homeFellBack = false;
 let cloudAccountStarted = Promise.resolve();
 let cloudAccountRestoring = false;
@@ -991,27 +990,19 @@ function observeCloudHome(state) {
     if (state.status === "connected") cloudOfferState().signedIn();
     const homeEntry = environmentsState.environments.find(entry => entry.name === CLOUD_HOME_NAME) ?? null;
     if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); return; }
-    if (state.status === "signed-out") { enteredHomeOrigin = null; homeEntryPaused = false; homeFellBack = false; cloudAutoMove?.stop(); return; }
-    if (!homeEntryPaused && enterHomeNow({ state, activeOrigin: activeOrigin(), enteredOrigin: enteredHomeOrigin })) {
-      const origin = state.machine.origin;
-      enteredHomeOrigin = origin;
-      void connectCloudHome().catch(error => {
-        slog(`cloud home: could not open it (${error?.message ?? error})`);
-        if (enteredHomeOrigin === origin) enteredHomeOrigin = null;
-      });
-    }
-    if (readyHome(state)) void runCloudAutoMove(false);
+    if (state.status === "signed-out") { homeFellBack = false; cloudAutoMove?.stop(); }
   } catch (error) {
     slog(`cloud home: ${error?.message ?? error}`);
   }
 }
 
 async function leaveCloudHome(entry) {
-  enteredHomeOrigin = null; homeEntryPaused = false; homeFellBack = false;
+  homeFellBack = false;
   cloudAutoMove?.stop();
   sharingController().forget(entry);
-  persistEnvironments(withoutEnvironment(withActive(environmentsState, LOCAL_ID), entry.id));
-  navigateMainWindow(activeOrigin());
+  const wasActive = environmentsState.activeId === entry.id;
+  persistEnvironments(withoutEnvironment(environmentsState, entry.id));
+  if (wasActive) navigateMainWindow(activeOrigin());
   try {
     await session.defaultSession.fetch(`${entry.origin}/api/auth/logout`, { method: "POST", credentials: "include", headers: { origin: entry.origin }, signal: AbortSignal.timeout(5_000) });
   } catch (error) { slog(`cloud home: sign-out of the home was not confirmed (${error?.message ?? error})`); }
@@ -1890,7 +1881,6 @@ function refreshApplicationMenu() {
     buildApplicationMenu({
       environments: environmentsState.environments,
       activeId: environmentsState.activeId,
-      serverMenu: showsServerMenu(cloudAccount?.state()),
       onSwitch: (id) => void workspaceMenuAction(() => switchEnvironment(id)),
       onAddFromClipboard: () => void addServerFromClipboard(),
       onForget: (id) => void workspaceMenuAction(() => forgetEnvironment(id)),
@@ -2004,7 +1994,7 @@ async function openCloudEntry() {
   await cloudAccountRestored();
   const active = activeEnvironment(environmentsState);
   const showingCloud = Boolean(active) && active.origin === cloudAccount?.homeTarget()?.origin;
-  if (active && !showingCloud) persistEnvironments(withActive(environmentsState, LOCAL_ID));
+  if (active && !showingCloud) throw new Error("Your current workspace is still open. Choose Server → This computer to manage this Mac's Cloud account.");
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow({ deferNavigation: !showingCloud });
   if (showingCloud) return true;
   if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) {
@@ -2750,7 +2740,6 @@ ipcMain.handle("cloud-account:verifyCode", localWorkspaceOnly("cloud-account:ver
 ipcMain.handle("cloud-account:offer", localWorkspaceOnly("cloud-account:offer", () => ({ due: cloudOfferState().due() })));
 ipcMain.handle("cloud-account:declineOffer", localWorkspaceOnly("cloud-account:declineOffer", () => {
   cloudOfferState().decline();
-  if (cloudAccount?.state().account) homeEntryPaused = true;
   return { due: false };
 }));
 ipcMain.handle("organization:settings-opened", localWorkspaceOnly("organization:settings-opened", () => organizationEntry.settingsOpened()));

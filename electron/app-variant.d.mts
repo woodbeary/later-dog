@@ -48,6 +48,7 @@ export function dataDirFor(definition: VariantDefinition, options?: { env?: Node
 export function profilesDataDirFor(definition: VariantDefinition, options?: { env?: NodeJS.ProcessEnv; home?: string }): string;
 export function releaseDataDir(home?: string): string;
 export function userDataDirFor(definition: VariantDefinition, appData: string): string;
+export function desktopUserDataDirFor(definition: VariantDefinition, appData: string, options?: { packaged?: boolean; env?: NodeJS.ProcessEnv; argv?: string[]; home?: string }): string;
 export function logsDirFor(definition: VariantDefinition, options?: { home?: string; platform?: string; userData?: string }): string | null;
 export function deepLink(definition: VariantDefinition, host: string): string;
 export function deepLinkPattern(definition: VariantDefinition, hosts: readonly string[]): RegExp;

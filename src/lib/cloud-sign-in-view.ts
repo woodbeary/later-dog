@@ -29,22 +29,6 @@ const PROBLEMS: Record<CloudSignInFailure, LocaleKey> = {
 
 export const signInProblem = (code: CloudSignInFailure): LocaleKey => PROBLEMS[code] ?? PROBLEMS.unavailable;
 
-export type GateLine =
-  | { kind: "opening" }
-  | { kind: "setting-up"; slow: boolean }
-  | { kind: "stuck"; note: LocaleKey };
-
-export function gateLine(card: CloudCard): GateLine | null {
-  if (card.kind !== "signed-in") return null;
-  const home = card.home;
-  if (home?.status === "ready") return { kind: "opening" };
-  if (!home) return { kind: "stuck", note: "cloudAccount.plan.full" };
-  if (home.status === "provisioning") return { kind: "setting-up", slow: home.setup?.slow === true };
-  if (home.status === "payment-problem") return { kind: "stuck", note: "cloudAccount.home.paymentProblem" };
-  if (home.status === "stopped") return { kind: "stuck", note: "cloudAccount.home.stopped" };
-  return { kind: "stuck", note: "cloudAccount.home.failed" };
-}
-
 export type OfferStatus = "checking" | "due" | "done";
 
 export function offerStatus(input: { bridge: boolean; asked: boolean | null; card: CloudCard["kind"] | null; failed: boolean }): OfferStatus {

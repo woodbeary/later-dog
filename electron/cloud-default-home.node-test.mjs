@@ -1,24 +1,61 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCloudOffer, enterHomeNow, hasCloudAccount, leaveHomeNow, parseOffer, readyHome, showsServerMenu } from "./cloud-default-home.mjs";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import environments from "./environments.cjs";
+import { createCloudOffer, leaveHomeNow, parseOffer } from "./cloud-default-home.mjs";
 
 const HOME = "https://home.fixture.test";
 const connected = (machine = { status: "ready", origin: HOME }) => ({ status: "connected", account: { id: "a", email: "a@b.test" }, machine });
 
-test("only a signed-in person whose home is ready has a home to open", () => {
-  assert.deepEqual(readyHome(connected()), { origin: HOME });
-  for (const state of [null, { status: "signed-out" }, connected({ status: "provisioning", origin: HOME }), connected(null), { ...connected(), status: "unavailable" }]) assert.equal(readyHome(state), null);
-});
+const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
 
-test("the window opens the home once per home, never again after the person was sent back, and never when it is already showing it", () => {
-  assert.equal(enterHomeNow({ state: connected(), activeOrigin: "http://127.0.0.1:8799", enteredOrigin: null }), true);
-  assert.equal(enterHomeNow({ state: connected(), activeOrigin: HOME, enteredOrigin: null }), false);
-  assert.equal(enterHomeNow({ state: connected(), activeOrigin: "http://127.0.0.1:8799", enteredOrigin: HOME }), false);
-  assert.equal(enterHomeNow({ state: connected(), activeOrigin: "http://127.0.0.1:8799", enteredOrigin: "https://old.fixture.test" }), true);
-  assert.equal(enterHomeNow({ state: connected({ status: "provisioning", origin: HOME }), activeOrigin: "x", enteredOrigin: null }), false);
-});
+function homeObserver(activeId = "local") {
+  const calls = [];
+  const home = { id: "cloud-1", name: "My Cloud", origin: HOME };
+  const custom = { id: "custom", name: "Another workspace", origin: "https://custom.fixture.test" };
+  const context = vm.createContext({
+    environmentsState: { activeId, environments: [home, custom] },
+    CLOUD_HOME_NAME: "My Cloud", LOCAL_ID: "local", leaveHomeNow,
+    withoutEnvironment: environments.withoutEnvironment,
+    withActive: environments.withActive,
+    cloudOfferState: () => ({ signedIn: () => calls.push("signed-in") }),
+    cloudAutoMove: { stop: () => calls.push("stop-copy") }, homeFellBack: false,
+    connectCloudHome: () => { calls.push("connect-home"); return Promise.resolve(); },
+    runCloudAutoMove: () => { calls.push("copy-workspace"); return Promise.resolve(); },
+    sharingController: () => ({ forget: () => calls.push("forget-home") }),
+    activeOrigin: () => context.environmentsState.activeId === "local" ? "http://127.0.0.1:8799" : "https://custom.fixture.test",
+    persistEnvironments: next => { context.environmentsState = next; },
+    navigateMainWindow: () => calls.push("navigate"),
+    session: { defaultSession: { fetch: async () => ({ ok: true }), clearStorageData: async () => {} } },
+    AbortSignal, slog: message => calls.push(message),
+  });
+  vm.runInContext(source.slice(source.indexOf("function observeCloudHome("), source.indexOf("function ensureManagedDesktop(")), context);
+  return { context, calls, home };
+}
 
-test("signing out leaves the home for this Mac, whether or not it was showing, but the quiet start-up state does not", () => {
+for (const activeId of ["local", "custom", "cloud-1"]) {
+  test(`sign-in and account refresh preserve ${activeId} without navigation or workspace copying`, () => {
+    const { context, calls } = homeObserver(activeId);
+    const before = JSON.stringify(context.environmentsState);
+    for (const state of [connected(), connected({ status: "provisioning" }), connected(), { status: "unavailable", account: { id: "a" } }]) context.observeCloudHome(state);
+    assert.equal(JSON.stringify(context.environmentsState), before);
+    assert.deepEqual(calls, ["signed-in", "signed-in", "signed-in"]);
+  });
+}
+
+for (const activeId of ["local", "custom", "cloud-1"]) {
+  test(`sign-out only navigates if the removed Cloud connection was active (${activeId})`, async () => {
+    const { context, calls, home } = homeObserver(activeId);
+    await context.leaveCloudHome(home);
+    assert.equal(context.environmentsState.activeId, activeId === "cloud-1" ? "local" : activeId);
+    assert.equal(context.environmentsState.environments.length, 1);
+    assert.equal(context.environmentsState.environments[0].id, "custom");
+    assert.equal(calls.includes("navigate"), activeId === "cloud-1");
+  });
+}
+
+test("sign-out forgets a saved Cloud connection, but quiet restoration does not", () => {
   const entry = { id: "cloud-1" };
   assert.equal(leaveHomeNow({ state: { status: "signed-out" }, homeEntry: entry }), true);
   assert.equal(leaveHomeNow({ state: { status: "signed-out", message: "restoring" }, homeEntry: entry }), false);
@@ -28,11 +65,22 @@ test("signing out leaves the home for this Mac, whether or not it was showing, b
   assert.equal(leaveHomeNow({ state: { status: "unavailable", message: "restore-failed" }, homeEntry: entry }), false);
 });
 
-test("a signed-in person sees no Server menu, and a signed-out person sees what they always saw", () => {
-  assert.equal(showsServerMenu({ status: "signed-out" }), true);
-  assert.equal(showsServerMenu(null), true);
-  for (const state of [connected(), { status: "unavailable", account: { id: "a" } }, { status: "reauth-required", account: { id: "a" } }]) assert.equal(showsServerMenu(state), false);
-  assert.equal(hasCloudAccount({ status: "connecting" }), false);
+test("account sign-in keeps the explicit Server menu available for returning to saved workspaces", () => {
+  let options;
+  const switched = [];
+  const context = vm.createContext({
+    Menu: { setApplicationMenu: () => {} },
+    buildApplicationMenu: value => { options = value; return value; },
+    environmentsState: { activeId: "cloud-1", environments: [{ id: "cloud-1", name: "My Cloud", origin: HOME }] },
+    cloudAccount: { state: connected },
+    workspaceMenuAction: action => action(), switchEnvironment: id => switched.push(id),
+    addServerFromClipboard: () => {}, forgetEnvironment: () => {}, mainWindow: null,
+  });
+  vm.runInContext(source.slice(source.indexOf("function refreshApplicationMenu("), source.indexOf("function currentWindowTitle(")), context);
+  context.refreshApplicationMenu();
+  assert.notEqual(options.serverMenu, false);
+  options.onSwitch("local");
+  assert.deepEqual(switched, ["local"]);
 });
 
 test("the sign-in screen is offered once: a Mac that said not now, or signed in, is never asked again", () => {

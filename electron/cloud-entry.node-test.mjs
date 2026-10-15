@@ -146,11 +146,27 @@ test("the Cloud entry checks the owned server, waits for the saved sign-in, and 
   const restored = entry.indexOf("await cloudAccountRestored();");
   assert.ok(guard !== -1 && restored > guard);
   assert.match(between("function cloudAccountRestored()", "\n}\n"), /Promise\.race\(\[cloudAccountStarted, new Promise\(resolve => setTimeout\(resolve, 5_000\)/);
-  for (const action of ["createWindow(", "persistEnvironments(", "win.webContents.send(", "win.loadURL("]) {
+  for (const action of ["createWindow(", "win.webContents.send(", "win.loadURL("]) {
     assert.ok(entry.indexOf(action) > restored, `${action} must follow the server guard and the restore`);
   }
   assert.ok(entry.indexOf("if (desktopRemoteAccess) throw") < guard, "companion client mode is not changed by the link");
   assert.doesNotMatch(entry, /dialog\.|confirm/);
   assert.deepEqual([...entry.matchAll(/webContents\.send\(([^)]*)\)/g)].map(match => match[1]), ['"app:open-settings", "cloud"']);
   assert.deepEqual([...entry.matchAll(/loadURL\((.*)\);/g)].map(match => match[1]), ["`${rendererOrigin()}/?desktop-settings=cloud`"]);
+});
+
+
+test("opening Cloud account settings does not silently replace an active custom workspace", async () => {
+  const selected = { id: "custom", origin: "https://custom.fixture.test" };
+  const calls = [];
+  const open = runInNewContext(`${between("async function openCloudEntry()", "\n}\n")}\n}\nopenCloudEntry`, {
+    app: { isPackaged: true }, desktopRemoteAccess: null, serverReady: true,
+    cloudAccountRestored: async () => {},
+    activeEnvironment: () => selected, environmentsState: { activeId: selected.id },
+    cloudAccount: { homeTarget: () => ({ origin: "https://home.fixture.test" }) },
+    persistEnvironments: () => calls.push("selection"),
+    createWindow: () => calls.push("window"),
+  });
+  await assert.rejects(open, /Your current workspace is still open/);
+  assert.deepEqual(calls, []);
 });

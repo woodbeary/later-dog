@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createCloudAccountClient } from "../../electron/cloud-account.mjs";
-import { createCloudOffer, enterHomeNow, readyHome } from "../../electron/cloud-default-home.mjs";
+import { createCloudOffer } from "../../electron/cloud-default-home.mjs";
 import { CloudSignInError, createCloudSignIn } from "../../electron/cloud-sign-in.mjs";
 import { startFakeAccounts } from "../../electron/fixtures/fake-accounts.mjs";
 import type { PreviewRoute } from "./preview-fixture.ts";
@@ -36,7 +36,6 @@ async function create(): Promise<Harness> {
     openBrowser: async () => { throw new Error("the fixture never opens a browser"); },
     onState: (state) => {
       if (state.status === "connected") made.offer.signedIn();
-      if (enterHomeNow({ state, activeOrigin: "http://127.0.0.1:local", enteredOrigin: made.entered ? readyHome(state)?.origin : null })) made.entered = true;
     },
   });
   made.signIn = createCloudSignIn({ origin: accounts.origin, deviceName: "Fixture Mac", platform: "darwin", appVersion: "0.0.fixture" });
