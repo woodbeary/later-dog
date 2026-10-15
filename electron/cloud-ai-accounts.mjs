@@ -4,7 +4,8 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import { Readable } from "node:stream";
-import { AUTO_MOVE_RETRY_MS } from "./cloud-auto-move.mjs";
+
+const ACCOUNT_HANDOVER_RETRY_MS = Object.freeze([20_000, 60_000, 5 * 60_000, 15 * 60_000]);
 
 export const MAC_ACCOUNT_ROUTES = /^\/api\/laterdog\/mac-accounts(?:\/(?:claude|codex|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/hold)?$/;
 const ACCOUNT_ID = /^(?:claude|codex|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
@@ -136,7 +137,7 @@ const holdRoute = instanceId => `/api/laterdog/mac-accounts/${instanceId}/hold`;
 const homeRoute = instanceId => `/api/laterdog/accounts/${instanceId}`;
 
 export function createCloudAiAccounts({ localRequest, fetchImpl = fetch, keychain = null, readFile = readSecretFile,
-  read, write, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, retryDelaysMs = AUTO_MOVE_RETRY_MS, onChange = () => {}, log = () => {} }) {
+  read, write, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, retryDelaysMs = ACCOUNT_HANDOVER_RETRY_MS, onChange = () => {}, log = () => {} }) {
   if (typeof localRequest !== "function" || typeof read !== "function" || typeof write !== "function") throw new Error("Moving accounts needs this Mac's server and a place to remember them.");
   let running = null, timer = null, failures = 0, doneFor = null, closed = false;
 
