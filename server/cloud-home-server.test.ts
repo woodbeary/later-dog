@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { CLOUD_IGNORED_KEYS, cloudHomePlaceRefusal, cloudPairingSignature } from "./cloud-home.ts";
 import { cloudHomePrompt } from "./system-prompt.ts";
+import { homeProjectsPrompt } from "./laterdog/home-projects.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
@@ -322,11 +323,13 @@ it("offers its bots cloud computers only, and tells them they cannot see the per
   const status = await api("GET", "/api/config");
   expect(status.body).toMatchObject({ cloudHome: true });
   writeFileSync(join(home, "hang"), "");
+  const macProject = mkdtempSync(join(tmpdir(), "laterdog-mac-project-"));
   const created = await api("POST", "/api/bots", { body: {
     name: "Desk fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true,
   } });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const botId = created.body.bot.id;
+  expect((await api("PATCH", `/api/bots/${botId}`, { body: { cwd: macProject } })).status).toBe(200);
   try {
     expect((await api("POST", `/api/bots/${botId}/messages`, { body: { text: "list the files on my desktop" } })).status).toBe(202);
     const dump = join(home, "spawn-hang.json");
@@ -339,6 +342,8 @@ it("offers its bots cloud computers only, and tells them they cannot see the per
     expect(agents.env.LATERDOG_CLOUD_HOME).toBe("1");
     const preview = (await api("GET", `/api/bots/${botId}/system-prompt`)).body.sections as Array<{ id: string; text: string }>;
     expect(preview.find((section) => section.id === "cloud-home")?.text).toBe(cloudHomePrompt(true));
+    expect(systemPrompt).toContain(homeProjectsPrompt([macProject], true));
+    expect(preview.find((section) => section.id === "home-projects")?.text).toBe(homeProjectsPrompt([macProject], true));
     const select = (surface?: string) => fetch(`${base}/api/internal/computer/select`, {
       method: surface === undefined ? "GET" : "POST",
       headers: { authorization: `Bearer ${agents.env.LATERDOG_COMMS_TOKEN}`, ...(surface === undefined ? {} : { "content-type": "application/json" }) },
@@ -355,6 +360,7 @@ it("offers its bots cloud computers only, and tells them they cannot see the per
   } finally {
     rmSync(join(home, "hang"), { force: true });
     await api("POST", `/api/bots/${botId}/interrupt`, { body: {} });
+    await removeTempDir(macProject);
   }
 });
 
