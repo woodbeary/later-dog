@@ -79,3 +79,27 @@ describe("a quiet chat", () => {
     }
   });
 });
+
+it("merges sends separated by a single hidden coordinate call in the actual chat", () => {
+  const receipt = (id: string): Message => ({ id, role: "bot", kind: "activity", at: 1000,
+    tool: { name: "Sent to main app", ok: true }, threadRef: { botId: "main-app", threadId: id, title: "Work" },
+  });
+  const markup = render(bot(chain([receipt("one"),
+    { id: "tool", role: "bot", kind: "activity", at: 1000, tool: { name: "coordinate_bots", ok: true } }, receipt("two")]), false));
+  expect(markup.match(/data-sent-messages/g)).toHaveLength(1);
+  expect(markup.match(/>Messaged</g)).toHaveLength(1);
+  expect(markup).toContain("· 2");
+});
+
+it("renders five failed handoffs as one counted row in the actual chat", () => {
+  const messages: Message[] = Array.from({ length: 5 }, (_, index) => ({ id: `failure-${index}`, role: "bot", kind: "activity", at: 1000,
+    roomRequest: { id: `request-${index}`, phase: "result" },
+    tool: { name: "main desk couldn't finish", ok: false },
+    ...(index === 4 ? { comm: { groupId: "room", withBotId: "desk", withName: "main desk", withColor: "blue" as const } }
+      : { threadRef: { botId: "desk", threadId: `work-${index}`, title: "Work" } }),
+  }));
+  const markup = render(bot(chain(messages), false));
+  expect(markup.match(/data-failed-results/g)).toHaveLength(1);
+  expect(markup).toContain("· 5");
+  expect(markup).toContain("hover:text-danger");
+});

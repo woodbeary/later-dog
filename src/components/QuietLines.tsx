@@ -1,11 +1,11 @@
 import { memo, useEffect, useId, useState, type ReactNode } from "react";
-import { ChevronRight, MessagesSquare, Timer } from "lucide-react";
-import { openThread, useStore } from "@/state/store";
+import { ChevronRight, MessagesSquare, Timer, TriangleAlert } from "lucide-react";
+import { formatTime, openThread, useStore, type AppState } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { currentDogName } from "@/lib/dog-refs";
+import { currentDogName, freshenDogName } from "@/lib/dog-refs";
 import { openExchange } from "@/lib/exchange-view";
-import { exchangeWording, foldedPreview, openedExchange, type ExchangeItem } from "@/lib/quiet-lines";
+import { exchangeWording, failedExchange, foldedPreview, openedExchange, sentExchange, singleExchange, type ExchangeItem, type ExchangeRow } from "@/lib/quiet-lines";
 import { BotAvatar } from "./Avatar";
 import { ThreadChip } from "./ThreadChip";
 
@@ -19,6 +19,8 @@ export function QuietLine({
   className,
   after,
   kind,
+  expanded,
+  controls,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -27,6 +29,8 @@ export function QuietLine({
   className?: string;
   after?: ReactNode;
   kind?: string;
+  expanded?: boolean;
+  controls?: string;
 }) {
   const body = "flex max-w-full items-center justify-center gap-1.5 rounded-md px-1.5 py-0.5 text-[13px] leading-[18px] text-ink-secondary";
   return (
@@ -37,6 +41,8 @@ export function QuietLine({
           onClick={onClick}
           title={title}
           aria-label={label}
+          aria-expanded={expanded}
+          aria-controls={controls}
           className={cn(body, "transition-colors duration-(--motion-micro) hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none", className)}
         >
           {children}
@@ -67,11 +73,97 @@ function OpenedThreadsLine({ item, forceOpen }: { item: ExchangeItem; forceOpen:
   </div>;
 }
 
+const failureClass = "flex h-6 min-w-0 max-w-full items-center gap-1.5 rounded-full bg-control/70 px-2 text-[12px] leading-4 text-danger transition-colors hover:bg-raised hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus";
+
+function destinationTitle(row: ExchangeRow, state: AppState): string | undefined {
+  const target = row.target;
+  if (target.kind === "group") return state.groups.find(group => group.id === target.groupId)?.name;
+  return state.bots.find(bot => bot.id === target.botId)?.tasks?.find(task => task.threadId === target.threadId)?.title ?? target.title;
+}
+
+function FailureResult({ row }: { row: ExchangeRow }) {
+  const { state, dispatch } = useStore();
+  const bot = state.bots.find(candidate => candidate.id === row.withBotId);
+  const label = freshenDogName(row.message.tool!.name, bot, row.withName, { leading: true });
+  const target = row.target;
+  const group = target.kind === "group" ? state.groups.find(candidate => candidate.id === target.groupId) : undefined;
+  const title = destinationTitle(row, state);
+  const open = () => {
+    if (target.kind === "thread") openThread(dispatch, target, state);
+    else if (!group || group.dm) openExchange(target.groupId);
+    else {
+      dispatch({ type: "select", id: target.groupId });
+      const threadId = row.message.comm?.threadId;
+      if (threadId && group.tasks?.some(task => task.threadId === threadId)) dispatch({ type: "switchGroupTask", groupId: group.id, threadId });
+    }
+  };
+  return <button type="button" onClick={open} className={failureClass} title={title}>
+    <TriangleAlert size={13} aria-hidden="true" className="shrink-0" />
+    <span className="min-w-0 truncate font-medium">{label}</span>
+    <ChevronRight size={12} aria-hidden="true" className="shrink-0" />
+  </button>;
+}
+
+function FailedResultsLine({ item, forceOpen }: { item: ExchangeItem; forceOpen: boolean }) {
+  const { state } = useStore();
+  const [open, setOpen] = useState(forceOpen);
+  const expanded = forceOpen || open;
+  const details = useId();
+  useEffect(() => { if (forceOpen) setOpen(true); }, [forceOpen]);
+  const first = item.rows[0]!;
+  const bot = state.bots.find(candidate => candidate.id === first.withBotId);
+  const caption = freshenDogName(first.message.tool!.name, bot, first.withName, { leading: true });
+  if (item.rows.length === 1) return <div data-failed-results="" className="flex justify-start"><FailureResult row={first} /></div>;
+  return <div data-failed-results="" className="flex min-w-0 flex-col items-start gap-1.5">
+    <button type="button" className={failureClass} aria-expanded={expanded} aria-controls={details} onClick={() => setOpen(value => !value)}>
+      <TriangleAlert size={13} aria-hidden="true" className="shrink-0" />
+      <span className="min-w-0 truncate font-medium">{caption}</span>
+      <span className="shrink-0 tabular-nums">· {item.rows.length}</span>
+      <ChevronRight size={12} aria-hidden="true" className={cn("shrink-0 transition-transform motion-reduce:transition-none", expanded && "rotate-90")} />
+    </button>
+    <div id={details} hidden={!expanded} className="w-full min-w-0 max-w-[560px]">
+      {expanded && <ul className="space-y-2 rounded-xl border border-hairline/50 bg-panel/50 p-2">{item.rows.map(row => <li key={row.message.id} data-mid={row.message.id}><div>
+        <FailureResult row={row} />
+        <div className="mt-1 flex gap-1.5 px-2 text-[11px] text-ink-tertiary"><time dateTime={new Date(row.message.at).toISOString()}>{formatTime(row.message.at)}</time><span className="truncate">{destinationTitle(row, state)}</span></div>
+        {typeof row.message.tool?.output === "string" && <p className="mt-1 whitespace-pre-wrap break-words px-2 text-[12px] text-ink-secondary">{row.message.tool.output}</p>}
+      </div></li>)}</ul>}
+    </div>
+  </div>;
+}
+
+function SentMessagesLine({ item, forceOpen }: { item: ExchangeItem; forceOpen: boolean }) {
+  const { state } = useStore();
+  const [open, setOpen] = useState(forceOpen);
+  const expanded = forceOpen || open;
+  const details = useId();
+  useEffect(() => { if (forceOpen) setOpen(true); }, [forceOpen]);
+  const first = item.rows[0]!;
+  const bot = state.bots.find(candidate => candidate.id === item.withBotId);
+  const name = currentDogName(state.bots, item.withBotId, first.withName);
+  return <div data-sent-messages="" className="flex min-w-0 flex-col items-center gap-1.5">
+    <QuietLine onClick={() => setOpen(value => !value)} expanded={expanded} controls={details}>
+      <span>{t("chat.exchange.messaged")}</span>
+      <BotAvatar bot={bot ?? { name, color: first.withColor }} state="happy" size={QUIET_FACE_SIZE} animated={false} />
+      <span className="min-w-0 truncate">{name}</span>
+      <span className="shrink-0 tabular-nums">· {item.rows.length}</span>
+      <ChevronRight size={12} aria-hidden="true" className={cn("shrink-0 transition-transform motion-reduce:transition-none", expanded && "rotate-90")} />
+    </QuietLine>
+    <div id={details} hidden={!expanded} className="w-full min-w-0 max-w-[560px]">
+      {expanded && <ul className="space-y-1.5 rounded-xl border border-hairline/50 bg-panel/50 p-2">{item.rows.map(row => <li key={row.message.id} data-mid={row.message.id}><div>
+        <ExchangeLine item={singleExchange(row.message)!} />
+        <div className="text-center text-[11px] text-ink-tertiary">{destinationTitle(row, state)} · {formatTime(row.message.at)}</div>
+      </div></li>)}</ul>}
+    </div>
+  </div>;
+}
+
 export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false }: { item: ExchangeItem; forceOpen?: boolean }) {
   const { state, dispatch } = useStore();
   if (openedExchange(item)) return item.rows.length === 1
     ? <div data-opened-threads="" className="flex justify-center"><ThreadChip message={item.rows[0]!.message} /></div>
     : <OpenedThreadsLine item={item} forceOpen={forceOpen} />;
+  if (failedExchange(item)) return <FailedResultsLine item={item} forceOpen={forceOpen} />;
+  if (sentExchange(item) && item.rows.length > 1) return <SentMessagesLine item={item} forceOpen={forceOpen} />;
   const first = item.rows[0]!;
   const withBot = state.bots.find((bot) => bot.id === item.withBotId);
   const name = currentDogName(state.bots, item.withBotId, first.withName);
@@ -86,7 +178,11 @@ export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false
   const open = () => {
     if (target.kind === "thread") openThread(dispatch, { botId: target.botId, threadId: target.threadId }, state);
     else if (readOnly) openExchange(target.groupId);
-    else dispatch({ type: "select", id: target.groupId });
+    else {
+      dispatch({ type: "select", id: target.groupId });
+      const threadId = first.message.comm?.threadId;
+      if (threadId && group?.tasks?.some(task => task.threadId === threadId)) dispatch({ type: "switchGroupTask", groupId: target.groupId, threadId });
+    }
   };
   return (
     <QuietLine onClick={open} label={preview ? `${label}: ${preview}` : label} title={preview ? `${label}: ${preview}` : label}>

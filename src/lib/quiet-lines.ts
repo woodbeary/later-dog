@@ -1,6 +1,7 @@
 import type { Message } from "@/state/store";
 import type { DogColor } from "./mascot";
-import type { TranscriptItem } from "./activity-runs";
+import { isStatusActivity, type TranscriptItem } from "./activity-runs";
+import { failedTurnCause } from "./failed-turn";
 import { peerLine } from "./peer-message";
 import { localDay } from "./transcript-derivations";
 
@@ -16,7 +17,7 @@ export interface ExchangeRow {
   withName: string;
   withColor: DogColor;
   direction: ExchangeDirection;
-  action?: "opened";
+  action?: "opened" | "failed";
   target: ExchangeTarget;
 }
 
@@ -47,6 +48,16 @@ export function exchangeRow(message: Message): ExchangeRow | null {
   const tool = message.tool;
   if (message.kind !== "activity" || !tool) return null;
   const ref = message.threadRef;
+  const comm = message.comm;
+  if (message.roomRequest?.phase === "result" && tool.ok === false && (ref || comm)) {
+    return {
+      message, withBotId: comm?.withBotId ?? ref!.botId,
+      withName: comm?.withName ?? message.from?.name ?? "", withColor: comm?.withColor ?? message.from?.color ?? "blue",
+      direction: "from", action: "failed",
+      target: comm ? { kind: "group", groupId: comm.groupId }
+        : { kind: "thread", botId: ref!.botId, threadId: ref!.threadId, title: ref!.title },
+    };
+  }
   if (ref && tool.name.startsWith("Opened thread #")) {
     if (tool.ok !== true || message.role !== "bot") return null;
     return {
@@ -54,10 +65,9 @@ export function exchangeRow(message: Message): ExchangeRow | null {
       target: { kind: "thread", botId: ref.botId, threadId: ref.threadId, title: ref.title },
     };
   }
-  const comm = message.comm;
   if (comm) {
     const direction = comm.direction
-      ?? (LEGACY_TO.test(tool.name) ? "to" : LEGACY_FROM.test(tool.name) ? "from" : undefined);
+      ?? ((LEGACY_TO.test(tool.name) || (tool.ok === true && SENT_TO.test(tool.name))) ? "to" : LEGACY_FROM.test(tool.name) ? "from" : undefined);
     return direction
       ? { message, withBotId: comm.withBotId, withName: comm.withName, withColor: comm.withColor, direction, target: { kind: "group", groupId: comm.groupId } }
       : null;
@@ -72,8 +82,12 @@ export function exchangeRow(message: Message): ExchangeRow | null {
   return null;
 }
 
-function sameTarget(a: ExchangeTarget, b: ExchangeTarget): boolean {
-  return a.kind === "group" ? b.kind === "group" && a.groupId === b.groupId : b.kind === "thread" && a.botId === b.botId;
+function sameTarget(a: ExchangeRow, b: ExchangeRow): boolean {
+  const first = a.target;
+  const second = b.target;
+  return first.kind === "group"
+    ? second.kind === "group" && first.groupId === second.groupId && a.message.comm?.threadId === b.message.comm?.threadId
+    : second.kind === "thread" && first.botId === second.botId && first.threadId === second.threadId;
 }
 
 export function singleExchange(message: Message): ExchangeItem | null {
@@ -95,6 +109,7 @@ function lastRendered(
 }
 
 function isPeerMessageOf(item: ExchangeItem, message: Message, hasGroup: (groupId: string) => boolean): boolean {
+  if (item.rows[0]?.action || sentExchange(item)) return false;
   const peer = peerLine(message);
   if (peer?.delivery !== "ask_bot" || !peer.botId || peer.botId !== item.withBotId) return false;
   return item.target.kind === "group" && hasGroup(item.target.groupId);
@@ -106,6 +121,15 @@ export function foldedPreview(item: Pick<ExchangeItem, "folded">, limit = 140): 
   const line = body?.split("\n").map((part) => part.trim()).find(Boolean);
   if (!line) return undefined;
   return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
+}
+
+export function quietTranscriptItemShown(item: TranscriptItem, showToolCalls: boolean): boolean {
+  if (item.kind === "run") return showToolCalls;
+  if (item.kind !== "message") return true;
+  const message = item.message;
+  if (message.kind === "digest" || message.kind === "screen") return showToolCalls;
+  return message.kind !== "activity" || showToolCalls || Boolean(message.comm || message.threadRef || message.cloudTask)
+    || isStatusActivity(message) || Boolean(message.tool && failedTurnCause(message.tool.name) !== null);
 }
 
 export function foldExchanges<T extends TranscriptItem>(
@@ -139,9 +163,18 @@ export function foldExchanges<T extends TranscriptItem>(
         && row.message.at >= prior.message.at
         && (Boolean(row.message.turnId) || row.message.at - last.rows[0]!.message.at <= 60_000)
         && prior.message.from?.botId === row.message.from?.botId;
-      const sameExchange = !opened && prior.action !== "opened" && last.withBotId === row.withBotId && sameTarget(last.target, row.target);
-      if (sameOpeningRun || sameExchange) {
-        if (!opened || !last.rows.some(previous => previous.message.id === row.message.id)) {
+      const sameRun = localDay(prior.message.at) === localDay(row.message.at)
+        && prior.message.turnId === row.message.turnId
+        && row.message.at >= prior.message.at;
+      const sameFailure = row.action === "failed" && prior.action === "failed"
+        && last.withBotId === row.withBotId && sameRun
+        && prior.message.tool?.name === row.message.tool?.name;
+      const sameExchange = !row.action && !prior.action && last.withBotId === row.withBotId && sameRun
+        && (last.rows.every(previous => sameTarget(previous, row))
+          || (row.direction === "to" && last.folded.length === 0 && last.rows.every(previous => previous.direction === "to")))
+        && prior.message.from?.botId === row.message.from?.botId;
+      if (sameOpeningRun || sameFailure || sameExchange) {
+        if (!last.rows.some(previous => previous.message.id === row.message.id)) {
           last.messages.push(row.message);
           last.rows.push(row);
         }
@@ -165,11 +198,24 @@ export function openedExchange(item: Pick<ExchangeItem, "rows">): boolean {
   return item.rows[0]?.action === "opened";
 }
 
+export function failedExchange(item: Pick<ExchangeItem, "rows">): boolean {
+  return item.rows[0]?.action === "failed";
+}
+
+export function sentExchange(item: Pick<ExchangeItem, "rows">): boolean {
+  return item.rows.every(row => !row.action && row.direction === "to");
+}
+
+export function expandedExchange(item: Pick<ExchangeItem, "rows">): boolean {
+  return item.rows.length > 1 && (openedExchange(item) || failedExchange(item) || sentExchange(item));
+}
+
 export type ExchangeWording = { key: "chat.exchange.messaged" | "chat.exchange.messageFrom" | "chat.exchange.messagesWith" | "chat.threads.opened" | "chat.threads.openedOne"; count: number };
 
 export function exchangeWording(item: Pick<ExchangeItem, "rows">): ExchangeWording {
   const count = item.rows.length;
   if (openedExchange(item)) return { key: count === 1 ? "chat.threads.openedOne" : "chat.threads.opened", count };
+  if (sentExchange(item)) return { key: "chat.exchange.messaged", count };
   if (count > 1) return { key: "chat.exchange.messagesWith", count };
   return { key: item.rows[0]!.direction === "to" ? "chat.exchange.messaged" : "chat.exchange.messageFrom", count };
 }

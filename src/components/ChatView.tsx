@@ -61,7 +61,7 @@ import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
 import { ExchangeLine } from "./QuietLines";
 import { ExchangeViewHost } from "./ExchangeViewHost";
-import { foldExchanges, openedExchange } from "@/lib/quiet-lines";
+import { foldExchanges, expandedExchange, quietTranscriptItemShown } from "@/lib/quiet-lines";
 import { currentDogName, freshenDogName } from "@/lib/dog-refs";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
@@ -811,7 +811,7 @@ const MessagesList = memo(function MessagesList({
   if (emergingId) emerged.current.add(emergingId);
   const items = useMemo(
     () => foldExchanges(groupTranscript(messages, plan), {
-      renders: (item) => item.kind !== "run" || showToolCalls,
+      renders: (item) => quietTranscriptItemShown(item, showToolCalls),
       hasGroup: (groupId) => groupIds.split("|").includes(groupId),
     }),
     [messages, plan, locale, showToolCalls, groupIds],
@@ -864,7 +864,7 @@ const MessagesList = memo(function MessagesList({
         }
         if (item.kind === "exchange") {
           return (
-            <div key={item.id} className="contents" data-mid={openedExchange(item) && item.rows.length > 1 ? undefined : item.messages[0]!.id} data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
+            <div key={item.id} className="contents" data-mid={expandedExchange(item) ? undefined : item.messages[0]!.id} data-arriving={arriving(item.messages.at(-1)!.id) ? "" : undefined}>
               {newDay && <DaySeparator at={first.at} today={today} />}
               {unreadDivider(item.messages)}
               <ExchangeLine item={item} forceOpen={item.messages.some(message => message.id === focusedId)} />

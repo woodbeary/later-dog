@@ -2,7 +2,7 @@
 import { act, createElement, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { BotEditorStore, initialState, type Bot, type Message } from "@/state/store";
+import { BotEditorStore, initialState, type AppState, type Bot, type Message } from "@/state/store";
 import { foldExchanges, type ExchangeItem } from "@/lib/quiet-lines";
 import { groupTranscript } from "@/lib/activity-runs";
 import { ExchangeLine } from "./QuietLines";
@@ -31,9 +31,9 @@ function FocusableExchange({ rows, forceOpen }: { rows: Message[]; forceOpen: bo
   }, [forceOpen]);
   return createElement(ExchangeLine, { item: item(rows), forceOpen });
 }
-async function draw(rows = messages, currentBots = bots, forceOpen = false) {
+async function draw(rows = messages, currentBots = bots, forceOpen = false, groups: AppState["groups"] = []) {
   await act(async () => root.render(createElement(BotEditorStore, {
-    value: { state: { ...initialState, bots: currentBots }, dispatch,
+    value: { state: { ...initialState, bots: currentBots, groups }, dispatch,
       flushBotPatches: vi.fn(async () => null), refreshInstances: vi.fn(async () => {}), refreshModels: vi.fn(async () => {}),
     },
     children: createElement(FocusableExchange, { rows, forceOpen }),
@@ -109,4 +109,105 @@ it("opens a folded run when search focuses one of its receipts", async () => {
   expect(focusedContent).toHaveBeenCalledWith(expect.stringContaining("Current first title"));
   expect(host.querySelector("button[aria-expanded]")!.getAttribute("aria-expanded")).toBe("true");
   expect(host.querySelector('[data-mid="receipt-1"]')).not.toBeNull();
+});
+
+const failures: Message[] = Array.from({ length: 5 }, (_, index) => ({
+  id: `receipt-${index}`, role: "bot", kind: "activity", at: index + 1,
+  roomRequest: { id: `request-${index}`, phase: "result" },
+  from: { botId: "scout", name: "Old Scout", color: "green" },
+  tool: { name: "Old Scout couldn't finish", ok: false, output: `Result details ${index}` },
+  ...(index === 4 ? { comm: { groupId: "g1", withBotId: "scout", withName: "Old Scout", withColor: "green" as const } }
+    : { threadRef: { botId: "scout", threadId: "a", title: `Work ${index}` } }),
+}));
+
+it("renders mixed failures as one red pill and expands every individual result", async () => {
+  await draw(failures);
+  expect(host.querySelectorAll("button")).toHaveLength(1);
+  const toggle = host.querySelector<HTMLButtonElement>("button")!;
+  expect(toggle.textContent).toBe("Scout couldn't finish· 5");
+  expect(toggle.classList.contains("text-danger")).toBe(true);
+  expect(host.textContent).not.toContain("Result details");
+  await act(async () => toggle.click());
+  expect(host.querySelectorAll("li")).toHaveLength(5);
+  for (const [index, row] of [...host.querySelectorAll("li")].entries()) {
+    expect(row.getAttribute("data-mid")).toBe(`receipt-${index}`);
+    expect(row.textContent).toContain(`Result details ${index}`);
+    expect(row.lastElementChild!.textContent).toContain("Scout couldn't finish");
+    expect(row.lastElementChild!.textContent).toContain(`Result details ${index}`);
+    expect(row.querySelector("button")!.classList.contains("text-danger")).toBe(true);
+    expect(row.querySelector("button")!.classList.contains("hover:text-danger")).toBe(true);
+    expect(row.querySelector("button")!.classList.contains("hover:text-ink")).toBe(false);
+  }
+  await act(async () => host.querySelector<HTMLButtonElement>("li button")!.click());
+  expect(dispatch).toHaveBeenCalledWith({ type: "switchTask", botId: "scout", threadId: "a" });
+  await act(async () => toggle.click());
+  expect(host.querySelectorAll("li")).toHaveLength(0);
+});
+
+it("uses the same failure color for singleton room and thread results", async () => {
+  for (const failure of [failures[0], failures[4]]) {
+    await draw([failure]);
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+    expect(host.querySelector("button")!.classList.contains("text-danger")).toBe(true);
+    expect(host.querySelector("button")!.classList.contains("hover:text-danger")).toBe(true);
+  }
+});
+
+it("exposes every failure synchronously when search focuses a folded receipt", async () => {
+  await draw(failures);
+  await draw(failures, bots, true);
+  expect(focusedContent).toHaveBeenCalledWith(expect.stringContaining("Result details 0"));
+  for (const failure of failures) expect(host.querySelectorAll(`[data-mid="${failure.id}"]`)).toHaveLength(1);
+});
+
+const sends: Message[] = ["a", "b"].map((threadId, index) => ({
+  id: `receipt-${index}`, role: "bot", kind: "activity", at: index + 1,
+  tool: { name: "Sent to Scout", ok: true },
+  threadRef: { botId: "scout", threadId, title: `Work ${threadId}` },
+}));
+
+it("shows one counted Messaged line and lets each recorded send open its thread", async () => {
+  const currentBots = [{ ...bots[0], tasks: [{ threadId: "a", title: "First", createdAt: 1 }, { threadId: "b", title: "Second", createdAt: 2 }] }];
+  await draw(sends, currentBots);
+  const toggle = host.querySelector<HTMLButtonElement>("button")!;
+  expect(host.querySelectorAll("button")).toHaveLength(1);
+  expect(toggle.textContent).toBe("MessagedScout· 2");
+  await act(async () => toggle.click());
+  expect(host.querySelectorAll("li")).toHaveLength(2);
+  expect(host.textContent).toContain("First");
+  expect(host.textContent).toContain("Second");
+  for (const row of host.querySelectorAll("li")) expect(row.lastElementChild!.textContent).toContain("Messaged");
+  for (const [index, button] of [...host.querySelectorAll<HTMLButtonElement>("li button")].entries()) {
+    dispatch.mockClear();
+    await act(async () => button.click());
+    expect(dispatch).toHaveBeenCalledWith({ type: "switchTask", botId: "scout", threadId: index === 0 ? "a" : "b" });
+  }
+});
+
+it("exposes the first and later send synchronously when search opens the collapsed line", async () => {
+  await draw(sends);
+  await draw(sends, bots, true);
+  expect(focusedContent).toHaveBeenCalledWith(expect.stringContaining("Messaged"));
+  for (const send of sends) expect(host.querySelectorAll(`[data-mid="${send.id}"]`)).toHaveLength(1);
+});
+
+it("opens the recorded room task for each send and failure", async () => {
+  const groups = [{ id: "g1", name: "Launch", memberIds: ["scout"], tasks: [{ threadId: "room-a" }, { threadId: "room-b" }] }] as AppState["groups"];
+  const rows: Message[] = sends.map((message, index) => ({ ...message, threadRef: undefined,
+    comm: { groupId: "g1", threadId: index === 0 ? "room-a" : "room-b", withBotId: "scout", withName: "Scout", withColor: "green" },
+  }));
+  await draw(rows, bots, true, groups);
+  for (const [index, button] of [...host.querySelectorAll<HTMLButtonElement>("li button")].entries()) {
+    dispatch.mockClear();
+    await act(async () => button.click());
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "select", id: "g1" }, { type: "switchGroupTask", groupId: "g1", threadId: index === 0 ? "room-a" : "room-b" },
+    ]);
+  }
+  await draw([{ ...failures[4], comm: rows[0].comm }], bots, false, groups);
+  dispatch.mockClear();
+  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+  expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+    { type: "select", id: "g1" }, { type: "switchGroupTask", groupId: "g1", threadId: "room-a" },
+  ]);
 });

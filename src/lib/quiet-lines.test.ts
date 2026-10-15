@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "@/state/store";
 import { groupTranscript } from "./activity-runs";
-import { exchangeRow, exchangeWording, foldedPreview, foldExchanges } from "./quiet-lines";
+import { exchangeRow, exchangeWording, foldedPreview, foldExchanges, quietTranscriptItemShown } from "./quiet-lines";
 
 let n = 0;
 const comm = (direction: "to" | "from" | undefined, withBotId = "d2", name = "Study Helper", groupId = "g1"): Message => ({
@@ -19,7 +19,7 @@ const tool = (name: string): Message => ({ id: `m${++n}`, role: "bot", kind: "ac
 
 const fold = (messages: Message[], showCalls = true, groups: readonly string[] = ["g1"]) =>
   foldExchanges(groupTranscript(messages), {
-    renders: (item) => item.kind !== "run" || showCalls,
+    renders: (item) => quietTranscriptItemShown(item, showCalls),
     hasGroup: (groupId) => groups.includes(groupId),
   });
 
@@ -55,7 +55,7 @@ describe("dog-to-dog lines", () => {
     const items = fold([sent("d5", "Engineer"), sent("d5", "Engineer"), sent("d6", "Writer")]);
     expect(items.map((item) => item.kind)).toEqual(["exchange", "exchange"]);
     const first = items[0]!;
-    expect(first.kind === "exchange" && exchangeWording(first)).toEqual({ key: "chat.exchange.messagesWith", count: 2 });
+    expect(first.kind === "exchange" && exchangeWording(first)).toEqual({ key: "chat.exchange.messaged", count: 2 });
   });
 
   it("reads the chips a dog's hand-off really leaves: opened a thread, added to a thread", () => {
@@ -241,4 +241,91 @@ describe("opened-thread runs", () => {
     const items = foldExchanges(groupTranscript(messages), { openedOnly: true });
     expect(items.map(item => item.kind)).toEqual(["message", "exchange", "message"]);
   });
+});
+
+const failed = (id: string, group = false, botId = "d2"): Message => ({
+  id, role: "bot", kind: "activity", at: new Date(2026, 9, 14, 10).getTime(),
+  roomRequest: { id: `request-${id}`, phase: "result" },
+  from: { botId, name: "Helper", color: "blue" },
+  tool: { name: "Helper couldn't finish", ok: false },
+  ...(group ? { comm: { groupId: "g1", threadId: `work-${id}`, withBotId: botId, withName: "Helper", withColor: "blue" as const } }
+    : { threadRef: { botId, threadId: `work-${id}`, title: `Work ${id}` } }),
+});
+
+describe("repeated teammate status rows", () => {
+  it("folds five mixed thread and room failures into one counted exchange without losing results", () => {
+    const messages = Array.from({ length: 5 }, (_, index) => failed(`failure-${index}`, index === 4));
+    const items = fold(messages);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "exchange", messages, rows: messages.map(message => ({ message, action: "failed" })) });
+  });
+
+  it("separates different teammates, outcomes, days, known turns and visible replies", () => {
+    const first = failed("first");
+    for (const next of [
+      failed("other", false, "d3"),
+      { ...failed("success"), tool: { name: "Helper replied", ok: true } },
+      { ...failed("timeout"), tool: { name: "Helper ran out of time", ok: false } },
+      { ...failed("tomorrow"), at: first.at + 86_400_000 },
+      { ...failed("turn"), turnId: "another-turn" },
+    ]) expect(fold([first, next])).toHaveLength(2);
+    expect(fold([first, { ...text("A reply"), at: first.at }, failed("last")])).toHaveLength(3);
+  });
+
+  it("does not fold arbitrary failures or pending work as teammate results", () => {
+    expect(exchangeRow({ ...failed("bad"), roomRequest: undefined })).toBeNull();
+    expect(exchangeRow({ ...failed("pending"), tool: { name: "Helper couldn't finish" } })).toBeNull();
+  });
+
+  it("ignores one hidden tool between sends and failures but respects visible steps", () => {
+    for (const receipts of [[sent("d2", "Helper"), sent("d2", "Helper")], [failed("a"), failed("b")]]) {
+      const messages = [receipts[0], tool("coordinate_bots"), receipts[1]];
+      expect(fold(messages, false).filter(item => item.kind === "exchange")).toHaveLength(1);
+      expect(fold(messages, true).filter(item => item.kind === "exchange")).toHaveLength(2);
+    }
+  });
+
+  it("retains every destination when repeated sends target different rooms or threads", () => {
+    const room = { ...comm(undefined), tool: { name: "Sent to Study Helper · Launch", ok: true } };
+    const messages = [sent("d2", "Study Helper", "a"), room, sent("d2", "Study Helper", "b")].map((message, index) => ({ ...message, at: index + 1 }));
+    const [item] = fold(messages);
+    expect(item!.kind === "exchange" && item.rows.map(row => row.target)).toEqual([
+      { kind: "thread", botId: "d2", threadId: "a", title: "Teammate work" },
+      { kind: "group", groupId: "g1" },
+      { kind: "thread", botId: "d2", threadId: "b", title: "Teammate work" },
+    ]);
+    expect(item!.kind === "exchange" && exchangeWording(item)).toEqual({ key: "chat.exchange.messaged", count: 3 });
+  });
+
+  it("counts a repeated result id only once", () => {
+    const first = failed("a");
+    const [item] = fold([first, first, failed("b")]);
+    expect(item!.kind === "exchange" && item.rows).toHaveLength(2);
+  });
+});
+
+it("keeps a received message separate from a batch with multiple destinations", () => {
+  const messages = [comm("to", "d2", "Helper", "g1"), comm("to", "d2", "Helper", "g2"), comm("from", "d2", "Helper", "g1")];
+  const items = fold(messages);
+  expect(items).toHaveLength(2);
+  expect(items[0]!.kind === "exchange" && items[0].rows).toHaveLength(2);
+  expect(items[1]!.kind === "exchange" && items[1].rows).toHaveLength(1);
+});
+
+it("leaves a peer's written message visible after a batch of sends", () => {
+  const asked: Message = { id: "ask", role: "user", kind: "text", at: 999999, text: "Can you check this?", peerAsk: { botId: "d2", name: "Helper" } };
+  expect(fold([comm("to"), comm("to"), asked]).map(item => item.kind)).toEqual(["exchange", "message"]);
+});
+
+it("keeps an incoming notice separate from sends to different tasks in the same room", () => {
+  const a = comm("to");
+  const b = comm("to");
+  const reply = comm("from");
+  a.comm!.threadId = "room-a";
+  b.comm!.threadId = "room-b";
+  reply.comm!.threadId = "room-a";
+  const items = fold([a, b, reply]);
+  expect(items).toHaveLength(2);
+  expect(items[0]!.kind === "exchange" && items[0].rows).toHaveLength(2);
+  expect(items[1]!.kind === "exchange" && items[1].rows).toHaveLength(1);
 });
