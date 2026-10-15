@@ -120,6 +120,17 @@ describe("General", () => {
     expect(html).not.toContain("Email");
   });
 
+  it("puts the account's Auto-review switch after Profile on a Cloud home only, on by default", () => {
+    expect(groups(render())).not.toContain("approvals");
+    fixture.config = { ...fixture.config, cloudHome: true };
+    const html = render();
+    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "profile", "approvals", "appearance", "typing-suggestions", "system", "help"]);
+    expect(html).toContain(">Auto-review</div>");
+    expect(html).toContain("Your dogs check each action before it runs and ask you first when needed.");
+    expect(html).toContain('aria-label="Auto-review" data-auto-review-switch="" type="button" role="switch" aria-checked="true"');
+    expect(html).not.toContain("data-auto-review-still-asks");
+  });
+
   it("keeps dogs quiet until Step-by-step updates is switched on", () => {
     const off = render();
     expect(off).toContain(">Step-by-step updates</div>");
