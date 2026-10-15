@@ -48,6 +48,7 @@ import { laterdogPreallowedTools } from "../laterdog/own-tools.ts";
 import { claudeEffortArg, claudeEffortLevels } from "../laterdog/effort-levels.ts";
 import { machineClaudeMemoryExcludes } from "../laterdog/claude-memory-isolation.ts";
 import { quietWorkEnvironment } from "../laterdog/work-updates.ts";
+import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
 import {
   ASK_USER_QUESTION_TOOL,
@@ -1691,14 +1692,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       let closeFinalized = false;
       const finalizeClose = async (code: number | null) => {
         if (closeFinalized) return;
-        if (!(await killCliTree(child, 0))) {
-          session.broker?.close();
-          session.broker = undefined;
-          emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: "Claude could not be confirmed stopped; its helper processes may still be running." });
-          return;
-        }
+        const confirmed = await killCliTree(child, 0);
         if (closeFinalized) return;
         closeFinalized = true;
+        if (!confirmed) emit({ ...base(threadId, currentTurnId()), type: "runtime.notice", message: leftoverProgramsNotice("Claude Code") });
         if (session.helperTimer) clearTimeout(session.helperTimer);
         session.helperTimer = null;
         if (session.helpers.stop()) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: "The helpers stopped with this turn." });

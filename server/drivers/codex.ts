@@ -40,6 +40,7 @@ import type { ApprovalMode } from "../../shared/approval-mode.ts";
 import { CodexDeviceAuthController } from "./codex-device-auth.ts";
 import { codexAccountEmail, codexHome } from "./codex-identity.ts";
 import { codexUsageLimit, type CodexRateLimits } from "../laterdog/usage-limit.ts";
+import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
 import { keyRejected, noteKeyAccepted, noteKeyRejected } from "../key-rejections.ts";
 import { classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
@@ -921,6 +922,16 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         return stopped;
       });
       let completeStoppedTurn: (() => void) | undefined;
+      let leftoversNoted = false;
+      const rootExited = () => child.exitCode !== null || child.signalCode !== null;
+      const finishStoppedTurn = (stopped: boolean) => {
+        if (!completeStoppedTurn || (!stopped && !rootExited())) return;
+        if (!stopped && !leftoversNoted) {
+          leftoversNoted = true;
+          emit({ ...base(threadId, turnId), type: "runtime.notice", message: leftoverProgramsNotice("Codex") });
+        }
+        completeStoppedTurn();
+      };
       let interruptRequested = false;
       const stop = async () => {
         stopRequested = true;
@@ -938,7 +949,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           }
         }
         const stopped = await terminate();
-        if (stopped) completeStoppedTurn?.();
+        finishStoppedTurn(stopped);
+        if (!stopped && rootExited() && !state.settled) void settle(false, "interrupted");
         return stopped;
       };
 
@@ -955,8 +967,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null, ...(state.usage ? { usage: state.usage } : {}) });
         };
         completeStoppedTurn = complete;
-        if (!(await stop())) {
-          emit({ ...base(threadId, turnId), type: "runtime.error", message: "codex did not shut down after termination was requested" });
+        if (!(await stop()) && !rootExited()) {
+          emit({ ...base(threadId, turnId), type: "runtime.error", message: "Codex did not shut down after it was asked to stop." });
         }
       };
 

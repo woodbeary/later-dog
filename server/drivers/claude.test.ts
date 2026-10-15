@@ -31,6 +31,7 @@ import {
 import { removeTempDir } from "../testing/cleanup.ts";
 import { ephemeralWorkspaceTokenPath } from "../workspace-backup-policy.ts";
 import * as procs from "../procs.ts";
+import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
 import * as localInject from "./local-inject.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
@@ -2154,39 +2155,42 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     }));
   });
 
-  it.each([false, true])("finalizes root close after an uncertain Stop succeeds on retry (retained: %s)", async (retained) => {
-    const gate = join(scratch, "retry-stop.gate");
+  it.each([false, true])("ends a stopped turn once, with one plain notice, when Claude Code's programs cannot be confirmed closed (retained: %s)", async (retained) => {
+    const gate = join(scratch, "unconfirmed-stop.gate");
     await create("slow", { FAKE_CLAUDE_SLOW_FINISH_GATE: gate });
-    const threadId = `t-retry-stop-${retained}`;
+    const threadId = `t-unconfirmed-stop-${retained}`;
     if (retained) {
       writeFileSync(gate, "finish");
       const first = await instance.adapter.sendTurn({ threadId, text: "first" });
       await recorder.until((event) => event.type === "turn.completed" && event.turnId === first.turnId);
       rmSync(gate);
     }
-    const running = await instance.adapter.sendTurn({ threadId, text: "stop then retry" });
+    const running = await instance.adapter.sendTurn({ threadId, text: "stop it" });
     await recorder.until((event) => event.type === "item.completed" && event.itemType === "tool" && event.turnId === running.turnId);
     const kill = procs.killCliTree;
-    const uncertain = vi.spyOn(procs, "killCliTree").mockImplementation(async (child) => {
+    const unconfirmed = vi.spyOn(procs, "killCliTree").mockImplementation(async (child) => {
       await kill(child, 0);
       return false;
     });
     try {
       await instance.adapter.interruptTurn(threadId);
-      await recorder.until((event) => event.type === "runtime.error" && event.message.includes("could not be confirmed stopped"));
-      expect(instance.adapter.hasSession(threadId)).toBe(true);
-      expect(recorder.events.some((event) => event.type === "turn.completed" && event.turnId === running.turnId)).toBe(false);
-    } finally {
-      uncertain.mockRestore();
+      const done = await recorder.until((event) => event.type === "turn.completed" && event.turnId === running.turnId);
+      expect(done).toMatchObject({ ok: false, stopReason: "interrupted" });
+      expect(instance.adapter.hasSession(threadId)).toBe(false);
       await instance.adapter.interruptTurn(threadId);
+    } finally {
+      unconfirmed.mockRestore();
     }
-    await recorder.until((event) => event.type === "turn.completed" && event.turnId === running.turnId);
-    expect(instance.adapter.hasSession(threadId)).toBe(false);
     expect(recorder.events.filter((event) => event.type === "turn.completed" && event.turnId === running.turnId)).toHaveLength(1);
+    expect(recorder.events.filter((event) => event.type === "runtime.notice")).toEqual([
+      expect.objectContaining({ message: leftoverProgramsNotice("Claude Code") }),
+    ]);
+    expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([]);
 
     writeFileSync(gate, "finish");
     const replacement = await instance.adapter.sendTurn({ threadId, text: "replacement" });
     await recorder.until((event) => event.type === "turn.completed" && event.turnId === replacement.turnId);
+    expect(recorder.events.filter((event) => event.type === "runtime.notice")).toHaveLength(1);
   });
 
   it("a message sent mid-turn is steered into the running turn", async () => {

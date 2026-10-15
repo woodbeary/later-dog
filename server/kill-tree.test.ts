@@ -4,6 +4,7 @@ import type { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
 import { killCliTree, spawnCli } from "./procs.ts";
+import * as processGroups from "./laterdog/process-group-state.ts";
 
 const IDLE = "setInterval(() => {}, 1000)";
 const STUBBORN = `process.on('SIGTERM', () => {}); console.log(process.pid); ${IDLE}`;
@@ -130,6 +131,26 @@ describe("killCliTree", () => {
     } finally {
       signals.mockRestore();
       await Promise.all([killCliTree(child, 0), killCliTree(unrelated, 0)]);
+    }
+  });
+
+  it.skipIf(process.platform === "win32").each([true, false])("asks /proc whether only zombies hold the group once the root has exited (only zombies: %s)", async (onlyZombies) => {
+    const child = spawnCli(process.execPath, ["-e", STUBBORN], { stdio: ["pipe", "pipe", "pipe"] });
+    await reportedPid(child.stdout);
+    const kill = process.kill.bind(process);
+    const signals = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === -child.pid! && signal === 0) return true;
+      return kill(pid, signal);
+    });
+    const zombies = vi.spyOn(processGroups, "processGroupHoldsOnlyZombies").mockReturnValue(onlyZombies);
+    try {
+      await expect(killCliTree(child, 0)).resolves.toBe(onlyZombies);
+      expect(child.signalCode).toBe("SIGKILL");
+      expect(zombies).toHaveBeenCalledWith(child.pid);
+    } finally {
+      zombies.mockRestore();
+      signals.mockRestore();
+      await expect(killCliTree(child, 0)).resolves.toBe(true);
     }
   });
 
