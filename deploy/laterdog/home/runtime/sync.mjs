@@ -11,9 +11,19 @@ const SQLITE = /\.(?:sqlite3?|db)$/;
 const SKIPPED_NAMES = new Set(["node_modules", ".cache", ".npm", ".pnpm-store", "Cache", "Code Cache", "GPUCache", "ShaderCache", "Crashpad", ".Trash", "lost+found"]);
 const SKIPPED_SUFFIXES = ["-wal", "-shm", "-journal"];
 const HASH = /^[a-f0-9]{64}$/;
+export const WORKSPACE = ".laterdog";
+const COPY_JOB = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const COPIES_IN_FLIGHT = new Set(["cloud-move", "uploads"]);
 
 export function skipped(name) {
   return SKIPPED_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix));
+}
+
+export function copyInFlight(path, workspace = WORKSPACE) {
+  const backups = workspace ? `${workspace}/.backups/` : ".backups/";
+  if (!path.startsWith(backups)) return false;
+  const name = path.slice(backups.length);
+  return COPIES_IN_FLIGHT.has(name) || COPY_JOB.test(name);
 }
 
 export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS } = {}) {
@@ -74,7 +84,7 @@ export function parseManifest(input) {
   return input;
 }
 
-async function walk(root, directory, found) {
+async function walk(root, directory, found, workspace) {
   let names;
   try {
     names = await readdir(directory);
@@ -84,16 +94,18 @@ async function walk(root, directory, found) {
   for (const name of names.sort()) {
     if (skipped(name)) continue;
     const path = join(directory, name);
+    const saved = relative(root, path);
+    if (copyInFlight(saved, workspace)) continue;
     let info;
     try {
       info = await lstat(path);
     } catch {
       continue;
     }
-    const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
+    const entry = { path: saved, mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
     if (info.isDirectory()) {
       found.push({ ...entry, type: "dir" });
-      await walk(root, path, found);
+      await walk(root, path, found, workspace);
     } else if (info.isSymbolicLink()) {
       found.push({ ...entry, type: "link", target: await readlink(path) });
     } else if (info.isFile()) {
@@ -102,9 +114,9 @@ async function walk(root, directory, found) {
   }
 }
 
-export async function scan(root) {
+export async function scan(root, { workspace = WORKSPACE } = {}) {
   const found = [];
-  await walk(root, root, found);
+  await walk(root, root, found, workspace);
   return found;
 }
 
@@ -145,12 +157,12 @@ async function databaseCopy(path, scratch) {
   return copy;
 }
 
-export async function snapshot(root, store, previous, { scratch, now = Date.now } = {}) {
+export async function snapshot(root, store, previous, { scratch, now = Date.now, workspace = WORKSPACE } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const entries = [];
   let uploaded = 0;
   if (scratch) await mkdir(scratch, { recursive: true, mode: 0o700 });
-  for (const entry of await scan(root)) {
+  for (const entry of await scan(root, { workspace })) {
     if (entry.type !== "file") {
       entries.push(entry);
       continue;

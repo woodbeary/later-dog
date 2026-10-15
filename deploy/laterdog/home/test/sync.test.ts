@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, skipped, snapshot } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, collectGarbage, copyInFlight, createHttpStore, parseManifest, referencedBlobs, restore, skipped, snapshot } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -270,6 +270,99 @@ describe("home data sync", () => {
     expect(skipped(".cache")).toBe(true);
     expect(skipped("notes.md")).toBe(false);
     expect(skipped(".laterdog-restoring-0123456789abcdef01234567")).toBe(true);
+  });
+});
+
+const JOB = "3f9c2a4e-8b1d-4c6e-9a7f-0123456789ab";
+
+function place(root: string, path: string, content: string | Buffer = "x"): void {
+  mkdirSync(join(root, path, ".."), { recursive: true });
+  writeFileSync(join(root, path), content);
+}
+
+function savedPaths(manifest: { entries: { path: string }[] }): string[] {
+  return manifest.entries.map((entry) => entry.path);
+}
+
+describe("copies in progress stay out of the saved home", () => {
+  const inFlight = [
+    ".laterdog/.backups/cloud-move/upload.part",
+    ".laterdog/.backups/cloud-move/upload.json",
+    `.laterdog/.backups/${JOB}/archive.tar`,
+    `.laterdog/.backups/${JOB}/ready.json`,
+    `.laterdog/.backups/${JOB}/staged/manifest.json`,
+    `.laterdog/.backups/${JOB}/staged/data/bots.json`,
+    `.laterdog/.backups/${JOB}/apply/data/bots.json`,
+    `.laterdog/.backups/uploads/${JOB}.dogbackup`,
+  ];
+  const kept = [
+    ".laterdog/bots.json",
+    ".laterdog/.backups/cloud-previous/workspace.dogbackup",
+    ".laterdog/.backups/cloud-previous/previous.json",
+    ".laterdog/.backups/cloud-previous.next/previous.json",
+    `.laterdog/.backups/safety-${JOB}/data/bots.json`,
+    ".laterdog/.backups/cloud-moved.json",
+    ".laterdog/.backups/cloud-move-restores.json",
+    ".laterdog/.backups/restore-journal.json",
+    ".laterdog/.backups/pending-restore.json",
+    ".laterdog/.backups/last-restore.json",
+    `projects/site/.backups/${JOB}/notes.md`,
+    "projects/site/.backups/cloud-move/notes.md",
+  ];
+
+  it("saves the previous Cloud, the safety copy and the restore markers, but not an upload, a staged job or a browser upload", async () => {
+    const source = folder();
+    for (const path of inFlight) place(source, path, randomBytes(4096));
+    for (const path of kept) place(source, path, `kept ${path}`);
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    const paths = savedPaths(saved.manifest);
+    for (const path of kept) expect(paths).toContain(path);
+    for (const path of paths) {
+      expect(path.startsWith(".laterdog/.backups/cloud-move/") || path === ".laterdog/.backups/cloud-move").toBe(false);
+      expect(path.startsWith(`.laterdog/.backups/${JOB}`)).toBe(false);
+      expect(path.startsWith(".laterdog/.backups/uploads")).toBe(false);
+    }
+    expect(store.counts.puts).toBe(kept.length);
+
+    const target = folder();
+    await restore(target, store, null);
+    for (const path of kept) expect(readFileSync(join(target, path), "utf8")).toBe(`kept ${path}`);
+    expect(readdirSync(join(target, ".laterdog", ".backups")).sort()).toEqual([
+      "cloud-move-restores.json", "cloud-moved.json", "cloud-previous", "cloud-previous.next", "last-restore.json",
+      "pending-restore.json", "restore-journal.json", `safety-${JOB}`,
+    ]);
+  });
+
+  it("leaves out a copy that starts between saves, in whichever folder the home keeps its workspace", async () => {
+    const source = folder();
+    place(source, "work/bots.json", "[]");
+    place(source, "work/.backups/last-restore.json", "{}");
+    const store = memoryStore();
+    const first = await snapshot(source, store, null, { scratch: folder(), workspace: "work" });
+    place(source, `work/.backups/${JOB}/archive.tar`, randomBytes(4096));
+    place(source, "work/.backups/cloud-move/upload.part", randomBytes(4096));
+    const second = await snapshot(source, store, first.manifest, { scratch: folder(), workspace: "work" });
+    expect(second.written).toBe(false);
+    expect(savedPaths(second.manifest)).toEqual(savedPaths(first.manifest));
+    const elsewhere = await snapshot(source, memoryStore(), null, { scratch: folder() });
+    expect(savedPaths(elsewhere.manifest)).toContain(`work/.backups/${JOB}/archive.tar`);
+  });
+
+  it("tells a copy in progress by where it sits, not by its name alone", () => {
+    expect(copyInFlight(".laterdog/.backups/cloud-move")).toBe(true);
+    expect(copyInFlight(`.laterdog/.backups/${JOB}`)).toBe(true);
+    expect(copyInFlight(".laterdog/.backups/uploads")).toBe(true);
+    expect(copyInFlight(".laterdog/.backups/cloud-move-restores.json")).toBe(false);
+    expect(copyInFlight(".laterdog/.backups/cloud-previous")).toBe(false);
+    expect(copyInFlight(".laterdog/.backups/cloud-previous.next")).toBe(false);
+    expect(copyInFlight(`.laterdog/.backups/safety-${JOB}`)).toBe(false);
+    expect(copyInFlight(".laterdog/.backups/pending-restore.json")).toBe(false);
+    expect(copyInFlight(`.laterdog/${JOB}`)).toBe(false);
+    expect(copyInFlight(`projects/.backups/${JOB}`)).toBe(false);
+    expect(copyInFlight(".backups/cloud-move", "")).toBe(true);
+    expect(copyInFlight("work/.backups/cloud-move", "work")).toBe(true);
+    expect(copyInFlight(".laterdog/.backups/cloud-move", "work")).toBe(false);
   });
 });
 

@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { seedIncluded } from "./included.mjs";
 import { collectGarbage, createHttpStore, restore, snapshot } from "./sync.mjs";
 
 const DATA = process.env.HOME || "/data";
+const WORKSPACE = process.env.LATERDOG_HOME || join(DATA, ".laterdog");
 const SCRATCH = "/tmp/laterdog-sync";
 const LAUNCHER = "/app/dist-server/cloud-home-start.js";
 const INTERVAL_MS = Number(process.env.LATERDOG_SYNC_INTERVAL_MS || 60_000);
@@ -47,7 +48,7 @@ async function main() {
   } else {
     log("no state store: this home keeps nothing across restarts");
   }
-  const included = await seedIncluded(process.env.LATERDOG_HOME || join(DATA, ".laterdog"), { key: process.env.LATERDOG_INCLUDED_KEY, api: process.env.LATERDOG_INCLUDED_API }, dogOwner());
+  const included = await seedIncluded(WORKSPACE, { key: process.env.LATERDOG_INCLUDED_KEY, api: process.env.LATERDOG_INCLUDED_API }, dogOwner());
   if (included === "seeded") log("included later.dog AI, voice and decisions are ready");
   const environment = { ...process.env };
   delete environment.LATERDOG_STATE_URL;
@@ -62,7 +63,7 @@ async function main() {
   const save = ({ final = false } = {}) => {
     if (!store) return Promise.resolve();
     if (running) return running;
-    running = snapshot(DATA, store, manifest, { scratch: SCRATCH })
+    running = snapshot(DATA, store, manifest, { scratch: SCRATCH, workspace: relative(DATA, WORKSPACE) })
       .then(async (result) => {
         manifest = result.manifest;
         if (result.written) log(`saved (${result.uploaded} changed files)`);
