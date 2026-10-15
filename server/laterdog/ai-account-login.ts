@@ -3,10 +3,11 @@ import { z } from "zod";
 
 export type AiAccountKind = "claude" | "codex";
 
-export const MOVABLE_ACCOUNT_ID = /^(?:claude|codex|claude-\d{1,4}|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+export const MOVABLE_ACCOUNT_ID = /^(?:claude|codex|claude-\d{1,4}|codex-\d{1,4}|claude-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const CODEX_ACCOUNT_ID = /^codex(?:-\d{1,4})?$/;
 export const HANDOFF_BODY_LIMIT = 64 * 1024;
 
-export const accountKindOf = (instanceId: string): AiAccountKind => (instanceId === "codex" ? "codex" : "claude");
+export const accountKindOf = (instanceId: string): AiAccountKind => (CODEX_ACCOUNT_ID.test(instanceId) ? "codex" : "claude");
 
 const secret = z.string().min(1).max(16_384);
 const label = z.string().max(200).nullable().optional();

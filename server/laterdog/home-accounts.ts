@@ -4,6 +4,7 @@ import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import { assertSeparateClaudeAccount } from "../claude-accounts.ts";
 import type { InstanceConfig, InstanceConfigMap } from "../contracts.ts";
+import { codexHome } from "../drivers/codex-identity.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import { PASS, type RouteHandler } from "../routes/table.ts";
 import {
@@ -104,12 +105,18 @@ function sameDriver(kind: AiAccountKind, entry: InstanceConfig | undefined): boo
     : entry.driver === "codex" && config.authMode !== "chatgpt-plan";
 }
 
-function placed(kind: AiAccountKind, entry: InstanceConfig | undefined, directory: string, displayName: string, claudeCli: unknown): InstanceConfig {
-  if (kind === "claude") {
-    const config = raw(entry);
-    return { ...(entry ?? { driver: "claudeAgent" }), displayName, config: { ...config, ...(config.cli === undefined && typeof claudeCli === "string" && claudeCli ? { cli: claudeCli } : {}), configDir: directory } };
+function placed(kind: AiAccountKind, entry: InstanceConfig | undefined, directory: string, displayName: string, defaultCli: unknown): InstanceConfig {
+  const config = raw(entry);
+  const cli = config.cli === undefined && typeof defaultCli === "string" && defaultCli ? { cli: defaultCli } : null;
+  if (kind === "claude") return { ...(entry ?? { driver: "claudeAgent" }), displayName, config: { ...config, ...cli, configDir: directory } };
+  return { ...(entry ?? { driver: "codex" }), displayName, ...(cli ? { config: { ...config, ...cli } } : {}), environment: { ...entry?.environment, CODEX_HOME: directory } };
+}
+
+function folderTaken(kind: AiAccountKind, instances: InstanceConfigMap, instanceId: string, entry: InstanceConfig, directory: string): boolean {
+  if (kind === "codex") {
+    return Object.entries(instances).some(([otherId, other]) => otherId !== instanceId && other.driver === "codex" && codexHome({ ...process.env, ...other.environment }) === directory);
   }
-  return { ...(entry ?? { driver: "codex" }), displayName, environment: { ...entry?.environment, CODEX_HOME: directory } };
+  try { assertSeparateClaudeAccount(instances, instanceId, entry); return false; } catch { return true; }
 }
 
 export function createHomeAccountRoutes(deps: HomeAccountDeps): RouteHandler {
@@ -141,12 +148,8 @@ export function createHomeAccountRoutes(deps: HomeAccountDeps): RouteHandler {
     if (!marker && existing && await deps.signedIn(instanceId) === true) {
       return { status: 409, body: { code: "home_signed_in", error: "My Cloud already has its own sign-in for this account." } };
     }
-    const entry = placed(handoff.kind, existing, directory, handoff.displayName, raw(instances.claude).cli);
-    if (handoff.kind === "claude") {
-      try { assertSeparateClaudeAccount(instances, instanceId, entry); } catch {
-        return { status: 409, body: { code: "different_account", error: "My Cloud uses this folder for a different account." } };
-      }
-    }
+    const entry = placed(handoff.kind, existing, directory, handoff.displayName, raw(instances[handoff.kind]).cli);
+    if (folderTaken(handoff.kind, instances, instanceId, entry, directory)) return { status: 409, body: { code: "different_account", error: "My Cloud uses this folder for a different account." } };
     const created = marker ? false : !existing;
     privateDirectory(directory);
     const credential = handoff.kind === "claude" ? { claudeAiOauth: handoff.login } : handoff.login;
