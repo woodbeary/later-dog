@@ -51,12 +51,13 @@ describe("Mac approval gate", () => {
     say("find the newest PDF in my Downloads");
   });
 
-  it("raises no card when the owner's own dog uses the owner's own Mac, except under Never", async () => {
-    await expect(ask({ action: "run_command", command: "ls" }, { ownerOwned: true })).resolves.toEqual({ ok: true });
-    await expect(ask({ action: "read_file", path: "Downloads/a.pdf" }, { ownerOwned: true })).resolves.toEqual({ ok: true });
+  it("one Always allow lets every dog use the Mac without another card, except under Never", async () => {
+    gate.update({ mode: "always" });
+    await expect(ask({ action: "run_command", command: "ls" })).resolves.toEqual({ ok: true });
+    await expect(ask({ action: "read_file", path: "Downloads/a.pdf" })).resolves.toEqual({ ok: true });
     expect(openCards()).toHaveLength(0);
     gate.update({ mode: "never" });
-    await expect(ask({ action: "read_file", path: "a" }, { ownerOwned: true })).resolves.toMatchObject({ ok: false });
+    await expect(ask({ action: "read_file", path: "a" })).resolves.toMatchObject({ ok: false });
   });
 
   afterEach(() => {

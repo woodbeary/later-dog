@@ -1067,7 +1067,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   if (!bot) throw Object.assign(new Error("This dog is gone."), { status: 404 });
   const requestMessageId = macRequestMessageId(capability);
   const verdict = await macApprovals.check({
-    bot, threadId: capability.threadId, computer: target.name, operation, active, ownerOwned: true,
+    bot, threadId: capability.threadId, computer: target.name, operation, active,
     ...(requestMessageId ? { requestMessageId } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
@@ -18378,8 +18378,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const refusal = cardAnswerRefusal(auth, bot.threadId, pending.card!.requestId!, "allow");
       if (refusal) return json(res, 403, { error: refusal });
       if (allowKey === MAC_ALLOW_KEY) {
-        macApprovals.allowAlways(bot.id);
-        return json(res, 200, { bot: wireBot(store.bot(bot.id)!), mac: macApprovals.settings() });
+        const mac = macApprovals.update({ mode: "always" });
+        return json(res, 200, { bot: wireBot(store.bot(bot.id)!), mac });
       }
       store.patchTask(bot.id, bot.threadId, {
         alwaysAllow: [...new Set([...(bot.alwaysAllow ?? []), allowKey])].slice(0, 200),

@@ -244,6 +244,7 @@
   "approval.action.deny": "Don't allow",
   "approval.action.stopAsking": "Stop asking {name} about {key}",
   "approval.action.stopAskingMac": "Let {name} use your Mac without asking",
+  "approval.action.stopAskingMacAll": "Let your dogs use your Mac without asking",
   "approval.action.alwaysAllow": "Always allow",
   "approval.action.alwaysAllowSession": "Allow for this chat",
   "approval.action.alwaysAllowSessionHint": "The provider stops asking about this action until the session ends",
