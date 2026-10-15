@@ -1,31 +1,16 @@
 import { useEffect, useState, type RefObject } from "react";
 import { LogOut } from "lucide-react";
 import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
-import { api, useStore, type Action, type ConfigStatus, type InstanceInfo } from "@/state/store";
-import { activeLocale, t } from "@/lib/i18n";
+import { useStore } from "@/state/store";
+import { t } from "@/lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { signedIn, subscriptionAccounts } from "./AccountsPanel";
 
 export interface SignOutTargets {
-  accounts: InstanceInfo[];
   cloud: CloudAccountBridge | null;
-  names: string[];
-}
-
-export function signOutAccounts(instances: readonly InstanceInfo[], battery: ConfigStatus["accountBattery"]): InstanceInfo[] {
-  return subscriptionAccounts(instances, battery).filter((instance) => signedIn(instance) && instance.authentication?.signOut === true);
 }
 
 export function cloudSignedIn(account: CloudAccountState | null): boolean {
   return account?.status === "connected" || account?.status === "reauth-required";
-}
-
-export function nameList(names: readonly string[]): string {
-  try {
-    return new Intl.ListFormat(activeLocale(), { style: "long", type: "conjunction" }).format(names);
-  } catch {
-    return names.join(", ");
-  }
 }
 
 function useCloudAccount(): { bridge: CloudAccountBridge | undefined; account: CloudAccountState | null } {
@@ -42,31 +27,17 @@ function useCloudAccount(): { bridge: CloudAccountBridge | undefined; account: C
 }
 
 export function useSignOutTargets(): SignOutTargets {
-  const { state } = useStore();
   const { bridge, account } = useCloudAccount();
-  const accounts = signOutAccounts(state.instances, state.config?.accountBattery);
-  const cloud = bridge && cloudSignedIn(account) ? bridge : null;
-  return { accounts, cloud, names: [...accounts.map((instance) => instance.displayName), ...(cloud ? [t("settings.section.cloudAccount")] : [])] };
+  return { cloud: bridge && cloudSignedIn(account) ? bridge : null };
 }
 
-export async function signOutAll(targets: SignOutTargets, dispatch: (action: Action) => void): Promise<string[]> {
-  const failed: string[] = [];
-  for (const account of targets.accounts) {
-    try {
-      const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${encodeURIComponent(account.instanceId)}/auth/sign-out`, { method: "POST" });
-      dispatch({ type: "instances", instances });
-    } catch (cause) {
-      failed.push(t("signOut.failed", { name: account.displayName, reason: cause instanceof Error ? cause.message : String(cause) }));
-    }
-  }
-  if (targets.cloud) {
-    const reason = await targets.cloud.signOut().then(
-      (next) => (next.status === "signed-out" ? null : t("signOut.tryAgain")),
-      (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)),
-    );
-    if (reason) failed.push(t("signOut.failed", { name: t("settings.section.cloudAccount"), reason }));
-  }
-  return failed;
+export async function signOutAll(targets: SignOutTargets): Promise<string[]> {
+  if (!targets.cloud) return [];
+  const reason = await targets.cloud.signOut().then(
+    (next) => (next.status === "signed-out" ? null : t("signOut.tryAgain")),
+    (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)),
+  );
+  return reason ? [t("signOut.failed", { name: t("settings.section.cloudAccount"), reason })] : [];
 }
 
 export function SignOutDialog({ targets, onClose, returnFocusRef }: {
@@ -78,7 +49,7 @@ export function SignOutDialog({ targets, onClose, returnFocusRef }: {
   const [pending, setPending] = useState(false);
   const confirm = async () => {
     setPending(true);
-    const failed = await signOutAll(targets, dispatch);
+    const failed = await signOutAll(targets);
     setPending(false);
     onClose();
     if (failed.length) dispatch({ type: "error", message: failed.join(" ") });
@@ -87,7 +58,7 @@ export function SignOutDialog({ targets, onClose, returnFocusRef }: {
     <ConfirmDialog
       open
       title={t("signOut.title")}
-      body={t("signOut.body", { accounts: nameList(targets.names) })}
+      body={t("signOut.body", { accounts: t("settings.section.cloudAccount") })}
       confirmLabel={t("accounts.signOut")}
       icon={<LogOut size={18} />}
       pending={pending}

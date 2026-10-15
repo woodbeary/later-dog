@@ -100,11 +100,9 @@ native permission rejection, cleanup, and post-creation activation warnings.
 Browser fixtures do not prove packaged operating-system grants or real model
 execution; those require the native approval verification separately.
 
-Companion connections retain the single-request Create bot flow: they cannot
-read host defaults or patch host settings. `companion/test/proxy.test.ts` checks
-creation succeeds while those routes remain blocked. The dialog tests also
-check that a caller's synchronous exception or rejected promise after creation
-is reported without leaving a retryable creation dialog open.
+The dialog tests check that a caller's synchronous exception or rejected
+promise after creation is reported without leaving a retryable creation dialog
+open.
 
 The creation dialog no longer has a **Who can see it** choice;
 `src/components/NewBotDialog.test.ts` and

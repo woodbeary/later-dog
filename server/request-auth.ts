@@ -3,14 +3,17 @@ import { timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 
 import type { Scope, SessionRecord, SessionRegistry } from "./sessions.ts";
-import { denyReason as companionDenial, isCompanionNotice } from "../companion/src/routes.ts";
-import { LOCAL_TOOLS_HEADER, localToolsRouteRefusal } from "./laterdog/local-tools-scope.ts";
+import { LOCAL_TOOLS_HEADER, localToolsRouteRefusal, signsItselfOut } from "./laterdog/local-tools-scope.ts";
 
 export type LoopbackTrust = "owner" | "service";
 
 export type RequestAuth =
   | { kind: "loopback"; scopes: readonly Scope[]; trust?: "service"; localTools?: true }
-  | { kind: "session"; session: SessionRecord; via: "bearer" | "cookie" | "ticket"; scopes: readonly Scope[] };
+  | { kind: "session"; session: SessionRecord; via: "bearer" | "cookie" | "ticket"; scopes: readonly Scope[]; localTools?: true };
+
+export function fromLocalTools(auth: RequestAuth): boolean {
+  return auth.localTools === true;
+}
 
 export interface RequestAuthResult {
   auth: RequestAuth | null;
@@ -297,7 +300,6 @@ export interface ResolveOptions {
   streamPath: string;
   url: URL;
   loopbackMutationToken?: string;
-  companionMutationToken?: string;
   features?: { sharedComputers?: boolean };
   loopbackTrust?: LoopbackTrust;
   cliOwnerToken?: string;
@@ -359,12 +361,16 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
     if (via === "cookie" && session.cookieOnly && !["GET", "HEAD", "OPTIONS"].includes(method) && !provesSameOrigin(req)) {
       return deny(403, "forbidden: this browser's session makes changes only from its own page");
     }
+    if (session.localTools && mutatingPublicRoute(method, path) && !signsItselfOut(method, path)) {
+      const refusal = localToolsRouteRefusal(method, path);
+      if (refusal) return deny(403, `forbidden: ${refusal}`);
+    }
     const needed = requiredScope(method, path, options.features ?? {});
     if (!session.scopes.includes(needed)) {
       return deny(403, `forbidden: this session lacks the ${needed} scope`);
     }
     if (via !== "ticket") options.sessions.renew(session.id);
-    return { auth: { kind: "session", session, via, scopes: session.scopes }, status: 401, error: "" };
+    return { auth: { kind: "session", session, via, scopes: session.scopes, ...(session.localTools ? { localTools: true as const } : {}) }, status: 401, error: "" };
   }
 
   if (via) {
@@ -374,16 +380,6 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
   const proxied = isProxied(req);
   const loopback = !proxied && isLoopbackHost(headerValue(req.headers.host)) && isAllowedOrigin(headerValue(req.headers.origin));
   if (loopback) {
-    const companionToken = headerValue(req.headers["x-laterdog-companion-auth"]);
-    if (companionToken && options.loopbackMutationToken !== undefined) {
-      if (
-        !secureTokenMatch(companionToken, options.companionMutationToken ?? "") ||
-        req.headers["x-laterdog-companion"] !== "1" ||
-        !/^[\w-]{1,128}$/.test(headerValue(req.headers["x-laterdog-companion-device"]) ?? "") ||
-        (companionDenial({ path, method, authenticated: true }) && !isCompanionNotice(method, path))
-      ) return deny(403, "forbidden: invalid companion request");
-      return { auth: { kind: "loopback", scopes: LOOPBACK_SCOPES }, status: 401, error: "" };
-    }
     if (
       options.loopbackMutationToken !== undefined &&
       mutatingPublicRoute(method, path) &&

@@ -24,8 +24,7 @@ This guard only applies to agent creation proposals; intentional duplicates
 in the manual editor remain possible. Existing routines are never removed.
 
 ```sh
-pnpm exec vitest run shared/routine-schedule.test.ts server/routine-cron.e2e.test.ts server/routine-requests.test.ts server/routines.test.ts server/routines-startup.test.ts src/components/routines/cron-editor.test.ts src/lib/routine-calendar.test.ts src/lib/schedule-label.test.ts server/bot-package.test.ts server/package-export.test.ts
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/cron-routines-ui.e2e.test.ts
+pnpm exec vitest run shared/routine-schedule.test.ts server/routine-cron.e2e.test.ts server/routine-requests.test.ts server/routines.test.ts server/routines-startup.test.ts src/lib/schedule-label.test.ts server/bot-package.test.ts server/package-export.test.ts
 ```
 
 ## Launch the isolated renderer
@@ -186,7 +185,7 @@ pnpm exec vitest run server/vps-routing.test.ts server/routine-cron.e2e.test.ts
 
 ```sh
 pnpm exec vitest run server/routines.test.ts server/routines-startup.test.ts server/routine-results.e2e.test.ts server/routine-delegation.e2e.test.ts server/drivers/agents-proxy.test.ts
-pnpm exec vitest run src/components/routines/RoutineViews.test.ts src/components/routines/ResultsDestination.test.ts src/components/RoutineRunCard.test.ts src/components/BotProjects.test.ts src/lib/folder-read.test.ts src/state/store.test.ts
+pnpm exec vitest run src/components/RoutineRunCard.test.ts src/components/BotProjects.test.ts src/lib/folder-read.test.ts src/state/store.test.ts
 ```
 
 The delegation integration tests launch their own shared-control fixtures.

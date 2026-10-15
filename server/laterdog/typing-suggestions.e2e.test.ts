@@ -71,7 +71,7 @@ describe.skipIf(process.platform === "win32")("typing suggestions in the real se
     child?.kill("SIGTERM");
     await new Promise((resolve) => (child && child.exitCode === null ? child.once("exit", resolve) : resolve(null)));
     await new Promise((done) => worker.close(done));
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it("starts with the model path off, so nothing typed leaves the computer", async () => {

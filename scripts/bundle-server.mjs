@@ -66,28 +66,6 @@ await build({
   logLevel: "info",
 });
 
-await build({
-  entryPoints: [join(root, "electron", "managed-companion-guardian-main.mjs")],
-  bundle: true,
-  platform: "node",
-  target: "node20",
-  format: "esm",
-  outfile: join(root, "dist-server", "tunnel-guardian.js"),
-  allowOverwrite: true,
-  logLevel: "info",
-});
-
-await build({
-  entryPoints: [join(root, "scripts", "prepare-cloudflared.mjs")],
-  bundle: true,
-  platform: "node",
-  target: "node20",
-  format: "esm",
-  outfile: join(root, "dist-server", "prepare-cloudflared.js"),
-  allowOverwrite: true,
-  logLevel: "info",
-});
-
 if (existsSync(join(root, "enterprise", "server", "index.ts"))) {
   await build({
     entryPoints: [join(root, "enterprise", "server", "index.ts")],

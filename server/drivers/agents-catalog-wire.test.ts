@@ -230,7 +230,7 @@ describe("agents proxy tools/list golden", () => {
       expect(toolsOf(wires[name]!).map((tool) => tool.name)).toEqual(toolsOf(desktop).map((tool) => tool.name));
       expect(select(desktop).inputSchema.properties.surface.enum).toEqual(["auto", "cloud", "local"]);
       const surface = select(wires[name]!).inputSchema.properties.surface;
-      expect(surface.enum).toEqual(["auto", "cloud"]);
+      expect(surface.enum).toEqual(["auto", "cloud", "mac"]);
       expect(surface.description).not.toMatch(/\blocal =/);
     }
     for (const wire of Object.values(wires)) expect(toolsOf(wire).map((tool) => tool.name)).not.toContain("vm_exec");

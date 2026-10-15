@@ -51,6 +51,15 @@ describe("Mac approval gate", () => {
     say("find the newest PDF in my Downloads");
   });
 
+  it("one Always allow lets every dog use the Mac without another card, except under Never", async () => {
+    gate.update({ mode: "always" });
+    await expect(ask({ action: "run_command", command: "ls" })).resolves.toEqual({ ok: true });
+    await expect(ask({ action: "read_file", path: "Downloads/a.pdf" })).resolves.toEqual({ ok: true });
+    expect(openCards()).toHaveLength(0);
+    gate.update({ mode: "never" });
+    await expect(ask({ action: "read_file", path: "a" })).resolves.toMatchObject({ ok: false });
+  });
+
   afterEach(() => {
     gate.close();
     vi.useRealTimers();

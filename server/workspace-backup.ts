@@ -15,6 +15,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { escapeAttribute, splitTranscriptAttachments } from "../src/lib/composer-attachments.ts";
 import { WORKSPACE_BACKUP_CLIENT_KEYS } from "../shared/workspace-backup-client.ts";
 import { ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, portableWorkspaceConfig, redownloadedOrgLibraryPath, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
+import { leftBehindByProfile, measureLeftOnComputer, validLeftOnComputer, CLOUD_MOVE_PROFILE, type WorkspaceBackupProfile } from "./laterdog/cloud-move-profile.ts";
 import type { WorkspaceBackupClientState, WorkspaceBackupPrivateMetadata, WorkspaceBackupSummary } from "../shared/workspace-backup.ts";
 
 export type { WorkspaceBackupSummary, WorkspaceBackupPrivateMetadata } from "../shared/workspace-backup.ts";
@@ -32,8 +33,10 @@ const EXCLUDED = new Set([
   "team-computers.json",
   "laterdog-server.lease", "box-create-requests.lock", "messages.db-wal", "messages.db-shm",
   "decider-log",
-  "cloud-owner.json",
+  "cloud-owner.json", "cloud-hold.json", "computers-trial-key", "computers-trial.json",
 ]);
+const KEPT_ON_EACH_COMPUTER = new Set(["computers-trial-key", "computers-trial.json"]);
+const keptOnEachComputer = (path: string): boolean => KEPT_ON_EACH_COMPUTER.has(path.toLowerCase());
 const EXCLUSION_NOTES = [
   "Device pairing, server identity, live leases and runtime files (existing destination identities are preserved).",
   "Saved credentials, provider and MCP connections, managed provider login homes and browser login profiles are not transferred. Destination connections are preserved; reconnect on a new device.",
@@ -59,6 +62,7 @@ export interface CreateWorkspaceBackupOptions {
   password: string;
   clientState?: WorkspaceBackupClientState;
   appVersion?: string;
+  profile?: WorkspaceBackupProfile;
 }
 type CreatedWorkspaceBackup = { id: string; path: string; summary: WorkspaceBackupSummary };
 export interface WorkspaceRestoreResult {
@@ -76,6 +80,7 @@ function excluded(name: string): boolean {
 }
 function forbiddenArchivePath(path: string): boolean {
   const folded = path.toLowerCase();
+  if (keptOnEachComputer(folded)) return false;
   return excluded(folded.split("/")[0]) || excludedWorkspaceAuthPath(folded) ||
     (path !== folded && ["config.json", "webhooks.json"].includes(folded));
 }
@@ -308,7 +313,7 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
     }
     const walk = (directory: string, prefix = "") => {
       for (const name of readdirSync(directory).sort()) {
-        if (!prefix && excluded(name)) continue;
+        if (!prefix && (excluded(name) || leftBehindByProfile(name, options.profile))) continue;
         const path = prefix ? `${prefix}/${name}` : name;
         if (excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path)) continue;
         if (forbiddenArchivePath(path)) throw new Error("A workspace filename conflicts with a protected authentication or runtime path.");
@@ -372,6 +377,7 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
       bots: countJsonArray(join(snapshot, "data", "bots.json")), groups: countJsonArray(join(snapshot, "data", "groups.json")),
       ...databaseCounts(join(snapshot, "data", "messages.db")),
       exclusions: EXCLUSION_NOTES, warnings,
+      ...(options.profile ? { profile: options.profile, leftOnComputer: measureLeftOnComputer(root, options.profile) } : {}),
     };
     const manifest: Manifest = {
       summary, sourceDataDir: resolve(dataDir), clientState: options.clientState ?? {}, entries,
@@ -404,7 +410,7 @@ function validateManifest(value: unknown): Manifest {
     value.sourceDataDir === posix.parse(value.sourceDataDir).root || value.sourceDataDir === win32.parse(value.sourceDataDir).root ||
     value.sourceDataDir.replaceAll("\\", "/").split("/").some((part) => part === "." || part === "..") ||
     Object.keys(value).some((key) => !["summary", "sourceDataDir", "clientState", "entries"].includes(key)) ||
-    Object.keys(value.summary).some((key) => !["format", "version", "id", "createdAt", "appVersion", "files", "directories", "bytes", "bots", "groups", "threads", "messages", "exclusions", "warnings"].includes(key)) || !record(value.clientState) ||
+    Object.keys(value.summary).some((key) => !["format", "version", "id", "createdAt", "appVersion", "files", "directories", "bytes", "bots", "groups", "threads", "messages", "exclusions", "warnings", "profile", "leftOnComputer"].includes(key)) || !record(value.clientState) ||
     !Object.values(value.clientState).every((item) => typeof item === "string") || !Array.isArray(value.entries) ||
     value.entries.length > MAX_WORKSPACE_BACKUP_FILES) throw new Error("Invalid or unsupported workspace backup metadata.");
   if (Object.keys(value.clientState).some((key) => !WORKSPACE_BACKUP_CLIENT_KEYS.includes(key as typeof WORKSPACE_BACKUP_CLIENT_KEYS[number])) ||
@@ -412,6 +418,8 @@ function validateManifest(value: unknown): Manifest {
   for (const key of ["files", "directories", "bytes", "bots", "groups", "threads", "messages"] as const) {
     if (!Number.isSafeInteger(value.summary[key]) || (value.summary[key] as number) < 0) throw new Error("Invalid workspace backup summary.");
   }
+  if ((value.summary.profile !== undefined && value.summary.profile !== CLOUD_MOVE_PROFILE) ||
+    (value.summary.leftOnComputer !== undefined && !validLeftOnComputer(value.summary.leftOnComputer))) throw new Error("Invalid workspace backup summary.");
   for (const key of ["exclusions", "warnings"] as const) {
     if (!Array.isArray(value.summary[key]) || !value.summary[key].every((item) => typeof item === "string")) throw new Error("Invalid workspace backup summary.");
   }
@@ -598,7 +606,7 @@ function readJournal(path: string): RestoreJournal {
   const raw = privateJson(path);
   if (!record(raw) || typeof raw.id !== "string" || !ID.test(raw.id) || !["applying", "committed", "rolled-back"].includes(String(raw.phase))) throw new Error("Invalid restore recovery journal. Original data was preserved; recovery needs attention.");
   for (const key of ["existing", "incoming"] as const) {
-    if (!Array.isArray(raw[key]) || !raw[key].every((name) => typeof name === "string" && validRelative(name) && !name.includes("/") && !preserved(name)) || new Set(raw[key]).size !== raw[key].length) throw new Error("Invalid restore recovery paths.");
+    if (!Array.isArray(raw[key]) || !raw[key].every((name) => typeof name === "string" && validRelative(name) && !name.includes("/") && (!preserved(name) || keptOnEachComputer(name))) || new Set(raw[key]).size !== raw[key].length) throw new Error("Invalid restore recovery paths.");
   }
   return raw as unknown as RestoreJournal;
 }
@@ -676,7 +684,7 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
   const prepared = join(job, "apply", "data");
   if (existsSync(join(job, "apply"))) rmSync(join(job, "apply"), { recursive: true, force: true });
   folder(prepared);
-  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path));
+  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path) && !keptOnEachComputer(entry.path));
   for (const entry of installed.filter((entry) => entry.type === "directory")) folder(join(prepared, entry.path));
   for (const entry of installed) {
     const destination = join(prepared, entry.path);
@@ -718,7 +726,7 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
   }
   changeJson("routines.json", (value) => {
     if (!record(value)) throw new Error("Invalid routine definitions in workspace backup.");
-    if (Array.isArray(value.routines)) for (const routine of value.routines) if (record(routine)) routine.enabled = false;
+    if (Array.isArray(value.routines)) for (const routine of value.routines) if (record(routine) && manifest.summary.profile !== CLOUD_MOVE_PROFILE) routine.enabled = false;
     if (Array.isArray(value.runs)) for (const run of value.runs) {
       if (record(run) && ["queued", "running", "waiting"].includes(String(run.status))) {
         run.status = "failed";
@@ -872,6 +880,6 @@ export function removeWorkspaceBackupJob(dataDir: string, id: string): void {
   rmSync(path, { recursive: true, force: true });
 }
 
-export function omittedFromWorkspaceBackup(path: string): boolean {
-  return excluded(path.split("/")[0]) || excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path);
+export function omittedFromWorkspaceBackup(path: string, profile?: WorkspaceBackupProfile): boolean {
+  return excluded(path.split("/")[0]) || leftBehindByProfile(path.split("/")[0], profile) || excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path);
 }

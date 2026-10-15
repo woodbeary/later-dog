@@ -12,7 +12,6 @@ import {
   useProfiles,
   type ProfileSwitchError,
 } from "./ProfileSwitcher";
-import { PhoneAppDialog } from "./PhoneAppDialog";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { SignOutDialog, useSignOutTargets, type SignOutTargets } from "./SignOutAll";
@@ -24,6 +23,7 @@ import { brand } from "../lib/brand";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { openExternalLink } from "@/lib/app-links";
+import { PHONE_APP_URL } from "@/lib/cloud-account-view";
 
 export function profileInitials(profile?: { name?: string; email?: string }): string {
   const name = profile?.name?.trim();
@@ -167,7 +167,6 @@ export function SidebarProfileMenu() {
   const [switchError, setSwitchError] = useState<ProfileSwitchError | null>(null);
   const [profileDialog, setProfileDialog] = useState<"add" | "edit" | null>(null);
   const [editProfileId, setEditProfileId] = useState<string>();
-  const [phoneOpen, setPhoneOpen] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
   const switchTicket = useRef(0);
   const profilesShown = useRef(false);
@@ -224,7 +223,7 @@ export function SidebarProfileMenu() {
       icon: <Smartphone size={18} />,
       onSelect: () => {
         focusTrigger();
-        setPhoneOpen(true);
+        void openExternalLink(PHONE_APP_URL);
       },
     },
     {
@@ -242,7 +241,7 @@ export function SidebarProfileMenu() {
     },
     ...(accountItems.accounts ? [accountItems.accounts] : []),
     ...(accountItems.add ? [{ ...accountItems.add, separatorBefore: !accountItems.accounts }] : []),
-    ...(signOut.names.length > 0 ? [{
+    ...(signOut.cloud ? [{
       key: "signOut",
       label: t("accounts.signOut"),
       icon: <LogOut size={18} />,
@@ -297,7 +296,6 @@ export function SidebarProfileMenu() {
         )}
       />
       {signingOut && <SignOutDialog targets={signingOut} onClose={() => setSigningOut(null)} />}
-      <PhoneAppDialog open={phoneOpen} onClose={() => setPhoneOpen(false)} />
       {profiles && profileDialog === "add" && (
         <AddProfileDialog bridge={profiles.bridge} onClose={() => setProfileDialog(null)} />
       )}

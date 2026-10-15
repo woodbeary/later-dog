@@ -22,6 +22,7 @@ export interface CloudMoveStatus extends ServerIdentity {
   lastRestoreId: string | null;
   rolledBackId: string | null;
   partBytes: number;
+  receivedFrom: { at: number; environmentId: string | null } | null;
 }
 export type CloudMovePhase = "idle" | "preparing" | "growing" | "exporting" | "uploading" | "checking" | "replacing" | "restarting" | "done" | "failed";
 export interface CloudMoveState {
@@ -30,14 +31,17 @@ export interface CloudMoveState {
   destination?: MoveDestination | null;
   progress?: { bytesTransferred: number; totalBytes: number };
   replacing?: boolean;
-  error?: { code: string; message: string; contents?: MoveContents; freeBytes?: number; neededBytes?: number; maxBytes?: number; largest?: true; volumeBytes?: number; destVersion?: string; localVersion?: string;
+  error?: { code: string; message: string; committed?: true; contents?: MoveContents; freeBytes?: number; neededBytes?: number; maxBytes?: number; largest?: true; volumeBytes?: number; destVersion?: string; localVersion?: string;
     other?: string;
     partBytes?: number };
   resumable?: boolean;
   moved?: MoveContents;
   previous?: boolean;
   routines?: number;
+  stayedOnMac?: Array<{ name: string; bytes: number }>;
+  accounts?: AccountsNote;
 }
+export interface AccountsNote { moved: { claude: number; chatgpt: number }; stayed: string[] }
 export interface MoveFit { fit: "now" | "grow" | "never"; neededBytes: number; freeBytes: number; maxBytes?: number; largest?: true; volumeBytes?: number; sizeGb?: number }
 export interface CloudMoveOverview extends CloudMoveState {
   local: MoveEstimate | null;
@@ -59,6 +63,8 @@ export interface CloudMoveBridge {
 }
 
 export declare const CLOUD_MOVE_MAX_BYTES: number;
+export declare const CLOUD_MOVE_PROFILE: "cloud-move";
+export declare const CLOUD_MOVE_LOCAL_ROUTES: RegExp;
 export declare class CloudMoveError extends Error {
   code: string;
   details: Record<string, unknown>;
@@ -79,8 +85,8 @@ export declare function arrivedInFull(local: MoveContents | null | undefined, co
 export declare function parseCloudMoveStatus(value: unknown): CloudMoveStatus | null;
 export interface CloudMove {
   state(): CloudMoveState;
-  estimate(signal?: AbortSignal): Promise<MoveEstimate>;
-  move(dest: MoveTarget, options?: { requireEmpty?: boolean; verifyArrival?: boolean }): Promise<CloudMoveState>;
+  estimate(signal?: AbortSignal, profile?: "cloud-move"): Promise<MoveEstimate>;
+  move(dest: MoveTarget, options?: { requireEmpty?: boolean; verifyArrival?: boolean; profile?: "cloud-move"; yieldToOtherComputer?: boolean; fresh?: boolean; onPacked?: () => Promise<unknown> }): Promise<CloudMoveState>;
   restorePrevious(dest: MoveTarget): Promise<CloudMoveState>;
   cancel(): CloudMoveState;
   reset(): CloudMoveState;
@@ -95,6 +101,8 @@ export declare function createCloudMove(options: {
   now?: () => number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   onState?: (state: CloudMoveState) => void;
+  log?: (line: string) => void;
+  waitDelaysMs?: number[];
   retryDelaysMs?: number[];
   pollMs?: number;
   restartTimeoutMs?: number;

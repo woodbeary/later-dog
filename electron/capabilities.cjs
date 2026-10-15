@@ -198,7 +198,7 @@ function desktopCapabilities({
     dictation,
     localComputer,
   };
-  if (!remote && (credentialStore === "ok" || credentialStore === "unavailable")) {
+  if (!remote && (credentialStore === "ok" || credentialStore === "unavailable" || credentialStore === "reset")) {
     capabilities.credentialStore = credentialStore;
   }
   return capabilities;

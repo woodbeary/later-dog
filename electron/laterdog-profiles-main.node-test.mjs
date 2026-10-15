@@ -233,6 +233,7 @@ function ipcFixture(options) {
     localOnly: localOrigin.localOnly,
     cuaReady: Promise.resolve(null),
     credentialStoreUnavailable: false,
+    credentialStoreCapability: () => "ok",
     credentialFallbackAvailable: () => false,
     desktopCapabilities: (capabilities) => plain(capabilities),
     CREDENTIAL_PATCH: { xaiApiKey: (value) => ({ xai: { key: value } }) },
@@ -313,7 +314,6 @@ test("main vault recovery restores all runtime keys before clearing the unavaila
   const f = ipcFixture();
   const applied = [];
   let capabilities = 0;
-  let phone = 0;
   let composio = 0;
   Object.assign(f.context, {
     desktopRemoteAccess: null,
@@ -325,18 +325,14 @@ test("main vault recovery restores all runtime keys before clearing the unavaila
     },
     credentialStoreUnavailable: true,
     applyProfileCredential: async (entry) => { applied.push(plain(entry)); },
-    readPhoneSecretIdentity: (credentials) => credentials.phone,
-    syncPhoneSecretKey: () => { phone++; },
     syncManagedComposioCredentials: () => { composio++; },
     broadcastDesktopCapabilities: async () => { capabilities++; },
   });
-  const credentials = { ttsKey: "fixture-voice", fishAudioKey: "fixture-fish", boxToken: "fixture-box", phone: { id: "unchanged" } };
+  const credentials = { ttsKey: "fixture-voice", fishAudioKey: "fixture-fish", boxToken: "fixture-box" };
   await f.context.restoreWorkspaceCredentials(credentials);
   assert.deepEqual(applied, [{ port: 48995, patch: { tts: { key: "fixture-voice", fishKey: "fixture-fish" }, box: { token: "fixture-box" } } }]);
   assert.equal(f.context.credentialStoreUnavailable, false);
   assert.deepEqual(f.context.secureCredentials, credentials);
-  assert.deepEqual(f.context.phoneSecretIdentity, credentials.phone);
-  assert.equal(phone, 1);
   assert.equal(composio, 1);
   assert.equal(capabilities, 1);
 

@@ -46,6 +46,14 @@ async function fixture() {
 }
 
 describe("the desktop's later.dog proxy", () => {
+  it("leaves the sign-in hand-over addresses to the routes after it, on the Mac and in My Cloud", async () => {
+    const route = createLaterDogRoutes();
+    for (const path of ["/api/laterdog/mac-accounts", "/api/laterdog/mac-accounts/claude-2/hold", "/api/laterdog/accounts/claude"]) {
+      const answer = await route({ req: {} as never, res: {} as never, url: new URL(path, "http://localhost"), path, method: "GET", auth: {} as RequestAuth, json, readBody });
+      expect(answer).toBe(PASS);
+    }
+  });
+
   it("forwards the cloud task reads with only their own query, and the screen request", async () => {
     const { seen, desktop } = await fixture();
     const id = "6a1f8f2e-1111-4222-8333-944444444444";

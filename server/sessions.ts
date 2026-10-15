@@ -43,6 +43,7 @@ const sessionSchema = z.object({
   membershipAuthority: z.literal("portal").optional(),
   cookieOnly: z.literal(true).optional(),
   owner: z.string().max(254).optional(),
+  localTools: z.literal(true).optional(),
 });
 
 const fileSchema = z.object({ version: z.literal(1), sessions: z.array(sessionSchema) });
@@ -58,6 +59,7 @@ export interface PublicSession {
   expiresAt: number;
   email?: string;
   owner?: string;
+  localTools?: true;
 }
 
 export interface PairingCode {
@@ -142,6 +144,7 @@ function publicSession(record: SessionRecord): PublicSession {
   };
   if (record.email) view.email = record.email;
   if (record.owner) view.owner = record.owner;
+  if (record.localTools) view.localTools = true;
   return view;
 }
 
@@ -159,7 +162,7 @@ export class SessionRegistry {
   private pairings: PairingCode[] = [];
   private tickets = new Map<string, { sessionId: string; expiresAt: number }>();
   private failures = new Map<string, { count: number; windowStart: number; lockedUntil: number }>();
-  private replays: Array<{ codeHash: string; attemptId: string; browser: boolean; result: ExchangeResult; expiresAt: number }> = [];
+  private replays: Array<{ codeHash: string; attemptId: string; browser: boolean; localTools: boolean; result: ExchangeResult; expiresAt: number }> = [];
   private readonly onRevoked = new Set<(sessionId: string) => void>();
   private lastSeenWrites = new Map<string, number>();
   private readonly now: () => number;
@@ -331,15 +334,16 @@ export class SessionRegistry {
     this.failures.set(source, entry);
   }
 
-  exchange(input: { code: string; label: string; source: string; fallbackLabel?: string; attemptId?: string; browser?: boolean }): ExchangeResult {
+  exchange(input: { code: string; label: string; source: string; fallbackLabel?: string; attemptId?: string; browser?: boolean; localTools?: boolean }): ExchangeResult {
     this.prune();
     const now = this.now();
     const presented = isPairingCredential(input.code)
       ? sha256(input.code)
       : sha256(normalizePairingCode(input.code));
     const browser = input.browser === true;
+    const localTools = input.localTools === true;
     const attemptId = typeof input.attemptId === "string" && /^[\w-]{8,64}$/.test(input.attemptId) ? input.attemptId : null;
-    const replay = attemptId ? this.replays.find((r) => r.attemptId === attemptId && r.browser === browser && sameDigest(r.codeHash, presented)) : undefined;
+    const replay = attemptId ? this.replays.find((r) => r.attemptId === attemptId && r.browser === browser && r.localTools === localTools && sameDigest(r.codeHash, presented)) : undefined;
     if (replay) return replay.result;
     const lock = this.lockState(input.source);
     if (lock.locked) {
@@ -365,12 +369,13 @@ export class SessionRegistry {
       lastSeenAt: now,
       expiresAt: now + Math.min(SESSION_TTL_MS, SESSION_MAX_AGE_MS),
       ...(pairing.browser ? { cookieOnly: true as const, ...(pairing.owner ? { owner: pairing.owner } : {}) } : {}),
+      ...(localTools ? { localTools: true as const } : {}),
     };
     this.sessions.push(record);
     this.lastSeenWrites.set(record.id, now);
     this.persist();
     const result: ExchangeResult = { ok: true, token, session: publicSession(record) };
-    if (attemptId) this.replays.push({ codeHash: presented, attemptId, browser, result, expiresAt: now + EXCHANGE_REPLAY_MS });
+    if (attemptId) this.replays.push({ codeHash: presented, attemptId, browser, localTools, result, expiresAt: now + EXCHANGE_REPLAY_MS });
     return result;
   }
 

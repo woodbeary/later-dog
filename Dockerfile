@@ -45,6 +45,9 @@ ENV AGENT_BROWSER_EXECUTABLE_PATH=/opt/laterdog-browser/chrome \
 WORKDIR /app
 
 FROM runtime AS cloud-home
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ripgrep gh jq \
+  && rm -rf /var/lib/apt/lists/*
 COPY --from=edge /caddy /usr/local/bin/caddy
 ARG GROK_VERSION=1.0.41
 RUN if [ -n "$GROK_VERSION" ]; then \

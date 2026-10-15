@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CloudMoveState } from "../../electron/cloud-move.mjs";
-import { moveLine } from "./cloud-move-line";
+import { accountsSentences, moveLine } from "./cloud-move-line";
 
 const automatic = { automatic: true as const };
 
@@ -40,5 +40,22 @@ describe("the quiet line about this Mac's dogs moving home", () => {
 
   it("never describes a swap back to the earlier workspace as a move", () => {
     expect(moveLine(automatic, { phase: "done", action: "restore" })).toBeNull();
+  });
+
+  it("adds that the Claude and ChatGPT accounts came along, and names any that stayed", () => {
+    const both = { moved: { claude: 2, chatgpt: 1 }, stayed: [] };
+    expect(moveLine(automatic, { phase: "done", action: "move", accounts: both })).toEqual({ kind: "done", accounts: both });
+    expect(moveLine(automatic, { phase: "idle", accounts: both })).toEqual({ kind: "accounts", accounts: both });
+    expect(moveLine(automatic, { phase: "idle", accounts: { moved: { claude: 0, chatgpt: 0 }, stayed: [] } })).toBeNull();
+    expect(moveLine({}, { phase: "idle", accounts: both })).toBeNull();
+    expect(accountsSentences(both)).toEqual([{ key: "cloudMoveLine.accountsBoth" }]);
+    expect(accountsSentences({ moved: { claude: 1, chatgpt: 0 }, stayed: [] })).toEqual([{ key: "cloudMoveLine.accountsClaude" }]);
+    expect(accountsSentences({ moved: { claude: 3, chatgpt: 0 }, stayed: [] })).toEqual([{ key: "cloudMoveLine.accountsClaudeMany" }]);
+    expect(accountsSentences({ moved: { claude: 0, chatgpt: 1 }, stayed: ["Work Claude", "Work Claude", ""] })).toEqual([
+      { key: "cloudMoveLine.accountsChatgpt" }, { key: "cloudMoveLine.accountsStayed", names: "Work Claude" },
+    ]);
+    expect(accountsSentences({ moved: { claude: 0, chatgpt: 0 }, stayed: ["Claude", "ChatGPT plan"] })).toEqual([
+      { key: "cloudMoveLine.accountsStayed", names: "Claude and ChatGPT plan" },
+    ]);
   });
 });

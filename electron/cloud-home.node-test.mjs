@@ -159,7 +159,7 @@ test("signing out forgets the machine", async t => {
 
 test("main lists the machine from verified states only, and connects without a dialog", async () => {
   const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
-  const start = source.indexOf("function rememberCloudHome("), end = source.indexOf("async function forgetEnvironment(", start);
+  const start = source.indexOf("function rememberCloudHome("), end = source.indexOf("function showContextMenu(", start);
   assert.ok(start > 0 && end > start);
   const persisted = [], navigated = [], dialogs = [], probes = [];
   let client, signedIn = false;
@@ -249,7 +249,7 @@ test("the Cloud's address is remembered through a failed check for the same acco
   assert.equal(isCloudHomeEntry({ origin }, {}), false);
 });
 
-test("the Server menu opens My Cloud through the Cloud's own connection, never a pairing-code page", async () => {
+test("switching to My Cloud goes through the Cloud's own connection, never a pairing-code page", async () => {
   const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
   const start = source.indexOf("let rememberedHome = null;"), end = source.indexOf("const organizationEntry = createOrganizationEntry", start);
   assert.ok(start > 0 && end > start);

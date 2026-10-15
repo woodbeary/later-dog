@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { BOOT_CLOUD_SECRETS } from "./cloud-secrets-boot.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, rmSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, mkdirSync } from "node:fs";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -113,6 +113,7 @@ import { groupTurnCwd } from "./room-cwd.ts";
 import { RoomTurnDeadline, RoomTurnStallRegistry, effectiveRoomTurnTimeoutMinutes, parseConversationTurnTimeout, roomTurnTimeoutMessage } from "./room-turn-timeout.ts";
 import { roomTurnEnd, type RoomClaimEnd } from "./room-turn-end.ts";
 import { pickComputer } from "./computer-selection.ts";
+import { isMacOffline, macOfflineResult, macOptions, macSelectReply, type KnownMac } from "./laterdog/mac-computer.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -329,6 +330,8 @@ import {
 } from "./cloud-home.ts";
 import { CLOUD_PERSONAL_REFUSAL, settleCloudOwnership, type CloudOwnership } from "./cloud-owner.ts";
 import { createCloudMoveRoutes, workspaceShared } from "./cloud-move-http.ts";
+import { CloudHold } from "./laterdog/cloud-hold.ts";
+import { createCloudHoldRoutes } from "./laterdog/cloud-hold-http.ts";
 import { RESTART_EXIT_CODE } from "./restart.ts";
 import { holdIncludedServices, voiceCredential } from "./included-services.ts";
 import type { ProviderInstance } from "./contracts.ts";
@@ -570,6 +573,7 @@ import {
   clearSessionCookie,
   clientBotPatchViolation,
   clientGroupPatchViolation,
+  fromLocalTools,
   isLoopbackHost,
   isProxied,
   labelFromUserAgent,
@@ -635,13 +639,13 @@ import {
   type PhoneSecretContext,
 } from "./phone-secret.ts";
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
-import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
+import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, signsItselfOut, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 import { EDIT_REFUSAL, UNGUARDED_REFUSAL, localToolMessageText, localToolSpeaker, unguardedMode } from "./laterdog/local-tool-message.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { createHelpersRoutes } from "./routes/helpers.ts";
-import { dogMcpEnvironment } from "./laterdog/dog-access.ts";
+import { availableDogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { dogJobEnvironment } from "./laterdog/job-defaults.ts";
 import { createJobTraceRoutes } from "./routes/job-trace.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
@@ -696,6 +700,9 @@ import { expireStaleApprovals } from "./laterdog/stale-approvals.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
 import { createTimeZoneRoutes, restoreTimeZone } from "./laterdog/time-zone.ts";
+import { heldAccountReason } from "./laterdog/held-accounts.ts";
+import { createHomeAccountRoutes } from "./laterdog/home-accounts.ts";
+import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
@@ -745,6 +752,7 @@ if (existsSync(join(DATA_DIR, ".backups"))) {
   }
 }
 const workspaceMaintenance = new WorkspaceBackupMaintenance();
+const cloudHold = new CloudHold(join(DATA_DIR, "cloud-hold.json"));
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
 const signInAllowList = cacheUntilConfigChanges((config) => ({
   admins: parseAllowList(config.signIn?.admins?.join(",")),
@@ -824,7 +832,6 @@ if (process.env.LATERDOG_CLI_OWNER_STDIN === "1" && LOOPBACK.trust === "service"
 delete process.env.LATERDOG_CLI_OWNER_STDIN;
 let desktopMutationToken: string | undefined = DESKTOP_MANAGED ? "" : undefined;
 let localToolsToken: string | undefined;
-let companionMutationToken: string | undefined = DESKTOP_MANAGED ? "" : undefined;
 const FALLBACK_PUBLIC_URL = process.env.LATERDOG_PUBLIC_URL?.trim().replace(/\/+$/, "") || null;
 const cfg = loadConfig();
 const hostedModels = hostedModelPolicy(DATA_DIR);
@@ -857,7 +864,8 @@ function customDomainStatus() {
     serverIpv4: DESKTOP_MANAGED ? null : customDomainIpv4(),
   };
 }
-const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
+const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
+const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId) });
 const supportsApprovalMode = createApprovalModeSupport(registry);
 registerEnginesBinDir();
 registerNativeBinDir();
@@ -1016,6 +1024,12 @@ function macLendingNotice(capability: Pick<InternalCapability, "botId" | "thread
   return why === "someone-else" ? LENDING_SOMEONE_ELSE : why === "memory-changed" ? LENDING_MEMORY_CHANGED : null;
 }
 
+function ownerMacs(capability: InternalCapability): KnownMac[] {
+  const principal = sharedComputerPrincipal(capability);
+  if (!principal || macLendingNotice(capability, principal)) return [];
+  return sharedComputers.known(principal).map((computer) => ({ name: computer.name, online: computer.online }));
+}
+
 function macKnown(): boolean {
   return sharedComputers.known(CLOUD_HOME_LENDER).length > 0 || sharedComputers.status(CLOUD_HOME_LENDER).length > 0;
 }
@@ -1045,7 +1059,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
     if (known.length === 0) throw Object.assign(new Error(CONNECT_MAC), { status: 409 });
     await sharedComputers.waitOnline(principal, MAC_WAIT_MS);
     target = sharedComputers.pick(principal, requested.computer_id);
-    if (!target) throw Object.assign(new Error(macOffline(known)), { status: 409 });
+    if (!target) throw Object.assign(new Error(macOffline(known)), { status: 409, macOffline: true });
   }
   const operation = completeSharedOperation(target, requested);
   const refusal = sharedComputerScopeRefusal(target, operation);
@@ -1316,8 +1330,6 @@ function decisionActorFor(auth: RequestAuth): DecisionActor {
     ...(session.userId && !session.userId.startsWith("portal:") ? { userId: session.userId } : {}),
   };
 }
-
-const fromLocalTools = (auth: RequestAuth): boolean => auth.kind === "loopback" && auth.localTools === true;
 
 function unguardedDog(botId: string, threadId?: string): boolean {
   const bot = store.bot(botId);
@@ -1828,9 +1840,6 @@ function applyDesktopMutationTokenMessage(raw: unknown): boolean {
     throw new Error("invalid desktop mutation capability");
   }
   desktopMutationToken = message.token;
-  if (typeof message.companionToken === "string" && /^[A-Za-z0-9_-]{43}$/.test(message.companionToken)) {
-    companionMutationToken = message.companionToken;
-  }
   if (typeof message.localToolsToken === "string" && LOCAL_TOOLS_TOKEN_PATTERN.test(message.localToolsToken)) {
     localToolsToken = message.localToolsToken;
   }
@@ -8126,6 +8135,7 @@ async function startTurn(
   },
 ) {
   workspaceMaintenance.assertAvailable();
+  cloudHold.assertAvailable();
   if (store.bots.some((candidate) => candidate.id === botId && hasNoModel(candidate))) await giveFirstEngine();
   const profile = store.bot(botId);
   if (!profile) throw Object.assign(new Error("no such bot"), { status: 404 });
@@ -10444,6 +10454,10 @@ async function runGroupMemberTurn(
 ): Promise<boolean> {
   if (workspaceMaintenance.active) {
     onDispatchError?.("A workspace backup or restore is in progress.");
+    return false;
+  }
+  if (cloudHold.held) {
+    onDispatchError?.("This computer's dogs are working in My Cloud while you are signed in.");
     return false;
   }
   if (isCancelled?.()) return false;
@@ -13258,7 +13272,9 @@ function engineMcpServers(bot: BotRecord) {
       ? { command: process.env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", `set ELECTRON_RUN_AS_NODE=1&& "${process.execPath}" "${file}"`] }
       : { command: "/bin/sh", args: ["-c", 'ELECTRON_RUN_AS_NODE=1 exec "$0" "$@"', process.execPath, file] })
     : { command: process.execPath, args: [file] };
-  return managedPolicy.filterMcp({ ...configured, laterdog: { ...launch, env: { ...dogMcpEnvironment(bot.id, bot.threadId), ...dogJobEnvironment(bot.modelSelection, registry.get(bot.modelSelection.instanceId)?.driverKind) } } });
+  const supervisor = availableDogMcpEnvironment(bot.id, bot.threadId);
+  if (!supervisor) return managedPolicy.filterMcp(configured);
+  return managedPolicy.filterMcp({ ...configured, laterdog: { ...launch, env: { ...supervisor, ...dogJobEnvironment(bot.modelSelection, registry.get(bot.modelSelection.instanceId)?.driverKind) } } });
 }
 
 function persistMcpServers(next: Record<string, unknown>): void {
@@ -13429,6 +13445,29 @@ async function reloadProviders() {
 
 let providerConfigBusy = false;
 const providerInstancesChanging = new Set<string>();
+function busyProviderSelections() {
+  return store.bots.flatMap((bot) => {
+    const busyTasks = store.tasks(bot.id).filter((task) => threadBusy(bot.id, task.threadId));
+    const selections = busyTasks.map((task) => botForThread(bot.id, task.threadId)!.modelSelection);
+    if (activeGroupTurnForBot(bot.id) || (bot.busy && busyTasks.length === 0)) selections.push(bot.modelSelection);
+    return selections;
+  });
+}
+async function withProviderConfig<T>(work: () => Promise<T>): Promise<T | null> {
+  if (providerConfigBusy) return null;
+  providerConfigBusy = true;
+  try { return await work(); } finally { providerConfigBusy = false; }
+}
+async function reloadProviderInstance(instanceId: string) {
+  providerAuthSessions.clearInstance(instanceId);
+  bus.detach(instanceId);
+  const entry = providerConfigs()[instanceId];
+  if (!entry) return;
+  await registry.load({ [instanceId]: entry }, decorateHostedProvider);
+  const live = registry.get(instanceId);
+  if (live) bus.attach([live]);
+}
+const accountInUse = (instanceId: string) => busyProviderSelections().some((selection) => selection.instanceId === instanceId);
 let mcpConfigBusy = false;
 const MAX_CONCURRENT_MCP_PROBES = 2;
 let mcpProbesInFlight = 0;
@@ -13465,7 +13504,7 @@ const workspaceBackupAccess = {
     const current = resolveRequestAuth(req, {
       sessions, cookieName: SESSION_COOKIE, streamPath: "/api/events",
       url: new URL(req.url ?? "/", `http://localhost:${PORT}`),
-      loopbackMutationToken: desktopMutationToken, companionMutationToken, loopbackTrust: LOOPBACK.trust, cliOwnerToken, localToolsToken,
+      loopbackMutationToken: desktopMutationToken, loopbackTrust: LOOPBACK.trust, cliOwnerToken, localToolsToken,
     }).auth;
     return Boolean(current?.scopes.includes("admin") && current.kind === original.kind &&
       (current.kind !== "session" || (original.kind === "session" && current.session.id === original.session.id)));
@@ -13502,6 +13541,7 @@ const workspaceBackupRoutes = createWorkspaceBackupRoutes({
   ...workspaceBackupAccess,
 });
 let restartRequested = false;
+const cloudHoldRoutes = createCloudHoldRoutes({ hold: cloudHold, routines: () => routines ?? null, readBody });
 const cloudMoveRoutes = createCloudMoveRoutes({
   dataDir: DATA_DIR,
   appVersion: serverVersion(),
@@ -13607,6 +13647,30 @@ ROUTES.push(createContinueOnRoutes({
 ROUTES.push(createUndoRoutes({
   refusal: (auth, threadId, requestId) => cardAnswerRefusal(auth, threadId, requestId, "allow"),
   undo: (auth, res, threadId, requestId) => withDecisionActor(decisionActorFor(auth), () => undoAppliedChange(res, threadId, requestId)),
+}));
+ROUTES.push(createMacAccountRoutes({
+  cloudHome: Boolean(CLOUD_HOME),
+  dataDir: DATA_DIR,
+  file: HELD_ACCOUNTS_FILE,
+  instances: () => providerConfigs(),
+  busy: accountInUse,
+  exclusive: withProviderConfig,
+  reload: reloadProviderInstance,
+}));
+ROUTES.push(createHomeAccountRoutes({
+  cloudHome: Boolean(CLOUD_HOME),
+  dataDir: DATA_DIR,
+  file: HELD_ACCOUNTS_FILE,
+  instances: () => persistableInstanceConfigs(cfg),
+  save: persistProviderInstance,
+  reload: reloadProviderInstance,
+  busy: accountInUse,
+  exclusive: withProviderConfig,
+  signedIn: async (instanceId) => {
+    const live = registry.get(instanceId);
+    if (!live) return null;
+    try { return (await live.snapshot()).authenticated === true; } catch { return null; }
+  },
 }));
 ROUTES.push(createTimeZoneRoutes({
   file: TIME_ZONE_FILE,
@@ -13882,12 +13946,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const label = typeof body?.label === "string" ? body.label : "";
       const attemptId = typeof body?.attemptId === "string" ? body.attemptId : undefined;
       const browser = body?.browser === true;
+      if (body?.localTools !== undefined && typeof body.localTools !== "boolean") return json(res, 400, { error: "localTools must be true or false" });
+      const localTools = body?.localTools === true;
+      if (browser && localTools) return json(res, 400, { error: "a local tools session is for apps on a Mac, not a browser; leave out browser: true" });
       if (browser && body?.preview === true) {
         const preview = sessions.previewBrowserSignIn(code);
         return preview ? json(res, 200, preview) : json(res, 401, { error: "this sign-in link has expired or was already used" });
       }
       if (browser && !wantsCookie) return json(res, 400, { error: "a browser sign-in sets this browser's cookie; send cookie: true" });
-      const result = sessions.exchange({ code, label, attemptId, browser, source: requestSource(req), fallbackLabel: labelFromUserAgent(req.headers["user-agent"]) });
+      const result = sessions.exchange({ code, label, attemptId, browser, localTools, source: requestSource(req), fallbackLabel: labelFromUserAgent(req.headers["user-agent"]) });
       if (!result.ok) {
         console.warn(`pairing refused from ${requestSource(req)}: ${result.error}`);
         return json(res, result.status, { error: result.error });
@@ -13932,7 +13999,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       streamPath: "/api/events",
       url,
       loopbackMutationToken: desktopMutationToken,
-      companionMutationToken,
       features: { sharedComputers: lendingEnabled() },
       loopbackTrust: LOOPBACK.trust,
       cliOwnerToken,
@@ -13953,7 +14019,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (!gate.auth) return json(res, gate.status, { error: gate.error });
     const auth = gate.auth;
-    if (auth.kind === "loopback" && auth.localTools) guardBody(req, (body) => localToolsBodyRefusal(method, path, body));
+    if (fromLocalTools(auth) && !signsItselfOut(method, path)) guardBody(req, (body) => localToolsBodyRefusal(method, path, body));
     if (HOSTED_WORKSPACE && auth.kind === "session") {
       const failure = workspaceAccess
         ? await workspaceAccess.authorize(req, auth)
@@ -13973,6 +14039,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (await workspaceBackupRoutes(req, res, path, auth)) return;
     if (await cloudMoveRoutes(req, res, path, auth)) return;
+    if (await cloudHoldRoutes(req, res, path, auth)) return;
     if (path.startsWith("/api/") && path !== "/api/events" && path !== "/api/health" && !path.startsWith("/api/shared-computers/") && !isWorkspaceBackupSessionControl(method, path)) {
       releaseWorkspaceRequest = workspaceMaintenance.request();
     }
@@ -13990,6 +14057,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               id: auth.session.id,
               label: auth.session.label,
               scopes: auth.scopes,
+              ...(auth.localTools ? { localTools: true } : {}),
               expiresAt: auth.session.expiresAt,
               via: auth.via,
               environmentId: ENVIRONMENT_ID,
@@ -14249,7 +14317,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const bot = store.projectBotForTask(internalSender.id, internalCapability.threadId);
         const canSelect = Boolean(source && source.generation === internalCapability.generation && bot && bot.computer !== "off");
         if (!bot) return json(res, 403, { error: "Computer selection belongs to a direct bot conversation." });
-        const requested = method === "POST" ? (await readInternalBody()).surface : undefined;
+        const selectBody = method === "POST" ? await readInternalBody() : undefined;
+        const requested = selectBody?.surface;
+        const macs = CLOUD_HOME ? ownerMacs(internalCapability) : [];
+        const macReply = method === "POST" ? macSelectReply(requested, selectBody?.needs, macs) : null;
+        if (macReply) return json(res, 200, macReply);
         if (method === "POST" && !canSelect) return json(res, 403, { error: "Computer selection is only available once per direct user request, with computer access enabled." });
         if (method === "POST" && requested !== "auto" && !offersPlace(requested)) {
           return json(res, 400, { error: "surface must be auto, cloud or local" });
@@ -14258,7 +14330,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const options = await selectableComputers(bot);
         const current = source ? source.mounted ?? "off" : await computerPreviewSurface(bot, bot.threadId);
         requireActiveInternalCapability();
-        if (method === "GET") return json(res, 200, { current, canSelect, options });
+        if (method === "GET") return json(res, 200, { current, canSelect, options: [...options, ...macOptions(macs)] });
         if (computerSelectionTurns.get(internalCapability.threadId) !== source) return json(res, 409, { error: "The person request ended before its computer was selected." });
         if (unoffered) return json(res, 409, { error: unoffered, options });
         const claim = autoVmClaims.get(internalCapability.threadId);
@@ -14397,7 +14469,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (["computer_tools", "computer_call"].includes(parsed.data.action) && store.bot(internalCapability.botId)?.computer === "off") {
           return json(res, 403, { error: "This bot has no computer. Change its Computer setting to use a shared computer's apps and screen." });
         }
-        return json(res, 200, { result: await useMac(parsed.data, internalCapability) });
+        try {
+          return json(res, 200, { result: await useMac(parsed.data, internalCapability) });
+        } catch (error) {
+          if (isMacOffline(error)) return json(res, 200, { result: macOfflineResult() });
+          throw error;
+        }
       }
       if (method === "GET" && path === "/api/internal/agents") {
         const sender = internalSender;
@@ -17023,7 +17100,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const current = resolveRequestAuth(req, {
         sessions, cookieName: SESSION_COOKIE, streamPath: "/api/events", url,
-        loopbackMutationToken: desktopMutationToken, companionMutationToken,
+        loopbackMutationToken: desktopMutationToken,
         features: { sharedComputers: lendingEnabled() }, loopbackTrust: LOOPBACK.trust, cliOwnerToken, localToolsToken,
       });
       if (!current.auth) return json(res, current.status, { error: current.error });
@@ -17665,7 +17742,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const replyTo = resolveReplyTarget(threadId, body.replyToId);
       const browserOrigin = typeof req.headers.origin === "string" && req.headers.origin.trim() !== "";
       const via: "api" | undefined =
-        auth.kind === "loopback" && (fromLocalTools(auth) || (!DESKTOP_MANAGED && !browserOrigin)) ? "api" : undefined;
+        fromLocalTools(auth) || (auth.kind === "loopback" && !DESKTOP_MANAGED && !browserOrigin) ? "api" : undefined;
       if (via) {
         console.warn(`room message from ${requestSource(req)} through the local API (no session, no browser origin) into "${group.name}"`);
       }
@@ -18018,7 +18095,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const template = resolveBotCreationDefaults(cfg.newBotDefaults, body);
       const settings = template.profile;
-      if (auth.kind === "loopback" && auth.localTools) Object.assign(settings, { approvalMode: "ask", autoApprove: false, alwaysAllow: [] });
+      if (fromLocalTools(auth)) Object.assign(settings, { approvalMode: "ask", autoApprove: false, alwaysAllow: [] });
       if (auth.kind === "session" && !auth.scopes.includes("admin")) {
         const field = clientBotPatchViolation(settings);
         if (field || body.preset !== undefined || template.skills.length || template.routines.length || Object.keys(template.memory).length) {
@@ -18306,8 +18383,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const refusal = cardAnswerRefusal(auth, bot.threadId, pending.card!.requestId!, "allow");
       if (refusal) return json(res, 403, { error: refusal });
       if (allowKey === MAC_ALLOW_KEY) {
-        macApprovals.allowAlways(bot.id);
-        return json(res, 200, { bot: wireBot(store.bot(bot.id)!), mac: macApprovals.settings() });
+        const mac = macApprovals.update({ mode: "always" });
+        return json(res, 200, { bot: wireBot(store.bot(bot.id)!), mac });
       }
       store.patchTask(bot.id, bot.threadId, {
         alwaysAllow: [...new Set([...(bot.alwaysAllow ?? []), allowKey])].slice(0, 200),
@@ -20710,12 +20787,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, probe);
     }
 
-    const busyProviderSelections = () => store.bots.flatMap((bot) => {
-      const busyTasks = store.tasks(bot.id).filter((task) => threadBusy(bot.id, task.threadId));
-      const selections = busyTasks.map((task) => botForThread(bot.id, task.threadId)!.modelSelection);
-      if (activeGroupTurnForBot(bot.id) || (bot.busy && busyTasks.length === 0)) selections.push(bot.modelSelection);
-      return selections;
-    });
     const claudeUpdate = /^\/api\/instances\/([\w.-]+)\/claude-update$/.exec(path);
     if (method === "POST" && claudeUpdate) {
       if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
@@ -22067,17 +22138,6 @@ server.listen(PORT, "127.0.0.1", async () => {
   setInterval(expireDelegationsNow, DELEGATION_SWEEP_MS).unref();
 });
 
-const TUNNEL_SOCKET = process.env.LATERDOG_TUNNEL_SOCKET?.trim() || null;
-let tunnelListener: ReturnType<typeof createServer> | null = null;
-if (TUNNEL_SOCKET) {
-  if (process.platform !== "win32") rmSync(TUNNEL_SOCKET, { force: true });
-  tunnelListener = createServer(handleRequest);
-  desktopViewer.attach(tunnelListener, handleRequest);
-  tunnelListener.listen(TUNNEL_SOCKET, () => {
-    console.log(`later.dog tunnel listener on ${TUNNEL_SOCKET}`);
-  });
-}
-
 const gracefulShutdown = createGracefulShutdown({
   cleanup: [
     () => {
@@ -22096,7 +22156,6 @@ const gracefulShutdown = createGracefulShutdown({
       calendarCalls?.stop();
       memoryUpkeep.stop();
       webhookIngress?.server.close();
-      tunnelListener?.close();
     },
     async () => { await managedDesktop.close(); await registry.disposeAll(); },
     async () => {

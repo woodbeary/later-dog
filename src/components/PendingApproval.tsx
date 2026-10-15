@@ -244,7 +244,7 @@ export function PendingApprovalActions({
       {!durableRequest && bot && pending.allowKey && (
         <button
           onClick={() => decide("allow", true)}
-          title={pending.allowKey === MAC_ALLOW_KEY ? t("approval.action.stopAskingMac", { name: bot.name }) : t("approval.action.stopAsking", { name: bot.name, key: pending.allowKey })}
+          title={pending.allowKey === MAC_ALLOW_KEY ? t("approval.action.stopAskingMacAll") : t("approval.action.stopAsking", { name: bot.name, key: pending.allowKey })}
           className={cn(base, durable)}
         >
           {t("approval.action.alwaysAllow")}

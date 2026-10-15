@@ -22,7 +22,7 @@ function homeObserver(activeId = "local") {
     cloudOfferState: () => ({ signedIn: () => calls.push("signed-in") }),
     cloudAutoMove: { stop: () => calls.push("stop-copy") }, homeFellBack: false,
     connectCloudHome: () => { calls.push("connect-home"); return Promise.resolve(); },
-    runCloudAutoMove: () => { calls.push("copy-workspace"); return Promise.resolve(); },
+    syncCloudWindow: () => { calls.push("sync-window"); return Promise.resolve(); },
     sharingController: () => ({ forget: () => calls.push("forget-home") }),
     activeOrigin: () => context.environmentsState.activeId === "local" ? "http://127.0.0.1:8799" : "https://custom.fixture.test",
     persistEnvironments: next => { context.environmentsState = next; },
@@ -35,12 +35,12 @@ function homeObserver(activeId = "local") {
 }
 
 for (const activeId of ["local", "custom", "cloud-1"]) {
-  test(`sign-in and account refresh preserve ${activeId} without navigation or workspace copying`, () => {
+  test(`account refresh hands every state to the window controller and does not navigate itself (${activeId})`, () => {
     const { context, calls } = homeObserver(activeId);
     const before = JSON.stringify(context.environmentsState);
     for (const state of [connected(), connected({ status: "provisioning" }), connected(), { status: "unavailable", account: { id: "a" } }]) context.observeCloudHome(state);
     assert.equal(JSON.stringify(context.environmentsState), before);
-    assert.deepEqual(calls, ["signed-in", "signed-in", "signed-in"]);
+    assert.deepEqual(calls, ["signed-in", "sync-window", "signed-in", "sync-window", "signed-in", "sync-window", "sync-window"]);
   });
 }
 
@@ -65,22 +65,17 @@ test("sign-out forgets a saved Cloud connection, but quiet restoration does not"
   assert.equal(leaveHomeNow({ state: { status: "unavailable", message: "restore-failed" }, homeEntry: entry }), false);
 });
 
-test("account sign-in keeps the explicit Server menu available for returning to saved workspaces", () => {
+test("the application menu is built without any server selection hooks", () => {
   let options;
-  const switched = [];
   const context = vm.createContext({
     Menu: { setApplicationMenu: () => {} },
     buildApplicationMenu: value => { options = value; return value; },
     environmentsState: { activeId: "cloud-1", environments: [{ id: "cloud-1", name: "My Cloud", origin: HOME }] },
-    cloudAccount: { state: connected },
-    workspaceMenuAction: action => action(), switchEnvironment: id => switched.push(id),
-    addServerFromClipboard: () => {}, forgetEnvironment: () => {}, mainWindow: null,
+    cloudAccount: { state: connected }, mainWindow: null,
   });
   vm.runInContext(source.slice(source.indexOf("function refreshApplicationMenu("), source.indexOf("function currentWindowTitle(")), context);
   context.refreshApplicationMenu();
-  assert.notEqual(options.serverMenu, false);
-  options.onSwitch("local");
-  assert.deepEqual(switched, ["local"]);
+  assert.deepEqual(Object.keys(options), ["onOpenSettings"]);
 });
 
 test("the sign-in screen is offered once: a Mac that said not now, or signed in, is never asked again", () => {

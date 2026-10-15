@@ -16,6 +16,7 @@ if (variantLogsDir) app.setAppLogsPath(variantLogsDir);
 import { startCua, stopCua, registerCuaIpc, setCuaStateListener } from "./cua.mjs";
 import { startLaterDogSupervisor } from "./laterdog-supervisor.mjs";
 import { removeLocalControlToken, startLocalControlToken } from "./local-control-token.mjs";
+import { cloudAccessPath, createCloudAppsAccess } from "./cloud-apps-access.mjs";
 import { createAndroidDeviceController } from "./android-device.mjs";
 import { finishSpeech, startSpeech, stopSpeech, voiceNoteAudio } from "./speech.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
@@ -57,23 +58,7 @@ import {
   managedComposioChildEnvironment,
   normalizeManagedComposioBrokerUrl,
 } from "./managed-composio.mjs";
-import {
-  createManagedCompanionTunnel,
-  managedCompanionTunnelAccess,
-  resolveCloudflaredBinary,
-  resolveManagedCompanionGuardian,
-  withManagedCompanionTunnelAccess,
-  withoutManagedCompanionTunnelAccess,
-} from "./managed-companion-tunnel.mjs";
 import { createSecureCredentialState } from "./secure-credential-state.mjs";
-import {
-  createPhoneSecretSaveCoordinator,
-  createPhoneSecretIdentity,
-  decodePhoneSecretSaveRequest,
-  phoneSecretPrivateKeyMessage,
-  readPhoneSecretIdentity,
-  withPhoneSecretIdentity,
-} from "./phone-secret-identity.mjs";
 import {
   desktopCompanionAccess,
   desktopCompanionRendererArguments,
@@ -84,12 +69,6 @@ import {
 } from "./desktop-companion-client.mjs";
 import { isKnownSkin, skinChrome } from "./skin-overlay.cjs";
 import { readSecureCredentials } from "./secure-credentials.mjs";
-import { createControlPlaneClient } from "./control-plane-client.mjs";
-import {
-  companionAccountCleanupPending,
-  createCompanionAccountService,
-  resolveCompanionControlPlaneURL,
-} from "./companion-account-service.mjs";
 import capabilitiesModule from "./capabilities.cjs";
 import environmentsModule from "./environments.cjs";
 import localOriginModule from "./local-origin.cjs";
@@ -100,12 +79,14 @@ import { acquireDataDirLease } from "./data-dir-lease.mjs";
 import { createManagedDesktopClient, createManagedDesktopRelay, createManagedDesktopStore, managedPortalOrigin } from "./managed-desktop.mjs";
 import { cloudOrigin, cloudPlanSnapshot, configuredCloudOrigin, createCloudAccountClient, createCloudAccountStore } from "./cloud-account.mjs";
 import { CloudSignInError, createCloudSignIn } from "./cloud-sign-in.mjs";
-import { createAccountWorkspace } from "./account-workspace.mjs";
 import { createCloudAutoMove } from "./cloud-auto-move.mjs";
+import { createMacHold } from "./cloud-hold.mjs";
+import { createCloudWindow } from "./cloud-window.mjs";
+import { createCloudAiAccounts, createMacKeychain, MAC_ACCOUNT_ROUTES } from "./cloud-ai-accounts.mjs";
 import { createCloudOffer, leaveHomeNow } from "./cloud-default-home.mjs";
 import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, isCloudHomeEntry, myCloudOrigin, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome } from "./cloud-home.mjs";
 import { createCloudEntry } from "./cloud-entry.mjs";
-import { cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, parseCloudMoveStatus } from "./cloud-move.mjs";
+import { CLOUD_MOVE_LOCAL_ROUTES, cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, parseCloudMoveStatus } from "./cloud-move.mjs";
 import { createOrgLibrary } from "./org-library.mjs";
 import { createCompanyBackups } from "./company-backups.mjs";
 import { createCompanyBackupSchedule } from "./company-backup-schedule.mjs";
@@ -295,6 +276,11 @@ let managedDesktop = null;
 let cloudAccount = null;
 let cloudSignIn = null;
 let cloudAutoMove = null;
+let cloudWindow = null;
+let macHold = null;
+let cloudAiAccounts = null;
+let cloudAppsAccess = null;
+let accountsNote = null;
 let cloudOffer = null;
 let homeFellBack = false;
 let cloudAccountStarted = Promise.resolve();
@@ -316,7 +302,6 @@ const utilityServerExits = new WeakMap();
 const UTILITY_SERVER_STOP_TIMEOUT_MS = 6_500;
 const trustedApprovalMode = createTrustedApprovalModeCoordinator({ randomId: randomUUID });
 const desktopMutationToken = randomBytes(32).toString("base64url");
-const companionMutationToken = randomBytes(32).toString("base64url");
 const localControl = startLocalControlToken(app.getPath("userData"), (line) => slog(line));
 const serverLiveness = createServerLiveness({ port: () => SERVER_PORT, log: slog });
 const serverSupervisor = createServerSupervisor({
@@ -330,6 +315,7 @@ const serverSupervisor = createServerSupervisor({
     serverLiveness.start(proc);
     syncManagedComposioCredentials();
     orgLibrary?.runtimeReady();
+    void macHold?.flush();
     if (managedDesktop) void managedDesktop.refresh().catch(() => {});
     routineWake.start();
     for (const win of BrowserWindow.getAllWindows()) {
@@ -379,13 +365,14 @@ async function stopUtilityServer(proc, timeoutMs = UTILITY_SERVER_STOP_TIMEOUT_M
     }),
   ]).finally(() => clearTimeout(timer));
 }
-let phoneSecretIdentity = null;
 let desktopRemoteAccess = null;
 let desktopCompanionRelay = null;
 
 const CREDENTIALS_FILE = path.join(app.getPath("userData"), "credentials.bin");
 
 let credentialStoreUnavailable = false;
+let credentialStoreWasReset = false;
+const credentialStoreCapability = () => (credentialStoreUnavailable ? "unavailable" : credentialStoreWasReset ? "reset" : "ok");
 let credentialStoreUsesFallback = false;
 
 function credentialFallbackAvailable() {
@@ -409,6 +396,11 @@ async function readCredentialStore() {
     readFile: () => fs.readFileSync(CREDENTIALS_FILE),
     decrypt: (buffer) => safeStorage.decryptStringAsync(buffer),
     decryptFallback: process.platform === "darwin" ? decryptCredentialFallback : undefined,
+    probe: async () => {
+      const sample = randomBytes(16).toString("hex");
+      return (await safeStorage.decryptStringAsync(await safeStorage.encryptStringAsync(sample))).result === sample;
+    },
+    setAside: (name) => fs.renameSync(CREDENTIALS_FILE, path.join(path.dirname(CREDENTIALS_FILE), name)),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   });
   if (result.status !== "unavailable") credentialStoreUsesFallback = result.usedFallback === true;
@@ -418,6 +410,10 @@ async function readCredentialStore() {
 async function loadSecureCredentials() {
   const result = await readCredentialStore();
   credentialStoreUnavailable = result.status === "unavailable";
+  if (result.status === "reset") {
+    credentialStoreWasReset = true;
+    slog(`credential store reset: the saved file was written with another key and was set aside as ${result.setAsideAs}`);
+  }
   if (credentialStoreUnavailable) {
     slog(`credential store unreadable after retries (${result.error}); saved keys are not loaded this launch`);
   }
@@ -511,41 +507,9 @@ const DESKTOP_CRASH_LOG = path.join(LOG_DIR, "desktop-crashes.log");
 const DESKTOP_CRASH_LOG_MAX_BYTES = 512 * 1024;
 let logStream = null;
 let desktopShutdownStarted = false;
-import {
-  companionAdvertisedHostedUrl,
-  companionEnabledAtRest,
-  companionOriginTarget,
-  companionPairing,
-  companionAccountPairing,
-  companionRevokeAccountDevices,
-  companionRefreshTailscale,
-  companionCloudDesktopAccess,
-  companionBrowserControlAccess,
-  companionRevoke,
-  companionRunning,
-  companionState,
-  rememberCompanionEnabled,
-  rememberCompanionKeepAwake,
-  setCompanionHostedUrl,
-  setCompanionLifecycleListener,
-  startCompanion,
-  stopCompanion,
-} from "./companion.mjs";
 import { createRoutineWakeHold, rememberRoutineWake, routineWakeSettings } from "./routine-wake.mjs";
 
 const { isLocalSender: senderIsLocal, isProfileSender, localOnly, localOnlySync, setLocalOrigin, setProfileOrigin } = localOriginModule;
-
-let companionPowerBlocker = null;
-
-function syncCompanionKeepAwake(companionEnabled, keepAwake) {
-  const shouldBlock = companionEnabled && keepAwake;
-  if (shouldBlock && companionPowerBlocker === null) {
-    companionPowerBlocker = powerSaveBlocker.start("prevent-app-suspension");
-  } else if (!shouldBlock && companionPowerBlocker !== null) {
-    if (powerSaveBlocker.isStarted(companionPowerBlocker)) powerSaveBlocker.stop(companionPowerBlocker);
-    companionPowerBlocker = null;
-  }
-}
 
 const routineWake = createRoutineWakeHold({
   fetchStatus: () => (serverReady
@@ -626,13 +590,6 @@ installDesktopCrashListeners({
   mainWebContents: () => mainWindow?.webContents ?? null,
 });
 
-let managedCompanionConnector = null;
-let companionAccountService = null;
-let accountWorkspace = null;
-let companionDesiredThisLaunch = false;
-let companionLaunchGeneration = 0;
-let advertisementTransition = Promise.resolve();
-
 export async function updateSecureCredentialDocument(derive, afterPersist) {
   if (!secureCredentialState) throw new Error("Secure credentials are not ready");
   try {
@@ -642,274 +599,12 @@ export async function updateSecureCredentialDocument(derive, afterPersist) {
   }
 }
 
-async function ensurePhoneSecretIdentity() {
-  const existing = readPhoneSecretIdentity(secureCredentialState?.read() ?? secureCredentials);
-  if (existing) {
-    phoneSecretIdentity = existing;
-    return existing;
-  }
-  try {
-    const created = await createPhoneSecretIdentity();
-    let identity = created;
-    await updateSecureCredentialDocument((credentials) => {
-      identity = readPhoneSecretIdentity(credentials) ?? created;
-      return withPhoneSecretIdentity(credentials, identity);
-    });
-    phoneSecretIdentity = identity;
-    return identity;
-  } catch (error) {
-    phoneSecretIdentity = null;
-    slog(`phone credential key unavailable: ${error?.message ?? error}`);
-    return null;
-  }
-}
-
-function publicManagedCompanionState() {
-  const access = managedCompanionTunnelAccess(secureCredentials);
-  const status = managedCompanionConnector?.getStatus();
-  if (status) {
-    const publicState = {
-      status: status.status,
-      configured: status.configured,
-      ready: status.ready,
-    };
-    if (status.endpoint) publicState.url = status.endpoint;
-    if (status.retryInMs) publicState.retryInMs = status.retryInMs;
-    if (status.error) publicState.error = status.error;
-    return publicState;
-  }
-  return access
-    ? { status: "stopped", configured: true, ready: false, url: access.endpoint }
-    : { status: "unconfigured", configured: false, ready: false };
-}
-
-function decorateDesktopCompanionState(state) {
-  syncCompanionKeepAwake(state.enabled && !state.error, state.keepAwake === true);
-  return { ...state, managedConnection: publicManagedCompanionState() };
-}
-
-async function desktopCompanionState() {
-  return decorateDesktopCompanionState(await companionState());
-}
-
-function companionLaunchOptions(hostedUrl = null) {
-  return {
-    resourcesPath: process.resourcesPath,
-    harnessPort: SERVER_PORT,
-    mutationToken: companionMutationToken,
-    hostedUrl,
-    secretPublicKey: app.isPackaged && serverProc ? phoneSecretIdentity?.publicKey ?? null : null,
-    log: slog,
-  };
-}
-
-function ensureManagedCompanionConnector() {
-  if (managedCompanionConnector) return managedCompanionConnector;
-  managedCompanionConnector = createManagedCompanionTunnel({
-    binaryPath: resolveCloudflaredBinary({
-      isPackaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-      appPath: app.getAppPath(),
-    }),
-    guardianEntry: resolveManagedCompanionGuardian({ appPath: app.getAppPath() }),
-    runtimeExecutable: process.execPath,
-    runtimeRoot: path.join(app.getPath("userData"), "managed-companion-tunnel"),
-    onChange: (status) => {
-      slog(`managed companion connection ${status.status}`);
-      if (!companionDesiredThisLaunch) return;
-      void reconcileCompanionAdvertisement(status.ready ? status.endpoint : null);
-    },
-    log: slog,
-  });
-  return managedCompanionConnector;
-}
-
-function reconcileCompanionAdvertisement(
-  endpoint,
-  ownedGeneration = companionLaunchGeneration,
-) {
-  const normalizedEndpoint = endpoint || null;
-  const work = advertisementTransition.then(async () => {
-    if (
-      ownedGeneration !== companionLaunchGeneration ||
-      !companionDesiredThisLaunch ||
-      !companionRunning() ||
-      companionAdvertisedHostedUrl() === normalizedEndpoint
-    ) {
-      return desktopCompanionState();
-    }
-    const updated = await setCompanionHostedUrl(normalizedEndpoint);
-    return { ...updated, managedConnection: publicManagedCompanionState() };
-  });
-  advertisementTransition = work.then(
-    () => {},
-    () => {},
-  );
-  return work;
-}
-
-async function startManagedCompanionConnection({ waitForVerification = true } = {}) {
-  if (companionAccountCleanupPending(secureCredentials)) {
-    return publicManagedCompanionState();
-  }
-  const access = managedCompanionTunnelAccess(secureCredentials);
-  if (!access) return publicManagedCompanionState();
-  const target = companionOriginTarget();
-  if (!target) return publicManagedCompanionState();
-  const operation = ensureManagedCompanionConnector().start({ ...access, originTarget: target });
-  if (!waitForVerification) {
-    void operation.catch(() => {});
-    return publicManagedCompanionState();
-  }
-  const status = await operation;
-  await reconcileCompanionAdvertisement(status.ready ? status.endpoint : null);
-  return publicManagedCompanionState();
-}
-
-async function startDesktopCompanion({ waitForHosted = true, remember = true, managed = true } = {}) {
-  const refusal = managedRemoteAccessRefusal();
-  if (refusal) throw new Error(refusal);
-  companionDesiredThisLaunch = true;
-  companionLaunchGeneration += 1;
-  const localState = await startCompanion(companionLaunchOptions());
-  if (!localState.enabled || localState.error) {
-    companionDesiredThisLaunch = false;
-    return desktopCompanionState();
-  }
-  if (remember) rememberCompanionEnabled(true);
-  if (managed) await startManagedCompanionConnection({ waitForVerification: waitForHosted });
-  return desktopCompanionState();
-}
-
-async function stopDesktopCompanion({ remember = true } = {}) {
-  companionDesiredThisLaunch = false;
-  companionLaunchGeneration += 1;
-  if (remember) rememberCompanionEnabled(false);
-  syncCompanionKeepAwake(false, false);
-  await managedCompanionConnector?.stop();
-  await stopCompanion();
-  return desktopCompanionState();
-}
-
-async function refreshDesktopCompanionTailscale() {
-  if (!companionRunning()) {
-    const started = await startDesktopCompanion({ waitForHosted: false });
-    if (!started.enabled || started.error) return started;
-  }
-  return decorateDesktopCompanionState(await companionRefreshTailscale());
-}
-
-setCompanionLifecycleListener(({ expected, pid }) => {
-  if (expected) return;
-  slog(`owned companion exited unexpectedly pid=${pid ?? "unknown"}`);
-  companionDesiredThisLaunch = false;
-  companionLaunchGeneration += 1;
-  syncCompanionKeepAwake(false, false);
-  void managedCompanionConnector?.stop().catch(() => {});
-});
-
-export async function reconcileManagedCompanionEndpointProvision(provision) {
-  await updateSecureCredentialDocument((credentials) =>
-    withManagedCompanionTunnelAccess(credentials, provision),
-  );
-  if (companionDesiredThisLaunch) {
-    await startManagedCompanionConnection({ waitForVerification: true });
-  }
-  return publicManagedCompanionState();
-}
-
-export async function clearManagedCompanionEndpointCredentials() {
-  await updateSecureCredentialDocument((credentials) =>
-    withoutManagedCompanionTunnelAccess(credentials),
-  );
-  await managedCompanionConnector?.stop();
-  if (companionDesiredThisLaunch) await reconcileCompanionAdvertisement(null);
-  return publicManagedCompanionState();
-}
-
-async function stopManagedCompanionEndpointLocally() {
-  await managedCompanionConnector?.stop();
-  if (companionDesiredThisLaunch) await reconcileCompanionAdvertisement(null);
-  return publicManagedCompanionState();
-}
-
-async function activatePersistedManagedCompanionEndpoint() {
-  if (companionDesiredThisLaunch) {
-    return startManagedCompanionConnection({ waitForVerification: true });
-  }
-  return publicManagedCompanionState();
-}
-
 function installationDisplayName() {
   const hostname = [...os.hostname()]
     .filter((character) => character.codePointAt(0) >= 32 && character.codePointAt(0) !== 127)
     .join("")
     .trim();
   return hostname.slice(0, 80) || "This computer";
-}
-
-function ensureCompanionAccountService() {
-  if (companionAccountService) return companionAccountService;
-  const baseURL = resolveCompanionControlPlaneURL({
-    isPackaged: app.isPackaged,
-    environment: process.env,
-  });
-  let client = null;
-  if (baseURL) {
-    try {
-      client = createControlPlaneClient({ baseURL });
-    } catch {}
-  }
-  companionAccountService = createCompanionAccountService({
-    client,
-    readCredentials: () => secureCredentialState?.read() ?? secureCredentials,
-    updateCredentials: updateSecureCredentialDocument,
-    identity: {
-      name: installationDisplayName(),
-      platform:
-        process.platform === "win32"
-          ? "windows"
-          : process.platform === "darwin"
-            ? "darwin"
-            : "linux",
-      appVersion: app.getVersion().slice(0, 64),
-    },
-    newClientInstanceId: randomUUID,
-    activatePersistedEndpoint: activatePersistedManagedCompanionEndpoint,
-    stopManagedEndpoint: stopManagedCompanionEndpointLocally,
-    managedConnectionState: publicManagedCompanionState,
-    companionIsOn: () => companionDesiredThisLaunch,
-    autoRecover: true,
-    log: (line) => slog(line),
-  });
-  return companionAccountService;
-}
-
-function ensureAccountWorkspace() {
-  if (accountWorkspace) return accountWorkspace;
-  accountWorkspace = createAccountWorkspace({
-    account: () => cloudAccount,
-    controlPlane: createControlPlaneClient({ baseURL: cloudOrigin() }),
-    readCredentials: () => secureCredentialState?.read() ?? secureCredentials,
-    updateCredentials: updateSecureCredentialDocument,
-    identity: { name: installationDisplayName(), platform: process.platform === "win32" ? "windows" : process.platform, appVersion: app.getVersion().slice(0, 64) },
-    startCompanion: async () => {
-      if (!serverReady || desktopShutdownStarted) throw new Error("This workspace is not ready");
-      if (!companionRunning()) await startDesktopCompanion({ waitForHosted: false, remember: false });
-      else await startManagedCompanionConnection({ waitForVerification: false });
-    },
-    stopEndpoint: stopManagedCompanionEndpointLocally,
-    companionState: desktopCompanionState,
-    connectionState: publicManagedCompanionState,
-    openPairing: companionAccountPairing,
-    closePairing: token => companionPairing(false, token),
-    revokeAccountDevices: async () => {
-      if (!companionRunning()) await startDesktopCompanion({ remember: false, managed: false });
-      await companionRevokeAccountDevices();
-    },
-    onStatus: status => slog(`account workspace ${status}`),
-  });
-  return accountWorkspace;
 }
 
 async function gatherDiagnostics() {
@@ -947,16 +642,6 @@ let serverStartConflictOnly = false;
 
 
 
-function syncPhoneSecretKey(proc) {
-  const message = phoneSecretPrivateKeyMessage(phoneSecretIdentity);
-  if (!message) return;
-  try {
-    proc.postMessage(message);
-  } catch (error) {
-    slog(`phone credential key sync failed: ${error?.message ?? error}`);
-  }
-}
-
 function ensureCloudAccount() {
   if (cloudAccount) return cloudAccount;
   if (!app.isPackaged || desktopRemoteAccess) throw new Error("later.dog Cloud sign-in requires the local desktop app.");
@@ -974,7 +659,6 @@ function ensureCloudAccount() {
       rememberedHome = rememberedCloudHome(rememberedHome, state);
       sendUpdaterState();
       computerSharing?.cloudChanged();
-      void accountWorkspace?.changed();
       pushCloudAccountState(state);
       refreshApplicationMenu();
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitle(currentWindowTitle());
@@ -1021,8 +705,15 @@ function observeCloudHome(state) {
   try {
     if (state.status === "connected") cloudOfferState().signedIn();
     const homeEntry = environmentsState.environments.find(entry => entry.name === CLOUD_HOME_NAME) ?? null;
-    if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); return; }
+    if (state.status === "signed-out" && state.message !== "restoring") {
+      cloudMove?.cancel();
+      cloudAiAccounts?.stop();
+      takeAppsCloudAccess();
+      if (macHold) void macHold.set(false);
+    }
+    if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); void syncCloudWindow(state); return; }
     if (state.status === "signed-out") { homeFellBack = false; cloudAutoMove?.stop(); }
+    void syncCloudWindow(state);
   } catch (error) {
     slog(`cloud home: ${error?.message ?? error}`);
   }
@@ -1245,7 +936,6 @@ function syncDesktopMutationToken(proc) {
     proc.postMessage({
       type: "laterdog:desktop-mutation-token",
       token: desktopMutationToken,
-      companionToken: companionMutationToken,
       ...(localControl ? { localToolsToken: localControl.token } : {}),
     });
   } catch (error) {
@@ -1273,23 +963,6 @@ function installDesktopMutationHeader() {
       },
     });
   });
-}
-
-const savePhoneSecretOnce = createPhoneSecretSaveCoordinator((target, value) =>
-  saveWorkspaceCredential(target, value),
-);
-
-function receivePhoneSecretSave(proc, rawMessage) {
-  const request = decodePhoneSecretSaveRequest(rawMessage);
-  if (!request) return false;
-  void savePhoneSecretOnce(request).then((result) => {
-    try {
-      proc.postMessage(result);
-    } catch (error) {
-      slog(`phone credential save result failed: ${error?.message ?? error}`);
-    }
-  });
-  return true;
 }
 
 async function startServerOn(port) {
@@ -1336,7 +1009,6 @@ async function startServerOn(port) {
       if (trustedApprovalMode.receive(proc, message)) return;
       if (managedDesktopRelay.receive(proc, message)) return;
       if (orgLibrary?.receive(message)) return;
-      if (receivePhoneSecretSave(proc, message)) return;
     } catch (error) {
       slog(`desktop private sync rejected: ${error?.message ?? error}`);
     }
@@ -1345,7 +1017,6 @@ async function startServerOn(port) {
     slog(`spawned pid=${proc.pid}`);
     if (!serverSupervisor.isCurrent(proc)) return;
     syncDesktopMutationToken(proc);
-    syncPhoneSecretKey(proc);
   });
   let exited = false;
   proc.once("exit", (code) => {
@@ -1633,7 +1304,7 @@ ipcMain.on("desktop:unread-count", (event, value) => {
   applyUnreadBadge(sender);
 });
 
-const { LOCAL_ID, activeEnvironment, allowedOrigins, parseEnvironments, parseHostedWorkspaceLink, serializeEnvironments, withActive, withEnvironment, withoutEnvironment, workspaceMenuTemplate, workspaceNavigationAllowed, workspaceSenderAllowed, workspaceSummary, workspaceWindowTitle } = environmentsModule;
+const { LOCAL_ID, activeEnvironment, allowedOrigins, parseEnvironments, parseHostedWorkspaceLink, serializeEnvironments, withActive, withEnvironment, withoutEnvironment, workspaceNavigationAllowed, workspaceSenderAllowed, workspaceSummary, workspaceWindowTitle } = environmentsModule;
 let environmentsState = { environments: [], activeId: LOCAL_ID };
 let computerSharing;
 const sharingPrompts = new Set();
@@ -1911,11 +1582,6 @@ async function startProfiles() {
 function refreshApplicationMenu() {
   Menu.setApplicationMenu(
     buildApplicationMenu({
-      environments: environmentsState.environments,
-      activeId: environmentsState.activeId,
-      onSwitch: (id) => void workspaceMenuAction(() => switchEnvironment(id)),
-      onAddFromClipboard: () => void addServerFromClipboard(),
-      onForget: (id) => void workspaceMenuAction(() => forgetEnvironment(id)),
       onOpenSettings: () => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("app:open-settings");
       },
@@ -1953,7 +1619,7 @@ async function switchEnvironment(id) {
   const entry = environmentsState.environments.find((candidate) => candidate.id === id);
   if (entry && cloudAccount && isCloudHomeEntry(entry, { homeOrigin: cloudAccount.homeTarget()?.origin, remembered: rememberedHome })) {
     try { await connectCloudHome(); return; } catch (error) {
-      slog(`cloud home: could not connect from the Server menu (${error?.message ?? error})`);
+      slog(`cloud home: could not connect (${error?.message ?? error})`);
       if (!(await cloudHomeSignedIn(entry.origin))) { await openLendingSettings(); return; }
     }
   }
@@ -1970,7 +1636,7 @@ const organizationEntry = createOrganizationEntry({
       buttons: [kind === "companion" ? "Disconnect and restart locally" : "Use this computer", "Cancel"],
       defaultId: 1, cancelId: 1,
       message: kind === "companion" ? `Disconnect from ${name} to sign in locally?` : `Leave ${name} and sign in on this computer?`,
-      detail: `${origin}\n\nOrganization sign-in connects company models to this computer. ${kind === "companion" ? "This disconnects desktop companion access and restarts the app. You can pair again later." : "The hosted connection stays saved and can be selected again from the Server menu."} No remote bots, conversations or provider accounts are moved or deleted.`,
+      detail: `${origin}\n\nOrganization sign-in connects company models to this computer. ${kind === "companion" ? "This disconnects desktop companion access and restarts the app. You can pair again later." : "The hosted connection stays saved."} No remote bots, conversations or provider accounts are moved or deleted.`,
     });
     return response === 0;
   },
@@ -2026,7 +1692,7 @@ async function openCloudEntry() {
   await cloudAccountRestored();
   const active = activeEnvironment(environmentsState);
   const showingCloud = Boolean(active) && active.origin === cloudAccount?.homeTarget()?.origin;
-  if (active && !showingCloud) throw new Error("Your current workspace is still open. Choose Server → This computer to manage this Mac's Cloud account.");
+  if (active && !showingCloud) throw new Error("Your current workspace is still open. Return to this computer to manage this Mac's Cloud account.");
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow({ deferNavigation: !showingCloud });
   if (showingCloud) return true;
   if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) {
@@ -2047,15 +1713,6 @@ function openWorkspaceSettings(computerId, panel = "computer") {
     profiles?.usePersonal();
     persistEnvironments(withActive(environmentsState, LOCAL_ID));
     navigateMainWindow(`${rendererOrigin()}/?desktop-settings=workspaces${id ? `&${copy ? "copy-to" : "share-computer"}=${encodeURIComponent(id)}` : ""}`);
-  }
-}
-
-async function addServerFromClipboard() {
-  try {
-    return await connectHostedWorkspace(clipboard.readText());
-  } catch (error) {
-    await dialog.showMessageBox({ type: "info", message: "Could not connect to the server", detail: error.message });
-    return false;
   }
 }
 
@@ -2114,36 +1771,6 @@ async function cloudHomeSignedIn(origin) {
     return response.ok && (await response.json())?.kind === "session";
   } catch {
     return false;
-  }
-}
-
-async function forgetEnvironment(id) {
-  const env = environmentsState.environments.find((e) => e.id === id);
-  if (!env) return;
-  const { response } = await dialog.showMessageBox({
-    type: "warning",
-    buttons: ["Forget", "Cancel"],
-    defaultId: 1,
-    cancelId: 1,
-    message: `Forget “${env.name}”?`,
-    detail: "This app signs out of that server. The server keeps its own session list; revoke it there too if the device is gone.",
-  });
-  if (response !== 0) return;
-  sharingController().forget(env);
-  const wasActive = environmentsState.activeId === id;
-  persistEnvironments(withoutEnvironment(environmentsState, id));
-  if (wasActive) navigateMainWindow(activeOrigin());
-  try {
-    const response = await session.defaultSession.fetch(`${env.origin}/api/auth/logout`, { method: "POST", credentials: "include", headers: { origin: env.origin }, signal: AbortSignal.timeout(5_000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  } catch (error) {
-    slog(`forget server: logout skipped (${error?.message ?? error})`);
-    await dialog.showMessageBox({ type: "warning", message: "Connection forgotten; server sign-out could not be confirmed", detail: "Computer sharing is stopped. Revoke this desktop’s session on that server when it is reachable again." });
-  }
-  try {
-    await session.defaultSession.clearStorageData({ origin: env.origin, storages: ["localstorage", "indexdb", "serviceworkers", "cachestorage"] });
-  } catch (error) {
-    slog(`forget server: storage clear failed: ${error?.message ?? error}`);
   }
 }
 
@@ -2287,7 +1914,7 @@ function createWindow({ deferNavigation = false } = {}) {
     void dialog.showMessageBox({
       type: "warning",
       message: `${remote.name} is not reachable`,
-      detail: `${errorDescription}. Showing the local server instead; choose it again from the Server menu when it is back.`,
+      detail: `${errorDescription}. Showing the local server instead.`,
     });
     void workspaceMenuAction(() => switchEnvironment(LOCAL_ID));
   });
@@ -2657,39 +2284,12 @@ ipcMain.handle("speech:finish", localOnly("speech:finish", () => {
   if (nativeActions.appleSpeech) finishSpeech();
 }));
 
-ipcMain.handle("companion:state", localOnly("companion:state", () => desktopCompanionState()));
-function managedRemoteAccessRefusal() {
-  const policy = managedDesktop?.policy?.();
-  return policy?.remoteAccess === false ? `${policy.organizationName} does not allow remote access to this computer.` : null;
-}
-ipcMain.handle("companion:start", localOnly("companion:start", () => startDesktopCompanion()));
-ipcMain.handle("companion:stop", localOnly("companion:stop", () => stopDesktopCompanion()));
-ipcMain.handle("companion:keep-awake", localOnly("companion:keep-awake", async (_event, enabled) => {
-  rememberCompanionKeepAwake(Boolean(enabled));
-  return desktopCompanionState();
-}));
 ipcMain.handle("routines:wake-state", localOnly("routines:wake-state", () => routineWake.poll()));
 ipcMain.handle("routines:keep-awake", localOnly("routines:keep-awake", async (_event, enabled) => {
   rememberRoutineWake(app.getPath("userData"), Boolean(enabled));
   return routineWake.poll();
 }));
 ipcMain.handle("release-check:set", localOnly("release-check:set", (_event, enabled) => setReleaseCheckEnabled(enabled === true)));
-ipcMain.handle("companion:refresh-tailscale", localOnly("companion:refresh-tailscale", () => refreshDesktopCompanionTailscale()));
-ipcMain.handle("companion:pairing", localOnly("companion:pairing", (_event, open, expectedToken) => {
-  const refusal = open ? managedRemoteAccessRefusal() : null;
-  if (refusal) throw new Error(refusal);
-  return companionPairing(Boolean(open), expectedToken).then(decorateDesktopCompanionState);
-}));
-ipcMain.handle("companion:cloud-desktop", localOnly("companion:cloud-desktop", (_event, deviceId, allowed) =>
-  companionCloudDesktopAccess(deviceId, Boolean(allowed)).then(() => desktopCompanionState()),
-));
-ipcMain.handle("companion:browser-control", localOnly("companion:browser-control", (_event, deviceId, allowed) =>
-  companionBrowserControlAccess(deviceId, Boolean(allowed)).then(() => desktopCompanionState()),
-));
-ipcMain.handle("companion:revoke", localOnly("companion:revoke", (_event, deviceId) =>
-  companionRevoke(deviceId).then(() => desktopCompanionState()),
-));
-
 function publicDesktopRemoteState() {
   return desktopRemoteAccess
     ? {
@@ -2739,16 +2339,6 @@ ipcMain.handle("desktop-remote:disconnect", localOnly("desktop-remote:disconnect
   relaunchAfterDesktopRemoteChange();
   return { active: false };
 }));
-
-ipcMain.handle("companion-account:state", localOnly("companion-account:state", () => ensureCompanionAccountService().state()));
-ipcMain.handle("companion-account:request-code", localOnly("companion-account:request-code", (_event, email) =>
-  ensureCompanionAccountService().requestCode(email),
-));
-ipcMain.handle("companion-account:verify-code", localOnly("companion-account:verify-code", (_event, email, code) =>
-  ensureCompanionAccountService().verifyCode(email, code),
-));
-ipcMain.handle("companion-account:retry", localOnly("companion-account:retry", () => ensureCompanionAccountService().retry()));
-ipcMain.handle("companion-account:sign-out", localOnly("companion-account:sign-out", () => ensureCompanionAccountService().signOut()));
 
 const workspaceOnly = (handler) => (event, ...args) => {
   if (!workspaceSenderAllowed(event, mainWindow?.webContents, environmentsState, localPageOrigin())) throw new Error("These controls are only available in the main desktop window");
@@ -2828,7 +2418,6 @@ ipcMain.handle("company-backups:restore", localWorkspaceOnly("company-backups:re
 }));
 
 let cloudMove = null;
-const CLOUD_MOVE_LOCAL_ROUTES = /^\/api\/(?:workspace-backup\/(?:status|export|download\/[a-f\d-]{36})|cloud-move\/estimate)$/;
 
 function ensureCloudMove() {
   if (cloudMove) return cloudMove;
@@ -2842,11 +2431,13 @@ function ensureCloudMove() {
     tempRoot: path.join(app.getPath("temp"), tempName(variant, "cloud-move")),
     availableBytes: async directory => { const disk = await fs.promises.statfs(directory); return disk.bavail * disk.bsize; },
     onState: publishCloudMoveState,
+    log: slog,
   });
   return cloudMove;
 }
 
 function publishCloudMoveState(state) {
+  if (state?.phase === "done") cloudWindow?.cancelRetry();
   const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
   if (!contents || desktopRemoteAccess) return;
   const active = activeEnvironment(environmentsState)?.origin;
@@ -2875,6 +2466,7 @@ function cloudMoveDismissed(origin) {
   try { return JSON.parse(fs.readFileSync(cloudMoveChoicesFile(), "utf8"))?.dismissed?.includes(origin) === true; } catch { return false; }
 }
 function dismissCloudMove(origin) {
+  if (accountsNote?.origin === origin) accountsNote = null;
   const move = ensureCloudMove();
   if (!move.running() && move.state().destination?.origin === origin) move.reset();
   if (!origin || cloudMoveDismissed(origin)) return;
@@ -2898,34 +2490,111 @@ async function cloudMoveOverview(dest, onServerPage) {
   const automatic = dest.kind === "cloud" && onServerPage === true;
   const suggest = Boolean(!automatic && onServerPage && !blocked && cloud?.empty && hasWork && fit?.fit !== "never" && view.phase === "idle" && !cloudMoveDismissed(dest.origin));
   const shown = value => { if (!value) return null; const { environmentId: _, ...rest } = value; return rest; };
-  return { ...view, local: shown(local), cloud: shown(cloud), fit, suggest, ...(automatic ? { automatic: true } : {}), destination: { id: dest.id, name: dest.name, origin: dest.origin, kind: dest.kind }, blocked,
+  const accounts = automatic && accountsNote?.origin === dest.origin ? { accounts: accountsNote.accounts } : {};
+  return { ...view, ...accounts, local: shown(local), cloud: shown(cloud), fit, suggest, ...(automatic ? { automatic: true } : {}), destination: { id: dest.id, name: dest.name, origin: dest.origin, kind: dest.kind }, blocked,
     ...(blocked === "busy_elsewhere" ? { busyWith: state.destination?.name } : {}) };
 }
 
-function cloudHomeDestination() {
-  const home = cloudAccount?.homeTarget();
-  if (!home) return null;
-  const entry = environmentsState.environments.find(candidate => candidate.origin === home.origin);
-  return destinationFor({ id: entry?.id ?? "cloud", name: CLOUD_HOME_NAME, origin: home.origin, cloud: true });
-}
 function ensureCloudAutoMove() {
   cloudAutoMove ??= createCloudAutoMove({
     move: ensureCloudMove(),
     read: () => readUserData("cloud-auto-move.json"),
     write: contents => writeUserData("cloud-auto-move.json", contents),
     log: slog,
-    onMoved: destination => { if (activeEnvironment(environmentsState)?.origin === destination.origin) navigateMainWindow(destination.origin); },
+    pause: held => ensureMacHold().set(held),
   });
   return cloudAutoMove;
 }
-function runCloudAutoMove(manual) {
+function ensureMacHold() {
+  macHold ??= createMacHold({
+    request: (route, init) => {
+      if (!serverProc || !serverReady) throw new Error("this Mac's server is not running");
+      return fetch(`http://127.0.0.1:${SERVER_PORT}${route}`, { ...init, redirect: "error", credentials: "omit",
+        headers: { ...Object.fromEntries(new Headers(init.headers)), [DESKTOP_MUTATION_HEADER]: desktopMutationToken } });
+    },
+    log: slog,
+  });
+  return macHold;
+}
+function cloudHomeDestination() {
+  const home = cloudAccount?.homeTarget();
+  if (!home) return null;
+  const entry = environmentsState.environments.find(candidate => candidate.origin === home.origin);
+  return destinationFor({ id: entry?.id ?? "cloud", name: CLOUD_HOME_NAME, origin: home.origin, cloud: true });
+}
+function ensureCloudWindow() {
+  cloudWindow ??= createCloudWindow({
+    autoMove: ensureCloudAutoMove(),
+    hold: ensureMacHold(),
+    destinationFor: choice => {
+      const entry = environmentsState.environments.find(candidate => candidate.origin === choice.origin);
+      return destinationFor({ id: entry?.id ?? "cloud", name: CLOUD_HOME_NAME, origin: choice.origin, cloud: true });
+    },
+    showHome: async destination => {
+      if (activeEnvironment(environmentsState)?.origin === destination.origin) return;
+      await connectCloudHome();
+    },
+    showLocal: async () => {
+      if (!activeEnvironment(environmentsState)) return;
+      persistEnvironments(withActive(environmentsState, LOCAL_ID));
+      navigateMainWindow(activeOrigin());
+    },
+    retryWith: () => runCloudAutoMove(),
+    log: slog,
+  });
+  return cloudWindow;
+}
+function syncCloudWindow(state, manual = false) {
   if (!app.isPackaged || desktopRemoteAccess || !serverReady) return Promise.resolve(null);
-  const accountId = cloudAccount?.state().account?.id, destination = cloudHomeDestination();
-  if (!accountId || !destination) return Promise.resolve(null);
-  const engine = ensureCloudAutoMove();
-  return (manual ? engine.retry(accountId, destination) : engine.ensure(accountId, destination)).catch(error => { slog(`cloud move: ${error?.message ?? error}`); return null; });
+  const controller = ensureCloudWindow();
+  return (manual ? controller.retry(state) : controller.sync(state)).then(result => {
+    if (result?.kind === "cloud" && (result.move === "moved" || result.move === "nothing")) handOverAccounts(cloudHomeDestination());
+    if (result?.kind === "cloud") giveAppsCloudAccess(cloudHomeDestination());
+    return result;
+  }).catch(error => { slog(`cloud window: ${error?.message ?? error}`); return null; });
+}
+function runCloudAutoMove() {
+  return cloudAccount ? syncCloudWindow(cloudAccount.state(), true) : Promise.resolve(null);
 }
 
+function ensureCloudAiAccounts() {
+  cloudAiAccounts ??= createCloudAiAccounts({
+    localRequest: (route, init) => {
+      if (!serverProc || !serverReady || !MAC_ACCOUNT_ROUTES.test(route)) throw new Error("This installation changed. Try again.");
+      return fetch(`http://127.0.0.1:${SERVER_PORT}${route}`, { ...init, redirect: "error", credentials: "omit",
+        headers: { ...Object.fromEntries(new Headers(init.headers)), [DESKTOP_MUTATION_HEADER]: desktopMutationToken } });
+    },
+    keychain: process.platform === "darwin" ? createMacKeychain() : null,
+    read: () => readUserData("cloud-ai-accounts.json"),
+    write: contents => writeUserData("cloud-ai-accounts.json", contents),
+    log: slog,
+    onChange: summary => showAccountsNote(summary),
+  });
+  return cloudAiAccounts;
+}
+function ensureCloudAppsAccess() {
+  cloudAppsAccess ??= createCloudAppsAccess({ file: cloudAccessPath(app.getPath("userData")), log: slog });
+  return cloudAppsAccess;
+}
+function giveAppsCloudAccess(destination) {
+  if (!app.isPackaged || desktopRemoteAccess || destination?.kind !== "cloud" || !destination.origin) return;
+  void ensureCloudAppsAccess().ensure(destination);
+}
+function takeAppsCloudAccess() {
+  if (!app.isPackaged) return;
+  void ensureCloudAppsAccess().forget().catch(error => slog(`cloud apps: ${error?.message ?? error}`));
+}
+function handOverAccounts(destination) {
+  if (!app.isPackaged || desktopRemoteAccess || !serverReady || destination?.kind !== "cloud" || !destination.origin) return;
+  void ensureCloudAiAccounts().handAccountsToCloud({ homeOrigin: destination.origin, session: destination.grant }).catch(error => slog(`cloud accounts: ${error?.message ?? error}`));
+}
+function showAccountsNote(summary) {
+  const destination = cloudHomeDestination();
+  const moved = summary.moved.claude + summary.moved.chatgpt;
+  if (!destination?.origin || (!moved && !summary.waiting.length && !summary.stayed.some(entry => entry.why !== "chatgpt-plan"))) return;
+  accountsNote = { origin: destination.origin, accounts: { moved: summary.moved, stayed: [...summary.stayed.map(entry => entry.name), ...summary.waiting] } };
+  publishCloudMoveState({ ...ensureCloudMove().state(), destination: { id: destination.id, name: destination.name, origin: destination.origin, kind: "cloud" }, accounts: accountsNote.accounts });
+}
 function destinationFor(entry) {
   const homeOrigin = cloudAccount?.homeTarget()?.origin ?? null;
   if (entry.cloud || isCloudHomeEntry(entry, { homeOrigin })) {
@@ -2965,7 +2634,7 @@ ipcMain.handle("cloud-move:start", (event, id) => {
       cloudPageSenderAllowed(event, { contents, homeOrigin: cloudAccount?.homeTarget()?.origin ?? null, activeOrigin: activeEnvironment(environmentsState)?.origin });
     if (!verifiedCloud) { openWorkspaceSettings(dest.id, "copy"); return { phase: "idle" }; }
   }
-  if (asked.remote && dest.kind === "cloud") return runCloudAutoMove(true).then(() => ensureCloudMove().state());
+  if (asked.remote && dest.kind === "cloud") return runCloudAutoMove().then(() => ensureCloudMove().state());
   return ensureCloudMove().move(dest, { requireEmpty: asked.remote }).then(afterCloudMove(dest));
 });
 ipcMain.handle("cloud-move:cancel", (event) => {
@@ -3090,25 +2759,8 @@ ipcMain.handle("environments:switch", localWorkspaceOnly("environments:switch", 
 ipcMain.handle("environments:add-from-link", localWorkspaceOnly("environments:add-from-link", (_event, link, name) => {
   return connectHostedWorkspace(link, typeof name === "string" ? name : undefined);
 }));
-ipcMain.handle("environments:forget", localWorkspaceOnly("environments:forget", (_event, id) => forgetEnvironment(typeof id === "string" ? id : "")));
 
 ipcMain.handle("workspaces:state", workspaceOnly(() => workspaceSummary(environmentsState)));
-let workspaceMenuOpen = false;
-ipcMain.handle("workspaces:menu", workspaceOnly(async () => {
-  if (workspaceMenuOpen) return;
-  workspaceMenuOpen = true;
-  try {
-    const menu = Menu.buildFromTemplate(workspaceMenuTemplate(environmentsState, {
-      onSwitch: (id) => void workspaceMenuAction(() => switchEnvironment(id)),
-      onAddFromClipboard: () => void addServerFromClipboard(),
-      onForget: (id) => void workspaceMenuAction(() => forgetEnvironment(id)),
-    }));
-    await new Promise((resolve) => menu.popup({ window: mainWindow, callback: resolve }));
-  } finally {
-    workspaceMenuOpen = false;
-  }
-}));
-
 ipcMain.handle("desktop:capabilities", async (event) => {
   const profile = askingProfile(event);
   return desktopCapabilities({
@@ -3117,7 +2769,7 @@ ipcMain.handle("desktop:capabilities", async (event) => {
     env: process.env,
     packaged: app.isPackaged,
     localConnection: await cuaReady,
-    credentialStore: profile ? profiles.activeCredentialStore() : credentialStoreUnavailable ? "unavailable" : "ok",
+    credentialStore: profile ? profiles.activeCredentialStore() : credentialStoreCapability(),
   });
 });
 
@@ -3197,8 +2849,6 @@ async function restoreWorkspaceCredentials(credentials) {
   }
   secureCredentials = credentials;
   credentialStoreUnavailable = false;
-  phoneSecretIdentity = readPhoneSecretIdentity(credentials);
-  if (serverProc) syncPhoneSecretKey(serverProc);
   syncManagedComposioCredentials();
   void broadcastDesktopCapabilities().catch(() => {});
 }
@@ -3224,7 +2874,7 @@ ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mo
 
 async function broadcastDesktopCapabilities() {
   const localConnection = await cuaReady;
-  const build = (remote, credentialStore = credentialStoreUnavailable ? "unavailable" : "ok") =>
+  const build = (remote, credentialStore = credentialStoreCapability()) =>
     desktopCapabilities({
       remote,
       platform: process.platform,
@@ -3332,9 +2982,7 @@ app.whenReady().then(async () => {
     afterReload: restoreWorkspaceCredentials,
   });
   secureCredentials = secureCredentialState.read();
-  if (app.isPackaged) await ensurePhoneSecretIdentity();
   desktopRemoteAccess = desktopCompanionAccess(secureCredentials);
-  const hostedAccount = desktopRemoteAccess ? null : ensureCompanionAccountService();
   if (process.platform === "darwin" || process.platform === "linux") {
     session.defaultSession.setDisplayMediaRequestHandler(
       (request, callback) => {
@@ -3418,16 +3066,10 @@ app.whenReady().then(async () => {
   if (desktopShutdownStarted) return;
   if (app.isPackaged && !desktopRemoteAccess) void ensureManagedDesktop().start().then(() => companyBackupSchedule.start()).catch(() => {});
   if (app.isPackaged && !desktopRemoteAccess && configuredCloudOrigin()) {
-    ensureAccountWorkspace();
     cloudAccountRestoring = true;
     cloudAccountStarted = ensureCloudAccount().start().catch(() => {}).finally(() => { cloudAccountRestoring = false; });
   }
   void cloudAccountStarted.then(() => { cloudSignInRestored = true; });
-  if (!desktopRemoteAccess && serverReady && companionEnabledAtRest()) {
-    void (managedDesktop?.whenRestored() ?? Promise.resolve())
-      .then(() => startDesktopCompanion({ waitForHosted: false, remember: false }))
-      .catch(error => slog(`companion auto-start skipped: ${error?.message ?? error}`));
-  }
   setLocalOrigin(rendererOrigin());
   setProfileOrigin(() => profiles?.activeOrigin() ?? null);
   appPermissions = appPermissionHandlers({
@@ -3450,7 +3092,6 @@ app.whenReady().then(async () => {
   const deliveredOrganizationEntry = await deliverOrganizationEntry();
   const deliveredCloudEntry = await cloudEntry.ready();
   if (!restoredOrganizationEntry && !deliveredOrganizationEntry && !deliveredCloudEntry && (!mainWindow || mainWindow.isDestroyed())) createWindow();
-  if (hostedAccount) void hostedAccount.restore().catch(() => {});
   if (credentialStoreUnavailable) {
     slog("skipping connected-apps registration: the credential store was unreadable this launch");
   }
@@ -3497,7 +3138,7 @@ app.on("before-quit", (e) => {
   orgLibrary?.close();
   managedDesktop?.close();
   cloudAccount?.close();
-  accountWorkspace?.close();
+  cloudWindow?.close();
   void cloudMove?.close();
   companyBackupController?.abort();
   computerSharing?.close();
@@ -3505,17 +3146,13 @@ app.on("before-quit", (e) => {
   if (cuaCleanedUp) return;
   e.preventDefault();
   const stoppingServer = serverSupervisor.shutdown();
-  syncCompanionKeepAwake(false, false);
   routineWake.stop();
   try {
     desktopCompanionRelay?.close?.();
   } catch {}
   if (nativeActions.appleSpeech) stopSpeech();
   const ownedHelperCleanup = Promise.race([
-    Promise.all([
-      stopCua().catch(() => {}),
-      stopDesktopCompanion({ remember: false }).catch(() => {}),
-    ]),
+    stopCua().catch(() => {}),
     new Promise((resolve) => setTimeout(resolve, CUA_STOP_TIMEOUT_MS).unref()),
   ]);
   const cleanup = Promise.all([

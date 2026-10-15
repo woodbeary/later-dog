@@ -3,7 +3,6 @@ import variantModule from "./app-variant.cjs";
 
 export const {
   APP_VARIANT_ENV,
-  companionDirFor,
   insidePath,
   readBundleIdentifier,
   applyVariantEnvironment,

@@ -21,6 +21,10 @@ export function homePrefix(containerId: string): string {
   return `homes/${containerId}/`;
 }
 
+export function stateOwner(context: { containerId: string; params?: { home?: string } }): string {
+  return context.params?.home ?? context.containerId;
+}
+
 export function stateKey(containerId: string, url: string): string | null {
   const name = new URL(url).pathname.replace(/^\/+/, "");
   if (!STATE_KEY.test(name)) return null;

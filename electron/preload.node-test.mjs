@@ -72,16 +72,6 @@ test("the permissions checklist forwards its three calls over the perm channels,
   assert.ok(!remoteSafe.includes('"permissions"'), "permissions must stay local-only");
 });
 
-test("browser control forwards a separate per-device capability, not the cloud grant", async () => {
-  const before = invocations.length;
-  await exposed.api.companion.browserControl("phone-1", true);
-  await exposed.api.companion.browserControl("phone-1", false);
-  assert.deepEqual(invocations.slice(before), [
-    ["companion:browser-control", "phone-1", true],
-    ["companion:browser-control", "phone-1", false],
-  ]);
-});
-
 test("onOpenAppSettings subscribes to the exact app:open-settings channel, forwards every emit, and unsubscribes cleanly", () => {
   const cbCalls = [];
   const unsubscribe = exposed.api.onOpenAppSettings(() => cbCalls.push(1));

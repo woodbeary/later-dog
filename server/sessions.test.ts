@@ -150,6 +150,44 @@ function pair(label = "MacBook", source = "10.0.0.2") {
   return result;
 }
 
+describe("an apps session (\"Apps on this Mac\": local tools that sign in to a Cloud home)", () => {
+  it("is marked local tools on its record and its public view, on disk and after a reload; an ordinary exchange is not", () => {
+    const apps = registry.exchange({ code: registry.openPairing({ label: "later.dog Cloud" }).credential, label: "Apps on this Mac", source: "10.0.0.20", localTools: true });
+    const phone = registry.exchange({ code: registry.openPairing({ label: "later.dog Cloud" }).credential, label: "iPhone", source: "10.0.0.20" });
+    if (!apps.ok || !phone.ok) throw new Error("pairing failed");
+    expect(apps.session).toMatchObject({ label: "Apps on this Mac", scopes: ["admin", "client"], localTools: true });
+    expect(registry.authenticate(apps.token)).toMatchObject({ localTools: true });
+    expect(phone.session).not.toHaveProperty("localTools");
+    expect(registry.authenticate(phone.token)).not.toHaveProperty("localTools");
+    const stored = JSON.parse(readFileSync(file(), "utf8")).sessions as Array<Record<string, unknown>>;
+    expect(stored.find((record) => record.id === apps.session.id)).toMatchObject({ localTools: true });
+    expect(stored.find((record) => record.id === phone.session.id)).not.toHaveProperty("localTools");
+    const reloaded = new SessionRegistry({ file: file(), now: () => clock });
+    expect(reloaded.authenticate(apps.token)).toMatchObject({ localTools: true });
+    expect(reloaded.list().find((session) => session.id === apps.session.id)).toMatchObject({ localTools: true });
+    expect(reloaded.authenticate(phone.token)).not.toHaveProperty("localTools");
+  });
+
+  it("loads a sessions file written before the marker existed, and refuses a marker that is anything but true", () => {
+    const record = (id: string, extra: Record<string, unknown> = {}) => ({
+      id, tokenHash: "a".repeat(64), label: id, scopes: ["admin", "client"], createdAt: clock, lastSeenAt: clock, expiresAt: clock + 60_000, ...extra,
+    });
+    writeFileSync(file(), JSON.stringify({ version: 1, sessions: [record("old-phone"), record("apps", { localTools: true })] }));
+    const loaded = new SessionRegistry({ file: file(), now: () => clock });
+    expect(loaded.list().map((session) => [session.id, session.localTools ?? false])).toEqual([["old-phone", false], ["apps", true]]);
+    writeFileSync(file(), JSON.stringify({ version: 1, sessions: [record("forged", { localTools: false })] }));
+    expect(new SessionRegistry({ file: file(), now: () => clock }).list()).toEqual([]);
+  });
+
+  it("answers a lost-response retry only as the same kind of session, so a retry cannot swap an apps session for a full one", () => {
+    const { credential } = registry.openPairing();
+    const first = registry.exchange({ code: credential, label: "Apps on this Mac", source: "10.0.0.21", attemptId: "attempt-apps-0001", localTools: true });
+    expect(first.ok).toBe(true);
+    expect(registry.exchange({ code: credential, label: "Apps on this Mac", source: "10.0.0.21", attemptId: "attempt-apps-0001", localTools: true })).toEqual(first);
+    expect(registry.exchange({ code: credential, label: "Apps on this Mac", source: "10.0.0.21", attemptId: "attempt-apps-0001" }).ok).toBe(false);
+  });
+});
+
 describe("pairing codes", () => {
   it("are 12 unambiguous symbols and survive human retyping", () => {
     for (let i = 0; i < 50; i++) {

@@ -55,4 +55,17 @@ describe("what a teammate's result chip says", () => {
     expect(teammateResultLabel("Scout", "cancelled", undefined, undefined, "interrupted")).toBe("Scout was interrupted");
     expect(teammateResultLabel("Scout", "completed", "Destination bot task no longer exists")).toBe("Scout's reply was held back");
   });
+
+  it("names a shell step by its description or justification instead of the generic phrase", () => {
+    expect(dogActivityWords("Bash", { command: "ls -la", description: "List files in current directory" }, nameOf)).toBe("list files in current directory");
+    expect(dogActivityWords("Bash", JSON.stringify({ description: "  Run   the\n tests " }), nameOf)).toBe("run the tests");
+    expect(dogActivityWords("exec_command", { cmd: "ls", justification: "Check the build output" }, nameOf)).toBe("check the build output");
+    expect(dogActivityWords("Bash", { description: "", justification: "Look around" }, nameOf)).toBe("look around");
+    expect(dogActivityWords("Bash", { description: "SSH into the box" }, nameOf)).toBe("SSH into the box");
+    const long = dogActivityWords("Bash", { description: "Install every dependency the project needs before running anything else" }, nameOf)!;
+    expect(long).toHaveLength(60);
+    expect(long.endsWith("\u2026")).toBe(true);
+    expect(dogActivityWords("Bash", { command: "rm -rf build" }, nameOf)).toBe("running a few commands");
+    expect(dogActivityWords("Bash", { command: "ls", description: 4 }, nameOf)).toBe("running a few commands");
+  });
 });

@@ -39,7 +39,7 @@ test("the computer is named the way the person named it, and never left blank", 
 
 async function scratch(t) {
   const dir = await realpath(await mkdtemp(path.join(tmpdir(), "laterdog-cloud-lending-")));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   return dir;
 }
 

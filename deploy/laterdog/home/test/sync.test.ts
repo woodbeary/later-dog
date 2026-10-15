@@ -1,9 +1,10 @@
-import { mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, collectGarbage, parseManifest, referencedBlobs, restore, skipped, snapshot } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, skipped, snapshot } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -54,7 +55,140 @@ afterEach(() => {
   for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
+type Entry = { path: string; type: string; mode: number; mtimeMs: number; chunks: string[] };
+
+function chunksFor(manifest: { entries: Entry[] }, path: string): string[] {
+  const entry = manifest.entries.find((candidate) => candidate.path === path);
+  if (!entry) throw new Error(`no entry for ${path}`);
+  return entry.chunks;
+}
+
+function listing(root: string): string[] {
+  return (readdirSync(root, { recursive: true }) as string[])
+    .sort()
+    .map((path) => {
+      const info = statSync(join(root, path));
+      return info.isFile() ? `${path} ${info.size} ${info.mtimeMs} ${info.mode}` : `${path}/`;
+    });
+}
+
+function bytesBesides(root: string, finalName: string): number {
+  return readdirSync(root)
+    .filter((name) => name !== finalName)
+    .reduce((total, name) => total + statSync(join(root, name)).size, 0);
+}
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 describe("home data sync", () => {
+  it("fetches many files at once on wake, so a large workspace comes back in minutes, and every file still arrives exactly", async () => {
+    const source = folder();
+    mkdirSync(join(source, "chats"), { recursive: true });
+    for (let i = 0; i < 40; i++) writeFileSync(join(source, "chats", `${i}.json`), `{"chat":${i}}`);
+    const store = memoryStore();
+    await snapshot(source, store, null, { scratch: folder() });
+    let inFlight = 0, most = 0;
+    const slow = { ...store, async get(hash: string) {
+      inFlight += 1; most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return store.get(hash);
+    } };
+    const target = folder();
+    expect((await restore(target, slow, null)).files).toBe(40);
+    expect(most).toBeGreaterThan(8);
+    for (let i = 0; i < 40; i++) expect(readFileSync(join(target, "chats", `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
+  });
+
+  it("stops every download when one file cannot be read, and only gives up once nothing is still writing", async () => {
+    const source = folder();
+    mkdirSync(join(source, "chats"), { recursive: true });
+    const big = randomBytes(CHUNK_BYTES * 3 + 77);
+    writeFileSync(join(source, "chats", "0-big.bin"), big);
+    for (let i = 0; i < 60; i++) writeFileSync(join(source, "chats", `${i}.json`), `{"chat":${i}}`);
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    const [broken] = chunksFor(saved.manifest, join("chats", "1.json"));
+    let reading = 0;
+    let gaveUp = false;
+    const late: string[] = [];
+    const failing = {
+      ...store,
+      async get(hash: string) {
+        if (gaveUp) late.push(hash);
+        reading += 1;
+        try {
+          await pause(hash === broken ? 2 : 15);
+          if (hash === broken) throw new Error("blob read failed: 503");
+          return await store.get(hash);
+        } finally {
+          reading -= 1;
+        }
+      },
+    };
+    const target = folder();
+    let readingWhenGivenUp = -1;
+    let leftAtGiveUp: string[] = [];
+    const attempt = restore(target, failing, null).finally(() => {
+      gaveUp = true;
+      readingWhenGivenUp = reading;
+      leftAtGiveUp = listing(target);
+    });
+    await expect(attempt).rejects.toThrow("blob read failed: 503");
+    await pause(150);
+    expect(readingWhenGivenUp).toBe(0);
+    expect(late).toEqual([]);
+    expect(listing(target)).toEqual(leftAtGiveUp);
+    const files = readdirSync(join(target, "chats"));
+    expect(files.filter((name) => !/^\d+\.json$/.test(name))).toEqual([]);
+    for (const name of files) expect(readFileSync(join(target, "chats", name), "utf8")).toBe(readFileSync(join(source, "chats", name), "utf8"));
+  });
+
+  it("writes a large file chunk by chunk beside it, checking each chunk, and puts it in place only when whole", async () => {
+    const source = folder();
+    const big = randomBytes(CHUNK_BYTES * 3 + 4321);
+    writeFileSync(join(source, "big.bin"), big, { mode: 0o640 });
+    utimesSync(join(source, "big.bin"), new Date(1_700_000_000_000), new Date(1_700_000_000_000));
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    expect(chunksFor(saved.manifest, "big.bin")).toHaveLength(4);
+    const target = folder();
+    const seen: { besides: number; whole: boolean }[] = [];
+    const watching = {
+      ...store,
+      async get(hash: string) {
+        seen.push({ besides: bytesBesides(target, "big.bin"), whole: existsSync(join(target, "big.bin")) });
+        return store.get(hash);
+      },
+    };
+    const owner = { uid: process.getuid!(), gid: process.getgid!() };
+    expect((await restore(target, watching, owner)).files).toBe(1);
+    expect(seen).toEqual([0, 1, 2, 3].map((index) => ({ besides: index * CHUNK_BYTES, whole: false })));
+    expect(readdirSync(target)).toEqual(["big.bin"]);
+    expect(Buffer.compare(readFileSync(join(target, "big.bin")), big)).toBe(0);
+    const restored = statSync(join(target, "big.bin"));
+    expect(restored.mode & 0o7777).toBe(0o640);
+    expect(restored.mtimeMs).toBe(1_700_000_000_000);
+    expect(restored.uid).toBe(owner.uid);
+  });
+
+  it("keeps the file already there and leaves no partial copy when a chunk does not match its hash", async () => {
+    const source = folder();
+    writeFileSync(join(source, "big.bin"), randomBytes(CHUNK_BYTES * 2 + 9));
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    const [, second] = chunksFor(saved.manifest, "big.bin");
+    const tampered = { ...store, async get(hash: string) {
+      const bytes = await store.get(hash);
+      return hash === second ? bytes.slice(1) : bytes;
+    } };
+    const target = folder();
+    writeFileSync(join(target, "big.bin"), "the copy from last time");
+    await expect(restore(target, tampered, null)).rejects.toThrow("corrupt chunk for big.bin");
+    expect(readdirSync(target)).toEqual(["big.bin"]);
+    expect(readFileSync(join(target, "big.bin"), "utf8")).toBe("the copy from last time");
+  });
+
   it("restores files, folders, links and modes exactly", async () => {
     const source = folder();
     mkdirSync(join(source, ".laterdog", "attachments"), { recursive: true });
@@ -135,6 +269,47 @@ describe("home data sync", () => {
     expect(skipped("workspace.sqlite-wal")).toBe(true);
     expect(skipped(".cache")).toBe(true);
     expect(skipped("notes.md")).toBe(false);
+    expect(skipped(".laterdog-restoring-0123456789abcdef01234567")).toBe(true);
+  });
+});
+
+describe("reading saved pieces over HTTP", () => {
+  function stalling(signals: AbortSignal[]) {
+    return (async (_url: string, init: RequestInit) => {
+      const signal = init.signal as AbortSignal;
+      signals.push(signal);
+      return new Promise<Response>((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    }) as unknown as typeof fetch;
+  }
+
+  it("gives up on a blob read that stalls instead of holding a download slot for minutes", async () => {
+    const signals: AbortSignal[] = [];
+    const store = createHttpStore("https://state.invalid/home", "test-token", stalling(signals), { blobTimeoutMs: 40 });
+    const started = Date.now();
+    await expect(store.get("a".repeat(64))).rejects.toMatchObject({ name: "TimeoutError" });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(signals).toHaveLength(1);
+  });
+
+  it("drops a blob read at once when the restore that asked for it stops", async () => {
+    const store = createHttpStore("https://state.invalid/home", "test-token", stalling([]));
+    const stop = new AbortController();
+    const reading = store.get("b".repeat(64), { signal: stop.signal });
+    stop.abort(new Error("restore stopped"));
+    await expect(reading).rejects.toThrow("restore stopped");
+  });
+
+  it("reads a blob within the time limit as before", async () => {
+    const bytes = randomBytes(64);
+    const seen: { url: string; signal: unknown }[] = [];
+    const answering = (async (url: string, init: RequestInit) => {
+      seen.push({ url, signal: init.signal });
+      return new Response(bytes);
+    }) as unknown as typeof fetch;
+    const store = createHttpStore("https://state.invalid/home/", "test-token", answering);
+    expect(Buffer.from(await store.get("c".repeat(64))).equals(bytes)).toBe(true);
+    expect(seen[0].url).toBe(`https://state.invalid/home/blobs/${"c".repeat(64)}`);
+    expect(seen[0].signal).toBeInstanceOf(AbortSignal);
   });
 });
 

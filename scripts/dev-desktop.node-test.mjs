@@ -43,8 +43,6 @@ function fakeProcesses(plan, { delayServiceClose = false, failSpawnAt, emitSpawn
         child.emit("error", new Error("fixture executable missing"));
         child.finish(1);
       });
-    } else if (signature(call) === signature(plan.prepare)) {
-      queueMicrotask(() => child.finish(0));
     }
     return child;
   };
@@ -151,7 +149,6 @@ test("Electron starts only after all owned services are ready and quitting clean
   }));
   await until(() => processes.electron);
   assert.deepEqual(new Set(checked), new Set([`${plan.supervisorUrl}/v1/workspace`, `${plan.serverUrl}/api/health`, `${plan.uiUrl}/@vite/client`]));
-  assert.deepEqual(processes.calls[0].args, plan.prepare.args);
   for (const { call } of processes.children) {
     assert.equal(call.options.cwd, plan.root);
     assert.equal(call.options.env.LATERDOG_HOME, plan.env.LATERDOG_HOME);

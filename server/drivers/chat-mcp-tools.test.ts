@@ -550,16 +550,15 @@ describe("the dog's own computer", () => {
     expect(session.view("mine_computer_screenshot", {}).ownComputer).toBeUndefined();
   });
 
-  it("lets Off-leash choose the dog's own cloud computer, and asks before anything that can reach the Mac", async () => {
+  it("never raises an approval card for choosing a computer, and asks before anything that can reach the Mac", async () => {
     const lists = `if (message.method === "tools/list") { reply(message, {tools:[{name:"select_computer",inputSchema:{type:"object",properties:{surface:{type:"string"}}}}]}); continue; }`;
     const builtIn = fixture(lists);
     const other = fixture(lists);
     const session = await mountChatTools({ agents: builtIn.server, custom: { mine: other.server } } as Parameters<typeof mountChatTools>[0], builtIn.controller.signal);
     sessions.push(session);
-    expect(session.view("agents_select_computer", {}).ask).toBe(false);
-    expect(session.view("agents_select_computer", { surface: "cloud" })).toMatchObject({ ask: true, ownComputer: true });
-    expect(session.view("agents_select_computer", { surface: "auto" }).ownComputer).toBeUndefined();
-    expect(session.view("agents_select_computer", { surface: "local" }).ownComputer).toBeUndefined();
+    for (const surface of [undefined, "cloud", "auto", "local", "mac"]) {
+      expect(session.view("agents_select_computer", surface ? { surface } : {}).ask).toBe(false);
+    }
     expect(session.view("mine_select_computer", { surface: "cloud" }).ownComputer).toBeUndefined();
     expect(session.view("mine_select_computer", {}).ask).toBe(true);
   });

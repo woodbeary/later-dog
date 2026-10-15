@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import readline from "node:readline";
+import { readCloudAccess, type CloudAccess } from "./cloud-access.ts";
 import { localControlTokenPath, localToolsHeaders } from "./local-control-token.ts";
 import { COMPUTER_TOOLS, ComputerToolOutput, callComputerTool, computerToolProblem, isComputerTool } from "./mcp-computer-tools.ts";
 
@@ -36,45 +37,107 @@ const configuredUrl = process.env.LATERDOG_URL ||
   (process.env.LATERDOG_SERVER_PORT ? `http://127.0.0.1:${process.env.LATERDOG_SERVER_PORT}` : undefined);
 
 export const VARIANT_SERVER_PORTS = { release: [8799, 18799, 28799], dev: [8999, 18999, 28999] } as const;
-const targetPorts = process.env.LATERDOG_VARIANT?.trim().toLowerCase() === "dev" ? VARIANT_SERVER_PORTS.dev : VARIANT_SERVER_PORTS.release;
+function devVariant(): boolean {
+  return process.env.LATERDOG_VARIANT?.trim().toLowerCase() === "dev";
+}
+const targetPorts = devVariant() ? VARIANT_SERVER_PORTS.dev : VARIANT_SERVER_PORTS.release;
 export const LATERDOG_BASE_URL = validateBaseUrl(configuredUrl || `http://127.0.0.1:${targetPorts[0]}`);
 const DISCOVERY_URLS = configuredUrl
   ? [LATERDOG_BASE_URL]
   : targetPorts.map((port) => `http://127.0.0.1:${port}`);
 let discoveredBaseUrl: string | undefined;
+let discoveredCloudUrl: string | undefined;
 
 export function log(msg: string) {
   process.stderr.write(`[laterdog-mcp] ${msg}\n`);
 }
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+export const CLOUD_WAKE_WAIT_MS = 60_000;
+const CLOUD_WAKE_STEP_MS = 3_000;
+const CLOUD_WAKE_LONGEST_STEP_MS = 10_000;
+export const CLOUD_WAKING = "later.dog Cloud is waking up. Try again in a minute.";
+export const CLOUD_BUSY = "later.dog Cloud is busy right now. Try again in a minute.";
+export const CLOUD_UNREACHABLE = "later.dog Cloud is waking up or can't be reached right now. Try again in a minute.";
+export const CLOUD_SESSION_REFUSED = "later.dog Cloud refused this Mac's session for apps. Open later.dog on this Mac so it can refresh the session, then try again.";
+
+class CloudResting extends Error {
+  readonly retryAfterMs: number;
+  constructor(busy: boolean, retryAfterMs: number) {
+    super(busy ? CLOUD_BUSY : CLOUD_WAKING);
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+class CloudUnreachable extends Error {
+  constructor(cause: unknown) {
+    super(CLOUD_UNREACHABLE, { cause });
+  }
+}
 
 function requestTimeoutMs(): number {
   const raw = Number(process.env.LATERDOG_MCP_TIMEOUT_MS);
   return Number.isFinite(raw) && raw >= 1_000 && raw <= 120_000 ? Math.floor(raw) : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
-function requestHeaders(url: string, options: RequestInit, discovery: boolean): NonNullable<RequestInit["headers"]> {
-  const token = process.env.LATERDOG_SERVER_TOKEN?.trim();
+export function cloudAccess(): CloudAccess | undefined {
+  return configuredUrl || devVariant() || process.env.LATERDOG_SERVER_TOKEN?.trim() ? undefined : readCloudAccess();
+}
+
+function requestHeaders(url: string, options: RequestInit, discovery: boolean, cloud: CloudAccess | undefined): NonNullable<RequestInit["headers"]> {
+  const token = process.env.LATERDOG_SERVER_TOKEN?.trim() || cloud?.token;
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
-  if (!discovery) for (const [name, value] of Object.entries(localToolsHeaders(url))) if (!headers.has(name)) headers.set(name, value);
+  if (!discovery && !cloud) for (const [name, value] of Object.entries(localToolsHeaders(url))) if (!headers.has(name)) headers.set(name, value);
   return headers;
 }
 
-async function fetchJson(url: string, options: RequestInit = {}, discovery = false): Promise<any> {
+function refusalReason(text: string): string | undefined {
+  try {
+    const error = JSON.parse(text)?.error;
+    return typeof error === "string" ? error.replace(/^forbidden: /, "") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function retryAfterMs(response: Response): number {
+  const seconds = Number(response.headers?.get?.("retry-after"));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1_000, CLOUD_WAKE_LONGEST_STEP_MS) : CLOUD_WAKE_STEP_MS;
+}
+
+function cloudRefusal(response: Response, text: string): Error {
+  const home = response.headers?.get?.("x-laterdog-home");
+  if (response.status === 503 && home) return new CloudResting(home === "busy", retryAfterMs(response));
+  if (response.status === 401) return new Error(CLOUD_SESSION_REFUSED);
+  if (response.status === 403) {
+    const reason = refusalReason(text);
+    return reason && !NEEDS_AUTHORIZATION.has(reason) ? new Error(`later.dog refused this: ${reason}`) : new Error(CLOUD_SESSION_REFUSED);
+  }
+  return new Error(`later.dog API error (${response.status}): ${text || response.statusText}`);
+}
+
+async function fetchJson(url: string, options: RequestInit = {}, discovery = false, cloud?: CloudAccess): Promise<any> {
   const timeout = AbortSignal.timeout(requestTimeoutMs());
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
-  const response = await fetch(url, {
-    ...options,
-    signal,
-    headers: requestHeaders(url, options, discovery),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      signal,
+      headers: requestHeaders(url, options, discovery, cloud),
+      ...(cloud ? { redirect: "error" as const } : {}),
+    });
+  } catch (error) {
+    if (!cloud || options.signal?.aborted) throw error;
+    throw new CloudUnreachable(error);
+  }
   if (!response.ok) {
     const text = await response.text().catch(() => "");
+    if (cloud) throw cloudRefusal(response, text);
     if (response.status === 403 && !process.env.LATERDOG_SERVER_TOKEN?.trim()) {
-      const reason = (() => { try { const error = JSON.parse(text)?.error; return typeof error === "string" ? error.replace(/^forbidden: /, "") : undefined; } catch { return undefined; } })();
+      const reason = refusalReason(text);
       if (reason && !NEEDS_AUTHORIZATION.has(reason)) throw new Error(`later.dog refused this: ${reason}`);
       throw new Error(`later.dog refused this write. The installed desktop app lets local tools make changes with the token it writes to ${localControlTokenPath()} when it starts; restart later.dog if that file is missing, or set LATERDOG_SERVER_TOKEN to a paired session token as described in docs/mcp-server.md.`);
     }
@@ -84,6 +147,22 @@ async function fetchJson(url: string, options: RequestInit = {}, discovery = fal
     return await response.json();
   } catch {
     throw new Error(`later.dog API returned a non-JSON response from ${url}`);
+  }
+}
+
+async function fetchCloudJson(url: string, options: RequestInit, cloud: CloudAccess): Promise<any> {
+  const deadline = Date.now() + CLOUD_WAKE_WAIT_MS;
+  const idempotent = ["GET", "HEAD"].includes((options.method ?? "GET").toUpperCase());
+  for (;;) {
+    try {
+      return await fetchJson(url, options, false, cloud);
+    } catch (error) {
+      const waitMs = error instanceof CloudResting ? error.retryAfterMs
+        : error instanceof CloudUnreachable && idempotent ? CLOUD_WAKE_STEP_MS
+        : undefined;
+      if (waitMs === undefined || Date.now() + waitMs > deadline) throw error;
+      await sleep(waitMs, options.signal ?? undefined);
+    }
   }
 }
 
@@ -107,18 +186,26 @@ export async function probeBaseUrls(candidates: string[]): Promise<string> {
   throw new Error(`Could not find a running later.dog server. ${failures.join("; ")}`);
 }
 
-export async function resolveBaseUrl(): Promise<string> {
-  if (discoveredBaseUrl) return discoveredBaseUrl;
+export async function resolveBaseUrl(cloud: CloudAccess | undefined = cloudAccess()): Promise<string> {
+  if (discoveredBaseUrl && discoveredCloudUrl === cloud?.url) return discoveredBaseUrl;
   if (process.env.LATERDOG_SERVER_TOKEN?.trim() && !configuredUrl) {
     throw new Error("Set LATERDOG_URL or LATERDOG_SERVER_PORT when using LATERDOG_SERVER_TOKEN so credentials are never sent during port discovery");
   }
+  if (cloud) {
+    discoveredBaseUrl = validateBaseUrl(cloud.url);
+    discoveredCloudUrl = cloud.url;
+    return discoveredBaseUrl;
+  }
   discoveredBaseUrl = await probeBaseUrls(DISCOVERY_URLS);
+  discoveredCloudUrl = undefined;
   return discoveredBaseUrl;
 }
 
 export async function request(path: string, options: RequestInit = {}, baseUrl?: string) {
-  const target = baseUrl ? validateBaseUrl(baseUrl) : await resolveBaseUrl();
-  return fetchJson(`${target}${path}`, options);
+  const cloud = cloudAccess();
+  const target = baseUrl ? validateBaseUrl(baseUrl) : await resolveBaseUrl(cloud);
+  const url = `${target}${path}`;
+  return cloud && target === cloud.url ? fetchCloudJson(url, options, cloud) : fetchJson(url, options);
 }
 
 export interface McpToolDefinition {

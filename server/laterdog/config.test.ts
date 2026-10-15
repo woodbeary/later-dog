@@ -38,3 +38,14 @@ it('finds a hosted supervisor through the saved connection file, with the enviro
    vi.stubEnv('LATERDOG_TOKEN','e'.repeat(40));expect(desktopSupervisorToken()).toBe('e'.repeat(40));
  } finally {vi.unstubAllEnvs();rmSync(dir,{recursive:true,force:true});}
 });
+it('finds the supervisor key beside its connection file when the workspace came from another computer',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'laterdog-connection-'));
+ for(const name of ['LATERDOG_SUPERVISOR_URL','LATERDOG_TOKEN_FILE','LATERDOG_TOKEN'])delete process.env[name];
+ vi.stubEnv('LATERDOG_HOME',dir);
+ try {
+   writeFileSync(join(dir,'supervisor-token'),`${'m'.repeat(43)}\n`,{mode:0o600});
+   writeFileSync(join(dir,'supervisor.json'),JSON.stringify({url:'https://supervisor.example.test',tokenFile:'/Users/someone/.laterdog/supervisor-token'}));
+   expect(supervisorConnection()).toEqual({origin:'https://supervisor.example.test',tokenFile:join(dir,'supervisor-token'),source:'file'});
+   expect(desktopSupervisorToken()).toBe('m'.repeat(43));
+ } finally {vi.unstubAllEnvs();rmSync(dir,{recursive:true,force:true});}
+});

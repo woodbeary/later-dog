@@ -72,27 +72,99 @@ backup transfer, not synchronization; sign-in no longer invokes it.
 The ownership alternatives and staged unification are documented in
 [workspace ownership](../laterdog/workspace-ownership.md).
 
-## Claude and ChatGPT sign-ins stay where they are
+## Claude and ChatGPT sign-ins move with your dogs
 
-Nothing here copies, moves or syncs an AI account. The later.dog account
-(email and code) is separate from Claude and ChatGPT. An explicit copy uses the
-existing workspace backup, which excludes saved credentials, provider and MCP
-connections, managed provider login homes and browser login profiles
-(`server/workspace-backup.ts`, `server/workspace-backup-policy.ts`); the Mac's
-Claude Keychain entry and ChatGPT login folder are never read, and ChatGPT's
-rotating refresh token is never held in two places. When you deliberately copy
-dogs into a hosted workspace, its AI connections need separate sign-ins:
+Once Cloud is on, the home owns every AI account; the Mac is a window onto the
+home. The workspace backup still carries no sign-in (it leaves out `providers/`
+and every login folder on purpose). Sign-ins travel on their own, one account at
+a time, over the paired HTTPS connection to the home, and they **move once,
+never copy, never come back**: Claude's and ChatGPT's refresh tokens rotate, so
+one login used from two places knocks one of them out. Signing out of Cloud does
+not move a login back to the Mac; the Mac keeps showing those accounts as on your
+later.dog Cloud.
 
-- On the home: copied dogs arrive without any AI sign-in, so the home
-  shows its existing "Sign in to Claude or ChatGPT" step (`CloudEngineSignIn`,
-  the first item of "Set up My Cloud") once, until you sign in there.
-  Until then the home's dogs use the free included AI.
-- This Mac's own sign-ins are untouched.
-- Voice keys, connected apps and browser logins made on the Mac do not reach the
-  home either; each is set up again on the home when wanted.
+When it runs: after the desktop's move flow succeeds, `handAccountsToCloud({ homeOrigin,
+session })` (`electron/cloud-ai-accounts.mjs`; `session` returns a pairing grant)
+runs once per app run, and again on a later launch for an account whose dogs
+moved before this build. It is skipped when the home already had dogs and the
+Mac's dogs stayed (`kept-local`).
 
-The design needs no AI sign-in on the home to work, so nothing was built for it;
-where the AI accounts should live once Cloud is on is left open.
+For each account (`electron/cloud-ai-accounts.mjs`):
+
+1. The Mac's server lists what can move (the mac-accounts route in `server/laterdog/mac-accounts.ts`,
+   desktop-only, `server/laterdog/mac-accounts.ts`): the default Claude login,
+   each added Claude account (`claude-<uuid>`) and the ordinary Codex (ChatGPT)
+   login, with where the CLI keeps each one. The Keychain item name follows
+   Claude Code 2.1.293 exactly (`server/laterdog/claude-keychain.ts`):
+   `Claude Code-credentials`, plus `-<first 8 hex of sha256(NFC CLAUDE_CONFIG_DIR)>`
+   whenever the CLI runs with `CLAUDE_CONFIG_DIR` set, account `$USER`.
+2. The Mac pauses the account first (`PUT …/<id>/hold`, refused while a dog is
+   using it). A paused account is loaded as unavailable with the reason "This
+   account is on your later.dog Cloud now…" (`ProviderRegistry` `held`), so this Mac's
+   server never starts its CLI, a turn, a model refresh or a token refresh.
+3. The Mac reads the login in memory only: the Keychain through
+   `/usr/bin/security find-generic-password -a <account> -w -s <service>`
+   (no shell; a macOS prompt is acceptable), else the CLI's plaintext
+   `.credentials.json`, else Codex's `auth.json` (file storage only; a Codex
+   login kept in the Keychain is left out).
+4. It sends `PUT /api/laterdog/accounts/<id>` to the home
+   (`server/laterdog/home-accounts.ts`), accepted only on a Cloud home and only
+   from a bearer session with owner scope (the paired desktop; a browser cookie
+   is refused). The home writes the login in the Linux form the CLI reads, into
+   that account's own folder, `0700`/`0600`: `providers/<id>/.credentials.json`
+   (`{"claudeAiOauth": …}`) with `configDir` set, or `providers/codex/auth.json`
+   plus `cli_auth_credentials_store = "file"` with `CODEX_HOME` set. The account
+   keeps the Mac's id and name, so the dogs' account choices still resolve. The
+   home never writes into `/data/.claude` or `/data/.codex`, never replaces a
+   sign-in it made itself (`409 home_signed_in`), and undoes the write when its
+   CLI does not report the account signed in (`422`).
+5. Only after the home answers `signedIn: true` does the Mac record the account
+   as on My Cloud (`cloud-ai-accounts.json` in user data: ids, names, the home's
+   origin and where it came from, plus a random per-install device id; no
+   secrets) and keep it paused. The record is per home: accounts recorded for
+   another home are never handed to this one and stay paused (`elsewhere`).
+6. The Mac un-pauses an account only on the home's explicit refusal (`409` other
+   than `busy`, `422`, `400`, `413`, `415`) or when there is no login to send.
+   If the answer is lost, the home is unreachable or answers anything else, the
+   account stays paused and the hand-over is retried (20 s, 1 min, 5 min, then
+   every 15 min) until the home confirms it holds the login. Re-sending the same
+   login is harmless: the home answers an identical login again without
+   rewriting anything.
+7. The home refuses (`409 other_device`) to replace a login that a different
+   device (its device id travels in the hand-over) already handed over, unless
+   the new login is for the same provider account (ChatGPT's `account_id`;
+   Claude's login carries no account identity, so a different Claude login from
+   another device is always refused). The Mac then keeps that account.
+
+There is no way back: the home has no `/return`, `/keep` or delete route, the
+Mac's Keychain is only ever read (`security find-generic-password`), never
+written, and the Mac's own copy is left where it is.
+
+Left out on purpose:
+
+- ChatGPT plan accounts (`chatgpt`, `chatgpt-<uuid>`): later.dog's own OAuth
+  record is bound to this Mac's host id and plan mode is refused on a Cloud home
+  (`server/drivers/codex.ts`). They stay on the Mac and the quiet line names them.
+- Claude API-key and company accounts, hand-edited instance ids, voice keys,
+  connected apps and browser logins.
+
+The quiet line says it in one sentence: "Your Claude and ChatGPT accounts are
+here too." (or the Claude-only / ChatGPT-only form), and "Work Claude stayed on
+this Mac for now." for any that did not come.
+
+### Native limits kept visible
+
+- The default Claude and Codex logins are the person's own terminal logins
+  (`~/.claude` Keychain item, `~/.codex/auth.json`). later.dog stops using them,
+  but a `claude` or `codex` run in a terminal on this Mac still can, and its
+  token refresh can sign the home's copy out. The Mac's copy is not deleted, so
+  the terminal keeps working until then.
+- Proven only against fakes: the Keychain (a fake `security`), the CLIs (a fake
+  "signed in" rule on the home), the home (the real route handlers on loopback
+  HTTP). Not proven: a real Keychain read or prompt from the signed app, a real
+  `claude auth status` on the Linux home reading only `.credentials.json`
+  (read from the 2.1.293 binary, not run), a real Codex on the home, a real
+  pairing, and how fast a real token refresh on one side signs out the other.
 
 ## Dev variant
 
@@ -111,11 +183,23 @@ real native email sign-in.
 ```sh
 node --test electron/cloud-sign-in.node-test.mjs electron/cloud-auto-move.node-test.mjs \
   electron/cloud-default-home.node-test.mjs electron/cloud-account.node-test.mjs \
-  electron/cloud-account-ipc.node-test.mjs electron/cloud-move.node-test.mjs
+  electron/cloud-account-ipc.node-test.mjs electron/cloud-move.node-test.mjs \
+  electron/cloud-ai-accounts.node-test.mjs
 pnpm exec vitest run src/components/CloudSignInGate.dom.test.ts \
   src/components/CloudQuietLine.dom.test.ts src/components/CloudAccountSettings.dom.test.ts \
-  src/lib/cloud-sign-in-view.test.ts src/lib/cloud-move-line.test.ts
+  src/lib/cloud-sign-in-view.test.ts src/lib/cloud-move-line.test.ts \
+  server/laterdog/claude-keychain.test.ts server/laterdog/mac-accounts.test.ts \
+  server/laterdog/home-accounts.test.ts server/laterdog/account-handoff.e2e.test.ts \
+  server/plan-usage.test.ts
 ```
+
+`server/laterdog/account-handoff.e2e.test.ts` is the fixture proof for the sign-in move: the
+real Mac and home route handlers on loopback HTTP, the real desktop engine, a
+fake Keychain, fixture logins in temporary folders. It covers the happy path, a
+partial failure and its retry, the Mac refusing to start a moved account, the
+home keeping its own sign-in, moving back on sign-out (with the home's
+refreshed token, and without overwriting a newer Mac login), and that no login
+reaches logs, answers, summaries or records.
 
 The screens are driven in the real renderer against the fake-engine fixture with
 a scripted desktop bridge. The bridge runs the real `createCloudSignIn`,

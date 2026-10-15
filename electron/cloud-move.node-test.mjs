@@ -7,7 +7,7 @@ import test from "node:test";
 import vm from "node:vm";
 import environments from "./environments.cjs";
 import localOrigin from "./local-origin.cjs";
-import { cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, olderVersion, parseMoveEstimate } from "./cloud-move.mjs";
+import { CLOUD_MOVE_LOCAL_ROUTES, cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, olderVersion, parseMoveEstimate } from "./cloud-move.mjs";
 import { cloudPlanSnapshot } from "./cloud-account.mjs";
 import { cloudPlanDisk, isCloudHomeEntry, myCloudOrigin } from "./cloud-home.mjs";
 
@@ -16,18 +16,18 @@ const MAGIC = Buffer.from("LATERDOG-WORKSPACE-1\n");
 const UUID = () => "3f9c2a4e-8b1d-4c6e-9a7f-" + randomBytes(6).toString("hex");
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-function desktop({ bytes = 5000, busy = false, exportError = null, routines, identity = {} } = {}) {
+function desktop({ bytes = 5000, busy = false, exportError = null, routines, identity = {}, leftOnComputer } = {}) {
   const archive = Buffer.concat([MAGIC, randomBytes(bytes - MAGIC.length)]), calls = [];
   const id = UUID();
   return {
     archive, calls,
     request: async (route, init) => {
       calls.push([init.method, route, init.body ? JSON.parse(init.body) : undefined]);
-      if (route === "/api/cloud-move/estimate") return json(200, { bots: 3, rooms: 1, chats: 7, bytes, files: 12, ...(routines === undefined ? {} : { routines }), ...identity });
+      if (route.split("?")[0] === "/api/cloud-move/estimate") return json(200, { bots: 3, rooms: 1, chats: 7, bytes, files: 12, ...(routines === undefined ? {} : { routines }), ...identity });
       if (route === "/api/workspace-backup/status") return json(200, { busy, pendingRestore: false });
       if (route === "/api/workspace-backup/export") {
         if (exportError) return json(400, { error: exportError });
-        return busy ? json(409, { error: "busy" }) : json(200, { id, bytes, summary: { bots: 3, files: 12, messages: 40 } });
+        return busy ? json(409, { error: "busy" }) : json(200, { id, bytes, summary: { bots: 3, files: 12, messages: 40, ...(leftOnComputer ? { leftOnComputer } : {}) } });
       }
       if (route === `/api/workspace-backup/download/${id}`) return new Response(archive, { status: 200, headers: { "content-length": String(bytes) } });
       return json(404, {});
@@ -35,7 +35,7 @@ function desktop({ bytes = 5000, busy = false, exportError = null, routines, ide
   };
 }
 
-function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut = () => false, dropAnswer = () => false, loseAt = 0, busyRestores = 0, storedPart = 0, previewBots = 3, identity = {}, refuse = null,
+function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut = () => false, dropAnswer = () => false, loseAt = 0, busyRestores = 0, storedPart = 0, previewBots = 3, identity = {}, refuse = null, receivedFrom = null,
   partBytes = 1024, proxyLimit = Infinity } = {}) {
   const state = { freeBytes, upload: storedPart ? { sha256: "e".repeat(64), bytes: storedPart } : null, received: Buffer.alloc(storedPart), job: null, lastRestoreId: null, restarting: 0,
       previous: null, contents: { bots: 1, rooms: 0, chats: 0 }, empty, discards: 0, restoreAsks: [] },
@@ -56,7 +56,7 @@ function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut =
     if (state.restarting > 0) { state.restarting--; throw new TypeError("fetch failed"); }
     if (refuse && pathname.startsWith("/api/cloud-move")) return json(refuse.status, refuse.body);
     if (pathname === "/api/cloud-move" && (init.method ?? "GET") === "GET") {
-      return json(200, { ...identity, contents: state.contents, empty: state.empty, freeBytes: state.freeBytes, ...(volumeBytes ? { volumeBytes } : {}), previous: state.previous, job: state.job, pendingRestore: false, busy: false,
+      return json(200, { ...identity, contents: state.contents, empty: state.empty, freeBytes: state.freeBytes, ...(volumeBytes ? { volumeBytes } : {}), previous: state.previous, job: state.job, pendingRestore: false, busy: false, ...(receivedFrom ? { receivedFrom } : {}),
         lastRestoreId: state.lastRestoreId, rolledBackId: null, partBytes: 1024,
         upload: state.upload && { ...state.upload, received: state.received.length } });
     }
@@ -69,6 +69,7 @@ function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut =
     }
     if (pathname.startsWith("/api/cloud-move/upload/")) {
       const offset = Number(searchParams.get("offset")), part = Buffer.from(init.body);
+      if (Number(searchParams.get("length")) !== part.length) return json(411, { error: "Send each part with its length." });
       state.puts = [...(state.puts ?? []), part.length];
       if (part.length > proxyLimit) return new Response("<html><body><h1>413 Request Entity Too Large</h1></body></html>", { status: 413, headers: { "content-type": "text/html" } });
       if (failPut(offset)) throw new TypeError("fetch failed");
@@ -84,6 +85,7 @@ function cloudFake({ freeBytes = 1024 ** 4, volumeBytes, empty = true, failPut =
       const hash = createHash("sha256").update(state.received).digest("hex");
       assert.equal(hash, state.upload.sha256);
       assert.ok(body.password.length >= 12);
+      state.previewAsk = body;
       state.job = { kind: "preview", state: "done", id: UUID(), summary: { bots: previewBots, messages: 40 } };
       return json(202, { job: { kind: "preview", state: "running" } });
     }
@@ -136,6 +138,81 @@ test("moves this computer's archive in parts, waits out the restart, signs its s
   } finally { f.done(); }
 });
 
+test("every route the slim move asks of this computer is one the desktop lets through", async () => {
+  const f = harness();
+  try {
+    const result = await f.move.move({ profile: "cloud-move" });
+    assert.equal(result.phase, "done");
+    const routes = f.local.calls.map(([, route]) => route);
+    assert.ok(routes.includes("/api/cloud-move/estimate?profile=cloud-move"));
+    assert.deepEqual(routes.filter(route => !CLOUD_MOVE_LOCAL_ROUTES.test(route)), []);
+  } finally { f.done(); }
+});
+
+test("an unexpected error on this computer is written to the log with its own words", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-test-"));
+  const lines = [], cloud = cloudFake();
+  try {
+    const engine = createCloudMove({ localRequest: () => { throw new Error("This installation changed. Start the copy again."); }, fetchImpl: cloud.fetchImpl,
+      tempRoot: join(temp, "move"), availableBytes: async () => 1024 ** 4, sleep: async () => {}, pollMs: 0, retryDelaysMs: [0, 0], log: line => lines.push(line) });
+    const result = await engine.move(cloudDestination(), { profile: "cloud-move" });
+    assert.equal(result.error.code, "network");
+    assert.deepEqual(lines, ["cloud move: move stopped (network): This installation changed. Start the copy again."]);
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test("waits for a sleeping Cloud to wake, and gives up only after the wait runs out", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-test-"));
+  const local = desktop(), cloud = cloudFake(), waits = [];
+  let grants = 0, pairs = 0;
+  const fetchImpl = async (url, init) => new URL(url).pathname === "/api/auth/pair" && ++pairs === 1 ? new Response("", { status: 502 }) : cloud.fetchImpl(url, init);
+  const engine = createCloudMove({ localRequest: local.request, fetchImpl, tempRoot: join(temp, "move"), availableBytes: async () => 1024 ** 4,
+    sleep: async ms => { waits.push(ms); }, pollMs: 0, retryDelaysMs: [0, 0], waitDelaysMs: [1, 2, 3, 4] });
+  try {
+    const waking = cloudDestination({ pairHome: async () => { if (++grants < 2) throw new Error("My Cloud is waking"); return { origin: ORIGIN, code: "ABCD-EFGH-JKLM", expiresAt: Date.now() + 60_000 }; } });
+    assert.equal((await engine.move(waking, { profile: "cloud-move" })).phase, "done");
+    assert.deepEqual(waits.slice(0, 2), [1, 2]);
+    assert.equal(grants, 3);
+    const asleep = cloudDestination({ pairHome: async () => { throw new Error("My Cloud is waking"); } });
+    assert.equal((await engine.move(asleep, { profile: "cloud-move" })).error.code, "cloud_unavailable");
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test("waits for this computer's dogs to finish before packing the copy", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-test-"));
+  const local = desktop(), cloud = cloudFake();
+  let refusals = 0;
+  const request = async (route, init) => route === "/api/workspace-backup/export" && refusals++ < 2 ? json(409, { error: "A dog is working." }) : local.request(route, init);
+  const engine = createCloudMove({ localRequest: request, fetchImpl: cloud.fetchImpl, tempRoot: join(temp, "move"), availableBytes: async () => 1024 ** 4,
+    sleep: async () => {}, pollMs: 0, retryDelaysMs: [0, 0], waitDelaysMs: [0, 0, 0] });
+  try {
+    assert.equal((await engine.move(cloudDestination(), { profile: "cloud-move" })).phase, "done");
+    assert.equal(refusals, 3);
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test("a Cloud that already holds this computer's copy is not copied over again", async () => {
+  const f = harness({ desktop: { identity: { environmentId: "env-mac" } }, cloud: { receivedFrom: { at: 1, environmentId: "env-mac" } } });
+  try {
+    f.cloud.state.contents = { bots: 3, rooms: 1, chats: 7 };
+    const result = await f.move.move({ profile: "cloud-move", yieldToOtherComputer: true });
+    assert.deepEqual(result.moved, { bots: 3, rooms: 1, chats: 7 });
+    assert.equal(result.phase, "done");
+    assert.equal(f.local.calls.some(([, route]) => route === "/api/workspace-backup/export"), false);
+    assert.equal(puts(f), 0);
+  } finally { f.done(); }
+});
+
+test("tells the caller once the copy is packed, before anything is uploaded", async () => {
+  const f = harness();
+  try {
+    let seen = null;
+    const result = await f.move.move({ profile: "cloud-move", onPacked: async () => { seen = { exported: f.local.calls.some(([, route]) => route === "/api/workspace-backup/export"), puts: puts(f) }; } });
+    assert.equal(result.phase, "done");
+    assert.deepEqual(seen, { exported: true, puts: 0 });
+  } finally { f.done(); }
+});
+
 const puts = f => f.cloud.log.filter(([method, path]) => method === "PUT" && path.startsWith("/api/cloud-move/upload/")).length;
 test("continues a dropped upload: a part whose answer was lost is sent again without being stored twice", async () => {
   let drops = 1;
@@ -173,7 +250,37 @@ test("an upload that keeps failing stops resumable, and moving again continues i
     assert.equal(second.phase, "done", JSON.stringify(second));
     assert.equal(f.local.calls.filter(([, route]) => route === "/api/workspace-backup/export").length, 1);
     assert.ok(f.cloud.state.received.equals(f.local.archive));
+    assert.equal(first.error.committed, undefined);
   } finally { f.done(); }
+});
+
+test("a fresh copy packs again instead of reusing what an earlier try packed", async () => {
+  let failing = true;
+  const f = harness({ cloud: { failPut: offset => failing && offset >= 3072 } });
+  try {
+    assert.equal((await f.move.move({ profile: "cloud-move" })).error.code, "upload_failed");
+    failing = false;
+    let packed = 0;
+    assert.equal((await f.move.move({ profile: "cloud-move", fresh: true, onPacked: async () => { packed++; } })).phase, "done");
+    assert.equal(f.local.calls.filter(([, route]) => route === "/api/workspace-backup/export").length, 2);
+    assert.equal(packed, 1);
+  } finally { f.done(); }
+});
+
+test("stopping while My Cloud wakes up stops at once, with the real wait in place", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-test-"));
+  const local = desktop(), cloud = cloudFake();
+  const engine = createCloudMove({ localRequest: local.request, fetchImpl: cloud.fetchImpl, tempRoot: join(temp, "move"), availableBytes: async () => 1024 ** 4,
+    pollMs: 0, retryDelaysMs: [0, 0], waitDelaysMs: [60_000, 60_000] });
+  try {
+    const started = Date.now();
+    const running = engine.move(cloudDestination({ pairHome: async () => { throw new Error("My Cloud is waking"); } }), { profile: "cloud-move" });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    engine.cancel();
+    const result = await running;
+    assert.equal(result.error.code, "cancelled");
+    assert.ok(Date.now() - started < 5_000);
+  } finally { rmSync(temp, { recursive: true, force: true }); }
 });
 
 test("a proxy that refuses large parts gets smaller ones; one that refuses even 512 KB is named, with what to change, and the copy continues later", async () => {
@@ -240,11 +347,11 @@ test("a move is measured against the plan's largest disk when the disk grows, an
 });
 
 const OVERVIEW_START = "async function cloudMoveOverview(", IPC_START = "function destinationFor(entry) {", IPC_END = "const savedWorkspace = id =>";
-async function mainOverview({ dest, peek, local = { bots: 3, rooms: 1, chats: 12, bytes: 3.4 * GB, files: 100 }, state = { phase: "idle" }, running = false, onServerPage = true }) {
+async function mainOverview({ dest, peek, local = { bots: 3, rooms: 1, chats: 12, bytes: 3.4 * GB, files: 100 }, state = { phase: "idle" }, running = false, onServerPage = true, accountsNote = null }) {
   const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const start = source.indexOf(OVERVIEW_START), end = source.indexOf(IPC_START, start);
   assert.ok(start >= 0 && end > start);
-  const context = vm.createContext({ moveFit, moveBlocked, cloudMoveDismissed: () => false, peekCloudMove: async () => peek,
+  const context = vm.createContext({ moveFit, moveBlocked, cloudMoveDismissed: () => false, peekCloudMove: async () => peek, accountsNote,
     ensureCloudMove: () => ({ estimate: async () => local, state: () => state, running: () => running }) });
   vm.runInContext(`${source.slice(start, end)}\nglobalThis.cloudMoveOverview = cloudMoveOverview;`, context);
   return JSON.parse(JSON.stringify(await context.cloudMoveOverview(dest, onServerPage)));
@@ -259,6 +366,10 @@ test("a server's card offers a copy only when it can fit and nothing blocks it: 
   result = await mainOverview({ dest: cloud({ status: "ready", origin: ORIGIN, disk: { gb: 10, maxGb: 100 } }), peek });
   assert.equal(result.fit.fit, "grow"); assert.equal(result.suggest, false, "the Cloud is moved to automatically, so it is never suggested"); assert.equal(result.automatic, true);
   assert.deepEqual(result.destination, CLOUD); assert.equal(result.blocked, null);
+  assert.equal(result.accounts, undefined);
+  const note = { origin: ORIGIN, accounts: { moved: { claude: 1, chatgpt: 1 }, stayed: ["Work Claude"] } };
+  result = await mainOverview({ dest: cloud({ status: "ready", origin: ORIGIN }), peek, accountsNote: note });
+  assert.deepEqual(result.accounts, note.accounts, "the home's quiet line also hears which sign-ins came along");
   const roomy = { ...peek, status: { ...peek.status, freeBytes: 50 * GB } };
   const server = { ...VPS_ENTRY, disk: () => { throw new Error("a server has no plan"); } };
   result = await mainOverview({ dest: server, peek });
@@ -642,7 +753,7 @@ function mainIpc(extra = {}) {
       restorePrevious: async dest => { calls.push(["restorePrevious", describe(dest)]); return context.result ?? { phase: "idle" }; } }),
     cloudMoveOverview: (dest, onServerPage) => { calls.push(["overview", dest && describe(dest), onServerPage]); return { suggest: false }; },
     dismissCloudMove: origin => calls.push(["dismiss", origin]),
-    runCloudAutoMove: manual => { calls.push(["autoMove", manual]); return Promise.resolve(null); },
+    runCloudAutoMove: () => { calls.push(["autoMove", true]); return Promise.resolve(null); },
     connectCloudHome: async () => calls.push(["connectCloudHome"]), switchEnvironment: async id => calls.push(["switch", id]),
     navigateMainWindow: url => calls.push(["navigate", url]), slog: () => {},
     openWorkspaceSettings: (id, panel) => calls.push(["openSettings", id, panel]),
@@ -725,7 +836,7 @@ test("production IPC: a server's own page gets only itself, never starts a copy 
   context.mainWindow.webContents = cloudContents;
   context.environmentsState = { environments: SAVED, activeId: "cloud-entry" };
   await handlers.get("cloud-move:start")({ sender: cloudContents, senderFrame: cloudFrame });
-  assert.deepEqual(calls, [["autoMove", true]], "the Cloud's own page retries through the automatic move, which requires an empty home");
+  assert.deepEqual(calls, [["autoMove", true]], "the Cloud's own page retries through the automatic move");
   for (const event of [{ sender: cloudContents, senderFrame: { url: `${ORIGIN}/` } }, { sender: {}, senderFrame: cloudFrame }, { sender: cloudContents, senderFrame: { url: "https://evil.example.test/" } }]) {
     for (const channel of ["cloud-move:state", "cloud-move:start", "cloud-move:cancel", "cloud-move:dismiss", "cloud-move:restore-previous"]) assert.throws(() => handlers.get(channel)(event), /only available/);
   }
@@ -840,6 +951,7 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
     environmentsState: { environments: [{ id: "cloud", name: "My Cloud", origin: ORIGIN }], activeId: "cloud" },
     cloudAccount: { homeTarget: () => ({ origin: ORIGIN }), state: () => account }, cloudPlanSnapshot, LOCAL_ID: environments.LOCAL_ID, myCloudOrigin, rememberedHome: null,
     ensureCloudAccount: () => ({ openDashboard: async (...args) => { calls.push(["dashboard", ...args]); return account; }, signOut: async () => { calls.push(["signOut"]); return account; } }),
+    signOutOfCloud: async () => { calls.push(["signOut"]); return account; },
     openLendingSettings: async () => { calls.push(["lending"]); },
     workspaceMenuAction: action => action(), switchEnvironment: id => { calls.push(["switch", id]); },
   });
@@ -897,6 +1009,7 @@ test("an automatic move can ask the home to prove every bot, room and chat arriv
     const result = await engine.move(short.dest, { requireEmpty: true, verifyArrival: true });
     assert.equal(result.phase, "failed");
     assert.equal(result.error.code, "not_verified");
+    assert.equal(result.error.committed, true, "the caller can tell the Cloud already took the copy");
     assert.deepEqual(result.error.contents, { bots: 3, rooms: 1, chats: 6 });
     assert.deepEqual(readdirSync(join(short.temp, "move2")), [], "nothing is left behind on this computer");
   } finally { short.done(); }
@@ -911,5 +1024,47 @@ test("a home that already has dogs refuses an automatic move and says what it ho
     assert.equal(result.error.code, "not_empty");
     assert.deepEqual(result.error.contents, { bots: 3, rooms: 1, chats: 7 });
     assert.equal(f.cloud.log.some(([method, path]) => method === "PUT" && path.startsWith("/api/cloud-move/upload/")), false, "nothing was uploaded");
+  } finally { f.done(); }
+});
+
+test("the slim cloud-move profile is asked for on the estimate and the export, the Mac's environment is named on the preview, and what stayed behind is reported", async () => {
+  const stayed = [{ name: "task-workspaces", bytes: 5_000_000 }, { name: "native", bytes: 1_600_000 }, { name: "tool-results", bytes: 260_000 }, { name: "providers", bytes: 900_000 }];
+  const f = harness({ desktop: { identity: { environmentId: "mac-env-1" }, leftOnComputer: stayed } });
+  try {
+    const result = await f.move.move({ profile: "cloud-move" });
+    assert.equal(result.phase, "done");
+    assert.ok(f.local.calls.some(([, route]) => route === "/api/cloud-move/estimate?profile=cloud-move"));
+    assert.equal(f.local.calls.find(([, route]) => route === "/api/workspace-backup/export")[2].profile, "cloud-move");
+    assert.equal(f.cloud.state.previewAsk.source, "mac-env-1");
+    assert.deepEqual(result.stayedOnMac, stayed);
+  } finally { f.done(); }
+});
+
+test("a move without the profile asks for the full workspace and reports nothing left behind", async () => {
+  const f = harness();
+  try {
+    const result = await f.move.move();
+    assert.equal(f.local.calls.find(([, route]) => route === "/api/workspace-backup/export")[2].profile, undefined);
+    assert.equal(result.stayedOnMac, undefined);
+  } finally { f.done(); }
+});
+
+test("a home that already received another Mac's move is not replaced when asked to yield, and nothing is uploaded", async () => {
+  const f = harness({ desktop: { identity: { environmentId: "mac-env-2" } }, cloud: { empty: false, receivedFrom: { at: 1, environmentId: "mac-env-1" } } });
+  try {
+    const result = await f.move.move({ profile: "cloud-move", yieldToOtherComputer: true });
+    assert.equal(result.phase, "failed");
+    assert.equal(result.error.code, "other_computer_moved");
+    assert.equal(f.cloud.state.received.length, 0);
+    assert.equal(f.local.calls.some(([, route]) => route === "/api/workspace-backup/export"), false);
+  } finally { f.done(); }
+});
+
+test("the Mac that made the earlier move is not treated as another computer, and a home with test dogs is replaced with the earlier workspace kept", async () => {
+  const f = harness({ desktop: { identity: { environmentId: "mac-env-1" } }, cloud: { empty: false, receivedFrom: { at: 1, environmentId: "mac-env-1" } } });
+  try {
+    const result = await f.move.move({ profile: "cloud-move", yieldToOtherComputer: true, requireEmpty: false });
+    assert.equal(result.phase, "done");
+    assert.equal(result.previous, true);
   } finally { f.done(); }
 });

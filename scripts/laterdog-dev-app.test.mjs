@@ -11,7 +11,6 @@ import { installDevUpdateConfig, keepOnlyDevScheme, packagesDevVariant } from ".
 import { parse } from "yaml";
 import { LIVE_DATA_FLAG, SCRIPT_DEFAULTS } from "../electron/app-variant.mjs";
 import { ISOLATED_DELETIONS, banner, commandContext, planCommand, safeTarget, scriptEnvironment, withoutLiveFlag } from "./dev-safe.mjs";
-import { companionDefaults } from "../companion/src/variant.ts";
 import { appVariantSuffix, sharedVmViewerPort } from "../server/variant-names.ts";
 import { DEV_BUILDER_CONFIG, DEV_RELEASE_TAG, DEV_ZIP_NAME, builderArguments, devAppPath, devFeedUrl, devNotes, devReleaseFiles, devVersion } from "./laterdog-dev-build.mjs";
 import { devIconSamples, sheetHtml, SHEET_SIZES } from "./laterdog-dev-icons.mjs";
@@ -147,7 +146,7 @@ describe("the dev scripts", () => {
     expect(planCommand("server", target).environment).toEqual({ LATERDOG_SERVER_PORT: "9011" });
     const desktop = planCommand("desktop", target);
     expect(desktop.environment.LATERDOG_VARIANT).toBe("dev");
-    expect(desktop.steps).toHaveLength(2);
+    expect(desktop.steps).toHaveLength(1);
     expect(() => planCommand("everything", target)).toThrow();
   });
 
@@ -206,18 +205,7 @@ describe("the Dev icon", () => {
   });
 });
 
-describe("the phone companion, the local computer and the supervisor", () => {
-  it("keep the release's companion ports and folder, and give Dev its own", () => {
-    expect(companionDefaults({}, HOME)).toEqual({ companionPort: 8810, controlPort: 8811, dataDir: "/Users/someone/.laterdog-companion" });
-    expect(companionDefaults({ LATERDOG_APP_VARIANT: "dev" }, HOME)).toEqual({ companionPort: 8910, controlPort: 8909, dataDir: "/Users/someone/.laterdog-dev/companion" });
-    const dev = describeVariant("dev");
-    const release = describeVariant("release");
-    expect(companionDefaults({ LATERDOG_APP_VARIANT: "dev" }, HOME)).toMatchObject({ companionPort: dev.ports.companion, controlPort: dev.ports.companionControl });
-    expect(companionDefaults({ LATERDOG_VARIANT: "dev" }, HOME)).toMatchObject({ companionPort: release.ports.companion, controlPort: release.ports.companionControl });
-    expect(companionDefaults({}, HOME)).toMatchObject({ companionPort: release.ports.companion, controlPort: release.ports.companionControl });
-    expect(read("electron/companion.mjs")).toContain("variant.ports.companionControl");
-  });
-
+describe("the local computer and the supervisor", () => {
   it("name the local computer's container and viewer port per variant, the release's unchanged", () => {
     expect(appVariantSuffix({})).toBe("");
     expect(appVariantSuffix({ LATERDOG_APP_VARIANT: "dev" })).toBe("-dev");

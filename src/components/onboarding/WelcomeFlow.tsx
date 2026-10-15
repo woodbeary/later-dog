@@ -20,7 +20,6 @@ import { EnginesBeat } from "./beats/EnginesBeat";
 import { HelloBeat } from "./beats/HelloBeat";
 import { MeetYourBotBeat } from "./beats/MeetYourBotBeat";
 import { PermissionsBeat } from "./beats/PermissionsBeat";
-import { PhoneBeat } from "./beats/PhoneBeat";
 import { QuietButton } from "./beats/shared";
 import { withViewTransition } from "./view-transition";
 import { ProgressDots } from "./ProgressDots";
@@ -31,7 +30,6 @@ const MASCOT_FOR_BEAT: Record<BeatId, DogState> = {
   reel: "curious",
   engines: "searching",
   permissions: "listening",
-  phone: "sending",
   bot: "celebrate",
 };
 
@@ -47,8 +45,6 @@ function beatTitle(beat: BeatId): string | null {
       return t("onboarding.bot.title");
     case "reel":
       return t("onboarding.reel.title");
-    case "phone":
-      return t("onboarding.phone.title");
   }
 }
 
@@ -218,7 +214,6 @@ export function WelcomeFlow({
           {beat === "reel" && <FeatureReel {...beatProps} />}
           {beat === "engines" && <EnginesBeat {...beatProps} hosted={hosted} onOpenOrganisation={onOpenOrganisation} />}
           {beat === "permissions" && <PermissionsBeat {...beatProps} />}
-          {beat === "phone" && <PhoneBeat {...beatProps} />}
           {beat === "bot" && (
             <MeetYourBotBeat
               bot={bot}

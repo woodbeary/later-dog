@@ -4,18 +4,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isWorkspaceRunning, qrToString, runOnboardingCommand, runServe, type CliOptions } from "./cli.ts";
+import { isWorkspaceRunning, runOnboardingCommand, runServe, type CliOptions } from "./cli.ts";
 
 const mocks = vi.hoisted(() => ({
-  fleetCredential: vi.fn(() => null),
-  fleetAccess: vi.fn(),
-  FLEET_CREDENTIAL_ENV: "LATERDOG_INSTALLATION_CREDENTIAL",
   denyLogOpen: false,
   spawn: vi.fn(),
-  tailscaleStatus: vi.fn(), tailscaleServe: vi.fn(), tailscaleServeOff: vi.fn(),
-  createTunnelAccount: vi.fn(), createTunnelOrigin: vi.fn(), cleanupTunnelOrigin: vi.fn(),
-  describeTunnelAccount: vi.fn(), tunnelAccess: vi.fn(), ensureCloudflared: vi.fn(),
-  guardianEntry: vi.fn(), startTunnel: vi.fn(),
 }));
 vi.mock("node:child_process", async (original) => ({
   ...await original<typeof import("node:child_process")>(), spawn: mocks.spawn,
@@ -32,11 +25,6 @@ vi.mock("node:fs", async (original) => {
     },
   };
 });
-vi.mock("./tailscale.ts", () => ({
-  tailscaleStatus: mocks.tailscaleStatus, tailscaleServe: mocks.tailscaleServe,
-  tailscaleServeOff: mocks.tailscaleServeOff, explainTailscaleFailure: (failure: string) => failure,
-}));
-vi.mock("./tunnel.ts", () => ({ ...mocks, describeTunnelState: () => "Fixture tunnel" }));
 vi.mock("./browser-engine.ts", () => ({
   browserEngineStatus: () => ({ kind: "ready" }), describeBrowserEngine: () => "Fixture browser ready",
 }));
@@ -64,29 +52,13 @@ function childProcess(): ChildProcess {
   return child;
 }
 
-function interrupt(): void {
-  const handlers = process.listeners("SIGINT").filter((handler) => !signalListeners.get("SIGINT")?.has(handler));
-  expect(handlers).toHaveLength(1);
-  handlers[0]!("SIGINT");
-}
-
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.denyLogOpen = false;
   dataDir = mkdtempSync(join(process.env.HOME!, "cli-lifecycle-"));
-  options = { command: "serve", port: 18451, dataDir, tailscale: false, tunnel: false, client: false, pair: false, json: false, guided: true, open: false };
+  options = { command: "serve", port: 18451, dataDir, client: false, pair: false, json: false, guided: true, open: false };
   signalListeners = new Map(["SIGINT", "SIGTERM"].map((signal) => [signal as NodeJS.Signals, new Set(process.listeners(signal))]));
   mocks.spawn.mockImplementation(() => childProcess());
-  mocks.tailscaleStatus.mockResolvedValue({ status: { cli: "/fixture/tailscale", dnsName: "fixture.tail.test", addresses: [], backendState: "Running" } });
-  mocks.tailscaleServe.mockResolvedValue({ origin: "https://fixture.tail.test" });
-  mocks.tailscaleServeOff.mockResolvedValue(undefined);
-  mocks.createTunnelAccount.mockReturnValue({ credentials: { status: "available", read: () => ({}) }, service: { retry: async () => ({}), restore: async () => ({}), dispose: vi.fn() } });
-  mocks.describeTunnelAccount.mockReturnValue({ email: "fixture@example.test" });
-  mocks.tunnelAccess.mockReturnValue({ endpoint: "https://fixture.laterdog.test" });
-  mocks.ensureCloudflared.mockResolvedValue("/fixture/cloudflared");
-  mocks.guardianEntry.mockReturnValue("/fixture/guardian");
-  mocks.createTunnelOrigin.mockReturnValue({ socketPath: join(dataDir, "fixture.sock") });
-  mocks.startTunnel.mockReturnValue({ started: Promise.resolve(), stop: vi.fn().mockResolvedValue(undefined) });
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected fixture request"); }));
 });
 
@@ -107,86 +79,11 @@ afterEach(() => {
 });
 
 describe("CLI startup lifecycle", () => {
-  it("does not enable Tailscale or spawn a server when guided logs cannot be opened", async () => {
+  it("spawns no server when guided logs cannot be opened", async () => {
     mocks.denyLogOpen = true;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({}, { status: 503 })));
-    await expect(runServe({ ...options, tailscale: true }, vi.fn())).rejects.toMatchObject({ code: "EACCES" });
-    expect(mocks.tailscaleServe).not.toHaveBeenCalled();
-    expect(mocks.tailscaleServeOff).not.toHaveBeenCalled();
+    await expect(runServe(options, vi.fn())).rejects.toMatchObject({ code: "EACCES" });
     expect(mocks.spawn).not.toHaveBeenCalled();
-  });
-
-  it("turns Tailscale back off if spawning the server fails after enabling serve", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({}, { status: 503 })));
-    mocks.spawn.mockImplementation(() => { throw new Error("Fixture spawn failure"); });
-    await expect(runServe({ ...options, tailscale: true }, vi.fn())).rejects.toThrow("Fixture spawn failure");
-    expect(mocks.tailscaleServe).toHaveBeenCalledOnce();
-    expect(mocks.tailscaleServeOff).toHaveBeenCalledOnce();
-    expect(mocks.tailscaleServeOff).toHaveBeenCalledWith(expect.objectContaining({ dnsName: "fixture.tail.test" }));
-  });
-
-  it.each([
-    { outcome: "success", result: { origin: "https://fixture.tail.test" } },
-    { outcome: "failure", result: { failure: "unknown" } },
-  ])("cleans up and never spawns when Tailscale returns $outcome after startup cancellation", async ({ result }) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({}, { status: 503 })));
-    mocks.tailscaleServe.mockImplementation(async () => {
-      await Promise.resolve();
-      interrupt();
-      return result;
-    });
-    expect(await runServe({ ...options, tailscale: true }, vi.fn())).toBe(130);
-    expect(mocks.tailscaleServe).toHaveBeenCalledOnce();
-    expect(mocks.tailscaleServeOff).toHaveBeenCalledOnce();
-    expect(mocks.tailscaleServeOff).toHaveBeenCalledWith(expect.objectContaining({ dnsName: "fixture.tail.test" }));
-    expect(mocks.spawn).not.toHaveBeenCalled();
-    for (const [signal, before] of signalListeners) {
-      expect(process.listeners(signal).filter((handler) => !before.has(handler))).toEqual([]);
-    }
-  });
-
-  it("does not start a tunnel after SIGINT during the final readiness response", async () => {
-    let healthRequests = 0;
-    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
-      expect(String(url)).toBe(`http://127.0.0.1:${options.port}/api/health`);
-      healthRequests++;
-      if (healthRequests === 1) return Response.json({}, { status: 503 });
-      if (healthRequests === 3) interrupt();
-      return Response.json({ app: "laterdog", pid: childPid });
-    }));
-    expect(await runServe({ ...options, tunnel: true }, vi.fn())).toBe(0);
-    expect(healthRequests).toBe(3);
-    expect(mocks.startTunnel).not.toHaveBeenCalled();
-    expect(children[0]!.kill).toHaveBeenCalledWith("SIGTERM");
-    expect(mocks.cleanupTunnelOrigin).toHaveBeenCalledOnce();
-  });
-
-  it("hands the running tunnel to background endpoint recovery and takes it back on stop", async () => {
-    let healthRequests = 0;
-    vi.stubGlobal("fetch", vi.fn(async () => (++healthRequests === 1
-      ? Response.json({}, { status: 503 })
-      : Response.json({ app: "laterdog", pid: childPid }))));
-    const service = { retry: vi.fn(async () => ({})), restore: vi.fn(), dispose: vi.fn() };
-    mocks.createTunnelAccount.mockReturnValue({ credentials: { status: "available", read: () => ({}) }, service });
-    const running = { started: Promise.resolve(), stop: vi.fn().mockResolvedValue(undefined) };
-    mocks.startTunnel.mockImplementation(() => {
-      setTimeout(interrupt, 10);
-      return running;
-    });
-    let servingAtRestore: unknown = "not called";
-    service.restore.mockImplementation(async () => {
-      servingAtRestore = recovery().running();
-      return {};
-    });
-    const recovery = () => mocks.createTunnelAccount.mock.calls[0]![0].recovery as { running(): unknown };
-
-    expect(await runServe({ ...options, tunnel: true }, vi.fn())).toBe(0);
-    expect(mocks.startTunnel).toHaveBeenCalledOnce();
-    expect(service.restore).toHaveBeenCalledOnce();
-    expect(servingAtRestore).toBe(running);
-    expect(recovery().running()).toBeNull();
-    expect(service.dispose).toHaveBeenCalled();
-    expect(running.stop).toHaveBeenCalledOnce();
   });
 
   it("reopens a matching desktop workspace even when its server PID differs from the lease owner", async () => {
@@ -213,75 +110,5 @@ describe("CLI startup lifecycle", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({ app: "laterdog", pid: childPid }))
       .mockResolvedValueOnce(Response.json({ environmentId: "different-workspace" })));
     expect(await isWorkspaceRunning(options)).toBe(false);
-  });
-
-  it.each(["mismatched", "unreachable"])("never mints a phone code for a %s public endpoint", async (failure) => {
-    let healthRequests = 0;
-    const requests: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      const address = String(url);
-      requests.push(address);
-      expect(init?.method).not.toBe("POST");
-      if (address.endsWith("/api/health")) {
-        return ++healthRequests === 1 ? Response.json({}, { status: 503 }) : Response.json({ app: "laterdog", pid: childPid });
-      }
-      if (address.startsWith("https://")) {
-        if (failure === "unreachable") throw new Error("Fixture endpoint offline");
-        return Response.json({ environmentId: "another-workspace" });
-      }
-      return Response.json({ environmentId: workspaceId });
-    }));
-    const log = vi.fn((line: string) => { if (line.includes("Keep this terminal open")) interrupt(); });
-    expect(await runServe({ ...options, pair: true, phone: "android", publicUrl: "https://fixture.example.test" }, log)).toBe(0);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("no phone pairing code was created"));
-    expect(requests.some((url) => url.includes("/api/auth/pairing"))).toBe(false);
-    expect(requests).toContain("https://fixture.example.test/.well-known/laterdog/environment");
-  });
-
-  it("offers Android client pairing only after verifying the same workspace, without claiming it is connected", async () => {
-    const origin = "https://fixture.example.test";
-    const code = "ABCD-EFGH-JKLM";
-    const expiresAt = Date.now() + 300_000;
-    const pairingUrl = `${origin}/pair#code=${code}`;
-    const credential = `laterdog_pair_${"a".repeat(43)}`;
-    const inviteUrl = `laterdog://pair?address=${encodeURIComponent(origin)}&token=${credential}&name=fixture`;
-    let healthRequests = 0;
-    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      const address = String(url);
-      if (address.endsWith("/api/health")) {
-        return ++healthRequests === 1 ? Response.json({}, { status: 503 }) : Response.json({ app: "laterdog", pid: childPid });
-      }
-      if (address === `http://127.0.0.1:${options.port}/api/auth/pairing`) {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({ label: "Android", scopes: ["client"] });
-        return Response.json({ code, url: null, expiresAt, credential, serverName: "fixture", hint: "set LATERDOG_PUBLIC_URL" });
-      }
-      expect(address).toMatch(/\/\.well-known\/laterdog\/environment$/);
-      expect(init?.method).not.toBe("POST");
-      expect(init?.body).toBeUndefined();
-      return Response.json({ environmentId: workspaceId });
-    });
-    vi.stubGlobal("fetch", fetcher);
-    const log = vi.fn((line: string) => { if (line.includes("Keep this terminal open")) interrupt(); });
-    expect(await runServe({ ...options, pair: true, phone: "android", publicUrl: origin }, log)).toBe(0);
-    const requests = fetcher.mock.calls.map(([url]) => String(url));
-    const pairingRequest = `http://127.0.0.1:${options.port}/api/auth/pairing`;
-    expect(requests.filter((url) => url === pairingRequest)).toHaveLength(1);
-    expect(requests).toContain(`http://127.0.0.1:${options.port}/.well-known/laterdog/environment`);
-    expect(requests).toContain(`${origin}/.well-known/laterdog/environment`);
-    expect(requests.indexOf(`${origin}/.well-known/laterdog/environment`)).toBeLessThan(requests.indexOf(pairingRequest));
-    const output = log.mock.calls.map(([line]) => line).join("\n");
-    expect(output).toContain(`pairing code:  ${code}`);
-    expect(output).toContain(`expires:       ${new Date(expiresAt).toLocaleTimeString()} (single use)`);
-    expect(output).toContain(`web browser:   ${pairingUrl}`);
-    expect(output).toMatch(/[▀▄█]/);
-    expect(output).toContain(`Or open ${origin}/pair on your phone and enter the code.`);
-    expect(output).toContain("On Android, open the later.dog app and scan the QR with its pairing scanner.");
-    expect(output).toContain(qrToString(inviteUrl));
-    expect(output).not.toContain(qrToString(pairingUrl));
-    expect(output).toContain("client access: chat and approvals, not settings or pairing administration");
-    expect(output).toContain("Scanning a QR does not mean the phone is paired.");
-    expect(output).toContain("Waiting for you to connect on the phone.");
-    expect(output).not.toMatch(/pairing complete|phone (?:is |successfully )?connected|paired successfully/i);
   });
 });

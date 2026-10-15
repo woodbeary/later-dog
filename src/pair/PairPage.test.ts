@@ -5,44 +5,17 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const f = vi.hoisted(() => ({ effects: [] as EffectCallback[], pair: vi.fn() }));
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(), useEffect: (effect: EffectCallback) => { f.effects.push(effect); } }));
 vi.mock("../lib/session", async original => ({ ...await original<typeof import("../lib/session")>(), pairWithCode: f.pair, readSessionState: vi.fn().mockResolvedValue({ kind: "unauthenticated", error: "" }) }));
-vi.mock("../components/DesktopWorkspaceSwitcher", () => ({ DesktopWorkspaceSwitcher: () => null }));
 import { PairPage, pairIntro, pairsAutomatically } from "./PairPage";
 import en from "../locales/en.json";
 
 const code = "ABCD-EFGH-JK23";
 const render = (initialCode: string | null) => { f.effects = []; return renderToStaticMarkup(createElement(PairPage, { initialCode })); };
-const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
-let replaced: string[];
+
 beforeEach(() => {
-  f.pair.mockReset(); replaced = [];
-  vi.stubGlobal("location", { replace: (url: string) => replaced.push(url) });
+  f.pair.mockReset();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
 });
 afterEach(() => vi.unstubAllGlobals());
-
-it("in the desktop app, a code the link carried connects at once; a browser still asks", () => {
-  expect(pairsAutomatically(code, true)).toBe(true);
-  expect(pairsAutomatically(code, false)).toBe(false);
-  expect(pairsAutomatically(null, true)).toBe(false);
-});
-
-it("opening My Cloud from the app needs no click and no code to type", async () => {
-  vi.stubGlobal("window", { laterdog: { workspaces: {} } });
-  f.pair.mockResolvedValue({ ok: true });
-  const html = render(code);
-  expect(html).toContain("Connecting to this later.dog…");
-  expect(html).not.toContain("Pairing code"); expect(html).not.toContain("<form");
-  f.effects[0](); await flush();
-  expect(f.pair).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code }));
-  expect(replaced).toEqual(["/"]);
-});
-
-it("a code that no longer works falls back to the form, with the reason", async () => {
-  vi.stubGlobal("window", { laterdog: { workspaces: {} } });
-  f.pair.mockResolvedValue({ ok: false, error: "That pairing code has expired." });
-  render(code); f.effects[0](); await flush();
-  expect(replaced).toEqual([]);
-});
 
 it("a browser keeps the code in the form for the person to confirm", () => {
   vi.stubGlobal("window", {});
@@ -59,4 +32,23 @@ it("My Cloud says where its connection starts, never 'the code shown on the serv
   expect(cloud).not.toContain("shown on the server");
   expect(pairIntro({ mode: "code", sent: false, email: "", cloudHome: false })).toContain("shown on the server");
   expect(pairIntro({ mode: "email", sent: true, email: "a@b.test", cloudHome: false })).toContain("a@b.test");
+});
+
+it("only the desktop app pairs on its own, and only with a code", () => {
+  expect(pairsAutomatically(code, true)).toBe(true);
+  expect(pairsAutomatically(code, false)).toBe(false);
+  expect(pairsAutomatically(null, true)).toBe(false);
+});
+
+it("signing in on the desktop opens the workspace with no click and no code to type", async () => {
+  const replaced: string[] = [];
+  vi.stubGlobal("window", { laterdog: {} });
+  vi.stubGlobal("location", { replace: (url: string) => { replaced.push(url); }, search: "" });
+  f.pair.mockResolvedValue({ ok: true });
+  const html = render(code);
+  expect(html).not.toContain(">Connect</button>");
+  f.effects[0]?.();
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  expect(f.pair).toHaveBeenCalledWith(expect.objectContaining({ code }));
+  expect(replaced).toEqual(["/"]);
 });

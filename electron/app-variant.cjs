@@ -23,8 +23,6 @@ const DEFINITIONS = Object.freeze({
     tempPrefix: "laterdog",
     iconPath: "resources/app-icon.png",
     ports: Object.freeze({
-      companion: 8810,
-      companionControl: 8811,
       server: Object.freeze([8799, 18799, 28799]),
       webhookOffset: 1,
       companionRelay: Object.freeze([8798, 18798, 28798]),
@@ -46,8 +44,6 @@ const DEFINITIONS = Object.freeze({
     tempPrefix: "laterdog-dev",
     iconPath: "../build/dev/icon.png",
     ports: Object.freeze({
-      companion: 8910,
-      companionControl: 8909,
       server: Object.freeze([8999, 18999, 28999]),
       webhookOffset: 1,
       companionRelay: Object.freeze([8998, 18998, 28998]),
@@ -206,8 +202,8 @@ function webhookPortFor(definition, serverPort) {
 }
 
 function ownedPorts(definition) {
-  const { server, companionRelay, supervisor, profiles, webhookOffset, companion, companionControl } = definition.ports;
-  const owned = new Set([supervisor, companion, companionControl]);
+  const { server, companionRelay, supervisor, profiles, webhookOffset } = definition.ports;
+  const owned = new Set([supervisor]);
   for (const port of [...server, ...companionRelay]) {
     owned.add(port);
     if (server.includes(port)) owned.add(port + webhookOffset);
@@ -227,10 +223,6 @@ function applyVariantEnvironment(definition, env = process.env) {
   env.LATERDOG_PORT = String(definition.ports.supervisor);
   env[APP_VARIANT_ENV] = definition.id;
   return env;
-}
-
-function companionDirFor(definition, options) {
-  return definition.id === RELEASE ? null : path.join(dataDirFor(definition, options), "companion");
 }
 
 function liveDataRequested({ argv = process.argv, env = process.env } = {}) {
@@ -272,7 +264,6 @@ function scriptTarget({ argv = process.argv, env = process.env, home = os.homedi
 
 module.exports = {
   APP_VARIANT_ENV,
-  companionDirFor,
   insidePath,
   readBundleIdentifier,
   applyVariantEnvironment,

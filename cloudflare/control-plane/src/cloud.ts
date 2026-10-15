@@ -191,7 +191,7 @@ async function token(request: Request, env: Env): Promise<Response> {
   });
 }
 
-export async function requireDevice(request: Request, env: Env): Promise<DeviceRow> {
+async function requireDevice(request: Request, env: Env): Promise<DeviceRow> {
   const presented = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
   if (!DEVICE_TOKEN.test(presented)) throw new HTTPError(401, "invalid_token");
   const row = await env.DB.prepare(

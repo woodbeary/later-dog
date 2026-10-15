@@ -1,6 +1,4 @@
 {
-  "companion/test/mdns.test.ts": 5,
-  "companion/test/proxy.test.ts": 6,
   "evals/evals.test.ts": 37,
   "evals/golden/golden.test.ts": 5,
   "evals/runners/run-skill-bench.test.ts": 23,
@@ -8,11 +6,9 @@
   "scripts/testing/cloud-preview.e2e.test.ts": 1,
   "scripts/testing/composer-drafts-ui.e2e.test.ts": 1,
   "scripts/testing/control-laterdog-ui.e2e.test.ts": 1,
-  "scripts/testing/cron-routines-ui.e2e.test.ts": 1,
   "scripts/testing/direct-coordination-ui.e2e.test.ts": 1,
   "scripts/testing/org-library-ui.e2e.test.ts": 1,
   "scripts/testing/reply-focus-ui.e2e.test.ts": 1,
-  "scripts/testing/routine-run-feedback-ui.e2e.test.ts": 1,
   "scripts/testing/team-lifecycle-ui.e2e.test.ts": 1,
   "scripts/testing/team-share-ui.e2e.test.ts": 1,
   "scripts/testing/team-template-ui.e2e.test.ts": 1,

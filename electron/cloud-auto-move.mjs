@@ -1,8 +1,8 @@
-import { arrivedInFull } from "./cloud-move.mjs";
+import { arrivedInFull, CLOUD_MOVE_PROFILE } from "./cloud-move.mjs";
 
-export const AUTO_MOVE_RETRY_MS = Object.freeze([20_000, 60_000, 5 * 60_000, 15 * 60_000]);
-const RETRYABLE = new Set(["busy", "network", "upload_failed", "cloud_unavailable", "cloud_busy", "proxy_limit", "cancelled", "restart_timeout", "unreachable"]);
-const FINAL = new Set(["moved", "nothing", "kept-local"]);
+const FINAL = new Set(["moved", "joined"]);
+const RETRY_IN_MS = Object.freeze([20_000, 60_000, 5 * 60_000, 15 * 60_000]);
+const FINAL_FAILURES = new Set(["too_large", "cloud_full", "local_full", "shared_workspace", "outdated", "same_computer", "invalid_backup", "not_verified", "cancelled"]);
 const count = value => Number.isSafeInteger(value) && value >= 0;
 
 export function worthMoving(local) {
@@ -15,87 +15,91 @@ export function parseMoveRecords(raw) {
   const homes = value && typeof value === "object" && value.homes && typeof value.homes === "object" ? value.homes : {};
   const records = {};
   for (const [accountId, entry] of Object.entries(homes)) {
-    if (!accountId || !entry || typeof entry !== "object" || !FINAL.has(entry.status) || !Number.isSafeInteger(entry.at)) continue;
+    if (!accountId || !entry || typeof entry !== "object" || !FINAL.has(entry.status) || !Number.isSafeInteger(entry.at) || typeof entry.origin !== "string") continue;
     const contents = entry.contents && ["bots", "rooms", "chats"].every(key => count(entry.contents[key]))
       ? { bots: entry.contents.bots, rooms: entry.contents.rooms, chats: entry.contents.chats } : undefined;
-    records[accountId] = { status: entry.status, at: entry.at, ...(typeof entry.origin === "string" ? { origin: entry.origin } : {}), ...(contents ? { contents } : {}) };
+    const stayedOnMac = Array.isArray(entry.stayedOnMac)
+      ? entry.stayedOnMac.filter(item => item && typeof item.name === "string" && count(item.bytes)).map(item => ({ name: item.name, bytes: item.bytes })) : undefined;
+    records[accountId] = { status: entry.status, at: entry.at, origin: entry.origin, ...(contents ? { contents } : {}), ...(stayedOnMac ? { stayedOnMac } : {}) };
   }
   return records;
 }
 
 export function serializeMoveRecords(records) {
-  return `${JSON.stringify({ version: 1, homes: records }, null, 2)}\n`;
+  return `${JSON.stringify({ version: 2, homes: records }, null, 2)}\n`;
 }
 
-export function createCloudAutoMove({ move, read, write, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, retryDelaysMs = AUTO_MOVE_RETRY_MS, log = () => {}, onMoved = () => {} }) {
-  let busy = false, timer = null, failures = 0, closed = false, scheduled = null, gaveUp = null;
+export function createCloudAutoMove({ move, read, write, now = Date.now, log = () => {}, pause = async () => {}, onMoved = () => {}, onJoined = () => {}, onFailed = () => {} }) {
+  let busy = false, failedFor = null, closed = false, retries = 0;
   const records = () => { try { return parseMoveRecords(read()); } catch { return {}; } };
+  const known = (accountId, destination) => {
+    const entry = records()[accountId];
+    return entry && entry.origin === destination.origin ? entry : null;
+  };
   const remember = (accountId, entry) => {
     try { write(serializeMoveRecords({ ...records(), [accountId]: { ...entry, at: now() } })); } catch (error) { log(`cloud move: could not save the result (${error?.message ?? error})`); }
   };
-  const stopTimer = () => { if (timer !== null) clearTimer(timer); timer = null; scheduled = null; };
-  const forgetFailure = () => { gaveUp = null; failures = 0; };
+  const fail = (accountId, code, message) => {
+    failedFor = accountId;
+    const retryInMs = FINAL_FAILURES.has(code) ? undefined : RETRY_IN_MS[retries];
+    if (retryInMs) retries++;
+    log(`cloud move: not moved (${code}): ${message}${retryInMs ? ` Trying again in ${Math.round(retryInMs / 1000)} s.` : ""}`);
+    try { onFailed({ code, message }); } catch {}
+    return { status: "failed", code, ...(retryInMs ? { retryInMs } : {}) };
+  };
+  const paused = async held => {
+    try { await pause(held); } catch (error) { log(`cloud move: could not ${held ? "pause" : "resume"} this Mac's dogs (${error?.message ?? error})`); }
+  };
 
-  async function attempt(accountId, destination, manual) {
+  async function attempt(accountId, destination) {
     if (closed || busy || move.running()) return { status: "busy" };
-    const known = records()[accountId];
-    if (known && (!manual || known.status !== "kept-local")) return { status: known.status };
+    const done = known(accountId, destination);
+    if (done) return { status: done.status };
     busy = true;
     try {
       let local = null;
       try { local = await move.estimate(); } catch { local = null; }
-      if (!local) return retryLater(accountId, destination, "unmeasured");
-      if (!worthMoving(local)) {
-        remember(accountId, { status: "nothing", origin: destination.origin });
-        return { status: "nothing" };
+      if (!local) return fail(accountId, "unmeasured", "This Mac's dogs could not be measured.");
+      if (!worthMoving(local)) return { status: "nothing" };
+      await paused(false);
+      let held = false;
+      const onPacked = async () => { held = true; await paused(true); };
+      let result;
+      try { result = await move.move(destination, { requireEmpty: false, verifyArrival: true, profile: CLOUD_MOVE_PROFILE, yieldToOtherComputer: true, fresh: true, onPacked }); } catch (error) {
+        if (held) await paused(false);
+        throw error;
       }
-      const result = await move.move(destination, { requireEmpty: true, verifyArrival: true });
       if (result.phase === "done" && arrivedInFull(local, result.moved)) {
-        failures = 0;
-        remember(accountId, { status: "moved", origin: destination.origin, contents: result.moved });
-        onMoved(destination);
+        failedFor = null;
+        retries = 0;
+        remember(accountId, { status: "moved", origin: destination.origin, contents: result.moved, ...(result.stayedOnMac ? { stayedOnMac: result.stayedOnMac } : {}) });
+        try { onMoved(destination, result); } catch {}
         return { status: "moved" };
       }
-      const code = result.error?.code;
-      if (code === "not_empty") {
-        if (arrivedInFull(local, result.error.contents)) {
-          remember(accountId, { status: "moved", origin: destination.origin, contents: result.error.contents });
-          onMoved(destination);
-          return { status: "moved" };
-        }
-        remember(accountId, { status: "kept-local", origin: destination.origin });
-        return { status: "kept-local" };
+      if (held && result.error?.committed !== true) await paused(false);
+      const code = result.error?.code ?? "unknown";
+      if (code === "other_computer_moved") {
+        remember(accountId, { status: "joined", origin: destination.origin });
+        log("cloud move: another computer already moved its dogs to this account; showing the Cloud home and leaving this Mac's data as it is");
+        try { onJoined(destination); } catch {}
+        return { status: "joined" };
       }
-      if (RETRYABLE.has(code)) return retryLater(accountId, destination, code);
-      gaveUp = accountId;
-      return { status: "failed", code };
+      return fail(accountId, code, result.error?.message ?? "The move did not finish.");
     } finally { busy = false; }
   }
 
-  function retryLater(accountId, destination, code) {
-    if (closed || failures >= retryDelaysMs.length) { gaveUp = accountId; return { status: "failed", code }; }
-    const delay = retryDelaysMs[failures++];
-    stopTimer();
-    scheduled = accountId;
-    timer = setTimer(() => { timer = null; scheduled = null; void attempt(accountId, destination, false).catch(() => {}); }, delay);
-    timer?.unref?.();
-    return { status: "waiting", code };
-  }
-
   return {
-    status(accountId) { return records()[accountId]?.status ?? null; },
+    status(accountId, destination) { return destination ? known(accountId, destination)?.status ?? null : records()[accountId]?.status ?? null; },
     ensure(accountId, destination) {
       if (!accountId || closed) return Promise.resolve({ status: "busy" });
-      if (scheduled === accountId) return Promise.resolve({ status: "waiting" });
-      if (gaveUp === accountId) return Promise.resolve({ status: "failed" });
-      return attempt(accountId, destination, false);
+      if (failedFor === accountId) return Promise.resolve({ status: "failed" });
+      return attempt(accountId, destination);
     },
     retry(accountId, destination) {
-      forgetFailure();
-      stopTimer();
-      return attempt(accountId, destination, true);
+      failedFor = null;
+      return attempt(accountId, destination);
     },
-    stop() { stopTimer(); forgetFailure(); },
-    close() { closed = true; stopTimer(); },
+    stop() { failedFor = null; retries = 0; },
+    close() { closed = true; },
   };
 }

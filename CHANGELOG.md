@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.3.39 — 2026-10-15
+
+- **Apps on your Mac use your dogs in My Cloud with the same limits local tools have.** They can send messages, make and change dogs, rooms and threads, switch models and stop a turn; approvals stay with you. Signing out ends their session in My Cloud too.
+- **Apps follow you when you sign in or out**, and wait a minute for My Cloud to wake instead of failing.
+- **My Cloud wakes up safely.** A reload that fails partway stops cleanly, and large files no longer have to fit in memory.
+
+## 0.3.38 — 2026-10-15
+
+- **Grok Bot, Claude Code and other apps on your Mac can use your dogs in My Cloud.** Add later.dog's MCP server to the app; while your Mac is signed in to later.dog Cloud it reaches your Cloud with full access.
+- **Codex dogs keep working in My Cloud.** A chat whose Codex history stayed on your Mac picks up from the later.dog transcript.
+- **Dogs in My Cloud have their later.dog tools again**, including your Mac and cloud jobs.
+
+## 0.3.37 — 2026-10-15
+
+- **Your Claude and ChatGPT sign-ins actually reach My Cloud.** The address they travel through was answered by another part of the app first, so nothing ever arrived.
+- **Quitting, stopping or signing out during the trip to My Cloud is safe.** Your Mac's dogs work again, routines arrive switched on, and a retry packs a fresh copy instead of an older one.
+- **Older backups restore again** even if they carry the included-services key.
+
+## 0.3.36 — 2026-10-15
+
+- **Your Claude and ChatGPT sign-ins reach My Cloud,** including extra Claude accounts like Claude 2, so your dogs answer there right away.
+- **The first trip to My Cloud waits instead of failing.** If My Cloud is waking up or a dog is busy, it waits a few minutes. If it still can't finish, it tries again on its own after 20 seconds, 1 minute, 5 minutes and 15 minutes.
+- **Nothing you say during the trip is left behind.** Your Mac's dogs pause once your dogs and chats are packed, and carry on in My Cloud.
+- **Signing out lets your Mac's dogs work again** straight away.
+- **My Cloud keeps its included AI and voice** after your dogs arrive.
+
+## 0.3.35 — 2026-10-14
+
+- **Signing in now brings your dogs along.** A check on this Mac stopped your dogs and chats from reaching your later.dog Cloud, so it failed every time. It now goes through quietly the first time later.dog opens signed in, with no pop-up.
+- **Sign out signs you out of later.dog only.** Your Claude and ChatGPT sign-ins stay. Each account still has its own Sign out in the accounts menu.
+
+## 0.3.34 — 2026-10-14
+
+- **Sign in, and your dogs are there.** After you sign in on your Mac, later.dog opens your account's workspace. The first time, your dogs and chats move into your later.dog Cloud, so they keep working when your Mac is closed and your phone shows the same chats.
+- **Your Mac is a computer your dogs can use.** Dogs work on their own cloud computers and use your Mac when a task needs something only it has, like a file in Downloads. You're asked once, and Always allow covers every dog.
+- **Your Claude and ChatGPT sign-ins move with your dogs,** so nothing is signed in twice.
+- **No more phone setup.** QR codes, pairing, server choices and connection settings are gone. Get the iPhone app and sign in.
+- **Replies you asked for mid-task show in the chat** instead of only in See progress.
+- **See progress names each step** and folds repeats into one row with a count.
+- **The accounts menu marks the account in use.** Columns line up, and resting accounts show a charging battery.
+- **Saved keys repair themselves.** Keys an older version saved under its old name are set aside instead of locking later.dog.
+- **Routines live at the top of a dog's Details,** with a simple on/off row and a proper menu.
+
 ## 0.3.33 — 2026-10-14
 
 - **Your Mac keeps its workspace when you sign in.** Your existing dogs and conversations stay selected, with saved server connections available under Settings → General → Advanced.
