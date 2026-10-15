@@ -30,6 +30,10 @@ export function dogMcpEnvironment(botId: string, conversationId: string): Record
     LATERDOG_BOT_ID: botId, LATERDOG_CONVERSATION_ID: conversationId };
 }
 
+export function availableDogMcpEnvironment(botId: string, conversationId: string): Record<string, string> | null {
+  try { return dogMcpEnvironment(botId, conversationId); } catch { return null; }
+}
+
 export interface SupervisorCredential { token: string; botId?: string }
 export function mcpCredential(env: NodeJS.ProcessEnv = process.env): SupervisorCredential {
   const botId = env.LATERDOG_BOT_ID?.trim();

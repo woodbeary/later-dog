@@ -13,7 +13,7 @@ import { callTool } from './mcp.ts';
 import { CODEX_CLOUD_CAPABILITIES, type ExecutionAdapter } from './codex-cloud.ts';
 import { GitHubPublisher } from './github.ts';
 import type { GitHubDeviceLogin } from './github-login.ts';
-import { DOG_HEADER, dogMcpEnvironment, dogToken, mcpCredential } from './dog-access.ts';
+import { DOG_HEADER, availableDogMcpEnvironment, dogMcpEnvironment, dogToken, mcpCredential } from './dog-access.ts';
 import { dogToken as workerDogToken } from '../../deploy/laterdog/cloudflare/src/dog-token.ts';
 
 const REFUSAL = /^This dog's access does not include [^\n]+\.$/;
@@ -149,4 +149,21 @@ it('derives one dog token on the desktop, the supervisor and the Cloudflare Work
   try { expect(()=>mcpCredential({LATERDOG_BOT_ID:bot,LATERDOG_TOKEN_FILE:tokenFile,LATERDOG_DATA_DIR:dir})).toThrow(/no later\.dog token/); }
   finally { rmSync(dir,{recursive:true,force:true}); }
   expect(mcpCredential({})).toEqual({token:admin});
+});
+
+it('leaves the later.dog tools out instead of failing the turn when the supervisor file points at another computer', () => {
+  const home = mkdtempSync(join(tmpdir(), 'laterdog-dog-access-'));
+  const saved = { home: process.env.LATERDOG_HOME, url: process.env.LATERDOG_SUPERVISOR_URL, token: process.env.LATERDOG_TOKEN };
+  try {
+    process.env.LATERDOG_HOME = home;
+    delete process.env.LATERDOG_SUPERVISOR_URL;
+    delete process.env.LATERDOG_TOKEN;
+    writeFileSync(join(home, 'supervisor.json'), JSON.stringify({ url: 'https://supervisor.example.test', tokenFile: '/Users/someone/.laterdog/supervisor-token' }));
+    expect(availableDogMcpEnvironment('bot-1', 'thread-1')).toBeNull();
+  } finally {
+    for (const [key, value] of [['LATERDOG_HOME', saved.home], ['LATERDOG_SUPERVISOR_URL', saved.url], ['LATERDOG_TOKEN', saved.token]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(home, { recursive: true, force: true });
+  }
 });
