@@ -7,7 +7,7 @@ import test from "node:test";
 import vm from "node:vm";
 import environments from "./environments.cjs";
 import localOrigin from "./local-origin.cjs";
-import { cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, olderVersion, parseMoveEstimate } from "./cloud-move.mjs";
+import { CLOUD_MOVE_LOCAL_ROUTES, cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, olderVersion, parseMoveEstimate } from "./cloud-move.mjs";
 import { cloudPlanSnapshot } from "./cloud-account.mjs";
 import { cloudPlanDisk, isCloudHomeEntry, myCloudOrigin } from "./cloud-home.mjs";
 
@@ -135,6 +135,29 @@ test("moves this computer's archive in parts, waits out the restart, signs its s
     assert.equal(f.cloud.tokens.size, 0, "the move's session was signed out");
     assert.deepEqual(readdirSync(join(f.temp, "move")), []);
   } finally { f.done(); }
+});
+
+test("every route the slim move asks of this computer is one the desktop lets through", async () => {
+  const f = harness();
+  try {
+    const result = await f.move.move({ profile: "cloud-move" });
+    assert.equal(result.phase, "done");
+    const routes = f.local.calls.map(([, route]) => route);
+    assert.ok(routes.includes("/api/cloud-move/estimate?profile=cloud-move"));
+    assert.deepEqual(routes.filter(route => !CLOUD_MOVE_LOCAL_ROUTES.test(route)), []);
+  } finally { f.done(); }
+});
+
+test("an unexpected error on this computer is written to the log with its own words", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-test-"));
+  const lines = [], cloud = cloudFake();
+  try {
+    const engine = createCloudMove({ localRequest: () => { throw new Error("This installation changed. Start the copy again."); }, fetchImpl: cloud.fetchImpl,
+      tempRoot: join(temp, "move"), availableBytes: async () => 1024 ** 4, sleep: async () => {}, pollMs: 0, retryDelaysMs: [0, 0], log: line => lines.push(line) });
+    const result = await engine.move(cloudDestination(), { profile: "cloud-move" });
+    assert.equal(result.error.code, "network");
+    assert.deepEqual(lines, ["cloud move: move stopped: This installation changed. Start the copy again."]);
+  } finally { rmSync(temp, { recursive: true, force: true }); }
 });
 
 const puts = f => f.cloud.log.filter(([method, path]) => method === "PUT" && path.startsWith("/api/cloud-move/upload/")).length;

@@ -241,7 +241,7 @@ export function SidebarProfileMenu() {
     },
     ...(accountItems.accounts ? [accountItems.accounts] : []),
     ...(accountItems.add ? [{ ...accountItems.add, separatorBefore: !accountItems.accounts }] : []),
-    ...(signOut.names.length > 0 ? [{
+    ...(signOut.cloud ? [{
       key: "signOut",
       label: t("accounts.signOut"),
       icon: <LogOut size={18} />,

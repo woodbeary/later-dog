@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.35 — 2026-10-14
+
+- **Signing in now brings your dogs along.** A check on this Mac stopped your dogs and chats from reaching your later.dog Cloud, so it failed every time. It now goes through quietly the first time later.dog opens signed in, with no pop-up.
+- **Sign out signs you out of later.dog only.** Your Claude and ChatGPT sign-ins stay. Each account still has its own Sign out in the accounts menu.
+
 ## 0.3.34 — 2026-10-14
 
 - **Sign in, and your dogs are there.** After you sign in on your Mac, later.dog opens your account's workspace. The first time, your dogs and chats move into your later.dog Cloud, so they keep working when your Mac is closed and your phone shows the same chats.

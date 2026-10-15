@@ -17,7 +17,7 @@ const GB = 1024 ** 3;
 const DISK_STEP_GB = 10;
 const REUSE_MS = 30 * 60_000;
 const UUID = /^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/;
-const LOCAL_ROUTES = /^\/api\/(?:workspace-backup\/(?:status|export|download\/[a-f\d-]{36})|cloud-move\/estimate(?:\?profile=cloud-move)?)$/;
+export const CLOUD_MOVE_LOCAL_ROUTES = /^\/api\/(?:workspace-backup\/(?:status|export|download\/[a-f\d-]{36})|cloud-move\/estimate(?:\?profile=cloud-move)?)$/;
 const RESUMABLE = new Set(["upload_failed", "cloud_unavailable", "network", "cloud_busy", "cancelled", "proxy_limit"]);
 export const CLOUD_MOVE_PROFILE = "cloud-move";
 const VERSION = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
@@ -164,7 +164,7 @@ const sentence = value => typeof value === "string" && value.trim()
   ? value.replace(/[\x00-\x1f\x7f]+/g, " ").trim().slice(0, 300) : undefined;
 
 export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, availableBytes, now = Date.now, sleep = defaultSleep,
-  onState = () => {}, retryDelaysMs = [1_000, 3_000, 8_000, 15_000, 30_000], pollMs = 2_000, restartTimeoutMs = 10 * 60_000, jobTimeoutMs = 3 * 3600_000,
+  onState = () => {}, log = () => {}, retryDelaysMs = [1_000, 3_000, 8_000, 15_000, 30_000], pollMs = 2_000, restartTimeoutMs = 10 * 60_000, jobTimeoutMs = 3 * 3600_000,
   growTimeoutMs = 5 * 60_000 }) {
   if (typeof localRequest !== "function" || typeof tempRoot !== "string" || !isAbsolute(tempRoot) ||
     resolve(tempRoot) === parse(resolve(tempRoot)).root || typeof availableBytes !== "function") throw new Error("A copy needs its requests and a private temporary folder.");
@@ -182,7 +182,7 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
   };
 
   async function localJson(route, init, signal) {
-    if (!LOCAL_ROUTES.test(route)) fail("invalid_request", "Unsupported local request.");
+    if (!CLOUD_MOVE_LOCAL_ROUTES.test(route)) fail("invalid_request", "Unsupported local request.");
     const response = await localRequest(route, { ...init, signal, redirect: "error" });
     if (!response.ok) {
       const said = sentence((await readJson(response).catch(() => null))?.error);
@@ -437,6 +437,7 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
       return await work(session, signal);
     } catch (error) {
       const failure = classify(error, signal);
+      if (!(error instanceof CloudMoveError)) log(`cloud move: ${action} stopped: ${error?.message ?? error}`);
       if (session && !committing) {
         try { await discard(await cloudFetch(session, "/api/cloud-move/discard", { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(10_000) })); } catch {}
       }

@@ -85,7 +85,7 @@ import { createCloudAiAccounts, createMacKeychain, MAC_ACCOUNT_ROUTES } from "./
 import { createCloudOffer, leaveHomeNow } from "./cloud-default-home.mjs";
 import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, isCloudHomeEntry, myCloudOrigin, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome } from "./cloud-home.mjs";
 import { createCloudEntry } from "./cloud-entry.mjs";
-import { cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, parseCloudMoveStatus } from "./cloud-move.mjs";
+import { CLOUD_MOVE_LOCAL_ROUTES, cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, parseCloudMoveStatus } from "./cloud-move.mjs";
 import { createOrgLibrary } from "./org-library.mjs";
 import { createCompanyBackups } from "./company-backups.mjs";
 import { createCompanyBackupSchedule } from "./company-backup-schedule.mjs";
@@ -2410,7 +2410,6 @@ ipcMain.handle("company-backups:restore", localWorkspaceOnly("company-backups:re
 }));
 
 let cloudMove = null;
-const CLOUD_MOVE_LOCAL_ROUTES = /^\/api\/(?:workspace-backup\/(?:status|export|download\/[a-f\d-]{36})|cloud-move\/estimate)$/;
 
 function ensureCloudMove() {
   if (cloudMove) return cloudMove;
@@ -2424,6 +2423,7 @@ function ensureCloudMove() {
     tempRoot: path.join(app.getPath("temp"), tempName(variant, "cloud-move")),
     availableBytes: async directory => { const disk = await fs.promises.statfs(directory); return disk.bavail * disk.bsize; },
     onState: publishCloudMoveState,
+    log: slog,
   });
   return cloudMove;
 }
@@ -2492,7 +2492,6 @@ function ensureCloudAutoMove() {
     read: () => readUserData("cloud-auto-move.json"),
     write: contents => writeUserData("cloud-auto-move.json", contents),
     log: slog,
-    onFailed: reason => { void dialog.showMessageBox({ type: "info", message: "Your dogs have not moved to Cloud yet", detail: `${reason.message} This app keeps working on this Mac and tries again the next time it opens.` }); },
   });
   return cloudAutoMove;
 }

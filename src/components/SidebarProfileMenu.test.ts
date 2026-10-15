@@ -188,12 +188,11 @@ describe("the menu under your name", () => {
     expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
   });
 
-  it("ends with Add account and Sign out, under a line, once an account here is signed in", () => {
+  it("ends with Add account under a line once an account here is signed in, and never offers to sign Claude or ChatGPT out here", () => {
     menu.instances = [claude, { ...claude, instanceId: "claude-api", authentication: { method: "paste-code" } } as InstanceInfo];
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins", "add-account", "signOut"]);
+    expect(items.map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins", "add-account"]);
     expect(items[3]).toMatchObject({ label: "Add account", separatorBefore: true });
-    expect(items[4]).toMatchObject({ label: "Sign out", separatorBefore: false });
     menu.instances = [{ ...claude, snapshot: { state: "available", authenticated: false } } as InstanceInfo];
     expect(open().map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins"]);
   });

@@ -64,6 +64,7 @@ export interface CloudMoveBridge {
 
 export declare const CLOUD_MOVE_MAX_BYTES: number;
 export declare const CLOUD_MOVE_PROFILE: "cloud-move";
+export declare const CLOUD_MOVE_LOCAL_ROUTES: RegExp;
 export declare class CloudMoveError extends Error {
   code: string;
   details: Record<string, unknown>;
@@ -100,6 +101,7 @@ export declare function createCloudMove(options: {
   now?: () => number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   onState?: (state: CloudMoveState) => void;
+  log?: (line: string) => void;
   retryDelaysMs?: number[];
   pollMs?: number;
   restartTimeoutMs?: number;
