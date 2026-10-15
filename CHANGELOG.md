@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.34 — 2026-10-14
+
+- **Sign in, and your dogs are there.** After you sign in on your Mac, later.dog opens your account's workspace. The first time, your dogs and chats move into your later.dog Cloud, so they keep working when your Mac is closed and your phone shows the same chats.
+- **Your Mac is a computer your dogs can use.** Dogs work on their own cloud computers and use your Mac when a task needs something only it has, like a file in Downloads. You're asked once, and Always allow covers every dog.
+- **Your Claude and ChatGPT sign-ins move with your dogs,** so nothing is signed in twice.
+- **No more phone setup.** QR codes, pairing, server choices and connection settings are gone. Get the iPhone app and sign in.
+- **Replies you asked for mid-task show in the chat** instead of only in See progress.
+- **See progress names each step** and folds repeats into one row with a count.
+- **The accounts menu marks the account in use.** Columns line up, and resting accounts show a charging battery.
+- **Saved keys repair themselves.** Keys an older version saved under its old name are set aside instead of locking later.dog.
+- **Routines live at the top of a dog's Details,** with a simple on/off row and a proper menu.
+
 ## 0.3.33 — 2026-10-14
 
 - **Your Mac keeps its workspace when you sign in.** Your existing dogs and conversations stay selected, with saved server connections available under Settings → General → Advanced.
