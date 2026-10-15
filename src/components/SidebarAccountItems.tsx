@@ -105,7 +105,7 @@ export function useAccountMenuItems(): { usage: SidebarMenuItem | null; accounts
               className={cn("flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left hover:bg-raised-hover disabled:opacity-50 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus", current && "bg-control/60")}
             >
               <InitialsAvatar initials={accountInitials(account.displayName)} size={24} />
-              <span className="flex min-w-0 flex-1 flex-col">
+              <span data-switch-account-name className="flex min-w-0 flex-auto flex-col">
                 <span className="truncate text-[13.5px] text-ink">{account.displayName}</span>
                 {email && <span className="truncate text-[11.5px] text-ink-secondary">{email}</span>}
               </span>

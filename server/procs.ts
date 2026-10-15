@@ -9,6 +9,7 @@ import {
 import type { Readable, Writable } from "node:stream";
 import { join } from "node:path";
 import { resolveCliSpawn, type ResolvedSpawn } from "./env-path.ts";
+import { processGroupHoldsOnlyZombies } from "./laterdog/process-group-state.ts";
 
 export function resolveCli(cli: string, args: string[] = [], env?: NodeJS.ProcessEnv): ResolvedSpawn {
   return resolveCliSpawn(cli, args, env);
@@ -111,7 +112,7 @@ async function stopCliTree(child: ChildProcess, pid: number, timeoutMs: number):
       if (!group) return true;
       try {
         process.kill(-pid, 0);
-        return false;
+        return processGroupHoldsOnlyZombies(pid);
       } catch (error) {
         return (error as NodeJS.ErrnoException).code === "ESRCH";
       }

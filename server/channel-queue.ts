@@ -187,3 +187,8 @@ function coalesceIdentity(item: ChannelQueueItem): string {
 export function _queuedChannelCount(threadId: string): number {
   return queues.get(threadId)?.items.length ?? 0;
 }
+
+export function isChannelMessageQueued(groupId: string, threadId: string, queueId: string): boolean {
+  const entry = queues.get(threadId);
+  return entry?.groupId === groupId && entry.items.some((item) => item.id === queueId);
+}

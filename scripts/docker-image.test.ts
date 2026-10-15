@@ -137,6 +137,23 @@ describe("container images", () => {
     expect(last(chain("runtime"), "ENV")).toMatch(/^AGENT_BROWSER_EXECUTABLE_PATH=\/opt\/laterdog-browser\/chrome .*NODE_ENV=production$/);
   });
 
+  it("runs every image that hosts the server under tini, so orphaned engine helpers are reaped and Stop can confirm them gone", () => {
+    const init = '["/usr/bin/tini", "--"]';
+    const last = (steps: Step[], op: string) => steps.filter(step => step.op === op).at(-1)?.args;
+    const apt = chain("runtime").find(step => step.op === "RUN" && step.args.startsWith("apt-get update"))!;
+    expect(apt.args).toMatch(/apt-get install -y --no-install-recommends [^&]*\btini\b/);
+    for (const target of ["server", "cloud-home"]) expect(last(chain(target), "ENTRYPOINT"), target).toBe(init);
+    const file = (path: string) => stages(readFileSync(new URL(path, import.meta.url), "utf8").replace(/^FROM --platform=\S+ /gm, "FROM ")).at(-1)!.steps;
+    const home = file("../deploy/laterdog/home/Dockerfile");
+    expect(last(home, "ENTRYPOINT")).toBe(init);
+    expect(last(home, "CMD")).toBe('["node", "/app/cloud/runtime/run.mjs"]');
+    expect(last(home, "RUN")).toMatch(/ && \/usr\/bin\/tini --version$/);
+    const supervisor = file("../deploy/laterdog/Dockerfile");
+    expect(supervisor.find(step => step.op === "RUN" && step.args.startsWith("apt-get update"))!.args).toMatch(/--no-install-recommends [^&]*\btini\b/);
+    expect(last(supervisor, "ENTRYPOINT")).toBe(init);
+    expect(last(supervisor, "CMD")).toBe('["./entrypoint.sh"]');
+  });
+
   it("never runs a build step with HOME on the volume, so nothing lands in what a fresh volume starts with", () => {
     for (const target of ["server", "cloud-home"]) {
       const steps = chain(target);

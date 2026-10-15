@@ -22,6 +22,7 @@ import {
 } from "./codex.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import * as procs from "../procs.ts";
+import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
 import { autoVerdict } from "../auto-approve.ts";
 import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question.ts";
 
@@ -2551,7 +2552,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
   }, 20_000);
 
-  it.each([false, true])("keeps ownership after an uncertain stop even when root close arrives (before failure: %s)", async (closeFirst) => {
+  it.each([false, true])("ends the turn once Codex itself has exited, even when its programs cannot be confirmed closed (exits before the stop gives up: %s)", async (closeFirst) => {
     await create();
     const stopping = vi.spyOn(procs, "killCliTree").mockImplementation(async (child) => {
       if (closeFirst && child.exitCode === null && child.signalCode === null) {
@@ -2563,23 +2564,60 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     });
     try {
       await instance.adapter.sendTurn({ threadId: "t-uncertain-stop", text: "one" });
-      await recorder.until((event) => event.type === "runtime.error" && event.message.includes("did not shut down"));
-      const child = stopping.mock.calls[0]![0];
       if (!closeFirst) {
+        await recorder.until((event) => event.type === "runtime.error" && event.message.includes("did not shut down"));
+        expect(recorder.events.some((event) => event.type === "turn.completed")).toBe(false);
+        expect(instance.adapter.hasSession("t-uncertain-stop")).toBe(true);
+        await expect(instance.adapter.sendTurn({ threadId: "t-uncertain-stop", text: "two" })).rejects.toThrow(/already running/);
+        const child = stopping.mock.calls[0]![0];
         const closed = once(child, "close");
         child.kill("SIGKILL");
         await closed;
-        await expect.poll(() => stopping.mock.calls.length).toBeGreaterThan(1);
       }
-      expect(recorder.events.some((event) => event.type === "turn.completed")).toBe(false);
-      expect(instance.adapter.hasSession("t-uncertain-stop")).toBe(true);
-      await expect(instance.adapter.sendTurn({ threadId: "t-uncertain-stop", text: "two" })).rejects.toThrow(/already running/);
+      await recorder.until((event) => event.type === "turn.completed");
+      expect(instance.adapter.hasSession("t-uncertain-stop")).toBe(false);
+      expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
+      expect(recorder.events.filter((event) => event.type === "runtime.notice")).toEqual([
+        expect.objectContaining({ message: leftoverProgramsNotice("Codex") }),
+      ]);
+      expect(recorder.events.filter((event) => event.type === "runtime.error")).toHaveLength(closeFirst ? 0 : 1);
     } finally {
       stopping.mockRestore();
-      await instance.adapter.interruptTurn("t-uncertain-stop");
     }
-    await recorder.until((event) => event.type === "turn.completed");
-    expect(instance.adapter.hasSession("t-uncertain-stop")).toBe(false);
+    const next = await instance.adapter.sendTurn({ threadId: "t-uncertain-stop", text: "two" });
+    await recorder.until((event) => event.type === "turn.completed" && event.turnId === next.turnId);
+    expect(recorder.events.filter((event) => event.type === "runtime.notice")).toHaveLength(1);
+  });
+
+  it("ends a stopped GPT turn once, with one plain notice, when Codex exits but its programs cannot be confirmed closed", async () => {
+    vi.stubEnv("FAKE_CODEX_INTERRUPT_SILENT", "1");
+    vi.stubEnv("FAKE_CODEX_INTERRUPT_GRACE_MS", "60");
+    vi.stubEnv("FAKE_CODEX_ASTRA", "1");
+    await create({ mode: "approval" });
+    const stopping = vi.spyOn(procs, "killCliTree").mockImplementation(async (child) => {
+      if (child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, "close");
+        child.kill("SIGTERM");
+        await closed;
+      }
+      return false;
+    });
+    const threadId = "t-codex-stop-leftovers";
+    try {
+      await instance.adapter.sendTurn({ threadId, text: "one", model: "gpt-6-astra" });
+      await recorder.until((event) => event.type === "request.opened");
+      await instance.adapter.interruptTurn(threadId);
+      await expect(recorder.until((event) => event.type === "turn.completed")).resolves.toMatchObject({ ok: false, stopReason: "interrupted" });
+      expect(instance.adapter.hasSession(threadId)).toBe(false);
+      await instance.adapter.interruptTurn(threadId);
+    } finally {
+      stopping.mockRestore();
+    }
+    expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
+    expect(recorder.events.filter((event) => event.type === "runtime.notice")).toEqual([
+      expect.objectContaining({ message: leftoverProgramsNotice("Codex") }),
+    ]);
+    expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([]);
   });
 
   it("a missing binary surfaces as a failed turn, and snapshot says unavailable", async () => {

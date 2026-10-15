@@ -7,6 +7,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { createSharedCua, executeSharedOperation, personalSecretPaths, sharedComputerError } from "./shared-computer-access.mjs";
 import { createLendingActivity, describeSharedOperation } from "./lending-activity.mjs";
+import { droppedPollRetryMs } from "./lending-poll.mjs";
 
 const uuid = value => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const DATA_VOLUME = "/System/Volumes/Data";
@@ -256,6 +257,16 @@ export function createComputerSharing({
     const signal = live.abort.signal;
     const call = (action, body = {}) => request(env, `/api/shared-computers/${grant.id}/${action}`, body, signal, grant.secret);
     const gate = () => requireGrant(env, grant);
+    const pollOnce = async () => {
+      for (let dropped = 0; ; dropped++) {
+        try { return await call("poll"); } catch (error) {
+          const again = droppedPollRetryMs(error, dropped, signal);
+          if (again === null) throw error;
+          await delay(again, undefined, { signal });
+          await gate();
+        }
+      }
+    };
     void (async () => {
       let failures = 0;
       while (!signal.aborted) {
@@ -295,7 +306,7 @@ export function createComputerSharing({
           changed();
           while (!signal.aborted) {
             await gate();
-            const { job } = await call("poll");
+            const { job } = await pollOnce();
             await gate();
             if (!job) continue;
             if (!uuid(job.id)) throw new Error("Invalid computer request");

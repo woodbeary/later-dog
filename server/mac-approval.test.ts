@@ -35,7 +35,7 @@ describe("Mac approval gate", () => {
     new MacApprovals({ store, file: join(folder, "mac-access.json"), notify: (note) => notes.push(note), ...extra });
 
   const ask = (operation: MacCheck["operation"], over: Partial<MacCheck> = {}) =>
-    gate.check({ bot: dog, threadId: dog.threadId, computer: MAC, operation, active: () => true, ...over });
+    gate.check({ bot: dog, threadId: dog.threadId, computer: MAC, operation, ownersOwnMac: false, active: () => true, ...over });
 
   const openCards = (threadId = dog.threadId) =>
     store.messagesFor(threadId).filter((message) => message.card?.requestId && !message.card.answered && !message.card.dismissed);
@@ -49,6 +49,40 @@ describe("Mac approval gate", () => {
     notes = [];
     gate = make();
     say("find the newest PDF in my Downloads");
+  });
+
+  it("lets every dog in the owner's own turn use the owner's Mac at once, with no card, while set to Ask", async () => {
+    const other = store.patchBot(store.createBot().id, { name: "Scout" })!;
+    store.appendMessage(other.threadId, { role: "user", kind: "text", text: "tidy my Desktop" });
+    const owners = { ownersOwnMac: true };
+    expect(gate.settings().mode).toBe("ask");
+    await expect(Promise.all([
+      ask({ action: "run_command", command: "ls ~/Downloads" }, owners),
+      ask({ action: "list_files", path: "Downloads" }, owners),
+      ask({ action: "read_file", path: "Downloads/a.pdf" }, owners),
+      ask({ action: "write_file", path: "Desktop/summary.md" }, owners),
+      ask({ action: "computer_call", tool_name: "launch_app", arguments: { name: "Mail" } }, owners),
+      gate.check({ bot: other, threadId: other.threadId, computer: MAC, operation: { action: "run_command", command: "ls" }, ownersOwnMac: true, active: () => true }),
+    ])).resolves.toEqual(Array(6).fill({ ok: true }));
+    expect(openCards()).toHaveLength(0);
+    expect(openCards(other.threadId)).toHaveLength(0);
+    expect(notes).toHaveLength(0);
+    expect(gate.pending(dog.threadId)).toBe(false);
+    expect(gate.settings()).toEqual({ mode: "ask", dogs: [] });
+  });
+
+  it("keeps the owner's Never: the owner's own turn is refused without a card", async () => {
+    gate.update({ mode: "never" });
+    expect(await ask({ action: "run_command", command: "ls" }, { ownersOwnMac: true })).toEqual({ ok: false, status: 403, error: MAC_NEVER });
+    expect(openCards()).toHaveLength(0);
+    expect(notes).toHaveLength(0);
+  });
+
+  it("still asks with a card when the turn is not the owner's own on the owner's Mac", async () => {
+    const verdict = ask({ action: "run_command", command: "ls" }, { ownersOwnMac: false });
+    expect(openCards()).toHaveLength(1);
+    gate.resolve(openCards()[0]!.card!.requestId!, "deny");
+    expect(await verdict).toEqual({ ok: false, status: 403, error: MAC_DENIED });
   });
 
   it("one Always allow lets every dog use the Mac without another card, except under Never", async () => {
@@ -195,7 +229,7 @@ describe("Mac approval gate", () => {
 
     const other = store.patchBot(store.createBot().id, { name: "Scout" })!;
     store.appendMessage(other.threadId, { role: "user", kind: "text", text: "check my Desktop" });
-    void gate.check({ bot: other, threadId: other.threadId, computer: MAC, operation: { action: "list_files", path: "Desktop" }, active: () => true });
+    void gate.check({ bot: other, threadId: other.threadId, computer: MAC, operation: { action: "list_files", path: "Desktop" }, ownersOwnMac: false, active: () => true });
     expect(openCards(other.threadId)).toHaveLength(1);
   });
 
@@ -229,7 +263,7 @@ describe("Mac approval gate", () => {
     const other = store.patchBot(store.createBot().id, { name: "Scout" })!;
     const room = store.createGroup("Planning", [dog.id, other.id]);
     store.appendMessage(room.threadId, { role: "user", kind: "text", text: "Biscuit, check Downloads" });
-    const verdict = gate.check({ bot: dog, threadId: room.threadId, computer: MAC, operation: { action: "list_files", path: "Downloads" }, active: () => true });
+    const verdict = gate.check({ bot: dog, threadId: room.threadId, computer: MAC, operation: { action: "list_files", path: "Downloads" }, ownersOwnMac: false, active: () => true });
     const card = openCards(room.threadId)[0]!;
     expect(card.card?.options).toEqual(["Allow", "Deny"]);
     expect(card.card?.allowKey).toBeUndefined();

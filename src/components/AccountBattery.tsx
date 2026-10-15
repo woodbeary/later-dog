@@ -40,8 +40,9 @@ export function usageValueClass(used: number | undefined): string {
 
 export function AccountChargeColumns({ used, rest, now }: { used?: number; rest?: AccountRest; now: number }) {
   const progress = rest && !rest.estimated ? rechargeProgress(rest, now) : null;
+  const recharged = progress === null ? null : Math.round(progress * 100);
   const value = rest
-    ? progress === null ? "" : t("accounts.recharged", { percent: Math.round(progress * 100) })
+    ? recharged === null ? "" : t("planUsage.percentLeft", { left: recharged })
     : used === undefined ? "" : t("planUsage.percentLeft", { left: usageLeft(used) });
   return (
     <>
@@ -51,7 +52,8 @@ export function AccountChargeColumns({ used, rest, now }: { used?: number; rest?
       <span
         data-account-value-column
         data-account-charge={rest ? "recharging" : used === undefined ? undefined : usageLeft(used)}
-        className={cn("w-16 shrink-0 truncate text-right text-[12px] tabular-nums", rest ? "text-ink-secondary" : usageValueClass(used))}
+        title={recharged === null ? undefined : t("accounts.recharged", { percent: recharged })}
+        className={cn("w-10 shrink-0 truncate text-right text-[12px] tabular-nums", rest ? "text-ink-secondary" : usageValueClass(used))}
       >
         {value}
       </span>
@@ -61,10 +63,11 @@ export function AccountChargeColumns({ used, rest, now }: { used?: number; rest?
 
 export function AccountCharge({ used, rest, now, className }: { used?: number; rest?: AccountRest; now: number; className?: string }) {
   if (rest) {
+    const back = backAt(rest, now);
     return (
-      <span data-account-charge="recharging" className={cn("flex shrink-0 items-center gap-2", className)}>
+      <span data-account-charge="recharging" className={cn("flex min-w-0 shrink-[1000] items-center gap-2", className)}>
         <RestBattery rest={rest} now={now} />
-        <span className="text-[12px] tabular-nums text-ink-secondary">{backAt(rest, now)}</span>
+        <span title={back} className="min-w-0 truncate text-[12px] tabular-nums text-ink-secondary">{back}</span>
       </span>
     );
   }

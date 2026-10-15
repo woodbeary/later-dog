@@ -192,19 +192,8 @@ it("the person's Mac connects by itself through the real connector, asks before 
     const created = (await api("POST", "/api/bots", { token: owner, body: { name, modelSelection: { instanceId: "grok", model: "fake-model" } } })).body.bot;
     return { id: created.id as string, threadId: created.threadId as string };
   };
-  const macCard = async (threadId: string, tool: string) => {
-    let card: any;
-    await expect.poll(async () => {
-      const { body } = await api("GET", `/api/threads/${threadId}/messages`, { token: owner });
-      card = (body.messages ?? []).find((message: any) => message.card?.tool === tool && !message.card.answered)?.card;
-      return Boolean(card);
-    }, { timeout: 10_000 }).toBe(true);
-    return card;
-  };
-  const answer = async (threadId: string, requestId: string, behavior: "allow" | "deny") => {
-    const answered = await api("POST", `/api/threads/${threadId}/respond`, { token: owner, body: { requestId, behavior } });
-    expect(answered.status, JSON.stringify(answered.body)).toBe(200);
-  };
+  const macCards = async (threadId: string) =>
+    ((await api("GET", `/api/threads/${threadId}/messages`, { token: owner })).body.messages ?? []).filter((message: any) => message.card?.approvalScope === "local-computer");
   const bot = await newBot("Cloud bot");
   const call = await proxyFor(async () => {
     expect((await api("POST", `/api/bots/${bot.id}/messages`, { token: owner, body: { text: "Read plan.md from my Mac." } })).status).toBe(202);
@@ -212,36 +201,28 @@ it("the person's Mac connects by itself through the real connector, asks before 
   const listed = JSON.parse((await call("list_shared_computers")).content[0].text).computers;
   expect(listed.map((entry: any) => entry.id)).toEqual([status[0].id]);
 
-  const reading = call("shared_computer", { action: "read_file", path: "~/plan.md" });
-  const readCard = await macCard(bot.threadId, "mac_read_file");
-  expect(readCard).toMatchObject({ title: "Jo's MacBook Air", subtitle: "~/plan.md", options: ["Allow", "Deny", "Always allow"], approvalScope: "local-computer", allowKey: "mac" });
-  expect(connector.activity(env.id)).toEqual([]);
-  const unsigned = await fetch(`${base}/api/threads/${bot.threadId}/respond`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: readCard.requestId, behavior: "allow" }),
-  });
-  expect(unsigned.status).toBe(403);
-  await answer(bot.threadId, readCard.requestId, "allow");
-  expect(JSON.parse((await reading).content[0].text).content).toBe("from the Mac");
+  expect((await api("GET", "/api/mac-access", { token: owner })).body.mode).toBe("ask");
+  const reading = await call("shared_computer", { action: "read_file", path: "~/plan.md" });
+  expect(JSON.parse(reading.content[0].text).content).toBe("from the Mac");
   expect(JSON.parse((await call("shared_computer", { action: "list_files", path: "." })).content[0].text).entries.map((entry: any) => entry.name)).toContain("plan.md");
   const secretKey = await call("shared_computer", { action: "read_file", path: "~/.ssh/id_ed25519" });
   expect(secretKey.isError).toBe(true);
   expect(JSON.stringify(secretKey)).not.toContain("private key");
 
-  const writing = call("shared_computer", { action: "write_file", path: "x.md", content: "y" });
-  const writeCard = await macCard(bot.threadId, "mac_write_file");
-  expect(writeCard.subtitle).toBe("~/x.md");
-  await answer(bot.threadId, writeCard.requestId, "deny");
-  const refused = await writing;
-  expect(refused.isError).toBe(true);
-  expect(refused.content[0].text).toContain("didn't allow it");
-  expect(existsSync(join(macHome, "x.md"))).toBe(false);
+  const writing = await call("shared_computer", { action: "write_file", path: "x.md", content: "y" });
+  expect(writing.isError, JSON.stringify(writing)).toBeFalsy();
+  expect(readFileSync(join(macHome, "x.md"), "utf8")).toBe("y");
+  const running = await call("shared_computer", { action: "run_command", command: "cat plan.md" });
+  expect(running.isError, JSON.stringify(running)).toBeFalsy();
+  expect(await macCards(bot.threadId)).toEqual([]);
 
   expect((await api("PUT", "/api/mac-access", { token: owner, body: { mode: "never" } })).body.mode).toBe("never");
   const never = await call("shared_computer", { action: "run_command", command: "touch ran.txt" });
   expect(never.isError).toBe(true);
   expect(never.content[0].text).toContain("set their Mac to Never");
   expect(existsSync(join(macHome, "ran.txt"))).toBe(false);
-  expect(connector.activity(env.id).map((entry) => [entry.action, entry.ok])).toEqual([["read_file", false], ["list_files", true], ["read_file", true]]);
+  expect(await macCards(bot.threadId)).toEqual([]);
+  expect(connector.activity(env.id).map((entry) => [entry.action, entry.ok])).toEqual([["run_command", true], ["write_file", true], ["read_file", false], ["list_files", true], ["read_file", true]]);
   expect((await api("PUT", "/api/mac-access", { token: owner, body: { mode: "always" } })).body.mode).toBe("always");
 
   const ownersRoutine = await routineFor("Nightly");

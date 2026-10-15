@@ -114,6 +114,7 @@ import { RoomTurnDeadline, RoomTurnStallRegistry, effectiveRoomTurnTimeoutMinute
 import { roomTurnEnd, type RoomClaimEnd } from "./room-turn-end.ts";
 import { pickComputer } from "./computer-selection.ts";
 import { isMacOffline, macOfflineResult, macOptions, macSelectReply, type KnownMac } from "./laterdog/mac-computer.ts";
+import { requestGone } from "./laterdog/request-gone.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -305,6 +306,7 @@ import {
   drainChannelMessages,
   holdChannelQueue,
   headChannelGroup,
+  isChannelMessageQueued,
   queuedChannelMessage,
   queueChannelMessage,
   restoreChannelMessages,
@@ -672,6 +674,7 @@ import { LimitHold } from "./laterdog/limit-hold.ts";
 import { latestTurnAnswer, postTurnImage, screenCaptureFrom } from "./laterdog/turn-images.ts";
 import { mountsAutoCloud } from "./laterdog/auto-cloud.ts";
 import { steerWords } from "./laterdog/steer-images.ts";
+import { sendQueuedAsNextTurn, steerWhileRunning } from "./laterdog/queued-steer.ts";
 import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts";
 import { openQuestion, typedReplyAnswer } from "./laterdog/typed-answer.ts";
 import { finishTakeover, TakeoverWaits, takeoverResumePrompt, type TakeoverCards, type TakeoverWait } from "./laterdog/takeover.ts";
@@ -1068,7 +1071,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   if (!bot) throw Object.assign(new Error("This dog is gone."), { status: 404 });
   const requestMessageId = macRequestMessageId(capability);
   const verdict = await macApprovals.check({
-    bot, threadId: capability.threadId, computer: target.name, operation, active,
+    bot, threadId: capability.threadId, computer: target.name, operation, active, ownersOwnMac: principal === CLOUD_HOME_LENDER,
     ...(requestMessageId ? { requestMessageId } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
@@ -14180,7 +14183,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const route = /^\/api\/shared-computers\/([\w-]+)\/(poll|lease|result|disconnect)$/.exec(path);
       if (!route) return json(res, 404, { error: "not found" });
       const [, id, action] = route;
-      if (action === "poll") return json(res, 200, { job: await sharedComputers.poll(id, auth.session.id, secret) });
+      if (action === "poll") return json(res, 200, { job: await sharedComputers.poll(id, auth.session.id, secret, requestGone(res)) });
       if (action === "lease") return json(res, 200, { active: sharedComputers.liveJob(id, auth.session.id, secret, String(body?.jobId)) });
       if (action === "result") sharedComputers.complete(id, auth.session.id, secret, String(body?.jobId), body?.result);
       if (action === "disconnect") sharedComputers.disconnect(id, auth.session.id, secret);
@@ -17838,6 +17841,28 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!held) return json(res, 404, { error: "no such queued message" });
       const headGroup = headChannelGroup(held.items);
       const [head] = headGroup;
+      const sendNow = () => {
+        restoreHeldChannelQueue(held);
+        const stoppedBy = fromLocalTools(auth) ? "api" : "person";
+        return sendQueuedAsNextTurn({
+          threadId: targetThreadId,
+          name: current.name,
+          queueIds: headGroup.map((item) => item.id),
+          busy: () => { const room = store.group(current.id); return Boolean(room && groupIsWorking(room)); },
+          waiting: (queueId) => isChannelMessageQueued(current.id, targetThreadId, queueId),
+          interrupt: async () => {
+            const room = store.group(current.id);
+            const speakingId = groupSpeakers.get(targetThreadId)?.botId ?? (room && targetThreadId === room.threadId ? room.busyBotId : undefined);
+            const speaking = speakingId ? store.bot(speakingId) : undefined;
+            cancelGroupTurnOperations(current.id, targetThreadId, stoppedBy === "api" ? { status: "stopped", detail: "Stopped by a local tool on this Mac." } : undefined, stoppedBy);
+            revokeInternalCapabilitiesForThread(targetThreadId);
+            await (speaking ? runningTurnInstance(speaking, targetThreadId) : undefined)?.adapter.interruptTurn(targetThreadId).catch(() => {});
+            closeOpenApprovals(targetThreadId);
+          },
+          drain: drainQueuedChannelSends,
+          messages: () => store.messagesFor(targetThreadId),
+        });
+      };
       const decision = admit("room-steer", {
         speakerPresent: Boolean(speaker),
         engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
@@ -17847,10 +17872,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         restoreHeldChannelQueue(held);
         return json(res, 409, { error: "only the first queued message can steer" });
       }
-      if (decision.action === "queue") {
-        restoreHeldChannelQueue(held);
-        return json(res, 200, { ok: true, queued: true, threadId: targetThreadId });
-      }
+      if (decision.action === "queue") return json(res, 200, await sendNow());
       const replyTo = resolveHeldReplyTarget(held, resolveReplyTarget);
       const speakerName = cfg.profile?.name?.trim() || "User";
       let words: ReturnType<typeof steerWords>;
@@ -17873,14 +17895,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         restoreHeldChannelQueue(held);
         throw error;
       }
-      if (words.images && !instance?.adapter.capabilities.steerImages) {
-        restoreHeldChannelQueue(held);
-        return json(res, 200, { ok: true, queued: true, threadId: targetThreadId });
-      }
+      if (words.images && !instance?.adapter.capabilities.steerImages) return json(res, 200, await sendNow());
       const steered: SteerOutcome = instance?.adapter.steer
-        ? await instance.adapter
-            .steer(targetThreadId, words.text, words.images)
-            .catch((): SteerOutcome => "indeterminate")
+        ? await steerWhileRunning(
+            () => instance.adapter.steer!(targetThreadId, words.text, words.images),
+            () => groupSpeakers.get(targetThreadId)?.botId === speakerBotId,
+          )
         : "refused";
       const after = store.group(current.id);
       const afterSpeakerBotId = after
@@ -17914,9 +17934,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         settleHeldChannelQueueHead(held);
         return json(res, 404, { error: "no such room" });
       }
-      restoreHeldChannelQueue(held);
-      if (after && !groupIsWorking(after)) drainQueuedChannelSends();
-      return json(res, 200, { ok: true, queued: true, threadId: targetThreadId });
+      return json(res, 200, await sendNow());
     }
     m = path.match(/^\/api\/groups\/([\w-]+)\/interrupt$/);
     if (m && method === "POST") {
@@ -19425,9 +19443,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         instance.adapter.steer &&
         (!words.images || instance.adapter.capabilities.steerImages)
       ) {
-        steered = await instance.adapter
-          .steer(bot.threadId, words.text, words.images)
-          .catch((): SteerOutcome => "indeterminate");
+        steered = await steerWhileRunning(
+          () => instance.adapter.steer!(bot.threadId, words.text, words.images),
+          () => threadBusy(bot.id, bot.threadId),
+        );
       }
       const current = store.projectBotForTask(bot.id, bot.threadId);
       if (
@@ -19461,8 +19480,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         throw Object.assign(new Error("no such bot"), { status: 404 });
       }
       restoreHeldSteeredQueue(held);
-      if (current && !current.busy) drainQueuedSends();
-      return json(res, 200, { ok: true, queued: true, threadId: bot.threadId });
+      return json(res, 200, await sendQueuedAsNextTurn({
+        threadId: bot.threadId,
+        name: bot.name,
+        queueIds: held.items.map((item) => item.messageId),
+        busy: () => threadBusy(bot.id, bot.threadId),
+        waiting: (queueId) => isSteeredMessageQueued(bot.id, bot.threadId, queueId),
+        interrupt: () => stopThreadTurn(bot.id, bot.threadId, fromLocalTools(auth) ? "api" : "person"),
+        drain: drainQueuedSends,
+        messages: () => store.messagesFor(bot.threadId),
+      }));
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/compact$/);

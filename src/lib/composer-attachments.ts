@@ -563,6 +563,7 @@ export function splitTranscriptAttachments(
   text: string,
   trimDisplay = true,
   hidePasteWrappers = true,
+  admits: (kind: "image" | "file", path: string) => boolean = () => true,
 ): TranscriptAttachments {
   const images: TranscriptImageAttachment[] = [];
   const files: TranscriptFileAttachment[] = [];
@@ -603,7 +604,7 @@ export function splitTranscriptAttachments(
       if (match) {
         const kind = match[1] as "image" | "file";
         const path = decodeAttachmentAttribute(match[2]!);
-        if (path) {
+        if (path && admits(kind, path)) {
           const attachment = {
             path,
             name: transcriptFileName(path, match[3]),
