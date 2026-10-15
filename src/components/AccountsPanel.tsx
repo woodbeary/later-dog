@@ -53,7 +53,8 @@ export function subscriptionAccounts(instances: readonly InstanceInfo[], battery
 
 function eligible(instance: InstanceInfo): boolean {
   return instance.instanceId !== "claudeApi" && !instance.readOnly && !instance.managed && !instance.policy
-    && (instance.access ?? "subscription") === "subscription" && instance.snapshot.account?.method !== "api-key";
+    && (instance.access ?? "subscription") === "subscription" && instance.snapshot.account?.method !== "api-key"
+    && (removable(instance) || !instance.snapshot.authenticationUnavailableReason);
 }
 
 export function removable(instance: InstanceInfo): boolean {

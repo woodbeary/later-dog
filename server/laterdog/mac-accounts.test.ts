@@ -44,31 +44,47 @@ describe("this Mac's Claude and ChatGPT sign-ins, as the desktop app sees them",
     [`claude-${UUID}`]: { driver: "claudeAgent", displayName: "Work Claude", config: { configDir: join(dataDir, "providers", `claude-${UUID}`) } },
     claudeApi: { driver: "claudeAgent", access: "api", config: { requireApiKey: true } },
     "company.claude": { driver: "claudeAgent", config: { managed: { models: ["x"] } } },
-    codex: { driver: "codex" },
+    codex: { driver: "codex", environment: { CODEX_HOME: join(dataDir, "providers", "codex") } },
     chatgpt: { driver: "codex", displayName: "ChatGPT plan", config: { authMode: "chatgpt-plan" } },
   });
 
-  it("finds each sign-in where the CLI keeps it: the Keychain item, the plaintext file and Codex's auth.json", () => {
+  it("finds each later.dog sign-in where the CLI keeps it: the Keychain item, the plaintext file and Codex's auth.json", () => {
     const planFolder = join(dataDir, "providers", "chatgpt-plan", createHash("sha256").update("chatgpt").digest("hex"));
     mkdirSync(planFolder, { recursive: true });
     writeFileSync(join(planFolder, "credentials.json"), "{}");
+    mkdirSync(join(dataDir, "providers", `claude-${UUID}`), { recursive: true });
+    writeFileSync(join(dataDir, "providers", `claude-${UUID}`, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "work@fixture.test" } }));
     const sources = macAccountSources(instances(), { dataDir, held: new Set([`claude-${UUID}`]), platform: "darwin" });
     const suffix = createHash("sha256").update(join(dataDir, "providers", `claude-${UUID}`)).digest("hex").slice(0, 8);
     expect(sources).toEqual([
-      { instanceId: "claude", kind: "claude", displayName: "Claude", held: false, file: join(home, ".claude", ".credentials.json"),
-        keychain: { service: "Claude Code-credentials", account: "fixture.user" } },
       { instanceId: `claude-${UUID}`, kind: "claude", displayName: "Work Claude", held: true, file: join(dataDir, "providers", `claude-${UUID}`, ".credentials.json"),
-        keychain: { service: `Claude Code-credentials-${suffix}`, account: "fixture.user" } },
-      { instanceId: "codex", kind: "codex", displayName: "ChatGPT", held: false, file: join(home, ".codex", "auth.json") },
+        keychain: { service: `Claude Code-credentials-${suffix}`, account: "fixture.user" }, email: "work@fixture.test" },
+      { instanceId: "codex", kind: "codex", displayName: "ChatGPT", held: false, file: join(dataDir, "providers", "codex", "auth.json") },
       { instanceId: "chatgpt", kind: "chatgpt-plan", displayName: "ChatGPT plan", held: false, stays: "chatgpt-plan" },
     ]);
   });
 
+  it("never offers the sign-in the person's own claude and codex commands use, so the two never knock each other out", () => {
+    const own: InstanceConfigMap = {
+      claude: { driver: "claudeAgent" },
+      "claude-2": { driver: "claudeAgent", displayName: "Same folder", config: { configDir: join(home, ".claude") } },
+      codex: { driver: "codex" },
+    };
+    expect(macAccountSources(own, { dataDir, held: new Set(), platform: "darwin" })).toEqual([]);
+    expect(macAccountSources({ codex: { driver: "codex", environment: { CODEX_HOME: join(home, ".codex") } } }, { dataDir, held: new Set(), platform: "darwin" })).toEqual([]);
+    vi.stubEnv("CLAUDE_CONFIG_DIR", join(home, "shell-claude"));
+    vi.stubEnv("CODEX_HOME", join(home, "shell-codex"));
+    expect(macAccountSources({
+      "claude-3": { driver: "claudeAgent", displayName: "Shell", config: { configDir: join(home, "shell-claude") } },
+      codex: { driver: "codex", environment: { CODEX_HOME: join(home, "shell-codex") } },
+    }, { dataDir, held: new Set(), platform: "darwin" })).toEqual([]);
+  });
+
   it("leaves out a Codex login kept in the Keychain and names no Keychain item off macOS", () => {
-    mkdirSync(join(home, ".codex"));
-    writeFileSync(join(home, ".codex", "config.toml"), "cli_auth_credentials_store = \"keyring\"\n");
+    mkdirSync(join(dataDir, "providers", "codex"), { recursive: true });
+    writeFileSync(join(dataDir, "providers", "codex", "config.toml"), "cli_auth_credentials_store = \"keyring\"\n");
     const sources = macAccountSources(instances(), { dataDir, held: new Set(), platform: "linux" });
-    expect(sources.map((source) => source.instanceId)).toEqual(["claude", `claude-${UUID}`]);
+    expect(sources.map((source) => source.instanceId)).toEqual([`claude-${UUID}`]);
     expect(sources.every((source) => !("keychain" in source))).toBe(true);
   });
 

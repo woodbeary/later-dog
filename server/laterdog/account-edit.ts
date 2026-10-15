@@ -13,8 +13,12 @@ export function subscriptionAccount(entry: Pick<InstanceConfig, "driver" | "conf
   return entry.driver === "claudeAgent" || entry.driver === "codex";
 }
 
-export function renamableAccount(entry: Pick<InstanceConfig, "driver" | "config">): AccountEditVerdict {
-  if (entry.driver === "claudeAgent" || chatgptPlanAccount(entry)) return { ok: true };
+export function ownCodexLogin(entry: Pick<InstanceConfig, "driver" | "config" | "environment">): boolean {
+  return entry.driver === "codex" && !chatgptPlanAccount(entry) && Boolean(entry.environment?.CODEX_HOME);
+}
+
+export function renamableAccount(entry: Pick<InstanceConfig, "driver" | "config" | "environment">): AccountEditVerdict {
+  if (entry.driver === "claudeAgent" || chatgptPlanAccount(entry) || ownCodexLogin(entry)) return { ok: true };
   if (entry.driver === "codex") return { ok: false, error: "This Codex login keeps its name; add a ChatGPT account to name one." };
   return { ok: false, error: "Only Claude and ChatGPT accounts can be renamed here." };
 }

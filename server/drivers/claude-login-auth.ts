@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { cloudHomeConfigured } from "../cloud-home.ts";
 import type { ProviderAuthenticationStart, ProviderAuthenticationStatus } from "../contracts.ts";
 import { killCliTree, spawnCli } from "../procs.ts";
 import { canonicalPath } from "./device-auth.ts";
@@ -104,6 +105,7 @@ interface ClaudeLoginOptions {
   lifetimeMs?: number;
   completeTimeoutMs?: number;
   terminateTimeoutMs?: number;
+  pasteCodeOnly?: boolean;
 }
 
 const NOT_AVAILABLE = "This sign-in is no longer available. Start sign-in again.";
@@ -326,7 +328,7 @@ export class ClaudeLoginController {
     if (flow.status.phase !== "waiting") return;
     let child: ReturnType<typeof spawnCli>;
     try {
-      flow.catcher = browserCatcher();
+      flow.catcher = (this.options.pasteCodeOnly ?? cloudHomeConfigured()) ? null : browserCatcher();
       const browserless = process.platform === "win32" ? {} : { BROWSER: flow.catcher?.command ?? "true" };
       child = spawnCli(this.options.cli, ["auth", "login"], {
         env: { ...flow.env, ...browserless, NO_COLOR: "1" },

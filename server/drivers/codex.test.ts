@@ -13,7 +13,9 @@ import { DATA_DIR, NATIVE_DIR } from "../config.ts";
 import { ChatGptPlanAuthController } from "./chatgpt-plan-auth.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import {
+  CODEX_CLOUD_SIGN_IN_AGAIN,
   CODEX_SIGN_IN_EXPIRED,
+  codexSignInExpired,
   CodexDriver,
   codexNativeIncomingLogMessage,
   codexSignInRefused,
@@ -2766,6 +2768,18 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
       process.env.FAKE_CODEX_MODE = "happy";
       expect((await runTurn("t-after")).done).toMatchObject({ ok: true });
       await expect(instance.snapshot()).resolves.toMatchObject({ authenticated: true });
+    });
+
+    it("on a Cloud home says one plain line and keeps the device-code sign-in ready", async () => {
+      vi.stubEnv("LATERDOG_CLOUD_ROLE", "home");
+      await create({ mode: "signin-refused", environment: signedIn() });
+      const { errors } = await runTurn("t-cloud-refused");
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({ setup: true, message: CODEX_CLOUD_SIGN_IN_AGAIN });
+      await expect(instance.snapshot()).resolves.toMatchObject({ authenticated: false, reason: CODEX_CLOUD_SIGN_IN_AGAIN });
+      expect(instance.authenticationMethod).toBeUndefined();
+      expect(instance.getAuthentication).toBeTypeOf("function");
+      expect(codexSignInExpired("raw", false)).toContain(CODEX_SIGN_IN_EXPIRED);
     });
 
     it("clears the mark when Codex stores a new sign-in", async () => {

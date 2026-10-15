@@ -145,6 +145,16 @@ describe("Claude server-owned sign-in", () => {
     await expect(controller.complete(start.flowId!, "GOODCODE#abc")).rejects.toThrow(/no longer available/);
   });
 
+  it("on a Cloud home goes straight to the paste-code page, never a link back to the home's own localhost", async () => {
+    const controller = create("success", { pasteCodeOnly: true });
+    const start = await controller.start();
+    expect(start).toMatchObject({ phase: "waiting", authorizationUrl: "https://claude.com/cai/oauth/authorize?code=true&client_id=fixture&state=abc" });
+    expect(start.callbackUrl).toBeUndefined();
+    if (process.platform !== "win32") expect(calls()[1].browser).toBe("true");
+    await controller.complete(start.flowId!, "GOODCODE#abc");
+    expect((await controller.get(start.flowId!)).phase).toBe("succeeded");
+  });
+
   it("finishes by itself when the browser hands the sign-in back, with nothing pasted", async () => {
     const controller = create("callback");
     const start = await controller.start();

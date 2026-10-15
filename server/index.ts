@@ -664,6 +664,8 @@ import { createPhonePushRoutes } from "./routes/phone-push.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
+import { forgetAccountFolder } from "./laterdog/account-folder.ts";
+import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import {
   AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
@@ -704,7 +706,7 @@ import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
 import { createTimeZoneRoutes, restoreTimeZone } from "./laterdog/time-zone.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
-import { createHomeAccountRoutes } from "./laterdog/home-accounts.ts";
+import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-accounts.ts";
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
@@ -13289,7 +13291,8 @@ async function describeInstances() {
   const configs = providerConfigs();
   void retryComputerEngineMove();
   void giveFirstEngine();
-  return (await registry.describe()).map((instance) => {
+  return (await registry.describe()).map((listed) => {
+    const instance = CLOUD_HOME ? withHandedOverEmail(DATA_DIR, listed) : listed;
     const entry = configs[instance.instanceId];
     const described = {
       ...instance,
@@ -20709,12 +20712,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
       providerConfigBusy = true;
       try {
-        const instances = persistableInstanceConfigs(cfg);
-        const instanceId = `chatgpt-${randomUUID()}`;
-        const cli = (instances.chatgpt?.config as { cli?: unknown } | undefined)?.cli
-          ?? (instances.codex?.config as { cli?: unknown } | undefined)?.cli;
-        instances[instanceId] = { driver: "codex", displayName: parsed.data.displayName,
-          config: { authMode: "chatgpt-plan", ...(typeof cli === "string" && cli ? { cli } : {}) } };
+        const { instanceId, instances } = newChatGptAccount(persistableInstanceConfigs(cfg), parsed.data.displayName, { cloudHome: Boolean(CLOUD_HOME), dataDir: DATA_DIR });
         await persistProviderInstance(instanceId, instances);
         return json(res, 201, { instanceId, instances: await describeInstances() });
       } finally { providerConfigBusy = false; }
@@ -20914,8 +20912,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       providerConfigBusy = true;
       providerInstancesChanging.add(instanceId);
       try {
+        const removed = instances[instanceId];
         delete instances[instanceId];
         await persistProviderInstance(instanceId, instances);
+        if (CLOUD_HOME) forgetAccountFolder(DATA_DIR, instanceId, removed);
         const battery = withoutAccount(cfg.accountBattery, instanceId);
         if (battery) {
           saveConfig({ accountBattery: battery });
