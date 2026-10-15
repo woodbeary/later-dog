@@ -85,7 +85,8 @@ describe("the free trial row", () => {
       return started ? pending : offered;
     };
     await mount();
-    expect(text()).toBe("Free trial30 free minutes on a cloud computer, to use within 7 daysStart free trial");
+    expect(text()).toBe("Free trialA cloud computer for your dogs. No card needed.Start free trial");
+    expect(text()).not.toMatch(/minute|day/);
 
     await click("Start free trial");
     expect(fixture.calls).toEqual(["GET", "POST"]);
@@ -173,7 +174,7 @@ describe("the free trial row", () => {
   });
 
   it("reads each state in a few words", () => {
-    expect(trialSubtitle(offered)).toBe("30 free minutes on a cloud computer, to use within 7 days");
+    expect(trialSubtitle(offered)).toBe("A cloud computer for your dogs. No card needed.");
     expect(trialSubtitle(active(0))).toBe("0 minutes left");
     expect(trialSubtitle(active(1))).toBe("1 minute left");
     expect(trialSubtitle({ state: "none" })).toBe("");
@@ -189,7 +190,7 @@ describe("the Computer panel's trial offer", () => {
       return started ? pending : offered;
     };
     await mount(createElement(CloudTrialOffer));
-    expect(text()).toBe("Try a cloud computer free30 minutes, no card needed");
+    expect(text()).toBe("Try a cloud computer freeNo card needed");
     await click("Try a cloud computer free");
     expect(fixture.open).toHaveBeenCalledExactlyOnceWith(PAGE);
     expect(text()).toContain("Finish the quick check in your browser to start");

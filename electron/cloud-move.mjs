@@ -85,7 +85,7 @@ export function moveBlocked({ kind, refusal = null, local = null, cloud = null, 
 export async function mintOwnerCode(fetchImpl, origin, { label = "Copy from desktop", timeoutMs = 15_000 } = {}) {
   const ask = (route, init = {}) => fetchImpl(`${origin}${route}`, { ...init, credentials: "include", redirect: "error", cache: "no-store",
     headers: { accept: "application/json", origin, ...init.headers }, signal: AbortSignal.timeout(timeoutMs) });
-  const ownerNeeded = () => fail("owner_needed", "This app isn't signed in to that server as its owner. Pair it again with an owner code, then copy.");
+  const ownerNeeded = () => fail("owner_needed", "This app isn't signed in to that server as its owner. Open it in this app again, then copy.");
   let response;
   try { response = await ask("/api/auth/session"); } catch { fail("network", "The copy could not reach that server. Check your connection and try again."); }
   const session = await readJson(response).catch(() => null);

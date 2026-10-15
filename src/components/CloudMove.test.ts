@@ -151,7 +151,7 @@ it("every state reads as one sentence and one next step, for the Cloud and any o
   expect(view({}, { destination: CLOUD, cloud: { ...emptyCloud, empty: false } }, { onServerPage: true })).toMatchObject({
     action: null, message: { tone: "note", text: "My Cloud already has its own dogs and chats, so nothing gets copied over them." } });
   const blocked = (reason: CloudMoveOverview["blocked"], extra: Partial<CloudMoveOverview> = {}) => view({}, { destination: VPS, blocked: reason, ...extra });
-  expect(blocked("owner_needed")).toMatchObject({ message: { text: "This app isn't signed in to bots.example.test as its owner. Pair it again with an owner code (laterdog pair), then copy." }, action: { kind: "open", label: "Open bots.example.test" } });
+  expect(blocked("owner_needed")).toMatchObject({ message: { text: "This app isn't signed in to bots.example.test as its owner. Open bots.example.test in this app again, then copy." }, action: { kind: "open", label: "Open bots.example.test" } });
   expect(blocked("shared_workspace")).toMatchObject({ message: { text: "bots.example.test is shared with other people, so it can't receive this computer's dogs and chats. Copy to a server only you use." }, action: null });
   expect(blocked("same_computer")).toMatchObject({ message: { text: "bots.example.test is this computer's own server." }, action: null });
   expect(blocked("outdated", { cloud: { ...emptyCloud, appVersion: "0.1.90" } })).toMatchObject({ message: { text: "bots.example.test runs 0.1.90; this computer runs 0.1.96. Update bots.example.test, then copy again." }, action: { kind: "check", label: "Check again" } });
