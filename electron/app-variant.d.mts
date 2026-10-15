@@ -1,6 +1,4 @@
 export interface VariantPorts {
-  readonly companion: number;
-  readonly companionControl: number;
   readonly server: readonly number[];
   readonly webhookOffset: number;
   readonly companionRelay: readonly number[];
@@ -62,6 +60,5 @@ export function scriptTarget(input?: { argv?: string[]; env?: NodeJS.ProcessEnv;
 export function readPackageJson(directory?: string): Record<string, unknown> | null;
 export function samePath(a: string, b: string): boolean;
 export const APP_VARIANT_ENV: string;
-export function companionDirFor(definition: VariantDefinition, options?: { env?: NodeJS.ProcessEnv; home?: string }): string | null;
 export function insidePath(parent: string, child: string, options?: { caseInsensitive?: boolean }): boolean;
 export function readBundleIdentifier(execPath: string, readFile?: (path: string, encoding: string) => string): string | null;

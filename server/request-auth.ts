@@ -3,7 +3,6 @@ import { timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 
 import type { Scope, SessionRecord, SessionRegistry } from "./sessions.ts";
-import { denyReason as companionDenial, isCompanionNotice } from "../companion/src/routes.ts";
 import { LOCAL_TOOLS_HEADER, localToolsRouteRefusal } from "./laterdog/local-tools-scope.ts";
 
 export type LoopbackTrust = "owner" | "service";
@@ -297,7 +296,6 @@ export interface ResolveOptions {
   streamPath: string;
   url: URL;
   loopbackMutationToken?: string;
-  companionMutationToken?: string;
   features?: { sharedComputers?: boolean };
   loopbackTrust?: LoopbackTrust;
   cliOwnerToken?: string;
@@ -374,16 +372,6 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
   const proxied = isProxied(req);
   const loopback = !proxied && isLoopbackHost(headerValue(req.headers.host)) && isAllowedOrigin(headerValue(req.headers.origin));
   if (loopback) {
-    const companionToken = headerValue(req.headers["x-laterdog-companion-auth"]);
-    if (companionToken && options.loopbackMutationToken !== undefined) {
-      if (
-        !secureTokenMatch(companionToken, options.companionMutationToken ?? "") ||
-        req.headers["x-laterdog-companion"] !== "1" ||
-        !/^[\w-]{1,128}$/.test(headerValue(req.headers["x-laterdog-companion-device"]) ?? "") ||
-        (companionDenial({ path, method, authenticated: true }) && !isCompanionNotice(method, path))
-      ) return deny(403, "forbidden: invalid companion request");
-      return { auth: { kind: "loopback", scopes: LOOPBACK_SCOPES }, status: 401, error: "" };
-    }
     if (
       options.loopbackMutationToken !== undefined &&
       mutatingPublicRoute(method, path) &&

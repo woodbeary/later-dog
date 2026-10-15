@@ -33,7 +33,6 @@ export function desktopPlan({ env = process.env, home = homedir(), root = projec
   const electron = process.platform === "darwin" ? "Electron.app/Contents/MacOS/Electron" : process.platform === "win32" ? "electron.exe" : "electron";
   return {
     root, node, env: environment, ports: [target.serverPort, target.serverPort + 1, target.supervisorPort, uiPort], serverUrl, supervisorUrl, uiUrl,
-    prepare: step(join(root, "scripts/prepare-cloudflared.mjs"), "--current"),
     services: [step(join(root, "server/laterdog/main.ts")), step(join(root, "server/index.ts")), step(join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(uiPort), "--strictPort")],
     electron: { file: join(root, "node_modules/electron/dist", electron), args: [root] },
   };
@@ -113,8 +112,6 @@ export async function runDesktop(plan, { spawnProcess = spawn, assertPorts: chec
   try {
     await checkPorts(plan.ports);
     if (stopping) throw new Error("Dev startup cancelled.");
-    const prepared = await launch(plan.prepare, true);
-    if (prepared !== 0) throw new Error(`Dev dependency preparation exited ${prepared}.`);
     if (!stopping) for (const service of plan.services) launch(service);
     if (!stopping) await Promise.all([ready(`${plan.supervisorUrl}/v1/workspace`, abort.signal), ready(`${plan.serverUrl}/api/health`, abort.signal), ready(`${plan.uiUrl}/@vite/client`, abort.signal)]);
     if (!stopping) {

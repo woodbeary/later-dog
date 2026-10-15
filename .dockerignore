@@ -10,7 +10,6 @@ release
 *.dmg
 *.zip
 *.log
-electron/resources/cloudflared*
 .laterdog-scratch
 .env
 **/.env

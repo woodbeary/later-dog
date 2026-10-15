@@ -14,7 +14,6 @@ import {
   APP_VARIANT_ENV,
   applyVariantEnvironment,
   bundleIsDev,
-  companionDirFor,
   insidePath,
   readBundleIdentifier,
   dataDirFor,
@@ -107,9 +106,6 @@ test("the release keeps every name and port it has always had", () => {
   assert.equal(release.desktopEntry, "dog.later.app.desktop");
   assert.equal(release.cuaHostBundleId, "dog.later.app");
   assert.equal(release.iconPath, "resources/app-icon.png");
-  assert.equal(release.ports.companion, 8810);
-  assert.equal(release.ports.companionControl, 8811);
-  assert.equal(companionDirFor(release, { env: {}, home: HOME }), null);
   assert.deepEqual([...release.ports.server], [8799, 18799, 28799]);
   assert.deepEqual([...release.ports.companionRelay], [8798, 18798, 28798]);
   assert.equal(release.ports.supervisor, 9010);
@@ -140,8 +136,6 @@ test("Dev names itself and its data differently in every place the release names
     desktopEntry: definition.desktopEntry,
     tempPrefix: definition.tempPrefix,
     icon: definition.iconPath,
-    companionPorts: `${definition.ports.companion}/${definition.ports.companionControl}`,
-    companionDir: String(companionDirFor(definition, { env: {}, home: HOME })),
     updaterCache: definition.updates.cacheDirName,
     updaterFeedFile: definition.updates.feedFile,
     protocolHandler: deepLink(definition, "cloud"),
@@ -239,7 +233,6 @@ test("the two variants listen on disjoint ports, helpers and profile servers inc
   const shared = [...left].filter((port) => right.has(port));
   assert.deepEqual(shared, []);
   assert.ok(left.has(8799) && left.has(8800) && left.has(9010) && left.has(8798) && left.has(8811));
-  assert.ok(left.has(8810) && right.has(8910) && right.has(8909));
   assert.ok(right.has(8999) && right.has(9000) && right.has(9110) && right.has(8998) && right.has(8911));
   for (const definition of [release, dev]) {
     assert.equal(new Set(definition.ports.server).size, definition.ports.server.length);
@@ -347,12 +340,6 @@ test("the Dev build config and the release build config agree on everything but 
   assert.equal(readFileSync(path.join(root, "electron/resources/app-update-dev.yml"), "utf8").trim(), `updaterCacheDirName: ${dev.updates.cacheDirName}`);
   assert.equal(readFileSync(path.join(root, "electron/resources/app-update.yml"), "utf8").trim(), `updaterCacheDirName: ${release.updates.cacheDirName}`);
   assert.equal(devConfig.dmg.title, "later.dog Dev");
-});
-
-test("Dev keeps its phone companion inside its own data folder", () => {
-  assert.equal(companionDirFor(dev, { env: {}, home: HOME }), "/Users/someone/.laterdog-dev/companion");
-  assert.equal(companionDirFor(dev, { env: { LATERDOG_HOME: "/Users/someone/.laterdog" }, home: HOME }), "/Users/someone/.laterdog-dev/companion");
-  assert.equal(companionDirFor(dev, { env: { LATERDOG_HOME: "/tmp/fixture-home" }, home: HOME }), "/tmp/fixture-home/companion");
 });
 
 test("a symlink or a different spelling of the release folder is still the release folder", () => {

@@ -57,23 +57,7 @@ import {
   managedComposioChildEnvironment,
   normalizeManagedComposioBrokerUrl,
 } from "./managed-composio.mjs";
-import {
-  createManagedCompanionTunnel,
-  managedCompanionTunnelAccess,
-  resolveCloudflaredBinary,
-  resolveManagedCompanionGuardian,
-  withManagedCompanionTunnelAccess,
-  withoutManagedCompanionTunnelAccess,
-} from "./managed-companion-tunnel.mjs";
 import { createSecureCredentialState } from "./secure-credential-state.mjs";
-import {
-  createPhoneSecretSaveCoordinator,
-  createPhoneSecretIdentity,
-  decodePhoneSecretSaveRequest,
-  phoneSecretPrivateKeyMessage,
-  readPhoneSecretIdentity,
-  withPhoneSecretIdentity,
-} from "./phone-secret-identity.mjs";
 import {
   desktopCompanionAccess,
   desktopCompanionRendererArguments,
@@ -84,12 +68,6 @@ import {
 } from "./desktop-companion-client.mjs";
 import { isKnownSkin, skinChrome } from "./skin-overlay.cjs";
 import { readSecureCredentials } from "./secure-credentials.mjs";
-import { createControlPlaneClient } from "./control-plane-client.mjs";
-import {
-  companionAccountCleanupPending,
-  createCompanionAccountService,
-  resolveCompanionControlPlaneURL,
-} from "./companion-account-service.mjs";
 import capabilitiesModule from "./capabilities.cjs";
 import environmentsModule from "./environments.cjs";
 import localOriginModule from "./local-origin.cjs";
@@ -100,7 +78,6 @@ import { acquireDataDirLease } from "./data-dir-lease.mjs";
 import { createManagedDesktopClient, createManagedDesktopRelay, createManagedDesktopStore, managedPortalOrigin } from "./managed-desktop.mjs";
 import { cloudOrigin, cloudPlanSnapshot, configuredCloudOrigin, createCloudAccountClient, createCloudAccountStore } from "./cloud-account.mjs";
 import { CloudSignInError, createCloudSignIn } from "./cloud-sign-in.mjs";
-import { createAccountWorkspace } from "./account-workspace.mjs";
 import { createCloudAutoMove } from "./cloud-auto-move.mjs";
 import { createMacHold } from "./cloud-hold.mjs";
 import { createCloudWindow } from "./cloud-window.mjs";
@@ -323,7 +300,6 @@ const utilityServerExits = new WeakMap();
 const UTILITY_SERVER_STOP_TIMEOUT_MS = 6_500;
 const trustedApprovalMode = createTrustedApprovalModeCoordinator({ randomId: randomUUID });
 const desktopMutationToken = randomBytes(32).toString("base64url");
-const companionMutationToken = randomBytes(32).toString("base64url");
 const localControl = startLocalControlToken(app.getPath("userData"), (line) => slog(line));
 const serverLiveness = createServerLiveness({ port: () => SERVER_PORT, log: slog });
 const serverSupervisor = createServerSupervisor({
@@ -387,7 +363,6 @@ async function stopUtilityServer(proc, timeoutMs = UTILITY_SERVER_STOP_TIMEOUT_M
     }),
   ]).finally(() => clearTimeout(timer));
 }
-let phoneSecretIdentity = null;
 let desktopRemoteAccess = null;
 let desktopCompanionRelay = null;
 
@@ -530,41 +505,9 @@ const DESKTOP_CRASH_LOG = path.join(LOG_DIR, "desktop-crashes.log");
 const DESKTOP_CRASH_LOG_MAX_BYTES = 512 * 1024;
 let logStream = null;
 let desktopShutdownStarted = false;
-import {
-  companionAdvertisedHostedUrl,
-  companionEnabledAtRest,
-  companionOriginTarget,
-  companionPairing,
-  companionAccountPairing,
-  companionRevokeAccountDevices,
-  companionRefreshTailscale,
-  companionCloudDesktopAccess,
-  companionBrowserControlAccess,
-  companionRevoke,
-  companionRunning,
-  companionState,
-  rememberCompanionEnabled,
-  rememberCompanionKeepAwake,
-  setCompanionHostedUrl,
-  setCompanionLifecycleListener,
-  startCompanion,
-  stopCompanion,
-} from "./companion.mjs";
 import { createRoutineWakeHold, rememberRoutineWake, routineWakeSettings } from "./routine-wake.mjs";
 
 const { isLocalSender: senderIsLocal, isProfileSender, localOnly, localOnlySync, setLocalOrigin, setProfileOrigin } = localOriginModule;
-
-let companionPowerBlocker = null;
-
-function syncCompanionKeepAwake(companionEnabled, keepAwake) {
-  const shouldBlock = companionEnabled && keepAwake;
-  if (shouldBlock && companionPowerBlocker === null) {
-    companionPowerBlocker = powerSaveBlocker.start("prevent-app-suspension");
-  } else if (!shouldBlock && companionPowerBlocker !== null) {
-    if (powerSaveBlocker.isStarted(companionPowerBlocker)) powerSaveBlocker.stop(companionPowerBlocker);
-    companionPowerBlocker = null;
-  }
-}
 
 const routineWake = createRoutineWakeHold({
   fetchStatus: () => (serverReady
@@ -645,13 +588,6 @@ installDesktopCrashListeners({
   mainWebContents: () => mainWindow?.webContents ?? null,
 });
 
-let managedCompanionConnector = null;
-let companionAccountService = null;
-let accountWorkspace = null;
-let companionDesiredThisLaunch = false;
-let companionLaunchGeneration = 0;
-let advertisementTransition = Promise.resolve();
-
 export async function updateSecureCredentialDocument(derive, afterPersist) {
   if (!secureCredentialState) throw new Error("Secure credentials are not ready");
   try {
@@ -661,274 +597,12 @@ export async function updateSecureCredentialDocument(derive, afterPersist) {
   }
 }
 
-async function ensurePhoneSecretIdentity() {
-  const existing = readPhoneSecretIdentity(secureCredentialState?.read() ?? secureCredentials);
-  if (existing) {
-    phoneSecretIdentity = existing;
-    return existing;
-  }
-  try {
-    const created = await createPhoneSecretIdentity();
-    let identity = created;
-    await updateSecureCredentialDocument((credentials) => {
-      identity = readPhoneSecretIdentity(credentials) ?? created;
-      return withPhoneSecretIdentity(credentials, identity);
-    });
-    phoneSecretIdentity = identity;
-    return identity;
-  } catch (error) {
-    phoneSecretIdentity = null;
-    slog(`phone credential key unavailable: ${error?.message ?? error}`);
-    return null;
-  }
-}
-
-function publicManagedCompanionState() {
-  const access = managedCompanionTunnelAccess(secureCredentials);
-  const status = managedCompanionConnector?.getStatus();
-  if (status) {
-    const publicState = {
-      status: status.status,
-      configured: status.configured,
-      ready: status.ready,
-    };
-    if (status.endpoint) publicState.url = status.endpoint;
-    if (status.retryInMs) publicState.retryInMs = status.retryInMs;
-    if (status.error) publicState.error = status.error;
-    return publicState;
-  }
-  return access
-    ? { status: "stopped", configured: true, ready: false, url: access.endpoint }
-    : { status: "unconfigured", configured: false, ready: false };
-}
-
-function decorateDesktopCompanionState(state) {
-  syncCompanionKeepAwake(state.enabled && !state.error, state.keepAwake === true);
-  return { ...state, managedConnection: publicManagedCompanionState() };
-}
-
-async function desktopCompanionState() {
-  return decorateDesktopCompanionState(await companionState());
-}
-
-function companionLaunchOptions(hostedUrl = null) {
-  return {
-    resourcesPath: process.resourcesPath,
-    harnessPort: SERVER_PORT,
-    mutationToken: companionMutationToken,
-    hostedUrl,
-    secretPublicKey: app.isPackaged && serverProc ? phoneSecretIdentity?.publicKey ?? null : null,
-    log: slog,
-  };
-}
-
-function ensureManagedCompanionConnector() {
-  if (managedCompanionConnector) return managedCompanionConnector;
-  managedCompanionConnector = createManagedCompanionTunnel({
-    binaryPath: resolveCloudflaredBinary({
-      isPackaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-      appPath: app.getAppPath(),
-    }),
-    guardianEntry: resolveManagedCompanionGuardian({ appPath: app.getAppPath() }),
-    runtimeExecutable: process.execPath,
-    runtimeRoot: path.join(app.getPath("userData"), "managed-companion-tunnel"),
-    onChange: (status) => {
-      slog(`managed companion connection ${status.status}`);
-      if (!companionDesiredThisLaunch) return;
-      void reconcileCompanionAdvertisement(status.ready ? status.endpoint : null);
-    },
-    log: slog,
-  });
-  return managedCompanionConnector;
-}
-
-function reconcileCompanionAdvertisement(
-  endpoint,
-  ownedGeneration = companionLaunchGeneration,
-) {
-  const normalizedEndpoint = endpoint || null;
-  const work = advertisementTransition.then(async () => {
-    if (
-      ownedGeneration !== companionLaunchGeneration ||
-      !companionDesiredThisLaunch ||
-      !companionRunning() ||
-      companionAdvertisedHostedUrl() === normalizedEndpoint
-    ) {
-      return desktopCompanionState();
-    }
-    const updated = await setCompanionHostedUrl(normalizedEndpoint);
-    return { ...updated, managedConnection: publicManagedCompanionState() };
-  });
-  advertisementTransition = work.then(
-    () => {},
-    () => {},
-  );
-  return work;
-}
-
-async function startManagedCompanionConnection({ waitForVerification = true } = {}) {
-  if (companionAccountCleanupPending(secureCredentials)) {
-    return publicManagedCompanionState();
-  }
-  const access = managedCompanionTunnelAccess(secureCredentials);
-  if (!access) return publicManagedCompanionState();
-  const target = companionOriginTarget();
-  if (!target) return publicManagedCompanionState();
-  const operation = ensureManagedCompanionConnector().start({ ...access, originTarget: target });
-  if (!waitForVerification) {
-    void operation.catch(() => {});
-    return publicManagedCompanionState();
-  }
-  const status = await operation;
-  await reconcileCompanionAdvertisement(status.ready ? status.endpoint : null);
-  return publicManagedCompanionState();
-}
-
-async function startDesktopCompanion({ waitForHosted = true, remember = true, managed = true } = {}) {
-  const refusal = managedRemoteAccessRefusal();
-  if (refusal) throw new Error(refusal);
-  companionDesiredThisLaunch = true;
-  companionLaunchGeneration += 1;
-  const localState = await startCompanion(companionLaunchOptions());
-  if (!localState.enabled || localState.error) {
-    companionDesiredThisLaunch = false;
-    return desktopCompanionState();
-  }
-  if (remember) rememberCompanionEnabled(true);
-  if (managed) await startManagedCompanionConnection({ waitForVerification: waitForHosted });
-  return desktopCompanionState();
-}
-
-async function stopDesktopCompanion({ remember = true } = {}) {
-  companionDesiredThisLaunch = false;
-  companionLaunchGeneration += 1;
-  if (remember) rememberCompanionEnabled(false);
-  syncCompanionKeepAwake(false, false);
-  await managedCompanionConnector?.stop();
-  await stopCompanion();
-  return desktopCompanionState();
-}
-
-async function refreshDesktopCompanionTailscale() {
-  if (!companionRunning()) {
-    const started = await startDesktopCompanion({ waitForHosted: false });
-    if (!started.enabled || started.error) return started;
-  }
-  return decorateDesktopCompanionState(await companionRefreshTailscale());
-}
-
-setCompanionLifecycleListener(({ expected, pid }) => {
-  if (expected) return;
-  slog(`owned companion exited unexpectedly pid=${pid ?? "unknown"}`);
-  companionDesiredThisLaunch = false;
-  companionLaunchGeneration += 1;
-  syncCompanionKeepAwake(false, false);
-  void managedCompanionConnector?.stop().catch(() => {});
-});
-
-export async function reconcileManagedCompanionEndpointProvision(provision) {
-  await updateSecureCredentialDocument((credentials) =>
-    withManagedCompanionTunnelAccess(credentials, provision),
-  );
-  if (companionDesiredThisLaunch) {
-    await startManagedCompanionConnection({ waitForVerification: true });
-  }
-  return publicManagedCompanionState();
-}
-
-export async function clearManagedCompanionEndpointCredentials() {
-  await updateSecureCredentialDocument((credentials) =>
-    withoutManagedCompanionTunnelAccess(credentials),
-  );
-  await managedCompanionConnector?.stop();
-  if (companionDesiredThisLaunch) await reconcileCompanionAdvertisement(null);
-  return publicManagedCompanionState();
-}
-
-async function stopManagedCompanionEndpointLocally() {
-  await managedCompanionConnector?.stop();
-  if (companionDesiredThisLaunch) await reconcileCompanionAdvertisement(null);
-  return publicManagedCompanionState();
-}
-
-async function activatePersistedManagedCompanionEndpoint() {
-  if (companionDesiredThisLaunch) {
-    return startManagedCompanionConnection({ waitForVerification: true });
-  }
-  return publicManagedCompanionState();
-}
-
 function installationDisplayName() {
   const hostname = [...os.hostname()]
     .filter((character) => character.codePointAt(0) >= 32 && character.codePointAt(0) !== 127)
     .join("")
     .trim();
   return hostname.slice(0, 80) || "This computer";
-}
-
-function ensureCompanionAccountService() {
-  if (companionAccountService) return companionAccountService;
-  const baseURL = resolveCompanionControlPlaneURL({
-    isPackaged: app.isPackaged,
-    environment: process.env,
-  });
-  let client = null;
-  if (baseURL) {
-    try {
-      client = createControlPlaneClient({ baseURL });
-    } catch {}
-  }
-  companionAccountService = createCompanionAccountService({
-    client,
-    readCredentials: () => secureCredentialState?.read() ?? secureCredentials,
-    updateCredentials: updateSecureCredentialDocument,
-    identity: {
-      name: installationDisplayName(),
-      platform:
-        process.platform === "win32"
-          ? "windows"
-          : process.platform === "darwin"
-            ? "darwin"
-            : "linux",
-      appVersion: app.getVersion().slice(0, 64),
-    },
-    newClientInstanceId: randomUUID,
-    activatePersistedEndpoint: activatePersistedManagedCompanionEndpoint,
-    stopManagedEndpoint: stopManagedCompanionEndpointLocally,
-    managedConnectionState: publicManagedCompanionState,
-    companionIsOn: () => companionDesiredThisLaunch,
-    autoRecover: true,
-    log: (line) => slog(line),
-  });
-  return companionAccountService;
-}
-
-function ensureAccountWorkspace() {
-  if (accountWorkspace) return accountWorkspace;
-  accountWorkspace = createAccountWorkspace({
-    account: () => cloudAccount,
-    controlPlane: createControlPlaneClient({ baseURL: cloudOrigin() }),
-    readCredentials: () => secureCredentialState?.read() ?? secureCredentials,
-    updateCredentials: updateSecureCredentialDocument,
-    identity: { name: installationDisplayName(), platform: process.platform === "win32" ? "windows" : process.platform, appVersion: app.getVersion().slice(0, 64) },
-    startCompanion: async () => {
-      if (!serverReady || desktopShutdownStarted) throw new Error("This workspace is not ready");
-      if (!companionRunning()) await startDesktopCompanion({ waitForHosted: false, remember: false });
-      else await startManagedCompanionConnection({ waitForVerification: false });
-    },
-    stopEndpoint: stopManagedCompanionEndpointLocally,
-    companionState: desktopCompanionState,
-    connectionState: publicManagedCompanionState,
-    openPairing: companionAccountPairing,
-    closePairing: token => companionPairing(false, token),
-    revokeAccountDevices: async () => {
-      if (!companionRunning()) await startDesktopCompanion({ remember: false, managed: false });
-      await companionRevokeAccountDevices();
-    },
-    onStatus: status => slog(`account workspace ${status}`),
-  });
-  return accountWorkspace;
 }
 
 async function gatherDiagnostics() {
@@ -966,16 +640,6 @@ let serverStartConflictOnly = false;
 
 
 
-function syncPhoneSecretKey(proc) {
-  const message = phoneSecretPrivateKeyMessage(phoneSecretIdentity);
-  if (!message) return;
-  try {
-    proc.postMessage(message);
-  } catch (error) {
-    slog(`phone credential key sync failed: ${error?.message ?? error}`);
-  }
-}
-
 function ensureCloudAccount() {
   if (cloudAccount) return cloudAccount;
   if (!app.isPackaged || desktopRemoteAccess) throw new Error("later.dog Cloud sign-in requires the local desktop app.");
@@ -993,7 +657,6 @@ function ensureCloudAccount() {
       rememberedHome = rememberedCloudHome(rememberedHome, state);
       sendUpdaterState();
       computerSharing?.cloudChanged();
-      void accountWorkspace?.changed();
       pushCloudAccountState(state);
       refreshApplicationMenu();
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitle(currentWindowTitle());
@@ -1265,7 +928,6 @@ function syncDesktopMutationToken(proc) {
     proc.postMessage({
       type: "laterdog:desktop-mutation-token",
       token: desktopMutationToken,
-      companionToken: companionMutationToken,
       ...(localControl ? { localToolsToken: localControl.token } : {}),
     });
   } catch (error) {
@@ -1293,23 +955,6 @@ function installDesktopMutationHeader() {
       },
     });
   });
-}
-
-const savePhoneSecretOnce = createPhoneSecretSaveCoordinator((target, value) =>
-  saveWorkspaceCredential(target, value),
-);
-
-function receivePhoneSecretSave(proc, rawMessage) {
-  const request = decodePhoneSecretSaveRequest(rawMessage);
-  if (!request) return false;
-  void savePhoneSecretOnce(request).then((result) => {
-    try {
-      proc.postMessage(result);
-    } catch (error) {
-      slog(`phone credential save result failed: ${error?.message ?? error}`);
-    }
-  });
-  return true;
 }
 
 async function startServerOn(port) {
@@ -1356,7 +1001,6 @@ async function startServerOn(port) {
       if (trustedApprovalMode.receive(proc, message)) return;
       if (managedDesktopRelay.receive(proc, message)) return;
       if (orgLibrary?.receive(message)) return;
-      if (receivePhoneSecretSave(proc, message)) return;
     } catch (error) {
       slog(`desktop private sync rejected: ${error?.message ?? error}`);
     }
@@ -1365,7 +1009,6 @@ async function startServerOn(port) {
     slog(`spawned pid=${proc.pid}`);
     if (!serverSupervisor.isCurrent(proc)) return;
     syncDesktopMutationToken(proc);
-    syncPhoneSecretKey(proc);
   });
   let exited = false;
   proc.once("exit", (code) => {
@@ -2633,39 +2276,12 @@ ipcMain.handle("speech:finish", localOnly("speech:finish", () => {
   if (nativeActions.appleSpeech) finishSpeech();
 }));
 
-ipcMain.handle("companion:state", localOnly("companion:state", () => desktopCompanionState()));
-function managedRemoteAccessRefusal() {
-  const policy = managedDesktop?.policy?.();
-  return policy?.remoteAccess === false ? `${policy.organizationName} does not allow remote access to this computer.` : null;
-}
-ipcMain.handle("companion:start", localOnly("companion:start", () => startDesktopCompanion()));
-ipcMain.handle("companion:stop", localOnly("companion:stop", () => stopDesktopCompanion()));
-ipcMain.handle("companion:keep-awake", localOnly("companion:keep-awake", async (_event, enabled) => {
-  rememberCompanionKeepAwake(Boolean(enabled));
-  return desktopCompanionState();
-}));
 ipcMain.handle("routines:wake-state", localOnly("routines:wake-state", () => routineWake.poll()));
 ipcMain.handle("routines:keep-awake", localOnly("routines:keep-awake", async (_event, enabled) => {
   rememberRoutineWake(app.getPath("userData"), Boolean(enabled));
   return routineWake.poll();
 }));
 ipcMain.handle("release-check:set", localOnly("release-check:set", (_event, enabled) => setReleaseCheckEnabled(enabled === true)));
-ipcMain.handle("companion:refresh-tailscale", localOnly("companion:refresh-tailscale", () => refreshDesktopCompanionTailscale()));
-ipcMain.handle("companion:pairing", localOnly("companion:pairing", (_event, open, expectedToken) => {
-  const refusal = open ? managedRemoteAccessRefusal() : null;
-  if (refusal) throw new Error(refusal);
-  return companionPairing(Boolean(open), expectedToken).then(decorateDesktopCompanionState);
-}));
-ipcMain.handle("companion:cloud-desktop", localOnly("companion:cloud-desktop", (_event, deviceId, allowed) =>
-  companionCloudDesktopAccess(deviceId, Boolean(allowed)).then(() => desktopCompanionState()),
-));
-ipcMain.handle("companion:browser-control", localOnly("companion:browser-control", (_event, deviceId, allowed) =>
-  companionBrowserControlAccess(deviceId, Boolean(allowed)).then(() => desktopCompanionState()),
-));
-ipcMain.handle("companion:revoke", localOnly("companion:revoke", (_event, deviceId) =>
-  companionRevoke(deviceId).then(() => desktopCompanionState()),
-));
-
 function publicDesktopRemoteState() {
   return desktopRemoteAccess
     ? {
@@ -2715,16 +2331,6 @@ ipcMain.handle("desktop-remote:disconnect", localOnly("desktop-remote:disconnect
   relaunchAfterDesktopRemoteChange();
   return { active: false };
 }));
-
-ipcMain.handle("companion-account:state", localOnly("companion-account:state", () => ensureCompanionAccountService().state()));
-ipcMain.handle("companion-account:request-code", localOnly("companion-account:request-code", (_event, email) =>
-  ensureCompanionAccountService().requestCode(email),
-));
-ipcMain.handle("companion-account:verify-code", localOnly("companion-account:verify-code", (_event, email, code) =>
-  ensureCompanionAccountService().verifyCode(email, code),
-));
-ipcMain.handle("companion-account:retry", localOnly("companion-account:retry", () => ensureCompanionAccountService().retry()));
-ipcMain.handle("companion-account:sign-out", localOnly("companion-account:sign-out", () => ensureCompanionAccountService().signOut()));
 
 const workspaceOnly = (handler) => (event, ...args) => {
   if (!workspaceSenderAllowed(event, mainWindow?.webContents, environmentsState, localPageOrigin())) throw new Error("These controls are only available in the main desktop window");
@@ -3214,8 +2820,6 @@ async function restoreWorkspaceCredentials(credentials) {
   }
   secureCredentials = credentials;
   credentialStoreUnavailable = false;
-  phoneSecretIdentity = readPhoneSecretIdentity(credentials);
-  if (serverProc) syncPhoneSecretKey(serverProc);
   syncManagedComposioCredentials();
   void broadcastDesktopCapabilities().catch(() => {});
 }
@@ -3349,9 +2953,7 @@ app.whenReady().then(async () => {
     afterReload: restoreWorkspaceCredentials,
   });
   secureCredentials = secureCredentialState.read();
-  if (app.isPackaged) await ensurePhoneSecretIdentity();
   desktopRemoteAccess = desktopCompanionAccess(secureCredentials);
-  const hostedAccount = desktopRemoteAccess ? null : ensureCompanionAccountService();
   if (process.platform === "darwin" || process.platform === "linux") {
     session.defaultSession.setDisplayMediaRequestHandler(
       (request, callback) => {
@@ -3435,16 +3037,10 @@ app.whenReady().then(async () => {
   if (desktopShutdownStarted) return;
   if (app.isPackaged && !desktopRemoteAccess) void ensureManagedDesktop().start().then(() => companyBackupSchedule.start()).catch(() => {});
   if (app.isPackaged && !desktopRemoteAccess && configuredCloudOrigin()) {
-    ensureAccountWorkspace();
     cloudAccountRestoring = true;
     cloudAccountStarted = ensureCloudAccount().start().catch(() => {}).finally(() => { cloudAccountRestoring = false; });
   }
   void cloudAccountStarted.then(() => { cloudSignInRestored = true; });
-  if (!desktopRemoteAccess && serverReady && companionEnabledAtRest()) {
-    void (managedDesktop?.whenRestored() ?? Promise.resolve())
-      .then(() => startDesktopCompanion({ waitForHosted: false, remember: false }))
-      .catch(error => slog(`companion auto-start skipped: ${error?.message ?? error}`));
-  }
   setLocalOrigin(rendererOrigin());
   setProfileOrigin(() => profiles?.activeOrigin() ?? null);
   appPermissions = appPermissionHandlers({
@@ -3467,7 +3063,6 @@ app.whenReady().then(async () => {
   const deliveredOrganizationEntry = await deliverOrganizationEntry();
   const deliveredCloudEntry = await cloudEntry.ready();
   if (!restoredOrganizationEntry && !deliveredOrganizationEntry && !deliveredCloudEntry && (!mainWindow || mainWindow.isDestroyed())) createWindow();
-  if (hostedAccount) void hostedAccount.restore().catch(() => {});
   if (credentialStoreUnavailable) {
     slog("skipping connected-apps registration: the credential store was unreadable this launch");
   }
@@ -3514,7 +3109,6 @@ app.on("before-quit", (e) => {
   orgLibrary?.close();
   managedDesktop?.close();
   cloudAccount?.close();
-  accountWorkspace?.close();
   void cloudMove?.close();
   companyBackupController?.abort();
   computerSharing?.close();
@@ -3522,17 +3116,13 @@ app.on("before-quit", (e) => {
   if (cuaCleanedUp) return;
   e.preventDefault();
   const stoppingServer = serverSupervisor.shutdown();
-  syncCompanionKeepAwake(false, false);
   routineWake.stop();
   try {
     desktopCompanionRelay?.close?.();
   } catch {}
   if (nativeActions.appleSpeech) stopSpeech();
   const ownedHelperCleanup = Promise.race([
-    Promise.all([
-      stopCua().catch(() => {}),
-      stopDesktopCompanion({ remember: false }).catch(() => {}),
-    ]),
+    stopCua().catch(() => {}),
     new Promise((resolve) => setTimeout(resolve, CUA_STOP_TIMEOUT_MS).unref()),
   ]);
   const cleanup = Promise.all([

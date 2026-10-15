@@ -132,7 +132,7 @@ test("main takes the link from launch arguments, open-url and a second instance"
 });
 
 test("startup delivers a pending Cloud link before default navigation", () => {
-  const startup = between("  let restoredOrganizationEntry = false;", "  if (hostedAccount) void hostedAccount.restore()");
+  const startup = between("  let restoredOrganizationEntry = false;", "  if (credentialStoreUnavailable) {");
   const delivered = startup.indexOf("const deliveredCloudEntry = await cloudEntry.ready();");
   assert.ok(delivered > startup.indexOf("await deliverOrganizationEntry()"));
   assert.ok(delivered < startup.indexOf("createWindow()"));

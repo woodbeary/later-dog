@@ -35,10 +35,6 @@ extraResources:
     to: licenses/later.dog-LICENSE.txt
   - from: NOTICE
     to: licenses/later.dog-NOTICE.txt
-  - from: LICENSE
-    to: licenses/cloudflared-LICENSE.txt
-  - from: third_party/cloudflared/README.md
-    to: licenses/cloudflared-README.md
   - from: third_party/hpke-js/core-LICENSE.txt
     to: licenses/hpke-core-LICENSE.txt
   - from: third_party/hpke-js/common-LICENSE.txt
@@ -65,8 +61,6 @@ extraResources:
     to: ui
   - from: dist-server
     to: server
-  - from: dist-companion
-    to: companion
   - from: skills
     to: skills
   - from: dist-native/android-platform-tools
@@ -91,8 +85,6 @@ mac:
       to: cua-driver
     - from: dist-native/${arch}/cua-sdk
       to: cua-sdk
-    - from: dist-native/cloudflared/darwin-${arch}/cloudflared
-      to: cloudflared/cloudflared
     - from: dist-native/browser/darwin-${arch}
       to: browser-engine
     - from: electron/resources/app-update.yml
@@ -129,8 +121,6 @@ win:
       arch: x64
   icon: build/icon.ico
   extraResources:
-    - from: dist-native/cloudflared/win32-x64/cloudflared.exe
-      to: cloudflared/cloudflared.exe
     - from: dist-native/browser/win32-x64
       to: browser-engine
     - from: dist-native/cua-win32-x64/cua-driver.exe
@@ -163,8 +153,6 @@ linux:
   extraResources:
     - from: dist-native/cua-linux-x64
       to: cua-linux-x64
-    - from: dist-native/cloudflared/linux-x64/cloudflared
-      to: cloudflared/cloudflared
     - from: dist-native/browser/linux-x64
       to: browser-engine
     - from: build/linux-laterdog-browser.apparmor

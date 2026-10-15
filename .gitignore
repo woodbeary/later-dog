@@ -12,7 +12,6 @@ deploy/laterdog/credentials/
 dist
 dist-electron
 dist-native
-dist-companion
 dist-server
 *.local
 .DS_Store

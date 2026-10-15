@@ -4,7 +4,6 @@ import { accountSession, createAuth, deleteExpiredVerifications } from "./auth";
 import { SIGN_IN_OTP_PATH, withoutAmbientCookie } from "./code-sign-in-request";
 import { emailFromCodeRequest, SEND_OTP_PATH, warmHomeForEmail } from "./warm-home";
 import { cloudHomeCap, cloudRoute, type HomesService } from "./cloud";
-import { workspaceRoute } from "./workspace";
 import { inviteFromWaitlist } from "./waitlist";
 import { cloudPage, phoneAppTarget } from "./cloud-pages";
 export { AccountsApi } from "./owner-mail";
@@ -107,8 +106,6 @@ async function route(
 
   const auth = createAuth(env, ctx, config, requestId);
   if (url.pathname.startsWith("/api/cloud/")) {
-    const workspace = await workspaceRoute(request, env, auth);
-    if (workspace) return workspace;
     if (!homes) return errorResponse(503, "cloud_unavailable");
     const cloud = await cloudRoute(request, env, auth, config, homes);
     if (cloud) return cloud;
@@ -226,8 +223,6 @@ export function createWorker(
     scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
       const requestId = crypto.randomUUID();
       ctx.waitUntil((async () => {
-        await env.DB.prepare("DELETE FROM workspace_pairings WHERE expires_at <= ? OR credential_expires_at <= ?")
-          .bind(Date.now(), Date.now()).run();
         let config: ControlPlaneConfig;
         try {
           config = readConfig(env);

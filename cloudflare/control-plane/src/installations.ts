@@ -47,7 +47,7 @@ function printableString(maxLength: number) {
 const printableName = printableString(80);
 const printableVersion = printableString(64);
 
-export const createInstallationSchema = z.strictObject({
+const createInstallationSchema = z.strictObject({
   name: printableName,
   clientInstanceId: z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
   platform: z.enum(["darwin", "windows", "linux"]),
@@ -60,7 +60,7 @@ const INSTALLATION_CREDENTIAL_TTL_MS = 90 * 24 * 60 * 60 * 1_000;
 const CREATION_RATE_WINDOW_MS = 60 * 60 * 1_000;
 const CREATION_RATE_MAX_ATTEMPTS = 100;
 
-export function installationJSON(row: InstallationRow) {
+function installationJSON(row: InstallationRow) {
   return {
     id: row.id,
     clientInstanceId: row.client_instance_id,
@@ -165,11 +165,7 @@ export async function listInstallations(request: Request, env: Env, auth: Contro
 
 export async function createInstallation(request: Request, env: Env, auth: ControlPlaneAuth): Promise<Response> {
   const session = await requireAccount(request, auth);
-  return createInstallationForOwner(request, env, session.user.id);
-}
-
-export async function createInstallationForOwner(request: Request, env: Env, ownerUserId: string): Promise<Response> {
-  await enforceCreationRateLimit(ownerUserId, env);
+  await enforceCreationRateLimit(session.user.id, env);
   const parsed = createInstallationSchema.safeParse(await readBoundedJSON(request));
   if (!parsed.success) throw new HTTPError(400, "invalid_request");
 
@@ -185,7 +181,7 @@ export async function createInstallationForOwner(request: Request, env: Env, own
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         installationId,
-        ownerUserId,
+        session.user.id,
         parsed.data.clientInstanceId,
         parsed.data.name,
         parsed.data.platform,
@@ -225,7 +221,7 @@ export async function createInstallationForOwner(request: Request, env: Env, own
   }, 201);
 }
 
-export async function ownedActiveInstallation(id: string, ownerUserId: string, env: Env) {
+async function ownedActiveInstallation(id: string, ownerUserId: string, env: Env) {
   if (!INSTALLATION_ID.test(id)) return null;
   return env.DB.prepare(
     `SELECT id, client_instance_id, display_name, platform, app_version,
@@ -252,15 +248,7 @@ export async function rotateInstallationCredential(
   auth: ControlPlaneAuth,
 ): Promise<Response> {
   const session = await requireAccount(request, auth);
-  return rotateInstallationCredentialForOwner(installationId, env, session.user.id);
-}
-
-export async function rotateInstallationCredentialForOwner(
-  installationId: string,
-  env: Env,
-  ownerUserId: string,
-): Promise<Response> {
-  const installation = await ownedActiveInstallation(installationId, ownerUserId, env);
+  const installation = await ownedActiveInstallation(installationId, session.user.id, env);
   if (!installation) throw new HTTPError(404, "not_found");
 
   const now = Date.now();
@@ -271,7 +259,7 @@ export async function rotateInstallationCredentialForOwner(
         `UPDATE installations
             SET updated_at = ?, last_rotation_at = ?
           WHERE id = ? AND owner_user_id = ? AND revoked_at IS NULL`,
-      ).bind(now, now, installationId, ownerUserId),
+      ).bind(now, now, installationId, session.user.id),
       env.DB.prepare(
         `UPDATE installation_credentials
             SET revoked_at = ?
