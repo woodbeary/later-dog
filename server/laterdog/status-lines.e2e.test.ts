@@ -81,7 +81,7 @@ it.skipIf(process.platform === "win32")("posts one quiet status line while a dog
     await expect.poll(busy, { timeout: 20_000 }).toBe(false);
     const transcriptAfterReply = await messages();
     const lineAt = transcriptAfterReply.findIndex((message) => message.id === live.id);
-    expect(transcriptAfterReply.slice(lineAt + 1).some((message) => message.role === "bot" && message.kind === "text" && /^reply to:/.test(message.text))).toBe(true);
+    expect(transcriptAfterReply.slice(lineAt + 1).some((message) => message.role === "bot" && message.kind === "text" && message.text.startsWith("reply to:"))).toBe(true);
     rmSync(finishGate);
 
     await control("send", "--bot", bot.id, "--task", threadId, "--text", "Run them once more.");
