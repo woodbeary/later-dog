@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, skipped, snapshot } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, skipped, snapshot, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -270,6 +270,71 @@ describe("home data sync", () => {
     expect(skipped(".cache")).toBe(true);
     expect(skipped("notes.md")).toBe(false);
     expect(skipped(".laterdog-restoring-0123456789abcdef01234567")).toBe(true);
+  });
+
+  function signedInHome(): string {
+    const home = folder();
+    mkdirSync(join(home, ".claude", ".oauth_refresh.lock"), { recursive: true });
+    writeFileSync(join(home, ".claude", ".oauth_refresh.lock.owner"), '{"pid":4242}');
+    writeFileSync(join(home, ".claude", ".credentials.json"), '{"claudeAiOauth":{"expiresAt":1}}');
+    mkdirSync(join(home, ".claude.lock"));
+    const handed = join(home, ".laterdog", "providers", "claude-2");
+    mkdirSync(join(handed, ".oauth_refresh.lock"), { recursive: true });
+    writeFileSync(join(handed, ".oauth_refresh.lock.owner"), '{"pid":4343}');
+    writeFileSync(join(handed, ".credentials.json"), '{"claudeAiOauth":{"expiresAt":2}}');
+    mkdirSync(join(home, ".laterdog", "providers", "claude-2.lock"));
+    mkdirSync(join(home, "projects", "app"), { recursive: true });
+    writeFileSync(join(home, "projects", "app", "yarn.lock"), "# yarn lockfile v1\n");
+    writeFileSync(join(home, "projects", "app", "Cargo.lock"), "version = 3\n");
+    return home;
+  }
+
+  it("never saves a Claude sign-in refresh lock, while keeping the sign-in and project lockfiles", async () => {
+    const store = memoryStore();
+    const saved = await snapshot(signedInHome(), store, null, { scratch: folder() });
+    const paths = saved.manifest.entries.map((entry: { path: string }) => entry.path);
+    expect(paths.filter((path: string) => /oauth_refresh|claude\.lock|claude-2\.lock/.test(path))).toEqual([]);
+    expect(paths).toEqual(expect.arrayContaining([
+      join(".claude", ".credentials.json"),
+      join(".laterdog", "providers", "claude-2", ".credentials.json"),
+      join("projects", "app", "yarn.lock"),
+      join("projects", "app", "Cargo.lock"),
+    ]));
+  });
+
+  it("drops refresh locks an older save still holds, so a woken home starts with none", async () => {
+    const store = memoryStore();
+    const home = folder();
+    mkdirSync(join(home, ".claude"));
+    writeFileSync(join(home, ".claude", ".credentials.json"), '{"claudeAiOauth":{"expiresAt":1}}');
+    const saved = await snapshot(home, store, null, { scratch: folder() });
+    const credentials = saved.manifest.entries.find((entry: { path: string }) => entry.path === join(".claude", ".credentials.json"));
+    const held = Date.now() - 5_000;
+    await store.putManifest({ ...saved.manifest, entries: [
+      ...saved.manifest.entries,
+      { path: join(".claude", ".oauth_refresh.lock"), type: "dir", mode: 0o755, mtimeMs: held },
+      { path: join(".claude", ".oauth_refresh.lock.owner"), type: "file", mode: 0o600, mtimeMs: held, size: credentials.size, chunks: credentials.chunks },
+      { path: ".claude.lock", type: "dir", mode: 0o755, mtimeMs: held },
+    ] });
+
+    const woken = folder();
+    const restored = await restore(woken, store, null);
+    expect(readFileSync(join(woken, ".claude", ".credentials.json"), "utf8")).toBe('{"claudeAiOauth":{"expiresAt":1}}');
+    expect(existsSync(join(woken, ".claude", ".oauth_refresh.lock"))).toBe(false);
+    expect(existsSync(join(woken, ".claude", ".oauth_refresh.lock.owner"))).toBe(false);
+    expect(existsSync(join(woken, ".claude.lock"))).toBe(false);
+
+    const next = await snapshot(woken, store, restored.manifest, { scratch: folder() });
+    expect(next.written).toBe(true);
+    expect((await store.manifest())!.entries.map((entry: { path: string }) => entry.path)).toEqual([".claude", join(".claude", ".credentials.json")]);
+  });
+
+  it("treats only lock folders as held locks, never lockfiles a project keeps", () => {
+    expect(transient({ path: ".claude/.oauth_refresh.lock", type: "dir" })).toBe(true);
+    expect(transient({ path: ".claude/.oauth_refresh.lock.owner", type: "file" })).toBe(true);
+    expect(transient({ path: ".claude.lock", type: "dir" })).toBe(true);
+    expect(transient({ path: "projects/app/yarn.lock", type: "file" })).toBe(false);
+    expect(transient({ path: ".claude/.credentials.json", type: "file" })).toBe(false);
   });
 });
 

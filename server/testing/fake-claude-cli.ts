@@ -434,6 +434,24 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     process.exit(3);
   }
 
+  const refreshLockFails = Number(process.env.FAKE_CLAUDE_REFRESH_LOCK_FAILS) || 0;
+  const refreshLockState = process.env.FAKE_CLAUDE_REFRESH_LOCK_STATE;
+  if (refreshLockFails > 0 && refreshLockState) {
+    let failed = 0;
+    try {
+      failed = Number(readFileSync(refreshLockState, "utf8")) || 0;
+    } catch {}
+    if (failed < refreshLockFails) {
+      writeFileSync(refreshLockState, String(failed + 1));
+      const text = "Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh. This is usually transient; retry in a minute, and if it persists close other Claude Code processes or sign in again";
+      out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text }] }, error: "server_error", is_api_error_message: true });
+      out({ type: "result", subtype: "success", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
+      turnRunning = false;
+      finishIfDone();
+      return;
+    }
+  }
+
   const resumedError = process.env.FAKE_CLAUDE_RESUMED_API_ERROR === "1" && argv.includes("--resume") && !resumedErrorPlayed;
   if (resumedError) resumedErrorPlayed = true;
   if (mode === "api-error" || resumedError) {

@@ -42,6 +42,7 @@ import {
 } from "./local-inject.ts";
 import { appendNative } from "./native.ts";
 import { claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
+import { claudeRefreshGate, claudeRefreshLockFrame, claudeRefreshLockResult, claudeSignInAgainMessage, retryClaudeRefreshLock, type RefreshLockState } from "../laterdog/claude-refresh-lock.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { laterdogPreallowedTools } from "../laterdog/own-tools.ts";
@@ -910,6 +911,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         sawStreamDelta: boolean;
         awaitingInit?: boolean;
         authFailed?: boolean;
+        refreshLock?: RefreshLockState;
         updateRequired?: boolean;
         usageLimited?: boolean;
         rateLimit?: UsageLimit;
@@ -1202,6 +1204,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         })).digest("hex"),
       });
 
+      await claudeRefreshGate.enter(env);
       const live = sessions.get(threadId);
       if (!turn.sessionReset && live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
         if (live.idleTimer) clearTimeout(live.idleTimer);
@@ -1423,6 +1426,23 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         });
         return true;
       };
+      const recoverRefreshLock = (frame: { is_error?: unknown; result?: unknown }): boolean => {
+        const held = session.turn;
+        if (!held || held.settled || !(held.refreshLock?.failed || claudeRefreshLockResult(frame))) return false;
+        const state = held.refreshLock ??= { failed: false, retries: 0 };
+        if (held.stopRequested || session.closing) return false;
+        const waiting = () => session.turn === held && !held.settled && !held.stopRequested && !session.closing;
+        if (retryClaudeRefreshLock(state, {
+          delayScale: retryScale,
+          signal: held.retryAbort.signal,
+          stillWaiting: waiting,
+          resend: () => writeUser(session, threadId, claudeUserMessage(held.input.text, held.input.images)),
+          resendFailed: () => settle(false, "stdin_write_failed"),
+        })) return true;
+        held.authFailed = true;
+        emit({ ...base(threadId, held.turnId), type: "runtime.error", message: claudeSignInAgainMessage(input.displayName), setup: true });
+        return false;
+      };
       const noteCostState = (total: unknown, modelUsage: unknown, usage: Parameters<typeof restoredCostBase>[2]) => {
         const state = claudeCostSnapshot(total, modelUsage);
         if (!state) return;
@@ -1519,6 +1539,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           case "assistant": {
             const msg = o.message ?? {};
             const text = firstText(msg.content);
+            if (claudeRefreshLockFrame(o, text)) {
+              if (session.turn) (session.turn.refreshLock ??= { failed: false, retries: 0 }).failed = true;
+              break;
+            }
             if (claudeAuthFailure(o, text)) {
               if (session.turn) session.turn.authFailed = true;
               emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: text, setup: true });
@@ -1601,6 +1625,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               continueAfterHelpers();
               break;
             }
+            if (recoverRefreshLock(o)) break;
             noteCostState(o.total_cost_usd, o.modelUsage, {
               input: o.usage?.input_tokens || 0,
               cacheRead: o.usage?.cache_read_input_tokens || 0,
@@ -2072,8 +2097,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return () => listeners.delete(listener);
         },
       },
-      generateText: (prompt, options) => generateReview(prompt, options?.signal, options?.onUsage),
-      reviewPermission: generateReview,
+      generateText: async (prompt, options) => {
+        await claudeRefreshGate.enter(environment());
+        return generateReview(prompt, options?.signal, options?.onUsage);
+      },
+      reviewPermission: async (prompt, signal) => {
+        await claudeRefreshGate.enter(environment());
+        return generateReview(prompt, signal);
+      },
       dispose: async () => {
         try {
           await login.dispose();
