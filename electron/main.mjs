@@ -1408,7 +1408,7 @@ async function offerComputerSharing(win) {
     if (!info || win.isDestroyed() || activeEnvironment(environmentsState)?.id !== env.id || new URL(win.webContents.getURL()).origin !== env.origin) return;
     const choice = await dialog.showMessageBox(win, {
       type: "question", message: `Share this computer with ${env.name}?`,
-      detail: "Let this server’s bots use folders and capabilities you choose while this desktop app is running. Nothing is shared unless you enable it. You can change this later in Settings → Servers.",
+      detail: "Let this server’s dogs use folders and capabilities you choose while this desktop app is running. Nothing is shared unless you enable it. You can change this later in Settings, Computer.",
       buttons: ["Choose access", "Not now"], defaultId: 1, cancelId: 1,
     });
     sharingController().decline(env, info);
