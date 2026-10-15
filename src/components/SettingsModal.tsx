@@ -22,11 +22,8 @@ import { AccountsPanel, AccountsRefresh } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { TypingSuggestionsRows } from "./TypingSuggestionsSettings";
 import { HelpRows } from "./SettingsHelp";
-import { DesktopWorkspaceSwitcher } from "./DesktopWorkspaceSwitcher";
 import { CloudComputerRows } from "./CloudComputerRows";
 import { CloudAccountSettings } from "./CloudAccountSettings";
-import { PhoneAppDialog } from "./PhoneAppDialog";
-import { ServerPairingCard } from "./ServerPairingCard";
 import { ExecutionRows, ThisComputerRow } from "./ComputerSettings";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { InstanceProviderMark } from "./ProviderIcons";
@@ -325,14 +322,12 @@ function GeneralPage({ mac }: { mac: boolean }) {
   const { state, dispatch } = useStore();
   const keyed = savedKeyEngines(state.instances);
   const analytics = analyticsConfigured();
-  const [phoneOpen, setPhoneOpen] = useState(false);
   return (
     <>
       <SettingsGroup label={t("settings.section.cloudAccount")} testId="later-dog-cloud">
         <SettingsRows>
-          <CloudAccountSettings onGetPhone={() => setPhoneOpen(true)} onOpenComputer={() => dispatch({ type: "toggleAppSettings", open: true, section: "computer" })} />
+          <CloudAccountSettings onOpenComputer={() => dispatch({ type: "toggleAppSettings", open: true, section: "computer" })} />
         </SettingsRows>
-        <PhoneAppDialog open={phoneOpen} onClose={() => setPhoneOpen(false)} />
       </SettingsGroup>
       <SettingsGroup label={t("settings.group.accounts")} testId="accounts" action={<AccountsRefresh />}>
         <AccountsPanel />
@@ -379,11 +374,6 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <HelpRows />
         </SettingsRows>
       </SettingsGroup>
-      <DesktopWorkspaceSwitcher />
-      {(window.laterdog?.remoteClient?.active || state.config?.cloudHome) && <details data-server-access className="rounded-xl bg-card px-4">
-        <summary className="cursor-pointer py-4 text-[13px] font-medium text-ink-secondary">{t("remote.serverPairing.advanced")}</summary>
-        <ServerPairingCard cloudHome={state.config?.cloudHome === true} />
-      </details>}
     </>
   );
 }

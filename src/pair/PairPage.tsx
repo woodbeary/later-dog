@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { DesktopWorkspaceSwitcher } from "../components/DesktopWorkspaceSwitcher";
 
 import {
   defaultDeviceLabel,
@@ -13,15 +12,10 @@ import {
   type EnvironmentDescriptor,
   type SessionState,
 } from "../lib/session";
-import { pairedDestination } from "../lib/phone-pairing";
 
 const input = "mt-1 w-full rounded-md border border-hairline/40 bg-inset px-3 py-2 text-[14px] text-ink outline-none focus:border-accent-border";
 const button = "mt-5 w-full rounded-md bg-accent px-4 py-2 text-[14px] font-medium text-accent-ink disabled:opacity-50";
 const fieldLabel = "mt-4 block text-[12px] font-medium text-ink-secondary";
-
-export function pairsAutomatically(initialCode: string | null, desktop = typeof window !== "undefined" && Boolean(window.laterdog?.workspaces)): boolean {
-  return Boolean(initialCode) && desktop;
-}
 
 export function pairIntro({ mode, sent, email, cloudHome }: { mode: "email" | "code" | null; sent: boolean; email: string; cloudHome: boolean }): string {
   if (mode === "email") return sent ? `We emailed an 8-digit code to ${email}. It works once and expires in ten minutes.` : "Enter your email and we will send you a one-time code.";
@@ -41,20 +35,6 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
   const [email, setEmail] = useState(initialEmail ?? "");
   const [otp, setOtp] = useState("");
   const [sent, setSent] = useState(false);
-  const [opening, setOpening] = useState(() => pairsAutomatically(initialCode));
-
-  useEffect(() => {
-    if (!opening || !initialCode) return;
-    let active = true;
-    void pairWithCode({ code: initialCode, label, attemptId }).then((result) => {
-      if (!active) return;
-      if (result.ok) { location.replace(pairedDestination(location.search)); return; }
-      setOpening(false);
-      setError(result.error);
-    });
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     void fetch("/.well-known/laterdog/environment")
@@ -81,7 +61,7 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
     const result = await pairWithCode({ code, label, attemptId });
     setBusy(false);
     if (result.ok) {
-      location.replace(pairedDestination(location.search));
+      location.replace("/");
       return;
     }
     setError(result.error);
@@ -98,7 +78,7 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
       return;
     }
     if (sent) {
-      location.replace(pairedDestination(location.search));
+      location.replace("/");
       return;
     }
     setSent(true);
@@ -111,11 +91,7 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-app px-6 text-ink">
-      <div className="absolute left-3 top-12 max-w-[280px]"><DesktopWorkspaceSwitcher /></div>
       <div className="w-full max-w-[420px]">
-        {opening ? (
-          <p role="status" className="text-[20px] font-semibold">{cloudHome ? "Opening My Cloud…" : `Connecting to ${environment?.label ?? "this later.dog"}…`}</p>
-        ) : <>
         <h1 className="text-[20px] font-semibold">{cloudHome ? "My Cloud" : `${mode === "email" ? "Sign in to" : "Connect to"} ${environment?.label ?? "this later.dog"}`}</h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">
           {environment && !cloudHome ? `Version ${environment.version} on ${environment.platform}. ` : ""}
@@ -123,8 +99,7 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
         </p>
         {reasonWorthShowing(reason) && !connected ? <p className="mt-3 text-[13px] text-ink-secondary">{reasonWorthShowing(reason)}</p> : null}
         {error && cloudHome && initialCode ? <p className="mt-3 text-[13px] text-ink-secondary">This link has expired or was already used. Choose Open My Cloud in the later.dog app on your computer again, or Use in your browser on your Plan page.</p> : null}
-        </>}
-        {opening ? null : connected ? (
+        {connected ? (
           <p className="mt-4 text-[13.5px]">
             This browser is already connected.{" "}
             <a href="/" className="text-accent underline">
