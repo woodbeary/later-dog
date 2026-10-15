@@ -114,6 +114,7 @@ import { RoomTurnDeadline, RoomTurnStallRegistry, effectiveRoomTurnTimeoutMinute
 import { roomTurnEnd, type RoomClaimEnd } from "./room-turn-end.ts";
 import { pickComputer } from "./computer-selection.ts";
 import { isMacOffline, macOfflineResult, macOptions, macSelectReply, type KnownMac } from "./laterdog/mac-computer.ts";
+import { startHomeHealthLog } from "./laterdog/home-health-log.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -770,6 +771,7 @@ const CLOUD_SECRETS = BOOT_CLOUD_SECRETS;
 const CLOUD_ENV: NodeJS.ProcessEnv = { ...process.env, ...CLOUD_SECRETS };
 const deliverOwnerEmail = cloudEmailDelivery(CLOUD_ENV.LATERDOG_CLOUD_EMAIL_URL, CLOUD_ENV.LATERDOG_CLOUD_EMAIL_TOKEN);
 const CLOUD_HOME = cloudHomeConfiguration(CLOUD_ENV);
+if (CLOUD_HOME) startHomeHealthLog();
 const TIME_ZONE_FILE = join(DATA_DIR, "time-zone.json");
 restoreTimeZone(TIME_ZONE_FILE);
 const sharedComputers = new SharedComputers(id => sessions.isLive(id), CLOUD_HOME ? { file: join(DATA_DIR, "known-macs.json") } : {});
