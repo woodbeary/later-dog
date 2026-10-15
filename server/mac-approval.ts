@@ -105,6 +105,7 @@ export interface MacCheck {
   computer: string;
   operation: MacOperation;
   requestMessageId?: string;
+  ownersOwnMac: boolean;
   active: () => boolean;
 }
 
@@ -166,6 +167,7 @@ export class MacApprovals {
     const tool = macTool(input.operation.action);
     if (!tool) return ALLOWED;
     if (this.access.mode === "never") return { ok: false, status: 403, error: MAC_NEVER };
+    if (input.ownersOwnMac) return ALLOWED;
     if (this.access.mode === "always" || this.access.dogs.includes(input.bot.id)) return ALLOWED;
     const kind = KINDS[tool];
     const requestMessageId = input.requestMessageId ?? this.latestPerson(input.threadId);

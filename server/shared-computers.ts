@@ -28,7 +28,7 @@ export type SharedComputerStatus = {
   id: string; name: string; online: boolean; busy: boolean; lastSeenAt: number;
   scopes: { folders: { id: string; name: string; write: boolean }[]; terminal: boolean; screen: boolean };
 };
-type Job = { id: string; operation: Operation; active: () => boolean; sent: boolean; resolve: (result: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
+type Job = { id: string; operation: Operation; active: () => boolean; sent: boolean; leased: boolean; resolve: (result: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
 type Computer = { registration: Registration; owner: SharedComputerOwner; secret: string; seen: number; jobs: Map<string, Job>; wake?: () => void; polls: number };
 const failure = (message: string, status = 409) => Object.assign(new Error(message), { status });
 const TOTAL = 100;
@@ -177,12 +177,13 @@ export class SharedComputers {
       },
     }));
   }
-  async poll(id: string, session: string, secret: string) {
+  async poll(id: string, session: string, secret: string, gone?: AbortSignal) {
     const entry = this.authorize(id, session, secret);
     const turn = ++entry.polls;
     entry.wake?.();
     entry.seen = Date.now();
     this.arrived(entry.owner.person);
+    for (const job of entry.jobs.values()) if (job.sent && !job.leased) job.sent = false;
     const next = () => {
       for (const job of entry.jobs.values()) {
         if (!job.active()) { this.finish(entry, job, failure("The requesting turn ended")); continue; }
@@ -190,13 +191,16 @@ export class SharedComputers {
       }
       return null;
     };
+    if (gone?.aborted) return null;
     const queued = next();
     if (queued) return queued;
     await new Promise<void>(resolve => {
-      const wake = () => { clearTimeout(timer); if (entry.wake === wake) entry.wake = undefined; resolve(); };
+      const wake = () => { clearTimeout(timer); gone?.removeEventListener("abort", wake); if (entry.wake === wake) entry.wake = undefined; resolve(); };
       const timer = setTimeout(wake, 20_000);
       entry.wake = wake;
+      gone?.addEventListener("abort", wake, { once: true });
     });
+    if (gone?.aborted) return null;
     this.authorize(id, session, secret);
     if (entry.polls !== turn) return null;
     entry.seen = Date.now();
@@ -206,7 +210,9 @@ export class SharedComputers {
     const entry = this.authorize(id, session, secret);
     entry.seen = Date.now();
     const job = entry.jobs.get(jobId);
-    return job?.sent === true && job.active();
+    if (job?.sent !== true || !job.active()) return false;
+    job.leased = true;
+    return true;
   }
   complete(id: string, session: string, secret: string, jobId: string, result: unknown) {
     const entry = this.authorize(id, session, secret);
@@ -232,7 +238,7 @@ export class SharedComputers {
     if (!active()) return Promise.reject(failure("The requesting turn ended", 401));
     return new Promise((resolve, reject) => {
       const id = randomUUID();
-      const job: Job = { id, operation, active, sent: false, resolve, reject, timer: setTimeout(() => this.finish(entry, job, failure("Computer action timed out. Its outcome is unknown; inspect before retrying.")), 45_000) };
+      const job: Job = { id, operation, active, sent: false, leased: false, resolve, reject, timer: setTimeout(() => this.finish(entry, job, failure("Computer action timed out. Its outcome is unknown; inspect before retrying.")), 45_000) };
       entry.jobs.set(id, job); entry.wake?.();
     });
   }
