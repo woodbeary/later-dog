@@ -37,7 +37,9 @@ export interface CloudMoveState {
   moved?: MoveContents;
   previous?: boolean;
   routines?: number;
+  accounts?: AccountsNote;
 }
+export interface AccountsNote { moved: { claude: number; chatgpt: number }; stayed: string[] }
 export interface MoveFit { fit: "now" | "grow" | "never"; neededBytes: number; freeBytes: number; maxBytes?: number; largest?: true; volumeBytes?: number; sizeGb?: number }
 export interface CloudMoveOverview extends CloudMoveState {
   local: MoveEstimate | null;

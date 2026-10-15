@@ -92,6 +92,18 @@ describe("the quiet line about this Mac's dogs", () => {
     expect(move.dismiss).toHaveBeenCalledOnce();
   });
 
+  it("says the Claude and ChatGPT accounts came along with the dogs, and names one that stayed", async () => {
+    vi.useFakeTimers();
+    const move = makeMove(overview());
+    await show({ cloudMove: move });
+    await act(async () => pushMove({ phase: "done", action: "move", destination: home, accounts: { moved: { claude: 1, chatgpt: 1 }, stayed: [] } }));
+    expect(text()).toBe("Your dogs from this Mac are here now. This Mac keeps its copy. Your Claude and ChatGPT accounts are here too.OK");
+    await act(async () => pushMove({ phase: "idle", destination: home, accounts: { moved: { claude: 1, chatgpt: 0 }, stayed: ["Work Claude"] } }));
+    expect(text()).toBe("Your Claude account is here too. Work Claude stayed on this Mac for now.OK");
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(move.dismiss).toHaveBeenCalled();
+  });
+
   it("stays out of the way of a move the person started themselves", async () => {
     await show({ cloudMove: makeMove(overview({ automatic: undefined })) });
     await act(async () => pushMove({ phase: "uploading", action: "move", destination: home, progress: { bytesTransferred: 30, totalBytes: 100 } }));

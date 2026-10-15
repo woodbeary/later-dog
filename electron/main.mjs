@@ -102,6 +102,7 @@ import { cloudOrigin, cloudPlanSnapshot, configuredCloudOrigin, createCloudAccou
 import { CloudSignInError, createCloudSignIn } from "./cloud-sign-in.mjs";
 import { createAccountWorkspace } from "./account-workspace.mjs";
 import { createCloudAutoMove } from "./cloud-auto-move.mjs";
+import { createCloudAiAccounts, createMacKeychain, MAC_ACCOUNT_ROUTES } from "./cloud-ai-accounts.mjs";
 import { createCloudOffer, leaveHomeNow } from "./cloud-default-home.mjs";
 import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, isCloudHomeEntry, myCloudOrigin, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome } from "./cloud-home.mjs";
 import { createCloudEntry } from "./cloud-entry.mjs";
@@ -295,6 +296,8 @@ let managedDesktop = null;
 let cloudAccount = null;
 let cloudSignIn = null;
 let cloudAutoMove = null;
+let cloudAiAccounts = null;
+let accountsNote = null;
 let cloudOffer = null;
 let homeFellBack = false;
 let cloudAccountStarted = Promise.resolve();
@@ -2875,6 +2878,7 @@ function cloudMoveDismissed(origin) {
   try { return JSON.parse(fs.readFileSync(cloudMoveChoicesFile(), "utf8"))?.dismissed?.includes(origin) === true; } catch { return false; }
 }
 function dismissCloudMove(origin) {
+  if (accountsNote?.origin === origin) accountsNote = null;
   const move = ensureCloudMove();
   if (!move.running() && move.state().destination?.origin === origin) move.reset();
   if (!origin || cloudMoveDismissed(origin)) return;
@@ -2898,7 +2902,8 @@ async function cloudMoveOverview(dest, onServerPage) {
   const automatic = dest.kind === "cloud" && onServerPage === true;
   const suggest = Boolean(!automatic && onServerPage && !blocked && cloud?.empty && hasWork && fit?.fit !== "never" && view.phase === "idle" && !cloudMoveDismissed(dest.origin));
   const shown = value => { if (!value) return null; const { environmentId: _, ...rest } = value; return rest; };
-  return { ...view, local: shown(local), cloud: shown(cloud), fit, suggest, ...(automatic ? { automatic: true } : {}), destination: { id: dest.id, name: dest.name, origin: dest.origin, kind: dest.kind }, blocked,
+  const accounts = automatic && accountsNote?.origin === dest.origin ? { accounts: accountsNote.accounts } : {};
+  return { ...view, ...accounts, local: shown(local), cloud: shown(cloud), fit, suggest, ...(automatic ? { automatic: true } : {}), destination: { id: dest.id, name: dest.name, origin: dest.origin, kind: dest.kind }, blocked,
     ...(blocked === "busy_elsewhere" ? { busyWith: state.destination?.name } : {}) };
 }
 
@@ -2914,7 +2919,10 @@ function ensureCloudAutoMove() {
     read: () => readUserData("cloud-auto-move.json"),
     write: contents => writeUserData("cloud-auto-move.json", contents),
     log: slog,
-    onMoved: destination => { if (activeEnvironment(environmentsState)?.origin === destination.origin) navigateMainWindow(destination.origin); },
+    onMoved: destination => {
+      if (activeEnvironment(environmentsState)?.origin === destination.origin) navigateMainWindow(destination.origin);
+      handOverAccounts(destination);
+    },
   });
   return cloudAutoMove;
 }
@@ -2923,9 +2931,38 @@ function runCloudAutoMove(manual) {
   const accountId = cloudAccount?.state().account?.id, destination = cloudHomeDestination();
   if (!accountId || !destination) return Promise.resolve(null);
   const engine = ensureCloudAutoMove();
-  return (manual ? engine.retry(accountId, destination) : engine.ensure(accountId, destination)).catch(error => { slog(`cloud move: ${error?.message ?? error}`); return null; });
+  return (manual ? engine.retry(accountId, destination) : engine.ensure(accountId, destination)).then(outcome => {
+    if (outcome?.status === "moved" || outcome?.status === "nothing") handOverAccounts(destination);
+    return outcome;
+  }).catch(error => { slog(`cloud move: ${error?.message ?? error}`); return null; });
 }
 
+function ensureCloudAiAccounts() {
+  cloudAiAccounts ??= createCloudAiAccounts({
+    localRequest: (route, init) => {
+      if (!serverProc || !serverReady || !MAC_ACCOUNT_ROUTES.test(route)) throw new Error("This installation changed. Try again.");
+      return fetch(`http://127.0.0.1:${SERVER_PORT}${route}`, { ...init, redirect: "error", credentials: "omit",
+        headers: { ...Object.fromEntries(new Headers(init.headers)), [DESKTOP_MUTATION_HEADER]: desktopMutationToken } });
+    },
+    keychain: process.platform === "darwin" ? createMacKeychain() : null,
+    read: () => readUserData("cloud-ai-accounts.json"),
+    write: contents => writeUserData("cloud-ai-accounts.json", contents),
+    log: slog,
+    onChange: summary => showAccountsNote(summary),
+  });
+  return cloudAiAccounts;
+}
+function handOverAccounts(destination) {
+  if (!app.isPackaged || desktopRemoteAccess || !serverReady || destination?.kind !== "cloud" || !destination.origin) return;
+  void ensureCloudAiAccounts().handAccountsToCloud({ homeOrigin: destination.origin, session: destination.grant }).catch(error => slog(`cloud accounts: ${error?.message ?? error}`));
+}
+function showAccountsNote(summary) {
+  const destination = cloudHomeDestination();
+  const moved = summary.moved.claude + summary.moved.chatgpt;
+  if (!destination?.origin || (!moved && !summary.waiting.length && !summary.stayed.some(entry => entry.why !== "chatgpt-plan"))) return;
+  accountsNote = { origin: destination.origin, accounts: { moved: summary.moved, stayed: [...summary.stayed.map(entry => entry.name), ...summary.waiting] } };
+  publishCloudMoveState({ ...ensureCloudMove().state(), destination: { id: destination.id, name: destination.name, origin: destination.origin, kind: "cloud" }, accounts: accountsNote.accounts });
+}
 function destinationFor(entry) {
   const homeOrigin = cloudAccount?.homeTarget()?.origin ?? null;
   if (entry.cloud || isCloudHomeEntry(entry, { homeOrigin })) {

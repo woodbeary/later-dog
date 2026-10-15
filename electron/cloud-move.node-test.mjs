@@ -240,11 +240,11 @@ test("a move is measured against the plan's largest disk when the disk grows, an
 });
 
 const OVERVIEW_START = "async function cloudMoveOverview(", IPC_START = "function destinationFor(entry) {", IPC_END = "const savedWorkspace = id =>";
-async function mainOverview({ dest, peek, local = { bots: 3, rooms: 1, chats: 12, bytes: 3.4 * GB, files: 100 }, state = { phase: "idle" }, running = false, onServerPage = true }) {
+async function mainOverview({ dest, peek, local = { bots: 3, rooms: 1, chats: 12, bytes: 3.4 * GB, files: 100 }, state = { phase: "idle" }, running = false, onServerPage = true, accountsNote = null }) {
   const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const start = source.indexOf(OVERVIEW_START), end = source.indexOf(IPC_START, start);
   assert.ok(start >= 0 && end > start);
-  const context = vm.createContext({ moveFit, moveBlocked, cloudMoveDismissed: () => false, peekCloudMove: async () => peek,
+  const context = vm.createContext({ moveFit, moveBlocked, cloudMoveDismissed: () => false, peekCloudMove: async () => peek, accountsNote,
     ensureCloudMove: () => ({ estimate: async () => local, state: () => state, running: () => running }) });
   vm.runInContext(`${source.slice(start, end)}\nglobalThis.cloudMoveOverview = cloudMoveOverview;`, context);
   return JSON.parse(JSON.stringify(await context.cloudMoveOverview(dest, onServerPage)));
@@ -259,6 +259,10 @@ test("a server's card offers a copy only when it can fit and nothing blocks it: 
   result = await mainOverview({ dest: cloud({ status: "ready", origin: ORIGIN, disk: { gb: 10, maxGb: 100 } }), peek });
   assert.equal(result.fit.fit, "grow"); assert.equal(result.suggest, false, "the Cloud is moved to automatically, so it is never suggested"); assert.equal(result.automatic, true);
   assert.deepEqual(result.destination, CLOUD); assert.equal(result.blocked, null);
+  assert.equal(result.accounts, undefined);
+  const note = { origin: ORIGIN, accounts: { moved: { claude: 1, chatgpt: 1 }, stayed: ["Work Claude"] } };
+  result = await mainOverview({ dest: cloud({ status: "ready", origin: ORIGIN }), peek, accountsNote: note });
+  assert.deepEqual(result.accounts, note.accounts, "the home's quiet line also hears which sign-ins came along");
   const roomy = { ...peek, status: { ...peek.status, freeBytes: 50 * GB } };
   const server = { ...VPS_ENTRY, disk: () => { throw new Error("a server has no plan"); } };
   result = await mainOverview({ dest: server, peek });
@@ -840,6 +844,7 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
     environmentsState: { environments: [{ id: "cloud", name: "My Cloud", origin: ORIGIN }], activeId: "cloud" },
     cloudAccount: { homeTarget: () => ({ origin: ORIGIN }), state: () => account }, cloudPlanSnapshot, LOCAL_ID: environments.LOCAL_ID, myCloudOrigin, rememberedHome: null,
     ensureCloudAccount: () => ({ openDashboard: async (...args) => { calls.push(["dashboard", ...args]); return account; }, signOut: async () => { calls.push(["signOut"]); return account; } }),
+    signOutOfCloud: async () => { calls.push(["signOut"]); return account; },
     openLendingSettings: async () => { calls.push(["lending"]); },
     workspaceMenuAction: action => action(), switchEnvironment: id => { calls.push(["switch", id]); },
   });
