@@ -96,7 +96,9 @@ export function planTranscript(
   const spokenTurns = new Set<string>();
   const lastTool = new Map<string, string>();
   let lastShownAt: number | undefined;
+  let replyOwed = false;
   messages.forEach((message, index) => {
+    if (message.role === "user") replyOwed = true;
     const turnId = message.turnId;
     if (turnId && message.kind === "activity" && message.tool?.name) lastTool.set(turnId, message.tool.name);
     if (quiet && turnId && screenCapture(message, lastTool.get(turnId))) {
@@ -107,7 +109,7 @@ export function planTranscript(
       const first = !spokenTurns.has(message.turnId);
       spokenTurns.add(message.turnId);
       const update = !foldAll && (lastShownAt === undefined || message.at - lastShownAt >= UPDATE_GAP_MS);
-      const quietable = !message.turnTerminal && !first && !update;
+      const quietable = !message.turnTerminal && !first && !update && !replyOwed;
       if (terminals.has(message.turnId)) {
         if (quietable && index < (lastStep.get(message.turnId) ?? -1)) {
           hiddenIds.add(message.id);
@@ -119,6 +121,7 @@ export function planTranscript(
         return;
       }
       lastShownAt = message.at;
+      replyOwed = false;
       return;
     }
     if (message.role === "user" || !QUIET_KINDS.has(message.kind)) lastShownAt = message.at;

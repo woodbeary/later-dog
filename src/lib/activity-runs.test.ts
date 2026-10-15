@@ -308,6 +308,50 @@ describe("groupTranscript", () => {
     expect([...plan.byAnchorId.values()][0]).toMatchObject({ kind: "turn", messages: [update] });
   });
 
+  describe("a reply to a message sent mid-turn", () => {
+    const ask = (id: string, at: number): Message => ({ id, at, role: "user", kind: "text", text: "well?", steered: true });
+    const scene = () => {
+      const user: Message = { id: "r0", at: 10_000, role: "user", kind: "text", text: "book it" };
+      const first = assistant("Opening the booking page.", "turn-reply", false, 11_000);
+      const chatter = assistant("Picking a time.", "turn-reply", false, 15_000);
+      const hello = ask("r1", 20_000);
+      const reply = assistant("Still working, on the last step.", "turn-reply", false, 21_000);
+      const after = assistant("Almost there.", "turn-reply", false, 25_000);
+      return { user, first, chatter, hello, reply, after };
+    };
+
+    it("stays visible while the turn runs", () => {
+      const { user, first, chatter, hello, reply, after } = scene();
+      const transcript = [user, first, chatter, hello, reply, after];
+      const quiet = planTranscript(transcript, { runningSince: 10_500, quiet: true });
+      expect([...quiet.hiddenIds]).toEqual([chatter.id, after.id]);
+      const folded = planTranscript(transcript, { runningSince: 10_500, foldAll: true });
+      expect([...folded.hiddenIds]).toEqual([chatter.id, after.id]);
+    });
+
+    it("stays visible after the turn ends instead of folding into the worked line", () => {
+      const { user, first, chatter, hello, reply, after } = scene();
+      const work = step("Read", "turn-reply");
+      const final = assistant("Booked.", "turn-reply", true, 40_000);
+      const plan = planTranscript([user, first, chatter, hello, reply, after, work, final]);
+      expect(plan.hiddenIds.has(reply.id)).toBe(false);
+      expect([...plan.hiddenIds]).toEqual([chatter.id, after.id]);
+    });
+
+    it("changes nothing without a message sent mid-turn", () => {
+      const { user, first, chatter, reply, after } = scene();
+      const quiet = planTranscript([user, first, chatter, reply, after], { runningSince: 10_500, quiet: true });
+      expect([...quiet.hiddenIds]).toEqual([chatter.id, reply.id, after.id]);
+    });
+
+    it("forces only the first spoken message after several user messages", () => {
+      const { user, first, chatter, reply, after } = scene();
+      const transcript = [user, first, chatter, ask("r2", 18_000), ask("r3", 19_000), reply, after];
+      const quiet = planTranscript(transcript, { runningSince: 10_500, quiet: true });
+      expect([...quiet.hiddenIds]).toEqual([chatter.id, after.id]);
+    });
+  });
+
   it("keeps a lone terminal message as the answer", () => {
     const only = assistant("I could not finish, but here is what I found.", "turn-short", true);
     expect(groupTranscript([only])).toEqual([{ kind: "message", message: only }]);
