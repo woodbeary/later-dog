@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
 import { CLOUD_LINK_SETTINGS, StoreProvider, useStore } from "@/state/store";
 import { CloudQuietLine } from "@/components/CloudQuietLine";
@@ -18,7 +18,7 @@ import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
   ActivityPanel, BotSettingsDialog, CloudTaskPanel, ComputerPanel, InspectorPanel, KeyboardShortcutsModal, NewBotDialog,
-  preloadScreens, RemoteAgentSettingsPanel, RemoteDesktopPanel, RoutinesPage, SettingsModal, TeamMapPage, TriggersPanel,
+  preloadScreens, RemoteAgentSettingsPanel, RemoteDesktopPanel, SettingsModal, TeamMapPage, TriggersPanel,
 } from "@/components/lazy-screens";
 import { WorkspaceBackupRecovery } from "@/components/WorkspaceBackupSettings";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
@@ -86,14 +86,11 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     setLocaleEpoch((epoch) => epoch + 1);
   }, [language]);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const previousViewRef = useRef(state.activeView);
-  const calendarOriginRef = useRef<"chat" | "team-map" | "workspace">("chat");
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
   const sidePanelOpen = (Boolean(bot) && (state.settingsOpen || state.computerOpen || state.inspectorOpen || state.activityOpen))
     || (state.computerOpen && state.cloudTaskId !== null);
   const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
-  const calendarFocus = state.activeView === "routines";
 
   const noEngines =
     state.connected &&
@@ -151,28 +148,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   }, [state.selectedId, bot?.threadId, group?.threadId, state.activeView, state.pluginsOpen, state.settingsOpen]);
 
   useEffect(() => {
-    if (state.activeView === "routines" && previousViewRef.current !== "routines") {
-      calendarOriginRef.current = previousViewRef.current;
-    }
-    previousViewRef.current = state.activeView;
-  }, [state.activeView]);
-
-  const closeCalendar = useCallback(() => {
-    if (calendarOriginRef.current === "workspace") {
-      dispatch({ type: "showWorkspace" });
-      return;
-    }
-    if (calendarOriginRef.current === "team-map") {
-      dispatch({ type: "showTeamMap" });
-      return;
-    }
-    dispatch({ type: "select", id: state.selectedId });
-  }, [dispatch, state.selectedId]);
-  const openCalendarRoom = useCallback((id: string) => {
-    dispatch({ type: "select", id });
-  }, [dispatch]);
-
-  useEffect(() => {
     return window.laterdog?.onOpenAppSettings?.(section => {
       dispatch(section ? CLOUD_LINK_SETTINGS : { type: "toggleAppSettings", open: true });
       acknowledgeOrganizationSettings(section, window.laterdog?.organization, remoteClient);
@@ -205,7 +180,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     <div className="flex h-full flex-col">
       <CredentialStoreNotice />
       <div className="relative flex min-h-0 flex-1">
-      {!calendarFocus && <button
+      <button
         type="button"
         ref={menuButtonRef}
         aria-label="Open dog list"
@@ -214,22 +189,22 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         className="absolute left-3 top-3 z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden"
       >
         <Menu size={18} />
-      </button>}
-      {drawerOpen && !calendarFocus && (
+      </button>
+      {drawerOpen && (
         <div
           aria-hidden
           onMouseDown={(e) => e.target === e.currentTarget && setDrawerOpen(false)}
           className="absolute inset-0 z-30 bg-black/50 md:hidden"
         />
       )}
-      {!calendarFocus && <Sidebar
+      <Sidebar
         collapseToIcons={collapseSidebar}
         open={drawerOpen}
         onClose={() => {
           setDrawerOpen(false);
           menuButtonRef.current?.focus();
         }}
-      />}
+      />
       {state.activeView === "workspace" ? (
         <LaterDogWorkspace conversationId={bot?.threadId} botId={bot?.id} openConversation={(job) => {
           if (job.botId && job.conversationId) dispatch({ type: "switchTask", botId: job.botId, threadId: job.conversationId });
@@ -238,8 +213,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         }} />
       ) : state.activeView === "team-map" ? (
         <TeamMapPage />
-      ) : state.activeView === "routines" ? (
-        <RoutinesPage onBack={closeCalendar} onOpenRoom={openCalendarRoom} />
       ) : cloudSignIn ? (
         <CloudEngineSignIn />
       ) : noEngines ? (

@@ -54,14 +54,12 @@ export function useBotSettingsDerived(bot: Bot) {
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId);
   const approvalMode = approvalModeFor(bot);
   const trustedModesAvailable = Boolean(window.laterdog?.approvals && capabilities.host.packaged);
-  const botRoutines = state.routines.filter((routine) => routine.botId === bot.id);
 
   return {
     patch,
     engine,
     approvalMode,
     trustedModesAvailable,
-    botRoutines,
     activeState,
   };
 }

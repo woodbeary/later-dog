@@ -302,7 +302,7 @@ function RoutineCreatedRow({
     <div className="flex w-full flex-col items-center gap-1" data-created-routine={routine.id ?? ""}>
       <RoutineCreatedLine
         name={name}
-        onOpen={live && dispatch && !undone ? () => dispatch({ type: "showRoutines", routineId: live.id, botId: live.botId }) : undefined}
+        onOpen={live && dispatch && !undone ? () => dispatch({ type: "toggleSettings", open: true, section: "routines", botId: live.botId }) : undefined}
         trailing={undone
           ? <span className="text-[13px] text-ink-tertiary">· {t("approval.applied.undone")}</span>
           : canUndo && threadId ? <UndoButton quiet undoing={undoing} onUndo={undo} /> : undefined}

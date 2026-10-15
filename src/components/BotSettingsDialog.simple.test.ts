@@ -2,7 +2,6 @@ import { Children, createElement, isValidElement, type ReactElement, type ReactN
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Routine } from "@/lib/routines";
 import type { Bot, Message } from "@/state/store";
 import type { ManagedSkill } from "./bot-settings/SkillsSection";
 
@@ -43,7 +42,6 @@ vi.mock("react", async (original) => ({
   useEffect: () => {},
 }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => false }));
-vi.mock("./RoutinesPage", () => ({ RoutineEditor: () => null }));
 vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: () => fixture.derived }));
 vi.mock("./LocalComputerAutoWarning", () => ({ LocalComputerAutoWarning: () => null }));
 vi.mock("./bot-settings/BotEditorContext", () => ({ useBotEditor: () => ({ request: fixture.request }) }));
@@ -81,7 +79,7 @@ const { SoulField } = await import("./SoulField");
 const { LocalComputerAutoWarning } = await import("./LocalComputerAutoWarning");
 const { ModelPicker } = await import("./ModelPicker");
 const { SimpleMemory } = await import("./bot-settings/SimpleMemory");
-const { RoutineEditor } = await import("./RoutinesPage");
+const { RoutinesCard } = await import("./bot-settings/RoutinesCard");
 const { ComputerTab } = await import("./bot-settings/ComputerTab");
 const { ProfileAvatar } = await import("./bot-settings/ProfileAvatar");
 
@@ -144,7 +142,6 @@ beforeEach(() => {
   patch.mockReset();
   fixture.derived = {
     patch, approvalMode: "ask", engine: { driverKind: "claudeAgent" }, trustedModesAvailable: false, activeState: "idle",
-    botRoutines: [],
   };
 });
 
@@ -324,50 +321,14 @@ describe("Details", () => {
 });
 
 describe("Routines", () => {
-  const routine = (id: string, extra: Partial<Routine> = {}): Routine => ({
-    id, name: `Routine ${id}`, prompt: "Check the inbox", target: "bot", botId: "scout", runOn: "dog", enabled: true,
-    schedule: { type: "daily", time: "09:00", weekdays: [1, 2, 3, 4, 5] }, durationMinutes: 30, nextRunAt: null, createdAt: 0, updatedAt: 0,
-    ...extra,
-  });
-
-  it("explains routines when the dog has none, and waits for them to load first", () => {
-    expect(dialog(makeBot()).html).toContain("Loading routines…");
+  it("hands the routines card the dog, under the Routines label", () => {
     fixture.storeState = { ...fixture.storeState, routinesLoadState: "ready" };
-    const rendered = dialog(makeBot());
+    const bot = makeBot();
+    const rendered = dialog(bot);
     expect(rendered.html).toContain(">Routines</span>");
     expect(rendered.html).toContain("Ask Scout to do something every morning, or every Friday, and it shows up here.");
-    fixture.storeState = { ...fixture.storeState, routinesLoadState: "error" };
-    expect(find(dialog(makeBot()), "role", "alert").props.children).toBe("Couldn't refresh routines. Retrying… Saved information may be out of date.");
-  });
-
-  it("lists the dog's routines, running ones first and soonest first, with their schedule", () => {
-    fixture.storeState = { ...fixture.storeState, routinesLoadState: "ready" };
-    fixture.derived.botRoutines = [
-      routine("paused", { enabled: false }),
-      routine("later", { nextRunAt: 2_000 }),
-      routine("soon", { nextRunAt: 1_000 }),
-    ];
-    const rendered = dialog(makeBot());
-    const rows = rendered.nodes.filter((node) => node.props["data-routine"] !== undefined);
-    expect(rows.map((node) => node.props["data-routine"])).toEqual(["soon", "later", "paused"]);
-    expect(rendered.html).toContain("Routine soon");
-    expect(rendered.html).toContain("Every weekday at");
-    expect(rendered.html).toContain("Active");
-    expect(rendered.html).toContain("Paused");
-    expect(rendered.html).not.toContain("Ask Scout in chat");
-  });
-
-  it("opens a routine in the editor, locked to this dog, and closes it again", () => {
-    fixture.storeState = { ...fixture.storeState, routinesLoadState: "ready" };
-    const later = routine("later", { nextRunAt: 2_000 });
-    fixture.derived.botRoutines = [later];
-    const bot = makeBot();
-    expect(dialog(bot).nodes.some((node) => node.type === RoutineEditor)).toBe(false);
-    click(find(dialog(bot), "data-routine", "later"));
-    const editor = dialog(bot).nodes.find((node) => node.type === RoutineEditor)!;
-    expect(editor.props).toMatchObject({ routine: later, lockedBotId: "scout", bots: [bot] });
-    (editor.props.onClose as () => void)();
-    expect(dialog(bot).nodes.some((node) => node.type === RoutineEditor)).toBe(false);
+    const card = rendered.nodes.find((node) => node.type === RoutinesCard)!;
+    expect(card.props.bot).toBe(bot);
   });
 });
 

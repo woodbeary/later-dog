@@ -12,7 +12,6 @@ describe("Triggers pop-up state", () => {
     expect(reducer(triggers, { type: "togglePlugins", open: true }).triggersOpen).toBe(false);
     expect(reducer(triggers, { type: "toggleAppSettings", open: true }).triggersOpen).toBe(false);
     expect(reducer(triggers, { type: "toggleNewBot", open: true }).triggersOpen).toBe(false);
-    expect(reducer(triggers, { type: "showRoutines" }).triggersOpen).toBe(false);
     expect(reducer(triggers, { type: "toggleTriggers" }).triggersOpen).toBe(false);
     expect(initialState.triggersOpen).toBe(false);
   });

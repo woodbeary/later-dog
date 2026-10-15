@@ -6,9 +6,6 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { skillsLibraryEnabled } from "@/lib/feature-flags";
 import { DOG_COLOR_NAMES, DOG_COLORS } from "@/lib/mascot";
-import { routineScheduleState } from "@/lib/routine-display";
-import type { Routine } from "@/lib/routines";
-import { scheduleLabel } from "@/lib/schedule-label";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 import { DEFAULT_MASCOT_BODY, MASCOT_BODIES, MASCOT_BODY_IDS } from "../../shared/mascot-bodies";
 import type { ApprovalMode } from "../../shared/approval-mode";
@@ -18,7 +15,6 @@ import { isDogBreed } from "./DogAvatar";
 import { useCaptionChrome } from "./DesktopCapabilities";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { ModelPicker } from "./ModelPicker";
-import { RoutineEditor } from "./RoutinesPage";
 import { Switch } from "./SettingsPrimitives";
 import { SoulField } from "./SoulField";
 import { ThreadModelsLine } from "./ThreadModelsLine";
@@ -29,6 +25,7 @@ import { SimpleMemory } from "./bot-settings/SimpleMemory";
 import { ComputerTab } from "./bot-settings/ComputerTab";
 import { OrgSkillsCard } from "./bot-settings/OrgSkillsCard";
 import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
+import { RoutinesCard } from "./bot-settings/RoutinesCard";
 import { TEACH_TRICK_LINE } from "../../shared/learn-request";
 import { BOT_SECTIONS, tabForSection } from "./bot-settings/sections";
 import { SkillReviewDialog, useManagedSkills } from "./bot-settings/SkillsSection";
@@ -68,7 +65,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const teachButton = useRef<HTMLButtonElement | null>(null);
-  const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
 
   const displayedApprovalMode = engine?.driverKind === "antigravityAgent" && approvalMode === "auto" ? "ask" : approvalMode;
   const autoOffered = approvalModeOptionsFor(engine?.driverKind ?? "", trustedModesAvailable)
@@ -149,8 +145,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const close = () => dispatch({ type: "toggleSettings", open: false });
   const breed = bot.mascotBody ?? DEFAULT_MASCOT_BODY;
   const library = tab === "library" ? botLibraryItems(bot) : [];
-  const routines = [...derived.botRoutines].sort((a, b) =>
-    Number(b.enabled) - Number(a.enabled) || (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity));
   const approvalHint = customMode
     ? t("botSettings.simple.customMode")
     : displayedApprovalMode === "auto"
@@ -334,35 +328,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
               </div>
               <div>
                 <span className={groupLabelCls}>{t("botSettings.simple.routines")}</span>
-                <div className={cardCls} data-simple-routines>
-                  {routines.length === 0 ? (
-                    state.routinesLoadState === "error" ? (
-                      <div role="alert" className={cn(rowCls, "text-[12px] text-danger")}>{t("routines.loadError")}</div>
-                    ) : state.routinesLoadState === "loading" ? (
-                      <div role="status" className={cn(rowCls, "text-[13px] text-ink-secondary")}>{t("routines.loading")}</div>
-                    ) : (
-                      <div className={cn(rowCls, "text-[13px] leading-relaxed text-ink-secondary")}>
-                        {t("botSettings.simple.routinesEmpty", { name: bot.name })}
-                      </div>
-                    )
-                  ) : (
-                    routines.map((routine, index) => (
-                      <button
-                        key={routine.id}
-                        type="button"
-                        data-routine={routine.id}
-                        onClick={() => setEditingRoutine(routine)}
-                        className={cn(index === 0 ? rowCls : dividedRowCls, "flex w-full items-center gap-3 text-left hover:bg-raised/60")}
-                      >
-                        <div className={itemTextCls}>
-                          <div className="truncate text-[13.5px] font-medium text-ink">{routine.name}</div>
-                          <div className="truncate text-[12px] text-ink-secondary">{scheduleLabel(routine.schedule)}</div>
-                        </div>
-                        <span className="shrink-0 text-[12px] text-ink-tertiary">{routineScheduleState(routine)}</span>
-                      </button>
-                    ))
-                  )}
-                </div>
+                <RoutinesCard bot={bot} />
               </div>
             </div>
           )}
@@ -514,9 +480,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         </div>
       </aside>
 
-      {editingRoutine && (
-        <RoutineEditor key={editingRoutine.id} routine={editingRoutine} bots={[bot]} lockedBotId={bot.id} onClose={() => setEditingRoutine(null)} />
-      )}
       {skills.reviewing && (
         <SkillReviewDialog
           skill={skills.reviewing.skill}

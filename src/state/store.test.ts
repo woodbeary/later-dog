@@ -838,7 +838,7 @@ describe("notification routing", () => {
       groups,
     })).toBe("room-thread");
     expect(visibleNotificationThread({
-      activeView: "routines",
+      activeView: "team-map",
       selectedId: "bot-1",
       bots,
       groups,
@@ -954,14 +954,14 @@ describe("config status", () => {
   });
 
   it("replaces the config without moving the person off their current view", () => {
-    const onRoutines = reducer(initialState, { type: "showRoutines" });
-    expect(onRoutines.activeView).toBe("routines");
+    const onTeamMap = reducer(initialState, { type: "showTeamMap" });
+    expect(onTeamMap.activeView).toBe("team-map");
 
-    const next = reducer(onRoutines, {
+    const next = reducer(onTeamMap, {
       type: "configStatus",
       config: { ...config, features: { skillAuthoring: false } },
     });
-    expect(next.activeView).toBe("routines");
+    expect(next.activeView).toBe("team-map");
     expect(next.config?.features).toEqual({ skillAuthoring: false });
   });
 });
@@ -1257,27 +1257,6 @@ describe("cross-client bot creation", () => {
 });
 
 describe("routine receipt retention", () => {
-  it("opens a bot's logs without retaining stale filters on a later global visit", () => {
-    const focused = reducer(initialState, { type: "showRoutines", section: "logs", view: "list", botId: "echo", routineId: "routine-1" });
-    expect(focused.activeView).toBe("routines");
-    expect(focused.routinesFocus).toEqual({ section: "logs", view: "list", botId: "echo", routineId: "routine-1", nonce: 1 });
-    const all = reducer(focused, { type: "showRoutines" });
-    expect(all.routinesFocus).toEqual({ section: undefined, view: undefined, botId: undefined, routineId: undefined, nonce: 2 });
-    const failures = reducer(focused, { type: "showRoutines", section: "logs" });
-    expect(failures.routinesFocus).toEqual({ section: "logs", view: undefined, botId: undefined, routineId: undefined, nonce: 2 });
-  });
-
-  it("carries the problems filter from the errors pill and drops it on a plain visit", () => {
-    const focused = reducer(initialState, { type: "showRoutines", section: "logs", runStatus: "problems" });
-    expect(focused.routinesFocus).toEqual({ section: "logs", view: undefined, botId: undefined, routineId: undefined, runStatus: "problems", nonce: 1 });
-    const plain = reducer(focused, { type: "showRoutines", section: "logs" });
-    expect(plain.routinesFocus).toEqual({ section: "logs", view: undefined, botId: undefined, routineId: undefined, runStatus: undefined, nonce: 2 });
-  });
-
-  it("leaves the bulk-seen sweep to the server's emitted receipts", () => {
-    expect(reducer(initialState, { type: "markAllRoutineRunsSeen" })).toBe(initialState);
-  });
-
   it("distinguishes a failed load from an empty schedule and recovers on hydration", () => {
     expect(initialState.routinesLoadState).toBe("loading");
     const failed = reducer(initialState, { type: "routinesLoadFailed" });
@@ -2205,9 +2184,8 @@ describe("activity panel", () => {
     expect(next.computerOpen).toBe(true);
   });
 
-  it("switching to routines or the team map closes the activity panel", () => {
+  it("switching to the team map closes the activity panel", () => {
     const open = { ...initialState, activityOpen: true };
-    expect(reducer(open, { type: "showRoutines" }).activityOpen).toBe(false);
     expect(reducer(open, { type: "showTeamMap" }).activityOpen).toBe(false);
   });
 });

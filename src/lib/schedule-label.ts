@@ -1,8 +1,14 @@
-import { atLocalTime } from "@/lib/routine-calendar";
 import type { RoutineSchedule } from "@/lib/routines";
 import { cronScheduleLabel } from "../../shared/cron-label";
 
 export const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+export function atLocalTime(day: number, time: string): number {
+  const [hour, minute] = time.split(":").map(Number);
+  const date = new Date(day);
+  date.setHours(hour, minute, 0, 0);
+  return date.getTime();
+}
 
 export function niceTime(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });

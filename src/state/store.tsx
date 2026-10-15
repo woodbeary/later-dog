@@ -34,7 +34,7 @@ import {
   skillRequestBehavior,
   type SkillRequestCardData,
 } from "../../shared/skill-request";
-import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
+import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { personIsLooking, readWhenBack } from "@/lib/viewing";
@@ -693,11 +693,10 @@ export interface AppState {
   liveCallVersion: number;
   liveCallLookupSeq: number;
   selectedId: string;
-  activeView: "chat" | "team-map" | "routines" | "workspace";
+  activeView: "chat" | "team-map" | "workspace";
   routines: Routine[];
   routineRuns: RoutineRun[];
   routinesLoadState: "loading" | "ready" | "error";
-  routinesFocus: { section?: "schedule" | "logs"; view?: "calendar" | "list"; botId?: string; routineId?: string; runStatus?: RoutineRunStatusFilter; nonce: number };
   webhooks: WebhookTrigger[];
   webhookAttempts: WebhookAttempt[];
   webhookIngress: WebhookIngressStatus | null;
@@ -816,7 +815,6 @@ export type Action =
   | { type: "botQueues"; queues: AppState["pendingQueued"] }
   | { type: "sections"; sections: string[] }
   | { type: "sectionDeleted"; section: string; sections: string[] }
-  | { type: "showRoutines"; section?: "schedule" | "logs"; view?: "calendar" | "list"; botId?: string; routineId?: string; runStatus?: RoutineRunStatusFilter }
   | { type: "showTeamMap" }
   | { type: "showWorkspace" }
   | { type: "showChat" }
@@ -834,8 +832,6 @@ export type Action =
   | { type: "deleteRoutine"; routineId: string }
   | { type: "runRoutine"; routineId: string; onStarted?: (run: RoutineRun) => void; onError?: (error: unknown) => void; onSettled?: () => void }
   | { type: "cancelRoutineRun"; runId: string }
-  | { type: "markRoutineRunSeen"; runId: string }
-  | { type: "markAllRoutineRunsSeen" }
   | { type: "groupPatched"; group: Partial<Group> & { id: string } }
   | { type: "groupDeleted"; groupId: string }
   | { type: "createGroup"; memberIds: string[]; name?: string; section?: string }
@@ -1213,19 +1209,6 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, sections: action.sections };
     case "botQueues":
       return reconcileSnapshotQueues(replaceBotQueues(state, action.queues), [...state.bots, ...state.groups]);
-    case "showRoutines":
-      return {
-        ...state,
-        activeView: "routines",
-        routinesFocus: { section: action.section, view: action.view, botId: action.botId, routineId: action.routineId, runStatus: action.runStatus, nonce: state.routinesFocus.nonce + 1 },
-        settingsOpen: false,
-        computerOpen: false,
-        inspectorOpen: false,
-        activityOpen: false,
-        appSettingsOpen: false,
-        pluginsOpen: false,
-        triggersOpen: false,
-      };
     case "showWorkspace":
       return { ...state, activeView: "workspace", settingsOpen: false, computerOpen: false, inspectorOpen: false, activityOpen: false };
     case "showChat":
@@ -2041,8 +2024,6 @@ export function reducer(state: AppState, action: Action): AppState {
     case "deleteRoutine":
     case "runRoutine":
     case "cancelRoutineRun":
-    case "markRoutineRunSeen":
-    case "markAllRoutineRunsSeen":
     case "refreshTaskPermissions":
     case "followBotModel":
       return state;
@@ -2087,7 +2068,6 @@ export const initialState: AppState = {
   routines: [],
   routineRuns: [],
   routinesLoadState: "loading",
-  routinesFocus: { nonce: 0 },
   webhooks: [],
   webhookAttempts: [],
   webhookIngress: null,
@@ -2649,12 +2629,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         case "cancelRoutineRun":
           api(`/api/routine-runs/${action.runId}/cancel`, { method: "POST" }).catch(showError);
-          break;
-        case "markRoutineRunSeen":
-          api(`/api/routine-runs/${action.runId}/seen`, { method: "POST" }).catch(showError);
-          break;
-        case "markAllRoutineRunsSeen":
-          api("/api/routine-runs/seen-all", { method: "POST" }).catch(showError);
           break;
         case "cancelQueued":
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE", body: JSON.stringify({ threadId: action.threadId }) })
