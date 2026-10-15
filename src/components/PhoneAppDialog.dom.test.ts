@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
 import { setLocale } from "@/lib/i18n";
 import { PhoneAppDialog } from "./PhoneAppDialog";
-import type { CompanionState } from "./PhoneSetupFlow";
+import { PhoneSetupFlow } from "./PhoneSetupFlow";
 
 const fixture = vi.hoisted(() => ({ openExternalLink: vi.fn(async () => {}) }));
 vi.mock("@/lib/app-links", () => ({ openExternalLink: fixture.openExternalLink }));
@@ -16,7 +16,7 @@ const onClose = vi.fn();
 
 function bridgeWith(initial: CloudAccountState): CloudAccountBridge {
   return {
-    state: vi.fn(async () => initial), begin: vi.fn(async () => ({ status: "connecting" }) as CloudAccountState),
+    state: vi.fn(async () => initial), begin: vi.fn(), sendCode: vi.fn(), verifyCode: vi.fn(),
     signInAgain: vi.fn(), reopen: vi.fn(), cancel: vi.fn(), refresh: vi.fn(), signOut: vi.fn(), openDashboard: vi.fn(),
     connectHome: vi.fn(), connectHomeForPhone: vi.fn(), onState: vi.fn(() => () => {}),
   } as unknown as CloudAccountBridge;
@@ -24,9 +24,7 @@ function bridgeWith(initial: CloudAccountState): CloudAccountBridge {
 
 async function show(laterdog?: Record<string, unknown>) {
   (window as unknown as { laterdog?: unknown }).laterdog = laterdog;
-  (globalThis as unknown as { laterdog?: unknown }).laterdog = laterdog;
   await act(async () => { root.render(createElement(PhoneAppDialog, { open: true, onClose })); });
-  await act(async () => { await Promise.resolve(); });
 }
 
 beforeEach(() => {
@@ -43,55 +41,49 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   delete (window as unknown as { laterdog?: unknown }).laterdog;
-  delete (globalThis as unknown as { laterdog?: unknown }).laterdog;
   vi.unstubAllGlobals();
 });
 
 describe("Get later.dog for iPhone", () => {
-  it("shows a code to scan and the link, with the email to sign in with", async () => {
-    await show({ cloudAccount: bridgeWith({ status: "connected", account: { id: "u", email: "jo@example.test" } }) });
-    expect(host.querySelector("[data-phone-app-qr]")?.getAttribute("data-phone-app-qr")).toBe("https://accounts.later.dog/iphone");
-    expect(host.querySelector("svg")).toBeTruthy();
-    expect(host.textContent).toContain("Then sign in with jo@example.test.");
-    const link = [...host.querySelectorAll("button")].find((button) => button.textContent === "Or open the link")!;
-    await act(async () => { link.click(); });
+  it("opens the download link and directs the phone to the exact signed-in account without a QR", async () => {
+    const companion = { state: vi.fn(async () => ({ devices: [] })), start: vi.fn(), pairing: vi.fn() };
+    await show({ cloudAccount: bridgeWith({ status: "connected", account: { id: "u", email: "jo@example.test" } }), companion });
+    expect(host.textContent).toContain("Sign in on your iPhone with jo@example.test");
+    expect(host.textContent).toContain("Keep your Mac awake.");
+    expect(host.querySelector("[data-phone-app-qr], [data-phone-app-pair], [data-phone-pairing-dialog], [data-phone-pairing-action]")).toBeNull();
+    expect(host.textContent).not.toMatch(/scan|Pair a device|Wi-Fi|pairing code/i);
+    expect(companion.start).not.toHaveBeenCalled();
+    expect(companion.pairing).not.toHaveBeenCalled();
+    await act(async () => { host.querySelector<HTMLButtonElement>("[data-phone-app-download]")!.click(); });
     expect(fixture.openExternalLink).toHaveBeenCalledWith("https://accounts.later.dog/iphone");
   });
 
-  it("offers Cloud sign-in on this Mac when it isn't signed in", async () => {
+  it("uses the existing account email sign-in form on a signed-out Mac", async () => {
     const cloudAccount = bridgeWith({ status: "signed-out" });
     await show({ cloudAccount });
-    const signIn = [...host.querySelectorAll("button")].find((button) => button.textContent === "Sign in to later.dog Cloud")!;
-    await act(async () => { signIn.click(); });
-    await act(async () => { await Promise.resolve(); });
-    expect(cloudAccount.begin).toHaveBeenCalledOnce();
-    expect(host.textContent).toContain("Continue in your browser");
-  });
-
-  it("opens this Mac's Wi-Fi pairing without account sign-in or a managed endpoint", async () => {
-    let state: CompanionState = { enabled: false, keepAwake: false, port: 8810, devices: [], pairing: null, lan: "192.168.1.34" };
-    const cloudAccount = bridgeWith({ status: "signed-out" });
-    const companion = {
-      state: vi.fn(async () => state),
-      start: vi.fn(async () => state = { ...state, enabled: true }),
-      pairing: vi.fn(async () => state = { ...state, pairing: { code: "123456", token: `laterdog_pair_${"a".repeat(43)}`, expiresAt: Date.now() + 120_000 } }),
-    };
-    await show({ cloudAccount, companion });
-    await act(async () => { host.querySelector<HTMLButtonElement>("[data-phone-app-pair]")!.click(); });
-    for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); });
-    expect(companion.start).toHaveBeenCalledOnce();
-    expect(companion.pairing).toHaveBeenCalledExactlyOnceWith(true);
+    expect(host.querySelector('[data-cloud-sign-in="email"] input[type="email"]')).not.toBeNull();
+    expect(host.textContent).toContain("use the same account in the iPhone app");
     expect(cloudAccount.begin).not.toHaveBeenCalled();
-    expect(host.querySelector("[data-phone-pairing-dialog] svg")).toBeTruthy();
-    await act(async () => { [...host.querySelectorAll("button")].find((button) => button.textContent === "Reveal")!.click(); });
-    expect(host.textContent).toContain("192.168.1.34:8810");
+    expect(host.querySelector("[data-phone-app-pair], [data-phone-app-qr]")).toBeNull();
   });
 
-  it("does not offer local pairing from a remote workspace or without a companion", async () => {
-    await show({ companion: {}, remoteClient: { active: true } });
-    expect(host.querySelector("[data-phone-app-pair]")).toBeNull();
-    await show();
-    expect(host.querySelector("[data-phone-app-pair]")).toBeNull();
+  it("never reads or pairs a local companion from a remote workspace", async () => {
+    const companion = { state: vi.fn(), start: vi.fn(), pairing: vi.fn() };
+    await show({ companion, remoteClient: { active: true } });
+    expect(companion.state).not.toHaveBeenCalled();
+    expect(companion.start).not.toHaveBeenCalled();
+    expect(companion.pairing).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("same account");
+  });
+
+  it("keeps onboarding account-only and lets a signed-in account continue", async () => {
+    const onComplete = vi.fn();
+    (window as unknown as { laterdog?: unknown }).laterdog = { cloudAccount: bridgeWith({ status: "connected", account: { id: "u", email: "jo@example.test" } }) };
+    await act(async () => { root.render(createElement(PhoneSetupFlow, { variant: "onboarding", compactHeader: true, onComplete })); });
+    expect(host.textContent).toContain("jo@example.test");
+    expect(host.textContent).not.toMatch(/scan|pair|Wi-Fi/i);
+    await act(async () => { [...host.querySelectorAll("button")].find((button) => button.textContent === "Continue")!.click(); });
+    expect(onComplete).toHaveBeenCalledOnce();
   });
 
   it("closes with Escape or the close button", async () => {

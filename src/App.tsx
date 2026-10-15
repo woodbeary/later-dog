@@ -36,8 +36,8 @@ import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
 import { botShowsUnread } from "@/lib/bot-unread";
-import { currentPhonePairingTarget, takePhonePairingRequest } from "@/lib/phone-pairing";
-import { PhonePairingDialog } from "@/components/PhonePairingDialog";
+import { takePhoneAppRequest } from "@/lib/phone-pairing";
+import { PhoneAppDialog } from "@/components/PhoneAppDialog";
 import { acknowledgeOrganizationSettings } from "@/lib/organization-settings-ack";
 
 function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
@@ -71,12 +71,12 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     }
     return window.laterdog.environments.onOpenSettings?.(open);
   }, [dispatch]);
-  const [phonePairingOpen, setPhonePairingOpen] = useState(false);
+  const [phoneAppOpen, setPhoneAppOpen] = useState(false);
   useEffect(() => {
-    const rest = takePhonePairingRequest(window.location.href);
+    const rest = takePhoneAppRequest(window.location.href);
     if (rest === null) return;
     window.history.replaceState(null, "", rest);
-    setPhonePairingOpen(true);
+    setPhoneAppOpen(true);
   }, []);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const language = effectiveLanguage(useLanguageChoice(), state.config?.language);
@@ -282,11 +282,9 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       {!remoteClient && state.inspectorOpen && bot && <InspectorPanel key={bot.threadId} bot={bot} />}
       {!remoteClient && state.activityOpen && bot && <ActivityPanel key={`activity:${bot.id}`} bot={bot} />}
       {state.appSettingsOpen && <SettingsModal />}
-      <PhonePairingDialog
-        open={phonePairingOpen}
-        target={currentPhonePairingTarget(state.config?.cloudHome === true)}
-        onClose={() => setPhonePairingOpen(false)}
-        profileEmail={state.config?.profile?.email ?? ""}
+      <PhoneAppDialog
+        open={phoneAppOpen}
+        onClose={() => setPhoneAppOpen(false)}
       />
       <CloudSetup viewer={viewer} />
       {state.pluginsOpen && <PluginsPanel />}

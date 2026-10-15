@@ -101,6 +101,16 @@ describe("the Settings rail", () => {
 });
 
 describe("General", () => {
+  it("keeps desktop server access behind a closed disclosure on a remote workspace", () => {
+    expect(render()).not.toContain("data-server-access");
+    vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, remoteClient: { active: true } } });
+    const html = render();
+    expect(html).toMatch(/<details data-server-access="true" class=/);
+    expect(html).not.toMatch(/<details data-server-access[^>]*\bopen=/);
+    expect(html).toContain("Advanced server access");
+    expect(html).not.toContain("data-phone-pairing");
+  });
+
   it("keeps workspace recovery after Help in a closed Advanced disclosure only in the desktop app", () => {
     expect(render()).not.toContain("data-workspace-recovery");
     vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, workspaces: { state: vi.fn(), menu: vi.fn() } } });

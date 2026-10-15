@@ -40,12 +40,12 @@ describe("pairing devices with a server", () => {
     const admin = renderToStaticMarkup(createElement(ServerPairingCard, { initialSession: { ...chatOnly, scopes: ["admin", "client"] } }));
     expect(admin).toContain("Create pairing code");
     expect(admin).not.toContain("data-server-pairing-chat-only");
-    expect(admin).toMatch(/<button[^>]*data-phone-pairing-action[^>]*>Create pairing code<\/button>/);
+    expect(admin).toMatch(/<button[^>]*data-server-pairing-action[^>]*>Create pairing code<\/button>/);
     expect(html).not.toContain("open Settings");
-    expect(admin.match(/data-phone-pairing-action/g)?.length).toBe(1);
-    expect(admin).toContain('data-phone-pairing="server"');
-    expect(html).toContain('data-phone-pairing="server"');
-    expect(html).not.toContain("data-phone-pairing-action");
+    expect(admin.match(/data-server-pairing-action/g)?.length).toBe(1);
+    expect(admin).toContain('data-server-pairing="server"');
+    expect(html).toContain('data-server-pairing="server"');
+    expect(html).not.toContain("data-server-pairing-action");
   });
 
   it("offers no pairing code on a hosted workspace, where people sign in through the portal", () => {
@@ -56,7 +56,7 @@ describe("pairing devices with a server", () => {
     expect(html).not.toContain("Create pairing code");
     expect(html).not.toMatch(/pairing code from|laterdog pair/);
     expect(html).toContain("Signed-in devices");
-    expect(html).not.toContain("data-phone-pairing-action");
+    expect(html).not.toContain("data-server-pairing-action");
     const member = renderToStaticMarkup(createElement(ServerPairingCard, { initialSession: { ...admin, scopes: ["client"] }, initialPairingCodes: false }));
     expect(member).toContain("data-server-pairing-chat-only");
     expect(member).not.toContain("laterdog pair");

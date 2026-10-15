@@ -1,7 +1,7 @@
 import { Smartphone, Trash2 } from "lucide-react";
 
 import { t } from "@/lib/i18n";
-import type { PhoneSetupController } from "./PhoneSetupFlow";
+import { usePhoneDevices, type PhoneDeviceController } from "@/lib/phone-devices";
 import { Switch } from "./SettingsPrimitives";
 
 export function lastSeenAgo(at: number, now = Date.now()): string {
@@ -14,7 +14,15 @@ export function lastSeenAgo(at: number, now = Date.now()): string {
   return t("remote.time.days", { count: Math.round(hours / 24) });
 }
 
-export function PairedPhones({ controller: c }: { controller: PhoneSetupController }) {
+export function ConnectedPhones() {
+  const controller = usePhoneDevices();
+  return <>
+    <PairedPhones controller={controller} />
+    {controller.error && <p role="alert" className="text-[13px] text-danger">{controller.error}</p>}
+  </>;
+}
+
+export function PairedPhones({ controller: c }: { controller: PhoneDeviceController }) {
   const devices = c.state?.devices ?? [];
   if (devices.length === 0) return null;
 

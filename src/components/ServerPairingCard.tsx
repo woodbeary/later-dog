@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
 
 import { t } from "@/lib/i18n";
 import { copyText, type CopyFeedback } from "@/lib/copy-text";
@@ -93,7 +92,7 @@ export function ServerPairingCard({ initialSession = null, initialPairingCodes =
   if (!canPairDevices(session)) {
     if (pairingBlockedReason(session) !== "chat-only") return null;
     return (
-      <div data-phone-pairing="server">
+      <div data-server-pairing="server">
         <Card title={t("remote.serverPairing.title")} subtitle={t(pairingCodes ? "remote.serverPairing.subtitle" : "remote.serverPairing.portalSubtitle")}>
           <p data-server-pairing-chat-only className="mt-3 text-[13px] text-ink-secondary">{t(pairingCodes ? "remote.serverPairing.chatOnly" : "remote.serverPairing.portalChatOnly")}</p>
         </Card>
@@ -135,7 +134,7 @@ export function ServerPairingCard({ initialSession = null, initialPairingCodes =
   }
 
   return (
-    <div data-phone-pairing="server">
+    <div data-server-pairing="server">
     <Card title={t("remote.serverPairing.title")} subtitle={t(pairingCodes ? "remote.serverPairing.subtitle" : "remote.serverPairing.portalSubtitle")}>
       {pairingCodes && cloudHome ? <p data-server-pairing-personal className="mt-3 text-[13px] text-ink-secondary">{t("remote.serverPairing.cloudPersonal")}</p> : null}
       {pairingCodes ? <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -149,7 +148,7 @@ export function ServerPairingCard({ initialSession = null, initialPairingCodes =
             {t("remote.serverPairing.scope.client")}
           </label>
         </>}
-        <button type="button" data-phone-pairing-action autoFocus onClick={() => void create()} disabled={busy} className={button}>
+        <button type="button" data-server-pairing-action autoFocus onClick={() => void create()} disabled={busy} className={button}>
           {busy ? t("remote.serverPairing.creating") : t("remote.serverPairing.create")}
         </button>
       </div> : <p data-server-pairing-portal className="mt-3 text-[13px] text-ink-secondary">{t("remote.serverPairing.portal")}</p>}
@@ -159,11 +158,6 @@ export function ServerPairingCard({ initialSession = null, initialPairingCodes =
             <p className="text-[13px] text-ink-secondary">{t("remote.serverPairing.expired")}</p>
           ) : (
             <div className="flex flex-wrap items-start gap-5">
-              {offer.url ? (
-                <div className="rounded-md bg-white p-2">
-                  <QRCodeSVG value={offer.url} size={160} level="M" bgColor="#ffffff" fgColor="#111111" />
-                </div>
-              ) : null}
               <div className="min-w-[200px] flex-1">
                 <div className="font-mono text-[18px] tracking-[0.14em] text-ink">{offer.code}</div>
                 <div className="mt-1 text-[12.5px] text-ink-secondary">{t("remote.serverPairing.expires", { minutes: minutesLeft(offer.expiresAt, now) })}</div>

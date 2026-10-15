@@ -3,8 +3,8 @@
 ## 0.3.33 — 2026-10-14
 
 - **Your Mac keeps its workspace when you sign in.** Your existing dogs and conversations stay selected, with saved server connections available under Settings → General → Advanced.
-- **Phone sign-in connects to your Mac.** Adds account registration and automatic phone pairing through the managed companion connection while your Mac is awake.
-- **Direct pairing stays available.** Phone app → Pair a device opens the existing local pairing flow for recovery.
+- **Phone sign-in connects to your Mac.** Opens your existing dogs and conversations through your account while your Mac is awake.
+- **Phone access uses your account.** Get the iPhone app and sign in with the same account as your Mac. Phone setup no longer asks you to scan or pair a device.
 
 ## 0.3.31 — 2026-10-14
 
