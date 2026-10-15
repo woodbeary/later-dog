@@ -1515,5 +1515,6 @@
   "approval.tool.delegateDog": "einem anderen Hund Arbeit übergeben",
   "approval.tool.postRoom": "in einem Raum posten",
   "chat.threads.opened": "{count} Unterhaltungen geöffnet",
-  "chat.threads.openedOne": "Eine Unterhaltung geöffnet"
+  "chat.threads.openedOne": "Eine Unterhaltung geöffnet",
+  "credentialStore.reset": "Einige von einer älteren Version gespeicherte Schlüssel konnten nicht gelesen werden und wurden beiseitegelegt. Melde dich dort, wo es verlangt wird, erneut an."
 }

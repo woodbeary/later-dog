@@ -94,3 +94,33 @@ describe("same-keychain fallback", () => {
     expect(result.credentials).toEqual({});
   });
 });
+
+describe("readSecureCredentials with a key that no longer matches", () => {
+  const wrongKey = () => new Error("Error while decrypting the ciphertext provided to safeStorage.decryptStringAsync.");
+  const stale = (over = {}) => deps({
+    decrypt: async () => { throw wrongKey(); },
+    setAside: vi.fn(),
+    probe: async () => true,
+    now: () => new Date("2026-10-15T12:30:45.000Z"),
+    ...over,
+  });
+
+  it("sets the file aside and reports reset when the current key works", async () => {
+    const options = stale();
+    const result = await readSecureCredentials(options);
+    expect(options.setAside).toHaveBeenCalledWith("credentials.bin.unreadable-2026-10-15T12-30-45.000Z");
+    expect(result).toEqual({ status: "reset", credentials: {}, setAsideAs: "credentials.bin.unreadable-2026-10-15T12-30-45.000Z" });
+  });
+
+  it("leaves the file alone and stays unavailable when the probe fails", async () => {
+    const options = stale({ probe: async () => { throw new Error("keychain locked"); } });
+    const result = await readSecureCredentials(options);
+    expect(options.setAside).not.toHaveBeenCalled();
+    expect(result.status).toBe("unavailable");
+  });
+
+  it("stays unavailable when the file cannot be renamed", async () => {
+    const result = await readSecureCredentials(stale({ setAside: () => { throw new Error("EACCES"); } }));
+    expect(result.status).toBe("unavailable");
+  });
+});

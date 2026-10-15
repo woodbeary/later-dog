@@ -2030,5 +2030,6 @@
   "approval.tool.delegateDog": "把工作交給另一隻狗",
   "approval.tool.postRoom": "在房間裡發文",
   "chat.threads.opened": "已開啟 {count} 個對話串",
-  "chat.threads.openedOne": "已開啟對話串"
+  "chat.threads.openedOne": "已開啟對話串",
+  "credentialStore.reset": "舊版本儲存的部分金鑰無法讀取,已被另外存放。請在提示時重新登入。"
 }

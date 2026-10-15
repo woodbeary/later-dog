@@ -1817,5 +1817,6 @@
   "approval.tool.delegateDog": "передати роботу іншій собаці",
   "approval.tool.postRoom": "опублікувати в кімнаті",
   "chat.threads.opened": "Відкрито розмов: {count}",
-  "chat.threads.openedOne": "Відкрито розмову"
+  "chat.threads.openedOne": "Відкрито розмову",
+  "credentialStore.reset": "Деякі ключі, збережені старішою версією, не вдалося прочитати, і їх відкладено. Увійдіть знову там, де буде запропоновано."
 }

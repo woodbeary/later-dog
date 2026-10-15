@@ -1520,5 +1520,6 @@
   "approval.tool.delegateDog": "passar trabalho a outro cão",
   "approval.tool.postRoom": "publicar em uma sala",
   "chat.threads.opened": "{count} conversas abertas",
-  "chat.threads.openedOne": "Uma conversa aberta"
+  "chat.threads.openedOne": "Uma conversa aberta",
+  "credentialStore.reset": "Algumas chaves salvas por uma versão anterior não puderam ser lidas e foram separadas. Entre novamente onde for solicitado."
 }

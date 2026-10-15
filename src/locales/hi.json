@@ -1507,5 +1507,6 @@
   "approval.tool.delegateDog": "दूसरे कुत्ते को काम सौंपना",
   "approval.tool.postRoom": "किसी रूम में पोस्ट करना",
   "chat.threads.opened": "{count} बातचीत खोलीं",
-  "chat.threads.openedOne": "एक बातचीत खोली"
+  "chat.threads.openedOne": "एक बातचीत खोली",
+  "credentialStore.reset": "पुराने संस्करण द्वारा सहेजी गई कुछ कुंजियाँ पढ़ी नहीं जा सकीं और अलग रख दी गईं। जहाँ कहा जाए वहाँ फिर से साइन इन करें।"
 }

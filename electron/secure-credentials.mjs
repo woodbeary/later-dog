@@ -8,6 +8,9 @@ export async function readSecureCredentials({
   readFile,
   decrypt,
   decryptFallback,
+  probe,
+  setAside,
+  now = () => new Date(),
   sleep,
   delays = CREDENTIAL_READ_DELAYS_MS,
 }) {
@@ -45,5 +48,22 @@ export async function readSecureCredentials({
       }
     } catch {}
   }
+  if (probe && setAside && (await keyStillWorks(probe))) {
+    const name = `credentials.bin.unreadable-${now().toISOString().replaceAll(":", "-")}`;
+    try {
+      setAside(name);
+      return { status: "reset", credentials: {}, setAsideAs: name };
+    } catch (error) {
+      lastError = message(error);
+    }
+  }
   return { status: "unavailable", credentials: {}, error: lastError };
+}
+
+async function keyStillWorks(probe) {
+  try {
+    return await probe();
+  } catch {
+    return false;
+  }
 }

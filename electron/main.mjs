@@ -386,6 +386,8 @@ let desktopCompanionRelay = null;
 const CREDENTIALS_FILE = path.join(app.getPath("userData"), "credentials.bin");
 
 let credentialStoreUnavailable = false;
+let credentialStoreWasReset = false;
+const credentialStoreCapability = () => (credentialStoreUnavailable ? "unavailable" : credentialStoreWasReset ? "reset" : "ok");
 let credentialStoreUsesFallback = false;
 
 function credentialFallbackAvailable() {
@@ -409,6 +411,11 @@ async function readCredentialStore() {
     readFile: () => fs.readFileSync(CREDENTIALS_FILE),
     decrypt: (buffer) => safeStorage.decryptStringAsync(buffer),
     decryptFallback: process.platform === "darwin" ? decryptCredentialFallback : undefined,
+    probe: async () => {
+      const sample = randomBytes(16).toString("hex");
+      return (await safeStorage.decryptStringAsync(await safeStorage.encryptStringAsync(sample))).result === sample;
+    },
+    setAside: (name) => fs.renameSync(CREDENTIALS_FILE, path.join(path.dirname(CREDENTIALS_FILE), name)),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   });
   if (result.status !== "unavailable") credentialStoreUsesFallback = result.usedFallback === true;
@@ -418,6 +425,10 @@ async function readCredentialStore() {
 async function loadSecureCredentials() {
   const result = await readCredentialStore();
   credentialStoreUnavailable = result.status === "unavailable";
+  if (result.status === "reset") {
+    credentialStoreWasReset = true;
+    slog(`credential store reset: the saved file was written with another key and was set aside as ${result.setAsideAs}`);
+  }
   if (credentialStoreUnavailable) {
     slog(`credential store unreadable after retries (${result.error}); saved keys are not loaded this launch`);
   }
@@ -3117,7 +3128,7 @@ ipcMain.handle("desktop:capabilities", async (event) => {
     env: process.env,
     packaged: app.isPackaged,
     localConnection: await cuaReady,
-    credentialStore: profile ? profiles.activeCredentialStore() : credentialStoreUnavailable ? "unavailable" : "ok",
+    credentialStore: profile ? profiles.activeCredentialStore() : credentialStoreCapability(),
   });
 });
 
@@ -3224,7 +3235,7 @@ ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mo
 
 async function broadcastDesktopCapabilities() {
   const localConnection = await cuaReady;
-  const build = (remote, credentialStore = credentialStoreUnavailable ? "unavailable" : "ok") =>
+  const build = (remote, credentialStore = credentialStoreCapability()) =>
     desktopCapabilities({
       remote,
       platform: process.platform,
