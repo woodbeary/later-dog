@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.40 — 2026-10-15
+
+- **Stop works in My Cloud.** Programs a dog started are now cleaned up when it stops, so the dog really stops instead of staying "working" with a "could not be confirmed stopped" warning.
+- **Steer always does something.** Your message goes into the running turn, or the turn stops and your message goes next. If neither can happen yet, you see one line saying why.
+- **Account names are back in the account menu.**
+- **Editing a queued message keeps its picture** as a thumbnail, and sent messages with pictures can be edited too.
+- **No more "Failed to refresh OAuth token" replies.** Dogs wait for one sign-in refresh instead of racing each other, and retry quietly if it was busy.
+- **Dogs use your Mac without asking**, and work on your Mac keeps going when the connection to My Cloud drops for a moment.
+
 ## 0.3.39 — 2026-10-15
 
 - **Apps on your Mac use your dogs in My Cloud with the same limits local tools have.** They can send messages, make and change dogs, rooms and threads, switch models and stop a turn; approvals stay with you. Signing out ends their session in My Cloud too.
