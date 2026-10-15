@@ -672,7 +672,7 @@ describe("agents-proxy MCP surface", () => {
   it.each(["other", "off", "vm", "browser", " VM ", 42, null, {}, ["vm"]].map((surface) => ({ surface })))("select_computer rejects invalid target $surface before contacting the server", async ({ surface }) => {
     const response = await callTool("select_computer", { surface });
     expect(response.result.isError).toBe(true);
-    expect(response.result.content[0].text).toContain("Choose auto, cloud or local");
+    expect(response.result.content[0].text).toContain("Choose auto, cloud, local or mac");
     expect(computerRequests).toEqual([]);
   });
 

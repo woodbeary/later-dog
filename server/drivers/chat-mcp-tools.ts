@@ -312,8 +312,7 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
     if (runs === undefined) return { title: name, input: args, ask: false };
     if (tool?.builtInAgents && isReadOnlyAgentTool(tool.name)) return { title: name, input: args, ask: false };
     if (tool?.builtInAgents && tool.name === "select_computer") {
-      if (args.surface === undefined) return { title: name, input: args, ask: false };
-      if (args.surface === "cloud") return { title: name, input: args, ask: true, ownComputer: true };
+      return { title: name, input: args, ask: false };
     }
     if (!tool?.searched || tool.name !== CALL_TOOL) {
       return { title: name, input: args, ask: true, ...(tool && (tool.builtInComputer || tool.builtInBrowser) ? { ownComputer: true } : {}),
