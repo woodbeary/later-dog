@@ -4,6 +4,8 @@ import { X } from "lucide-react";
 import { openExternalLink } from "@/lib/app-links";
 import { cloudAccountBridge, cloudCard, PHONE_APP_URL, useCloudAccount } from "@/lib/cloud-account-view";
 import { t } from "@/lib/i18n";
+import { PhonePairingDialog } from "./PhonePairingDialog";
+import { companionBridge } from "./PhoneSetupFlow";
 
 export function PhoneAppDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
@@ -14,6 +16,7 @@ function OpenPhoneAppDialog({ onClose }: { onClose: () => void }) {
   const bridge = cloudAccountBridge();
   const { account, accept } = useCloudAccount(bridge);
   const [failed, setFailed] = useState(false);
+  const [pairing, setPairing] = useState(false);
   const card = cloudCard(account);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -30,6 +33,8 @@ function OpenPhoneAppDialog({ onClose }: { onClose: () => void }) {
     void bridge.begin().then(accept).catch(() => setFailed(true));
   };
   const email = card.kind === "signed-in" ? card.email : null;
+  const canPair = Boolean(companionBridge()) && window.laterdog?.remoteClient?.active !== true;
+  if (pairing) return <PhonePairingDialog open onClose={onClose} target="computer" initialRoute="local" profileEmail={email ?? undefined} />;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div role="dialog" aria-modal="true" aria-labelledby="phone-app-title" data-phone-app-dialog=""
@@ -59,6 +64,14 @@ function OpenPhoneAppDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
         {failed && <p role="alert" className="mt-2 text-[13px] text-danger">{t("cloudAccount.actionFailed")}</p>}
+        {canPair && (
+          <div className="mt-5 border-t border-hairline/40 pt-4">
+            <button type="button" className="ui-button w-full" data-phone-app-pair onClick={() => setPairing(true)}>
+              {t("phone.intro.pair")}
+            </button>
+            <p className="mt-2 text-[12px] text-ink-secondary">{t("phone.signIn.wifiNote")}</p>
+          </div>
+        )}
         <p className="mt-4 text-[12px] text-ink-secondary">{t("phoneApp.beta")}</p>
       </div>
     </div>

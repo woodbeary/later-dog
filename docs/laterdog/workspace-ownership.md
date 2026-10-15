@@ -14,6 +14,8 @@ The desktop's existing `omc_` device session enrolls an installation and pins th
 
 The installed desktop 0.3.31 lacks this registration and pairing coordinator, so a phone OTA alone cannot activate the connection. The source changes require desktop delivery. Production managed tunnels also require the control-plane `CLOUDFLARE_API_TOKEN`; its deployed secret list currently lacks that binding and `MANAGED_ENDPOINTS` remains off. These are delivery prerequisites, not additional product scope.
 
+The direct Wi-Fi path reuses the companion API already shipped in 0.3.31. The Phone app dialog now exposes **Pair a device**, which opens the existing local pairing flow without account enrollment or a managed tunnel. The native phone app handles the existing `laterdog://pair` QR, redeems its short-lived grant and retains that Mac connection across restarts. The Mac must stay awake and both devices must share a reachable local network. Previously, the desktop entry showed only an app-download QR and the native app had no pairing-link handler. Delivering the restored desktop entry still requires a desktop update; running the source Dev app verifies only its isolated workspace.
+
 The broader design below is deferred. Cloud migration, synchronization authority, automatic Mac/cloud task routing and operation while the Mac sleeps are not part of this change.
 
 ## Immediate fix already on main

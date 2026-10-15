@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 import { t } from "@/lib/i18n";
@@ -7,12 +7,12 @@ import { PairedPhones } from "./PairedPhones";
 import { PhoneSetupFlowView, usePhoneSetupController } from "./PhoneSetupFlow";
 import { ServerPairingCard } from "./ServerPairingCard";
 
-export function PhonePairingDialog({ open, onClose, profileEmail, target = "computer" }: { open: boolean; onClose: () => void; profileEmail?: string; target?: PhonePairingTarget }) {
+export function PhonePairingDialog({ open, onClose, profileEmail, target = "computer", initialRoute }: { open: boolean; onClose: () => void; profileEmail?: string; target?: PhonePairingTarget; initialRoute?: "local" }) {
   if (!open) return null;
-  return <OpenPhonePairingDialog onClose={onClose} profileEmail={profileEmail} target={target} />;
+  return <OpenPhonePairingDialog onClose={onClose} profileEmail={profileEmail} target={target} initialRoute={initialRoute} />;
 }
 
-function OpenPhonePairingDialog({ onClose, profileEmail, target }: { onClose: () => void; profileEmail?: string; target: PhonePairingTarget }) {
+function OpenPhonePairingDialog({ onClose, profileEmail, target, initialRoute }: { onClose: () => void; profileEmail?: string; target: PhonePairingTarget; initialRoute?: "local" }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) {
@@ -46,18 +46,24 @@ function OpenPhonePairingDialog({ onClose, profileEmail, target }: { onClose: ()
           <X size={16} />
         </button>
         {target === "computer"
-          ? <ComputerPairing onClose={onClose} profileEmail={profileEmail} />
+          ? <ComputerPairing onClose={onClose} profileEmail={profileEmail} initialRoute={initialRoute} />
           : <ServerPairingCard cloudHome={target === "cloud"} />}
       </div>
     </div>
   );
 }
 
-function ComputerPairing({ onClose, profileEmail }: { onClose: () => void; profileEmail?: string }) {
+function ComputerPairing({ onClose, profileEmail, initialRoute }: { onClose: () => void; profileEmail?: string; initialRoute?: "local" }) {
   const controller = usePhoneSetupController(profileEmail);
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current || !initialRoute || !controller.state || controller.busy || controller.accountBusy) return;
+    started.current = true;
+    controller.useLocal();
+  }, [initialRoute, controller.state, controller.busy, controller.accountBusy, controller.useLocal]);
   return (
     <>
-      <PhoneSetupFlowView controller={controller} variant="settings" onComplete={onClose} />
+      <PhoneSetupFlowView controller={initialRoute === "local" ? { ...controller, start: controller.useLocal } : controller} variant="settings" onComplete={onClose} />
       {controller.phase === "intro" && <PairedPhones controller={controller} />}
     </>
   );
