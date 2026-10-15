@@ -115,7 +115,7 @@ export function customMcpPrompt(names: string[]): string {
   return ` The user also added ${names.length === 1 ? "an MCP server" : "MCP servers"} for you: ${list}. Use their available tools under the engine's normal approval rules.`;
 }
 export const CREDENTIAL_PROMPT =
-  " If a supported API key is missing for the service actually needed, use request_credential to create a secure credential request. A freshly QR-paired mobile app or the desktop app can show the secure entry card. Never claim it opened unless the request succeeded, and never ask the user to paste credentials into chat." + TAKEOVER_PROMPT;
+  " If a supported API key is missing for the service actually needed, use request_credential to create a secure credential request. The desktop app, and usually the phone app, can show the secure entry card. Never claim it opened unless the request succeeded, and never ask the user to paste credentials into chat." + TAKEOVER_PROMPT;
 export const THREADS_PROMPT =
   " A thread is one conversation with its own history and its own run; a bot can have several running at once, and the person sees them as rows under that bot. Use start_thread to open one on yourself for separate work, or on a teammate to hand them a job that should run on its own. Use list_threads to see how the ones you opened are going. When you mention a thread to the person, write its title as #Title so it links. Do not use a ticket comment, a note, or a room post as a stand-in for a thread.";
 const PROPOSAL_RESULT_PROMPT =

@@ -639,7 +639,8 @@ describe("agents-proxy MCP surface", () => {
     expect(delegate.description).toContain("DEFAULT FOR ASSIGNING WORK");
     expect(delegate.description).toContain("delivered automatically");
     expect(wait.description).toContain("Never call it in the same turn as delegate_bot");
-    expect(credential.description).toContain("freshly QR-paired mobile app show a secure entry card");
+    expect(credential.description).toContain("The desktop app shows a secure entry card");
+    expect(credential.description).not.toMatch(/QR|pair again/);
     expect(credential.description).toContain("Never claim a secure field opened unless this request succeeds");
   });
 
@@ -1135,8 +1136,9 @@ describe("agents-proxy MCP surface", () => {
       reason: "The selected model needs it.",
     });
     expect(res.result.content[0].text).toContain("secure OpenCode API key request");
-    expect(res.result.content[0].text).toContain("freshly QR-paired mobile app show its secure entry card");
-    expect(res.result.content[0].text).toContain("older mobile pairings explain how to pair again");
+    expect(res.result.content[0].text).toContain("The desktop app shows its secure entry card");
+    expect(res.result.content[0].text).toContain("says to finish on the Mac");
+    expect(res.result.content[0].text).not.toMatch(/QR|pair again/);
     expect(res.result.content[0].text).toContain("End this turn");
     expect(lastCredentialBody).toEqual({
       fromBotId: "bot-asker",

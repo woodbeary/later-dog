@@ -367,7 +367,7 @@ export class PhoneSecretBridge {
       );
     });
     if (context.version !== PHONE_SECRET_PROTOCOL_VERSION || context.keyId !== identity.keyId) {
-      throw new PhoneSecretError("This phone was paired with an older security key. Pair it again by QR code.", 409);
+      throw new PhoneSecretError("This phone has an older security key, so it can't send this. Fill it in on your Mac instead.", 409);
     }
 
     const encapsulatedKey = decodeBase64URL(context.encapsulatedKey, 65);
