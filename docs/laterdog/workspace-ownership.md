@@ -1,24 +1,74 @@
-# Preserve the workspace during Cloud sign-in
+# Attach the existing workspace to the account
 
-Today Electron alone persists environments.json.activeId and navigates the main window. Cloud account state currently calls connectCloudHome and a once-only backup restore, while the renderer sign-in gate expects navigation to finish it. Local and hosted servers each own their own JSON, SQLite and files. This is copying, not synchronization.
+## Product decision
 
-## Designs considered
+The existing Mac workspace is canonical: coordinator, main desk, minor changes, main app, REA, refactor main desk, and their conversations. Account sign-in attaches that workspace to the account. Desktop and phone open the same dogs and chats automatically. Cloud provides hosting and execution for that workspace.
 
-A. Preserve the existing authority. Callers authenticate with cloudAccount.verifyCode, then update account UI; no workspace command follows. Electron remains the sole writer of explicit environment selection. The renderer owns a completed sign-in gate latch. Cloud account restoration/provisioning never triggers navigation or backup copying. Explicit existing connection controls remain reachable. This is the selected immediate design.
+The existing Ember, Willow and Finch cloud workspace is retained separately. This plan does not authorize deleting it, overwriting it, or merging its records into the canonical workspace. Removing the everyday local/cloud picker must preserve a deliberate recovery path for that existing data.
 
-B. Hide the selector while retaining two writable stores. Caller sign-in would still choose a hosted copy, merely without showing its origin. Rejected: it hides separate data and does not establish a single writer or safe retry behavior.
+This document is a proposal for review before substantial implementation. Only the immediate sign-in fix has been implemented.
 
-C. Introduce one account workspace authority. Callers send WorkspaceCommand {workspaceId, requestId, expectedRevision} and subscribe to WorkspaceEvent {sequence}; executors submit results with an ExecutionLease {runId, epoch}. The authority owns conversations, the supervisor remains the sole writer of jobs, and devices receive scoped credentials. This is a substantial follow-up, not part of the immediate patch.
+## Immediate fix already on main
 
-## Immediate implementation
+Commit `bca8e4f0136ac558c79295bcbdae6d27fd0ad4c7` removes account-triggered navigation and automatic workspace copying. Electron remains the sole writer of explicit connection selection. The renderer closes the sign-in screen when authentication succeeds, including a successful verification followed by an unavailable account refresh. A native Server menu remains available for recovery from older builds that switched connections.
 
-- Remove account-state-triggered navigation and automatic workspace backup copying.
-- Finish the renderer sign-in gate when authentication succeeds, regardless of cloud machine provisioning.
-- Keep saved connections and an explicit route back from a previously opened cloud workspace; do not hide existing data or merge/delete either store.
-- Preserve the existing committed source dev launcher and Origin repair.
-- Focused Electron tests exercise sign-in/restore with local and custom selections; renderer tests verify completion and no connect/decline calls.
-- No version bump, PR, CI wait, release or notarization. Commit integration to main with the CI skip marker; no packaging build is requested.
+Verification: 97 focused Node tests and 72 focused Vitest cases passed. An isolated source dev app started, served the changed renderer and delivered hot reload. Native Cloud sign-in remains gated to packaged Electron, so source startup is not an end-to-end native authentication check. The installed 0.3.31 app has not been changed by this source-only fix. No package, release or notarization build was made.
 
-## Full unification
+## Current ownership and limits
 
-First route phone access to the existing authoritative Mac workspace and attach cloud execution to its existing threads (rough estimate 2–4 engineering days; Mac must stay reachable). For phone use while the Mac sleeps, introduce durable ordered commands, deduplication, executor fencing, local projections and one verified authority transfer with reconciliation of existing divergent cloud data (rough estimate 3–5 engineer-weeks including migration/failure tests). Independently writable file synchronization is rejected because it can duplicate execution and overwrite conversations.
+- `electron/main.mjs` persists connection selection. `electron/cloud-account.mjs` obtains an account's cloud-machine address and pairing grant. Authentication and workspace identity are currently separate concerns.
+- Local and hosted servers each write their own JSON, SQLite and files. `server/workspace-backup.ts` can seed a destination, but excludes machine identity and credentials, pauses automation, interrupts pending work and rebases paths.
+- `deploy/laterdog/home/src/identity.ts` derives one machine identity from an account. Hosting the canonical workspace while retaining the existing cloud data needs an explicit account-to-workspace/generation mapping.
+- `deploy/laterdog/home/runtime/sync.mjs` persists snapshots to object storage. This is not ordered, acknowledged synchronization between two active writers.
+
+## Ownership designs considered
+
+### A. Mac authority with account routing
+
+Callers resolve the account's workspace and send commands through a relay to the existing Mac. The Mac continues to own conversations and schedule work; cloud execution returns results to it.
+
+This can provide an intermediate phone connection in roughly 2–4 engineering days, provided the Mac stays reachable. It cannot provide the full requested cloud-hosted experience while the Mac sleeps. It is not the proposed final architecture.
+
+### B. One cloud authority, seeded from the existing Mac workspace
+
+Callers resolve one account workspace, submit commands for that stable workspace ID and subscribe to its ordered events. Hosting location is an implementation detail. The cloud authority owns canonical workspace state; the desktop keeps a local projection. The workspace supervisor remains the sole scheduler of runs. Mac and cloud executors receive scoped leases and return results to the same threads.
+
+This is the recommended architecture. It preserves the identity of the existing workspace while allowing access when the Mac is asleep. A disconnected desktop can show its cached conversations and explicitly queued commands; it does not become an independent writer. Autonomous offline execution is outside this estimate.
+
+Proposed small contracts, all new:
+
+| Caller operation | Required ownership and data |
+| --- | --- |
+| Resolve account workspace | Account coordinator returns the one active `workspaceId`, `generation`, `epoch` and endpoint. |
+| Submit workspace command | Authority accepts `{workspaceId, requestId, expectedRevision, operation}` and persists a deduplication receipt. |
+| Read workspace events | Authority returns ordered events after a durable sequence cursor; the desktop projection has one applying writer. |
+| Execute work | Supervisor issues `{runId, epoch, executorId}` with scoped credentials. Stale lease holders cannot commit results. |
+| Transfer authority | Coordinator commits a migration ID, generation, epoch and checkpoint digest with compare-and-swap. |
+
+Workspace identity is distinct from account, machine and execution identity. Existing bot, group, thread and message IDs remain unchanged. Binding requires proof of both the signed-in account and the local workspace. A second device resolves the existing binding; it cannot silently replace it with its own local data. Changing accounts cannot reassign an already-bound workspace. Retry, restart and a lost response must recover from durable receipts rather than repeat commands or external effects.
+
+### C. Copy the backup and hide the selector
+
+Rejected: two independently writable stores remain, account routing still selects a machine, and repeat execution or divergent chat histories are possible. File synchronization alone cannot establish command ordering or transfer ownership safely.
+
+## Implementation stages
+
+1. **Identity and retention.** Inventory IDs, relationships, message content, attachments, memory, durable files, active work and external dependencies. Assign the existing local workspace a stable workspace ID and bind it to the authenticated account. Preserve the existing cloud workspace as a separately identified retained generation with a verified recovery snapshot and no automatic expiration or garbage collection. Existing cloud records are not modified by the canonical-workspace import.
+2. **Stage the same workspace.** Import a consistent snapshot into a fresh cloud generation with execution disabled. Preserve IDs. Verify content digests and relationships as well as counts. Keep the Mac authoritative during preparation. Destination data must be isolated from the existing cloud workspace.
+3. **Transfer ownership once.** Briefly stop new mutations and reach a checkpoint. Drain active turns where possible; explicitly surface work that cannot be safely transferred. Persist a transfer-pending marker that survives restart. The coordinator commits the checkpoint and a new writer epoch. Both sides enforce fencing, including after a crash or restart. A lost commit response is resolved by querying the migration receipt.
+4. **Open the same workspace everywhere.** Desktop and phone resolve the account's active workspace automatically. The desktop submits commands and consumes ordered events into its local projection. Cloud and Mac execution report to the existing threads. Remove the ordinary This computer/My Cloud workspace choice at this stage. Existing cloud data stays accessible through a separate recovery action. Signing in or reconnecting must never fall back to an empty workspace.
+5. **Prove recovery and continuity.** Exercise interrupted uploads, every cutover crash point, lost acknowledgements, reconnects, device revocation, stale writers, duplicate commands, routines and retained-cloud recovery. Compare original IDs and content with both clients after migration. Verify a phone action appears in the existing desktop conversation and vice versa.
+
+Before commitment, an aborted migration can retain local authority after cancellation is durably recorded. After the cloud accepts writes, returning authority to the Mac requires another fenced transfer containing those writes. Reopening the old local snapshot is not a valid rollback.
+
+## Credentials and execution
+
+Workspace content can move without transferring Mac credentials. Provider sessions, MCP OAuth, browser profiles, OS keychains, device pairing and external project directories are excluded from current backups. Mac-only tools and credentials remain behind an authorized Mac executor. Cloud providers need their own supported authorization. A sleeping or disconnected Mac makes its local tools unavailable; the interface must show that limitation while retaining the same conversation. Pending external effects must not be replayed solely because their response was lost.
+
+## Estimate and next decision
+
+- **Safe online migration and one cloud authority:** 8–15 engineering days.
+- **Complete desktop projection, reconnect handling and migration hardening:** 15–25 engineering days total, roughly 3–5 engineer-weeks.
+- **Not included:** autonomous offline writers, copying native provider sessions, automatic merging of the existing cloud workspace, or deleting any cloud data.
+
+These are planning ranges based on the inspected desktop, storage and home-hosting code. The first implementation checkpoint must validate the accounts-service and phone contracts and measure the workspace inventory before committing to a delivery date. No large implementation or data migration starts as part of this planning request. The proposed scope decision is whether to proceed with design B; deleting the existing cloud data would require a separate explicit decision.
