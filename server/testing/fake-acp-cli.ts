@@ -998,6 +998,7 @@ function handle(msg: any) {
       break;
     }
     case "session/cancel":
+      if (process.env.FAKE_ACP_IGNORE_CANCEL === "1") break;
       if (hangingPromptId !== null) {
         result(hangingPromptId, { stopReason: "cancelled", _meta: {} });
         if (hangKeepAlive) clearInterval(hangKeepAlive);
