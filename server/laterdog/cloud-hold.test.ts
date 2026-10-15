@@ -26,7 +26,7 @@ describe("holding this computer's dogs while signed in to Cloud", () => {
     expect(() => hold.assertAvailable()).not.toThrow();
     expect(hold.hold(all)).toEqual({ held: true, paused: 2 });
     expect(all.enabled).toEqual({ nightly: false, weekly: false, manual: false });
-    expect(() => hold.assertAvailable()).toThrowError(/working in your Cloud/);
+    expect(() => hold.assertAvailable()).toThrowError(/working in My Cloud/);
     expect(hold.release(all)).toEqual({ held: false, resumed: 2 });
     expect(all.enabled).toEqual({ nightly: true, weekly: true, manual: false });
     expect(() => hold.assertAvailable()).not.toThrow();

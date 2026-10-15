@@ -28,7 +28,7 @@ export class CloudHold {
   get held(): boolean { return this.state.held; }
 
   assertAvailable(): void {
-    if (this.state.held) throw Object.assign(new Error("This computer's dogs are working in your Cloud while you are signed in."), { status: 503 });
+    if (this.state.held) throw Object.assign(new Error("This computer's dogs are working in My Cloud while you are signed in."), { status: 503 });
   }
 
   private save(): void {
