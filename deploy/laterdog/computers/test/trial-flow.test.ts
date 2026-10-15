@@ -405,7 +405,7 @@ describe("free trials, end to end", () => {
     expect(await inspect(w, key, id)).toMatchObject({ state: "running" });
 
     await w.advance(20 * MINUTE);
-    expect(fired).toEqual([1000, 5 * MINUTE + 1000, 10 * MINUTE + 1000, 15 * MINUTE + 1000, 20 * MINUTE + 1000, 25 * MINUTE + 1000, 30 * MINUTE]);
+    expect(fired).toEqual([250, 5 * MINUTE + 250, 10 * MINUTE + 250, 15 * MINUTE + 250, 20 * MINUTE + 250, 25 * MINUTE + 250, 30 * MINUTE]);
     expect(w.logs).toHaveBeenCalledWith(`laterdog computers: ${id} is going to sleep (budget)`);
     const container = w.containers.get(id)!;
     expect(container.running).toBe(false);

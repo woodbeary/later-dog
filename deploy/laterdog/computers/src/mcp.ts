@@ -22,8 +22,8 @@ export interface McpDeps {
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 export type ToolResult = { content: Content[]; structuredContent?: Record<string, unknown>; isError?: boolean };
 
-const WAKE_POLLS = 15;
-const WAKE_POLL_MS = 2000;
+const WAKE_POLLS = 60;
+const WAKE_POLL_MS = 500;
 const SETTLE_MS = 500;
 const LOADING_RETRIES = 3;
 const LOADING_RETRY_MS = 1000;
@@ -106,11 +106,12 @@ async function createTool({ backend }: McpDeps, args: Record<string, unknown>): 
 
 async function wakeTool({ backend, wait = sleep }: McpDeps, id: string): Promise<ToolResult> {
   let computer = described((await data(await backend.computer("wake", id))).computer);
-  for (let poll = 0; computer.state === "starting" && poll < WAKE_POLLS; poll++) {
+  const settling = () => computer.state === "starting" || (computer.state === "running" && computer.desktopAvailable === false);
+  for (let poll = 0; settling() && poll < WAKE_POLLS; poll++) {
     await wait(WAKE_POLL_MS);
     computer = described((await data(await backend.computer("get", id))).computer);
   }
-  if (computer.state === "running") return structured({ computer, ready: true });
+  if (computer.state === "running" && computer.desktopAvailable !== false) return structured({ computer, ready: true });
   if (computer.state === "error") throw new ToolFailure(`The computer could not start${typeof computer.error === "string" ? `: ${computer.error}` : "."}`);
   return structured({ computer, ready: false }, "It is still starting. Call computer_wake again in a few seconds.");
 }

@@ -4,7 +4,7 @@ export type CollectionOp = "list" | "create";
 export type TrialOp = "status" | "end";
 export type ComputerOp = "get" | "rename" | "delete" | "wake" | "sleep" | "exec" | "readFile" | "writeFile" | "screenshot" | "desktop";
 
-export type DesktopResource = { type: "page" } | { type: "status" } | { type: "socket" } | { type: "asset"; path: string };
+export type DesktopResource = { type: "page" } | { type: "status" } | { type: "socket" };
 
 export type Route =
   | { kind: "health" }
@@ -47,7 +47,6 @@ const API_PATH = /^\/v1\/computers(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/;
 const DESKTOP_PATH = /^\/desktop\/([^/]+)\/([^/]+)(\/.*)?$/;
 const VOICE_PATH = /^\/v1\/voice\/text-to-speech\/([A-Za-z0-9]{1,64})$/;
 const DESKTOP_TOKEN = /^[A-Za-z0-9._-]{1,128}$/;
-const ASSET = /^(?:core|vendor)(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)+\.js$/;
 
 function allow(table: Record<string, string>, method: string): string | undefined {
   return Object.hasOwn(table, method) ? table[method] : undefined;
@@ -105,7 +104,6 @@ export function route(method: string, pathname: string): Route {
     if (rest === "") resource = { type: "page" };
     else if (rest === "status") resource = { type: "status" };
     else if (rest === "websockify") resource = { type: "socket" };
-    else if (ASSET.test(rest)) resource = { type: "asset", path: rest };
     return resource ? { kind: "desktop", id: id!, token: token!, resource } : { kind: "not_found", api: false };
   }
   return { kind: "not_found", api: false };

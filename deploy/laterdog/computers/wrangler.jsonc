@@ -3,6 +3,7 @@
   "name": "laterdog-computers",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
+  "assets": { "directory": "../../../third_party/novnc/public" },
   "observability": { "enabled": true },
   "workers_dev": true,
   "routes": [{ "pattern": "cloud.later.dog", "custom_domain": true }],

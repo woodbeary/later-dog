@@ -144,7 +144,7 @@ export const TOOLS: readonly McpToolDefinition[] = [
   {
     name: "computer_wake",
     description:
-      "Start a sleeping computer, or wait for a new one to finish starting. It returns once the computer is running, "
+      "Start a sleeping computer, or wait for a new one to finish starting. It returns once the computer is running and its desktop is drawn, "
       + "or says it is still starting after 30 seconds, in which case call it again. A computer that slept comes back with its files but not its open programs.",
     inputSchema: { type: "object", properties: { computer_id: computerId }, required: ["computer_id"], additionalProperties: false },
     annotations: { title: "Wake a cloud computer", ...WRITE },
