@@ -658,7 +658,7 @@ async function transcribeRequest(request: Request, env: Env): Promise<Response> 
   const allowance = await trials(env).allowUsage({ keySha256, kind: "transcribe_seconds", amount: parsed.request.seconds, perKey: TRANSCRIBE_SECONDS_PER_DAY, total: TRANSCRIBE_SECONDS_TOTAL_PER_DAY });
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
   try {
-    const transcript = transcriptFrom(await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(TRANSCRIBE_MODEL, transcribeInput(parsed.request), aiGateway(env)));
+    const transcript = transcriptFrom(await (env.AI.run as (model: string, input: Record<string, unknown>) => Promise<unknown>)(TRANSCRIBE_MODEL, transcribeInput(parsed.request)));
     return transcript ? json(transcript) : apiError(INCLUDED_FAILED);
   } catch (error) {
     console.error(`laterdog computers: transcription failed: ${error instanceof Error ? error.message : String(error)}`);
