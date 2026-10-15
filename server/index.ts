@@ -573,6 +573,7 @@ import {
   clearSessionCookie,
   clientBotPatchViolation,
   clientGroupPatchViolation,
+  fromLocalTools,
   isLoopbackHost,
   isProxied,
   labelFromUserAgent,
@@ -638,7 +639,7 @@ import {
   type PhoneSecretContext,
 } from "./phone-secret.ts";
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
-import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
+import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, signsItselfOut, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 import { EDIT_REFUSAL, UNGUARDED_REFUSAL, localToolMessageText, localToolSpeaker, unguardedMode } from "./laterdog/local-tool-message.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
@@ -1329,8 +1330,6 @@ function decisionActorFor(auth: RequestAuth): DecisionActor {
     ...(session.userId && !session.userId.startsWith("portal:") ? { userId: session.userId } : {}),
   };
 }
-
-const fromLocalTools = (auth: RequestAuth): boolean => auth.kind === "loopback" && auth.localTools === true;
 
 function unguardedDog(botId: string, threadId?: string): boolean {
   const bot = store.bot(botId);
@@ -13947,12 +13946,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const label = typeof body?.label === "string" ? body.label : "";
       const attemptId = typeof body?.attemptId === "string" ? body.attemptId : undefined;
       const browser = body?.browser === true;
+      if (body?.localTools !== undefined && typeof body.localTools !== "boolean") return json(res, 400, { error: "localTools must be true or false" });
+      const localTools = body?.localTools === true;
+      if (browser && localTools) return json(res, 400, { error: "a local tools session is for apps on a Mac, not a browser; leave out browser: true" });
       if (browser && body?.preview === true) {
         const preview = sessions.previewBrowserSignIn(code);
         return preview ? json(res, 200, preview) : json(res, 401, { error: "this sign-in link has expired or was already used" });
       }
       if (browser && !wantsCookie) return json(res, 400, { error: "a browser sign-in sets this browser's cookie; send cookie: true" });
-      const result = sessions.exchange({ code, label, attemptId, browser, source: requestSource(req), fallbackLabel: labelFromUserAgent(req.headers["user-agent"]) });
+      const result = sessions.exchange({ code, label, attemptId, browser, localTools, source: requestSource(req), fallbackLabel: labelFromUserAgent(req.headers["user-agent"]) });
       if (!result.ok) {
         console.warn(`pairing refused from ${requestSource(req)}: ${result.error}`);
         return json(res, result.status, { error: result.error });
@@ -14017,7 +14019,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (!gate.auth) return json(res, gate.status, { error: gate.error });
     const auth = gate.auth;
-    if (auth.kind === "loopback" && auth.localTools) guardBody(req, (body) => localToolsBodyRefusal(method, path, body));
+    if (fromLocalTools(auth) && !signsItselfOut(method, path)) guardBody(req, (body) => localToolsBodyRefusal(method, path, body));
     if (HOSTED_WORKSPACE && auth.kind === "session") {
       const failure = workspaceAccess
         ? await workspaceAccess.authorize(req, auth)
@@ -14055,6 +14057,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               id: auth.session.id,
               label: auth.session.label,
               scopes: auth.scopes,
+              ...(auth.localTools ? { localTools: true } : {}),
               expiresAt: auth.session.expiresAt,
               via: auth.via,
               environmentId: ENVIRONMENT_ID,
@@ -17739,7 +17742,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const replyTo = resolveReplyTarget(threadId, body.replyToId);
       const browserOrigin = typeof req.headers.origin === "string" && req.headers.origin.trim() !== "";
       const via: "api" | undefined =
-        auth.kind === "loopback" && (fromLocalTools(auth) || (!DESKTOP_MANAGED && !browserOrigin)) ? "api" : undefined;
+        fromLocalTools(auth) || (auth.kind === "loopback" && !DESKTOP_MANAGED && !browserOrigin) ? "api" : undefined;
       if (via) {
         console.warn(`room message from ${requestSource(req)} through the local API (no session, no browser origin) into "${group.name}"`);
       }
@@ -18092,7 +18095,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const template = resolveBotCreationDefaults(cfg.newBotDefaults, body);
       const settings = template.profile;
-      if (auth.kind === "loopback" && auth.localTools) Object.assign(settings, { approvalMode: "ask", autoApprove: false, alwaysAllow: [] });
+      if (fromLocalTools(auth)) Object.assign(settings, { approvalMode: "ask", autoApprove: false, alwaysAllow: [] });
       if (auth.kind === "session" && !auth.scopes.includes("admin")) {
         const field = clientBotPatchViolation(settings);
         if (field || body.preset !== undefined || template.skills.length || template.routines.length || Object.keys(template.memory).length) {

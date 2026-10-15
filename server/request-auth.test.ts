@@ -8,6 +8,7 @@ import {
   clearSessionCookie,
   clientBotPatchViolation,
   clientGroupPatchViolation,
+  fromLocalTools,
   ipcPeer,
   isAllowedOrigin,
   isLoopbackHost,
@@ -25,6 +26,7 @@ import {
   sessionCookieName,
 } from "./request-auth.ts";
 import { SESSION_TTL_MS, SessionRegistry } from "./sessions.ts";
+import { LOCAL_TOOLS_REFUSAL, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 
 function request(headers: Record<string, string>, method = "GET"): IncomingMessage {
   return { headers, method } as unknown as IncomingMessage;
@@ -643,5 +645,103 @@ describe("local tools token: local tools work on a packaged desktop, but a dog c
   it("still lets a paired device approve, since only the desktop and paired devices may", () => {
     const paired = sessions.issue({ label: "Phone", scopes: ["admin", "client"] });
     expect(check("POST", "/api/bots/bot-1/respond", { authorization: `Bearer ${paired.token}` }).auth?.kind).toBe("session");
+  });
+});
+
+describe("an apps session (\"Apps on this Mac\" on a Cloud home) is held to the local tools rules, whatever its scopes", () => {
+  let dir: string;
+  let sessions: SessionRegistry;
+  const cookieName = "laterdog_session_8799_env";
+  const cloud = { host: "c-1.later.dog", "x-forwarded-proto": "https" };
+  const check = (method: string, path: string, headers: Record<string, string>) =>
+    resolveRequestAuth(request({ ...cloud, ...headers }, method), { sessions, cookieName, streamPath: "/api/events", url: new URL(path, "https://c-1.later.dog") });
+  const signIn = (label: string, localTools?: boolean) => {
+    const opened = sessions.openPairing({ scopes: ["admin", "client"], label: "later.dog Cloud" });
+    const paired = sessions.exchange({ code: opened.credential, label, source: "203.0.113.4", ...(localTools === undefined ? {} : { localTools }) });
+    if (!paired.ok) throw new Error(paired.error);
+    return { token: paired.token, bearer: { authorization: `Bearer ${paired.token}` }, id: paired.session.id };
+  };
+  let apps: ReturnType<typeof signIn>;
+  let phone: ReturnType<typeof signIn>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "laterdog-auth-apps-session-"));
+    sessions = new SessionRegistry({ file: join(dir, "sessions.json") });
+    apps = signIn("Apps on this Mac", true);
+    phone = signIn("iPhone");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const ALLOWED: Array<[string, string]> = [
+    ["GET", "/api/bots"], ["GET", "/api/threads/thread-1/messages"], ["GET", "/api/events"], ["GET", "/api/auth/session"],
+    ["POST", "/api/bots/bot-1/messages"], ["POST", "/api/groups/room-1/messages"], ["POST", "/api/bots/bot-1/messages/m-1/edit"],
+    ["POST", "/api/bots/bot-1/interrupt"], ["POST", "/api/groups/room-1/interrupt"],
+    ["POST", "/api/bots"], ["PATCH", "/api/bots/bot-1"], ["POST", "/api/groups"], ["PATCH", "/api/groups/room-1"],
+    ["POST", "/api/bots/bot-1/tasks"], ["POST", "/api/bots/bot-1/tasks/thread-1"], ["PATCH", "/api/bots/bot-1/tasks/thread-1"],
+    ["POST", "/api/groups/room-1/tasks"], ["PATCH", "/api/groups/room-1/tasks/thread-1"],
+    ["POST", "/api/auth/logout"],
+  ];
+  const REFUSED: Array<[string, string]> = [
+    ["POST", "/api/bots/bot-1/respond"], ["POST", "/api/threads/thread-1/respond"], ["PATCH", "/api/bots/bot-1/cards/card-1"],
+    ["POST", "/api/bots/bot-1/always-allow"], ["POST", "/api/bots/bot-1/command-allowlist"],
+    ["POST", "/api/bots/bot-1/secret-cards/card-1/resume"], ["POST", "/api/bots/bot-1/connector-cards/card-1/resume"],
+    ["GET", "/api/bots/bot-1/connector-cards/card-1/status"], ["POST", "/api/handoffs/root-1/continue"],
+    ["POST", "/api/bots/bot-1/messages/guarded"], ["GET", "/api/desktop-viewer/session"],
+    ["PUT", "/api/config"], ["PATCH", "/api/config"], ["POST", "/api/keys/test"], ["PATCH", "/api/instances/claude"],
+    ["POST", "/api/auth/pairing"], ["DELETE", "/api/auth/pairing/pair-1"], ["DELETE", "/api/auth/sessions/session-1"],
+    ["POST", "/api/auth/stream-ticket"], ["POST", "/api/routines"], ["DELETE", "/api/bots/bot-1"], ["POST", "/api/workspace-backup/restore"],
+  ];
+
+  it("lists dogs, reads and sends messages, and makes and changes dogs, rooms and threads, marked as local tools", () => {
+    for (const [method, path] of ALLOWED) {
+      const { auth } = check(method, path, apps.bearer);
+      expect(auth, `${method} ${path}`).toMatchObject({ kind: "session", via: "bearer", scopes: ["admin", "client"], localTools: true });
+      expect(fromLocalTools(auth!), `${method} ${path}`).toBe(true);
+    }
+  });
+
+  it("is refused every approval, answer, setting and pairing route with the local tools refusal, even though it holds admin", () => {
+    for (const [method, path] of REFUSED) {
+      const denied = check(method, path, apps.bearer);
+      expect(denied.auth, `${method} ${path}`).toBeNull();
+      expect(denied.status, `${method} ${path}`).toBe(403);
+      expect(denied.error, `${method} ${path}`).toBe(`forbidden: ${LOCAL_TOOLS_REFUSAL}`);
+    }
+  });
+
+  it("is held to the same rules over its cookie and its stream ticket", () => {
+    const cookie = { cookie: `${cookieName}=${apps.token}` };
+    expect(check("POST", "/api/bots/bot-1/respond", cookie).error).toBe(`forbidden: ${LOCAL_TOOLS_REFUSAL}`);
+    expect(check("POST", "/api/bots/bot-1/messages", cookie).auth).toMatchObject({ kind: "session", via: "cookie", localTools: true });
+    const { ticket } = sessions.issueStreamTicket(apps.id);
+    expect(check("GET", `/api/events?ticket=${ticket}`, {}).auth).toMatchObject({ kind: "session", via: "ticket", localTools: true });
+  });
+
+  it("types a message that is never the person: it cannot answer a card or end a take-over", () => {
+    const { auth } = check("POST", "/api/bots/bot-1/messages", apps.bearer);
+    let asked = false;
+    const authority = typedMessageAuthority({ fromLocalTools: fromLocalTools(auth!), session: auth!.kind === "session", desktopManaged: false }, () => {
+      asked = true;
+      return { kind: "session" as const };
+    });
+    expect(authority).toEqual({ personPresent: false, via: "api" });
+    expect(asked).toBe(false);
+  });
+
+  it("leaves an ordinary session exactly as it was: every route its scopes allow, and its typed message is the person", () => {
+    for (const [method, path] of [...ALLOWED, ...REFUSED]) {
+      const { auth } = check(method, path, phone.bearer);
+      expect(auth, `${method} ${path}`).toEqual({ kind: "session", session: expect.objectContaining({ id: phone.id }), via: "bearer", scopes: ["admin", "client"] });
+      expect(auth, `${method} ${path}`).not.toHaveProperty("localTools");
+      expect(fromLocalTools(auth!)).toBe(false);
+    }
+    const { auth } = check("POST", "/api/bots/bot-1/messages", phone.bearer);
+    expect(typedMessageAuthority({ fromLocalTools: fromLocalTools(auth!), session: true, desktopManaged: false }, () => ({ kind: "session" as const })))
+      .toEqual({ personPresent: true, answerer: { kind: "session" } });
+  });
+
+  it("does not change what marks the loopback local tools caller", () => {
+    expect(fromLocalTools({ kind: "loopback", scopes: ["admin", "client"], localTools: true })).toBe(true);
+    expect(fromLocalTools({ kind: "loopback", scopes: ["admin", "client"] })).toBe(false);
   });
 });

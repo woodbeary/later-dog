@@ -708,7 +708,7 @@ function observeCloudHome(state) {
     if (state.status === "signed-out" && state.message !== "restoring") {
       cloudMove?.cancel();
       cloudAiAccounts?.stop();
-      void ensureCloudAppsAccess().forget();
+      takeAppsCloudAccess();
       if (macHold) void macHold.set(false);
     }
     if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); void syncCloudWindow(state); return; }
@@ -2549,7 +2549,7 @@ function syncCloudWindow(state, manual = false) {
   const controller = ensureCloudWindow();
   return (manual ? controller.retry(state) : controller.sync(state)).then(result => {
     if (result?.kind === "cloud" && (result.move === "moved" || result.move === "nothing")) handOverAccounts(cloudHomeDestination());
-    if (result?.kind === "cloud") void ensureCloudAppsAccess().ensure(cloudHomeDestination());
+    if (result?.kind === "cloud") giveAppsCloudAccess(cloudHomeDestination());
     return result;
   }).catch(error => { slog(`cloud window: ${error?.message ?? error}`); return null; });
 }
@@ -2575,6 +2575,14 @@ function ensureCloudAiAccounts() {
 function ensureCloudAppsAccess() {
   cloudAppsAccess ??= createCloudAppsAccess({ file: cloudAccessPath(app.getPath("userData")), log: slog });
   return cloudAppsAccess;
+}
+function giveAppsCloudAccess(destination) {
+  if (!app.isPackaged || desktopRemoteAccess || destination?.kind !== "cloud" || !destination.origin) return;
+  void ensureCloudAppsAccess().ensure(destination);
+}
+function takeAppsCloudAccess() {
+  if (!app.isPackaged) return;
+  void ensureCloudAppsAccess().forget().catch(error => slog(`cloud apps: ${error?.message ?? error}`));
 }
 function handOverAccounts(destination) {
   if (!app.isPackaged || desktopRemoteAccess || !serverReady || destination?.kind !== "cloud" || !destination.origin) return;

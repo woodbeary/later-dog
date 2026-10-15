@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.39 — 2026-10-15
+
+- **Apps on your Mac use your dogs in My Cloud with the same limits local tools have.** They can send messages, make and change dogs, rooms and threads, switch models and stop a turn; approvals stay with you. Signing out ends their session in My Cloud too.
+- **Apps follow you when you sign in or out**, and wait a minute for My Cloud to wake instead of failing.
+- **My Cloud wakes up safely.** A reload that fails partway stops cleanly, and large files no longer have to fit in memory.
+
 ## 0.3.38 — 2026-10-15
 
 - **Grok Bot, Claude Code and other apps on your Mac can use your dogs in My Cloud.** Add later.dog's MCP server to the app; while your Mac is signed in to later.dog Cloud it reaches your Cloud with full access.

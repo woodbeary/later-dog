@@ -1,20 +1,22 @@
 import { createHash } from "node:crypto";
-import { chmod, lchown, lstat, mkdir, open, readdir, readlink, rm, symlink, utimes, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { chmod, lchown, lstat, mkdir, open, readdir, readlink, rename, rm, symlink, utimes } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 
 export const CHUNK_BYTES = 8 * 1024 * 1024;
 export const MANIFEST_VERSION = 1;
+export const BLOB_TIMEOUT_MS = 60_000;
+const RESTORING_PREFIX = ".laterdog-restoring-";
 const SQLITE = /\.(?:sqlite3?|db)$/;
 const SKIPPED_NAMES = new Set(["node_modules", ".cache", ".npm", ".pnpm-store", "Cache", "Code Cache", "GPUCache", "ShaderCache", "Crashpad", ".Trash", "lost+found"]);
 const SKIPPED_SUFFIXES = ["-wal", "-shm", "-journal"];
 const HASH = /^[a-f0-9]{64}$/;
 
 export function skipped(name) {
-  return SKIPPED_NAMES.has(name) || SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix));
+  return SKIPPED_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
-export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch) {
+export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS } = {}) {
   const base = baseUrl.replace(/\/+$/, "");
   const headers = { authorization: `Bearer ${token}` };
   const call = async (path, init = {}) => {
@@ -38,8 +40,9 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch) {
       if (!response.ok) throw new Error(`blob check failed: ${response.status}`);
       return true;
     },
-    async get(hash) {
-      const response = await call(`blobs/${hash}`);
+    async get(hash, { signal } = {}) {
+      const deadline = AbortSignal.timeout(blobTimeoutMs);
+      const response = await call(`blobs/${hash}`, { signal: signal ? AbortSignal.any([signal, deadline]) : deadline });
       if (!response.ok) throw new Error(`blob read failed: ${response.status}`);
       return new Uint8Array(await response.arrayBuffer());
     },
@@ -189,6 +192,40 @@ function changedShape(before, after) {
 
 const RESTORE_PARALLEL = 16;
 
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function writeAll(handle, bytes, position) {
+  let written = 0;
+  while (written < bytes.length) {
+    const { bytesWritten } = await handle.write(bytes, written, bytes.length - written, position + written);
+    written += bytesWritten;
+  }
+  return position + written;
+}
+
+async function download(entry, store, staging, stop) {
+  const handle = await open(staging, "wx", 0o600);
+  try {
+    let position = 0;
+    for (const hash of entry.chunks) {
+      if (stop.aborted) return false;
+      const bytes = await store.get(hash, { signal: stop });
+      if (sha256(bytes) !== hash) throw new Error(`corrupt chunk for ${entry.path}`);
+      position = await writeAll(handle, bytes, position);
+    }
+  } finally {
+    await handle.close();
+  }
+  return !stop.aborted;
+}
+
+async function clearForFile(path) {
+  const existing = await lstat(path).catch(() => null);
+  if (existing?.isDirectory()) await rm(path, { recursive: true, force: true });
+}
+
 export async function restore(root, store, owner) {
   const manifest = await store.manifest();
   if (!manifest) return { manifest: null, files: 0 };
@@ -210,27 +247,39 @@ export async function restore(root, store, owner) {
     await own(path);
   }
   const pending = manifest.entries.filter((entry) => entry.type !== "dir" && entry.type !== "link");
+  const stopping = new AbortController();
+  const failures = [];
   const writeOne = async (entry) => {
     const path = join(root, entry.path);
-    const parts = [];
-    for (const hash of entry.chunks) {
-      const bytes = await store.get(hash);
-      if (createHash("sha256").update(bytes).digest("hex") !== hash) throw new Error(`corrupt chunk for ${entry.path}`);
-      parts.push(bytes);
+    const staging = join(dirname(path), `${RESTORING_PREFIX}${sha256(entry.path).slice(0, 24)}`);
+    await rm(staging, { force: true, recursive: true });
+    try {
+      if (!(await download(entry, store, staging, stopping.signal))) return;
+      await chmod(staging, entry.mode);
+      await own(staging);
+      const moment = new Date(entry.mtimeMs);
+      await utimes(staging, moment, moment);
+      if (stopping.signal.aborted) return;
+      await clearForFile(path);
+      await rename(staging, path);
+      files += 1;
+    } finally {
+      await rm(staging, { force: true });
     }
-    await rm(path, { force: true, recursive: true });
-    await writeFile(path, Buffer.concat(parts), { mode: entry.mode });
-    await chmod(path, entry.mode);
-    await own(path);
-    const moment = new Date(entry.mtimeMs);
-    await utimes(path, moment, moment);
-    files += 1;
   };
   let next = 0;
   const worker = async () => {
-    while (next < pending.length) await writeOne(pending[next++]);
+    while (!stopping.signal.aborted && next < pending.length) {
+      try {
+        await writeOne(pending[next++]);
+      } catch (error) {
+        failures.push(error);
+        stopping.abort(error);
+      }
+    }
   };
-  await Promise.all(Array.from({ length: Math.min(RESTORE_PARALLEL, pending.length) }, worker));
+  await Promise.allSettled(Array.from({ length: Math.min(RESTORE_PARALLEL, pending.length) }, worker));
+  if (failures.length > 0) throw failures[0];
   for (const entry of [...manifest.entries].reverse()) {
     if (entry.type !== "dir") continue;
     const moment = new Date(entry.mtimeMs);

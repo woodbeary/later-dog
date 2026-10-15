@@ -50,6 +50,10 @@ function allowedRoute(method: string, path: string): AllowedRoute | undefined {
   return LOCAL_TOOLS_ALLOWED_ROUTES.find((rule) => rule.methods.includes(upper) && rule.path.test(path));
 }
 
+export function signsItselfOut(method: string, path: string): boolean {
+  return method === "POST" && path === "/api/auth/logout";
+}
+
 export function localToolsRouteRefusal(method: string, path: string): string | null {
   return allowedRoute(method, path) ? null : LOCAL_TOOLS_REFUSAL;
 }
