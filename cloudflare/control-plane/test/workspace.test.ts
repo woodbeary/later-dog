@@ -53,17 +53,17 @@ function harness() {
     expect(response.status).toBe(201);
     return response.json<Registration>();
   }
-  async function endpoint(installationId: string) {
+  async function endpoint(installationId: string, origin = ORIGIN) {
     await env.DB.prepare(
       `INSERT INTO installation_endpoints (installation_id, hostname, tunnel_name, status, created_at, updated_at)
        VALUES (?, ?, ?, 'ready', ?, ?)`,
-    ).bind(installationId, new URL(ORIGIN).hostname, `fixture-${installationId}`, Date.now(), Date.now()).run();
+    ).bind(installationId, new URL(origin).hostname, `fixture-${installationId}`, Date.now(), Date.now()).run();
   }
-  async function connected() {
-    const owner = await account();
+  async function connected(email?: string, origin = ORIGIN) {
+    const owner = await account(email);
     const desktop = await device(owner.id);
     const installation = await register(desktop.token);
-    await endpoint(installation.installation.id);
+    await endpoint(installation.installation.id, origin);
     expect((await call(HEARTBEAT, desktop.token, { installationId: installation.installation.id, ready: true })).status).toBe(200);
     return { owner, desktop, installation };
   }
@@ -71,10 +71,10 @@ function harness() {
 }
 
 describe("account workspace access", () => {
-  it("preserves cloud-only accounts and never sends an unlinked desktop account to a second workspace", async () => {
+  it("keeps every account on its desktop connection path even before a desktop has signed in", async () => {
     const h = harness();
     const owner = await h.account();
-    await expect((await h.call(WORKSPACE, owner.token)).json()).resolves.toMatchObject({ workspace: null });
+    await expect((await h.call(WORKSPACE, owner.token)).json()).resolves.toMatchObject({ workspace: { state: "unlinked" } });
     await h.device(owner.id);
     await expect((await h.call(WORKSPACE, owner.token)).json()).resolves.toMatchObject({ workspace: { state: "unlinked" } });
     expect((await h.call(WORKSPACE)).status).toBe(401);
@@ -102,6 +102,34 @@ describe("account workspace access", () => {
     const otherResult = await (await h.call(WORKSPACE, other.token, input)).text();
     expect(otherResult).not.toContain(CREDENTIAL);
     expect(otherResult).not.toContain(ORIGIN);
+  });
+
+  it("connects separate signed-in accounts only to their own desktop and grants", async () => {
+    const h = harness();
+    const otherOrigin = "https://c-fedcba9876543210fedcba9876543210.later.dog";
+    const first = await h.connected("first@example.com");
+    const second = await h.connected("second@example.com", otherOrigin);
+    const requestId = crypto.randomUUID();
+    const input = { requestId, label: "iPhone" };
+    const otherCredential = `laterdog_pair_${"b".repeat(43)}`;
+    for (const [connection, credential] of [[first, CREDENTIAL], [second, otherCredential]] as const) {
+      expect((await h.call(WORKSPACE, connection.owner.token, input)).status).toBe(200);
+      const body = { installationId: connection.installation.installation.id, ready: true };
+      const pending = await (await h.call(HEARTBEAT, connection.desktop.token, body)).json<{ request: { id: string } }>();
+      expect(pending.request.id).toBe(requestId);
+      expect((await h.call(HEARTBEAT, connection.desktop.token, {
+        ...body, pairing: { requestId, credential, expiresAt: Date.now() + 60_000 },
+      })).status).toBe(200);
+    }
+    const firstResult = await (await h.call(WORKSPACE, first.owner.token, input)).json<Resolution>();
+    const secondResult = await (await h.call(WORKSPACE, second.owner.token, input)).json<Resolution>();
+    expect(firstResult).toMatchObject({ account: { id: first.owner.id }, workspace: { origin: ORIGIN, pairing: { credential: CREDENTIAL } } });
+    expect(secondResult).toMatchObject({ account: { id: second.owner.id }, workspace: { origin: otherOrigin, pairing: { credential: otherCredential } } });
+    expect(JSON.stringify(firstResult)).not.toContain(otherCredential);
+    expect(JSON.stringify(secondResult)).not.toContain(CREDENTIAL);
+    await env.DB.prepare("UPDATE cloud_devices SET revoked_at = ? WHERE id = ?").bind(Date.now(), first.desktop.id).run();
+    await expect((await h.call(WORKSPACE, first.owner.token, input)).json()).resolves.toMatchObject({ workspace: { state: "unlinked" } });
+    await expect((await h.call(WORKSPACE, second.owner.token, input)).json()).resolves.toMatchObject({ workspace: { state: "ready", origin: otherOrigin } });
   });
 
   it("separates account, device and installation credentials and rejects another account's heartbeat", async () => {

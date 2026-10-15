@@ -189,10 +189,7 @@ async function resolve(request: Request, env: Env, auth: ControlPlaneAuth): Prom
   await env.DB.prepare("DELETE FROM workspace_pairings WHERE account_id = ? AND (expires_at <= ? OR credential_expires_at <= ?)")
     .bind(account.id, now, now).run();
   const current = await workspace(env, account.id);
-  if (!current) {
-    const desktop = await env.DB.prepare("SELECT id FROM cloud_devices WHERE account_id = ? LIMIT 1").bind(account.id).first();
-    return json({ account, workspace: desktop ? { state: "unlinked" } : null });
-  }
+  if (!current) return json({ account, workspace: { state: "unlinked" } });
   if (!linked(current, now)) return json({ account, workspace: { state: "unlinked" } });
   const origin = current.hostname ? `https://${current.hostname}` : undefined;
   if (!ready(current, now)) return json({ account, workspace: { state: "offline", ...(origin ? { origin } : {}) } });
