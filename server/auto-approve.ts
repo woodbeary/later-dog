@@ -61,6 +61,7 @@ export type AutoVerdictSource =
   | "native-approval"
   | "explicit-approval-block"
   | "outbound-guard"
+  | "auto-review-off"
   | "no-grant";
 
 export interface AutoVerdict {
