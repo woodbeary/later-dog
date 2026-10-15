@@ -19,7 +19,7 @@ import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { requestAccountSignIn, requestAddAccount } from "@/lib/add-account-request";
 import { fastModeFits } from "@/lib/fast-mode";
 import { modelShown, useHiddenModels } from "@/lib/model-visibility";
-import { AccountMenu, type AccountMenuRow } from "./AccountMenu";
+import { ACCOUNT_MENU_WIDTH, AccountMenu, type AccountMenuRow } from "./AccountMenu";
 import { modelForAccount } from "./account-switch";
 import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
 import { declaredEffort, effortLevelsFor, effortName, effortNote, simpleEffortLevels } from "@/lib/model-friendly";
@@ -449,7 +449,6 @@ export function ClaudeAccountSelect({ accounts, selectedId, onSelect }: {
 
 const POPOVER_WIDTH = 420;
 export const SIMPLE_POPOVER_WIDTH = 380;
-export const ACCOUNT_MENU_WIDTH = 336;
 export const MODEL_MENU_WIDTH = 240;
 const SIMPLE_SEARCH_AFTER = 12;
 
