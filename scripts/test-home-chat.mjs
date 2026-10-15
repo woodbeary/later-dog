@@ -7,7 +7,7 @@ const session = JSON.parse(await readFile(sessionFile, "utf8"));
 async function api(path, init = {}) {
   const response = await fetch(`${session.url}${path}`, {
     ...init,
-    headers: { authorization: `Bearer ${session.token}`, accept: "application/json", "content-type": "application/json", ...(init.headers ?? {}) },
+    headers: { authorization: `Bearer ${session.token}`, accept: "application/json", "content-type": "application/json", ...init.headers },
   });
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new Error(`${init.method ?? "GET"} ${path} answered ${response.status}: ${JSON.stringify(body)}`);
