@@ -106,8 +106,8 @@ describe("configuration boundaries", () => {
     expect(() => parseConfigPatch({ tts: { fishModel: "s1" } })).toThrow("fishModel");
   });
 
-  it("defaults to three parallel threads and validates a configurable maximum of ten", () => {
-    expect(maxConcurrentBotThreads({})).toBe(3);
+  it("defaults to ten parallel threads and validates a configurable maximum of ten", () => {
+    expect(maxConcurrentBotThreads({})).toBe(10);
     expect(parseStoredConfig({ threads: { maxConcurrentPerBot: 10 } })).toEqual({ threads: { maxConcurrentPerBot: 10 } });
     expect(maxConcurrentBotThreads(parseConfigPatch({ threads: { maxConcurrentPerBot: 1 } }))).toBe(1);
     for (const value of [0, -1, 11, 1.5, "10", null]) {
@@ -682,8 +682,8 @@ describe("saving the newer sections", () => {
     try {
       saveConfig({ threads: { eventLogRetentionDays: 30 } });
       const disk = JSON.parse(readFileSync(path, "utf8"));
-      expect(disk.threads).toEqual({ maxConcurrentPerBot: 3, eventLogRetentionDays: 30 });
-      expect(parseStoredConfig(disk).threads).toEqual({ maxConcurrentPerBot: 3, eventLogRetentionDays: 30 });
+      expect(disk.threads).toEqual({ maxConcurrentPerBot: 10, eventLogRetentionDays: 30 });
+      expect(parseStoredConfig(disk).threads).toEqual({ maxConcurrentPerBot: 10, eventLogRetentionDays: 30 });
     } finally {
       rmSync(path, { force: true });
     }

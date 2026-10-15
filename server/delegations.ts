@@ -248,7 +248,7 @@ export function pendingDelegationSnapshot(): Array<{
   );
 }
 
-const MAX_QUEUED_PER_THREAD = 6;
+export const MAX_QUEUED_PER_THREAD = 6;
 
 export function queueDelegation(
   bus: CommsBus,
@@ -256,13 +256,14 @@ export function queueDelegation(
   item: DelegationItem,
   maxDepth: number,
   sourceThreadId = from.threadId,
+  maxQueued = MAX_QUEUED_PER_THREAD,
 ): QueuedDelegation {
   if (item.toBotId === from.id) return { result: "self" };
   if (!item.oneWay && item.depth >= maxDepth) return { result: "too_deep" };
   const target = bus.store.bot(item.toBotId);
   if (!target) return { result: "no_target" };
   const list = pendingDelegations.get(sourceThreadId) ?? [];
-  if (list.length >= MAX_QUEUED_PER_THREAD) return { result: "too_many" };
+  if (list.length >= maxQueued) return { result: "too_many" };
   const originatingGroup = item.originatingGroupId
     ? bus.store.group(item.originatingGroupId)
     : (sourceThreadId ? bus.store.groupByThread(sourceThreadId) : undefined);
@@ -807,6 +808,11 @@ export class DelegationWakeBudget {
     if (entry.count >= DELEGATION_WAKE_MAX_PER_WINDOW) return false;
     entry.count += 1;
     return true;
+  }
+
+  retryAt(threadId: string): number {
+    const entry = this.entries.get(threadId);
+    return entry ? entry.windowStart + DELEGATION_WAKE_WINDOW_MS : this.now();
   }
 
   reset(threadId: string): void {

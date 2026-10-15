@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { OWNER_OWN_THREADS_PER_TURN } from "./laterdog/work-thread-reuse.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 import { openSse } from "./testing/sse.ts";
@@ -283,7 +284,7 @@ describe("start_thread on yourself", () => {
     }
   }, 60_000);
 
-  it("refuses a title that would not fit a row, a folder the bot does not have, and a sixth thread", async () => {
+  it("refuses a title that would not fit a row, a folder the bot does not have, and one thread past the owner's limit", async () => {
     const bot = await createBot("Quin", "gated");
     try {
       const token = await heldTurn(bot, "Open separate checks.");
@@ -298,15 +299,15 @@ describe("start_thread on yourself", () => {
       expect(noFolder.status).toBe(400);
       expect(noFolder.body.error).toContain("no folder named \"Nowhere\"");
       expect((await botState(bot.id)).tasks).toHaveLength(1);
-      for (let index = 0; index < 5; index++) {
+      for (let index = 0; index < OWNER_OWN_THREADS_PER_TURN; index++) {
         release(`unused-${index}`);
         const opened = await api("POST", "/api/internal/threads", { title: `Job ${index}`, message: "go" }, token);
         expect(opened.status).toBe(201);
       }
-      const sixth = await api("POST", "/api/internal/threads", { title: "Job 5", message: "go" }, token);
-      expect(sixth.status).toBe(429);
-      expect(sixth.body.error).toContain("already opened 5 new threads for yourself this turn");
-      expect((await botState(bot.id)).tasks).toHaveLength(6);
+      const past = await api("POST", "/api/internal/threads", { title: "One past", message: "go" }, token);
+      expect(past.status).toBe(429);
+      expect(past.body.error).toContain(`already opened ${OWNER_OWN_THREADS_PER_TURN} new threads for yourself this turn`);
+      expect((await botState(bot.id)).tasks).toHaveLength(OWNER_OWN_THREADS_PER_TURN + 1);
       for (const task of (await botState(bot.id)).tasks) release(task.threadId);
       await expect.poll(async () => (await botState(bot.id))?.busy, { timeout: 15_000 }).toBe(false);
     } finally {
@@ -334,7 +335,7 @@ describe("start_thread on yourself", () => {
       expect((await botState(ops.id)).tasks).toHaveLength(2);
       const chips = (await messages(pm.threadId)).filter((message) => message.threadRef).map((message) => message.tool.name);
       expect(chips).toEqual(["Opened thread #Check A on Quinn", "Added to thread #Check A on Quinn", "Opened thread #Check C on Ria"]);
-      for (let index = 0; index < 5; index++) {
+      for (let index = 0; index < OWNER_OWN_THREADS_PER_TURN; index++) {
         expect((await api("POST", "/api/internal/threads", { title: `Own ${index}`, message: "go" }, token)).status).toBe(201);
       }
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -342,7 +343,7 @@ describe("start_thread on yourself", () => {
         expect(refused.status).toBe(429);
         expect(refused.body.error).toContain("tell the person plainly");
       }
-      const notices = (await messages(pm.threadId)).filter((message) => message.tool?.name?.startsWith("notice: This dog opened 5 new threads"));
+      const notices = (await messages(pm.threadId)).filter((message) => message.tool?.name?.startsWith(`notice: This dog opened ${OWNER_OWN_THREADS_PER_TURN} new threads`));
       expect(notices).toHaveLength(1);
       for (const task of (await botState(pm.id)).tasks) release(task.threadId);
       release(pm.threadId);
