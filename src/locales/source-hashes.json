@@ -1519,7 +1519,8 @@
       "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
       "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
       "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34",
-      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20"
+      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20",
+      "accounts.restingBackAt": "be8ef1550c6988dfcd119dca904d34b5cba4b51f38e5112bae855bf10a24da80"
     },
     "es": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -3031,7 +3032,8 @@
       "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
       "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
       "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34",
-      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20"
+      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20",
+      "accounts.restingBackAt": "be8ef1550c6988dfcd119dca904d34b5cba4b51f38e5112bae855bf10a24da80"
     },
     "fr": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -4543,7 +4545,8 @@
       "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
       "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
       "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34",
-      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20"
+      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20",
+      "accounts.restingBackAt": "be8ef1550c6988dfcd119dca904d34b5cba4b51f38e5112bae855bf10a24da80"
     },
     "hi": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -6055,7 +6058,8 @@
       "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
       "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
       "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34",
-      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20"
+      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20",
+      "accounts.restingBackAt": "be8ef1550c6988dfcd119dca904d34b5cba4b51f38e5112bae855bf10a24da80"
     },
     "ja": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -7569,7 +7573,8 @@
       "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
       "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
       "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34",
-      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20"
+      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20",
+      "accounts.restingBackAt": "be8ef1550c6988dfcd119dca904d34b5cba4b51f38e5112bae855bf10a24da80"
     },
     "pt-br": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -9094,7 +9099,8 @@
       "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
       "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
       "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34",
-      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20"
+      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20",
+      "accounts.restingBackAt": "be8ef1550c6988dfcd119dca904d34b5cba4b51f38e5112bae855bf10a24da80"
     },
     "zh": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -11129,7 +11135,8 @@
       "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
       "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
       "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34",
-      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20"
+      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20",
+      "accounts.restingBackAt": "be8ef1550c6988dfcd119dca904d34b5cba4b51f38e5112bae855bf10a24da80"
     },
     "zh-tw": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -13164,7 +13171,8 @@
       "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
       "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
       "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34",
-      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20"
+      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20",
+      "accounts.restingBackAt": "be8ef1550c6988dfcd119dca904d34b5cba4b51f38e5112bae855bf10a24da80"
     },
     "uk": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -14986,7 +14994,8 @@
       "approval.tool.postRoom": "cb1ccdc8ebc416e4528ff5b389671470c277667f236ebb1834a094a0ca0b3653",
       "chat.threads.opened": "2e34c8988d8a8e76081674a98795497d61fbaeffa960d006286ee4a171f26b5d",
       "chat.threads.openedOne": "d405ddbf6d58dbb9ba9cbebdd9269736b63acbdd00109c002ef69ea9b4b6cc34",
-      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20"
+      "credentialStore.reset": "b047eef458fc4acecb696f82494e1efea2a8da60c88db3d122433686c87d4c20",
+      "accounts.restingBackAt": "be8ef1550c6988dfcd119dca904d34b5cba4b51f38e5112bae855bf10a24da80"
     }
   }
 }

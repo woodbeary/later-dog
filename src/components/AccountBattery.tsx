@@ -1,3 +1,4 @@
+import { Zap } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { backAt, rechargeProgress, RechargeLine, usageLeft, type AccountRest } from "./AccountCharge";
@@ -23,21 +24,55 @@ export function BatteryMeter({ used, label, className }: { used: number; label?:
   );
 }
 
+export function RestBattery({ rest, now }: { rest: AccountRest; now: number }) {
+  return (
+    <span className="relative inline-flex shrink-0">
+      <RechargeLine progress={rest.estimated ? null : rechargeProgress(rest, now)} />
+      <Zap data-charging-bolt="" aria-hidden="true" size={9} strokeWidth={2.5} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 fill-current text-ink drop-shadow-sm" />
+    </span>
+  );
+}
+
+export function usageValueClass(used: number | undefined): string {
+  const tone = used === undefined ? "good" : usageTone(used);
+  return tone === "warning" || tone === "danger" ? USAGE_TEXT[tone] : "text-ink-secondary";
+}
+
+export function AccountChargeColumns({ used, rest, now }: { used?: number; rest?: AccountRest; now: number }) {
+  const progress = rest && !rest.estimated ? rechargeProgress(rest, now) : null;
+  const value = rest
+    ? progress === null ? "" : t("accounts.recharged", { percent: Math.round(progress * 100) })
+    : used === undefined ? "" : t("planUsage.percentLeft", { left: usageLeft(used) });
+  return (
+    <>
+      <span data-account-battery-column className="flex w-8 shrink-0 items-center">
+        {rest ? <RestBattery rest={rest} now={now} /> : used === undefined ? null : <BatteryMeter used={used} />}
+      </span>
+      <span
+        data-account-value-column
+        data-account-charge={rest ? "recharging" : used === undefined ? undefined : usageLeft(used)}
+        className={cn("w-16 shrink-0 truncate text-right text-[12px] tabular-nums", rest ? "text-ink-secondary" : usageValueClass(used))}
+      >
+        {value}
+      </span>
+    </>
+  );
+}
+
 export function AccountCharge({ used, rest, now, className }: { used?: number; rest?: AccountRest; now: number; className?: string }) {
   if (rest) {
     return (
       <span data-account-charge="recharging" className={cn("flex shrink-0 items-center gap-2", className)}>
-        <RechargeLine progress={rest.estimated ? null : rechargeProgress(rest, now)} />
+        <RestBattery rest={rest} now={now} />
         <span className="text-[12px] tabular-nums text-ink-secondary">{backAt(rest, now)}</span>
       </span>
     );
   }
   if (used === undefined) return null;
-  const tone = usageTone(used);
   return (
     <span data-account-charge={usageLeft(used)} className={cn("flex shrink-0 items-center gap-2", className)}>
       <BatteryMeter used={used} />
-      <span className={cn("w-9 text-right text-[12px] tabular-nums", tone === "warning" || tone === "danger" ? USAGE_TEXT[tone] : "text-ink-secondary")}>
+      <span className={cn("w-9 text-right text-[12px] tabular-nums", usageValueClass(used))}>
         {t("planUsage.percentLeft", { left: usageLeft(used) })}
       </span>
     </span>

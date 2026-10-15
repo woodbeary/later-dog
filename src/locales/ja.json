@@ -790,6 +790,7 @@
   "botSettings.simple.teachDone": "完了",
   "engines.claudeUpdated": "Claude を更新しました — {version}",
   "accounts.backAt": "{time} に回復",
+  "accounts.restingBackAt": "Resting · back at {time}",
   "accounts.backAround": "{time} ごろに回復",
   "accounts.inWhen": "{when} 後",
   "accounts.recharging": "回復中",

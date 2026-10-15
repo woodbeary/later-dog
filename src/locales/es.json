@@ -788,6 +788,7 @@
   "botSettings.simple.teachDone": "Listo",
   "engines.claudeUpdated": "Claude actualizado: {version}",
   "accounts.backAt": "Disponible a las {time}",
+  "accounts.restingBackAt": "Resting · back at {time}",
   "accounts.backAround": "Disponible sobre las {time}",
   "accounts.inWhen": "en {when}",
   "accounts.recharging": "Recargando",
