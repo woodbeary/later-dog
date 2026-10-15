@@ -690,10 +690,20 @@ At boot the launcher, running as root, hands the volume's mount point to the
 (`/data/.laterdog-cloud-home.json`; another machine's volume, or an unmarked
 volume with data on it, is refused), and runs two children as `dog`: the
 server on `127.0.0.1:8799` (webhooks on `127.0.0.1:8800`) and Caddy on
-`:8080`. It stays a small root supervisor: if either child exits, both stop
-and Fly restarts the machine. The one exception: after a restore commits
-(Copy this computer here, below), the server exits with code 75
-(`server/restart.ts`) and the launcher starts only the server again.
+`:8080`. It stays a small root supervisor. When the server exits on its own,
+the launcher starts only the server again and Caddy and the state sync keep
+running (`server/laterdog/home-server-restart.ts`): after a restore commits
+(Copy this computer here, below) the server exits with code 75
+(`server/restart.ts`) and starts again at once, at most five times in a row;
+any other exit is a crash and it starts again after 1, 2, 4, 8 and 16 s
+(never more than 30 s), at most five times in ten minutes. Each exit is
+logged with its exit code, signal, how long the server ran and its last 40
+stderr lines. Past those limits, or when Caddy exits, both stop and the
+machine starts fresh. On a Cloud home the server also logs an uncaught
+exception or unhandled rejection with its stack before it exits, and its
+memory (`process.memoryUsage()`, free memory, the cgroup v2 limit and usage)
+at start, every five minutes and when its rss passes 75% of the container's
+limit (`server/laterdog/home-health-log.ts`).
 
 The machine's secrets (`LATERDOG_CLOUD_BOOTSTRAP_SECRET` and the relay tokens
 `LATERDOG_CLOUD_BOAT_TOKEN`, `LATERDOG_CLOUD_VOICE_TOKEN`, `LATERDOG_CLOUD_DECIDER_TOKEN`)
@@ -1034,7 +1044,7 @@ section is only what the Cloud adds.
   than the plan's whole disk, and never that on Max, the largest. No other
   server's disk is grown or measured against a plan.
 - **The restart.** The Cloud's launcher (`server/cloud-home-start.ts`) starts
-  only the server again on exit 75, and startup settles who owns what came
+  only the server again on exit 75 (and, with a backoff, after a crash), and startup settles who owns what came
   (`server/cloud-owner.ts`): a copied routine is the owner's.
 - **Older Clouds.** A Cloud from before Copy to My Cloud answers `404` and the app
   says it has not updated yet; one from before any server could receive a copy

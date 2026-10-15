@@ -88,6 +88,7 @@ async function main() {
   process.on("SIGTERM", forward("SIGTERM"));
   process.on("SIGINT", forward("SIGINT"));
   child.on("exit", async (code, signal) => {
+    log(`the launcher stopped (exit code ${code ?? "none"}, signal ${signal ?? "none"})`);
     clearInterval(timer);
     await running;
     await save({ final: true });
