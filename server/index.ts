@@ -656,6 +656,7 @@ import { createPhonePush } from "./laterdog/phone-push.ts";
 import { cloudEmailDelivery } from "./laterdog/email-me.ts";
 import { CONNECT_MAC, macOffline, withConnectMac } from "./laterdog/connect-mac.ts";
 import { createHomeActivity, HOME_ACTIVITY_HORIZON_MS, homeActivityFrom } from "./laterdog/home-activity.ts";
+import { createCloudJobWatch, supervisorJobStates } from "./laterdog/cloud-job-watch.ts";
 import { createHomeActivityRoute } from "./routes/home-activity.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
 import { createPhonePushRoutes } from "./routes/phone-push.ts";
@@ -793,9 +794,16 @@ const lendingMemory = CLOUD_HOME ? createLendingMemory({
 }) : null;
 if (CLOUD_HOME) readMemoryOnlyFromRegularFiles();
 const cloudPairing = CLOUD_HOME ? createCloudPairing({ secret: CLOUD_HOME.bootstrapSecret, sessions }) : null;
+const cloudJobWatch = CLOUD_HOME ? createCloudJobWatch({ file: join(DATA_DIR, "cloud-jobs-waited-for.json"), states: supervisorJobStates() }) : null;
 const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivity({
   secret: CLOUD_HOME.bootstrapSecret,
-  activity: () => homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, store.bots.some((bot) => botHasActiveTurn(bot.id))),
+  activity: () => homeActivityFrom({
+    routines: routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false },
+    turns: store.bots.some((bot) => botHasActiveTurn(bot.id)) || store.groups.some((group) => groupIsWorking(group)),
+    queued: Object.keys(queuedSteerSnapshot(() => true)).length > 0 || Object.keys(limitHold.waiting()).length > 0,
+    cloudJobs: cloudJobWatch?.inFlight() ?? false,
+    upkeep: !workspaceQuiet() || (workspaceMaintenance.active && !workspaceMaintenance.pendingRestore),
+  }),
 })) : null;
 if (CLOUD_HOME) {
   delete process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
@@ -6590,6 +6598,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           toolMessageByItem.delete(itemKey);
         }
         const cloudTask = event.ok ? cloudTaskRefFromToolOutput(toolName, event.output) : null;
+        if (cloudTask) cloudJobWatch?.watch(cloudTask.jobId);
         if (cloudTask && !store.messagesFor(event.threadId).some((m) => m.cloudTask?.jobId === cloudTask.jobId)) {
           pushMessage({ role: "bot", kind: "activity", tool: { name: `Cloud task: ${cloudTask.title}`, ok: true, spoken: "started a cloud task" }, cloudTask, turnId: liveTurnId });
         }
@@ -13499,6 +13508,17 @@ function serveStatic(res: ServerResponse, path: string): boolean {
 }
 
 
+function workspaceQuiet(): boolean {
+  return !providerFleetReloading && !providerAuthSessions.active && !browserEngineInstall &&
+    !routines?.isTicking && !calendarCalls?.isTicking &&
+    !localVmImageBusy && !localVmProvisionBusy && !localVmModeChangeBusy &&
+    !localVmLifecycleBusy.size && !boatLifecycleBusyBots.size && !vpsPreviewRequests.size && !orphanBoatLifecycleBusyIds.size &&
+    !computerProviderConfigTransitions.size &&
+    teamComputers.list().every(computer => !teamComputerInUse(computer)) &&
+    store.bots.every((bot) => !botHasActiveTurn(bot.id) && !routines?.activeRunForBot(bot.id) && !botComputerControlSnapshot(bot.id).held) &&
+    store.groups.every((group) => !groupIsWorking(group));
+}
+
 const workspaceBackupAccess = {
   authorized: (req: IncomingMessage, original: RequestAuth) => {
     const current = resolveRequestAuth(req, {
@@ -13515,14 +13535,7 @@ const workspaceBackupAccess = {
     }
     return work();
   }, {
-    idle: () => !providerFleetReloading && !providerAuthSessions.active && !browserEngineInstall &&
-      !routines?.isTicking && !calendarCalls?.isTicking &&
-      !localVmImageBusy && !localVmProvisionBusy && !localVmModeChangeBusy &&
-      !localVmLifecycleBusy.size && !boatLifecycleBusyBots.size && !vpsPreviewRequests.size && !orphanBoatLifecycleBusyIds.size &&
-      !computerProviderConfigTransitions.size &&
-      teamComputers.list().every(computer => !teamComputerInUse(computer)) &&
-      store.bots.every((bot) => !botHasActiveTurn(bot.id) && !routines?.activeRunForBot(bot.id) && !botComputerControlSnapshot(bot.id).held) &&
-      store.groups.every((group) => !groupIsWorking(group)),
+    idle: workspaceQuiet,
     pause: () => { routines?.stop(); calendarCalls?.stop(); watchdog.stop(); memoryUpkeep.pause(); },
     resume: () => { routines?.start(); calendarCalls?.start(); watchdog.start(); memoryUpkeep.resume(); },
     flush: async () => {

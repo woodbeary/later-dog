@@ -5,9 +5,20 @@ export const HOME_ACTIVITY_SKEW_S = 120;
 const NONCE_MS = 5 * 60_000;
 const MAX_NONCES = 2_000;
 
+export type HomeWork = "turn" | "routine" | "queued" | "cloud_job" | "upkeep";
+
 export interface HomeActivity {
   busy: boolean;
   nextAt: number | null;
+  work: HomeWork[];
+}
+
+export interface HomeWorkSignals {
+  routines: { hold: boolean; reason?: "running" | "due"; at?: number };
+  turns: boolean;
+  queued: boolean;
+  cloudJobs: boolean;
+  upkeep: boolean;
 }
 
 export function homeActivitySignature(secret: string, timestamp: string, nonce: string): string {
@@ -33,13 +44,22 @@ export function createHomeActivity(options: { secret: string; activity: () => Ho
       if (nonces.size >= MAX_NONCES) return { status: 503, body: { error: "busy" } };
       nonces.set(nonce, at + NONCE_MS);
       const activity = options.activity();
-      return { status: 200, body: { busy: activity.busy, nextAt: activity.nextAt } };
+      return { status: 200, body: { busy: activity.busy, nextAt: activity.nextAt, work: activity.work } };
     },
   };
 }
 
 export const HOME_ACTIVITY_HORIZON_MS = 30 * 24 * 60 * 60_000;
 
-export function homeActivityFrom(hold: { hold: boolean; reason?: "running" | "due"; at?: number }, anyDogWorking: boolean): HomeActivity {
-  return { busy: anyDogWorking || hold.reason === "running", nextAt: hold.reason === "due" && typeof hold.at === "number" ? hold.at : null };
+export function homeActivityFrom(signals: HomeWorkSignals): HomeActivity {
+  const named: Array<[HomeWork, boolean]> = [
+    ["turn", signals.turns],
+    ["routine", signals.routines.reason === "running"],
+    ["queued", signals.queued],
+    ["cloud_job", signals.cloudJobs],
+    ["upkeep", signals.upkeep],
+  ];
+  const work = named.filter(([, going]) => going).map(([name]) => name);
+  const { reason, at } = signals.routines;
+  return { busy: work.length > 0, nextAt: reason === "due" && typeof at === "number" ? at : null, work };
 }

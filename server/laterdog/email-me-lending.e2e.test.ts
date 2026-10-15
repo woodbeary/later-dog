@@ -235,13 +235,14 @@ it("tells its host when it may sleep and when to wake it for a routine", async (
   const ask = async () => {
     const signed = await signedActivityRequest(base, secret);
     const response = await fetch(signed.url, { headers: { ...Object.fromEntries(signed.headers), host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" } });
-    return { status: response.status, body: await response.json() as { busy: boolean; nextAt: number | null } };
+    return { status: response.status, body: await response.json() as { busy: boolean; nextAt: number | null; work: string[] } };
   };
   expect(await ask()).toMatchObject({ status: 200, body: { busy: true } });
+  expect((await ask()).body.work).toContain("turn");
   const bots = (await api("GET", "/api/bots", { token: owner })).body.bots as Array<{ id: string; threadId: string }>;
   for (const working of bots) await api("POST", `/api/bots/${working.id}/interrupt`, { token: owner, body: { threadId: working.threadId } });
   await expect.poll(async () => (await ask()).body.busy, { timeout: 15_000 }).toBe(false);
-  expect((await ask()).body.nextAt).toBeNull();
+  expect((await ask()).body).toMatchObject({ nextAt: null, work: [] });
   const anchorAt = Date.now() + 2 * 60 * 60_000;
   const bot = (await api("POST", "/api/bots", { token: owner, body: { name: "Clover", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } } })).body.bot;
   const routine = await api("POST", "/api/routines", { token: owner, body: { name: "Morning", prompt: "Summarise the news.", botId: bot.id, enabled: true, schedule: { type: "interval", everyMinutes: 1440, anchorAt } } });
