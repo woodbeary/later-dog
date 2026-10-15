@@ -38,7 +38,7 @@ export class Handover {
   async release(): Promise<boolean> {
     this.turn += 1;
     await this.side.stand("released");
-    await Promise.allSettled([...this.launching]);
+    await Promise.allSettled(this.launching);
     await this.side.quiet();
     return this.idle();
   }
