@@ -214,7 +214,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
   },
   {
     name: "email_me",
-    description: "Email the person who owns this later.dog home, at the email they signed in with. Nobody else can be emailed. Use it when they ask you to email or send them something. Attach text you wrote ({ filename, text }), a file you read yourself as base64 ({ filename, base64 }), or a file on their Mac ({ path }, such as ~/Downloads/invoice.pdf; add computer_id when more than one computer is connected; big files are fetched for you, and the person may get an Allow card first). Attachments together must be at most 3.5 MB; if a file is bigger, say so instead of sending a partial file.",
+    description: "Email the person who owns this later.dog home, at the email they signed in with. Nobody else can be emailed. Use it when they ask you to email or send them something. Attach text you wrote ({ filename, text }), a file you read yourself as base64 ({ filename, base64 }), or a file on their Mac ({ path }, such as ~/Downloads/invoice.pdf; add computer_id when more than one computer is connected; big files are fetched for you). Attachments together must be at most 3.5 MB; if a file is bigger, say so instead of sending a partial file.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       subject: { type: "string", minLength: 1, maxLength: 200 },
       body: { type: "string", minLength: 1, maxLength: 20000, description: "Plain text. Say what is attached and anything they asked for." },

@@ -150,7 +150,7 @@ it("a dog asked to use the Mac before one is lent explains how to connect it", a
   expect(listing.connectMac).toContain("Let My Cloud use this Mac");
 }, 60_000);
 
-it("a dog on the home finds the newest PDF in the Mac's Downloads, asks once, and emails it to its owner", async () => {
+it("a dog on the home finds the newest PDF in the owner's Mac's Downloads with no card, and emails it to its owner", async () => {
   const macHome = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-mac-home-")));
   const downloads = join(macHome, "Downloads");
   mkdirSync(downloads);
@@ -182,18 +182,7 @@ it("a dog on the home finds the newest PDF in the Mac's Downloads, asks once, an
   expect(lent.connectMac).toBeUndefined();
   expect(JSON.stringify(lent)).not.toContain(macHome);
 
-  const looking = tools.call("shared_computer", { action: "list_files", path: "~/Downloads" });
-  let card: any;
-  await expect.poll(async () => {
-    const { body } = await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner });
-    card = (body.messages ?? []).find((message: any) => message.card?.tool === "mac_list_files" && !message.card.answered)?.card;
-    return Boolean(card);
-  }, { timeout: 10_000 }).toBe(true);
-  expect(card).toMatchObject({ title: "Jo's MacBook Air", subtitle: "~/Downloads", options: ["Allow", "Deny", "Always allow"], approvalScope: "local-computer" });
-  expect(delivered).toHaveLength(0);
-  const allowed = await api("POST", `/api/threads/${bot.threadId}/respond`, { token: owner, body: { requestId: card.requestId, behavior: "allow" } });
-  expect(allowed.status, JSON.stringify(allowed.body)).toBe(200);
-  const listing = await looking;
+  const listing = await tools.call("shared_computer", { action: "list_files", path: "~/Downloads" });
   expect(listing.isError, JSON.stringify(listing)).toBeFalsy();
   expect(listing.content[0].text).toContain("invoice-october.pdf");
 
@@ -205,8 +194,7 @@ it("a dog on the home finds the newest PDF in the Mac's Downloads, asks once, an
   expect(sent.isError, JSON.stringify(sent)).toBeFalsy();
   expect(sent.content[0].text).toBe("Emailed the person with invoice-october.pdf. It goes to the email they use for later.dog.");
   const cards = (await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner })).body.messages.filter((message: any) => message.card?.approvalScope === "local-computer");
-  expect(cards).toHaveLength(1);
-  expect(cards[0].card.answered).toBe("allow");
+  expect(cards).toEqual([]);
 
   expect(delivered).toHaveLength(1);
   expect(delivered[0].authorization).toBe(`Bearer ${EMAIL_TOKEN}`);
