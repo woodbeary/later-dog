@@ -1,4 +1,6 @@
-import { createElement } from "react";
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +21,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   };
 });
 vi.mock("@/lib/updater", () => ({ useUpdaterState: () => menu.updater }));
+vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => null }));
 
 import {
   profileInitials,
@@ -32,6 +35,7 @@ import { APP_REPOSITORY, DOCS_URL, FEEDBACK_URL, HELP_CENTER_URL, platformLabel 
 import type { UpdaterState } from "@/lib/updater";
 import { dismissUpdateDialog, updateDialogOpen } from "@/lib/update-request";
 import type { InstanceInfo } from "@/state/store";
+import type { CloudAccountBridge, CloudAccountState, CloudPlanBridge } from "../../electron/cloud-account.mjs";
 
 const state = (patch: Partial<UpdaterState>): UpdaterState => ({ status: "idle", ...patch }) as UpdaterState;
 
@@ -222,5 +226,67 @@ describe("the menu under your name", () => {
     menu.updater = { status: "downloaded", version: "0.2.0" } as UpdaterState;
     open(updater).find((item) => item.key === "settings")!.onSelect();
     expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
+  });
+});
+
+describe("Sign out under your name", () => {
+  const account = (current: CloudAccountState) => ({
+    state: vi.fn(async () => current),
+    onState: vi.fn(() => () => {}),
+    signOut: vi.fn(async (): Promise<CloudAccountState> => ({ status: "signed-out" })),
+  }) as unknown as CloudAccountBridge;
+  const plan = (answer: CloudPlanBridge["state"]) => ({ state: vi.fn(answer), manage: vi.fn(async () => {}), signOut: vi.fn(async () => {}) });
+  const button = (label: string) => [...document.querySelectorAll("button")].find((element) => element.textContent === label);
+  const signOutFrom = async (laterdog: Record<string, unknown>, confirm: () => unknown) => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("laterdog", laterdog);
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(SidebarProfileMenu)));
+      const items = menu.items.map((item) => item.key);
+      const signOut = menu.items.find((item) => item.key === "signOut");
+      if (signOut) {
+        expect(signOut).toMatchObject({ label: "Sign out", separatorBefore: true });
+        await act(async () => signOut.onSelect());
+        await act(async () => button("Sign out")!.click());
+        expect(confirm).toHaveBeenCalledTimes(1);
+      }
+      return items;
+    } finally {
+      await act(async () => root.unmount());
+      document.body.innerHTML = "";
+      vi.unstubAllGlobals();
+    }
+  };
+
+  beforeEach(() => {
+    menu.instances = [];
+    menu.updater = null;
+    menu.dispatch.mockReset();
+  });
+
+  it("shows Sign out while this Mac's Cloud account is connected, and it signs that account out", async () => {
+    const connected = account({ status: "connected", account: { id: "a1", email: "a@example.test" } });
+    const beside = plan(async () => ({ status: "none" }));
+    expect(await signOutFrom({ cloudAccount: connected, cloudPlan: beside }, connected.signOut))
+      .toEqual(["phoneApp", "settings", "plugins", "signOut"]);
+    expect(beside.signOut).not.toHaveBeenCalled();
+    expect(menu.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+  });
+
+  it("shows Sign out on the Cloud home page, which only has the plan bridge, and it signs out through that bridge", async () => {
+    const home = plan(async () => ({ status: "paid", tier: "pro" }));
+    expect(await signOutFrom({ cloudPlan: home }, home.signOut)).toEqual(["phoneApp", "settings", "plugins", "signOut"]);
+    expect(menu.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+  });
+
+  it("leaves Sign out off when nothing here is signed in to later.dog Cloud", async () => {
+    const never = vi.fn();
+    expect(await signOutFrom({ cloudAccount: account({ status: "signed-out" }), cloudPlan: plan(async () => ({ status: "none" })) }, never))
+      .toEqual(["phoneApp", "settings", "plugins"]);
+    expect(await signOutFrom({ cloudPlan: plan(async () => { throw new Error("cloud-plan:state is only available in this app's window"); }) }, never))
+      .toEqual(["phoneApp", "settings", "plugins"]);
+    expect(never).not.toHaveBeenCalled();
   });
 });
