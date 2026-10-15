@@ -102,6 +102,8 @@ import { cloudOrigin, cloudPlanSnapshot, configuredCloudOrigin, createCloudAccou
 import { CloudSignInError, createCloudSignIn } from "./cloud-sign-in.mjs";
 import { createAccountWorkspace } from "./account-workspace.mjs";
 import { createCloudAutoMove } from "./cloud-auto-move.mjs";
+import { createMacHold } from "./cloud-hold.mjs";
+import { createCloudWindow } from "./cloud-window.mjs";
 import { createCloudOffer, leaveHomeNow } from "./cloud-default-home.mjs";
 import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, isCloudHomeEntry, myCloudOrigin, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome } from "./cloud-home.mjs";
 import { createCloudEntry } from "./cloud-entry.mjs";
@@ -295,6 +297,8 @@ let managedDesktop = null;
 let cloudAccount = null;
 let cloudSignIn = null;
 let cloudAutoMove = null;
+let cloudWindow = null;
+let macHold = null;
 let cloudOffer = null;
 let homeFellBack = false;
 let cloudAccountStarted = Promise.resolve();
@@ -330,6 +334,7 @@ const serverSupervisor = createServerSupervisor({
     serverLiveness.start(proc);
     syncManagedComposioCredentials();
     orgLibrary?.runtimeReady();
+    void macHold?.flush();
     if (managedDesktop) void managedDesktop.refresh().catch(() => {});
     routineWake.start();
     for (const win of BrowserWindow.getAllWindows()) {
@@ -1023,6 +1028,7 @@ function observeCloudHome(state) {
     const homeEntry = environmentsState.environments.find(entry => entry.name === CLOUD_HOME_NAME) ?? null;
     if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); return; }
     if (state.status === "signed-out") { homeFellBack = false; cloudAutoMove?.stop(); }
+    void syncCloudWindow(state);
   } catch (error) {
     slog(`cloud home: ${error?.message ?? error}`);
   }
@@ -1633,7 +1639,7 @@ ipcMain.on("desktop:unread-count", (event, value) => {
   applyUnreadBadge(sender);
 });
 
-const { LOCAL_ID, activeEnvironment, allowedOrigins, parseEnvironments, parseHostedWorkspaceLink, serializeEnvironments, withActive, withEnvironment, withoutEnvironment, workspaceMenuTemplate, workspaceNavigationAllowed, workspaceSenderAllowed, workspaceSummary, workspaceWindowTitle } = environmentsModule;
+const { LOCAL_ID, activeEnvironment, allowedOrigins, parseEnvironments, parseHostedWorkspaceLink, serializeEnvironments, withActive, withEnvironment, withoutEnvironment, workspaceNavigationAllowed, workspaceSenderAllowed, workspaceSummary, workspaceWindowTitle } = environmentsModule;
 let environmentsState = { environments: [], activeId: LOCAL_ID };
 let computerSharing;
 const sharingPrompts = new Set();
@@ -1911,11 +1917,6 @@ async function startProfiles() {
 function refreshApplicationMenu() {
   Menu.setApplicationMenu(
     buildApplicationMenu({
-      environments: environmentsState.environments,
-      activeId: environmentsState.activeId,
-      onSwitch: (id) => void workspaceMenuAction(() => switchEnvironment(id)),
-      onAddFromClipboard: () => void addServerFromClipboard(),
-      onForget: (id) => void workspaceMenuAction(() => forgetEnvironment(id)),
       onOpenSettings: () => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("app:open-settings");
       },
@@ -1953,7 +1954,7 @@ async function switchEnvironment(id) {
   const entry = environmentsState.environments.find((candidate) => candidate.id === id);
   if (entry && cloudAccount && isCloudHomeEntry(entry, { homeOrigin: cloudAccount.homeTarget()?.origin, remembered: rememberedHome })) {
     try { await connectCloudHome(); return; } catch (error) {
-      slog(`cloud home: could not connect from the Server menu (${error?.message ?? error})`);
+      slog(`cloud home: could not connect (${error?.message ?? error})`);
       if (!(await cloudHomeSignedIn(entry.origin))) { await openLendingSettings(); return; }
     }
   }
@@ -1970,7 +1971,7 @@ const organizationEntry = createOrganizationEntry({
       buttons: [kind === "companion" ? "Disconnect and restart locally" : "Use this computer", "Cancel"],
       defaultId: 1, cancelId: 1,
       message: kind === "companion" ? `Disconnect from ${name} to sign in locally?` : `Leave ${name} and sign in on this computer?`,
-      detail: `${origin}\n\nOrganization sign-in connects company models to this computer. ${kind === "companion" ? "This disconnects desktop companion access and restarts the app. You can pair again later." : "The hosted connection stays saved and can be selected again from the Server menu."} No remote bots, conversations or provider accounts are moved or deleted.`,
+      detail: `${origin}\n\nOrganization sign-in connects company models to this computer. ${kind === "companion" ? "This disconnects desktop companion access and restarts the app. You can pair again later." : "The hosted connection stays saved."} No remote bots, conversations or provider accounts are moved or deleted.`,
     });
     return response === 0;
   },
@@ -2026,7 +2027,7 @@ async function openCloudEntry() {
   await cloudAccountRestored();
   const active = activeEnvironment(environmentsState);
   const showingCloud = Boolean(active) && active.origin === cloudAccount?.homeTarget()?.origin;
-  if (active && !showingCloud) throw new Error("Your current workspace is still open. Choose Server → This computer to manage this Mac's Cloud account.");
+  if (active && !showingCloud) throw new Error("Your current workspace is still open. Return to this computer to manage this Mac's Cloud account.");
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow({ deferNavigation: !showingCloud });
   if (showingCloud) return true;
   if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) {
@@ -2047,15 +2048,6 @@ function openWorkspaceSettings(computerId, panel = "computer") {
     profiles?.usePersonal();
     persistEnvironments(withActive(environmentsState, LOCAL_ID));
     navigateMainWindow(`${rendererOrigin()}/?desktop-settings=workspaces${id ? `&${copy ? "copy-to" : "share-computer"}=${encodeURIComponent(id)}` : ""}`);
-  }
-}
-
-async function addServerFromClipboard() {
-  try {
-    return await connectHostedWorkspace(clipboard.readText());
-  } catch (error) {
-    await dialog.showMessageBox({ type: "info", message: "Could not connect to the server", detail: error.message });
-    return false;
   }
 }
 
@@ -2114,36 +2106,6 @@ async function cloudHomeSignedIn(origin) {
     return response.ok && (await response.json())?.kind === "session";
   } catch {
     return false;
-  }
-}
-
-async function forgetEnvironment(id) {
-  const env = environmentsState.environments.find((e) => e.id === id);
-  if (!env) return;
-  const { response } = await dialog.showMessageBox({
-    type: "warning",
-    buttons: ["Forget", "Cancel"],
-    defaultId: 1,
-    cancelId: 1,
-    message: `Forget “${env.name}”?`,
-    detail: "This app signs out of that server. The server keeps its own session list; revoke it there too if the device is gone.",
-  });
-  if (response !== 0) return;
-  sharingController().forget(env);
-  const wasActive = environmentsState.activeId === id;
-  persistEnvironments(withoutEnvironment(environmentsState, id));
-  if (wasActive) navigateMainWindow(activeOrigin());
-  try {
-    const response = await session.defaultSession.fetch(`${env.origin}/api/auth/logout`, { method: "POST", credentials: "include", headers: { origin: env.origin }, signal: AbortSignal.timeout(5_000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  } catch (error) {
-    slog(`forget server: logout skipped (${error?.message ?? error})`);
-    await dialog.showMessageBox({ type: "warning", message: "Connection forgotten; server sign-out could not be confirmed", detail: "Computer sharing is stopped. Revoke this desktop’s session on that server when it is reachable again." });
-  }
-  try {
-    await session.defaultSession.clearStorageData({ origin: env.origin, storages: ["localstorage", "indexdb", "serviceworkers", "cachestorage"] });
-  } catch (error) {
-    slog(`forget server: storage clear failed: ${error?.message ?? error}`);
   }
 }
 
@@ -2287,7 +2249,7 @@ function createWindow({ deferNavigation = false } = {}) {
     void dialog.showMessageBox({
       type: "warning",
       message: `${remote.name} is not reachable`,
-      detail: `${errorDescription}. Showing the local server instead; choose it again from the Server menu when it is back.`,
+      detail: `${errorDescription}. Showing the local server instead.`,
     });
     void workspaceMenuAction(() => switchEnvironment(LOCAL_ID));
   });
@@ -2902,28 +2864,55 @@ async function cloudMoveOverview(dest, onServerPage) {
     ...(blocked === "busy_elsewhere" ? { busyWith: state.destination?.name } : {}) };
 }
 
-function cloudHomeDestination() {
-  const home = cloudAccount?.homeTarget();
-  if (!home) return null;
-  const entry = environmentsState.environments.find(candidate => candidate.origin === home.origin);
-  return destinationFor({ id: entry?.id ?? "cloud", name: CLOUD_HOME_NAME, origin: home.origin, cloud: true });
-}
 function ensureCloudAutoMove() {
   cloudAutoMove ??= createCloudAutoMove({
     move: ensureCloudMove(),
     read: () => readUserData("cloud-auto-move.json"),
     write: contents => writeUserData("cloud-auto-move.json", contents),
     log: slog,
-    onMoved: destination => { if (activeEnvironment(environmentsState)?.origin === destination.origin) navigateMainWindow(destination.origin); },
+    onFailed: reason => { void dialog.showMessageBox({ type: "info", message: "Your dogs have not moved to Cloud yet", detail: `${reason.message} This app keeps working on this Mac and tries again the next time it opens.` }); },
   });
   return cloudAutoMove;
 }
-function runCloudAutoMove(manual) {
+function ensureMacHold() {
+  macHold ??= createMacHold({
+    request: (route, init) => {
+      if (!serverProc || !serverReady) throw new Error("this Mac's server is not running");
+      return fetch(`http://127.0.0.1:${SERVER_PORT}${route}`, { ...init, redirect: "error", credentials: "omit",
+        headers: { ...Object.fromEntries(new Headers(init.headers)), [DESKTOP_MUTATION_HEADER]: desktopMutationToken } });
+    },
+    log: slog,
+  });
+  return macHold;
+}
+function ensureCloudWindow() {
+  cloudWindow ??= createCloudWindow({
+    autoMove: ensureCloudAutoMove(),
+    hold: ensureMacHold(),
+    destinationFor: choice => {
+      const entry = environmentsState.environments.find(candidate => candidate.origin === choice.origin);
+      return destinationFor({ id: entry?.id ?? "cloud", name: CLOUD_HOME_NAME, origin: choice.origin, cloud: true });
+    },
+    showHome: async destination => {
+      if (activeEnvironment(environmentsState)?.origin === destination.origin) return;
+      await connectCloudHome();
+    },
+    showLocal: async () => {
+      if (!activeEnvironment(environmentsState)) return;
+      persistEnvironments(withActive(environmentsState, LOCAL_ID));
+      navigateMainWindow(activeOrigin());
+    },
+    log: slog,
+  });
+  return cloudWindow;
+}
+function syncCloudWindow(state, manual = false) {
   if (!app.isPackaged || desktopRemoteAccess || !serverReady) return Promise.resolve(null);
-  const accountId = cloudAccount?.state().account?.id, destination = cloudHomeDestination();
-  if (!accountId || !destination) return Promise.resolve(null);
-  const engine = ensureCloudAutoMove();
-  return (manual ? engine.retry(accountId, destination) : engine.ensure(accountId, destination)).catch(error => { slog(`cloud move: ${error?.message ?? error}`); return null; });
+  const controller = ensureCloudWindow();
+  return (manual ? controller.retry(state) : controller.sync(state)).catch(error => { slog(`cloud window: ${error?.message ?? error}`); return null; });
+}
+function runCloudAutoMove() {
+  return cloudAccount ? syncCloudWindow(cloudAccount.state(), true) : Promise.resolve(null);
 }
 
 function destinationFor(entry) {
@@ -2965,7 +2954,7 @@ ipcMain.handle("cloud-move:start", (event, id) => {
       cloudPageSenderAllowed(event, { contents, homeOrigin: cloudAccount?.homeTarget()?.origin ?? null, activeOrigin: activeEnvironment(environmentsState)?.origin });
     if (!verifiedCloud) { openWorkspaceSettings(dest.id, "copy"); return { phase: "idle" }; }
   }
-  if (asked.remote && dest.kind === "cloud") return runCloudAutoMove(true).then(() => ensureCloudMove().state());
+  if (asked.remote && dest.kind === "cloud") return runCloudAutoMove().then(() => ensureCloudMove().state());
   return ensureCloudMove().move(dest, { requireEmpty: asked.remote }).then(afterCloudMove(dest));
 });
 ipcMain.handle("cloud-move:cancel", (event) => {
@@ -3090,25 +3079,8 @@ ipcMain.handle("environments:switch", localWorkspaceOnly("environments:switch", 
 ipcMain.handle("environments:add-from-link", localWorkspaceOnly("environments:add-from-link", (_event, link, name) => {
   return connectHostedWorkspace(link, typeof name === "string" ? name : undefined);
 }));
-ipcMain.handle("environments:forget", localWorkspaceOnly("environments:forget", (_event, id) => forgetEnvironment(typeof id === "string" ? id : "")));
 
 ipcMain.handle("workspaces:state", workspaceOnly(() => workspaceSummary(environmentsState)));
-let workspaceMenuOpen = false;
-ipcMain.handle("workspaces:menu", workspaceOnly(async () => {
-  if (workspaceMenuOpen) return;
-  workspaceMenuOpen = true;
-  try {
-    const menu = Menu.buildFromTemplate(workspaceMenuTemplate(environmentsState, {
-      onSwitch: (id) => void workspaceMenuAction(() => switchEnvironment(id)),
-      onAddFromClipboard: () => void addServerFromClipboard(),
-      onForget: (id) => void workspaceMenuAction(() => forgetEnvironment(id)),
-    }));
-    await new Promise((resolve) => menu.popup({ window: mainWindow, callback: resolve }));
-  } finally {
-    workspaceMenuOpen = false;
-  }
-}));
-
 ipcMain.handle("desktop:capabilities", async (event) => {
   const profile = askingProfile(event);
   return desktopCapabilities({

@@ -17,8 +17,9 @@ const GB = 1024 ** 3;
 const DISK_STEP_GB = 10;
 const REUSE_MS = 30 * 60_000;
 const UUID = /^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/;
-const LOCAL_ROUTES = /^\/api\/(?:workspace-backup\/(?:status|export|download\/[a-f\d-]{36})|cloud-move\/estimate)$/;
+const LOCAL_ROUTES = /^\/api\/(?:workspace-backup\/(?:status|export|download\/[a-f\d-]{36})|cloud-move\/estimate(?:\?profile=cloud-move)?)$/;
 const RESUMABLE = new Set(["upload_failed", "cloud_unavailable", "network", "cloud_busy", "cancelled", "proxy_limit"]);
+export const CLOUD_MOVE_PROFILE = "cloud-move";
 const VERSION = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
 
 export class CloudMoveError extends Error {
@@ -135,6 +136,8 @@ export function parseCloudMoveStatus(value) {
     volumeBytes: count(value.volumeBytes) && value.volumeBytes > 0 ? value.volumeBytes : null,
     uploadReceived: record(value.upload) && count(value.upload.received) ? value.upload.received : 0,
     heldBytes: count(value.heldBytes) ? value.heldBytes : null,
+    receivedFrom: record(value.receivedFrom) && count(value.receivedFrom.at)
+      ? { at: value.receivedFrom.at, environmentId: typeof value.receivedFrom.environmentId === "string" ? value.receivedFrom.environmentId : null } : null,
     pendingRestore: value.pendingRestore === true, busy: value.busy === true,
     job: record(value.job) ? value.job : null,
     lastRestoreId: typeof value.lastRestoreId === "string" ? value.lastRestoreId : null,
@@ -190,8 +193,9 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
     if (!record(body)) fail("export_failed", "This computer's workspace could not be prepared for the copy.");
     return body;
   }
-  async function estimate(signal) {
-    const result = parseMoveEstimate(await localJson("/api/cloud-move/estimate", { method: "GET" }, signal ?? AbortSignal.timeout(60_000)));
+  async function estimate(signal, profile) {
+    const route = profile === CLOUD_MOVE_PROFILE ? `/api/cloud-move/estimate?profile=${CLOUD_MOVE_PROFILE}` : "/api/cloud-move/estimate";
+    const result = parseMoveEstimate(await localJson(route, { method: "GET" }, signal ?? AbortSignal.timeout(60_000)));
     if (!result) fail("export_failed", "This computer's workspace could not be measured.");
     return result;
   }
@@ -252,8 +256,8 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
     const previous = prepared; prepared = null;
     if (previous) await rm(previous.directory, { recursive: true, force: true }).catch(() => {});
   }
-  async function archive(local, signal) {
-    if (prepared && now() - prepared.createdAt < REUSE_MS && await lstat(prepared.file).then(stat => stat.isFile() && stat.size === prepared.bytes, () => false)) return prepared;
+  async function archive(local, signal, profile) {
+    if (prepared && prepared.profile === profile && now() - prepared.createdAt < REUSE_MS && await lstat(prepared.file).then(stat => stat.isFile() && stat.size === prepared.bytes, () => false)) return prepared;
     await disposeArchive();
     publish({ phase: "exporting", action: "move" });
     const status = await localJson("/api/workspace-backup/status", { method: "GET" }, signal);
@@ -266,7 +270,7 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
       await chmod(directory, 0o700);
       if (await availableBytes(directory) < local.bytes + SPACE_MARGIN) fail("local_full", "This computer does not have enough free disk space to prepare the copy.");
       const password = randomBytes(32).toString("base64url");
-      const exported = await localJson("/api/workspace-backup/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password, clientState: {} }) }, signal);
+      const exported = await localJson("/api/workspace-backup/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password, clientState: {}, ...(profile ? { profile } : {}) }) }, signal);
       if (typeof exported.id !== "string" || !UUID.test(exported.id) || !Number.isSafeInteger(exported.bytes) || exported.bytes < MIN_BYTES || !record(exported.summary)) fail("export_failed", "This computer's workspace could not be prepared for the copy.");
       if (exported.bytes > CLOUD_MOVE_MAX_BYTES) fail("too_large", "This workspace is larger than a copy can carry.");
       const response = await localRequest(`/api/workspace-backup/download/${exported.id}`, { method: "GET", signal, redirect: "error" });
@@ -285,7 +289,9 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
       }, createWriteStream(file, { flags: "wx", mode: 0o600 }), { signal });
       if (bytes !== exported.bytes || !header.equals(MAGIC)) fail("export_failed", "This computer's workspace could not be prepared for the copy.");
       const summary = exported.summary;
-      prepared = { directory, file, password, sha256: hash.digest("hex"), bytes, createdAt: now(),
+      const stayed = Array.isArray(summary.leftOnComputer)
+        ? summary.leftOnComputer.filter(item => record(item) && typeof item.name === "string" && count(item.bytes)).map(item => ({ name: item.name, bytes: item.bytes })) : [];
+      prepared = { directory, file, password, profile, stayed, sha256: hash.digest("hex"), bytes, createdAt: now(),
         summary: { bots: count(summary.bots) ? summary.bots : 0, files: count(summary.files) ? summary.files : 0, messages: count(summary.messages) ? summary.messages : 0 } };
       return prepared;
     } catch (error) {
@@ -446,8 +452,11 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
   return {
     state,
     estimate,
-    move: (dest, { requireEmpty = false, verifyArrival = false } = {}) => run("move", dest, async (session, signal) => {
-      const [cloud, local] = await Promise.all([cloudStatus(session, signal), estimate(signal)]);
+    move: (dest, { requireEmpty = false, verifyArrival = false, profile, yieldToOtherComputer = false } = {}) => run("move", dest, async (session, signal) => {
+      const [cloud, local] = await Promise.all([cloudStatus(session, signal), estimate(signal, profile)]);
+      if (yieldToOtherComputer && cloud.receivedFrom && cloud.receivedFrom.environmentId !== local.environmentId) {
+        fail("other_computer_moved", `${There()} already received another computer's workspace, so nothing was copied.`);
+      }
       const why = moveBlocked({ kind: dest.kind, local, cloud });
       if (why) {
         fail(why, why === "outdated" ? `${There()} runs ${cloud.appVersion}; this computer runs ${local.appVersion}. Update it, then copy again.` : `${There()} can't receive this copy.`,
@@ -464,10 +473,10 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
         fail("cloud_full", `${There()} does not have enough free space for this copy.`, details);
       }
       if (fit.fit === "grow" && typeof dest.grow === "function") await makeRoom(dest, session, fit, signal);
-      const archived = await archive(local, signal);
+      const archived = await archive(local, signal, profile);
       await upload(session, archived, signal);
       publish({ phase: "checking", action: "move" });
-      await cloudJson(session, "POST", "/api/cloud-move/preview", { sha256: archived.sha256, password: archived.password }, signal);
+      await cloudJson(session, "POST", "/api/cloud-move/preview", { sha256: archived.sha256, password: archived.password, ...(profile && local.environmentId ? { source: local.environmentId } : {}) }, signal);
       const preview = await waitForPreview(session, signal);
       if (preview.summary.bots !== archived.summary.bots || preview.summary.messages !== archived.summary.messages) fail("invalid_backup", `${There()} read a different workspace than this computer sent.`);
       publish({ phase: "replacing", action: "move", replacing: !cloud.empty });
@@ -481,12 +490,13 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
           await sleep(retryDelaysMs[attempt], signal);
         }
       }
+      const stayedOnMac = archived.stayed;
       await disposeArchive();
       const after = await waitForRestart(session, "restore", { id: preview.id }, signal);
       if (verifyArrival && !arrivedInFull(local, after.contents)) {
         fail("not_verified", `${There()} did not receive every bot and chat. Everything is still on this computer.`, { contents: after.contents });
       }
-      return publish({ phase: "done", action: "move", moved: after.contents, previous: Boolean(after.previous), ...(local.routines > 0 ? { routines: local.routines } : {}) });
+      return publish({ phase: "done", action: "move", moved: after.contents, previous: Boolean(after.previous), ...(profile ? { stayedOnMac } : {}), ...(local.routines > 0 ? { routines: local.routines } : {}) });
     }),
     restorePrevious: dest => run("restore", dest, async (session, signal) => {
       const before = await cloudStatus(session, signal);

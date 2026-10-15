@@ -4,128 +4,122 @@ import { createCloudAutoMove, parseMoveRecords, worthMoving } from "./cloud-auto
 
 const DEST = { id: "cloud", name: "My Cloud", origin: "https://home.fixture.test", kind: "cloud", grant: async () => ({}) };
 const LOCAL = { bots: 4, rooms: 1, chats: 9, bytes: 1000, files: 3 };
+const STAYED = [{ name: "task-workspaces", bytes: 5000 }, { name: "native", bytes: 1600 }];
 
 function setup(options = {}) {
-  const stored = { raw: options.saved ?? null }, timers = [], moves = [], logs = [], arrivals = [];
+  const stored = { raw: options.saved ?? null }, moves = [], logs = [], arrivals = [], joins = [], failures = [];
   const results = [...(options.results ?? [])];
   const move = {
     running: () => Boolean(options.running),
     estimate: async () => { if (options.estimateFails) throw new Error("local server busy"); return options.local ?? LOCAL; },
-    move: async (dest, flags) => { moves.push([dest, flags]); return results.shift() ?? { phase: "done", action: "move", moved: { bots: 4, rooms: 1, chats: 9 } }; },
+    move: async (dest, flags) => { moves.push([dest, flags]); return results.shift() ?? { phase: "done", action: "move", moved: { bots: 4, rooms: 1, chats: 9 }, stayedOnMac: STAYED }; },
   };
   const engine = createCloudAutoMove({ move, read: () => stored.raw, write: contents => { if (options.writeFails) throw new Error("disk full"); stored.raw = contents; }, now: () => 1_800_000_000_000,
-    setTimer: (callback, delay) => { timers.push({ callback, delay }); return { unref() {} }; }, clearTimer: () => { timers.length = 0; }, log: message => logs.push(message), retryDelaysMs: [10, 20], onMoved: destination => arrivals.push(destination) });
-  return { engine, stored, timers, moves, logs, arrivals };
+    log: message => logs.push(message), onMoved: destination => arrivals.push(destination), onJoined: destination => joins.push(destination), onFailed: reason => failures.push(reason) });
+  return { engine, stored, moves, logs, arrivals, joins, failures };
 }
 const failed = (code, extra = {}) => ({ phase: "failed", action: "move", error: { code, message: code, ...extra } });
 
-test("dogs with chats move once, with the home required to be empty and to prove arrival, and the Mac keeps its copy", async () => {
+test("the first sign-in moves the Mac's dogs with replacement allowed, the slim profile and proof of arrival, and records account and home", async () => {
   const f = setup();
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "moved" });
-  assert.deepEqual(f.moves, [[DEST, { requireEmpty: true, verifyArrival: true }]]);
-  assert.equal(f.engine.status("acct"), "moved");
-  assert.deepEqual(parseMoveRecords(f.stored.raw).acct.contents, { bots: 4, rooms: 1, chats: 9 });
-  assert.deepEqual(f.arrivals, [DEST], "the window is told so it can show the dogs that arrived");
-  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "moved" });
-  assert.equal(f.arrivals.length, 1);
-  assert.equal(f.moves.length, 1, "a finished move is never started again");
+  assert.deepEqual(f.moves, [[DEST, { requireEmpty: false, verifyArrival: true, profile: "cloud-move", yieldToOtherComputer: true }]]);
+  const record = parseMoveRecords(f.stored.raw).acct;
+  assert.equal(record.status, "moved");
+  assert.equal(record.origin, DEST.origin);
+  assert.deepEqual(record.contents, { bots: 4, rooms: 1, chats: 9 });
+  assert.deepEqual(record.stayedOnMac, STAYED);
+  assert.deepEqual(f.arrivals, [DEST]);
 });
 
-test("a Mac with only the starter dog and no chats has nothing to move, and that is remembered", async () => {
+test("a later sign-in on the same Mac only shows the home: the move never repeats", async () => {
+  const f = setup();
+  await f.engine.ensure("acct", DEST);
+  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "moved" });
+  assert.deepEqual(await f.engine.retry("acct", DEST), { status: "moved" });
+  assert.equal(f.moves.length, 1);
+  assert.equal(f.engine.status("acct", DEST), "moved");
+  const restarted = createCloudAutoMove({ move: { running: () => false, estimate: async () => LOCAL, move: async () => { throw new Error("must not move"); } }, read: () => f.stored.raw, write() {} });
+  assert.deepEqual(await restarted.ensure("acct", DEST), { status: "moved" });
+});
+
+test("another account on the same Mac is a separate decision", async () => {
+  const f = setup();
+  await f.engine.ensure("acct", DEST);
+  await f.engine.ensure("other", DEST);
+  assert.equal(f.moves.length, 2);
+});
+
+test("a Mac with only the starter dog and no chats has nothing to move and records nothing", async () => {
   const f = setup({ local: { bots: 1, rooms: 0, chats: 0, bytes: 10, files: 0 } });
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "nothing" });
   assert.equal(f.moves.length, 0);
-  assert.equal(f.engine.status("acct"), "nothing");
+  assert.equal(f.stored.raw, null);
   assert.equal(worthMoving({ bots: 2, rooms: 0, chats: 0 }), true);
+  assert.equal(worthMoving({ bots: 1, rooms: 0, chats: 2 }), true);
   assert.equal(worthMoving(null), false);
 });
 
-test("a home that already has other dogs is never replaced automatically; the Mac's dogs stay and the choice is remembered", async () => {
-  const f = setup({ results: [failed("not_empty", { contents: { bots: 2, rooms: 0, chats: 3 } })] });
-  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "kept-local" });
-  assert.equal(f.engine.status("acct"), "kept-local");
-  await f.engine.ensure("acct", DEST);
+test("a second Mac does not replace a home that another Mac filled: it records that, logs one line and leaves its own data alone", async () => {
+  const f = setup({ results: [failed("other_computer_moved")] });
+  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "joined" });
+  assert.equal(f.engine.status("acct", DEST), "joined");
+  assert.deepEqual(f.joins, [DEST]);
+  assert.equal(f.arrivals.length, 0);
+  assert.equal(f.logs.filter(line => /another computer already moved/.test(line)).length, 1);
+  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "joined" });
   assert.equal(f.moves.length, 1);
 });
 
-test("a home that is not empty because an earlier attempt already delivered everything counts as moved", async () => {
-  const f = setup({ results: [failed("not_empty", { contents: { bots: 4, rooms: 1, chats: 9 } })] });
-  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "moved" });
+test("a home at a different address than the one that received the move is decided again", async () => {
+  const f = setup();
+  await f.engine.ensure("acct", DEST);
+  await f.engine.ensure("acct", { ...DEST, origin: "https://other-home.fixture.test" });
+  assert.equal(f.moves.length, 2);
 });
 
-test("a move the home cannot confirm in full is not recorded, so nothing is treated as moved", async () => {
+test("a move the home cannot confirm in full is not recorded and is reported once with its reason", async () => {
   const f = setup({ results: [failed("not_verified", { contents: { bots: 4, rooms: 1, chats: 5 } })] });
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "failed", code: "not_verified" });
-  assert.equal(f.engine.status("acct"), null);
+  assert.equal(f.stored.raw, null);
+  assert.deepEqual(f.failures.map(reason => reason.code), ["not_verified"]);
+  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "failed" });
+  assert.equal(f.moves.length, 1, "no retry timer: the next launch tries again");
+  assert.equal(f.failures.length, 1);
   const short = setup({ results: [{ phase: "done", action: "move", moved: { bots: 4, rooms: 1, chats: 8 } }] });
-  assert.deepEqual(await short.engine.ensure("acct", DEST), { status: "failed", code: undefined });
-  assert.equal(short.engine.status("acct"), null, "a done that falls short is not believed");
+  assert.equal((await short.engine.ensure("acct", DEST)).status, "failed");
+  assert.equal(short.stored.raw, null);
 });
 
-test("a failure that can pass retries by itself on a growing delay, then waits for the person's retry", async () => {
-  const f = setup({ results: [failed("busy"), failed("network"), failed("cloud_busy")] });
-  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "waiting", code: "busy" });
-  assert.equal(f.timers[0].delay, 10);
-  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "waiting" }, "asking again while a retry is scheduled does not stack another");
-  f.timers[0].callback();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.timers.at(-1).delay, 20);
-  f.timers.at(-1).callback();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.moves.length, 3);
-  assert.equal(f.engine.status("acct"), null);
-  assert.deepEqual(await f.engine.retry("acct", DEST), { status: "moved" }, "the person's retry starts over");
-});
-
-test("a failure that will not pass by waiting is reported once and not retried", async () => {
-  const f = setup({ results: [failed("too_large")] });
-  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "failed", code: "too_large" });
-  assert.equal(f.timers.length, 0);
-});
-
-test("a move that gave up is not tried again by every later check; only the person's retry, or a new sign-in, starts it again", async () => {
-  const f = setup({ results: [failed("too_large")] });
-  assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "failed", code: "too_large" });
-  for (let check = 0; check < 3; check++) assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "failed" });
-  assert.equal(f.moves.length, 1, "a large export is not repeated every minute");
+test("a new launch tries a failed move again, and so does an explicit retry", async () => {
+  const f = setup({ results: [failed("network")] });
+  assert.equal((await f.engine.ensure("acct", DEST)).status, "failed");
   assert.deepEqual(await f.engine.retry("acct", DEST), { status: "moved" });
-  const exhausted = setup({ results: [failed("busy"), failed("busy"), failed("busy")] });
-  await exhausted.engine.ensure("acct", DEST);
-  exhausted.timers.at(-1).callback(); await new Promise(resolve => setImmediate(resolve));
-  exhausted.timers.at(-1).callback(); await new Promise(resolve => setImmediate(resolve));
-  assert.equal(exhausted.moves.length, 3);
-  for (let check = 0; check < 3; check++) assert.deepEqual(await exhausted.engine.ensure("acct", DEST), { status: "failed" });
-  assert.equal(exhausted.moves.length, 3, "after the last automatic retry it waits for the person");
-  exhausted.engine.stop();
-  assert.deepEqual(await exhausted.engine.ensure("acct", DEST), { status: "moved" }, "signing in again starts fresh");
+  const g = setup({ results: [failed("network")] });
+  await g.engine.ensure("acct", DEST);
+  g.engine.stop();
+  assert.deepEqual(await g.engine.ensure("acct", DEST), { status: "moved" });
 });
 
-test("a busy local server or a move already under way never starts a second one", async () => {
+test("an unmeasurable Mac or a move already running does nothing harmful", async () => {
+  const unmeasured = setup({ estimateFails: true });
+  assert.deepEqual(await unmeasured.engine.ensure("acct", DEST), { status: "failed", code: "unmeasured" });
   const running = setup({ running: true });
   assert.deepEqual(await running.engine.ensure("acct", DEST), { status: "busy" });
   assert.equal(running.moves.length, 0);
-  const unmeasured = setup({ estimateFails: true });
-  assert.deepEqual(await unmeasured.engine.ensure("acct", DEST), { status: "waiting", code: "unmeasured" });
+  assert.deepEqual(await running.engine.ensure(null, DEST), { status: "busy" });
 });
 
-test("a result that cannot be saved is logged and the move is not claimed finished on disk", async () => {
+test("records from older builds that kept the Mac's dogs local or found nothing do not block the move", () => {
+  const raw = JSON.stringify({ version: 1, homes: {
+    a: { status: "kept-local", at: 1, origin: DEST.origin }, b: { status: "nothing", at: 1, origin: DEST.origin }, c: { status: "moved", at: 1 }, d: { status: "moved", at: 2, origin: DEST.origin },
+  } });
+  assert.deepEqual(Object.keys(parseMoveRecords(raw)), ["d"]);
+  assert.deepEqual(parseMoveRecords("garbage"), {});
+});
+
+test("a record that cannot be saved is logged, and the move still counts as done for this launch", async () => {
   const f = setup({ writeFails: true });
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "moved" });
-  assert.match(f.logs[0], /could not save/);
-  assert.equal(f.engine.status("acct"), null);
-});
-
-test("records belong to the account: another account on the same Mac is offered the move again, and damaged files read as none", async () => {
-  const f = setup();
-  await f.engine.ensure("first", DEST);
-  assert.equal(f.engine.status("second"), null);
-  assert.deepEqual(parseMoveRecords("not json"), {});
-  assert.deepEqual(parseMoveRecords({ homes: { a: { status: "moved" }, b: { status: "weird", at: 1 }, c: { status: "nothing", at: 5 } } }), { c: { status: "nothing", at: 5 } });
-});
-
-test("a person's retry after a kept-local answer may try again, because the home may have been emptied since", async () => {
-  const f = setup({ results: [failed("not_empty", { contents: { bots: 1, rooms: 0, chats: 0 } })] });
-  await f.engine.ensure("acct", DEST);
-  assert.deepEqual(await f.engine.retry("acct", DEST), { status: "moved" });
-  assert.equal(f.moves.length, 2);
+  assert.ok(f.logs.some(line => /could not save/.test(line)));
 });
