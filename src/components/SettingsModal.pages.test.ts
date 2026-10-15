@@ -101,26 +101,12 @@ describe("the Settings rail", () => {
 });
 
 describe("General", () => {
-  it("keeps desktop server access behind a closed disclosure on a remote workspace", () => {
-    expect(render()).not.toContain("data-server-access");
-    vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, remoteClient: { active: true } } });
+  it("has no server access or workspace recovery disclosure, even on a remote workspace", () => {
+    vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, remoteClient: { active: true }, workspaces: { state: vi.fn(), menu: vi.fn() } } });
     const html = render();
-    expect(html).toMatch(/<details data-server-access="true" class=/);
-    expect(html).not.toMatch(/<details data-server-access[^>]*\bopen=/);
-    expect(html).toContain("Advanced server access");
+    expect(html).not.toContain("data-server-access");
+    expect(html).not.toContain("data-workspace-recovery");
     expect(html).not.toContain("data-phone-pairing");
-  });
-
-  it("keeps workspace recovery after Help in a closed Advanced disclosure only in the desktop app", () => {
-    expect(render()).not.toContain("data-workspace-recovery");
-    vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, workspaces: { state: vi.fn(), menu: vi.fn() } } });
-    const html = render();
-    const recovery = html.slice(html.indexOf("<details"));
-    expect(recovery).toMatch(/^<details data-workspace-recovery="true" class=/);
-    expect(recovery).not.toMatch(/^<details[^>]*\bopen=/);
-    expect(recovery).toContain(">Advanced</summary>");
-    expect(recovery).toContain("Open saved workspaces");
-    expect(html.indexOf("data-workspace-recovery")).toBeGreaterThan(html.indexOf('data-settings-group="help"'));
   });
 
   it("stacks later.dog Cloud, Accounts, Profile, Appearance, Typing suggestions, System and Help, in that order", () => {

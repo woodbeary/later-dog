@@ -15,7 +15,6 @@ let host: HTMLDivElement;
 let root: Root;
 let push: (state: CloudAccountState) => void;
 let bridge: CloudAccountBridge;
-const onGetPhone = vi.fn();
 
 function makeBridge(initial: CloudAccountState): CloudAccountBridge {
   return {
@@ -39,7 +38,7 @@ function makeBridge(initial: CloudAccountState): CloudAccountBridge {
 
 async function show(laterdog: Record<string, unknown>, onOpenComputer?: () => void) {
   (window as unknown as { laterdog?: unknown }).laterdog = laterdog;
-  await act(async () => { root.render(createElement(CloudAccountSettings, { onGetPhone, onOpenComputer })); });
+  await act(async () => { root.render(createElement(CloudAccountSettings, { onOpenComputer })); });
   await act(async () => { await Promise.resolve(); });
 }
 
@@ -65,7 +64,6 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  onGetPhone.mockReset();
 });
 
 afterEach(async () => {
@@ -295,13 +293,6 @@ describe("Settings, later.dog Cloud on this Mac", () => {
     expect(text()).toContain("My Cloud is using this Mac now.");
     expect(host.querySelector("[data-lending-apps-off]")).toBeNull();
   });
-
-  it("opens the iPhone app panel", async () => {
-    bridge = makeBridge({ status: "signed-out" });
-    await show({ cloudAccount: bridge });
-    await click("Get the app");
-    expect(onGetPhone).toHaveBeenCalledOnce();
-  });
 });
 
 describe("Settings, later.dog Cloud while the window shows My Cloud", () => {
@@ -323,9 +314,8 @@ describe("Settings, later.dog Cloud while the window shows My Cloud", () => {
     expect(cloudPlan.signOut).toHaveBeenCalledOnce();
   });
 
-  it("shows only the phone app in a plain browser", async () => {
+  it("shows nothing in a plain browser", async () => {
     await show({});
-    expect(host.querySelector("[data-cloud-account]")?.getAttribute("data-cloud-account")).toBe("elsewhere");
-    expect(text()).toContain("later.dog for iPhone");
+    expect(host.querySelector("[data-cloud-account]")).toBeNull();
   });
 });

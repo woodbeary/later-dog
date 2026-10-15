@@ -71,7 +71,7 @@ export function hintSeenPatch(
   return { onboarding: { hintsSeen: [...(record?.hintsSeen ?? []), id] } };
 }
 
-export type BeatId = "hello" | "reel" | "engines" | "permissions" | "phone" | "bot";
+export type BeatId = "hello" | "reel" | "engines" | "permissions" | "bot";
 
 export interface BeatOptions {
   desktop: boolean;
@@ -103,8 +103,6 @@ export function beatWidth(beat: BeatId): number {
   switch (beat) {
     case "engines":
       return 520;
-    case "phone":
-      return 620;
     case "reel":
       return 720;
     case "bot":
