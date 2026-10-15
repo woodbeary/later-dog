@@ -15,7 +15,8 @@ import { readBody } from "./harness/http.ts";
 import { resolveRequestAuth, type RequestAuth } from "./request-auth.ts";
 import { SessionRegistry } from "./sessions.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
-import { createWorkspaceBackupSnapshot } from "./workspace-backup.ts";
+import { applyPendingWorkspaceRestore, createWorkspaceBackupSnapshot } from "./workspace-backup.ts";
+import { noteReceivedMovePending, readReceivedMove } from "./laterdog/cloud-move-received.ts";
 
 let dataDir: string, desktop: string;
 beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-")); desktop = mkdtempSync(join(tmpdir(), "laterdog-cloud-move-desktop-")); });
@@ -140,6 +141,8 @@ it("once a move's restore is installed, deletes its safety copy and staged files
   const [done, older, pending, other] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
   for (const id of [done, older, pending, other]) {
     mkdirSync(join(dataDir, ".backups", id, "staged", "data"), { recursive: true });
+    writeFileSync(join(dataDir, ".backups", id, "staged", "manifest.json"), "{}");
+    writeFileSync(join(dataDir, ".backups", id, "ready.json"), JSON.stringify({ id }));
     mkdirSync(join(dataDir, ".backups", `safety-${id}`, "data"), { recursive: true });
     writeFileSync(join(dataDir, ".backups", `safety-${id}`, "data", "bots.json"), "[]");
   }
@@ -158,6 +161,35 @@ it("once a move's restore is installed, deletes its safety copy and staged files
   beginUpload(dataDir, { sha256: "b".repeat(64), bytes: 4096 });
   tidyCloudMoveStorage(dataDir, restored);
   expect(uploadStatus(dataDir)).toMatchObject({ sha256: "b".repeat(64) });
+});
+
+it("after a Cloud home wakes without a pending copy's staging folder, keeps its workspace and settles the copy as not installed", async () => {
+  writeFileSync(join(dataDir, "bots.json"), JSON.stringify([{ id: "kept" }, { id: "also-kept" }]));
+  const id = randomUUID();
+  noteMoveRestore(dataDir, id);
+  noteReceivedMovePending(dataDir, id, "8d0f6c1e-2b7a-4f3e-9c5d-1a2b3c4d5e6f");
+  await prepareNextPreviousCloud(dataDir, id, backup(dataDir));
+  writeFileSync(join(dataDir, ".backups", "pending-restore.json"), JSON.stringify({ id }));
+  const restored = applyPendingWorkspaceRestore(dataDir);
+  expect(restored).toEqual({ restored: false, rolledBack: true, id });
+  tidyCloudMoveStorage(dataDir, restored);
+  expect(JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8"))).toEqual([{ id: "kept" }, { id: "also-kept" }]);
+  expect(readdirSync(join(dataDir, ".backups"))).toEqual([]);
+  expect(previousCloud(dataDir)).toBeNull();
+  expect(readReceivedMove(dataDir)).toBeNull();
+}, 60_000);
+
+it("holds no next previous Cloud or copy files for a pending restore whose staging folder is gone", () => {
+  const id = randomUUID();
+  const next = join(dataDir, ".backups", "cloud-previous.next");
+  mkdirSync(next, { recursive: true });
+  writeFileSync(join(next, "workspace.dogbackup"), "sealed");
+  writeFileSync(join(next, "previous.json"), JSON.stringify({ password: "p".repeat(43), createdAt: new Date().toISOString(), contents: { bots: 2, rooms: 0, chats: 0 }, forRestore: id }));
+  mkdirSync(join(dataDir, ".backups", `safety-${id}`, "data"), { recursive: true });
+  noteMoveRestore(dataDir, id);
+  writeFileSync(join(dataDir, ".backups", "pending-restore.json"), JSON.stringify({ id }));
+  tidyCloudMoveStorage(dataDir, { restored: false });
+  expect(readdirSync(join(dataDir, ".backups"))).toEqual(["pending-restore.json"]);
 });
 
 let server: Server | undefined;

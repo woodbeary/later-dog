@@ -8,7 +8,7 @@ import { settleReceivedMove } from "./laterdog/cloud-move-received.ts";
 import { type WorkspaceBackupProfile } from "./laterdog/cloud-move-profile.ts";
 import {
   MAX_WORKSPACE_BACKUP_FILES, MAX_WORKSPACE_BACKUP_UPLOAD_BYTES, omittedFromWorkspaceBackup, removeWorkspaceBackupJob,
-  stageWorkspaceBackup, type WorkspaceBackupSummary,
+  stageWorkspaceBackup, workspaceRestoreStaged, type WorkspaceBackupSummary,
 } from "./workspace-backup.ts";
 
 export const CLOUD_MOVE_PART_BYTES = 16 * 1024 ** 2;
@@ -296,7 +296,7 @@ export function removeMoveFiles(dataDir: string, id: string): void {
 function pendingRestoreId(dataDir: string): string | null {
   try {
     const value: unknown = JSON.parse(readFileSync(join(dataDir, ".backups", "pending-restore.json"), "utf8"));
-    return record(value) && typeof value.id === "string" ? value.id : null;
+    return record(value) && typeof value.id === "string" && UUID.test(value.id) && workspaceRestoreStaged(dataDir, value.id) ? value.id : null;
   } catch { return null; }
 }
 

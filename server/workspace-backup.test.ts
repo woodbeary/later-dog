@@ -544,6 +544,77 @@ describe("encrypted full workspace backups", () => {
     expect(applyPendingWorkspaceRestore(target)).toEqual({ restored: false });
   });
 
+  it("keeps the current workspace and clears a pending restore whose staging folder was not saved, then restores again", async () => {
+    const source = directory();
+    json(join(source, "bots.json"), [{ id: "incoming" }]);
+    const exported = await createWorkspaceBackup(source, { password: PASSWORD });
+    const target = directory();
+    json(join(target, "bots.json"), [{ id: "original" }]);
+    const staged = await stageWorkspaceBackup(target, exported.path, { password: PASSWORD });
+    commitPendingWorkspaceRestore(target, staged.id);
+    rmSync(join(target, ".backups", staged.id), { recursive: true });
+    expect(readPendingWorkspaceRestoreMetadata(target)).toBeNull();
+    expect(applyPendingWorkspaceRestore(target)).toEqual({ restored: false, rolledBack: true, id: staged.id });
+    expect(readJson(join(target, "bots.json"))).toEqual([{ id: "original" }]);
+    expect(readdirSync(join(target, ".backups"))).toEqual([]);
+    expect(applyPendingWorkspaceRestore(target)).toEqual({ restored: false });
+    const again = await stageWorkspaceBackup(target, exported.path, { password: PASSWORD });
+    commitPendingWorkspaceRestore(target, again.id);
+    expect(applyPendingWorkspaceRestore(target)).toMatchObject({ restored: true, id: again.id });
+    expect(readJson(join(target, "bots.json"))).toEqual([{ id: "incoming" }]);
+  });
+
+  it("rolls an interrupted swap back even when its staging folder was not saved", async () => {
+    const source = directory();
+    json(join(source, "bots.json"), [{ id: "incoming" }]);
+    json(join(source, "groups.json"), [{ id: "incoming-room" }]);
+    const exported = await createWorkspaceBackup(source, { password: PASSWORD });
+    const target = directory();
+    json(join(target, "bots.json"), [{ id: "original" }]);
+    const staged = await stageWorkspaceBackup(target, exported.path, { password: PASSWORD });
+    commitPendingWorkspaceRestore(target, staged.id);
+    const root = join(target, ".backups");
+    const saved = join(root, `safety-${staged.id}`, "data");
+    mkdirSync(saved, { recursive: true });
+    json(join(root, "restore-journal.json"), { id: staged.id, phase: "applying", existing: ["bots.json"], incoming: ["bots.json", "groups.json"] });
+    renameSync(join(target, "bots.json"), join(saved, "bots.json"));
+    renameSync(join(root, staged.id, "staged", "data", "bots.json"), join(target, "bots.json"));
+    renameSync(join(root, staged.id, "staged", "data", "groups.json"), join(target, "groups.json"));
+    rmSync(join(root, staged.id), { recursive: true });
+    expect(applyPendingWorkspaceRestore(target)).toMatchObject({ restored: false, rolledBack: true, id: staged.id });
+    expect(readJson(join(target, "bots.json"))).toEqual([{ id: "original" }]);
+    expect(existsSync(join(target, "groups.json"))).toBe(false);
+    expect(readJson(join(root, "restore-journal.json")).phase).toBe("rolled-back");
+    expect(existsSync(join(root, "pending-restore.json"))).toBe(false);
+    expect(applyPendingWorkspaceRestore(target)).toEqual({ restored: false });
+  });
+
+  it("finishes a committed restore from its receipt when the staging folder was not saved", async () => {
+    const source = directory();
+    json(join(source, "bots.json"), [{ id: "incoming" }]);
+    const exported = await createWorkspaceBackup(source, { password: PASSWORD });
+    const target = directory();
+    json(join(target, "bots.json"), [{ id: "original" }]);
+    const staged = await stageWorkspaceBackup(target, exported.path, { password: PASSWORD });
+    commitPendingWorkspaceRestore(target, staged.id);
+    const receipt = applyPendingWorkspaceRestore(target);
+    expect(receipt).toMatchObject({ restored: true, id: staged.id });
+    const root = join(target, ".backups");
+    expect(readJson(join(root, "restore-journal.json")).phase).toBe("committed");
+    rmSync(join(root, staged.id), { recursive: true });
+    json(join(root, "pending-restore.json"), { id: staged.id });
+    expect(applyPendingWorkspaceRestore(target)).toEqual(readJson(join(root, "last-restore.json")));
+    expect(readLastWorkspaceRestore(target)).toMatchObject({ restored: true, id: staged.id, summary: receipt.summary });
+    expect(existsSync(join(root, "pending-restore.json"))).toBe(false);
+    json(join(root, "pending-restore.json"), { id: staged.id });
+    rmSync(join(root, "last-restore.json"));
+    expect(applyPendingWorkspaceRestore(target)).toEqual({ restored: true, id: staged.id, safetyCopyPath: join(root, `safety-${staged.id}`) });
+    expect(readLastWorkspaceRestore(target)).toEqual({ restored: true, id: staged.id, safetyCopyPath: join(root, `safety-${staged.id}`) });
+    expect(existsSync(join(root, "pending-restore.json"))).toBe(false);
+    expect(readJson(join(target, "bots.json"))).toEqual([{ id: "incoming" }]);
+    expect(applyPendingWorkspaceRestore(target)).toEqual({ restored: false });
+  });
+
   it("detects staged-file tampering before committing or replacing original data", async () => {
     const source = directory();
     json(join(source, "bots.json"), []);

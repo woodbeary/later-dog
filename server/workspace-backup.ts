@@ -593,13 +593,23 @@ export function commitPendingWorkspaceRestore(dataDir: string, id: string) {
   return { id, restartRequired: true as const, summary: metadata.summary };
 }
 
-export function readPendingWorkspaceRestoreMetadata(dataDir: string): (WorkspaceBackupPrivateMetadata & { id: string }) | null {
-  const root = backupRoot(dataDir);
+export function workspaceRestoreStaged(dataDir: string, id: string): boolean {
+  const job = jobPath(dataDir, id);
+  return entryExists(join(job, "ready.json")) && entryExists(join(job, "staged", "manifest.json"));
+}
+
+function pendingRestoreId(root: string): string | null {
   const path = join(root, "pending-restore.json");
   if (!existsSync(path)) return null;
   const pending = privateJson(path);
   if (!record(pending) || typeof pending.id !== "string") throw new Error("Invalid pending workspace restore.");
-  return readStagedWorkspaceBackup(dataDir, pending.id);
+  return pending.id;
+}
+
+export function readPendingWorkspaceRestoreMetadata(dataDir: string): (WorkspaceBackupPrivateMetadata & { id: string }) | null {
+  const id = pendingRestoreId(backupRoot(dataDir));
+  if (!id || !workspaceRestoreStaged(dataDir, id)) return null;
+  return readStagedWorkspaceBackup(dataDir, id);
 }
 
 function readJournal(path: string): RestoreJournal {
@@ -617,7 +627,10 @@ function rollback(dataDir: string, journal: RestoreJournal): void {
     const live = join(dataDir, name);
     const staged = join(stage, name);
     const originalMoved = !journal.existing.includes(name) || entryExists(join(saved, name));
-    if (originalMoved && !entryExists(staged) && entryExists(live)) renameSync(live, staged);
+    if (originalMoved && !entryExists(staged) && entryExists(live)) {
+      folder(stage);
+      renameSync(live, staged);
+    }
   }
   for (const name of journal.existing) {
     const original = join(saved, name);
@@ -814,6 +827,17 @@ function finishRestore(dataDir: string, id: string, consumePending = true): Last
   return result;
 }
 
+function settleUnstagedCommit(dataDir: string, id: string): LastWorkspaceRestore {
+  const root = backupRoot(dataDir);
+  let receipt: LastWorkspaceRestore | null = null;
+  try { receipt = readLastWorkspaceRestore(dataDir); } catch {}
+  const safetyCopyPath = join(root, `safety-${id}`);
+  const result: LastWorkspaceRestore = receipt?.id === id ? receipt : { restored: true, id, ...(entryExists(safetyCopyPath) ? { safetyCopyPath } : {}) };
+  if (receipt !== result) writeJson(join(root, "last-restore.json"), result);
+  rmSync(join(root, "pending-restore.json"), { force: true });
+  return result;
+}
+
 export function applyPendingWorkspaceRestore(dataDir: string): WorkspaceRestoreResult {
   const root = backupRoot(dataDir);
   const journalFile = join(root, "restore-journal.json");
@@ -829,9 +853,14 @@ export function applyPendingWorkspaceRestore(dataDir: string): WorkspaceRestoreR
     if (previous.phase === "committed" && existsSync(pendingFile)) {
       const pending = privateJson(pendingFile);
       if (record(pending) && pending.id === previous.id) {
-        return finishRestore(dataDir, previous.id);
+        return workspaceRestoreStaged(dataDir, previous.id) ? finishRestore(dataDir, previous.id) : settleUnstagedCommit(dataDir, previous.id);
       }
     }
+  }
+  const pendingId = pendingRestoreId(root);
+  if (pendingId && !workspaceRestoreStaged(dataDir, pendingId)) {
+    rmSync(pendingFile, { force: true });
+    return { restored: false, rolledBack: true, id: pendingId };
   }
   const pending = readPendingWorkspaceRestoreMetadata(dataDir);
   if (!pending) return { restored: false };
