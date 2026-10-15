@@ -14,7 +14,7 @@ import { Switch } from "../SettingsPrimitives";
 const cardCls = "rounded-xl bg-card";
 const rowCls = "px-4 py-3";
 const dividedRowCls = "border-t border-hairline/40 px-4 py-3";
-const menuItemCls = "flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised";
+const menuItemCls = "flex w-full items-center gap-3 px-3.5 py-2 text-left text-[13px] text-ink hover:bg-raised/70";
 
 function draftHas(id: string, text: string): boolean {
   try {
@@ -36,16 +36,26 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
   const menuRoutine = menu ? routines.find((routine) => routine.id === menu.routineId) : undefined;
 
   const openMenu = (routineId: string, x: number, y: number) =>
-    setMenu({ routineId, left: Math.max(8, Math.min(x, window.innerWidth - 168)), top: Math.max(8, Math.min(y, window.innerHeight - 140)) });
+    setMenu({ routineId, left: Math.max(8, Math.min(x, window.innerWidth - 188)), top: Math.max(8, Math.min(y, window.innerHeight - 148)) });
 
   useEffect(() => {
     if (!menu) return;
-    menuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
     const outside = (event: MouseEvent) => {
       if (event.target instanceof Node && !menuRef.current?.contains(event.target)) setMenu(null);
     };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenu(null);
+      }
+    };
     window.addEventListener("mousedown", outside);
-    return () => window.removeEventListener("mousedown", outside);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", outside);
+      window.removeEventListener("keydown", onKey, true);
+    };
   }, [menu]);
 
   const toggle = (routine: Routine) =>
@@ -114,7 +124,7 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
           role="menu"
           aria-label={t("routines.actions", { name: menuRoutine.name })}
           style={{ left: menu.left, top: menu.top }}
-          className="fixed z-50 w-[160px] rounded-lg border border-hairline/50 bg-card p-1 shadow-xl"
+          className="fixed z-50 w-[180px] overflow-hidden rounded-xl border border-hairline/50 bg-menu py-1.5 shadow-2xl shadow-black/60 outline-none"
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               event.preventDefault();
@@ -133,13 +143,14 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
             }}
             className={menuItemCls}
           >
-            {menuRoutine.enabled ? <Pause size={12} /> : <Play size={12} />}
+            {menuRoutine.enabled ? <Pause size={15} className="text-ink-secondary" /> : <Play size={15} className="text-ink-secondary" />}
             {menuRoutine.enabled ? t("routines.pause") : t("routines.resume")}
           </button>
           <button type="button" role="menuitem" data-routine-action="edit" onClick={() => edit(menuRoutine)} className={menuItemCls}>
-            <Pencil size={12} />
+            <Pencil size={15} className="text-ink-secondary" />
             {t("routines.edit")}
           </button>
+          <div className="mx-2 my-1 border-t border-hairline/40" />
           <button
             type="button"
             role="menuitem"
@@ -150,7 +161,7 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
             }}
             className={cn(menuItemCls, "text-danger")}
           >
-            <Trash2 size={12} />
+            <Trash2 size={15} />
             {t("routines.delete")}
           </button>
         </div>,

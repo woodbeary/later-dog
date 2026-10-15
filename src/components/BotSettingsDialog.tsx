@@ -232,6 +232,10 @@ export function BotSettingsDialog({ bot, overlay = false }: {
           {tab === "details" && (
             <div role="tabpanel" className="mt-5 flex flex-col gap-5">
               <div>
+                <span className={groupLabelCls}>{t("botSettings.simple.routines")}</span>
+                <RoutinesCard bot={bot} />
+              </div>
+              <div>
                 <span className={groupLabelCls}>{t("botSettings.simple.look")}</span>
                 <div className={cardCls}>
                   <div role="radiogroup" aria-label={t("onboarding.bot.breed")} className="grid grid-cols-4 gap-1 p-2">
@@ -325,10 +329,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                     </div>
                   </div>
                 </div>
-              </div>
-              <div>
-                <span className={groupLabelCls}>{t("botSettings.simple.routines")}</span>
-                <RoutinesCard bot={bot} />
               </div>
             </div>
           )}
