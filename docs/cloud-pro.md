@@ -862,6 +862,44 @@ computers belong to this machine on every request.
   does what it would without it (its lead answers). Only **Test** shows it,
   as a fixed sentence.
 
+## When the home sleeps
+
+On Cloudflare the home's Durable Object (`deploy/laterdog/home/src/host.ts`)
+stops the container 2 hours after the person's last request, or 15 minutes
+after it woke the home for a routine. Waking takes about a minute, and
+requests meanwhile are answered `waking`. Before it stops the container it
+asks the home with a signed `GET /api/cloud/activity`
+(`server/laterdog/home-activity.ts`), and the rules in
+`deploy/laterdog/home/src/stay-awake.ts` decide:
+
+- **Work keeps it up.** The home answers `busy` with the work it names: `turn`
+  (a dog's or group's turn), `routine` (a run queued, running or waiting),
+  `queued` (messages waiting to start, or work held until a usage limit
+  resets), `cloud_job` (a cloud job a dog started that the supervisor still
+  runs) and `upkeep` (whatever already blocks a workspace backup: sign-ins,
+  installs, computers in use, a backup). A routine due within 15 minutes keeps
+  it up too. It asks again every 10 minutes.
+- **The person's usual hours keep it up.** An hour of the day (UTC) is usual
+  once the person used the home in it on 3 of the last 14 days. At most 10
+  such hours count, the ones used on the most days, and only while the person
+  was seen in the last 3 days. The home stays up in them and from a quarter
+  hour before, and wakes itself 3 minutes before they start. Only the hours are
+  kept (one 24-bit mask a day, in the Durable Object, removed with the home);
+  requests from a Mac lending its computer don't count.
+- **A ceiling for work.** Work keeps the home up at most 6 hours in a row
+  without a request from the person, and 12 hours a UTC day in all. Then it
+  sleeps anyway, still waking for the next routine, and the Worker logs which
+  work was still going. Usual hours don't count against either.
+- **Otherwise it sleeps,** waking a minute before the next routine.
+
+A cloud job is waited for from the moment its card appears in a chat. The home
+asks the supervisor (`GET /v1/jobs?ids=`) at most once a minute and stops
+waiting when the job is done, needs the person, or is unknown there; after 3
+hours without an answer; or 12 hours after the job started
+(`server/laterdog/cloud-job-watch.ts`, list in `cloud-jobs-waited-for.json`).
+In-memory work (turns, routine runs, usage-limit holds) does not survive a
+sleep, so a stuck turn ends when the ceiling puts the home to sleep.
+
 ## Pairing: the Admin's signed request
 
 `POST https://<app>.fly.dev/api/cloud/pairing`
