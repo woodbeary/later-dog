@@ -22,6 +22,15 @@
       "observability": {
         "enabled": true
       }
+    },
+    {
+      "class_name": "CloudHomeHostLarge",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/later-dog-home:1a2ddb4b1330",
+      "instance_type": "standard-4",
+      "max_instances": 10,
+      "observability": {
+        "enabled": true
+      }
     }
   ],
   "durable_objects": {
@@ -29,11 +38,19 @@
       {
         "name": "HOMES",
         "class_name": "CloudHomeHost"
+      },
+      {
+        "name": "HOMES_LARGE",
+        "class_name": "CloudHomeHostLarge"
       }
     ]
   },
   "exports": {
     "CloudHomeHost": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "CloudHomeHostLarge": {
       "type": "durable-object",
       "storage": "sqlite"
     }
@@ -54,7 +71,8 @@
   "vars": {
     "HOME_HOST_SUFFIX": "-home.later.dog",
     "ADMIN_ORIGIN": "https://accounts.later.dog",
-    "INCLUDED_API": "https://cloud.later.dog/v1"
+    "INCLUDED_API": "https://cloud.later.dog/v1",
+    "LARGE_HOME_ACCOUNTS": ""
   },
   "secrets": {
     "required": [

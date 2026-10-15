@@ -14,13 +14,25 @@
       "instance_type": "standard-1",
       "max_instances": 400,
       "observability": { "enabled": true }
+    },
+    {
+      "class_name": "CloudHomeHostLarge",
+      "image": "./Dockerfile",
+      "image_build_context": "../../..",
+      "instance_type": "standard-4",
+      "max_instances": 10,
+      "observability": { "enabled": true }
     }
   ],
   "durable_objects": {
-    "bindings": [{ "name": "HOMES", "class_name": "CloudHomeHost" }]
+    "bindings": [
+      { "name": "HOMES", "class_name": "CloudHomeHost" },
+      { "name": "HOMES_LARGE", "class_name": "CloudHomeHostLarge" }
+    ]
   },
   "exports": {
-    "CloudHomeHost": { "type": "durable-object", "storage": "sqlite" }
+    "CloudHomeHost": { "type": "durable-object", "storage": "sqlite" },
+    "CloudHomeHostLarge": { "type": "durable-object", "storage": "sqlite" }
   },
   "r2_buckets": [{ "binding": "STATE", "bucket_name": "laterdog-homes" }],
   "services": [
@@ -30,7 +42,8 @@
   "vars": {
     "HOME_HOST_SUFFIX": "-home.later.dog",
     "ADMIN_ORIGIN": "https://accounts.later.dog",
-    "INCLUDED_API": "https://cloud.later.dog/v1"
+    "INCLUDED_API": "https://cloud.later.dog/v1",
+    "LARGE_HOME_ACCOUNTS": ""
   },
   "secrets": { "required": ["HOME_SECRET"] }
 }
