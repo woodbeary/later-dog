@@ -218,7 +218,7 @@ export const PHONE_APP_PAGE = `<!doctype html>
 <main>
 <div class="brand">later.dog</div>
 <h1>later.dog for iPhone</h1>
-<p>It opens on TestFlight very soon, free during the beta. Come back to this page then.</p>
+<p>It's almost ready. Come back to this page soon.</p>
 <p class="status">Sign in with the same email as on your Mac, and your dogs are there.</p>
 </main>
 </body>
