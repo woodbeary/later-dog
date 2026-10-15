@@ -462,8 +462,19 @@ describe("#Title thread links in markdown", () => {
     const markup = render("I opened #QA PR 245 for the review.");
     expect(markup).toContain('<button type="button" data-thread-link="qa-245"');
     expect(markup).toContain('title="Open #QA PR 245"');
-    expect(markup).toContain(">#QA PR 245</button>");
+    expect(markup).toContain(">#QA PR 245</span></button>");
     expect(markup).not.toContain('data-thread-link="short"');
+  });
+
+  it("keeps a thread title containing a bot mention in one chip", () => {
+    const thread = { botId: "coordinator", botName: "coordinator", threadId: "work", title: "@coordinator · work", activeAt: 3 };
+    const markup = renderToStaticMarkup(createElement(StoreProvider, null,
+      createElement(ThreadRefsContext.Provider, { value: { threads: [thread], currentBotId: "scout" } },
+        createElement(ChatMarkdown, { text: "See #@coordinator · work for the details.", mentionPeers: [{ name: "coordinator", color: "blue" }] }))));
+    expect(markup).toContain('data-thread-link="work"');
+    expect(markup).toContain('class="min-w-0 truncate">#@coordinator · work</span>');
+    expect(markup).toContain("lucide-messages-square");
+    expect(markup).not.toContain("data-mention-face");
   });
 
   it("leaves code, links, headings and issue numbers alone", () => {
@@ -482,7 +493,7 @@ describe("#Title thread links in markdown", () => {
   it("renders a sent canonical link as a chip that opens the thread", () => {
     const markup = render("done in [QA PR 245](laterdog://thread/qa-245?bot=scout) today");
     expect(markup).toContain('<button type="button" data-thread-link="qa-245"');
-    expect(markup).toContain(">QA PR 245</button>");
+    expect(markup).toContain(">QA PR 245</span></button>");
     expect(markup).not.toContain('href="laterdog://');
   });
 

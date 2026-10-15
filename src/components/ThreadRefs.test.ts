@@ -55,7 +55,7 @@ describe("ThreadRefText", () => {
     expect(markup).toContain("please finish ");
     expect(markup).toContain('<button type="button" data-thread-link="qa-245"');
     expect(markup).toContain('title="Open #QA PR 245"');
-    expect(markup).toContain(">#QA PR 245</button>");
+    expect(markup).toContain(">#QA PR 245</span></button>");
   });
 
   it("prefers the open bot's thread over a teammate's with the same title, and names the bot when it had to guess", () => {
@@ -65,7 +65,7 @@ describe("ThreadRefText", () => {
     fixture.selectedId = "standup";
     const guessed = inProvider(createElement(ThreadRefText, { text: "#QA PR 245" }));
     expect(guessed).toContain('data-thread-link="ada-qa"');
-    expect(guessed).toContain('title="Open #QA PR 245"');
+    expect(guessed).toContain('title="Open #QA PR 245 on Ada"');
   });
 
   it("renders plain text untouched when nothing matches", () => {
@@ -82,7 +82,7 @@ describe("ThreadRefText", () => {
     }));
     expect(markup).toContain("done in ");
     expect(markup).toContain('<button type="button" data-thread-link="qa-245"');
-    expect(markup).toContain(">QA PR 245</button>");
+    expect(markup).toContain(">QA PR 245</span></button>");
     expect(markup).toContain(" today");
   });
 
@@ -108,10 +108,10 @@ describe("ThreadLink", () => {
     ]);
   });
 
-  it("names the bot in the tooltip only when the title was ambiguous", () => {
+  it("names the teammate in the full tooltip and accessible label", () => {
     const target = { botId: "ada", threadId: "ada-qa", title: "QA PR 245", botName: "Ada" };
     expect(renderToStaticMarkup(createElement(ThreadLink, { target, ambiguous: true }, "#QA PR 245"))).toContain('title="Open #QA PR 245 on Ada"');
-    expect(renderToStaticMarkup(createElement(ThreadLink, { target, ambiguous: false }, "#QA PR 245"))).toContain('title="Open #QA PR 245"');
+    expect(renderToStaticMarkup(createElement(ThreadLink, { target, ambiguous: false }, "#QA PR 245"))).toContain('aria-label="Open #QA PR 245 on Ada"');
   });
 
   it("reads a thread link back out of the markdown span props, and nothing out of a plain span", () => {
@@ -141,7 +141,29 @@ describe("ThreadRefText with mention peers", () => {
     expect(markup).toContain('class="mention-highlight"');
     expect(markup).toContain("@Scout");
     expect(markup).toContain('data-thread-link="qa-245"');
-    expect(markup).toContain(">#QA PR 245</button>");
+    expect(markup).toContain(">#QA PR 245</span></button>");
     expect(markup).toContain(" today");
   });
+});
+
+it("shows an avatar for a teammate's thread, with only a thread icon for own and room threads", () => {
+  const peer = inProvider(createElement(ThreadRefText, { text: "[QA PR 245](laterdog://thread/ada-qa?bot=ada)" }));
+  expect(peer).toContain('data-thread-avatar="ada" aria-hidden="true"');
+  expect(peer).toContain("lucide-messages-square");
+  expect(peer).toContain("rounded-full bg-control/70");
+  expect(peer).toContain('class="min-w-0 truncate"');
+  expect(peer).toContain("max-w-[min(20rem,100%)]");
+  expect(inProvider(createElement(ThreadRefText, { text: "#QA PR 245" }))).not.toContain("data-thread-avatar");
+  const roomChip = inProvider(createElement(ThreadRefText, { text: "#Monday plan" }));
+  expect(roomChip).not.toContain("data-thread-avatar");
+  expect(roomChip).toContain("lucide-messages-square");
+});
+
+it("keeps a formatted canonical label inside the truncation wrapper", () => {
+  const markup = inProvider(createElement(ThreadLink, {
+    target: { botId: "ada", threadId: "ada-qa", title: "QA PR 245", botName: "Ada" }, ambiguous: false,
+    children: createElement("strong", null, "Review this thread"),
+  }));
+  expect(markup).toContain('<span class="min-w-0 truncate"><strong>Review this thread</strong></span>');
+  expect(markup).toContain('aria-label="Open #QA PR 245 on Ada"');
 });
