@@ -68,6 +68,10 @@ export class CloudHomeHost extends Container<Env> {
     sibling: () => this.sibling(),
   });
 
+  override onStop({ exitCode, reason }: { exitCode: number; reason: string }): void {
+    console.error(`laterdog home ${this.record?.machineId ?? "unknown"}: stopped (${reason}, exit ${exitCode})`);
+  }
+
   constructor(ctx: DurableObjectState<{}>, env: Env) {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
