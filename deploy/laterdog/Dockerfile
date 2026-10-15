@@ -7,7 +7,7 @@ COPY . .
 RUN pnpm laterdog:build
 
 FROM node:24-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git gh ca-certificates openssh-client sqlite3 openssl curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git gh ca-certificates openssh-client sqlite3 openssl curl tini && rm -rf /var/lib/apt/lists/*
 ENV PNPM_HOME=/opt/pnpm
 ENV PATH=/opt/pnpm:$PATH
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm add -g @openai/codex@0.154.0
@@ -20,4 +20,5 @@ RUN mkdir -p /var/lib/laterdog && chown node:node /var/lib/laterdog
 USER node
 VOLUME /var/lib/laterdog
 EXPOSE 9010
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["./entrypoint.sh"]

@@ -8,7 +8,9 @@ RUN chown -R root:root /app/cloud \
  && LATERDOG_CLOUD_PUBLIC_HOST=validate-home.later.dog caddy validate --config /app/cloud/Caddyfile --adapter caddyfile \
  && node --check /app/cloud/runtime/run.mjs \
  && node --check /app/cloud/runtime/sync.mjs \
- && node --check /app/cloud/runtime/included.mjs
+ && node --check /app/cloud/runtime/included.mjs \
+ && /usr/bin/tini --version
 ENV HOME=/data
 EXPOSE 8080
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "/app/cloud/runtime/run.mjs"]

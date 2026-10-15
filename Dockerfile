@@ -14,7 +14,7 @@ RUN pnpm build:server && pnpm exec vite build && chmod -R go-w dist dist-server
 
 FROM node:24-bookworm-slim AS runtime
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl git \
+  && apt-get install -y --no-install-recommends ca-certificates curl git tini \
     libxcb-shm0 libx11-xcb1 libx11-6 libxcb1 libxext6 libxrandr2 \
     libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxi6 libgtk-3-0 \
     libpangocairo-1.0-0 libpango-1.0-0 libatk1.0-0 libcairo-gobject2 \
@@ -43,6 +43,7 @@ ENV AGENT_BROWSER_EXECUTABLE_PATH=/opt/laterdog-browser/chrome \
     LATERDOG_WEBHOOK_PORT=8800 \
     NODE_ENV=production
 WORKDIR /app
+ENTRYPOINT ["/usr/bin/tini", "--"]
 
 FROM runtime AS cloud-home
 RUN apt-get update \
