@@ -58,6 +58,18 @@ posixOnly("mid-turn steering e2e", () => {
       return { status: res.status, body: await res.json() };
     };
   };
+  const nativeRows = (threadId: string): any[] =>
+    readFileSync(join(home, ".laterdog", "native", `${threadId}.ndjson`), "utf8")
+      .trim().split("\n").map((line) => JSON.parse(line)).filter((row) => row.dir === "out");
+  const expectSentOnce = async (botId: string, threadId: string, text: string, queueId: string) => {
+    const bot = await getBot(botId);
+    const lines = bot.messages.filter((m: any) => m.role === "user" && m.text === text);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].queueId).toBe(queueId);
+    const queues = (await api("GET", "/api/bots")).body.botQueuedMessages ?? {};
+    expect(queues[threadId] ?? []).toEqual([]);
+    return lines[0];
+  };
   const waitFor = async (predicate: () => Promise<boolean>, what: string, ms = 30_000) => {
     const deadline = Date.now() + ms;
     while (!(await predicate())) {
@@ -113,6 +125,15 @@ posixOnly("mid-turn steering e2e", () => {
               FAKE_CODEX_MODE: "question",
               FAKE_CODEX_ASK_HOLD: "1",
               FAKE_CODEX_STEER_ERROR_FILE: codexSteerGate,
+            },
+            config: { cli: FAKE_CODEX },
+          },
+          codexRefuse: {
+            driver: "codex",
+            environment: {
+              FAKE_CODEX_MODE: "question",
+              FAKE_CODEX_ASK_HOLD: "1",
+              FAKE_CODEX_STEER_ERROR: JSON.stringify({ code: -32000, message: "no active turn to steer" }),
             },
             config: { cli: FAKE_CODEX },
           },
@@ -543,7 +564,7 @@ posixOnly("mid-turn steering e2e", () => {
     expect(stderr).not.toContain("signal SIGTERM");
   }, 40_000);
 
-  it("an engine without live steering keeps its queue through the steer endpoint, then drains after Stop", async () => {
+  it("an engine without live steering stops the running turn and sends the queued message as the next turn", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
     await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
     expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first" })).status).toBe(202);
@@ -551,21 +572,79 @@ posixOnly("mid-turn steering e2e", () => {
     const queued = await api("POST", `/api/bots/${created.id}/messages`, { text: "second" });
     expect(queued.body.queued).toBe(true);
 
-    const still = await api("POST", `/api/bots/${created.id}/queue/${queued.body.queueId}/steer`, {
+    const sent = await api("POST", `/api/bots/${created.id}/queue/${queued.body.queueId}/steer`, {
       threadId: created.threadId,
     });
-    expect(still.status).toBe(200);
-    expect(still.body).toMatchObject({ ok: true, queued: true });
-    expect((await getBot(created.id)).busy).toBe(true);
-    expect((await getBot(created.id)).messages.some((m: any) => m.text === "second")).toBe(false);
+    expect(sent.status).toBe(200);
+    expect(sent.body).toMatchObject({ ok: true, sent: true, interrupted: true, queueIds: [queued.body.queueId] });
+    expect(sent.body.messages).toEqual([expect.objectContaining({ text: "second", queueId: queued.body.queueId })]);
+    await expectSentOnce(created.id, created.threadId, "second", queued.body.queueId);
 
     await api("POST", `/api/bots/${created.id}/interrupt`);
-    await waitFor(
-      async () => (await getBot(created.id)).messages.some((m: any) => m.text === "second"),
-      "the preserved queue to drain",
-    );
+    await waitFor(async () => (await getBot(created.id)).busy === false, "the next turn to settle");
+  }, 40_000);
+
+  it("a codex turn that refuses the steer is stopped, and the queued message runs next, once", async () => {
+    const created = (await api("POST", "/api/bots")).body.bot;
+    const instances = (await api("GET", "/api/instances")).body.instances;
+    const model = instances.find((i: any) => i.instanceId === "codexRefuse").models.default;
+    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "codexRefuse", model } });
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first refused turn" })).status).toBe(202);
+    await waitFor(async () => (await getBot(created.id)).busy === true, "the refused turn to start");
+    await waitFor(async () => (await getBot(created.id)).messages.some((m: any) => m.card), "the refused turn's question card");
+    await answerQuestion(created.id, created.threadId);
+
+    const person = await asPairedPerson();
+    const queued = await person("POST", `/api/bots/${created.id}/messages`, { text: "hello" });
+    expect(queued.body).toMatchObject({ ok: true, queued: true });
+
+    const sent = await person("POST", `/api/bots/${created.id}/queue/${queued.body.queueId}/steer`, { threadId: created.threadId });
+    expect(sent.status).toBe(200);
+    expect(sent.body).toMatchObject({ ok: true, sent: true, interrupted: true, queueIds: [queued.body.queueId] });
+    expect(sent.body.steered).toBeUndefined();
+    const line = await expectSentOnce(created.id, created.threadId, "hello", queued.body.queueId);
+    expect(line.steered).toBeUndefined();
+    expect(line.sender).toEqual(PAIRED);
+
+    const native = nativeRows(created.threadId);
+    expect(native.some((row) => row.msg?.method === "turn/steer")).toBe(true);
+    expect(native.some((row) => row.msg?.method === "turn/interrupt")).toBe(true);
+    await waitFor(async () => nativeRows(created.threadId).filter((row) => row.msg?.method === "turn/start").length === 2, "the next native turn");
+    const nextTurn = nativeRows(created.threadId).filter((row) => row.msg?.method === "turn/start").at(-1)!;
+    expect(JSON.stringify(nextTurn.msg.params.input)).toContain("hello");
+
     await api("POST", `/api/bots/${created.id}/interrupt`);
-    await waitFor(async () => (await getBot(created.id)).busy === false, "the drained turn to settle");
+    await waitFor(async () => (await getBot(created.id)).busy === false, "the next codex turn to settle");
+  }, 40_000);
+
+  it("a queued picture the codex turn refuses goes out as the next turn with the picture attached", async () => {
+    const created = (await api("POST", "/api/bots")).body.bot;
+    const instances = (await api("GET", "/api/instances")).body.instances;
+    const model = instances.find((i: any) => i.instanceId === "codexRefuse").models.default;
+    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "codexRefuse", model } });
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first picture turn" })).status).toBe(202);
+    await waitFor(async () => (await getBot(created.id)).messages.some((m: any) => m.card), "the picture turn's question card");
+    await answerQuestion(created.id, created.threadId);
+
+    const attachments = join(home, ".laterdog", "attachments");
+    mkdirSync(attachments, { recursive: true });
+    const imagePath = join(attachments, "123e4567-e89b-42d3-a456-426614174077.png");
+    writeFileSync(imagePath, "refused png");
+    const text = `look at this one\n\n<attached-image path="${imagePath}" name="shot.png" />`;
+    const queued = await api("POST", `/api/bots/${created.id}/messages`, { text });
+    expect(queued.body).toMatchObject({ ok: true, queued: true });
+
+    const sent = await api("POST", `/api/bots/${created.id}/queue/${queued.body.queueId}/steer`, { threadId: created.threadId });
+    expect(sent.body).toMatchObject({ ok: true, sent: true, queueIds: [queued.body.queueId] });
+    await expectSentOnce(created.id, created.threadId, text, queued.body.queueId);
+    await waitFor(async () => nativeRows(created.threadId).filter((row) => row.msg?.method === "turn/start").length === 2, "the picture's native turn");
+    const input = nativeRows(created.threadId).filter((row) => row.msg?.method === "turn/start").at(-1)!.msg.params.input;
+    expect(input.filter((block: any) => block.type === "localImage")).toHaveLength(1);
+    expect(JSON.stringify(input)).toContain("look at this one");
+    expect(JSON.stringify(input)).not.toContain("<attached-image");
+
+    await api("POST", `/api/bots/${created.id}/interrupt`);
+    await waitFor(async () => (await getBot(created.id)).busy === false, "the picture turn to settle");
   }, 40_000);
 
   it("a room steer folds the queued head into the running codex turn, and room Stop reports no SIGTERM", async () => {
@@ -612,7 +691,7 @@ posixOnly("mid-turn steering e2e", () => {
     expect(stderr).not.toContain("signal SIGTERM");
   }, 40_000);
 
-  it("a room whose engine cannot steer keeps its queue, then drains after Stop", async () => {
+  it("a room whose engine cannot steer stops the running turn and sends the queued message next", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
     await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
     const room = (await api("POST", "/api/groups", {
@@ -630,20 +709,15 @@ posixOnly("mid-turn steering e2e", () => {
     expect(queued.status).toBe(202);
     expect(queued.body).toMatchObject({ ok: true, queued: true });
 
-    const still = await api("POST", `/api/groups/${room.id}/queue/${queued.body.queueId}/steer`, {
+    const sent = await api("POST", `/api/groups/${room.id}/queue/${queued.body.queueId}/steer`, {
       threadId: room.threadId,
     });
-    expect(still.status).toBe(200);
-    expect(still.body).toMatchObject({ ok: true, queued: true });
-    expect((await getGroup())?.working).toBe(true);
-    expect((await getGroup())?.messages.some((m: any) => m.text === "second")).toBe(false);
-
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
-    await waitFor(
-      async () => (await getGroup())?.messages.some((m: any) => m.text === "second"),
-      "the preserved room queue to drain",
-    );
-    expect((await getGroup())?.messages.find((m: any) => m.text === "second")?.sender).toEqual(PAIRED);
+    expect(sent.status).toBe(200);
+    expect(sent.body).toMatchObject({ ok: true, sent: true, interrupted: true, queueIds: [queued.body.queueId] });
+    const lines = (await getGroup())?.messages.filter((m: any) => m.role === "user" && m.text === "second");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ queueId: queued.body.queueId, sender: PAIRED });
+    expect(lines[0].steered).toBeUndefined();
     await api("POST", `/api/groups/${room.id}/interrupt`, {});
     await waitFor(async () => (await getGroup())?.working === false, "the drained room turn to settle");
   }, 40_000);

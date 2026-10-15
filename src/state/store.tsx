@@ -49,6 +49,7 @@ import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
 import { plainClientError, statusFallback } from "@/lib/plain-client-error";
+import { queuedSteerResult } from "@/lib/queued-steer";
 import { SEND_ATTEMPT_TIMEOUT_MS, UncertainSends, isUncertainSendFailure, sendWithRetry } from "@/lib/send-retry";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
 import { receiveReasoningEvent, forgetReasoning } from "@/lib/turn-reasoning";
@@ -2418,6 +2419,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       rawDispatch({ type: "error", message: plainClientError(e) });
       setTimeout(() => rawDispatch({ type: "error", message: null }), 6000);
     };
+    const receiveQueuedSteer = (body: unknown) => {
+      const result = queuedSteerResult(body);
+      if (!result.delivered) throw new Error(result.line);
+      if (result.threadId === null) return;
+      for (const message of result.messages) rawDispatch({ type: "messageAdded", threadId: result.threadId, message });
+      for (const queueId of result.queueIds) rawDispatch({ type: "consumePendingQueued", threadId: result.threadId, queueId });
+    };
     const cardTarget = (action: { botId: string; messageId: string; groupId?: string }) => {
       const host = action.groupId
         ? stateRef.current.groups.find((g) => g.id === action.groupId)
@@ -2641,14 +2649,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "steerQueued":
           void api(`/api/bots/${action.botId}/queue/${action.queueId}/steer`, { method: "POST", body: JSON.stringify({ threadId: action.threadId }) })
             .then((body) => {
-              if (body?.steered === true && Array.isArray(body.messages) && typeof body.threadId === "string") {
-                for (const message of body.messages) {
-                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message });
-                }
-                for (const queueId of body.queueIds ?? []) {
-                  rawDispatch({ type: "consumePendingQueued", threadId: body.threadId, queueId });
-                }
-              }
+              receiveQueuedSteer(body);
               action.onSettled?.();
             })
             .catch((error) => {
@@ -2670,14 +2671,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ threadId: action.threadId }),
           })
             .then((body) => {
-              if (body?.steered === true && Array.isArray(body.messages) && typeof body.threadId === "string") {
-                for (const message of body.messages) {
-                  rawDispatch({ type: "messageAdded", threadId: body.threadId, message });
-                }
-                for (const queueId of body.queueIds ?? []) {
-                  rawDispatch({ type: "consumePendingQueued", threadId: body.threadId, queueId });
-                }
-              }
+              receiveQueuedSteer(body);
               action.onSettled?.();
             })
             .catch((error) => {
