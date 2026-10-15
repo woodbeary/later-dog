@@ -280,7 +280,7 @@ describe("AccountBattery", () => {
     const ask = (overrides: Partial<Parameters<AccountBattery["nextAccount"]>[0]> = {}) => instance.nextAccount({
       threadId: "thread-1", generation: "g1", stopReason: "usage_limit", ranOn: "claude-b", selection: { ...SELECTION, instanceId: "claude-b" }, accounts: ACCOUNTS, ...overrides,
     });
-    expect(ask()).toBeNull();
+    expect(ask()).toMatchObject({ from: { instanceId: "claude-b" }, to: { instanceId: "claude" }, rest: { estimated: true } });
     expect(ask({ selection: SELECTION })).toMatchObject({ from: { instanceId: "claude-b" }, to: { instanceId: "claude" } });
     instance.markExhausted("claude-b", { resetsAt: at(HOUR), kind: "session" });
     expect(ask()).toMatchObject({ from: { instanceId: "claude-b" }, to: { instanceId: "claude" }, rest: { until: at(HOUR), kind: "session" } });

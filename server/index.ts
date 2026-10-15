@@ -670,7 +670,9 @@ import {
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
-import { LimitHold } from "./laterdog/limit-hold.ts";
+import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
+import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
+import { runningByAccount } from "./laterdog/account-spread.ts";
 import { latestTurnAnswer, postTurnImage, screenCaptureFrom } from "./laterdog/turn-images.ts";
 import { mountsAutoCloud } from "./laterdog/auto-cloud.ts";
 import { steerWords } from "./laterdog/steer-images.ts";
@@ -798,7 +800,7 @@ if (CLOUD_HOME) readMemoryOnlyFromRegularFiles();
 const cloudPairing = CLOUD_HOME ? createCloudPairing({ secret: CLOUD_HOME.bootstrapSecret, sessions }) : null;
 const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivity({
   secret: CLOUD_HOME.bootstrapSecret,
-  activity: () => homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, store.bots.some((bot) => botHasActiveTurn(bot.id))),
+  activity: () => withWaitingRuns(homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, store.bots.some((bot) => botHasActiveTurn(bot.id))), limitHold.nextAt()),
 })) : null;
 if (CLOUD_HOME) {
   delete process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
@@ -888,6 +890,10 @@ const accountBattery = new AccountBattery({
     return planResetAt((await loadPlanUsage({ accounts: [account], refresh: true })).providers[0], kind, Date.now());
   },
   usage: latestPlanRow,
+  running: () => runningByAccount([...directTurnBots].map(([threadId, bot]) => [threadId, bot.modelSelection.instanceId] as const),
+    [...runningTurnEngines].map(([threadId, instance]) => [threadId, instance.instanceId] as const)),
+  defaultAccount: () => cfg.defaultModelSelection?.instanceId,
+  ownThread: (threadId) => Boolean(store.botByThread(threadId)),
   onChange: () => broadcast({ kind: "config", ...configStatus() }),
 });
 function batteryAccounts(): BatteryAccount[] {
@@ -921,10 +927,12 @@ const limitHold = new LimitHold({
   },
   wake: (threadId) => {
     if (groupBatteryWakes.has(threadId)) { groupBatteryWakes.get(threadId)!(); return; }
-    pickUpAfterReset(threadId);
+    if (limitHold.restored(threadId) && !accountBattery.keptTurn(threadId, directTurnGenerationByThread.get(threadId))) pickUpAfterRestart(threadId);
+    else pickUpAfterReset(threadId);
     drainQueuedSends();
   },
   onChange: () => broadcast({ kind: "config", ...configStatus() }),
+  file: join(DATA_DIR, "limit-hold.json"),
 });
 
 const turnTriggers = new Map<string, UsageTrigger>();
@@ -6234,10 +6242,30 @@ function pickUpAfterReset(threadId: string): void {
   if (outcome === "full") limitHold.retry(threadId);
 }
 
+function pickUpAfterRestart(threadId: string): void {
+  const owner = store.botByThread(threadId);
+  const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+  const outcome = !owner || !selection ? "skipped" : carryOnAfterRestart({
+    battery: accountBattery, accounts: batteryAccounts(), threadId, selection, path: store.activePath(threadId),
+    full: threadBusy(owner.id, threadId) || botAtThreadCapacity(owner.id) || Boolean(activeGroupTurnForBot(owner.id)),
+    write: (tool, replaceId) => {
+      if (!store.botByThread(threadId)) return;
+      if (replaceId) store.patchMessage(threadId, replaceId, { tool });
+      else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
+    },
+    start: (text, requestMessageId) => startTurn(owner.id, text, { threadId, cardContinuation: true, requestMessageId }),
+  });
+  console.info(`token battery: ${threadId} pickup after restart ${outcome}`);
+  if (outcome === "full") limitHold.retry(threadId);
+  else if (outcome === "waiting") limitHold.hold(threadId);
+  else if (outcome === "skipped") limitHold.release(threadId);
+}
+
 function carryOnWaiting(): Record<string, string> {
   return Object.fromEntries(Object.entries(limitHold.waiting()).filter(([threadId]) => {
     const input = carryOnInput(threadId);
-    return (input !== undefined && carriesOn(input)) || (accountBattery.enabled && groupBatteryTurns.get(threadId)?.pending === true);
+    return (input !== undefined && (carriesOn(input) || limitHold.restored(threadId))) ||
+      (accountBattery.enabled && groupBatteryTurns.get(threadId)?.pending === true);
   }));
 }
 
@@ -22153,6 +22181,8 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   routines!.start();
   memoryUpkeep.start();
+  const waiting = limitHold.resume();
+  if (waiting.length) console.log(`token battery: ${waiting.length} conversation(s) waiting on a usage limit from a previous run`);
   const leftover = pendingThreads();
   if (leftover.length) console.log(`delegations: ${leftover.length} thread(s) with queued handoffs from a previous run — draining`);
   for (const threadId of leftover) {

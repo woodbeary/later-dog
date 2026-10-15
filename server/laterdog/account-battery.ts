@@ -4,12 +4,14 @@ import { writeFileAtomic } from "../atomic.ts";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import type { ModelSelection } from "../../shared/wire.ts";
 import { resetInstant } from "./usage-limit.ts";
+import { homeAccount, leastLoaded } from "./account-spread.ts";
 
 export const BATTERY_DRIVERS: readonly string[] = ["claudeAgent", "codex"];
 
 export const DEFAULT_REST_MS = 5 * 60 * 60 * 1000;
 const MAX_AWAY = 500;
 const MAX_TURNS = 2_000;
+const MAX_PLACED = 2_000;
 
 export const CONTINUE_AFTER_SWITCH =
   "[later.dog: the account this conversation was running on reached its usage limit partway through your last turn, " +
@@ -94,10 +96,11 @@ const stateSchema = z.object({
   away: z.record(z.string(), z.object({
     from: z.string(), at: z.string(), to: z.string().optional(), ranOut: z.string().optional(), pick: z.string().optional(), on: z.string().optional(),
   })).default({}),
+  placed: z.record(z.string(), z.object({ on: z.string(), at: z.string() })).default({}),
 });
 type BatteryState = z.output<typeof stateSchema>;
 
-const emptyState = (): BatteryState => ({ version: 1, resting: {}, away: {} });
+const emptyState = (): BatteryState => ({ version: 1, resting: {}, away: {}, placed: {} });
 
 function readState(file: string | undefined): BatteryState {
   if (!file || !existsSync(file)) return emptyState();
@@ -385,6 +388,9 @@ export interface AccountBatteryOptions {
   now?: () => number;
   planReset?: (instanceId: string, kind: string | undefined) => Promise<string | undefined>;
   usage?: PlanReading;
+  running?: () => Readonly<Record<string, number>>;
+  defaultAccount?: () => string | undefined;
+  ownThread?: (threadId: string) => boolean;
   onChange?: () => void;
 }
 
@@ -419,8 +425,44 @@ export class AccountBattery {
     if (chosen) return selectionOnAccount(selection, accounts.find((account) => account.instanceId === chosen)!, accounts, preferred);
     const input = { selection, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage, ...(preferred ? { preferred } : {}) };
     const own = accounts.find((account) => account.instanceId === selection.instanceId);
-    if (!own?.eligible || canTake(own, input, false)) return selection;
+    if (!own?.eligible) return selection;
+    const spread = threadId ? this.spreadTo(threadId, own, input) : undefined;
+    if (spread && spread.instanceId !== own.instanceId) return selectionOnAccount(selection, spread, accounts, preferred);
+    if (spread || canTake(own, input, false)) return selection;
     return routeSelection({ config: this.options.config(), ...input });
+  }
+
+  private pinned(own: BatteryAccount, accounts: readonly BatteryAccount[]): boolean {
+    const order = batteryOrder(this.options.config(), accounts)[own.driverKind] ?? [];
+    return own.instanceId !== homeAccount(order, this.options.defaultAccount?.());
+  }
+
+  private spreadTo(threadId: string, own: BatteryAccount, input: Omit<PickInput, "config">): BatteryAccount | undefined {
+    const running = this.options.running?.();
+    if (!running || !this.enabled || this.options.ownThread?.(threadId) === false || this.pinned(own, input.accounts)) return undefined;
+    const order = batteryOrder(this.options.config(), input.accounts)[own.driverKind] ?? [];
+    const listed = own.models.includes(input.selection.model);
+    const candidates = input.accounts.filter((account) => account.driverKind === own.driverKind && order.includes(account.instanceId) &&
+      canTake(account, input, listed));
+    const away = this.state.away[threadId];
+    const kept = candidates.find((account) => account.instanceId === this.state.placed[threadId]?.on) ??
+      (away ? candidates.find((account) => account === own) ?? candidates.find((account) => account.instanceId === away.on) : undefined);
+    if (kept) return kept;
+    const load = (account: BatteryAccount) => input.accounts
+      .filter((other) => other.instanceId === account.instanceId || sameLogin(account, other))
+      .reduce((sum, other) => sum + (running[other.instanceId] ?? 0), 0);
+    const pick = leastLoaded(candidates.map((account) => ({
+      instanceId: account.instanceId, own: account === own, running: load(account),
+      left: percentLeft(input.usage?.(account.instanceId), input.now), index: order.indexOf(account.instanceId),
+    })));
+    return candidates.find((account) => account.instanceId === pick);
+  }
+
+  private spreadMove(selection: ModelSelection, ranOn: string, accounts: readonly BatteryAccount[]): boolean {
+    const own = accounts.find((account) => account.instanceId === selection.instanceId);
+    const to = accounts.find((account) => account.instanceId === ranOn);
+    if (!own?.eligible || !to || to.driverKind !== own.driverKind || !this.options.running || this.pinned(own, accounts)) return false;
+    return canTake(own, { selection, accounts, resting: this.state.resting, now: this.now() }, false);
   }
 
   choose(threadId: string, ranOut: string, to: string, pick: string): void {
@@ -483,6 +525,11 @@ export class AccountBattery {
   forget(instanceId: string): void {
     let changed = Boolean(this.state.resting[instanceId]);
     delete this.state.resting[instanceId];
+    for (const [threadId, placed] of Object.entries(this.state.placed)) {
+      if (placed.on !== instanceId) continue;
+      delete this.state.placed[threadId];
+      changed = true;
+    }
     for (const [threadId, away] of Object.entries(this.state.away)) {
       if (away.from === instanceId) delete this.state.away[threadId];
       else if (away.to === instanceId || away.ranOut === instanceId || away.on === instanceId) {
@@ -577,15 +624,20 @@ export class AccountBattery {
   }): BatteryRerun | null {
     if (input.stopReason !== "usage_limit" || !input.selection) return null;
     const turn = this.turns.get(input.threadId);
-    if (!turn?.rerun || turn.generation !== input.generation) return null;
-    const from = input.accounts.find((account) => account.instanceId === (input.ranOn ?? turn.instanceId));
+    const from = input.accounts.find((account) => account.instanceId === (input.ranOn ?? turn?.instanceId));
     const preferred = this.preferredFor(input.threadId);
+    if (from) this.ranOut(from, input.accounts, selectionOnAccount(input.selection, from, input.accounts, preferred).model);
+    if (!turn?.rerun || turn.generation !== input.generation) return null;
     const to = pickAccount({
       config: this.options.config(), selection: input.selection, accounts: input.accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage,
       ...(preferred ? { preferred } : {}),
     });
     if (!from || !to || to.instanceId === from.instanceId) return null;
     return { turn, from, to, rest: this.restOf(from, input.accounts, input.selection.model) };
+  }
+
+  ranOut(account: BatteryAccount, accounts: readonly BatteryAccount[], model: string): void {
+    if (!this.restOf(account, accounts, model)) this.markExhausted(account.instanceId);
   }
 
   takeTurn(threadId: string, generation: string | undefined): BatteryTurn | undefined {
@@ -610,6 +662,10 @@ export class AccountBattery {
     const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
     const name = (instanceId: string) => find(instanceId)?.displayName || instanceId;
     const away = this.state.away[threadId];
+    const spread = ranOn !== selection.instanceId && away === undefined &&
+      (this.state.placed[threadId]?.on === ranOn || this.spreadMove(selection, ranOn, accounts));
+    this.place(threadId, ranOn === selection.instanceId || spread ? ranOn : undefined);
+    if (spread) return undefined;
     if (ranOn === selection.instanceId) {
       if (this.takeBack(threadId, ranOn)) return backNotice(name(ranOn));
       if (away?.on !== undefined) {
@@ -633,6 +689,19 @@ export class AccountBattery {
     });
   }
 
+  private place(threadId: string, on: string | undefined): void {
+    const placed = this.state.placed[threadId];
+    if (placed?.on === on) return;
+    if (on === undefined) delete this.state.placed[threadId];
+    else this.state.placed[threadId] = { on, at: new Date(this.now()).toISOString() };
+    const all = Object.entries(this.state.placed);
+    if (all.length > MAX_PLACED) {
+      all.sort((a, b) => a[1].at.localeCompare(b[1].at));
+      for (const [oldest] of all.slice(0, all.length - MAX_PLACED)) delete this.state.placed[oldest];
+    }
+    this.persist();
+  }
+
   takeBack(threadId: string, instanceId: string): boolean {
     if (this.state.away[threadId]?.from !== instanceId) return false;
     delete this.state.away[threadId];
@@ -650,13 +719,16 @@ export class AccountBattery {
       away.sort((a, b) => a[1].at.localeCompare(b[1].at));
       for (const [threadId] of away.slice(0, away.length - MAX_AWAY)) delete this.state.away[threadId];
     }
-    if (this.options.file) {
-      try {
-        writeFileAtomic(this.options.file, JSON.stringify(this.state), { mode: 0o600, durable: false });
-      } catch (error) {
-        console.warn(`token battery: could not save ${this.options.file}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
+    this.persist();
     this.options.onChange?.();
+  }
+
+  private persist(): void {
+    if (!this.options.file) return;
+    try {
+      writeFileAtomic(this.options.file, JSON.stringify(this.state), { mode: 0o600, durable: false });
+    } catch (error) {
+      console.warn(`token battery: could not save ${this.options.file}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
