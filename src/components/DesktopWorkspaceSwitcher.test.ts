@@ -1,51 +1,62 @@
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, expect, it, vi } from "vitest";
-
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DesktopWorkspaceSwitcher } from "./DesktopWorkspaceSwitcher";
 
-afterEach(() => { vi.unstubAllGlobals(); });
+let root: Root;
+let host: HTMLDivElement;
+const state = vi.fn(async () => ({ local: true, name: "This computer" }));
+const menu = vi.fn(async () => undefined);
 
-it("shows no server switcher on your own Mac", () => {
-  vi.stubGlobal("window", { laterdog: { workspaces: { state: () => new Promise(() => {}), menu: () => Promise.resolve() } } });
-  expect(renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher))).toBe("");
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  state.mockClear();
+  menu.mockReset();
+  vi.stubGlobal("window", Object.assign(window, { laterdog: { workspaces: { state, menu } } }));
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
 });
 
-it("renders nothing outside the desktop app", () => {
-  vi.stubGlobal("window", {});
-  expect(renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher))).toBe("");
+afterEach(async () => {
+  await act(async () => root.unmount());
+  document.body.innerHTML = "";
+  delete window.laterdog;
+  vi.unstubAllGlobals();
 });
 
-const visibleText = (html: string) => html.replace(/<span class="sr-only">.*?<\/span>/g, "").replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
-
-it("says My Cloud · always on while a Cloud home is showing, in the app and a browser, with no way to switch server, and nothing more elsewhere", () => {
-  vi.stubGlobal("window", {});
-  const browser = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher, { cloudHome: true }));
-  expect(visibleText(browser)).toBe("My Cloud · always on");
-  expect(browser).toContain("data-cloud-home-indicator");
-  expect(browser).not.toContain("<button");
-  const compact = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher, { cloudHome: true, compact: true }));
-  expect(compact).toContain('title="My Cloud · always on"');
-  expect(compact).toContain('<span class="sr-only">My Cloud · always on</span>');
-
-  vi.stubGlobal("window", { laterdog: { workspaces: { state: () => new Promise(() => {}), menu: () => Promise.resolve() } } });
-  const desktop = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher, { cloudHome: true }));
-  expect(visibleText(desktop)).toBe("My Cloud · always on");
-  expect(desktop).not.toContain("Switch server");
-  expect(desktop).not.toContain("<button");
-  expect(desktop).toContain("data-cloud-home-indicator");
-  const elsewhere = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher));
-  expect(elsewhere).not.toContain("always on");
-  expect(elsewhere).not.toContain("data-cloud-home-indicator");
+it("keeps saved workspaces in a closed Advanced disclosure without inspecting or changing the active workspace", async () => {
+  await act(async () => root.render(createElement(DesktopWorkspaceSwitcher)));
+  const advanced = host.querySelector("details")!;
+  expect(advanced.open).toBe(false);
+  expect(advanced.querySelector("summary")?.textContent).toBe("Advanced");
+  expect(host.textContent).toContain("Workspace recovery");
+  expect(host.textContent).not.toContain("This computer");
+  expect(host.textContent).not.toContain("My Cloud");
+  expect(state).not.toHaveBeenCalled();
+  expect(menu).not.toHaveBeenCalled();
+  advanced.open = true;
+  await act(async () => host.querySelector("button")!.click());
+  expect(menu).toHaveBeenCalledExactlyOnceWith();
+  expect(state).not.toHaveBeenCalled();
 });
 
-it("names whose Cloud a browser signed in to under My Cloud · always on, quietly", () => {
-  vi.stubGlobal("window", {});
-  const browser = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher, { cloudHome: true, owner: "ada@example.test" }));
-  expect(visibleText(browser)).toBe("My Cloud · always onada@example.test’s Cloud");
-  expect(browser).toContain('title="My Cloud · always on · ada@example.test’s Cloud"');
-  expect(browser).toContain('<span class="block truncate text-[11.5px] font-normal text-ink-secondary">ada@example.test’s Cloud</span>');
-  const compact = renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher, { cloudHome: true, owner: "ada@example.test", compact: true }));
-  expect(compact).toContain('<span class="sr-only">My Cloud · always on · ada@example.test’s Cloud</span>');
-  expect(renderToStaticMarkup(createElement(DesktopWorkspaceSwitcher, { owner: "ada@example.test" }))).toBe("");
+it("reports a failed recovery menu and allows a retry", async () => {
+  menu.mockRejectedValueOnce(new Error("unavailable"));
+  await act(async () => root.render(createElement(DesktopWorkspaceSwitcher)));
+  const button = host.querySelector("button")!;
+  await act(async () => button.click());
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Could not open saved workspaces. Try the Server menu.");
+  expect(button.disabled).toBe(false);
+  await act(async () => button.click());
+  expect(menu).toHaveBeenCalledTimes(2);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("does not offer desktop recovery outside the desktop app", async () => {
+  delete window.laterdog;
+  await act(async () => root.render(createElement(DesktopWorkspaceSwitcher)));
+  expect(host.innerHTML).toBe("");
+  expect(menu).not.toHaveBeenCalled();
 });

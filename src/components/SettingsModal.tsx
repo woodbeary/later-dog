@@ -22,6 +22,7 @@ import { AccountsPanel, AccountsRefresh } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { TypingSuggestionsRows } from "./TypingSuggestionsSettings";
 import { HelpRows } from "./SettingsHelp";
+import { DesktopWorkspaceSwitcher } from "./DesktopWorkspaceSwitcher";
 import { CloudComputerRows } from "./CloudComputerRows";
 import { CloudAccountSettings } from "./CloudAccountSettings";
 import { PhoneAppDialog } from "./PhoneAppDialog";
@@ -377,6 +378,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <HelpRows />
         </SettingsRows>
       </SettingsGroup>
+      <DesktopWorkspaceSwitcher />
     </>
   );
 }

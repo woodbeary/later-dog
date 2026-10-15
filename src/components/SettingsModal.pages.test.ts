@@ -101,6 +101,18 @@ describe("the Settings rail", () => {
 });
 
 describe("General", () => {
+  it("keeps workspace recovery after Help in a closed Advanced disclosure only in the desktop app", () => {
+    expect(render()).not.toContain("data-workspace-recovery");
+    vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, workspaces: { state: vi.fn(), menu: vi.fn() } } });
+    const html = render();
+    const recovery = html.slice(html.indexOf("<details"));
+    expect(recovery).toMatch(/^<details data-workspace-recovery="true" class=/);
+    expect(recovery).not.toMatch(/^<details[^>]*\bopen=/);
+    expect(recovery).toContain(">Advanced</summary>");
+    expect(recovery).toContain("Open saved workspaces");
+    expect(html.indexOf("data-workspace-recovery")).toBeGreaterThan(html.indexOf('data-settings-group="help"'));
+  });
+
   it("stacks later.dog Cloud, Accounts, Profile, Appearance, Typing suggestions, System and Help, in that order", () => {
     const html = render();
     expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "typing-suggestions", "system", "help"]);

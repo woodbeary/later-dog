@@ -344,6 +344,16 @@ export async function companionPairing(open, expectedToken) {
   }
 }
 
+export async function companionAccountPairing() {
+  if (!proc) return { opened: false };
+  return control("POST", "/pairing?account=true");
+}
+
+export async function companionRevokeAccountDevices() {
+  if (!proc) throw new Error("The companion is not running");
+  return control("DELETE", "/account-devices");
+}
+
 export async function companionRevoke(deviceId) {
   if (!proc) return companionState();
   if (!/^[\w-]{1,64}$/.test(String(deviceId ?? ""))) return companionState();

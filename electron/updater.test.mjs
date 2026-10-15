@@ -54,7 +54,7 @@ function mainRule() {
     rememberedHome: null, savedCloudHomeOrigin, cloudSignInRestored: true, homeFellBack: false,
     app: { isPackaged: true, getPath: () => "/unused", getVersion: () => "1.0.0" }, process: { platform: "darwin" },
     path: { join: (...parts) => parts.join("/") }, os: { hostname: () => "mac" }, shell: {}, safeStorage: {},
-    createCloudAccountStore: () => ({}), rememberCloudHome: () => {}, rememberedCloudHome, computerSharing: null,
+    createCloudAccountStore: () => ({}), rememberCloudHome: () => {}, rememberedCloudHome, computerSharing: null, accountWorkspace: null,
     sendUpdaterState: () => {},
     refreshApplicationMenu: vi.fn(), currentWindowTitle: () => "later.dog", observeCloudHome: vi.fn(),
     profilePageSender: (event) => Boolean(window.webContents) && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === `${PROFILE}/`,

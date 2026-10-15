@@ -6,7 +6,15 @@ The existing Mac workspace is canonical: coordinator, main desk, minor changes, 
 
 The existing Ember, Willow and Finch cloud workspace is retained separately. This plan does not authorize deleting it, overwriting it, or merging its records into the canonical workspace. Its recovery path belongs in advanced account recovery or developer diagnostics, outside the sidebar and ordinary navigation. It must never become a second default workspace after sign-in or reconnect.
 
-This document is a proposal for review before substantial implementation. Only the immediate sign-in fix has been implemented.
+## Current scope: phone access through this Mac
+
+The small implementation keeps the Mac authoritative. It adds account-bound installation registration, the existing authenticated companion tunnel, a short-lived per-phone pairing broker, and phone account resolution. No workspace data is copied or deleted. The sidebar selector is removed; saved connections remain under Settings → General → Advanced.
+
+The desktop's existing `omc_` device session enrolls an installation and pins the first Mac to the account. An account session can resolve only that installation. The phone receives an opaque, expiring pairing grant, redeems it at the companion, and retains its own revocable device credential. A bound but offline Mac never falls back to the separate cloud home. Saved phone caches and queued messages are scoped to the resolved workspace.
+
+The installed desktop 0.3.31 lacks this registration and pairing coordinator, so a phone OTA alone cannot activate the connection. The source changes require desktop delivery. Production managed tunnels also require the control-plane `CLOUDFLARE_API_TOKEN`; its deployed secret list currently lacks that binding and `MANAGED_ENDPOINTS` remains off. These are delivery prerequisites, not additional product scope.
+
+The broader design below is deferred. Cloud migration, synchronization authority, automatic Mac/cloud task routing and operation while the Mac sleeps are not part of this change.
 
 ## Immediate fix already on main
 
@@ -27,13 +35,13 @@ Verification: 97 focused Node tests and 72 focused Vitest cases passed. An isola
 
 Callers resolve the account's workspace and send commands through a relay to the existing Mac. The Mac continues to own conversations and schedule work; cloud execution returns results to it.
 
-This can provide an intermediate phone connection in roughly 2–4 engineering days, provided the Mac stays reachable. It cannot provide the full requested cloud-hosted experience while the Mac sleeps. It is not the proposed final architecture.
+This is the selected current scope. The Mac must remain reachable; access while it sleeps is deferred.
 
 ### B. One cloud authority, seeded from the existing Mac workspace
 
 Callers resolve one account workspace, submit commands for that stable workspace ID and subscribe to its ordered events. Hosting location is an implementation detail. The cloud authority owns canonical workspace state; the desktop keeps a local projection. The workspace supervisor remains the sole scheduler of runs. Mac and cloud executors receive scoped leases and return results to the same threads. The dog infers the task requirements and chooses the intended execution location. The supervisor validates that choice against current capabilities, credentials, granted access and account resource limits, then records the execution lease. It resolves availability changes against those same task requirements. Storage and executor location do not select a different workspace.
 
-This is the recommended architecture. It preserves the identity of the existing workspace while allowing access when the Mac is asleep. A disconnected desktop can show its cached conversations and explicitly queued commands; it does not become an independent writer. Autonomous offline execution is outside this estimate.
+This is the recommended architecture. It preserves the identity of the existing workspace while allowing access when the Mac is asleep. A disconnected desktop can show its cached conversations and explicitly queued commands; it does not become an independent writer. Autonomous offline execution is deferred.
 
 Proposed small contracts, all new:
 
@@ -129,10 +137,6 @@ Before commitment, an aborted migration can retain local authority after cancell
 
 Workspace content can move without transferring Mac credentials. Provider sessions, MCP OAuth, browser profiles, OS keychains, device pairing and external project directories are excluded from current backups. Mac-only tools and credentials remain behind an authorized Mac executor. Cloud providers need their own supported authorization. A sleeping or disconnected Mac makes its local tools unavailable; the interface must show that limitation while retaining the same conversation. Pending external effects must not be replayed solely because their response was lost.
 
-## Estimate and next decision
+## Deferred work
 
-- **Safe online migration and one cloud authority:** 8–15 engineering days.
-- **Complete desktop projection, automatic task routing, reconnect handling and migration hardening:** 15–25 engineering days total, roughly 3–5 engineer-weeks.
-- **Not included:** autonomous offline writers, copying native provider sessions, automatic merging of the existing cloud workspace, or deleting any cloud data.
-
-These are planning ranges based on the inspected desktop, storage and home-hosting code. The first implementation checkpoint must validate the accounts-service and phone contracts and measure the workspace inventory before committing to a delivery date. No large implementation or data migration starts as part of this planning request. The proposed scope decision is whether to proceed with design B; deleting the existing cloud data would require a separate explicit decision.
+Cloud authority, data migration, automatic task routing, autonomous offline writers and merging retained cloud records are deferred. No cloud data is deleted by the phone-access change.

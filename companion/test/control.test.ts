@@ -64,6 +64,40 @@ afterAll(async () => {
 });
 
 describe("origins the control server will change state for", () => {
+  it("opens account pairing atomically without replacing or exposing a manual code", async () => {
+    devices.closePairing();
+    const manual = devices.openPairing();
+    expect((await ask("POST", "/pairing?account=true")).body).toEqual({ opened: false });
+    expect(devices.pairing()?.token).toBe(manual.token);
+    devices.closePairing(manual.token);
+    const opened = await ask("POST", "/pairing?account=true");
+    expect(opened.status).toBe(200);
+    expect(opened.body.opened).toBe(true);
+    expect(opened.body.credential).toMatch(/^laterdog_pair_/);
+    expect(opened.body).not.toHaveProperty("code");
+    const state = await ask("GET", "/state");
+    expect(state.body.pairing).toBeNull();
+    expect(state.body.accountPairingActive).toBe(true);
+    devices.closePairing(opened.body.credential);
+  });
+
+  it("account disconnect invalidates its phone and open streams while preserving manual pairing", async () => {
+    const manual = devices.redeem(devices.openPairing().token, "Manual phone");
+    const linked = devices.redeem(devices.openAccountPairing()!.token, "Account phone");
+    if ("error" in manual || "error" in linked) throw new Error("Fixture pairing failed");
+    connectedDeviceIds = [manual.device.id, linked.device.id];
+    disconnectedDeviceIds = [];
+    revokedDeviceIds = [];
+    expect((await ask("DELETE", "/account-devices")).body).toEqual({ revoked: 1 });
+    expect(devices.authenticate(linked.token)).toBeNull();
+    expect(devices.authenticate(manual.token)?.id).toBe(manual.device.id);
+    expect(disconnectedDeviceIds).toEqual([linked.device.id]);
+    expect(revokedDeviceIds).toEqual([linked.device.id]);
+    expect(connectedDeviceIds).toEqual([manual.device.id]);
+    devices.revoke(manual.device.id);
+    connectedDeviceIds = [];
+  });
+
   it("controls cloud desktop access per paired device", async () => {
     const { code } = devices.openPairing();
     const paired = devices.redeem(code, "iPhone");

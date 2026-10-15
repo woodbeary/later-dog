@@ -100,6 +100,7 @@ import { acquireDataDirLease } from "./data-dir-lease.mjs";
 import { createManagedDesktopClient, createManagedDesktopRelay, createManagedDesktopStore, managedPortalOrigin } from "./managed-desktop.mjs";
 import { cloudOrigin, cloudPlanSnapshot, configuredCloudOrigin, createCloudAccountClient, createCloudAccountStore } from "./cloud-account.mjs";
 import { CloudSignInError, createCloudSignIn } from "./cloud-sign-in.mjs";
+import { createAccountWorkspace } from "./account-workspace.mjs";
 import { createCloudAutoMove } from "./cloud-auto-move.mjs";
 import { createCloudOffer, leaveHomeNow } from "./cloud-default-home.mjs";
 import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, isCloudHomeEntry, myCloudOrigin, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome } from "./cloud-home.mjs";
@@ -515,6 +516,8 @@ import {
   companionEnabledAtRest,
   companionOriginTarget,
   companionPairing,
+  companionAccountPairing,
+  companionRevokeAccountDevices,
   companionRefreshTailscale,
   companionCloudDesktopAccess,
   companionBrowserControlAccess,
@@ -625,6 +628,7 @@ installDesktopCrashListeners({
 
 let managedCompanionConnector = null;
 let companionAccountService = null;
+let accountWorkspace = null;
 let companionDesiredThisLaunch = false;
 let companionLaunchGeneration = 0;
 let advertisementTransition = Promise.resolve();
@@ -762,7 +766,7 @@ async function startManagedCompanionConnection({ waitForVerification = true } = 
   return publicManagedCompanionState();
 }
 
-async function startDesktopCompanion({ waitForHosted = true, remember = true } = {}) {
+async function startDesktopCompanion({ waitForHosted = true, remember = true, managed = true } = {}) {
   const refusal = managedRemoteAccessRefusal();
   if (refusal) throw new Error(refusal);
   companionDesiredThisLaunch = true;
@@ -773,7 +777,7 @@ async function startDesktopCompanion({ waitForHosted = true, remember = true } =
     return desktopCompanionState();
   }
   if (remember) rememberCompanionEnabled(true);
-  await startManagedCompanionConnection({ waitForVerification: waitForHosted });
+  if (managed) await startManagedCompanionConnection({ waitForVerification: waitForHosted });
   return desktopCompanionState();
 }
 
@@ -881,6 +885,33 @@ function ensureCompanionAccountService() {
   return companionAccountService;
 }
 
+function ensureAccountWorkspace() {
+  if (accountWorkspace) return accountWorkspace;
+  accountWorkspace = createAccountWorkspace({
+    account: () => cloudAccount,
+    controlPlane: createControlPlaneClient({ baseURL: cloudOrigin() }),
+    readCredentials: () => secureCredentialState?.read() ?? secureCredentials,
+    updateCredentials: updateSecureCredentialDocument,
+    identity: { name: installationDisplayName(), platform: process.platform === "win32" ? "windows" : process.platform, appVersion: app.getVersion().slice(0, 64) },
+    startCompanion: async () => {
+      if (!serverReady || desktopShutdownStarted) throw new Error("This workspace is not ready");
+      if (!companionRunning()) await startDesktopCompanion({ waitForHosted: false, remember: false });
+      else await startManagedCompanionConnection({ waitForVerification: false });
+    },
+    stopEndpoint: stopManagedCompanionEndpointLocally,
+    companionState: desktopCompanionState,
+    connectionState: publicManagedCompanionState,
+    openPairing: companionAccountPairing,
+    closePairing: token => companionPairing(false, token),
+    revokeAccountDevices: async () => {
+      if (!companionRunning()) await startDesktopCompanion({ remember: false, managed: false });
+      await companionRevokeAccountDevices();
+    },
+    onStatus: status => slog(`account workspace ${status}`),
+  });
+  return accountWorkspace;
+}
+
 async function gatherDiagnostics() {
   const serverStatus = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/config`, {
     signal: AbortSignal.timeout(3_000),
@@ -943,6 +974,7 @@ function ensureCloudAccount() {
       rememberedHome = rememberedCloudHome(rememberedHome, state);
       sendUpdaterState();
       computerSharing?.cloudChanged();
+      void accountWorkspace?.changed();
       pushCloudAccountState(state);
       refreshApplicationMenu();
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitle(currentWindowTitle());
@@ -3386,6 +3418,7 @@ app.whenReady().then(async () => {
   if (desktopShutdownStarted) return;
   if (app.isPackaged && !desktopRemoteAccess) void ensureManagedDesktop().start().then(() => companyBackupSchedule.start()).catch(() => {});
   if (app.isPackaged && !desktopRemoteAccess && configuredCloudOrigin()) {
+    ensureAccountWorkspace();
     cloudAccountRestoring = true;
     cloudAccountStarted = ensureCloudAccount().start().catch(() => {}).finally(() => { cloudAccountRestoring = false; });
   }
@@ -3464,6 +3497,7 @@ app.on("before-quit", (e) => {
   orgLibrary?.close();
   managedDesktop?.close();
   cloudAccount?.close();
+  accountWorkspace?.close();
   void cloudMove?.close();
   companyBackupController?.abort();
   computerSharing?.close();

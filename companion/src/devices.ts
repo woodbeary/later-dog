@@ -12,6 +12,7 @@ export interface DeviceRecord {
   lastSeenAt: number;
   cloudDesktopAccess: boolean;
   browserControlAccess: boolean;
+  accountPaired?: true;
 }
 
 export type PublicDevice = Omit<DeviceRecord, "tokenHash">;
@@ -21,6 +22,7 @@ export interface PairingWindow {
   token: string;
   expiresAt: number;
   attemptsLeft: number;
+  account?: true;
 }
 
 interface PairingReplay {
@@ -76,6 +78,7 @@ function normalizeDevice(record: Partial<DeviceRecord> & { id: string; tokenHash
     lastSeenAt: timestamp(record.lastSeenAt, createdAt),
     cloudDesktopAccess: record.cloudDesktopAccess === true,
     browserControlAccess: record.browserControlAccess === true,
+    ...(record.accountPaired === true ? { accountPaired: true } : {}),
   };
 }
 
@@ -130,6 +133,14 @@ export class DeviceRegistry {
     return this.window;
   }
 
+  openAccountPairing(): PairingWindow | null {
+    if (this.pairing()) return null;
+    const window = this.openPairing();
+    window.code = "";
+    window.account = true;
+    return window;
+  }
+
   closePairing(expectedToken?: string): boolean {
     if (expectedToken !== undefined && this.pairing()?.token !== expectedToken) return false;
     this.window = null;
@@ -166,7 +177,7 @@ export class DeviceRegistry {
 
     const window = this.pairing();
     if (!window) return { error: "no pairing is in progress — open Phone settings on your computer" };
-    if (!sameCredential(window.code, presented) && !sameCredential(window.token, presented)) {
+    if (!(window.code && sameCredential(window.code, presented)) && !sameCredential(window.token, presented)) {
       window.attemptsLeft -= 1;
       if (window.attemptsLeft <= 0) {
         this.closePairing();
@@ -186,6 +197,7 @@ export class DeviceRegistry {
       lastSeenAt: Date.now(),
       cloudDesktopAccess: false,
       browserControlAccess: false,
+      ...(window.account ? { accountPaired: true as const } : {}),
     };
     this.devices.push(device);
     try {
@@ -235,6 +247,17 @@ export class DeviceRegistry {
     this.lastSeenWrites.delete(id);
     this.persist();
     return true;
+  }
+
+  revokeAccountDevices(): string[] {
+    const before = this.devices;
+    const removed = before.filter(device => device.accountPaired).map(device => device.id);
+    this.devices = before.filter(device => !device.accountPaired);
+    try { this.persist(); } catch (error) { this.devices = before; throw error; }
+    if (this.window?.account) this.closePairing(this.window.token);
+    if (this.replay && removed.includes(this.replay.result.device.id)) this.clearReplay();
+    for (const id of removed) this.lastSeenWrites.delete(id);
+    return removed;
   }
 
   setCloudDesktopAccess(id: string, allowed: boolean): boolean {

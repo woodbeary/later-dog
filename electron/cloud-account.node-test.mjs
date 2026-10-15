@@ -25,6 +25,9 @@ async function fixture(t, options = {}) {
       if (typeof f.disk.body === "string") { res.writeHead(f.disk.status, { "content-type": "text/html" }); return res.end(f.disk.body); }
       return send(f.disk.status, f.disk.body);
     }
+    if (["/api/cloud/desktop/workspace", "/api/cloud/desktop/workspace/installation"].includes(req.url) && req.headers.authorization === `Bearer ${accessToken}`) {
+      return send(200, { bound: true });
+    }
     if (req.url === "/api/cloud/desktop/token") {
       if (f.tokenPage) { res.writeHead(f.tokenPage, { "content-type": "text/html" }); return res.end("<!doctype html>Just a moment"); }
       if (f.slowToken) await f.slowToken;
@@ -85,6 +88,20 @@ test("fresh startup stays local with no enrollment, browser, or network; explici
   assert.equal(f.client.state().entitlement.plan, "free");
   assert.ok(!JSON.stringify(f.states).includes(accessToken)); assert.ok(!JSON.stringify(f.states).includes("A".repeat(43)));
   assert.equal(f.requests.find(row => row.route.endsWith("/session")).token, `Bearer ${accessToken}`);
+});
+
+test("workspace enrollment and heartbeats use the saved device session without exposing it in public state", async t => {
+  const f = await fixture(t);
+  await assert.rejects(f.client.workspaceInstallation({ clientInstanceId: "fixture" }), /Sign in/);
+  await f.connect();
+  await f.client.workspaceInstallation({ clientInstanceId: "fixture" });
+  await f.client.workspaceHeartbeat({ installationId: "fixture", ready: false });
+  const calls = f.requests.filter(row => row.route.includes("/workspace"));
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(row => row.token === `Bearer ${accessToken}` && row.method === "POST"));
+  assert.ok(!JSON.stringify(f.client.state()).includes(accessToken));
+  await f.client.signOut();
+  await assert.rejects(f.client.workspaceHeartbeat({ installationId: "fixture", ready: false }), /Sign in/);
 });
 
 test("checkout/browser return cannot activate Pro; only refreshed server state can, and revocation removes it", async t => {

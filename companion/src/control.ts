@@ -128,7 +128,8 @@ export function companionState(options: ControlOptions) {
       currentHostedUrl(options),
     ),
     ...(secretPublicKey ? { secretPublicKey } : {}),
-    pairing: pairing ? { code: pairing.code, token: pairing.token, expiresAt: pairing.expiresAt } : null,
+    pairing: pairing && !pairing.account ? { code: pairing.code, token: pairing.token, expiresAt: pairing.expiresAt } : null,
+    accountPairingActive: pairing?.account === true,
     devices: options.devices.list(),
     connectedDeviceIds: options.connectedDeviceIds?.() ?? [],
     discovery: options.discovery(),
@@ -166,6 +167,12 @@ export function createControlServer(options: ControlOptions): Server {
       return;
     }
     if (method === "POST" && path === "/pairing") {
+      if (requestUrl.searchParams.get("account") === "true") {
+        const window = options.devices.openAccountPairing();
+        return json(res, 200, window
+          ? { opened: true, credential: window.token, expiresAt: window.expiresAt }
+          : { opened: false });
+      }
       const window = options.devices.openPairing();
       return json(res, 201, {
         ...companionState(options),
@@ -177,6 +184,16 @@ export function createControlServer(options: ControlOptions): Server {
       const expectedToken = requestUrl.searchParams.get("expectedToken") ?? undefined;
       options.devices.closePairing(expectedToken);
       return json(res, 200, companionState(options));
+    }
+    if (method === "DELETE" && path === "/account-devices") {
+      let removed: string[];
+      try { removed = options.devices.revokeAccountDevices(); }
+      catch { return json(res, 500, { error: "could not remove account devices" }); }
+      for (const id of removed) {
+        options.disconnectDevice?.(id);
+        options.revoked?.(id);
+      }
+      return json(res, 200, { revoked: removed.length });
     }
     const updateHostedUrl = options.setHostedUrl;
     if (method === "PUT" && path === "/hosted-endpoint" && updateHostedUrl) {

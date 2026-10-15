@@ -23,6 +23,37 @@ describe("DeviceRegistry", () => {
     rmSync(DATA_DIR, { recursive: true, force: true });
   });
 
+  it("account pairing is opaque-only, single-use and cannot replace a manual window", () => {
+    const registry = new DeviceRegistry();
+    const manual = registry.openPairing();
+    expect(registry.openAccountPairing()).toBeNull();
+    expect(registry.pairing()?.token).toBe(manual.token);
+    registry.closePairing(manual.token);
+    const account = registry.openAccountPairing()!;
+    expect(account.code).toBe("");
+    expect(registry.openAccountPairing()).toBeNull();
+    expect(registry.redeem("", "Fixture phone")).toHaveProperty("error");
+    expect(registry.redeem("000000", "Fixture phone")).toHaveProperty("error");
+    const first = registry.redeem(account.token, "Fixture phone", "fixture-account-request");
+    expect(first).toHaveProperty("token");
+    expect(registry.redeem(account.token, "Fixture phone", "fixture-account-request")).toEqual(first);
+    expect(registry.redeem(account.token, "Another phone", "different-account-request")).toHaveProperty("error");
+  });
+
+  it("sign-out revokes account phones and their replay while retaining manually paired phones", () => {
+    const registry = new DeviceRegistry();
+    const manual = pair(registry, "Manual phone");
+    const grant = registry.openAccountPairing()!;
+    const linked = registry.redeem(grant.token, "Account phone", "fixture-account-request");
+    if ("error" in linked) throw new Error(linked.error);
+    expect(new DeviceRegistry().authenticate(linked.token)?.accountPaired).toBe(true);
+    expect(registry.revokeAccountDevices()).toEqual([linked.device.id]);
+    expect(registry.authenticate(linked.token)).toBeNull();
+    expect(registry.authenticate(manual.token)?.id).toBe(manual.device.id);
+    expect(registry.redeem(grant.token, "Account phone", "fixture-account-request")).toHaveProperty("error");
+    expect(new DeviceRegistry().authenticate(linked.token)).toBeNull();
+  });
+
   it("issues a token that authenticates, and never stores it", () => {
     const registry = new DeviceRegistry();
     const { token, device } = pair(registry);

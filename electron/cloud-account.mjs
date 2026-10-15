@@ -293,6 +293,16 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
     },
     cancel: () => pending || value.status === "connecting" ? signOut() : Promise.resolve(state()),
     refresh, signOut,
+    async workspaceInstallation(body) {
+      const current = grant;
+      if (closed || !current || current.expiresAt <= now()) throw new Error("Sign in to connect this workspace");
+      return request("workspace/installation", { method: "POST", body, token: current.token });
+    },
+    async workspaceHeartbeat(body) {
+      const current = grant;
+      if (closed || !current || current.expiresAt <= now()) throw new Error("Sign in to connect this workspace");
+      return request("workspace", { method: "POST", body, token: current.token });
+    },
     async openDashboard() { await openBrowser(`${origin}/cloud`); return state(); },
     homeTarget,
     async growDisk(sizeGb) {

@@ -11,7 +11,16 @@ const fixture = vi.hoisted(() => ({
   density: "comfortable" as SidebarDensity,
   windowChrome: undefined as "mac-inset" | "win-caption" | "native" | undefined,
   hostLabel: undefined as string | undefined,
+  cloudHome: false,
 }));
+
+vi.mock("@/state/store", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/state/store")>();
+  return { ...original, useStore: () => {
+    const store = original.useStore();
+    return fixture.cloudHome ? { ...store, state: { ...store.state, config: { ...store.state.config, cloudHome: true } } } : store;
+  } };
+});
 
 vi.mock("@/lib/sidebar-preferences", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/sidebar-preferences")>(),
@@ -36,6 +45,7 @@ beforeEach(() => {
   fixture.density = "comfortable";
   fixture.windowChrome = undefined;
   fixture.hostLabel = undefined;
+  fixture.cloudHome = false;
   vi.stubGlobal("window", { innerWidth: 1280, location: { protocol: "http:", search: "" } });
   setLocale("en");
 });
@@ -46,6 +56,18 @@ afterEach(() => {
 });
 
 describe("sidebar header", () => {
+  it.each(["comfortable", "compact", "icons"] as const)("shows no separate Cloud world or server picker at %s density", (density) => {
+    fixture.density = density;
+    fixture.cloudHome = true;
+    const html = render();
+    expect(html).not.toContain("My Cloud");
+    expect(html).not.toContain("always on");
+    expect(html).not.toContain("Switch server");
+    expect(html).not.toContain("data-cloud-home-indicator");
+    expect(html).not.toContain("data-workspace-switcher");
+    expect(html).not.toContain("data-workspace-recovery");
+  });
+
   it.each(["comfortable", "compact"] as const)("keeps only add at %s density, with no density menu", (density) => {
     fixture.density = density;
     const html = render();
@@ -110,9 +132,7 @@ describe("sidebar top row", () => {
     expect(classesOf(row, "data-traffic-light-space")).toEqual(expect.arrayContaining(["w-[72px]", "shrink-0"]));
     expect(classesOf(row, "data-sidebar-top-slot")).toEqual(expect.arrayContaining(["@container/sidebar-top", "min-w-0", "flex-1"]));
     expect(row).toContain('<div data-sidebar-top-spacer="true" class="min-w-0 flex-1"></div>');
-    const switcherClasses = classesOf(row, "data-sidebar-top-switcher");
-    expect(switcherClasses).toEqual(expect.arrayContaining(["min-w-0", "max-w-[140px]"]));
-    expect(switcherClasses).not.toContain("flex-1");
+    expect(row).not.toContain("data-sidebar-top-switcher");
     expect(classesOf(row, "data-sidebar-top-buttons")).toEqual(expect.arrayContaining(["shrink-0", "gap-0.5"]));
     expect(html).not.toContain("Switch server:");
   });
@@ -145,7 +165,7 @@ describe("sidebar top row", () => {
     expect(buttons).toBeGreaterThan(spacer);
   });
 
-  it("stacks the icons rail unchanged and keeps the icon-only switcher beneath it", () => {
+  it("stacks the icons rail without a server switcher beneath it", () => {
     fixture.density = "icons";
     fixture.windowChrome = "mac-inset";
     desktop();
