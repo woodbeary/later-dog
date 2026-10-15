@@ -19,10 +19,13 @@ jobs:
   image:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
+    outputs:
+      cloudflare-image: ${{ steps.cloudflare.outputs.image }}
+      cloudflare-tag: ${{ steps.cloudflare.outputs.tag }}
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/later-dog-home:${{ github.sha }}
       HOME_HOST: h000000000000000000000000-home.later.dog
-      CLOUDFLARE_PUSH: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+      CLOUDFLARE_PUSH: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && (vars.CLOUDFLARE_ACCOUNT_ID != '' || secrets.CLOUDFLARE_ACCOUNT_ID != '') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,18 +55,43 @@ jobs:
       - run: docker push "$IMAGE"
       - run: echo "Pushed $IMAGE" >> "$GITHUB_STEP_SUMMARY"
       - name: Push the image to Cloudflare's registry
+        id: cloudflare
         if: env.CLOUDFLARE_PUSH == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: "false"
         shell: bash
         run: |
           short="${GITHUB_SHA::12}"
-          docker tag "$IMAGE" "later-dog-home:$short"
-          npx --yes wrangler@4.148.0 containers push "later-dog-home:$short" 2>&1 | tee push.log
-          uri="$(grep -o 'registry\.cloudflare\.com/[^ ]*' push.log | tail -1)"
-          if [ -z "$uri" ]; then echo "The push printed no registry address"; exit 1; fi
+          tag="later-dog-home:$short"
+          log="$RUNNER_TEMP/cloudflare-push.log"
+          docker tag "$IMAGE" "$tag"
+          npx --yes wrangler@4.149.0 containers push "$tag" 2>&1 | tee "$log"
+          uri="$(tr -d '\r' < "$log" | sed -n 's/^.*Pushed image: *\(registry\.cloudflare\.com\/[^[:space:]]*\).*$/\1/p' | tail -n 1)"
+          case "$uri" in
+            registry.cloudflare.com/*/"$tag") ;;
+            *) echo "::error::wrangler did not report a registry.cloudflare.com address for $tag"; exit 1 ;;
+          esac
           {
-            echo "Cloudflare registry image: \`$uri\`"
-            echo "Set containers[0].image in deploy/laterdog/home/wrangler.jsonc to that address."
+            echo "image=$uri"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Cloudflare registry"
+            echo
+            echo "Image: \`$uri\`"
+            echo
+            echo "Tag: \`$tag\`"
+            echo
+            echo "Deploy it with the short tag \`$short\`: docs/laterdog/cloud-home-deploy.md, \"Deploy a pushed image\"."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Say why nothing went to Cloudflare's registry
+        if: env.CLOUDFLARE_PUSH != 'true'
+        run: |
+          {
+            echo "### Cloudflare registry"
+            echo
+            echo "Skipped: the CLOUDFLARE_API_TOKEN secret or the CLOUDFLARE_ACCOUNT_ID variable or secret is missing."
+            echo "One-time setup: docs/laterdog/cloud-home-deploy.md."
           } >> "$GITHUB_STEP_SUMMARY"
