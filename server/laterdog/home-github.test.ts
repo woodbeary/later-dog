@@ -2,10 +2,11 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import type { CommandOptions, CommandResult } from "./command.ts";
 import { GitHubDeviceLogin, type GitHubSignIn } from "./github-login.ts";
-import { GH_NOT_SIGNED_IN_EXIT, HomeGitHub } from "./home-github.ts";
+import { GH_NOT_SIGNED_IN_EXIT, HomeGitHub, KNOWN_GITHUB_MAX_AGE_MS } from "./home-github.ts";
 
 const ok = (stdout = ""): CommandResult => ({ exitCode: 0, stdout, stderr: "", timedOut: false });
 const failed = (exitCode: number, stderr: string): CommandResult => ({ exitCode, stdout: "", stderr, timedOut: false });
+const UNSET_HELPER = "git config --global --unset-all credential.https://github.com.helper";
 const PROMPT = "! First copy your one-time code: AB12-CD34\nOpen this URL to continue in your web browser: https://github.com/login/device\n";
 
 type FakeChild = EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; exitCode: number | null; killed: boolean; unref: () => void; kill: (signal?: string) => boolean };
@@ -18,10 +19,10 @@ function fakeChild(): FakeChild {
 function ghScript(answers: Record<string, () => CommandResult>) {
   const calls: { args: string[]; options?: CommandOptions }[] = [];
   const run = vi.fn(async (binary: string, args: string[], options?: CommandOptions) => {
-    expect(binary).toBe("gh");
-    calls.push({ args, options });
-    const answer = answers[args.join(" ")];
-    if (!answer) throw new Error(`unexpected gh ${args.join(" ")}`);
+    const command = binary === "gh" ? args.join(" ") : `${binary} ${args.join(" ")}`;
+    if (binary === "gh") calls.push({ args, options });
+    const answer = answers[command] ?? (command === UNSET_HELPER ? () => ok() : undefined);
+    if (!answer) throw new Error(`unexpected ${binary} ${args.join(" ")}`);
     return answer();
   });
   return { run, calls };
@@ -83,6 +84,7 @@ describe("GitHub on a Cloud home", () => {
     const status = await new HomeGitHub({ run, signIn, env: {} }).disconnect();
     expect(signIn.cancel).toHaveBeenCalledTimes(1);
     expect(calls.map((call) => call.args.join(" "))).toEqual(["auth logout --hostname github.com", "api user --jq .login"]);
+    expect(run.mock.calls.map(([binary, args]) => `${binary} ${args.join(" ")}`)).toContain(UNSET_HELPER);
     expect(status.login).toBeNull();
   });
 
@@ -124,5 +126,43 @@ describe("GitHub on a Cloud home", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(calls.some((call) => call.args.join(" ") === "auth setup-git")).toBe(false);
     expect((await github.status()).signIn).toEqual({ phase: "idle" });
+  });
+
+  it("remembers who GitHub is connected as for dogs' instructions, checking in the background at most every few minutes", async () => {
+    let now = 1_000;
+    let answer: () => CommandResult = () => ok("octocat\n");
+    const { run, calls } = ghScript({ "api user --jq .login": () => answer() });
+    const github = new HomeGitHub({ run, signIn: idleSignIn(), env: {}, now: () => now });
+    expect(github.lastKnown()).toEqual({ state: "unknown" });
+    expect(github.lastKnown()).toEqual({ state: "unknown" });
+    await vi.waitFor(() => expect(github.lastKnown()).toEqual({ state: "connected", login: "octocat" }));
+    expect(calls).toHaveLength(1);
+    now += KNOWN_GITHUB_MAX_AGE_MS - 1;
+    github.lastKnown();
+    expect(calls).toHaveLength(1);
+    answer = () => failed(GH_NOT_SIGNED_IN_EXIT, "");
+    now += 2;
+    expect(github.lastKnown()).toEqual({ state: "connected", login: "octocat" });
+    await vi.waitFor(() => expect(github.lastKnown()).toEqual({ state: "disconnected" }));
+    expect(calls).toHaveLength(2);
+    answer = () => failed(1, "HTTP 502");
+    await github.status();
+    expect(github.lastKnown()).toEqual({ state: "unknown" });
+  });
+
+  it("learns about a connect or disconnect as soon as the owner's status check sees it", async () => {
+    let signedIn = false;
+    const { run } = ghScript({
+      "auth logout --hostname github.com": () => { signedIn = false; return ok(); },
+      "api user --jq .login": () => signedIn ? ok("octocat") : failed(GH_NOT_SIGNED_IN_EXIT, ""),
+    });
+    const github = new HomeGitHub({ run, signIn: idleSignIn(), env: {} });
+    await github.status();
+    expect(github.lastKnown()).toEqual({ state: "disconnected" });
+    signedIn = true;
+    await github.status();
+    expect(github.lastKnown()).toEqual({ state: "connected", login: "octocat" });
+    await github.disconnect();
+    expect(github.lastKnown()).toEqual({ state: "disconnected" });
   });
 });

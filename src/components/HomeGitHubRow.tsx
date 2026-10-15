@@ -9,6 +9,7 @@ import { SettingRow } from "./SettingsPrimitives";
 
 export const HOME_GITHUB_PATH = "/api/home/github";
 export const GITHUB_DEVICE_PAGE = "https://github.com/login/device";
+export const GITHUB_DEVICE_PAGE_LABEL = "github.com/login/device";
 export const HOME_GITHUB_POLL_MS = 3000;
 
 export interface HomeGitHubSignIn { phase: "idle" | "waiting" | "done" | "failed"; code?: string; url?: string; detail?: string }
@@ -29,6 +30,7 @@ export function homeGitHubView(status: HomeGitHubStatus | null): HomeGitHubView 
 }
 
 const reason = (error: unknown) => error instanceof Error && error.message ? error.message : t("settings.github.failed");
+const openDevicePage = () => void openExternalLink(GITHUB_DEVICE_PAGE).catch(() => {});
 
 function SignInCode({ code }: { code: string }) {
   const { state, copy } = useCopyFeedback(code);
@@ -39,6 +41,15 @@ function SignInCode({ code }: { code: string }) {
         {state === "copied" ? <Check size={13} className="text-success" /> : state === "failed" ? <X size={13} className="text-danger" /> : <Copy size={13} />}
       </button>
     </div>
+  );
+}
+
+function DevicePageLine() {
+  return (
+    <p className="text-[12px] leading-relaxed text-ink-secondary">
+      {t("settings.github.enterAt")}{" "}
+      <button type="button" data-home-github-link className="font-medium text-ink underline underline-offset-2 hover:opacity-80" onClick={openDevicePage}>{GITHUB_DEVICE_PAGE_LABEL}</button>
+    </p>
   );
 }
 
@@ -89,35 +100,38 @@ export function HomeGitHubSetting() {
 
   const connect = async () => {
     const next = await act(`${HOME_GITHUB_PATH}/connect`);
-    if (next?.signIn.phase === "waiting" && next.signIn.url === GITHUB_DEVICE_PAGE) void openExternalLink(GITHUB_DEVICE_PAGE).catch(() => {});
+    if (next?.signIn.phase === "waiting" && next.signIn.url === GITHUB_DEVICE_PAGE) openDevicePage();
   };
 
-  const subtitle = view.kind === "connected" ? t("settings.github.connected", { login: view.login })
-    : view.kind === "waiting" ? t("settings.github.waiting")
+  const title = view.kind === "connected" ? t("settings.github.connectedTitle", { login: view.login })
+    : view.kind === "waiting" ? t("settings.github.waitingTitle")
     : view.kind === "checking" ? t("settings.github.checking")
+    : t("settings.github.notConnected");
+  const subtitle = view.kind === "connected" ? t("settings.github.connected")
+    : view.kind === "waiting" ? t("settings.github.waiting")
     : t("settings.github.intro");
   const problem = failed ?? (view.kind === "disconnected" ? view.problem : view.kind === "connected" ? view.note : undefined);
   const message = (view.kind === "waiting" || problem) ? (
     <div className="flex flex-col gap-2">
       {view.kind === "waiting" && <SignInCode code={view.code} />}
+      {view.kind === "waiting" && <DevicePageLine />}
       {problem && <p role="alert" className="text-danger">{problem}</p>}
     </div>
   ) : undefined;
 
   return (
     <div data-home-github={view.kind} className="border-t border-hairline/40 first:border-t-0">
-      <SettingRow title={t("settings.github.title")} subtitle={subtitle} message={message}>
+      <SettingRow title={title} subtitle={subtitle} message={message}>
         {view.kind === "connected" && <button type="button" disabled={busy} className="ui-button" onClick={() => void act(`${HOME_GITHUB_PATH}/disconnect`)}>{t("settings.github.disconnect")}</button>}
-        {view.kind === "waiting" && <button type="button" className="ui-button" onClick={() => void openExternalLink(GITHUB_DEVICE_PAGE).catch(() => {})}>{t("settings.github.open")}</button>}
+        {view.kind === "waiting" && <button type="button" className="ui-button" onClick={openDevicePage}>{t("settings.github.open")}</button>}
         {view.kind === "disconnected" && <button type="button" disabled={busy} className="ui-button" onClick={() => void connect()}>{t("settings.github.connect")}</button>}
       </SettingRow>
     </div>
   );
 }
 
-export function HomeGitHubRow() {
+export function useHomeGitHubShown(): boolean {
   const { state } = useStore();
   const owner = useOwnerOrAdmin();
-  if (state.config?.cloudHome !== true || owner !== true) return null;
-  return <HomeGitHubSetting />;
+  return state.config?.cloudHome === true && owner === true;
 }

@@ -69,6 +69,8 @@ describe("the GitHub row in Settings on My Cloud", () => {
   it("connects: shows the code, opens GitHub's device page, and turns into connected as @login", async () => {
     await show();
     expect(state()).toBe("disconnected");
+    expect(host.textContent).toContain("Not connected");
+    expect(host.textContent).toContain("even with your Mac closed");
     answers["POST /api/home/github/connect"] = { login: null, signIn: waiting };
     answers["GET /api/home/github"] = { login: null, signIn: waiting };
     await act(async () => { button("Connect")!.click(); });
@@ -76,6 +78,13 @@ describe("the GitHub row in Settings on My Cloud", () => {
     expect(host.querySelector("[data-home-github-code]")?.textContent).toBe("AB12-CD34");
     expect(links.open).toHaveBeenCalledWith(GITHUB_DEVICE_PAGE);
     expect(button("Open GitHub")).toBeTruthy();
+    expect(host.textContent).toContain("Waiting for GitHub");
+    const link = host.querySelector<HTMLButtonElement>("[data-home-github-link]")!;
+    expect(link.textContent).toBe("github.com/login/device");
+    expect(link.parentElement?.textContent).toBe("Enter it at github.com/login/device");
+    links.open.mockClear();
+    await act(async () => { link.click(); });
+    expect(links.open).toHaveBeenCalledWith(GITHUB_DEVICE_PAGE);
     answers["GET /api/home/github"] = { login: "octocat", signIn: { phase: "done" } };
     await act(async () => { await vi.advanceTimersByTimeAsync(HOME_GITHUB_POLL_MS); });
     expect(state()).toBe("connected");
