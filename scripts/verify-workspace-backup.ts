@@ -57,7 +57,7 @@ async function restartFixture(fixture: VerificationServer): Promise<ChildProcess
   }
 }
 
-async function launchBackupFixture(): Promise<VerificationServer> {
+export async function launchBackupFixture(): Promise<VerificationServer> {
   const fixture = await launchVerificationServer({});
   try {
     const child = await restartFixture(fixture);
