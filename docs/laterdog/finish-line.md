@@ -36,6 +36,14 @@ Work stops at a gate before the next one starts.
 | G7 Dev app, factory, computer tools | P3 | later.dog Dev installs beside the release; one cloud job end to end with screenshots and a saved trace; computer tools answer over MCP | not in use; the most important gap: changes were verified against the person's live setup. Next gate N1 below |
 | G8 Launch copy | P3 | Site and README lines and the launch post approved by the person | site iPhone launch done 2026-10-15 (branch `site/iphone-testflight` in later-dog-site); hiring line and launch post not started |
 
+## Fix releases in flight (2026-10-15 afternoon)
+
+Owned by one session ("App regression review"). Other sessions: do not start lanes that touch the same areas, and do not merge, release or deploy until 0.3.41 is out; add new work after it.
+
+- **0.3.40 shipped** (PR #65, `62105d213`): Stop in the Cloud home (tini as PID 1, zombie-tolerant stop, turns always settle), Steer never silent, account names in the account menu, picture edits, Claude refresh locks kept out of the snapshot with one refresh per account and a quiet retry, the owner's Mac with no Allow card. Cloud home image `later-dog-home:9b96f3568fab` deployed to production. Proof on the test Cloud home in `/Volumes/laterdog-phone/tmp/fix-0340/`.
+- **Test Cloud home** (N1, part): Worker `laterdog-home-test` on `*-hometest.later.dog`, R2 `laterdog-homes-test`, driver Worker `laterdog-home-test-driver` for `test-*` accounts only; `scripts/test-home.mjs` and `scripts/test-home-chat.mjs` sign in and drive it; secrets and a test-only SSH key in `/Volumes/laterdog-phone/tmp/test-home/`. Images reach Cloudflare without the Mac's Docker: CI pushes to GHCR, then `crane copy` with a short-lived `wrangler containers registries credentials --push`.
+- **0.3.41 in progress** (branch `laterdog/fix-0341`, lanes `laterdog/fix-0341-*`): no hard stops for dogs shipping PRs (auto mode never waits on a card except merge, deploy and protected-branch pushes; long-work limits; Codex network in the Cloud), adding and removing Claude and ChatGPT accounts in the Cloud, GitHub connected once in the Cloud, and the included AI's leaked reasoning.
+
 ## Next gates (2026-10-15)
 
 | Gate | Done when |
