@@ -55,7 +55,7 @@ export function claudeSearchLinks(value: unknown): NonNullable<NativeActivity["l
 }
 
 interface ToolRecord { actorId: string; activity: NativeActivity; }
-interface StreamRecord { activity: NativeActivity; messageId: string; index: number; blockType: string; reconciled?: boolean; raw: string; }
+interface StreamRecord { activity: NativeActivity; messageId: string; index: number; blockType: string; reconciled?: boolean; raw: string; emittedAt?: number; emittedLength?: number; emittedText?: string; emittedTruncated?: boolean; }
 
 export class ClaudeNativeActivity {
   private readonly emit: (observation: NativeObservation) => void;
@@ -91,6 +91,9 @@ export class ClaudeNativeActivity {
     this.pendingThinking = undefined;
     this.pendingRetry = undefined;
     this.limit("Native background work stays inside the owning turn; individual native tasks cannot be stopped separately.");
+    this.limit("Child text and thinking arrive as completed content blocks; some forked commands are reported only after they finish.");
+    this.limit("Native Claude Projects and Agent Teams are not managed by this headless adapter.");
+    this.limit("later.dog conversation branches do not create native Claude history forks.");
     if (!this.version) this.limit("Claude Code version was not reported; child text forwarding is unavailable.");
     else {
       const patch = this.version.split(".").map(Number);
@@ -162,7 +165,7 @@ export class ClaudeNativeActivity {
     const kind = taskType === "local_agent" ? "subagent" : taskType === "local_workflow" ? "workflow" : old?.kind ?? "task";
     const parentTask = string(event.parent_task_id);
     if (parentTask) this.taskParents.set(taskId, parentTask);
-    const parentId = parentTask ? this.latestTasks.get(parentTask)?.id : old?.parentId ?? this.tools.get(invocation ?? "")?.actorId ?? (event.spawn_depth === 1 ? "parent" : undefined);
+    const parentId = this.tools.get(invocation ?? "")?.actorId ?? old?.parentId ?? (parentTask ? this.latestTasks.get(parentTask)?.id : event.spawn_depth === 1 ? "parent" : undefined);
     const actor = this.actor({
       ...old, id: actorId, parentId, kind, nativeId: taskId, nativeThreadId: this.sessionId, generation,
       label: old?.label || text(event.description, 160) || text(event.subagent_type, 160) || (kind === "subagent" ? "Native subagent" : "Native task"),
@@ -228,13 +231,22 @@ export class ClaudeNativeActivity {
       const raw = delta.type === "thinking_delta" ? string(delta.thinking) : delta.type === "text_delta" ? string(delta.text) : undefined;
       if (!raw) return;
       const blockType = delta.type === "thinking_delta" ? "thinking" : "text";
-      const row = this.streams.get(key) ?? { messageId, index, blockType, raw: "", activity: { id: `claude-block-${id(this.sessionId, messageId, String(index))}`, actorId: "parent", kind: blockType === "thinking" ? "reasoning" as const : "message" as const, label: blockType === "thinking" ? "Thinking" : "Message", state: "running" as const, startedAt: this.now() } };
+      const row: StreamRecord = this.streams.get(key) ?? { messageId, index, blockType, raw: "", activity: { id: `claude-block-${id(this.sessionId, messageId, String(index))}`, actorId: "parent", kind: blockType === "thinking" ? "reasoning" as const : "message" as const, label: blockType === "thinking" ? "Thinking" : "Message", state: "running" as const, startedAt: this.now() } };
       const joined = row.raw + raw;
       row.raw = joined.slice(0, 24_000);
       row.activity = { ...row.activity, text: text(row.raw), truncated: row.activity.truncated || joined.length > 24_000 };
       this.streams.set(key, row);
       if (this.streams.size > 512) this.streams.delete(this.streams.keys().next().value!);
-      this.activity(row.activity);
+      const at = this.now();
+      const changed = row.emittedText !== row.activity.text || row.emittedTruncated !== row.activity.truncated;
+      const ready = row.emittedAt === undefined || at - row.emittedAt >= 150 || row.raw.length - (row.emittedLength ?? 0) >= 1_024 || row.activity.truncated && !row.emittedTruncated;
+      if (changed && ready) {
+        row.emittedAt = at;
+        row.emittedLength = row.raw.length;
+        row.emittedText = row.activity.text;
+        row.emittedTruncated = row.activity.truncated;
+        this.activity(row.activity);
+      }
     } else if (frame.type === "content_block_stop") {
       const row = this.streams.get(key);
       if (row) { row.activity = { ...row.activity, state: "done", endedAt: this.now() }; this.activity(row.activity); }
@@ -338,6 +350,6 @@ export class ClaudeNativeActivity {
     else if (subtype === "hook_started" || subtype === "hook_progress" || subtype === "hook_response") this.notice(event, text(event.hook_name ?? event.hook_event, 160) || "Claude hook", event.output ?? event.stdout ?? event.stderr, subtype === "hook_response" ? event.exit_code && event.exit_code !== 0 ? "failed" : "done" : "running", "hook");
     else if (subtype === "compact_boundary") this.notice(event, "Context compacted", event.compact_metadata, "done", "compaction");
     else if (subtype === "plugin_install") this.notice(event, `Plugin ${text(event.name, 160) ?? "installation"}`, event.error ?? event.status, event.status === "failed" ? "failed" : event.status === "started" ? "running" : "done");
-    else if (subtype === "warning") this.notice(event, "Claude warning", event.message ?? event, "waiting");
+    else if (subtype === "warning") this.notice(event, "Claude warning", event.message ?? event);
   }
 }

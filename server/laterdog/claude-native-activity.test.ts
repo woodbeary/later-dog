@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { NativeObservation } from "../../shared/native-runs.ts";
 import { ClaudeNativeActivity, claudeSearchLinks } from "./claude-native-activity.ts";
 
-function fixture() {
+function fixture(now: () => number = () => 100) {
   const observations: NativeObservation[] = [];
-  const native = new ClaudeNativeActivity(observation => observations.push(observation), { version: "2.1.293", sessionId: "session", now: () => 100 });
+  const native = new ClaudeNativeActivity(observation => observations.push(observation), { version: "2.1.293", sessionId: "session", now });
   const actors = () => observations.flatMap(row => row.kind === "actor" ? [row.actor] : []);
   const activities = () => observations.flatMap(row => row.kind === "activity" ? [row.activity] : []);
   const latestActor = (nativeId: string) => actors().filter(actor => actor.nativeId === nativeId).at(-1)!;
@@ -15,6 +15,48 @@ const start = (task = "agent-a", run = "run-01", extra: Record<string, unknown> 
 const assistant = (uuid: string, content: unknown[], extra: Record<string, unknown> = {}) => ({ type: "assistant", uuid, message: { id: `message-${uuid}`, content }, ...extra });
 
 describe("Claude native activity", () => {
+  it("coalesces streamed snapshots by time or growth, flushes completion and stops repeating a clipped preview", () => {
+    let at = 100;
+    const f = fixture(() => at);
+    const frame = (event: Record<string, unknown>) => f.native.receive({ type: "stream_event", event });
+    const delta = (value: string) => frame({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: value } });
+    frame({ type: "message_start", message: { id: "streamed" } });
+    frame({ type: "content_block_start", index: 0, content_block: { type: "text" } });
+    delta("a");
+    for (let index = 0; index < 999; index++) delta("a");
+    expect(f.activities()).toHaveLength(1);
+    at += 150;
+    delta("b");
+    expect(f.activities()).toHaveLength(2);
+    delta("c".repeat(1_024));
+    expect(f.activities()).toHaveLength(3);
+    delta("d".repeat(25_000));
+    expect(f.activities()).toHaveLength(4);
+    for (let index = 0; index < 100; index++) { at += 200; delta("e"); }
+    expect(f.activities()).toHaveLength(4);
+    frame({ type: "content_block_stop", index: 0 });
+    expect(f.activities()).toHaveLength(5);
+    expect(f.activities().at(-1)).toMatchObject({ state: "done", truncated: true, text: ("a".repeat(1_000) + "b" + "c".repeat(1_024) + "d".repeat(25_000)).slice(0, 24_000) });
+  });
+
+  it("flushes the complete final text even when the last tokens were coalesced", () => {
+    const f = fixture();
+    const delta = (value: string) => f.native.receive({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: value } } });
+    delta("First");
+    delta(" and last");
+    expect(f.activities()).toHaveLength(1);
+    f.native.receive({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
+    expect(f.activities().at(-1)).toMatchObject({ text: "First and last", state: "done" });
+  });
+
+  it("records warnings as settled notices without claiming work is waiting", () => {
+    const f = fixture();
+    f.native.receive(assistant("tool", [{ type: "tool_use", id: "search", name: "WebSearch", input: { query: "sources" } }]));
+    f.native.receive({ type: "system", subtype: "warning", uuid: "warning", message: "A plugin was skipped" });
+    expect(f.activities().at(-1)).toMatchObject({ kind: "notice", label: "Claude warning", state: "done", endedAt: 100 });
+    expect(f.activities().find(activity => activity.kind === "search")?.state).toBe("running");
+  });
+
   it("correlates nested child transcripts, reasoning and searches with their task runs", () => {
     const f = fixture();
     f.native.receive(start());
@@ -60,6 +102,20 @@ describe("Claude native activity", () => {
     expect(uncertain.id).not.toBe(f.actors()[0]!.id);
     expect(uncertain.activity).toContain("attribution unavailable");
     expect(f.activities().at(-1)?.actorId).toBe(uncertain.id);
+  });
+
+  it("uses the exact spawning invocation when a nested child's parent has since resumed", () => {
+    const f = fixture();
+    f.native.receive(start("parent-task", "run-01"));
+    const firstParent = f.latestActor("parent-task");
+    f.native.receive(assistant("spawn-child", [{ type: "tool_use", id: "spawn-child-run-01", name: "Agent", input: { description: "Child work" } }], { agent_id: "parent-task", parent_tool_use_id: "spawn-parent-task-run-01" }));
+    f.native.receive({ type: "system", subtype: "task_notification", task_id: "parent-task", run_id: "run-01", status: "completed" });
+    f.native.receive(start("parent-task", "run-02"));
+    f.native.receive(start("child", "run-01", { parent_task_id: "parent-task", spawn_depth: 2 }));
+    expect(f.latestActor("child").parentId).toBe(firstParent.id);
+    expect(f.latestActor("child").parentId).not.toBe(f.latestActor("parent-task").id);
+    f.native.receive({ type: "system", subtype: "task_progress", task_id: "child", run_id: "run-01", parent_task_id: "parent-task", description: "Finishing child work" });
+    expect(f.latestActor("child").parentId).toBe(firstParent.id);
   });
 
   it("deduplicates wrapper UUIDs without dropping distinct blocks sharing a model message ID", () => {

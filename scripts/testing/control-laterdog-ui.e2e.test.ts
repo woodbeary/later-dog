@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,6 +93,11 @@ describe("control-laterdog ui drives the real renderer", () => {
 
   afterAll(async () => {
     if (launched && launched.child.exitCode === null && launched.child.signalCode === null) {
+      mkdirSync(evidenceDir, { recursive: true });
+      const snapshot = await ui("snapshot", launched.info.ui).catch(error => ({ error: String(error) }));
+      const console = await ui("console", launched.info.ui).catch(error => ({ error: String(error) }));
+      writeFileSync(join(evidenceDir, "control-ui-final.json"), JSON.stringify({ snapshot, console }, null, 2));
+      await ui("screenshot", launched.info.ui, "--out", join(evidenceDir, "control-ui-final.png")).catch(() => {});
       await waitForExit(launched.child, { signal: "SIGINT", graceMs: 30_000 });
     }
     if (ownsEvidenceDir) await removeTempDir(evidenceDir);
@@ -103,7 +108,7 @@ describe("control-laterdog ui drives the real renderer", () => {
     const { info } = launched;
     await ui("type", info.ui, "--name", "Message Pepper", "--text", "Find the striped zebra");
     await ui("press", info.ui, "--keys", "Enter");
-    await ui("wait-settle", info.ui, "--timeout", "60");
+    expect(await ui("wait-settle", info.ui, "--timeout", "60")).toMatchObject({ ok: true });
     await ui("click", info.ui, "--name", "More");
     await ui("click", info.ui, "--name", "Find in conversation");
     await ui("type", info.ui, "--name", "Find in this conversation", "--text", "zebra");
@@ -116,7 +121,7 @@ describe("control-laterdog ui drives the real renderer", () => {
     await expect.poll(highlighted, { timeout: 10_000 }).toBe("zebra");
     await ui("type", info.ui, "--name", "Message Pepper", "--text", `${"hay ".repeat(160)}saffron`);
     await ui("press", info.ui, "--keys", "Enter");
-    await ui("wait-settle", info.ui, "--timeout", "60");
+    expect(await ui("wait-settle", info.ui, "--timeout", "60")).toMatchObject({ ok: true });
     await ui("click", info.ui, "--name", "Find in this conversation");
     await ui("eval", info.ui, "--js", "document.querySelector('input[aria-label=\"Find in this conversation\"]').select(); true");
     await ui("press", info.ui, "--keys", "Backspace");

@@ -513,12 +513,12 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     }
   });
 
-  it("normalizes a full turn into the canonical event sequence", async () => {
+  it("preserves the canonical event sequence alongside native observations", async () => {
     await create();
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-happy", text: "hi", model: "claude-sonnet-5" });
     await recorder.until((e) => e.type === "turn.completed");
 
-    const types = recorder.events.map((e) => e.type);
+    const types = recorder.events.filter((event) => event.type !== "native.observed").map((e) => e.type);
     expect(types).toEqual([
       "turn.started",
       "session.started",
@@ -530,6 +530,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       "turn.completed",
     ]);
     expect(recorder.events.every((e) => e.turnId === turnId && e.provider === "claudeAgent")).toBe(true);
+    expect(recorder.events.every((event, index) => Number.isSafeInteger(event.nativeSequence) && (index === 0 || event.nativeSequence! > recorder.events[index - 1]!.nativeSequence!))).toBe(true);
     expect(recorder.events.find((e) => e.type === "item.started")).toMatchObject({ title: "Bash", summary: "echo hi" });
     expect(recorder.events.find((e) => e.type === "item.started")).toMatchObject({ input: expect.stringContaining("echo hi") });
     expect(recorder.events.find((e) => e.type === "item.completed" && e.itemType === "tool")).toMatchObject({ output: expect.stringContaining('"text": "hi"') });
@@ -586,7 +587,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await create("usage-limit", { FAKE_CLAUDE_USAGE_RESETS_AT: String(resetsAt), FAKE_CLAUDE_USAGE_LIMIT: words });
     await instance.adapter.sendTurn({ threadId: "t-usage-limit", text: "hi" });
     await recorder.until((event) => event.type === "turn.completed");
-    expect(recorder.events.map((event) => event.type)).toEqual(["turn.started", "session.started", "runtime.error", "turn.completed"]);
+    expect(recorder.events.filter((event) => event.type !== "native.observed").map((event) => event.type)).toEqual(["turn.started", "session.started", "runtime.error", "turn.completed"]);
     expect(recorder.events.find((event) => event.type === "runtime.error")).toMatchObject({
       message: words, terminal: true, quota: { resetsAt: new Date(resetsAt * 1000).toISOString(), kind: "session" },
     });
@@ -598,7 +599,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await create("usage-limit", { FAKE_CLAUDE_USAGE_LIMIT_AFTER_TOOL: "1" });
     const first = await instance.adapter.sendTurn({ threadId: "t-usage-after-tool", text: "hi" });
     await recorder.until((event) => event.type === "turn.completed" && event.turnId === first.turnId);
-    expect(recorder.events.filter((event) => event.turnId === first.turnId).map((event) => event.type))
+    expect(recorder.events.filter((event) => event.turnId === first.turnId && event.type !== "native.observed").map((event) => event.type))
       .toEqual(["turn.started", "session.started", "item.started", "item.completed", "runtime.error", "turn.completed"]);
     expect(recorder.events.at(-1)).toMatchObject({ ok: false, stopReason: "usage_limit" });
     recorder.stop();

@@ -77,7 +77,7 @@ function trimRoutineRuns(runs: readonly RoutineRun[]): RoutineRun[] {
 export type { DogColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
 
-export interface OptionCardData {
+export interface OptionCardData extends Pick<import("../../shared/wire").OptionCardData, "nativeActorId" | "nativeActorLabel" | "nativeRunId"> {
   title: string;
   subtitle: string;
   options: string[];

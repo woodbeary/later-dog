@@ -989,8 +989,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       });
     };
 
+    let nativeSequence = 0;
     const emit = (event: RuntimeEvent) => {
-      for (const l of Array.from(listeners)) l(event);
+      const ordered = { ...event, nativeSequence: ++nativeSequence };
+      for (const l of Array.from(listeners)) l(ordered);
     };
     const base = (threadId: string, turnId: string) => ({
       eventId: newEventId(),

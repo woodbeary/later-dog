@@ -13,10 +13,11 @@ import { fixtureApi } from "./preview-fixture.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const binary = resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.env });
-const run = binary ? it : it.skip;
-const LAUNCH_TIMEOUT_MS = 180_000;
+const forced = process.env.LATERDOG_UI_E2E === "1";
+const run = forced || binary ? it : it.skip;
+const LAUNCH_TIMEOUT_MS = forced ? 600_000 : 180_000;
 const scratch = mkdtempSync(join(tmpdir(), "laterdog-native-ui-"));
-const evidenceDir = process.env.LATERDOG_UI_EVIDENCE_DIR ? resolve(ROOT, process.env.LATERDOG_UI_EVIDENCE_DIR) : join(scratch, "evidence");
+const evidenceDir = process.env.LATERDOG_UI_EVIDENCE_DIR ? resolve(ROOT, process.env.LATERDOG_UI_EVIDENCE_DIR) : mkdtempSync(join(tmpdir(), "laterdog-native-ui-evidence-"));
 const gate = join(scratch, "complete-native-turn");
 
 interface Launched {
@@ -27,7 +28,7 @@ interface Launched {
 function launch(): Promise<Launched> {
   return new Promise((done, fail) => {
     const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "scripts/control-laterdog.ts"), "ui", "launch", "--mode", "native-activity"], {
-      cwd: ROOT, env: { ...process.env, LATERDOG_AGENT_BROWSER_PATH: binary!, FAKE_CLAUDE_VERSION: "2.1.301", FAKE_CLAUDE_NATIVE_GATE: gate }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32",
+      cwd: ROOT, env: { ...process.env, ...(binary ? { LATERDOG_AGENT_BROWSER_PATH: binary } : {}), FAKE_CLAUDE_VERSION: "2.1.301", FAKE_CLAUDE_NATIVE_GATE: gate }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32",
     });
     const killGroup = (signal: NodeJS.Signals) => {
       if (child.pid && process.platform !== "win32") {
@@ -103,15 +104,19 @@ describe("native activity in the isolated real renderer", () => {
     await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 20_000 }).toContain("View 2 more puppies");
     expect(await evaluate(`document.querySelector('button[aria-label="See progress"]')?.textContent`)).toContain("Searching");
     expect(await evaluate(`document.querySelectorAll('[data-native-work]').length`)).toBe(1);
+    expect(await evaluate(`document.querySelector(${JSON.stringify(rowSelector)})?.textContent`)).toContain("Issue recorded");
     const messages = await api("GET", `/api/threads/${threadId}/messages?limit=100`);
     expect(JSON.stringify(messages.messages)).not.toContain("CHILD_ONLY_");
-    expect(await evaluate(`Array.from(document.querySelectorAll('.chat-text')).map(node => node.textContent).join('\n')`)).not.toContain("CHILD_ONLY_");
+    expect(await evaluate(`document.querySelector('[role="log"]')?.textContent`)).not.toContain("CHILD_ONLY_");
+    mkdirSync(evidenceDir, { recursive: true });
+    await ui("screenshot", info.ui, "--out", join(evidenceDir, "native-activity-active.png"));
     await ui("click", info.ui, "--name", "View Researcher · Working");
     await expect.poll(() => evaluate(`document.querySelector('[role="dialog"] h3')?.textContent`), { timeout: 10_000 }).toBe("Researcher");
     await expect.poll(() => evaluate(`document.querySelector('[role="dialog"]')?.textContent`), { timeout: 10_000 }).toContain("CHILD_ONLY_0");
     expect(await evaluate(`document.querySelector('[role="dialog"]')?.textContent`)).toContain("Researcher is comparing the fixture evidence.");
     expect(await evaluate(`document.querySelector('[role="dialog"] a[href="https://code.claude.com/docs/en/sub-agents"]')?.textContent`)).toBe("Claude Code subagents");
     expect(await evaluate(`document.activeElement?.getAttribute('aria-label')`)).toBe("Close work details");
+    await ui("screenshot", info.ui, "--out", join(evidenceDir, "native-activity-research.png"));
     await ui("press", info.ui, "--keys", "Shift+Tab");
     expect(await evaluate(`document.querySelector('[role="dialog"]')?.contains(document.activeElement)`)).toBe(true);
     await evaluate(`Array.from(document.querySelectorAll('nav[aria-label="Agents and tasks"] button')).find(button => button.textContent.includes('Nested inspector'))?.click(); true`);
@@ -124,7 +129,7 @@ describe("native activity in the isolated real renderer", () => {
     expect(nested.parentId).toBe(researcher.id);
     expect(detail.activities.some(activity => activity.actorId === nested.id && activity.kind === "tool" && activity.state === "done")).toBe(true);
     expect(detail.run.actors.find(actor => actor.label === "Checker")?.state).toBe("failed");
-    mkdirSync(evidenceDir, { recursive: true });
+    await evaluate(`document.querySelector('[role="dialog"] details > summary')?.click(); true`);
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "native-activity-nested.png"));
     await ui("press", info.ui, "--keys", "Escape");
     expect(await evaluate(`document.activeElement?.getAttribute('aria-label')`)).toBe("View Researcher · Working");
@@ -136,8 +141,9 @@ describe("native activity in the isolated real renderer", () => {
     await ui("wait-settle", info.ui, "--timeout", "60");
     await expect.poll(() => evaluate(`document.querySelector(${JSON.stringify(rowSelector)})?.textContent`), { timeout: 10_000 }).toContain("View work");
     expect(await evaluate(`document.querySelector('button[aria-label="See progress"]')`)).toBeNull();
-    expect(await evaluate(`Array.from(document.querySelectorAll('.chat-text')).map(node => node.textContent).join('\n')`)).toContain("Parent: Native activity fixture complete.");
-    expect(await evaluate(`Array.from(document.querySelectorAll('.chat-text')).map(node => node.textContent).join('\n')`)).not.toContain("CHILD_ONLY_");
+    expect(await evaluate(`document.querySelector(${JSON.stringify(rowSelector)})?.closest('[data-mid]')`)).toBeNull();
+    expect(await evaluate(`document.querySelector('[role="log"]')?.textContent`)).toContain("Parent: Native activity fixture complete.");
+    expect(await evaluate(`document.querySelector('[role="log"]')?.textContent`)).not.toContain("CHILD_ONLY_");
     await ui("screenshot", info.ui, "--out", join(evidenceDir, "native-activity-receipt.png"));
     await evaluate("setTimeout(() => location.reload(), 10); true");
     await expect.poll(() => evaluate(`document.querySelector(${JSON.stringify(rowSelector)})?.textContent`), { timeout: 30_000 }).toContain("View work");
@@ -146,6 +152,7 @@ describe("native activity in the isolated real renderer", () => {
     await expect.poll(() => evaluate(`document.querySelector('[role="dialog"] h3')?.textContent`), { timeout: 10_000 }).toBe("Checker");
     expect(await evaluate(`document.querySelector('[role="dialog"]')?.textContent`)).toContain("Checker found a deliberate fixture failure.");
     expect(await evaluate(`document.querySelector('[role="dialog"]')?.textContent`)).toContain("Claude Code 2.1.301");
+    expect(await evaluate(`document.querySelector('[role="dialog"]')?.textContent`)).toContain("completed content blocks");
     expect(await evaluate(`Array.from(document.querySelectorAll('[role="dialog"] button')).some(button => button.textContent.includes('Stop helper'))`)).toBe(false);
     const saved = await api("GET", `/api/threads/${threadId}/runs/${active.id}`) as NativeRunDetail;
     expect(saved.run.actors.filter(actor => actor.kind === "subagent" && actor.state === "done")).toHaveLength(6);

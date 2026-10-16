@@ -23,6 +23,7 @@ export function TurnPresence({
   answering = false,
   since = null,
   threadId,
+  botId,
   color,
   bodyId,
   steps = [],
@@ -36,6 +37,7 @@ export function TurnPresence({
   answering?: boolean;
   since?: number | null;
   threadId?: string;
+  botId?: string;
   color?: DogColor;
   bodyId?: MascotBodyId | null;
   steps?: readonly TurnStep[];
@@ -44,18 +46,19 @@ export function TurnPresence({
 }) {
   const helpers = useThreadHelpers(threadId);
   const nativeRuns = useNativeRuns(threadId);
-  const nativeRun = nativeRuns.find(run => run.observation === "live" && !run.endedAt);
+  const ownerRuns = nativeRuns.filter(run => botId !== undefined && run.botId === botId);
+  const nativeRun = ownerRuns.find(run => run.observation === "live" && !run.endedAt);
   const reasoning = useTurnReasoning(threadId);
   const spoken = label && label !== t("chat.activity.thinking") ? label : null;
   const working = visible && !answering;
   const armed = useArmedAfter(working, showDelayMs);
   const activity = useActivityPresence(kind, spoken, since, visible || helpersInView(helpers, Date.now()).length > 0);
-  const shownHelpers = nativeRuns[0]?.nativeActivity ? [] : helpersInView(helpers, activity.now, visible ? since : null);
+  const shownHelpers = ownerRuns[0]?.nativeActivity ? [] : helpersInView(helpers, activity.now, visible ? since : null);
   const [mounted, setMounted] = useState(() => armed || shownHelpers.length > 0);
   const present = armed || shownHelpers.length > 0 || (answering && mounted);
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => setOpen(false), [threadId]);
+  useEffect(() => setOpen(false), [threadId, botId]);
   const [phase, setPhase] = useState<"think" | "answer" | "out">(answering ? "answer" : "think");
   const wasAnswering = useRef(answering);
 
@@ -79,8 +82,8 @@ export function TurnPresence({
     return () => clearTimeout(timer);
   }, [present, answering, mounted]);
 
-  if (nativeRun) return <NativeWork run={nativeRun} color={color} bodyId={bodyId} live label={activity.phrase ?? undefined} avatar={avatar} />;
   if (!mounted) return null;
+  if (nativeRun && armed && visible && !answering) return <NativeWork run={nativeRun} color={color} bodyId={bodyId} live label={activity.phrase ?? undefined} avatar={avatar} />;
   const showWorking = phase === "think";
   const interactive = showWorking || shownHelpers.length > 0;
   const peekLabel = visible ? activity.phrase : t("chat.helpers.results");

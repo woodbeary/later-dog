@@ -8,7 +8,7 @@ vi.mock("@/state/store", () => ({ api: vi.fn() }));
 vi.mock("./Avatar", () => ({ DogAvatar: ({ label }: { label: string }) => createElement("span", null, label) }));
 const { api } = await import("@/state/store");
 const { NativeWork, NativeWorkFallbacks, actorAncestry, nativePuppies } = await import("./NativeWork");
-const { forgetNativeRuns } = await import("@/lib/native-runs-state");
+const { currentNativeRuns, forgetNativeRuns } = await import("@/lib/native-runs-state");
 
 function run(): NativeRun {
   return { id: "run", threadId: "thread", turnId: "turn", provider: "claudeAgent", providerVersion: "2.1.293", revision: 1, startedAt: 100, state: "running", observation: "live", actors: [{ id: "parent", kind: "parent", label: "Main", state: "running", startedAt: 100 }, ...Array.from({ length: 7 }, (_, index) => ({ id: `child-${index}`, parentId: index === 1 ? "child-0" : "parent", kind: "subagent" as const, label: `Researcher ${index}`, state: index === 2 ? "failed" as const : "running" as const, startedAt: 101, canStop: index === 1 })), { id: "shell", kind: "task", label: "Test command", state: "running", startedAt: 102 }], activityCount: 2, failureCount: 1, limitations: ["Individual native tasks cannot be stopped separately on this backend."] };
@@ -21,10 +21,12 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); fo
 
 describe("native work", () => {
   it("shows at most five selectable puppies plus overflow without turning shell tasks into puppies", async () => {
-    await act(async () => root.render(createElement(NativeWork, { run: run(), live: true })));
+    await act(async () => root.render(createElement(NativeWork, { run: { ...run(), failureCount: 3 }, live: true })));
     expect(host.querySelectorAll('button[aria-label^="View Researcher"]')).toHaveLength(5);
     expect(host.querySelector('button[aria-label="View 2 more puppies"]')).not.toBeNull();
     expect(nativePuppies(run())).toHaveLength(7);
+    expect(host.textContent).toContain("Issue recorded");
+    expect(host.textContent).not.toContain("3 issues");
   });
 
   it("opens the selected puppy with ancestry, recorded search links and its supported stop action", async () => {
@@ -61,6 +63,45 @@ describe("native work", () => {
     expect(dialog.textContent).toContain("Partial activity");
     expect(dialog.textContent).toContain("Individual native tasks cannot be stopped separately");
     expect(dialog.textContent).not.toContain("Stop helper");
+  });
+
+  it("refreshes an unconfirmed stop after fifteen seconds and retries only on an explicit action", async () => {
+    vi.useFakeTimers();
+    let data = run();
+    let resolveRefresh: ((detail: NativeRunDetail) => void) | undefined;
+    let reads = 0;
+    vi.mocked(api).mockImplementation(async (_path, options) => {
+      if (options?.method === "POST") return { status: "requested" };
+      reads++;
+      if (reads === 2) return new Promise<NativeRunDetail>(resolve => { resolveRefresh = resolve; });
+      return { run: data, activities: [] };
+    });
+    await act(async () => root.render(createElement(NativeWork, { run: data, live: true })));
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="View Researcher 1"]')!.click());
+    const button = () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(node => /^(Stop helper|Stop requested|Try stop again)$/.test(node.textContent ?? ""));
+    const posts = () => vi.mocked(api).mock.calls.filter(([, options]) => options?.method === "POST");
+    await act(async () => button()!.click());
+    await act(async () => vi.advanceTimersByTimeAsync(14_999));
+    expect(button()!.textContent).toBe("Stop requested");
+    expect(button()!.disabled).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(button()!.textContent).toBe("Try stop again");
+    expect(button()!.disabled).toBe(false);
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain("The stop hasn't been confirmed");
+    expect(reads).toBe(2);
+    expect(posts()).toHaveLength(1);
+    expect(data.actors.find(actor => actor.id === "child-1")?.state).toBe("running");
+    await act(async () => button()!.click());
+    expect(posts()).toHaveLength(2);
+    await act(async () => resolveRefresh!({ run: { ...data, revision: 2, actors: data.actors.map(actor => actor.id === "child-1" ? { ...actor, state: "stopped", canStop: false } : actor) }, activities: [] }));
+    expect(button()!.textContent).toBe("Stop requested");
+    expect(currentNativeRuns(data.threadId)[0]?.revision).toBe(1);
+    data = { ...data, revision: 2, actors: data.actors.map(actor => actor.id === "child-1" ? { ...actor, state: "stopped", canStop: false } : actor) };
+    await act(async () => root.render(createElement(NativeWork, { run: data, live: true })));
+    expect(button()).toBeUndefined();
+    expect(document.querySelector('[role="dialog"]')!.textContent).not.toContain("The stop hasn't been confirmed");
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(posts()).toHaveLength(2);
   });
 
   it("bounds ancestry traversal when a provider supplies a cycle", () => {

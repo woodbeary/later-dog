@@ -1,5 +1,5 @@
 import { ModelPicker } from "./ModelPicker";
-import { Component, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
+import { Component, Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
 import { useCopyFeedback } from "@/lib/copy-text";
 import {
   AlertTriangle,
@@ -65,7 +65,7 @@ import { foldExchanges, expandedExchange, quietTranscriptItemShown } from "@/lib
 import { currentDogName, freshenDogName } from "@/lib/dog-refs";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
-import { NativeWork, NativeWorkFallbacks } from "./NativeWork";
+import { NativeWork, NativeWorkFallbacks, NativeHistoryNotice } from "./NativeWork";
 import { nativeReceiptAnchors, useNativeRuns } from "@/lib/native-runs-state";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { transcriptRowShown } from "@/lib/room-activity";
@@ -820,7 +820,8 @@ const MessagesList = memo(function MessagesList({
   onReply: (message: Message) => void;
   unreadSince: number | null;
 }) {
-  const { botId, threadId, botName, focus, showToolCalls, locale } = useChatRows();
+  const { botId, threadId, botName, bots, focus, showToolCalls, locale } = useChatRows();
+  const owner = bots.find(bot => bot.id === botId);
   const nativeRuns = useNativeRuns(threadId, messages[0]?.at);
   const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
@@ -862,19 +863,21 @@ const MessagesList = memo(function MessagesList({
                 forceOpen={item.messages.some((message) => message.id === focusedId)}
               >
                 {item.messages.map((message) => (
-                  <div key={message.id} className="contents" data-mid={message.id} data-arriving={arriving(message.id) ? "" : undefined}>
-                    <Bubble
-                      message={message}
-                      editing={false}
-                      pinned={message.id === pinnedMessageId}
-                      onStartEdit={onStartEdit}
-                      onCancelEdit={onCancelEdit}
-                      onSubmitEdit={onSubmitEdit}
-                      replyTarget={lookups.replyTarget(message)}
-                      onReply={onReply}
-                    />
-                    {receipts.get(message.id)?.map(run => <NativeWork key={run.id} run={run} />)}
-                  </div>
+                  <Fragment key={message.id}>
+                    <div className="contents" data-mid={message.id} data-arriving={arriving(message.id) ? "" : undefined}>
+                      <Bubble
+                        message={message}
+                        editing={false}
+                        pinned={message.id === pinnedMessageId}
+                        onStartEdit={onStartEdit}
+                        onCancelEdit={onCancelEdit}
+                        onSubmitEdit={onSubmitEdit}
+                        replyTarget={lookups.replyTarget(message)}
+                        onReply={onReply}
+                      />
+                    </div>
+                    {receipts.get(message.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} />)}
+                  </Fragment>
                 ))}
               </TurnNarrationRun>
             </div>
@@ -978,15 +981,18 @@ const MessagesList = memo(function MessagesList({
         if (!row) return null;
         const arrives = arriving(m.id) && !emerged.current.has(m.id);
         return (
-          <div key={m.id} className="contents" data-mid={m.id} data-arriving={arrives ? "" : undefined}>
-            {newDay && <DaySeparator at={m.at} today={today} />}
-            {unreadDivider([m])}
-            {row}
-            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} />)}
-          </div>
+          <Fragment key={m.id}>
+            <div className="contents" data-mid={m.id} data-arriving={arrives ? "" : undefined}>
+              {newDay && <DaySeparator at={m.at} today={today} />}
+              {unreadDivider([m])}
+              {row}
+            </div>
+            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} />)}
+          </Fragment>
         );
       })}
-      <NativeWorkFallbacks runs={nativeRuns} messages={messages} />
+      <NativeWorkFallbacks runs={nativeRuns} messages={messages} ownerForRun={() => owner} />
+      <NativeHistoryNotice threadId={threadId} />
     </>
   );
 });
@@ -1422,6 +1428,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           )}
           <TurnPresence
             threadId={bot.threadId}
+            botId={bot.id}
             color={bot.color}
             bodyId={bot.mascotBody}
             avatar={
