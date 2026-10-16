@@ -257,7 +257,7 @@ export function CloudMoveSuggestion() {
   const finished = move.overview?.destination && !move.overview.automatic && move.state.phase === "done";
   if (!bridge || hidden || !(move.overview?.suggest || started || finished)) return null;
   const title = window.laterdog?.platform === "darwin" ? t("cloudMove.suggest.titleMac") : t("cloudMove.suggest.title");
-  return <aside aria-label={title} data-cloud-move-suggestion={move.state.phase} className="fixed bottom-4 right-4 z-40 w-[22rem] max-w-[calc(100vw-2rem)] rounded-xl border border-hairline/40 bg-card p-4 shadow-lg">
+  return <aside aria-label={title} data-cloud-move-suggestion={move.state.phase} className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-40 w-[22rem] max-w-[calc(100vw-2rem)] rounded-xl border border-hairline/40 bg-card p-4 shadow-lg">
     <p className="mb-1 text-[14px] font-medium text-ink">{title}</p>
     {cloudMoveOffer(move, { start: () => setStarted(true), notNow: () => setHidden(true) })}
   </aside>;

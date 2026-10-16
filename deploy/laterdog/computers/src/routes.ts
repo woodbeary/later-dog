@@ -1,3 +1,4 @@
+import { APP_SITE_ASSOCIATION_PATH } from "../../../../shared/apple-app";
 import { isComputerId } from "./ids";
 
 export type CollectionOp = "list" | "create";
@@ -8,6 +9,7 @@ export type DesktopResource = { type: "page" } | { type: "status" } | { type: "s
 
 export type Route =
   | { kind: "health" }
+  | { kind: "app_site_association" }
   | { kind: "collection"; op: CollectionOp }
   | { kind: "computer"; op: ComputerOp; id: string }
   | { kind: "desktop"; id: string; token: string; resource: DesktopResource }
@@ -54,6 +56,7 @@ function allow(table: Record<string, string>, method: string): string | undefine
 
 export function route(method: string, pathname: string): Route {
   if (pathname === "/healthz") return method === "GET" ? { kind: "health" } : { kind: "method_not_allowed", allow: ["GET"] };
+  if (pathname === APP_SITE_ASSOCIATION_PATH) return { kind: "app_site_association" };
   if (pathname === "/trial") return method === "GET" || method === "POST" ? { kind: "trial_page" } : { kind: "method_not_allowed", allow: ["GET", "POST"] };
   if (pathname === "/v1/trials") return method === "GET" ? { kind: "trial_offer" } : { kind: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/v1/trials/grant") return method === "POST" ? { kind: "trial_grant" } : { kind: "method_not_allowed", allow: ["POST"] };

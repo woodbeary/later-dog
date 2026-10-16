@@ -103,7 +103,7 @@ export function CloudSetup({ viewer }: { viewer: WelcomeViewer | null }) {
     </li>;
   };
 
-  return <aside aria-labelledby="cloud-setup-title" data-cloud-setup className="fixed bottom-4 left-4 z-40 max-h-[calc(100dvh-32px)] w-[300px] max-w-[calc(100vw-32px)] overflow-y-auto rounded-xl border border-hairline/40 bg-panel p-3.5 text-ink shadow-2xl shadow-black/20">
+  return <aside aria-labelledby="cloud-setup-title" data-cloud-setup className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] z-40 max-h-[calc(100dvh-32px)] w-[300px] max-w-[calc(100vw-32px)] overflow-y-auto rounded-xl border border-hairline/40 bg-panel p-3.5 text-ink shadow-2xl shadow-black/20">
     <div className="flex items-center gap-2.5">
       <Cloud size={16} aria-hidden="true" className="shrink-0 text-ink-secondary" />
       <h2 id="cloud-setup-title" className="min-w-0 flex-1 text-[13.5px] font-semibold">{t("cloudSetup.title")}</h2>

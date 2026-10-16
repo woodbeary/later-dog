@@ -722,6 +722,7 @@ import { createTimeZoneRoutes, restoreTimeZone } from "./laterdog/time-zone.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
 import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-accounts.ts";
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
+import { pageVisit, visitorPage } from "./laterdog/apple-web.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
@@ -746,6 +747,7 @@ const MIME: Record<string, string> = {
   ".ico": "image/x-icon",
   ".json": "application/json",
   ".woff2": "font/woff2",
+  ".webmanifest": "application/manifest+json",
 };
 
 ensureDirs();
@@ -13725,22 +13727,23 @@ const claudeUpdatesInFlight = new Set<string>();
 
 const PAGE_HEADERS = { "content-security-policy": "frame-ancestors 'none'", "x-frame-options": "DENY", "referrer-policy": "no-referrer" } as const;
 
-function serveStatic(res: ServerResponse, path: string): boolean {
+function serveStatic(req: IncomingMessage, res: ServerResponse, path: string): boolean {
   if (!STATIC_DIR) return false;
   const safe = path === "/" ? "/index.html" : path.replace(/\.\./g, "");
   const file = join(STATIC_DIR, safe);
+  const page = (html: Buffer) => visitorPage(html.toString("utf8"), pageVisit(req, path, Boolean(CLOUD_HOME)));
   try {
     const data = readFileSync(file);
     const type = MIME[extname(file)] ?? "application/octet-stream";
     const cache = type === "text/html" ? "no-cache" : safe.startsWith("/assets/") ? "public, max-age=31536000, immutable" : null;
-    res.writeHead(200, { "content-type": type, ...(type === "text/html" ? PAGE_HEADERS : {}), ...(cache ? { "cache-control": cache } : {}) });
-    res.end(data);
+    res.writeHead(200, { "content-type": type, ...(type === "text/html" ? { ...PAGE_HEADERS, vary: "user-agent" } : {}), ...(cache ? { "cache-control": cache } : {}) });
+    res.end(type === "text/html" ? page(data) : data);
     return true;
   } catch {
     try {
       const data = readFileSync(join(STATIC_DIR, "index.html"));
-      res.writeHead(200, { "content-type": "text/html", "cache-control": "no-cache", ...PAGE_HEADERS });
-      res.end(data);
+      res.writeHead(200, { "content-type": "text/html", "cache-control": "no-cache", vary: "user-agent", ...PAGE_HEADERS });
+      res.end(page(data));
       return true;
     } catch {
       return false;
@@ -14124,7 +14127,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       res.end(answer.text);
       return;
     }
-    if (method === "GET" && !path.startsWith("/api/") && !path.startsWith("/.well-known/") && serveStatic(res, path)) return;
+    if (method === "GET" && !path.startsWith("/api/") && !path.startsWith("/.well-known/") && serveStatic(req, res, path)) return;
     if (method === "GET" && path === "/.well-known/laterdog/environment") {
       return json(res, 200, environmentDescriptor({ environmentId: ENVIRONMENT_ID, desktopManaged: DESKTOP_MANAGED, emailSignIn: !HOSTED_WORKSPACE && !CLOUD_HOME && emailSignIn.enabled(), sharedComputers: lendingEnabled(), cloudHome: Boolean(CLOUD_HOME) }));
     }

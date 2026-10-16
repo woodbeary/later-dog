@@ -1,3 +1,4 @@
+import { syncAppTitle } from "./safari-chrome";
 
 export interface Brand {
   name: string;
@@ -86,6 +87,7 @@ export function applyBrand(status: BrandStatus): void {
   current = status;
   if (typeof document === "undefined") return;
   document.title = status.brand.name;
+  syncAppTitle(status.brand.name);
   applyIcon(status.brand.favicon);
   const root = document.documentElement;
   for (const name of ["--color-accent", "--color-accent-border", "--color-focus", "--color-accent-text", "--color-accent-ink"]) {

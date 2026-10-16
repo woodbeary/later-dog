@@ -108,7 +108,7 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-app px-6 text-ink">
+    <main className="flex min-h-dvh items-center justify-center bg-app px-6 text-ink">
       <div className="w-full max-w-[420px]">
         {opening ? (
           <p role="status" className="text-[20px] font-semibold">{cloudHome ? "Opening My Cloud…" : `Connecting to ${environment?.label ?? "this later.dog"}…`}</p>
@@ -142,7 +142,10 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
                 setSent(false);
                 setOtp("");
               }}
-              autoComplete="email"
+              autoComplete="email webauthn"
+              autoCapitalize="none"
+              autoCorrect="off"
+              enterKeyHint="send"
               inputMode="email"
               spellCheck={false}
               className={input}
@@ -158,6 +161,7 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
                   onChange={(e) => setOtp(e.target.value)}
                   placeholder="12345678"
                   autoComplete="one-time-code"
+                  enterKeyHint="go"
                   inputMode="numeric"
                   spellCheck={false}
                   className={`${input} font-mono text-[15px] tracking-[0.12em]`}

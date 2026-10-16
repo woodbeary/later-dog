@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { appSiteAssociationResponse } from "../../../shared/apple-app";
+
 import { accountSession, createAuth, deleteExpiredVerifications } from "./auth";
 import { SIGN_IN_OTP_PATH, withoutAmbientCookie } from "./code-sign-in-request";
 import { emailFromCodeRequest, SEND_OTP_PATH, warmHomeForEmail } from "./warm-home";
@@ -194,6 +196,9 @@ export function createWorker(
           ...(capacity === null ? {} : { capacity }),
         }), request, null, requestId);
       }
+
+      const association = appSiteAssociationResponse(request, "service");
+      if (association) return secureResponse(association, request, null, requestId);
 
       const page = cloudPage(request, phoneAppTarget((env as unknown as { PHONE_APP_URL?: unknown }).PHONE_APP_URL));
       if (page) return secureResponse(page, request, null, requestId);

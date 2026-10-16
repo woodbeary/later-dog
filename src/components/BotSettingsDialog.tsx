@@ -187,6 +187,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             <input
               id={`simple-bot-name-${bot.id}`}
               data-profile-name
+              data-keep-size
               className={cn(profileInputCls, "mt-3 text-[20px] font-semibold text-ink")}
               maxLength={BOT_PROFILE_LIMITS.name}
               placeholder={t("botSettings.simple.name")}

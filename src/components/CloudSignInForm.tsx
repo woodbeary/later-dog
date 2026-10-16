@@ -102,6 +102,7 @@ export function CloudSignInForm({ bridge, onSignedIn, onSkip, skipLabel, intro }
           type="text"
           inputMode="numeric"
           autoComplete="one-time-code"
+          data-keep-size
           aria-label={t("cloudSignIn.code")}
           value={code}
           maxLength={SIGN_IN_CODE_LENGTH + 4}
@@ -131,7 +132,11 @@ export function CloudSignInForm({ bridge, onSignedIn, onSkip, skipLabel, intro }
       <input
         autoFocus
         type="email"
-        autoComplete="email"
+        autoComplete="email webauthn"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="send"
         aria-label={t("cloudSignIn.email")}
         placeholder={t("cloudSignIn.emailPlaceholder")}
         value={email}

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { request as httpRequest } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -74,7 +75,8 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
     },
   }));
   mkdirSync(join(home, "web"));
-  writeFileSync(join(home, "web", "index.html"), "<!doctype html><title>later.dog</title>");
+  writeFileSync(join(home, "web", "index.html"), '<!doctype html>\n<html><head>\n    <meta name="apple-itunes-app" content="app-id=6822519577" />\n    <title>later.dog</title>\n</head><body></body></html>\n');
+  writeFileSync(join(home, "web", "manifest.webmanifest"), JSON.stringify({ name: "later.dog", display: "standalone" }));
   const port = await freePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   const offlinePrelude = `data:text/javascript,${encodeURIComponent('globalThis.fetch = async () => new Response("offline fixture", { status: 503 });')}`;
@@ -373,4 +375,32 @@ it("refuses a bot still set to this computer, saying what is true on a Cloud hom
     };
     await expect.poll(failure, { timeout: 15_000 }).toBe(`error: ${cloudHomePlaceRefusal(computer)}`);
   }
+});
+
+it("offers iPhone visitors the Smart App Banner for the page they are on, and nobody else", async () => {
+  const safari = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+  const desktop = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) later.dog/0.3.41 Chrome/140.0.0.0 Electron/38.0.0 Safari/537.36";
+  const proxied = { host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" };
+  const visit = (path: string, userAgent: string, headers: Record<string, string> = proxied) => new Promise<{ status: number; vary: string | undefined; html: string }>((resolve, reject) => {
+    const url = new URL(path, base);
+    const request = httpRequest({ hostname: url.hostname, port: url.port, path: url.pathname, headers: { ...headers, "user-agent": userAgent } }, (response) => {
+      let html = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { html += chunk; });
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, vary: response.headers.vary, html }));
+    });
+    request.on("error", reject);
+    request.end();
+  });
+  const banner = (html: string) => /<meta name="apple-itunes-app"[^>]*>/.exec(html)?.[0] ?? null;
+  const home = await visit("/", safari);
+  expect(home.status).toBe(200);
+  expect(home.vary).toBe("user-agent");
+  expect(banner(home.html)).toBe(`<meta name="apple-itunes-app" content="app-id=6822519577, app-argument=https://${HOST}/" />`);
+  expect(banner((await visit("/pair", safari)).html)).toContain(`app-argument=https://${HOST}/pair"`);
+  expect(banner((await visit("/", desktop)).html)).toBeNull();
+  expect(banner((await visit("/", safari, { host: `127.0.0.1:${new URL(base).port}` })).html)).toBeNull();
+  const manifest = await fetch(`${base}/manifest.webmanifest`);
+  expect(manifest.headers.get("content-type")).toBe("application/manifest+json");
+  expect(await manifest.json()).toMatchObject({ display: "standalone" });
 });
