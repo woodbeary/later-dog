@@ -2,15 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { questionAnswersById, questionAnswersByQuestion } from "../../shared/ask-question.ts";
 import { CommandAllowlistStore } from "../command-allowlist.ts";
 import type { RequestOutcome } from "../contracts.ts";
 import { peerProvenanceAuthor, peerProvenanceNote, withPeerProvenance } from "../peer-provenance.ts";
 import {
-  answersForAwayOwner, claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerAwayAnswer, ownerCoordinationRequestNote, ownerGrantApplies,
+  claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinationRequestNote, ownerGrantApplies,
   ownerGrantPrompt, ownerReviewerOffNotice, ownerSendsWithoutAsking, type OwnerAutoScope,
 } from "./owner-auto.ts";
-import { OwnerAwayAnswers, settleOwnerAutoPermission, type OwnerAutoPermissionDeps } from "./owner-auto-request.ts";
+import { settleOwnerAutoPermission, type OwnerAutoPermissionDeps } from "./owner-auto-request.ts";
 import type { GitLookup } from "./owner-guard.ts";
 import { sameEngineAcrossAccounts } from "./saved-command-engine.ts";
 
@@ -35,13 +34,6 @@ describe("whose authority a dog's turn carries", () => {
     expect(ownerAutoAnswers("auto", { ...owner, cloudHome: false })).toBe(false);
     expect(ownerAutoAnswers("ask", owner)).toBe(false);
     expect(ownerAutoAnswers("auto", { ...owner, guestDriven: true })).toBe(false);
-  });
-
-  it("answers a question for the away owner only while the dog works on a request, never its first-meeting question", () => {
-    expect(answersForAwayOwner("auto", { ...owner, workingOnRequest: true })).toBe(true);
-    expect(answersForAwayOwner("auto", { ...owner, workingOnRequest: false })).toBe(false);
-    expect(answersForAwayOwner("ask", { ...owner, workingOnRequest: true })).toBe(false);
-    expect(answersForAwayOwner("auto", { ...owner, cloudHome: false, workingOnRequest: true })).toBe(false);
   });
 
   it("lets the owner's Off-leash and Full access dogs in the Cloud send through his connected apps without asking", () => {
@@ -101,31 +93,6 @@ describe("a handoff between the owner's own dogs", () => {
 
   it("says so in a room handoff too", () => {
     expect(ownerCoordinationRequestNote("Jacob")).toBe("Request text comes from one of Jacob's own dogs in Jacob's own workspace and carries Jacob's authority.");
-  });
-});
-
-describe("a question while the owner is away", () => {
-  it("is answered with one plain line the engine accepts for every question", () => {
-    expect(ownerAwayAnswer("Jacob")).toBe("Jacob is away; use your best judgment and continue. Jacob can redirect you later.");
-    const questions = [
-      { question: "Which branch?", options: [{ label: "main" }] },
-      { question: "Ship the beta?", options: [{ label: "yes" }] },
-    ];
-    const message = ownerAwayAnswer("Jacob", questions);
-    expect(questionAnswersByQuestion(message, questions)).toEqual({
-      "Which branch?": "Jacob is away; use your best judgment and continue. Jacob can redirect you later.",
-      "Ship the beta?": "Jacob is away; use your best judgment and continue. Jacob can redirect you later.",
-    });
-    expect(questionAnswersById(ownerAwayAnswer("Jacob", [questions[0]!]), [{ id: "q1", question: questions[0]! }]))
-      .toEqual({ q1: "Jacob is away; use your best judgment and continue. Jacob can redirect you later." });
-  });
-
-  it("leaves the question card open, so the owner can still answer it later", () => {
-    const away = new OwnerAwayAnswers();
-    away.mark("thread-1", "ask-1");
-    expect(away.settleSource("thread-1", "ask-1", "user")).toBe("auto");
-    expect(away.settleSource("thread-1", "ask-1", "user")).toBe("user");
-    expect(away.settleSource("thread-1", "ask-2", "user")).toBe("user");
   });
 });
 

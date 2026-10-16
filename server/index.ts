@@ -647,8 +647,8 @@ import {
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
 import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, signsItselfOut, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 import { EDIT_REFUSAL, UNGUARDED_REFUSAL, localToolMessageText, localToolSpeaker, unguardedMode } from "./laterdog/local-tool-message.ts";
-import { answersForAwayOwner, claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerAwayAnswer, ownerAwayNote, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerReviewerOffNotice, ownerSendsWithoutAsking, type OwnerAutoScope, type OwnerQuestionScope } from "./laterdog/owner-auto.ts";
-import { OwnerAwayAnswers, settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
+import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerReviewerOffNotice, ownerSendsWithoutAsking, type OwnerAutoScope } from "./laterdog/owner-auto.ts";
+import { settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
 import { ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext } from "./laterdog/owner-guard.ts";
 import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
@@ -3545,10 +3545,6 @@ function ownerAutoScope(threadId: string, guestDriven = cloudGuestDriven(threadI
   };
 }
 
-function ownerQuestionScope(threadId: string, guestDriven: boolean): OwnerQuestionScope {
-  return { ...ownerAutoScope(threadId, guestDriven), workingOnRequest: store.activePath(threadId).some((message) => message.role === "user") };
-}
-
 function ownerAuthorityFor(threadId: string): { name: string | undefined } | undefined {
   return ownerAuthority(ownerAutoScope(threadId)) ? { name: cfg.profile?.name } : undefined;
 }
@@ -3565,7 +3561,6 @@ function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string 
   };
 }
 
-const ownerAwayAnswers = new OwnerAwayAnswers();
 const savedCommandEngine = sameEngineAcrossAccounts((instanceId) => registry.cliTarget(instanceId)?.driverKind);
 
 function sourceApprovalMode(botId: string, threadId: string): ApprovalMode {
@@ -6954,22 +6949,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         origin: !permission && event.origin === "output" ? "output" : undefined,
         unattended: unattended || undefined,
       });
-      if (ownerAuto && event.requestType === "question" && answersForAwayOwner(effectiveApprovalMode, ownerQuestionScope(event.threadId, guestDriven)) && asker && event.requestId) {
-        const requestId = event.requestId;
-        const instance = registry.get(event.providerInstanceId ?? asker.modelSelection.instanceId);
-        ownerAwayAnswers.mark(event.threadId, requestId);
-        void Promise.resolve().then(async () => {
-          const outcome = await instance?.adapter.respondToRequest(event.threadId, requestId, {
-            behavior: "answer", message: ownerAwayAnswer(cfg.profile?.name, questions),
-          });
-          if (outcome === "answered") pushMessage({ role: "bot", kind: "activity", tool: { name: ownerAwayNote(cfg.profile?.name, asker.name), ok: true } });
-        }).catch(() => {
-          console.error("[approval] Could not answer an owner dog's question while the owner is away.");
-        });
-        notify(buildNotification("question", (routineRun && routineSourceOwner(routineRun)?.bot) || asker,
-          (routineRun && routineSourceThread(routineRun)) || event.threadId, event.summary));
-        break;
-      }
       if (asker) {
         const card = store.messagesFor(event.threadId).find((candidate) => candidate.id === message.id)?.card;
         if (card && !card.answered) {
@@ -6998,7 +6977,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       if (messageId) {
         const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId);
         if (existing?.card && !existing.card.answered) {
-          if (shouldSettleRequestCard(existing.card, ownerAwayAnswers.settleSource(event.threadId, event.requestId, event.source))) {
+          if (shouldSettleRequestCard(existing.card, event.source)) {
             store.patchMessage(event.threadId, messageId, {
               card: {
                 ...existing.card,

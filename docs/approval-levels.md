@@ -104,12 +104,8 @@ card and no wait:
   exit, a sending tool and every action of a dog whose engine reviewer is off
   for its model or account. The chat gets no line per approval. The decision
   log records each one with source `owner-auto`.
-- A question (`AskUserQuestion`, `ask_user`, Codex questions) gets "<your
-  name> is away; use your best judgment and continue. <your name> can redirect
-  you later." The question card stays in the chat, open. Answering it later
-  reaches the dog as a new message. A new dog's first-meeting question ("what
-  should I help with first?") is not answered for you: a chat with no message
-  in it yet keeps its question open and waits.
+- A question is never answered for you. The dog decides whether to ask; when
+  it does, its question card waits for you, the same as everywhere else.
 - Sends through a connected app (an email, a message, a post) go out with no
   "Send on your behalf?" card, for your Off-leash and Full access dogs alike,
   within the dog's daily limit (25 unless you change it under its
@@ -185,9 +181,7 @@ teammate can delegate work to this bot without downgrading its explicit Auto
 
 Every engine can stop and ask, and no approval level answers a question for
 you: Ask, Auto-accept edits, Auto, and Full access all leave a question card
-for a person. The one exception is your own Off-leash dog in a Cloud home,
-which is told you are away and keeps going while the card stays open (see
-above). What differs per engine is only how the ask travels:
+for a person. What differs per engine is only how the ask travels:
 
 | Engine family | How an ask travels | Multiple questions at once |
 | --- | --- | --- |

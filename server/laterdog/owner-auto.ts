@@ -27,14 +27,6 @@ export function ownerAutoAnswers(mode: ApprovalMode, scope: OwnerAutoScope): boo
   return scope.cloudHome && ownerGrantApplies(mode, scope);
 }
 
-export interface OwnerQuestionScope extends OwnerAutoScope {
-  workingOnRequest: boolean;
-}
-
-export function answersForAwayOwner(mode: ApprovalMode, scope: OwnerQuestionScope): boolean {
-  return scope.workingOnRequest && ownerAutoAnswers(mode, scope);
-}
-
 export function ownerSendsWithoutAsking(mode: ApprovalMode, scope: OwnerAutoScope): boolean {
   return scope.cloudHome && (mode === "auto" || mode === "full") && ownerAuthority(scope);
 }
@@ -84,18 +76,6 @@ export function claudeReviewerGrant(ownerName: string | undefined): ReviewerGran
       `Owner Standing Authorization (later.dog): ${Owner} has given this agent a standing authorization, for this whole session, to work in ${owners} own repositories: committing, pushing branches, committing and pushing directly to the default branch (main), opening, updating and commenting on pull requests, and running the repository's own build, test, lint and release scripts (including beta and over-the-air update releases). It applies whenever ${owner} asks, or ${owners} coordinator dog, one of ${owners} routines or another of ${owners} own dogs in this later.dog workspace passes the request on; those relayed requests meet the consent bar for these actions. It does not cover ${GUARDED.replace("the dog's workspace", "the working directory")}, exposing secrets, or acting for anyone other than ${owner}; those keep their normal rules.`,
     ],
   };
-}
-
-export function ownerAwayAnswer(ownerName: string | undefined, questions?: readonly { question: string }[]): string {
-  const Owner = ownerDisplayName(ownerName);
-  const line = `${Owner} is away; use your best judgment and continue. ${Owner} can redirect you later.`;
-  if (!questions || questions.length <= 1) return line;
-  return questions.map(({ question }) => `Q: ${question}\nA: ${line}`).join("\n\n");
-}
-
-export function ownerAwayNote(ownerName: string | undefined, dogName: string): string {
-  const { owner } = ownerWords(ownerName);
-  return `${dogName} kept going without waiting: it was told ${owner} is away and to use its best judgment. Answer the question above any time to redirect it.`;
 }
 
 export function ownerPeerCustody(ownerName: string | undefined): string {

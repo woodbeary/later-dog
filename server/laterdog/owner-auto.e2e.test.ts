@@ -14,7 +14,6 @@ import { freePortBlock } from "../testing/ports.ts";
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const HOST = "laterdog-t-0123456789ab.fly.dev";
 const CAPABILITY_KEY = "owner-auto-fixture-capability";
-const AWAY = "Jacob is away; use your best judgment and continue. Jacob can redirect you later.";
 const secret = randomBytes(32).toString("base64url");
 let home = "";
 let base = "";
@@ -173,7 +172,7 @@ async function startTurn(bot: { id: string }, text: string) {
   return attach(bot, threadId);
 }
 
-it("an owner Off-leash dog gets the standing grant its reviewer can see, and escalations no longer wait", async () => {
+it("an owner Off-leash dog gets the standing grant its reviewer can see, escalations no longer wait, and its questions wait for the person", async () => {
   const dog = await newDog("Shipper", "auto");
   const turn = await startTurn(dog, "Commit the fix to main and open the release PR.");
   expect(turn.launch.argv[turn.launch.argv.indexOf("--permission-mode") + 1]).toBe("auto");
@@ -198,13 +197,10 @@ it("an owner Off-leash dog gets the standing grant its reviewer can see, and esc
   await expect.poll(async () => (await turn.messages()).some((message) => message.tool?.name?.startsWith("later.dog refused this: force-pushing main")), { timeout: 10_000 }).toBe(true);
 
   const question = turn.ask("AskUserQuestion", { questions: [{ question: "Ship the beta OTA too?", header: "Beta", multiSelect: false, options: [{ label: "Yes" }, { label: "No" }] }] }, "question");
-  await expect.poll(() => turn.answers.get(question)?.behavior, { timeout: 10_000 }).toBe("answer");
-  expect(turn.answers.get(question).message).toBe(AWAY);
-  const asked = await turn.card(question);
-  expect(asked).toMatchObject({ requestType: "question" });
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await expect.poll(() => turn.card(question), { timeout: 10_000 }).toMatchObject({ requestType: "question" });
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  expect(turn.answers.has(question)).toBe(false);
   expect((await turn.card(question)).answered).toBeUndefined();
-  await expect.poll(async () => (await turn.messages()).some((message) => message.tool?.name === "Shipper kept going without waiting: it was told Jacob is away and to use its best judgment. Answer the question above any time to redirect it."), { timeout: 10_000 }).toBe(true);
   await turn.stop();
 }, 90_000);
 
