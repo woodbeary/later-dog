@@ -18,9 +18,14 @@ export function currentNativeRuns(threadId: string): NativeRun[] { return thread
 export function receiveNativeRun(run: NativeRun): void {
   if (!run?.id || !run.threadId || !Array.isArray(run.actors)) return;
   const previous = currentNativeRuns(run.threadId);
-  const existing = previous.find(row => row.id === run.id);
+  const index = previous.findIndex(row => row.id === run.id);
+  const existing = previous[index];
   if (existing && existing.revision >= run.revision) return;
-  threads = { ...threads, [run.threadId]: [...previous.filter(row => row.id !== run.id), run].sort((a, b) => b.startedAt - a.startedAt).slice(0, 500) };
+  const rows = [...previous];
+  if (index === -1) rows.push(run);
+  else rows[index] = run;
+  if (existing?.startedAt !== run.startedAt) rows.sort((a, b) => b.startedAt - a.startedAt);
+  threads = { ...threads, [run.threadId]: rows };
   emit();
 }
 
@@ -51,7 +56,9 @@ export function loadNativeRuns(threadId: string, options: { refresh?: boolean; o
     loaded.add(threadId);
     errors.delete(threadId);
   }).catch(error => {
-    if (epoch === startedEpoch) errors.set(threadId, error instanceof Error ? error.message : "Work history is unavailable.");
+    if (epoch !== startedEpoch) return;
+    if (error?.status === 404) { loaded.add(threadId); cursors.delete(threadId); errors.delete(threadId); }
+    else errors.set(threadId, error instanceof Error ? error.message : "Work history is unavailable.");
   }).finally(() => {
     if (epoch !== startedEpoch) return;
     pending.delete(key);
@@ -65,7 +72,7 @@ export function useNativeRuns(threadId: string | null | undefined, oldestMessage
   const runs = useSyncExternalStore(subscribe, () => threadId ? currentNativeRuns(threadId) : empty, () => empty);
   useEffect(() => { if (threadId) void loadNativeRuns(threadId); }, [threadId]);
   useEffect(() => {
-    if (threadId && oldestMessageAt !== undefined && runs.length < 500 && (runs.at(-1)?.startedAt ?? 0) > oldestMessageAt) void loadNativeRuns(threadId, { older: true });
+    if (threadId && oldestMessageAt !== undefined && (runs.at(-1)?.startedAt ?? 0) > oldestMessageAt) void loadNativeRuns(threadId, { older: true });
   }, [threadId, oldestMessageAt, runs]);
   return runs;
 }
@@ -76,11 +83,12 @@ export function refreshNativeRuns(): void {
 
 export function nativeReceiptAnchors(runs: readonly NativeRun[], messages: readonly { id: string; turnId?: string; role: string; kind: string }[]): Map<string, NativeRun[]> {
   const anchors = new Map<string, NativeRun[]>();
+  const answers = new Map<string, string>();
+  for (const message of messages) if (message.turnId && message.role !== "user" && message.kind === "text") answers.set(message.turnId, message.id);
   for (const run of runs) {
     if (!run.endedAt && run.observation === "live") continue;
-    const candidates = messages.filter(message => message.turnId === run.turnId && message.role !== "user");
-    const anchor = candidates.filter(message => message.kind === "text").at(-1);
-    if (anchor) anchors.set(anchor.id, [...(anchors.get(anchor.id) ?? []), run]);
+    const anchor = answers.get(run.turnId);
+    if (anchor) anchors.set(anchor, [...(anchors.get(anchor) ?? []), run]);
   }
   return anchors;
 }

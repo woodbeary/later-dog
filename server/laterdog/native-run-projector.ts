@@ -115,14 +115,14 @@ export class NativeRunProjector {
       if (event.type === "turn.completed") {
         next.endedAt = at;
         next.state = event.ok ? "done" : /interrupt|cancel|stop/i.test(event.stopReason ?? "") ? "stopped" : "failed";
-        next.observation = next.actors.some(actor => actor.id !== "parent" && !actor.ambient && active(actor.state)) ? "partial" : "complete";
+        next.observation = next.actors.some(actor => actor.id !== "parent" && !actor.ambient && !terminal(actor.state)) ? "partial" : "complete";
         next.actors = next.actors.map(actor => actor.id === "parent" ? { ...actor, state: next.state, endedAt: at, canStop: false } : { ...actor, canStop: false });
       }
       if (event.type === "session.exited" && !next.endedAt) {
         next.observation = "interrupted";
         next.actors = next.actors.map(actor => ({ ...actor, canStop: false }));
       }
-      if (next.endedAt && (next.observation === "partial" || next.observation === "complete")) next.observation = next.actors.some(actor => actor.id !== "parent" && !actor.ambient && active(actor.state)) ? "partial" : "complete";
+      if (next.endedAt && (next.observation === "partial" || next.observation === "complete")) next.observation = next.actors.some(actor => actor.id !== "parent" && !actor.ambient && !terminal(actor.state)) ? "partial" : "complete";
       return { run: next, activity };
     });
     if (run) {

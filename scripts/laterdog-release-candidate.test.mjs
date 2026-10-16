@@ -25,7 +25,7 @@ function fixture() {
   const providerVersions = { claude: "2.1.111", codex: "0.154.0" };
   const checks = Object.fromEntries(ACCEPTANCE_CHECKS.map(name => [name, { status: "pass", evidence: `fixture evidence for ${name}`, sourceSha: name === "expo-development" ? phone.sourceSha : candidate.sha }]));
   Object.assign(checks["expo-development"], { appVersion: phone.appVersion, runtimeVersion: phone.runtimeVersion });
-  for (const name of ["exact-testflight-build", "real-iphone", "companion-compatibility"]) checks[name].phone = { ...phone };
+  for (const name of ["exact-testflight-build", "real-iphone", "desktop-mobile-compatibility"]) checks[name].phone = { ...phone };
   checks["real-iphone"].deviceType = "physical";
   for (const name of ["real-account-conversation", "workspace-identity", "independent-review"]) checks[name].phoneSourceSha = phone.sourceSha;
   for (const provider of ["claude", "codex"]) checks[`native-${provider}`].providerVersion = providerVersions[provider];
@@ -71,7 +71,7 @@ describe("release candidates", () => {
       const missing = structuredClone(evidence);
       delete missing.phone[field];
       expect(() => verifyAcceptance(candidate, missing)).toThrow("frozen phone");
-      for (const name of ["exact-testflight-build", "real-iphone", "companion-compatibility"]) {
+      for (const name of ["exact-testflight-build", "real-iphone", "desktop-mobile-compatibility"]) {
         const stale = structuredClone(evidence);
         stale.checks[name].phone[field] = "stale";
         expect(() => verifyAcceptance(candidate, stale)).toThrow("exact frozen phone build");

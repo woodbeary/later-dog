@@ -33,7 +33,7 @@ describe("native work access", () => {
     for (const [method, path] of [["GET", "/api/helpers"], ["GET", "/api/threads/visible/runs"], ["GET", "/api/threads/visible/runs/run"], ["POST", "/api/threads/visible/runs/run/actors/codex%3Achild%3Aturn/stop"]]) {
       expect(requiredScope(method, path)).toBe("client");
     }
-    expect(requiredScope("DELETE", "/api/threads/visible/runs/run")).toBeNull();
+    expect(requiredScope("DELETE", "/api/threads/visible/runs/run")).toBe("admin");
   });
 
   it("never exposes a run across conversation visibility or identity boundaries", async () => {

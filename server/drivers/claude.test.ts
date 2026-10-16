@@ -1789,6 +1789,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     writeFileSync(cli, [
       "#!/usr/bin/env node",
       "if (process.argv.includes('--version')) { console.log('2.1.293 (Claude Code)'); process.exit(0); }",
+      "if (process.argv.includes('--help')) { console.log('Usage: claude --autocompact <tokens>'); process.exit(0); }",
+      "if (process.argv[2] === 'auth') { console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' })); process.exit(0); }",
       "const emit = (event) => console.log(JSON.stringify({ session_id: 'native-session', ...event }));",
       "process.stdin.setEncoding('utf8');",
       "process.stdin.on('data', () => {",

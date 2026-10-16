@@ -123,6 +123,23 @@ describe("Claude native activity", () => {
     expect(parent.usage?.output).toBeUndefined();
   });
 
+  it("ends parent retries and thinking estimates only when parent work resumes", () => {
+    const f = fixture();
+    f.native.receive({ type: "system", subtype: "api_retry", uuid: "retry", attempt: 1 });
+    f.native.receive({ type: "system", subtype: "thinking_tokens", estimated_tokens: 42, user_message_uuid: "turn" });
+    f.native.receive(assistant("child", [{ type: "text", text: "Child progress" }], { agent_id: "child" }));
+    expect(f.activities().filter(row => row.actorId === "parent").map(row => row.state)).toEqual(["waiting", "running"]);
+    f.native.receive(assistant("parent", [{ type: "text", text: "Parent resumed" }]));
+    const parent = [...new Map(f.activities().filter(row => row.actorId === "parent").map(row => [row.id, row])).values()];
+    expect(parent.every(row => row.state === "done")).toBe(true);
+    const firstThinking = parent.find(row => row.kind === "reasoning")!;
+    expect(firstThinking.text).toBe("42 estimated thinking tokens");
+    f.native.receive({ type: "system", subtype: "thinking_tokens", estimated_tokens: 64, user_message_uuid: "turn" });
+    expect(f.activities().at(-1)?.id).not.toBe(firstThinking.id);
+    f.native.receive({ type: "result", is_error: false });
+    expect(f.activities().at(-1)?.state).toBe("done");
+  });
+
   it("bounds search structures and excludes executable and credential-bearing URLs", () => {
     const links = claudeSearchLinks({ results: [{ url: "javascript:alert(1)", title: "Bad" }, { url: "https://user:password@example.com", title: "Private" }, ...Array.from({ length: 80 }, (_, index) => ({ title: `Result ${index}`, url: `https://example.com/${index}` }))] });
     expect(links).toHaveLength(30);

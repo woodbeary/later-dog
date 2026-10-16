@@ -59,7 +59,7 @@ RUN if [ -n "$GROK_VERSION" ]; then \
       && HOME=/tmp/grok-install grok --version | grep -qF "grok $GROK_VERSION " \
       && rm -rf /tmp/grok-install; \
     fi
-ARG CLOUD_HOME_ENGINES="@anthropic-ai/claude-code @openai/codex"
+ARG CLOUD_HOME_ENGINES="@anthropic-ai/claude-code@2.1.301 @openai/codex@0.163.0"
 ARG ENGINES_CACHE_TAG=""
 RUN echo "engines: ${CLOUD_HOME_ENGINES:-none} ${ENGINES_CACHE_TAG}" \
   && if [ -n "$CLOUD_HOME_ENGINES" ]; then HOME=/tmp/laterdog-build-home npm install -g $CLOUD_HOME_ENGINES; fi \

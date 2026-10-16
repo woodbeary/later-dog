@@ -88,6 +88,8 @@ export class ClaudeNativeActivity {
     this.published.clear();
     this.streams.clear();
     this.streamMessage = undefined;
+    this.pendingThinking = undefined;
+    this.pendingRetry = undefined;
     this.limit("Native background work stays inside the owning turn; individual native tasks cannot be stopped separately.");
     if (!this.version) this.limit("Claude Code version was not reported; child text forwarding is unavailable.");
     else {
@@ -288,7 +290,7 @@ export class ClaudeNativeActivity {
       this.activity({ ...this.pendingThinking, state: "done", endedAt: this.now() });
       this.pendingThinking = undefined;
     }
-    if (this.pendingRetry && (event.type === "assistant" || event.type === "result" || event.type === "stream_event" && fields(event.event).type === "message_start" || event.subtype === "api_retry")) {
+    if (this.pendingRetry && !claudeChildMessage(event) && (event.type === "assistant" || event.type === "result" || event.type === "stream_event" && fields(event.event).type === "message_start" || event.subtype === "api_retry")) {
       this.activity({ ...this.pendingRetry, state: event.type === "result" && event.is_error === true ? "failed" : "done", endedAt: this.now() });
       this.pendingRetry = undefined;
     }

@@ -1476,7 +1476,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return;
         }
         appendNative(threadId, { dir: "in", source: "claude.sdk.message", msg: o?.type === "user" && o.isReplay === true && o.message ? diagnosticClaudeUserMessage(o) : o });
-        session.nativeActivity.receive(o);
+        if (claudeChildMessage(o) || !claudeRefreshLockFrame(o, firstText(o.message?.content))) session.nativeActivity.receive(o);
         if (claudeChildMessage(o) && (o.type === "assistant" || o.type === "user" || o.type === "stream_event")) return;
         if (session.turn?.continuationSilence && !(o.type === "system" && o.subtype === "init") && !(o.type === "user" && o.isReplay === true)) {
           clearTimeout(session.turn.continuationSilence);

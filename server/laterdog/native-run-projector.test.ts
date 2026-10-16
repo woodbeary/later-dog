@@ -52,6 +52,15 @@ describe("durable native execution", () => {
     expect(projector.observe(event({ type: "turn.completed", ok: true } as RuntimeEvent))!.observation).toBe("partial");
     expect(projector.observe(observed({ kind: "actor", actor: actor("child", "done") }))!.observation).toBe("complete");
   });
+
+  it("keeps a paused helper discoverable as unfinished when its parent completes", () => {
+    const { projector } = fixture();
+    projector.observe(observed({ kind: "actor", actor: actor("child", "paused") }));
+    const run = projector.observe(event({ type: "turn.completed", ok: true } as RuntimeEvent))!;
+    expect(run.observation).toBe("partial");
+    expect(run.actors.find(actor => actor.id === "child")).toMatchObject({ state: "paused", canStop: false });
+    expect(projector.running("chat")).toBe(false);
+  });
   it("retains nested actors and results after a parent finishes and another turn starts", () => {
     const { projector, store } = fixture();
     projector.observe(event({ type: "turn.started" }));

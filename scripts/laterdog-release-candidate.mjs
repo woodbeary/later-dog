@@ -6,7 +6,7 @@ import { fileDigest, releaseFiles } from "./laterdog-release-files.mjs";
 
 export const CANDIDATE_ARTIFACT = "later.dog-release-candidate";
 export const RELEASE_ASSETS = ["later.dog-macOS-arm64.zip", "later.dog-macOS-arm64.dmg", "SHA256SUMS.txt", "latest-mac.yml"];
-export const ACCEPTANCE_CHECKS = ["fresh-install", "previous-stable-upgrade", "expo-development", "exact-testflight-build", "real-account-conversation", "real-iphone", "workspace-identity", "companion-compatibility", "native-claude", "native-codex", "independent-review"];
+export const ACCEPTANCE_CHECKS = ["fresh-install", "previous-stable-upgrade", "expo-development", "exact-testflight-build", "real-account-conversation", "real-iphone", "workspace-identity", "desktop-mobile-compatibility", "native-claude", "native-codex", "independent-review"];
 export const PHONE_IDENTITY_FIELDS = ["sourceSha", "appVersion", "runtimeVersion", "buildNumber", "ascBuildId", "easBuildId"];
 const shaPattern = /^[0-9a-f]{40}$/;
 const digestPattern = /^[0-9a-f]{64}$/;
@@ -46,7 +46,7 @@ export function verifyAcceptance(candidate, evidence) {
   }
   const development = evidence.checks["expo-development"];
   if (development.appVersion !== phone.appVersion || development.runtimeVersion !== phone.runtimeVersion) throw new Error("Expo development acceptance does not match the frozen phone app and runtime.");
-  for (const name of ["exact-testflight-build", "real-iphone", "companion-compatibility"]) {
+  for (const name of ["exact-testflight-build", "real-iphone", "desktop-mobile-compatibility"]) {
     if (PHONE_IDENTITY_FIELDS.some(field => evidence.checks[name].phone?.[field] !== phone[field])) throw new Error(`Acceptance does not match the exact frozen phone build: ${name}`);
   }
   if (evidence.checks["real-iphone"].deviceType !== "physical") throw new Error("Real iPhone acceptance requires a physical device.");

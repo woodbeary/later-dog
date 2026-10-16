@@ -1,9 +1,12 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NativeRun } from "../../shared/native-runs";
 
 vi.mock("@/state/store", () => ({ api: vi.fn() }));
 const { api } = await import("@/state/store");
-const { currentNativeRuns, forgetNativeRuns, loadNativeRuns, nativeReceiptAnchors, receiveNativeRun } = await import("./native-runs-state");
+const { currentNativeRuns, forgetNativeRuns, loadNativeRuns, nativeReceiptAnchors, receiveNativeRun, useNativeRuns } = await import("./native-runs-state");
 
 function run(overrides: Partial<NativeRun> = {}): NativeRun {
   return { id: "run", threadId: "thread", turnId: "turn", provider: "claudeAgent", revision: 1, startedAt: 100, endedAt: 200, state: "done", observation: "complete", actors: [], activityCount: 2, failureCount: 0, limitations: [], ...overrides };
@@ -41,5 +44,30 @@ describe("native run state", () => {
     const messages = [{ id: "user", turnId: "turn", role: "user", kind: "text" }, { id: "draft", turnId: "turn", role: "bot", kind: "text" }, { id: "final", turnId: "turn", role: "bot", kind: "text" }, { id: "later-tool", turnId: "turn", role: "bot", kind: "activity" }, { id: "next", turnId: "next", role: "bot", kind: "text" }];
     const anchors = nativeReceiptAnchors([run(), run({ id: "live", turnId: "next", observation: "live", endedAt: undefined })], messages);
     expect([...anchors.keys()]).toEqual(["final"]);
+  });
+
+  it("loads receipts beyond 500 runs when the visible conversation reaches older history", async () => {
+    vi.mocked(api).mockImplementation(async path => {
+      const page = Number(new URL(path, "http://fixture").searchParams.get("cursor") ?? "0");
+      return { runs: Array.from({ length: 100 }, (_, index) => run({ id: `run-${page * 100 + index}`, turnId: `turn-${page * 100 + index}`, startedAt: 1_000 - page * 100 - index })), ...(page < 5 ? { nextCursor: String(page + 1) } : {}) };
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    function History() { return createElement("span", null, useNativeRuns("thread", 0).length); }
+    try {
+      await act(async () => root.render(createElement(History)));
+      expect(host.textContent).toBe("600");
+      expect(currentNativeRuns("thread").at(-1)?.id).toBe("run-599");
+      expect(api).toHaveBeenCalledTimes(6);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it("leaves legacy progress available without repeated loads when an older server has no run route", async () => {
+    vi.mocked(api).mockRejectedValueOnce(Object.assign(new Error("Not found"), { status: 404 }));
+    await expect(loadNativeRuns("thread")).resolves.toBeUndefined();
+    await loadNativeRuns("thread");
+    expect(currentNativeRuns("thread")).toEqual([]);
+    expect(api).toHaveBeenCalledTimes(1);
   });
 });

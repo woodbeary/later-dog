@@ -13,7 +13,27 @@ Started 2026-10-13. This file is the single place that says what is in progress,
    - later-dog: `pnpm exec vitest run scripts/no-comments.test.ts`
    - later-dog-phone: `pnpm test -- no-comments`
 
-## Priorities
+## Native activity delivery (2026-10-16)
+
+The person authorized implementation, real-account and physical-iPhone acceptance, and release after the gates pass. Their final architecture decision keeps the 0.3.41 Cloud home: desktop and phone open the same Cloud conversations; the Mac remains an executor. This supersedes the earlier Mac-authority/companion proposal. See [workspace ownership](workspace-ownership.md).
+
+Worktrees: desktop/server `codex/native-activity` at `/Users/jacoblopez/.codex/worktrees/native-activity/dog`; phone `codex/native-activity-phone` at `/Volumes/laterdog-phone/native-activity-phone`. The original phone checkout's uncommitted work is preserved.
+
+| Gate | Current state |
+|---|---|
+| Durable native runs and compact desktop/mobile presentation | Implemented locally; rebased desktop onto 0.3.41; focused checks in progress |
+| Claude and Codex attribution, resume, nested helpers, parent isolation and supported controls | Focused fixture coverage exists; integrated fixtures and actual providers still required |
+| Persistence, reconnect, pagination, backup/restore, retention and authenticated contract | Implemented; full verification pending |
+| Exact-source CI and independent review | Pending; author checks do not qualify |
+| Isolated UI and test Cloud home | Pending on the final source |
+| Actual-account backup and conversation identity | Pending; existing conversations must remain intact |
+| Physical iPhone Expo Go and new internal TestFlight candidate | Preflight only; new behavior not accepted yet |
+| Signed/notarized desktop candidate, fresh install and stable-to-candidate update | Candidate/promotion workflow implemented; artifacts not built |
+| Stable desktop promotion and external TestFlight distribution | Not released; publish only after all preceding gates pass |
+
+No tunnel credential is required for the selected Cloud home architecture. A fixture pass is not live-provider proof. Raw account evidence stays private. Release only the exact verified artifacts; repairs after promotion require a higher version.
+
+## Priorities from the earlier delivery
 
 - **P0:** the iPhone app works against production, and the TestFlight build is in Beta App Review.
 - **P1:** fixes that stop daily use of the desktop app.

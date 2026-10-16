@@ -66,6 +66,7 @@ Use only mapped, tested commands:
 - [Codex bot instructions](codex-instructions.md)
 - [Codex browser routing and native search](codex-browser-routing.md)
 - [Codex helper event isolation](codex-helpers.md)
+- [Native activity and durable work receipts](native-activity.md)
 - [Qwen model route selection](qwen-models.md)
 - [Team backups](team-backups.md)
 - [Sharing a whole team](team-sharing.md)

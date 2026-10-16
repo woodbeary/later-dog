@@ -7,7 +7,7 @@ Build a candidate first. A candidate workflow has read-only repository permissio
 ## Prepare the candidate
 
 1. Set a new stable `version` in `package.json` and add its dated section to `CHANGELOG.md`. An `unreleased` heading is refused.
-2. Complete the change's isolated verification and independent review, then merge the authorized release commit to `main`. Record that exact SHA; any source change requires new evidence.
+2. Complete the change's isolated verification and independent review, then merge the authorized release commit to `main`. Freeze the resulting source SHA. The acceptance review must name this SHA, even if a pull-request review occurred earlier; a changed SHA requires new evidence.
 3. Request a candidate:
 
    ```sh
@@ -37,7 +37,7 @@ The fresh check verifies ZIP and DMG hashes, signatures, notarization and Gateke
 
 Also verify the authorized real account, its conversations, both native providers, and the physical iPhone against the candidate combination. Freeze the phone source SHA, app version, Expo runtime version, build number, EAS build ID and App Store Connect build ID before acceptance. Record the exact Claude and Codex versions. A fixture or simulator pass cannot qualify real-provider or real-device behavior. Keep account details and credentials out of public release notes.
 
-Keep Expo development verification separate from verification of the exact TestFlight build. Verify the actual account, workspace and conversation identity on both surfaces. The companion compatibility receipt must cover the frozen phone with the candidate desktop and the currently distributed companion versions; do not assume everyone updates together. Independent review must name both frozen source SHAs. A changed phone runtime, build or provider version invalidates the affected acceptance receipts.
+Keep Expo development verification separate from verification of the exact TestFlight build. Verify the actual account, workspace and conversation identity on both surfaces. The desktop/mobile compatibility receipt must cover both apps against the current Cloud home, including the frozen phone, candidate desktop and currently distributed app versions; do not assume everyone updates together. Cloud home remains the canonical workspace owner. Independent review must name both frozen source SHAs. A changed phone runtime, build or provider version invalidates the affected acceptance receipts.
 
 Create a local acceptance JSON file shaped as follows. Copy desktop SHA, version, run and binary hashes from the candidate manifest. Replace each `pending` only after that check passed, and link its actual receipt. Copy the complete frozen `phone` record into each build-specific receipt; a generic pass or a receipt from another build does not qualify. Phone and desktop source SHAs may differ, but every receipt must match its frozen source. Acceptance schema version 2 is required.
 
@@ -83,7 +83,7 @@ Create a local acceptance JSON file shaped as follows. Copy desktop SHA, version
       }
     },
     "workspace-identity": { "status": "pending", "evidence": "", "sourceSha": "FULL_CANDIDATE_SHA", "phoneSourceSha": "FULL_PHONE_SHA" },
-    "companion-compatibility": {
+    "desktop-mobile-compatibility": {
       "status": "pending", "evidence": "", "sourceSha": "FULL_CANDIDATE_SHA",
       "phone": {
         "sourceSha": "FULL_PHONE_SHA", "appVersion": "PHONE_APP_VERSION", "runtimeVersion": "PHONE_RUNTIME_VERSION",
