@@ -40,7 +40,7 @@ export class ComputerRegistry extends DurableObject<Env> {
     )`);
   }
 
-  reserve(input: { name?: string; size: Size; idempotencyKey?: string; max: number }): Reservation {
+  reserve(input: { name?: string; size: Size; idempotencyKey?: string; max?: number }): Reservation {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     sql.exec("DELETE FROM idempotency WHERE created_at < ?", now - IDEMPOTENCY_TTL_MS);
@@ -50,8 +50,8 @@ export class ComputerRegistry extends DurableObject<Env> {
       if (row) return { ok: true, id: row.id, name: row.name, size: row.size as Size, replayed: true };
       sql.exec("DELETE FROM idempotency WHERE key = ?", input.idempotencyKey);
     }
-    const count = sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM computers").one().n;
-    if (count >= input.max) {
+    const count = input.max === undefined ? 0 : sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM computers").one().n;
+    if (input.max !== undefined && count >= input.max) {
       return { ok: false, refusal: { status: 409, code: "limit_reached", message: `This deployment allows ${input.max} computers at once; delete one first.` } };
     }
     let id = newComputerId();

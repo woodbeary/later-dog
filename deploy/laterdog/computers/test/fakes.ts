@@ -13,7 +13,6 @@ export const OWNER_KEY = "ldc_owner-key-for-tests";
 export const IP = "203.0.113.7";
 
 export const VARS: Record<string, string> = {
-  MAX_COMPUTERS: "10",
   IDLE_SLEEP_MINUTES: "15",
   MAX_AWAKE_HOURS: "8",
   TRIALS_ENABLED: "true",
