@@ -64,12 +64,40 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
 
 | Gate | Done when |
 |---|---|
-| N0 Main is what shipped | PR #63 (`claude/integrate-0334`) merged into `main` with the person's OK; releases come from `main` only |
+| N0 Main is what shipped | done 2026-10-15: PR #63 (`claude/integrate-0334`) merged as `54182816f` with the person's OK, then 0.3.40 (#65) and 0.3.41 (#66); releases come from `main` only |
 | N1 Dev loop | later.dog Dev installed beside the release; a test Cloud home on a test account receives every server/home change first; the phone runs in Expo Go against it; Cloud images go from GitHub to Cloudflare without passing through the person's Mac; a first-trip and phone round-trip check passes on the test Cloud before each release |
 | N2 Coding in the Cloud | GitHub connected once in the Cloud; dogs clone repos into their own cloud computer and open draft pull requests; Mac-only files go through the Mac connection |
 | N3 Phone parity | threads, Continue on another account, AI account sign-in and cloud task actions on the phone; then queued messages, connect-app and secret cards, plan limits, approve from a notification, rooms |
 | N4 App Store | submission drafted, the review path passed on a real iPhone, submitted with the person's OK |
 | N5 Cloud reliability | the 2026-10-15 01:50 crash explained from the new stop logging; transient copy state kept out of the saved snapshot; memory checked on standard-1 |
+
+## Parked lanes from 2026-10-15 (not merged, not reviewed)
+
+Opened in one burst on 2026-10-15 and stopped when that session hit its usage limit. Every later-dog lane branches from `claude/integrate-0334` (before 0.3.40), and every phone lane from `claude/phone-parity-1015` (`0345242`, not on phone `main`). None is reviewed except where noted. Before taking one: merge current `main` into it, check it against 0.3.41 and the "less is more" direction (no hard-coded setup screens, approval cards or caps; the model decides), prove it on the test Cloud home, then open it for review. Uncommitted work at the stop is saved as `wip/w-<lane>` branches.
+
+| Lane (branch `claude/<lane>-1015`) | What it holds | Call |
+| --- | --- | --- |
+| auto-review-switch | Account-wide Auto-review switch in My Cloud; draft PR #64 (shard 1 red, conflicts with `main`) | keep: fits "the AI reviewer decides when Auto-review is on"; merge `main`, fix the shard |
+| cloud-signout | Sign out under your name reaches later.dog only, with tests | keep; review found two robustness gaps (session journal) |
+| codex-numbered | The desktop hands numbered ChatGPT accounts (`codex-2`…) to My Cloud | check against 0.3.41's account moves |
+| cloud-dogs-mac | Cloud home dogs get the projects-on-the-Mac paragraph | likely covered by 0.3.41 (owner's Mac rules); compare first |
+| home-crash-resilience, home-sync-skip, home-stay-awake | Clean stop when the server cannot spawn; keep the workspace when a restore's staging folder is left; sleep docs | check against 0.3.40 (tini) and 0.3.41 (R2 time limits) |
+| home-trip-e2e, image-push-ci | First-trip check against a fresh home image; CI image push docs | fold into N1 with the test Cloud home and `crane copy` |
+| status-lines | Quiet-turn status lines (4 commits + `wip/`) | 0.3.41 already adds a status line to `GET /api/bots`; compare |
+| included-ai-models | Claude Sonnet 5 default plus Grok 4.7 and 4.6 as the free models, with costs | needs the person's `ANTHROPIC_API_KEY`, a cost-per-user OK and a computers Worker deploy |
+| legal-support | Support, privacy and terms pages with tests | needed for the App Store (support URL) |
+| stale-copy-desktop | Retired words swept from the desktop | merge after a diff check |
+| github-connect | A GitHub row in Settings | drop: 0.3.41 reverted this direction |
+| push-approval | Phone push contract for approval notifications | probably drop (approval cards); ask first |
+| phone-appstore-fixes | Background audio off, strict network rule, photo wording, Voice Chat gated | review DONE; merge first among phone lanes |
+| phone-cloud-link | Resume the stream after a Cloud restart, waking answers | review GAPS: refresh after a restart, side threads during an outage, photo sends on a dropping network |
+| stale-copy-phone | Retired words swept from the phone | review GAPS: conflicts with phone-appstore-fixes; keeps dropping Kimi, which still answers |
+| phone-review-fixes, phone-ai-signin, phone-cloud-tasks, phone-queue, phone-connectors, phone-plan-limits, phone-voice-retry, phone-approve-push | Phone parity pieces (`plan-limits` also has `wip/`) | review one at a time on Expo Go against the test Cloud home; `approve-push` probably drops with push-approval |
+| phone-rooms, phone-dog-extras | `wip/` only | skip: the usage study says these are unused |
+
+**Site (later-dog-site), not deployed:**
+- `site/iphone-testflight` `154fbb8`: pricing section and "Coming soon" plan removed, trial length and Kimi/Grok 4.3 gone, FAQ updated. Review: small wording gaps.
+- `site/cloud-visuals` `5a6c08f`: "Hand work to the cloud" is now the app's real cloud task card rebuilt in HTML, played once when in view (Scout's steps to Ready to review, panel, Publish, draft PR). Checked frame by frame at 692 and 342 px in dev. Not yet checked: the production build (run `rm -rf .next` first; a stale dev type file failed the first try) and live playback in a visible browser. The brief for the other four visuals (computer, hero, iPhone, share image) is in the person's scratch folder (`site-visuals/visuals-brief.md`).
 
 ## Lanes
 
