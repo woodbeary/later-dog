@@ -6,9 +6,12 @@ import { backup, DatabaseSync } from "node:sqlite";
 export const CHUNK_BYTES = 8 * 1024 * 1024;
 export const MANIFEST_VERSION = 1;
 export const BLOB_TIMEOUT_MS = 60_000;
+export const REQUEST_TIMEOUT_MS = 60_000;
+export const UPLOAD_TIMEOUT_MS = 120_000;
+export const FINAL_SAVE_MS = 120_000;
 const RESTORING_PREFIX = ".laterdog-restoring-";
 const SQLITE = /\.(?:sqlite3?|db)$/;
-const SKIPPED_NAMES = new Set(["node_modules", ".cache", ".npm", ".pnpm-store", "Cache", "Code Cache", "GPUCache", "ShaderCache", "Crashpad", ".Trash", "lost+found"]);
+const SKIPPED_NAMES = new Set(["node_modules", ".cache", ".tmp", ".npm", ".pnpm-store", "Cache", "Code Cache", "GPUCache", "ShaderCache", "Crashpad", ".Trash", "lost+found"]);
 const SKIPPED_SUFFIXES = ["-wal", "-shm", "-journal"];
 const REFRESH_LOCK_NAMES = new Set([".oauth_refresh.lock", ".oauth_refresh.lock.owner"]);
 const LOCK_DIRECTORY_SUFFIX = ".lock";
@@ -27,12 +30,13 @@ export function transient(entry) {
   return names.some((name, index) => skipped(name) || heldLock(name, index < names.length - 1 ? "dir" : entry.type));
 }
 
-export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS } = {}) {
+export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS, requestTimeoutMs = REQUEST_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS } = {}) {
   const base = baseUrl.replace(/\/+$/, "");
   const headers = { authorization: `Bearer ${token}` };
-  const call = async (path, init = {}) => {
-    const response = await fetcher(`${base}/${path}`, { ...init, headers: { ...headers, ...init.headers } });
-    return response;
+  const call = async (path, init = {}, timeoutMs = requestTimeoutMs) => {
+    const deadline = AbortSignal.timeout(timeoutMs);
+    const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
+    return fetcher(`${base}/${path}`, { ...init, signal, headers: { ...headers, ...init.headers } });
   };
   return {
     async manifest() {
@@ -52,13 +56,12 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
       return true;
     },
     async get(hash, { signal } = {}) {
-      const deadline = AbortSignal.timeout(blobTimeoutMs);
-      const response = await call(`blobs/${hash}`, { signal: signal ? AbortSignal.any([signal, deadline]) : deadline });
+      const response = await call(`blobs/${hash}`, signal ? { signal } : {}, blobTimeoutMs);
       if (!response.ok) throw new Error(`blob read failed: ${response.status}`);
       return new Uint8Array(await response.arrayBuffer());
     },
     async put(hash, bytes) {
-      const response = await call(`blobs/${hash}`, { method: "PUT", body: bytes });
+      const response = await call(`blobs/${hash}`, { method: "PUT", body: bytes }, uploadTimeoutMs);
       if (!response.ok) throw new Error(`blob write failed: ${response.status}`);
     },
     async listBlobs(cursor) {
@@ -160,6 +163,7 @@ async function databaseCopy(path, scratch) {
 export async function snapshot(root, store, previous, { scratch, now = Date.now } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const entries = [];
+  const unsaved = [];
   let uploaded = 0;
   if (scratch) await mkdir(scratch, { recursive: true, mode: 0o700 });
   for (const entry of await scan(root)) {
@@ -182,15 +186,21 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now 
       uploaded += 1;
     } catch (error) {
       if (before) entries.push(before);
-      else if (error?.code !== "ENOENT") throw error;
+      if (error?.code !== "ENOENT") unsaved.push(entry.path);
     }
   }
   const manifest = { version: MANIFEST_VERSION, createdAt: now(), entries };
   if (uploaded > 0 || !previous || previous.entries.length !== entries.length || changedShape(previous.entries, entries)) {
     await store.putManifest(manifest);
-    return { manifest, written: true, uploaded };
+    return { manifest, written: true, uploaded, unsaved };
   }
-  return { manifest: previous, written: false, uploaded };
+  return { manifest: previous, written: false, uploaded, unsaved };
+}
+
+export function settleWithin(work, ms) {
+  let timer;
+  const late = new Promise((resolve) => { timer = setTimeout(() => resolve("late"), ms); });
+  return Promise.race([work.then(() => "done", () => "failed"), late]).finally(() => clearTimeout(timer));
 }
 
 function changedShape(before, after) {
