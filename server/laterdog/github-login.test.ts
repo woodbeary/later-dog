@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { GITHUB_LOGIN_ARGS, GitHubDeviceLogin, TOKEN_IN_CONFIG_FILE_FLAG, parseGitHubDevicePrompt } from "./github-login.ts";
+import { GitHubDeviceLogin, parseGitHubDevicePrompt } from "./github-login.ts";
 
 type FakeChild = EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; exitCode: number | null; killed: boolean; unref: () => void };
 function fakeChild(): FakeChild {
@@ -51,39 +51,5 @@ describe("GitHub device sign-in on the supervisor host", () => {
     const login = new GitHubDeviceLogin({ spawner: (() => fakeChild()) as never, run: vi.fn(), promptMs: 150, env: {} });
     const status = await login.start();
     expect(status.phase).toBe("failed"); expect(status.detail).toContain("no sign-in code");
-  });
-
-  it("keeps the token in gh's own config file when asked, if this gh can, and never spawns a sign-in cancelled while it checks", async () => {
-    const answers = (help: string) => vi.fn(async (_binary: string, args: string[]) => {
-      expect(args).toEqual(["auth", "login", "--help"]);
-      return { stdout: help, stderr: "", exitCode: 0, timedOut: false };
-    });
-    const spawned: string[][] = [];
-    const spawner = vi.fn((_binary: string, args: string[]) => {
-      spawned.push(args);
-      const child = fakeChild();
-      setTimeout(() => child.stderr.emit("data", PROMPT), 10);
-      return child;
-    });
-    const modern = new GitHubDeviceLogin({ spawner: spawner as never, run: answers(`      --insecure-storage   Save authentication credentials in plain text instead of credential store\n`), promptMs: 2000, env: {}, tokenInConfigFile: true });
-    expect((await modern.start()).code).toBe("AB12-CD34");
-    expect(spawned.at(-1)).toEqual([...GITHUB_LOGIN_ARGS, TOKEN_IN_CONFIG_FILE_FLAG]);
-    const older = new GitHubDeviceLogin({ spawner: spawner as never, run: answers("  -w, --web   Open a browser to authenticate\n"), promptMs: 2000, env: {}, tokenInConfigFile: true });
-    await older.start();
-    expect(spawned.at(-1)).toEqual([...GITHUB_LOGIN_ARGS]);
-    const cancelled = new GitHubDeviceLogin({ spawner: spawner as never, run: answers(TOKEN_IN_CONFIG_FILE_FLAG), promptMs: 2000, env: {}, tokenInConfigFile: true });
-    const pending = cancelled.start();
-    cancelled.cancel();
-    expect(await pending).toEqual({ phase: "idle" });
-    expect(spawner).toHaveBeenCalledTimes(2);
-  });
-
-  it("starts one gh even when asked twice at once", async () => {
-    const child = fakeChild();
-    const spawner = vi.fn(() => { setTimeout(() => child.stderr.emit("data", PROMPT), 10); return child; });
-    const login = new GitHubDeviceLogin({ spawner: spawner as never, run: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0, timedOut: false })), promptMs: 2000, env: {}, tokenInConfigFile: true });
-    const [first, second] = await Promise.all([login.start(), login.start()]);
-    expect(first.code).toBe("AB12-CD34"); expect(second.code).toBe("AB12-CD34");
-    expect(spawner).toHaveBeenCalledTimes(1);
   });
 });

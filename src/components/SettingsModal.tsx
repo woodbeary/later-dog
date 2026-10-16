@@ -24,7 +24,6 @@ import { TypingSuggestionsRows } from "./TypingSuggestionsSettings";
 import { HelpRows } from "./SettingsHelp";
 import { CloudComputerRows } from "./CloudComputerRows";
 import { CloudAccountSettings } from "./CloudAccountSettings";
-import { HomeGitHubSetting, useHomeGitHubShown } from "./HomeGitHubRow";
 import { ExecutionRows, ThisComputerRow } from "./ComputerSettings";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { InstanceProviderMark } from "./ProviderIcons";
@@ -323,7 +322,6 @@ function GeneralPage({ mac }: { mac: boolean }) {
   const { state, dispatch } = useStore();
   const keyed = savedKeyEngines(state.instances);
   const analytics = analyticsConfigured();
-  const github = useHomeGitHubShown();
   return (
     <>
       <SettingsGroup label={t("settings.section.cloudAccount")} testId="later-dog-cloud">
@@ -331,11 +329,6 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <CloudAccountSettings onOpenComputer={() => dispatch({ type: "toggleAppSettings", open: true, section: "computer" })} />
         </SettingsRows>
       </SettingsGroup>
-      {github && (
-        <SettingsGroup label={t("settings.github.title")} testId="github">
-          <SettingsRows><HomeGitHubSetting /></SettingsRows>
-        </SettingsGroup>
-      )}
       <SettingsGroup label={t("settings.group.accounts")} testId="accounts" action={<AccountsRefresh />}>
         <AccountsPanel />
       </SettingsGroup>

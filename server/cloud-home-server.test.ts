@@ -2,13 +2,11 @@ import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { CLOUD_IGNORED_KEYS, cloudHomePlaceRefusal, cloudPairingSignature } from "./cloud-home.ts";
 import { cloudHomePrompt } from "./system-prompt.ts";
-import { homeGitHubPrompt } from "./laterdog/home-git.ts";
-import { NO_SUPERVISOR_ENV, NO_SUPERVISOR_ON_MY_CLOUD } from "./laterdog/home-supervisor.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
@@ -76,12 +74,6 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
     },
   }));
   mkdirSync(join(home, "web"));
-  mkdirSync(join(home, "bin"));
-  writeFileSync(join(home, "bin", "gh"), `#!/bin/sh
-if [ "$1 $2" = "api user" ]; then echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4; fi
-echo "fixture gh: $*" >> ${JSON.stringify(join(home, "gh-calls"))}
-exit 2
-`, { mode: 0o755 });
   writeFileSync(join(home, "web", "index.html"), "<!doctype html><title>later.dog</title>");
   const port = await freePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
@@ -89,7 +81,7 @@ exit 2
   child = spawn(process.execPath, ["--import", offlinePrelude, join(SERVER_DIR, "index.ts")], {
     cwd: join(SERVER_DIR, ".."),
     env: {
-      PATH: [join(home, "bin"), process.env.PATH].join(delimiter),
+      PATH: process.env.PATH,
       ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
       HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_STATIC_DIR: join(home, "web"),
@@ -345,12 +337,6 @@ it("offers its bots cloud computers only, and tells them they cannot see the per
     expect(systemPrompt).not.toMatch(/Local VM is an isolated desktop|user's host|host desktop|select an available Local VM/);
     const agents = mcpConfig.mcpServers.agents;
     expect(agents.env.LATERDOG_CLOUD_HOME).toBe("1");
-    const laterdog = mcpConfig.mcpServers.laterdog.env;
-    const supervisorTools = laterdog.LATERDOG_GATE_UPSTREAM ? JSON.parse(laterdog.LATERDOG_GATE_UPSTREAM).env : laterdog;
-    expect(supervisorTools).toMatchObject({ [NO_SUPERVISOR_ENV]: "1", LATERDOG_BOT_ID: botId });
-    expect(supervisorTools).not.toHaveProperty("LATERDOG_TOKEN");
-    expect(supervisorTools).not.toHaveProperty("LATERDOG_SUPERVISOR_URL");
-    expect(systemPrompt).toContain(homeGitHubPrompt({ state: "disconnected" }, true));
     const preview = (await api("GET", `/api/bots/${botId}/system-prompt`)).body.sections as Array<{ id: string; text: string }>;
     expect(preview.find((section) => section.id === "cloud-home")?.text).toBe(cloudHomePrompt(true));
     const select = (surface?: string) => fetch(`${base}/api/internal/computer/select`, {
@@ -370,23 +356,6 @@ it("offers its bots cloud computers only, and tells them they cannot see the per
     rmSync(join(home, "hang"), { force: true });
     await api("POST", `/api/bots/${botId}/interrupt`, { body: {} });
   }
-});
-
-it("shows GitHub only to the owner, tells dogs it isn't connected, and turns cloud jobs away without a supervisor", async () => {
-  const github = await api("GET", "/api/home/github");
-  expect(github.status).toBe(200);
-  expect(github.body).toEqual({ login: null, signIn: { phase: "idle" } });
-  expect((await api("GET", "/api/home/github", { remote: true })).status).toBe(403);
-  const loopback = await fetch(`${base}/api/home/github/connect`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-  expect(loopback.status).toBe(403);
-  expect(existsSync(join(home, "gh-calls"))).toBe(false);
-  const jobs = await api("GET", "/api/laterdog/workspace");
-  expect(jobs).toEqual({ status: 503, body: { error: NO_SUPERVISOR_ON_MY_CLOUD } });
-  expect(existsSync(join(home, ".laterdog", "supervisor"))).toBe(false);
-  const created = await api("POST", "/api/bots", { body: { name: "Git fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true } });
-  expect(created.status, JSON.stringify(created.body)).toBe(201);
-  const sections = (await api("GET", `/api/bots/${created.body.bot.id}/system-prompt`)).body.sections as Array<{ id: string; text: string }>;
-  expect(sections.find((section) => section.id === "github")?.text).toBe(homeGitHubPrompt({ state: "disconnected" }, true));
 });
 
 it("refuses a bot still set to this computer, saying what is true on a Cloud home", async () => {

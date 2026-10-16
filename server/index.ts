@@ -654,11 +654,8 @@ import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
-import { createHomeGitHubRoutes } from "./routes/home-github.ts";
-import { HomeGitHub } from "./laterdog/home-github.ts";
-import { githubNeededNotification, homeGitHubPrompt } from "./laterdog/home-git.ts";
-import { dogSupervisorEnvironment, supervisorMissingOnHome } from "./laterdog/home-supervisor.ts";
 import { createHelpersRoutes } from "./routes/helpers.ts";
+import { availableDogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { dogJobEnvironment } from "./laterdog/job-defaults.ts";
 import { createJobTraceRoutes } from "./routes/job-trace.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
@@ -798,10 +795,6 @@ const MAC_WAIT_MS = 25_000;
 if (CLOUD_HOME) sessions.requireAdmin(CLOUD_PERSONAL_REFUSAL);
 const lendingEnabled = () => sharedComputersEnabled(cfg) || CLOUD_HOME !== null;
 const CLOUD_HOME_LENDER = "cloud-home";
-const homeGitHub = new HomeGitHub();
-if (CLOUD_HOME) homeGitHub.lastKnown();
-const homeGitHubSection = (sharedComputerTools: boolean) => CLOUD_HOME ? homeGitHubPrompt(homeGitHub.lastKnown(), sharedComputerTools) : "";
-const homeSupervisorMissing = () => supervisorMissingOnHome(Boolean(CLOUD_HOME));
 const cloudRoutineAuthors = CLOUD_HOME ? createCloudRoutineAuthors(join(DATA_DIR, "lending-routines.json")) : null;
 const ownerStartedRoutineRuns = new Set<string>();
 const foreignTurns = new Map<string, { botId: string; threadId: string }>();
@@ -3444,7 +3437,6 @@ function previewSystemPrompt(bot: BotRecord) {
       browser: previewPlan.computer === undefined ? false : previewPlan.browser,
     }, { note: previewPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
     { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(agentsMounted && lendingEnabled()) : "" },
-    { id: "github", label: "GitHub", text: homeGitHubSection(agentsMounted && lendingEnabled()) },
     { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && composio.configured(cfg) ? composioSystemPrompt(bot.connectorTools) + describeConnectorScopes(bot.connectorScopes) : "" },
     { id: "mcp", label: "MCP servers", text: caps?.customMcp ? customMcpPrompt(Object.keys(engineMcpServers(bot))) : "" },
     { id: "browser", label: "Browser", text: previewPlan.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
@@ -7209,8 +7201,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             ? reply || routineRun.output || routineRun.routineName
             : reply;
           const notificationBot = (routineRun && routineSourceOwner(routineRun)?.bot) || bot;
-          const doneNotification = buildNotification("done", notificationBot, routineReportThread ?? event.threadId, completionDetail, { avatarUrl: notificationBot.avatarUrl });
-          notify(CLOUD_HOME ? githubNeededNotification(doneNotification, reply) : doneNotification);
+          notify(buildNotification("done", notificationBot, routineReportThread ?? event.threadId, completionDetail, { avatarUrl: notificationBot.avatarUrl }));
         }
         if (screenPollers.has(event.threadId)) {
           const settleLeafId = store.activePath(event.threadId).at(-1)?.id;
@@ -9180,7 +9171,6 @@ async function startTurn(
         { id: "team-computer", label: "Team computer", text: teamComputerPrompt(teamComputer) },
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { pinned: plan.pinned, note: plan.note, canSelect: computerSelectionTurns.has(threadId), cloudHome: Boolean(CLOUD_HOME) }) },
         { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
-        { id: "github", label: "GitHub", text: homeGitHubSection(Boolean(integrations.agents) && lendingEnabled()) },
         { id: "composio", label: "Connected apps", text: integrations.composio ? composioSystemPrompt(liveBot?.connectorTools ?? bot.connectorTools) + describeConnectorScopes((liveBot ?? bot).connectorScopes) : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
         { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
@@ -11211,7 +11201,6 @@ async function runGroupMemberTurn(
     { id: "team-computer", label: "Team computer", text: teamComputerPrompt(roomTeamComputer) },
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomTeamComputer ? "cloud" : roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
     { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
-    { id: "github", label: "GitHub", text: homeGitHubSection(Boolean(integrations.agents) && lendingEnabled()) },
     { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     teamAvailabilityPart(outsideRoom),
@@ -13534,7 +13523,7 @@ function engineMcpServers(bot: BotRecord) {
       ? { command: process.env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", `set ELECTRON_RUN_AS_NODE=1&& "${process.execPath}" "${file}"`] }
       : { command: "/bin/sh", args: ["-c", 'ELECTRON_RUN_AS_NODE=1 exec "$0" "$@"', process.execPath, file] })
     : { command: process.execPath, args: [file] };
-  const supervisor = dogSupervisorEnvironment(bot.id, bot.threadId, homeSupervisorMissing());
+  const supervisor = availableDogMcpEnvironment(bot.id, bot.threadId);
   if (!supervisor) return managedPolicy.filterMcp(configured);
   return managedPolicy.filterMcp({ ...configured, laterdog: { ...launch, env: { ...supervisor, ...dogJobEnvironment(bot.modelSelection, registry.get(bot.modelSelection.instanceId)?.driverKind) } } });
 }
@@ -13846,7 +13835,7 @@ ROUTES.push(createBotMemoryRoutes({
 ROUTES.push(createDeciderRoutes({ decider }));
 ROUTES.push(createJobTraceRoutes());
 ROUTES.push(typingSuggestions.routes);
-ROUTES.push(createLaterDogRoutes({ supervisorMissing: homeSupervisorMissing }));
+ROUTES.push(createLaterDogRoutes());
 ROUTES.push(createHelpersRoutes({
   board: helperBoard,
   visibleThreads: auth => {
@@ -13935,7 +13924,6 @@ ROUTES.push(createHomeAccountRoutes({
     try { return (await live.snapshot()).authenticated === true; } catch { return null; }
   },
 }));
-ROUTES.push(createHomeGitHubRoutes({ cloudHome: Boolean(CLOUD_HOME), github: homeGitHub }));
 ROUTES.push(createTimeZoneRoutes({
   file: TIME_ZONE_FILE,
   allowed: (auth) => !CLOUD_HOME || cloudOwnerSession(auth),

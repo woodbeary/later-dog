@@ -7,7 +7,6 @@ import { supervisorOrigin } from "./config.ts";
 import { credentialHeaders, mcpCredential, type SupervisorCredential } from "./dog-access.ts";
 import { jobReceipt, startsCloudJob } from "./job-receipt.ts";
 import { dogJobDefaults } from "./job-defaults.ts";
-import { supervisorMissingForDog } from "./home-supervisor.ts";
 
 const jobId = z.string().uuid();
 const tools = [
@@ -50,16 +49,6 @@ export async function callTool(name: string, args: unknown, origin = supervisorO
   return startsCloudJob(name) ? jobReceipt(result) : result;
 }
 
-export async function answerToolCall(name: string, args: unknown, env: NodeJS.ProcessEnv = process.env): Promise<{ isError?: true; content: { type: "text"; text: string }[] }> {
-  const missing = supervisorMissingForDog(env);
-  if (missing) return { isError: true, content: [{ type: "text", text: missing }] };
-  try {
-    const result = await callTool(name,args);
-    const serialized = JSON.stringify(result);
-    return { content: [{ type: "text", text: serialized.length > 30_000 ? `${serialized.slice(0,30_000)}\n[Truncated. Inspect the job or artifact in the workspace for the full result.]` : serialized }] };
-  } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Tool failed" }] }; }
-}
-
 export function startMcp(): void {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
   lines.on("line",(line) => {
@@ -71,7 +60,13 @@ export function startMcp(): void {
       if (request.method === "initialize") return answer({ protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "laterdog", version: "0.1.0" } });
       if (request.method === "ping") return answer({});
       if (request.method === "tools/list") return answer({ tools: MCP_TOOLS });
-      if (request.method === "tools/call") return answer(await answerToolCall(String(request.params?.name),request.params?.arguments ?? {}));
+      if (request.method === "tools/call") {
+        try {
+          const result = await callTool(String(request.params?.name),request.params?.arguments ?? {});
+          const serialized = JSON.stringify(result);
+          return answer({ content: [{ type: "text", text: serialized.length > 30_000 ? `${serialized.slice(0,30_000)}\n[Truncated. Inspect the job or artifact in the workspace for the full result.]` : serialized }] });
+        } catch (error) { return answer({ isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Tool failed" }] }); }
+      }
       process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } })}\n`);
     })();
   });

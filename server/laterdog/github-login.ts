@@ -16,20 +16,11 @@ export function parseGitHubDevicePrompt(output: string): { code: string; url: st
   return code && url ? { code, url } : null;
 }
 
-export function githubCliEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const { GH_TOKEN: _gh, GITHUB_TOKEN: _github, ...rest } = env;
-  return { ...rest, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" };
-}
-
-export const GITHUB_LOGIN_ARGS = ["auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web", "--scopes", "workflow"] as const;
-export const TOKEN_IN_CONFIG_FILE_FLAG = "--insecure-storage";
-
 export interface GitHubDeviceLoginOptions {
   spawner?: LoginSpawner;
   run?: CommandRunner;
   promptMs?: number;
   env?: NodeJS.ProcessEnv;
-  tokenInConfigFile?: boolean;
 }
 
 export class GitHubDeviceLogin {
@@ -38,41 +29,17 @@ export class GitHubDeviceLogin {
   private readonly run: CommandRunner;
   private readonly promptMs: number;
   private readonly env: NodeJS.ProcessEnv;
-  private readonly tokenInConfigFile: boolean;
-  private starting?: Promise<GitHubSignIn>;
-  private epoch = 0;
   constructor(options: GitHubDeviceLoginOptions = {}) {
     this.spawner = options.spawner ?? ((binary, args, spawnOptions) => spawn(binary, args, { ...spawnOptions, stdio: ["ignore", "pipe", "pipe"], shell: false }));
     this.run = options.run ?? runCommand;
     this.promptMs = options.promptMs ?? 20_000;
-    this.env = githubCliEnv(options.env ?? process.env);
-    this.tokenInConfigFile = options.tokenInConfigFile === true;
+    const { GH_TOKEN: _gh, GITHUB_TOKEN: _github, ...env } = options.env ?? process.env;
+    this.env = { ...env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" };
   }
   status(): GitHubSignIn { return this.flow ? { ...this.flow.status } : { phase: "idle" }; }
-  cancel(): void {
-    this.epoch += 1;
-    const flow = this.flow;
-    this.flow = undefined;
-    if (flow && flow.child.exitCode === null && !flow.child.killed) flow.child.kill("SIGTERM");
-  }
-  private waiting(): boolean {
-    return this.flow?.status.phase === "waiting" && this.flow.child.exitCode === null && !this.flow.child.killed;
-  }
   async start(): Promise<GitHubSignIn> {
-    if (this.waiting()) return this.status();
-    this.starting ??= this.begin().finally(() => { this.starting = undefined; });
-    return this.starting;
-  }
-  private async storageArgs(): Promise<string[]> {
-    if (!this.tokenInConfigFile) return [];
-    const help = await this.run("gh", ["auth", "login", "--help"], { env: this.env, timeoutMs: 15_000 }).catch(() => null);
-    return help && `${help.stdout}\n${help.stderr}`.includes(TOKEN_IN_CONFIG_FILE_FLAG) ? [TOKEN_IN_CONFIG_FILE_FLAG] : [];
-  }
-  private async begin(): Promise<GitHubSignIn> {
-    const epoch = this.epoch;
-    const storage = await this.storageArgs();
-    if (epoch !== this.epoch) return this.status();
-    const child = this.spawner("gh", [...GITHUB_LOGIN_ARGS, ...storage], { env: this.env });
+    if (this.flow?.status.phase === "waiting" && this.flow.child.exitCode === null && !this.flow.child.killed) return this.status();
+    const child = this.spawner("gh", ["auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web", "--scopes", "workflow"], { env: this.env });
     const flow = { child, output: "", status: { phase: "waiting", startedAt: new Date().toISOString() } as GitHubSignIn };
     this.flow = flow;
     const capture = (chunk: Buffer | string) => {
@@ -100,6 +67,6 @@ export class GitHubDeviceLogin {
     const setup = await this.run("gh", ["auth", "setup-git"], { env: this.env, timeoutMs: 30_000 }).catch((error: unknown) => ({ exitCode: 1, stdout: "", stderr: String(error), timedOut: false }));
     flow.status = setup.exitCode === 0
       ? { phase: "done", startedAt: flow.status.startedAt }
-      : { phase: "done", startedAt: flow.status.startedAt, detail: "Signed in, but gh auth setup-git failed, so git push may lack credentials. Disconnect and connect GitHub again." };
+      : { phase: "done", startedAt: flow.status.startedAt, detail: "Signed in, but gh auth setup-git failed; git push may lack credentials until the supervisor restarts." };
   }
 }

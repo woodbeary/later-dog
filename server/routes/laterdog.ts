@@ -1,7 +1,6 @@
 import { PASS, type RouteHandler } from "./table.ts";
 import { desktopSupervisorToken, supervisorOrigin } from "../laterdog/config.ts";
 import { wakeupPullActive } from "../laterdog/wakeups.ts";
-import { NO_SUPERVISOR_ON_MY_CLOUD } from "../laterdog/home-supervisor.ts";
 
 const FORWARDED_QUERY = ["ids", "bot", "limit", "after"];
 function queryFor(url: URL): string {
@@ -11,12 +10,11 @@ function queryFor(url: URL): string {
   return text ? `?${text}` : "";
 }
 
-export function createLaterDogRoutes(options: { supervisorMissing?: () => boolean } = {}): RouteHandler {
+export function createLaterDogRoutes(): RouteHandler {
   return async ({ req, res, method, path, url, json, readBody }) => {
     if (!path.startsWith("/api/laterdog/")) return PASS;
     const suffix = path.slice("/api/laterdog".length);
     if (!/^\/(workspace|verification-policy|github\/(?:access|login)|profiles\/[a-zA-Z0-9_-]+\/(access|tasks)|observations|repositories|jobs(?:\/[\w-]+(?:\/(action|patch|activity|screen))?)?|bridge\/(?:devices(?:\/[\w-]+)?|pairing|requests))$/.test(suffix)) return PASS;
-    if (options.supervisorMissing?.()) return json(res,503,{ error: NO_SUPERVISOR_ON_MY_CLOUD });
     let origin: string; let token: string;
     try { origin = supervisorOrigin(); token = desktopSupervisorToken(); }
     catch (error) { return json(res,503,{ error: error instanceof Error ? error.message : String(error) }); }
