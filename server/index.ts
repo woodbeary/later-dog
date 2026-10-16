@@ -646,7 +646,7 @@ import {
 } from "./phone-secret.ts";
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
 import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, signsItselfOut, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
-import { EDIT_REFUSAL, UNGUARDED_REFUSAL, localToolMessageText, localToolSpeaker, unguardedMode } from "./laterdog/local-tool-message.ts";
+import { EDIT_REFUSAL } from "./laterdog/local-tool-message.ts";
 import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerReviewerOffNotice, ownerSendsWithoutAsking, type OwnerAutoScope } from "./laterdog/owner-auto.ts";
 import { settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
 import { ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext } from "./laterdog/owner-guard.ts";
@@ -1297,7 +1297,7 @@ function cloudProvenOwnerPerson(person: string | undefined): boolean {
 }
 
 function cloudOwnerDevice(person: string): boolean {
-  return sessions.list().some((session) => session.scopes.includes("admin") && personKey(session) === person);
+  return sessions.list().some((session) => (session.scopes.includes("admin") || session.localTools === true) && personKey(session) === person);
 }
 
 function cloudCardRefusal(auth: RequestAuth & { kind: "session" }): string | null {
@@ -1355,12 +1355,6 @@ function decisionActorFor(auth: RequestAuth): DecisionActor {
   };
 }
 
-function unguardedDog(botId: string, threadId?: string): boolean {
-  const bot = store.bot(botId);
-  if (!bot) return false;
-  const projected = threadId ? store.projectBotForTask(botId, threadId) ?? bot : bot;
-  return unguardedMode(approvalModeForTurn(projected, false, threadId ?? projected.threadId));
-}
 
 function cardAnswererFor(auth: RequestAuth): CardAnswerer {
   if (auth.kind === "loopback") return auth.trust === "service" ? { kind: "worker" } : { kind: "loopback" };
@@ -3541,7 +3535,6 @@ function ownerAutoScope(threadId: string, guestDriven = cloudGuestDriven(threadI
     cloudHome: Boolean(CLOUD_HOME),
     sharedWorkspace: workspaceShared({ hosted: HOSTED_WORKSPACE, cloudHome: Boolean(CLOUD_HOME), signIn: signInAllowList() }),
     guestDriven,
-    lastPersonVia: store.activePath(threadId).findLast((message) => message.role === "user" && !message.peerAsk)?.via,
   };
 }
 
@@ -7494,9 +7487,8 @@ function latestCompaction(messages: readonly Message[]) {
   return record?.compaction ? { ...record.compaction, id: record.id } : undefined;
 }
 
-function directPrompt(text: string, replyTo: Message | undefined, via?: "api" | "call"): string {
-  const prompt = promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User");
-  return via === "api" ? localToolMessageText(prompt) : prompt;
+function directPrompt(text: string, replyTo: Message | undefined): string {
+  return promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User");
 }
 
 function directContext(bot: BotRecord, threadId: string, messages: Message[]): ContextMessage[] {
@@ -7507,7 +7499,6 @@ function directContext(bot: BotRecord, threadId: string, messages: Message[]): C
       : m.roomRequest?.phase === "result" ? teammateReportContext(m.roomRequest.id, bot.id)
         : m.kind === "digest" && m.digest ? digestPromptLine(m.digest, m.from?.name ?? bot.name)
           : m.peerAsk ? peerMessageText(m.peerAsk.name, m.text ?? "")
-            : m.role === "user" && m.via === "api" ? localToolMessageText(transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"))
             : m.role !== "user" && m.from ? peerMessageText(m.from.name, transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"))
               : transcriptText(m, messagesById, cfg.profile?.name?.trim() || "User"),
     keep: m.roomRequest?.phase === "result" || Boolean(m.peerAsk) || (m.role !== "user" && Boolean(m.from)) || (m.role === "user" && m.via === "api"),
@@ -7898,7 +7889,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
       replyToId: replyTo?.id,
       sendId,
       reason: decision.reason,
-      prompt: directPrompt(text, replyTo, via),
+      prompt: directPrompt(text, replyTo),
       sender,
       trigger,
       via,
@@ -8028,7 +8019,7 @@ async function acceptDirectSend(
           engineSteersImages: instance?.adapter.capabilities.steerImages === true,
         });
         if (busyAdmission.action === "steer" && instance?.adapter.steer) {
-          const words = steerWords(directPrompt(text, replyTo, via));
+          const words = steerWords(directPrompt(text, replyTo));
           steered = await instance.adapter
             .steer(threadId, words.text, words.images)
             .catch((): SteerOutcome => "indeterminate");
@@ -8066,7 +8057,7 @@ async function acceptDirectSend(
         const queued = queueSteeredMessage(current.id, threadId, text, {
           replyToId: replyTo?.id,
           sendId,
-          prompt: directPrompt(text, replyTo, via),
+          prompt: directPrompt(text, replyTo),
           sender,
           trigger,
           via,
@@ -8636,15 +8627,12 @@ async function startTurn(
         createHash("sha256").update(JSON.stringify([...persistentConfig, soul])).digest("hex").slice(0, 16);
       const plannedConfig = sessionConfig(bot.soul);
       const skillAuthoring = skillAuthoringEnabled(cfg) && agentsMounted;
-      const fromTool = userMessage.via === "api";
-      const setupText = agentsMounted && !fromTool ? expandSetupTurnText(providerText) : providerText;
-      const userTurnText = fromTool
-        ? directPrompt(setupText, opts?.replyTo, "api")
-        : promptWithReply(
-          skillAuthoring ? expandLearnTurnText(setupText) : setupText,
-          opts?.replyTo,
-          cfg.profile?.name?.trim() || "User",
-        );
+      const setupText = agentsMounted ? expandSetupTurnText(providerText) : providerText;
+      const userTurnText = promptWithReply(
+        skillAuthoring ? expandLearnTurnText(setupText) : setupText,
+        opts?.replyTo,
+        cfg.profile?.name?.trim() || "User",
+      );
       const decideContext = (config: string) => {
         const effortHeld = !effort && typeof handed?.effort === "string";
         const handedStale = Boolean(handed && (!unseen || effortHeld || (externalUpdate && handed.config !== config)));
@@ -10606,7 +10594,7 @@ function serializeRoomContext(
       const rendered = overridden !== undefined ? { ...m, text: overridden } : m;
       const person = m.sender?.name ?? userName;
       const speaker = m.role === "user"
-        ? m.via === "api" ? localToolSpeaker(person) : person
+        ? m.via === "api" ? userName : person
         : m.from ? peerName(m.from.name) : "Bot";
       const line = `${speaker}: ${transcriptText(rendered, messagesById, userName)}`;
       if (!m.peerPost || !m.from || m.from.botId === readerBotId) return line;
@@ -17413,9 +17401,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       const hiddenMember = Array.isArray(body?.memberIds) ? body.memberIds.find((id: unknown) => typeof id === "string" && store.bot(id) && !visible.bot(id)) : undefined;
       if (hiddenMember) return json(res, 400, { error: `unknown channel member: ${String(hiddenMember)}` });
-      if (fromLocalTools(auth) && Array.isArray(body?.memberIds) && body.memberIds.some((id: unknown) => typeof id === "string" && unguardedDog(id))) {
-        return json(res, 403, { error: UNGUARDED_REFUSAL });
-      }
       const group = createChannel(body);
       if (CLOUD_HOME && auth.kind === "session") threadStarters.set(group.threadId, actorKey(auth));
       return json(res, 201, { group: { ...publicGroupState(group), messages: [] } });
@@ -17906,9 +17891,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const notYours = cloudThreadRefusal(auth, renamed.threadId);
         if (notYours) return json(res, 403, { error: notYours });
       }
-      if (fromLocalTools(auth) && Array.isArray(body?.memberIds) && body.memberIds.some((id: unknown) => typeof id === "string" && unguardedDog(id))) {
-        return json(res, 403, { error: UNGUARDED_REFUSAL });
-      }
       const group = updateChannel(m[1], body);
       return json(res, 200, { group: publicGroupState(group) });
     }
@@ -17962,7 +17944,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "threadId must be a task id" });
       }
       const threadId = body.threadId ?? group.threadId;
-      if (fromLocalTools(auth) && group.memberIds.some((id) => unguardedDog(id))) return json(res, 403, { error: UNGUARDED_REFUSAL });
       const trigger = usageTriggerFor(auth);
       try {
         assertWithinBudget(cfg, DATA_DIR);
@@ -18347,7 +18328,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const template = resolveBotCreationDefaults(cfg.newBotDefaults, body);
       const settings = template.profile;
-      if (fromLocalTools(auth)) Object.assign(settings, { approvalMode: "ask", autoApprove: false, alwaysAllow: [] });
       if (auth.kind === "session" && !auth.scopes.includes("admin")) {
         const field = clientBotPatchViolation(settings);
         if (field || body.preset !== undefined || template.skills.length || template.routines.length || Object.keys(template.memory).length) {
@@ -19592,7 +19572,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const threadId = body.threadId ?? bot.threadId;
       const notYours = cloudGuestSendRefusal(auth, threadId);
       if (notYours) return json(res, 403, { error: notYours });
-      if (fromLocalTools(auth) && unguardedDog(bot.id, threadId)) return json(res, 403, { error: UNGUARDED_REFUSAL });
       const onBehalfOf = guardedBody?.data?.onBehalfOf;
       const trigger: UsageTrigger = onBehalfOf
         ? { kind: "user", ...(onBehalfOf.email ? { email: onBehalfOf.email } : {}), ...(onBehalfOf.name ? { label: onBehalfOf.name } : {}) }
@@ -19755,7 +19734,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 404, { error: "only user messages can be edited" });
       }
       if (fromLocalTools(auth) && source.via !== "api") return json(res, 403, { error: EDIT_REFUSAL });
-      if (fromLocalTools(auth) && unguardedDog(bot.id, bot.threadId)) return json(res, 403, { error: UNGUARDED_REFUSAL });
       const sendId = parseSendId(body.sendId);
       if (sendId) {
         const accepted = acceptedSendMatch(threadMessages, sendId, text, source.replyToId);

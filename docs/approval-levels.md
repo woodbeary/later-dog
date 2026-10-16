@@ -76,9 +76,9 @@ credentials still reach you.
 ### Your own Off-leash dogs work without you
 
 A dog is **yours** when it works in your own workspace (not a hosted or
-shared-sign-in workspace), in a conversation no guest drives, and its latest
-person message is not from a local tool on your Mac. Then three things carry
-your authority, not only what you type: your routines, and what your
+shared-sign-in workspace), in a conversation no guest drives. Messages from a
+local tool on your Mac count as yours. Then three things carry your
+authority, not only what you type: your routines, and what your
 coordinator dog or any other of your dogs hands it (`start_thread`,
 `send_to_bot`, `ask_bot`, a room post and `coordinate_bots`). The handoff note
 says "one of <your name>'s own dogs, passing on <your name>'s instructions"
@@ -120,8 +120,7 @@ card and no wait:
   cannot see is refused too, with a request to write the literal path.
 
 Nothing changes for Heel or Auto-accept edits dogs, guests and the
-conversations they drive, hosted or shared workspaces, turns a local tool
-started, your Mac's own setting for `mac_*` and computer control, and a dog
+conversations they drive, hosted or shared workspaces, your Mac's own setting for `mac_*` and computer control, and a dog
 changing another dog or your team. On a later.dog that runs only on your Mac,
 your Off-leash dogs get the grant and the handoff authority, the reviewer's
 requests still reach you as cards (a dog's Full access answers those), and

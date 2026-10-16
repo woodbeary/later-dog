@@ -26,10 +26,11 @@ describe("the owner's Mac as a computer on a Cloud home", () => {
     expect(taskNeedsMac(42)).toBe(false);
   });
 
-  it("answers an offline Mac with the short result, not an error", () => {
-    expect(macSelectReply("mac", undefined, offline)).toEqual({ status: "offline", surface: "mac", message: "The Mac is offline right now" });
+  it("answers an offline Mac by telling the person to open the later.dog app, not with an error", () => {
+    expect(MAC_OFFLINE_RESULT).toContain("Open the later.dog app on your Mac.");
+    expect(macSelectReply("mac", undefined, offline)).toEqual({ status: "offline", surface: "mac", message: MAC_OFFLINE_RESULT });
     expect(macSelectReply("auto", "file in Downloads", offline)?.status).toBe("offline");
-    expect(macOfflineResult()).toEqual({ content: [{ type: "text", text: "The Mac is offline right now" }] });
+    expect(macOfflineResult()).toEqual({ content: [{ type: "text", text: MAC_OFFLINE_RESULT }] });
     expect(isMacOffline(Object.assign(new Error("x"), { macOffline: true }))).toBe(true);
     expect(isMacOffline(new Error("x"))).toBe(false);
   });

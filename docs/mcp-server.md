@@ -82,31 +82,23 @@ open them. Four tool arguments are refused on purpose: `section` on `create_bot`
 `update_channel`, because pack membership gives a dog its peers' reach and the pack's shared computer, so a token can put
 nothing in a pack and move nothing between packs.
 
-Messages sent with the token are never you:
+Messages sent with the token come from your own Mac, so dogs take them as yours:
 
-- They do not count as you being there, so they cannot answer a dog's question card by typing, cannot end a take-over,
-  and do not clear a dog's "nobody is at the keyboard" state. They are stored `via: "api"`.
-- **The dog reads them as a local tool's.** Its prompt shows the text, quoted, under "Message from a local tool on this
-  Mac (a script, Claude Code or Codex running here), not typed by the person", with the reminder that a tool cannot answer
-  its questions or approve anything. In a room's transcript the speaker is "A local tool on this Mac, not typed by …". Setup
-  and `/learn` commands in the text are not expanded. Heel, edits, Off-leash and Auto dogs all take these messages.
-- **A dog on Full access (or Custom) cannot be messaged by the token, nor can a room with one as a member.** Full access
-  acts without asking, so a dog that could read the token must not be able to drive it. The token cannot gather a room
-  with such a dog either (`POST /api/groups` and `PATCH /api/groups/:id` `memberIds`). You can still message those dogs and
-  rooms yourself, in the app.
+- **The dog reads them as your message.** Its prompt shows the text as you typed it, and in a room's transcript the
+  speaker is you. Every dog and room takes them, Full access included, and a conversation a local tool wrote in can still
+  use your Mac. They are stored `via: "api"`, and they do not count as you being at the keyboard, so they cannot answer a
+  dog's question card by typing, cannot end a take-over, and do not clear a dog's "nobody is at the keyboard" state.
 - **It may edit only messages that a local tool sent.** Editing yours is refused; the edited message keeps `via: "api"`.
 - **Its interrupts are recorded as a tool's.** A stop from the token ends a handoff tree with `endedBy: "api"` ("A local
   tool on this Mac stopped this work."), the chip says "stopped by a local tool", and it does not mark the stop as the
   person's for the dog's context.
-
-A dog created with the token always starts on Heel.
 
 Any program running as you on this Mac can read that file, a dog's shell included when its mode lets it read your files
 and reach the network. That is why the token can only do what the scripts do, why it cannot approve anything, answer a
 card or grant a permission, and why those need the desktop app (the owner header never leaves the app) or a paired
 device. `server/laterdog/local-tools-scope.test.ts` runs every MCP tool and checks that each change it sends is allowed,
 scans the server's source for its routes (over 300) and checks that exactly the allow-list's routes accept the token;
-`server/local-tools-token.e2e.test.ts` runs the scripts against a desktop-managed fixture with only the token, and checks the Full access refusals, the framing in the dog's real prompt, the edit limit, the pack refusal and the tool stop on real handlers.
+`server/local-tools-token.e2e.test.ts` runs the scripts against a desktop-managed fixture with only the token, and checks that it reaches Full access dogs and rooms, that the dog's real prompt carries the text as yours, the edit limit, the pack refusal and the tool stop on real handlers.
 
 ## Pairing a device or an MCP client from outside this Mac
 

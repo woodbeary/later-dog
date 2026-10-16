@@ -13,18 +13,16 @@ import { settleOwnerAutoPermission, type OwnerAutoPermissionDeps } from "./owner
 import type { GitLookup } from "./owner-guard.ts";
 import { sameEngineAcrossAccounts } from "./saved-command-engine.ts";
 
-const owner: OwnerAutoScope = { cloudHome: true, sharedWorkspace: false, guestDriven: false, lastPersonVia: undefined };
+const owner: OwnerAutoScope = { cloudHome: true, sharedWorkspace: false, guestDriven: false };
 
 describe("whose authority a dog's turn carries", () => {
   it("is the owner's for his own dogs, his routines and handoffs between his dogs", () => {
     expect(ownerAuthority(owner)).toBe(true);
-    expect(ownerAuthority({ ...owner, lastPersonVia: "call" })).toBe(true);
   });
 
-  it("is never the owner's for a guest, a shared workspace or a local tool", () => {
+  it("is never the owner's for a guest or a shared workspace", () => {
     expect(ownerAuthority({ ...owner, guestDriven: true })).toBe(false);
     expect(ownerAuthority({ ...owner, sharedWorkspace: true })).toBe(false);
-    expect(ownerAuthority({ ...owner, lastPersonVia: "api" })).toBe(false);
   });
 
   it("gives the standing grant only to Off-leash dogs, and answers for them only in the Cloud home", () => {
@@ -43,7 +41,6 @@ describe("whose authority a dog's turn carries", () => {
     expect(ownerSendsWithoutAsking("auto", { ...owner, cloudHome: false })).toBe(false);
     expect(ownerSendsWithoutAsking("full", { ...owner, guestDriven: true })).toBe(false);
     expect(ownerSendsWithoutAsking("auto", { ...owner, sharedWorkspace: true })).toBe(false);
-    expect(ownerSendsWithoutAsking("auto", { ...owner, lastPersonVia: "api" })).toBe(false);
   });
 });
 

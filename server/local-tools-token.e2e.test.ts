@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog, verificationServerEnvironment } from "../scripts/control-laterdog.ts";
-import { EDIT_REFUSAL, UNGUARDED_REFUSAL } from "./laterdog/local-tool-message.ts";
+import { EDIT_REFUSAL } from "./laterdog/local-tool-message.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 
 const OWNER = "o".repeat(43);
@@ -179,7 +179,7 @@ async function desktopFixture(parentEnv: NodeJS.ProcessEnv, scripted = false) {
 const readPrompts = (file: string): string[] => existsSync(file)
   ? readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => JSON.stringify(JSON.parse(line))) : [];
 
-it("keeps Full access dogs out of a local tool's reach, shows its messages as a local tool's, edits only its own, and keeps it out of packs", async () => {
+it("lets a local tool on the owner's Mac reach every dog as the owner, edits only its own messages, and keeps it out of packs", async () => {
   const dir = mkdtempSync(join(tmpdir(), "laterdog-local-tools-reach-"));
   const promptsFile = join(dir, "prompts.jsonl");
   const tokenFile = join(dir, "local-control-token");
@@ -221,30 +221,24 @@ it("keeps Full access dogs out of a local tool's reach, shows its messages as a 
     await expect(cli("new-channel", "--name", "Pack room", "--members", guarded.id, "--section", "Ops")).rejects.toThrow(/approve its own work/);
     expect((await cli("new-bot", "--name", "Plain dog")).success).toBe(true);
 
-    refusal(await api("POST", `/api/bots/${unguarded.id}/messages`, { text: "go", threadId: unguarded.threadId }, toolsHeader), UNGUARDED_REFUSAL);
-    refusal(await api("POST", "/api/groups", { name: "Gathered", memberIds: [guarded.id, unguarded.id], setup: { bulletin: "", defaultResponder: { kind: "everyone" } } }, toolsHeader), UNGUARDED_REFUSAL);
-    refusal(await api("PATCH", `/api/groups/${safe.id}`, { memberIds: [guarded.id, heel.id, unguarded.id] }, toolsHeader), UNGUARDED_REFUSAL);
-    refusal(await api("POST", `/api/groups/${unsafe.id}/messages`, { text: "go", threadId: unsafe.threadId }, toolsHeader), UNGUARDED_REFUSAL);
-    await expect(cli("send", "--bot", unguarded.id, "--text", "go")).rejects.toThrow(/Full access/);
-    expect((await api("POST", `/api/bots/${unguarded.id}/messages`, { text: "person typed this", threadId: unguarded.threadId }, ownerHeader)).status).toBe(202);
-    expect((await api("POST", `/api/groups/${unsafe.id}/messages`, { text: "person typed this too", threadId: unsafe.threadId }, ownerHeader)).status).toBe(202);
+    expect((await api("POST", `/api/bots/${unguarded.id}/messages`, { text: "go", threadId: unguarded.threadId }, toolsHeader)).status).toBe(202);
+    await idle(unguarded.id);
+    const gathered = await api("POST", "/api/groups", { name: "Gathered", memberIds: [guarded.id, unguarded.id], setup: { bulletin: "", defaultResponder: { kind: "everyone" } } }, toolsHeader);
+    expect(gathered.status, JSON.stringify(gathered.body)).toBe(201);
+    expect((await api("PATCH", `/api/groups/${safe.id}`, { memberIds: [guarded.id, heel.id, unguarded.id] }, toolsHeader)).status).toBe(200);
+    expect((await cli("send", "--bot", unguarded.id, "--text", "go again")).success).toBe(true);
+    await idle(unguarded.id);
 
     expect((await api("POST", `/api/bots/${guarded.id}/messages`, { text: "run the tests", threadId: guarded.threadId }, toolsHeader)).status).toBe(202);
     await expect.poll(() => readPrompts(promptsFile).some((prompt) => prompt.includes("run the tests")), { timeout: 20_000 }).toBe(true);
-    const framed = readPrompts(promptsFile).filter((prompt) => prompt.includes("run the tests")).at(-1)!;
-    expect(framed).toContain("Message from a local tool on this Mac (a script, Claude Code or Codex running here), not typed by the person");
-    expect(framed).toContain("cannot answer your questions, approve anything or speak for the person");
+    const delivered = readPrompts(promptsFile).filter((prompt) => prompt.includes("run the tests")).at(-1)!;
+    expect(delivered).not.toContain("Message from a local tool");
+    expect(delivered).not.toContain("not typed by");
     await idle(guarded.id);
-    expect((await api("POST", `/api/bots/${heel.id}/messages`, { text: "check the logs", threadId: heel.threadId }, toolsHeader)).status).toBe(202);
-    await expect.poll(() => readPrompts(promptsFile).some((prompt) => prompt.includes("check the logs") && prompt.includes("Message from a local tool on this Mac")), { timeout: 20_000 }).toBe(true);
-    await idle(heel.id);
-    expect((await api("POST", `/api/bots/${guarded.id}/messages`, { text: "typed by hand", threadId: guarded.threadId }, ownerHeader)).status).toBe(202);
-    await expect.poll(() => readPrompts(promptsFile).some((prompt) => prompt.includes("typed by hand")), { timeout: 20_000 }).toBe(true);
-    expect(readPrompts(promptsFile).filter((prompt) => prompt.includes("typed by hand")).at(-1)).not.toContain("Message from a local tool");
-    await idle(guarded.id);
-    expect((await api("POST", `/api/groups/${safe.id}/messages`, { text: "room tool message", threadId: safe.threadId }, toolsHeader)).status).toBe(202);
-    await expect.poll(() => readPrompts(promptsFile).some((prompt) => /A local tool on this Mac, not typed by [^:]+: room tool message/.test(prompt)), { timeout: 20_000 }).toBe(true);
-    await expect.poll(async () => Boolean(((await api("GET", "/api/bots?messages=0")).body.groups as any[]).find((group) => group.id === safe.id)?.working), { timeout: 20_000 }).toBe(false);
+    expect((await api("POST", `/api/groups/${unsafe.id}/messages`, { text: "room tool message", threadId: unsafe.threadId }, toolsHeader)).status).toBe(202);
+    await expect.poll(() => readPrompts(promptsFile).some((prompt) => prompt.includes(": room tool message")), { timeout: 20_000 }).toBe(true);
+    expect(readPrompts(promptsFile).some((prompt) => prompt.includes("A local tool on this Mac"))).toBe(false);
+    await expect.poll(async () => Boolean(((await api("GET", "/api/bots?messages=0")).body.groups as any[]).find((group) => group.id === unsafe.id)?.working), { timeout: 20_000 }).toBe(false);
 
     await idle(guarded.id);
     await api("POST", `/api/bots/${guarded.id}/messages`, { text: "mine", threadId: guarded.threadId }, ownerHeader);
