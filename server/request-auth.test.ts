@@ -102,6 +102,7 @@ describe("scopes", () => {
       ["GET", "/api/attachments/a.png"], ["POST", "/api/routines"], ["POST", "/api/routines/r/run"],
       ["POST", "/api/routine-runs/seen-all"],
       ["GET", "/api/helpers"], ["GET", "/api/bots"], ["GET", "/api/threads/t/messages"], ["GET", "/api/search"], ["GET", "/api/events"],
+      ["GET", "/api/threads/t/runs"], ["GET", "/api/threads/t/runs/r"], ["POST", "/api/threads/t/runs/r/actors/codex%3Achild/stop"],
       ["GET", "/api/config"], ["GET", "/api/webhooks"], ["POST", "/api/tts/speak"], ["POST", "/api/voice/transcribe"],
       ["GET", "/api/auth/session"], ["POST", "/api/auth/stream-ticket"], ["POST", "/api/auth/logout"],
       ["GET", "/api/bots/x/slack-management"],

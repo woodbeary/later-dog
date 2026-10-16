@@ -1,4 +1,5 @@
 import { CodexHelpers } from "./codex-helpers.ts";
+import { CodexNativeActivity, type CodexActorTarget } from "../laterdog/codex-native-activity.ts";
 import { codexToolSurfaceArgs } from "./codex-tool-surface.ts";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -661,6 +662,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     const listeners = new Set<RuntimeEventListener>();
     interface Turn {
       stop: () => Promise<boolean>;
+      stopNativeActor: (actor: CodexActorTarget) => Promise<void>;
       steer?: (text: string, images?: TurnImageInput[]) => Promise<SteerOutcome>;
       turnId: string;
       asks: Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>;
@@ -846,6 +848,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       let startingNativeTurn = false;
       const earlyNotifications: any[] = [];
       const helpers = new CodexHelpers(helper => emit({ ...base(threadId, turnId), type: "helper.updated", helper }));
+      const nativeActivity = new CodexNativeActivity(observation => emit({ ...base(threadId, turnId), type: "native.observed", observation }));
       const state = {
         settled: false,
         lastError: "",
@@ -861,6 +864,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       };
 
       const asks = new Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>();
+      const nativeRequests = new Map<string, { threadId: string | null; resolve: () => void }>();
       let nextId = 1;
       const sensitiveResponseIds = new Set<number>();
       const rpcPending = new Map<number, {
@@ -903,10 +907,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                   return;
                 }
                 codexTurnId = v.turn.id;
+                if (codexThreadId) nativeActivity.start(codexThreadId, codexTurnId!);
                 startingNativeTurn = false;
                 for (const notification of earlyNotifications.splice(0)) {
                   if (state.settled) break;
-                  handleNotification(notification);
+                  handleNotification(notification, false);
                 }
               }
               resolve(v);
@@ -966,6 +971,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const complete = () => {
           if (active.get(threadId)?.stop !== stop) return;
           active.delete(threadId);
+          nativeActivity.finish(ok);
           if (helpers.stop()) emit({ ...base(threadId, turnId), type: "runtime.error", message: "The remaining helpers stopped with this turn." });
           emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null, ...(state.usage ? { usage: state.usage } : {}) });
         };
@@ -1013,6 +1019,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           method === "item/commandExecution/requestApproval" ||
           method === "item/fileChange/requestApproval";
         if (!isQuestion && !isPermission) {
+          nativeActivity.notice(params, "Unsupported native request", `${method} could not be answered by later.dog.`);
           if (isMcpElicitation) {
             send({ jsonrpc: "2.0", id: msg.id, result: { action: "decline" } });
           } else {
@@ -1068,6 +1075,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               ? { permissions: allow ? grantedPermissions(params.permissions) : {}, scope: "turn" }
               : { decision: allow ? (legacy ? "approved" : "accept") : legacy ? "denied" : "decline" };
         if (autoAcceptPermissions && isPermission) {
+          nativeActivity.notice(params, "Permission allowed automatically", method);
           return send({
             jsonrpc: "2.0",
             id: msg.id,
@@ -1092,10 +1100,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                 : tool;
         const choices =
           isQuestion && protocolQuestions ? questionChoices(protocolQuestions.map(({ question }) => question)) : undefined;
-        const finish = (behavior: "allow" | "deny" | "answer", message?: string, source: "user" | "timeout" | "system" = "user") => {
+        const nativeActorId = nativeActivity.request(params, requestId, summary);
+        const finish = (behavior: "allow" | "deny" | "answer", message?: string, source: "user" | "timeout" | "system" = "user", alreadyResolved = false) => {
           if (!asks.delete(requestId)) return;
+          nativeRequests.delete(JSON.stringify(msg.id));
           clearTimeout(timer);
-          if (isQuestion) {
+          if (!alreadyResolved && isQuestion) {
             const mapped =
               behavior === "answer" && source === "user" && typeof message === "string"
                 ? questionAnswersById(message, protocolQuestions ?? [])
@@ -1103,14 +1113,15 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             const answers: Record<string, { answers: string[] }> = Object.create(null);
             for (const [id, answer] of Object.entries(mapped)) answers[id] = { answers: [answer] };
             send({ jsonrpc: "2.0", id: msg.id, result: { answers } });
-          } else {
+          } else if (!alreadyResolved) {
             send({
               jsonrpc: "2.0",
               id: msg.id,
               result: permissionResult(behavior === "allow"),
             });
           }
-          emit({ ...base(threadId, turnId), type: "request.resolved", requestId, behavior, source });
+          nativeActivity.request(params, requestId, summary, alreadyResolved ? "Resolved by Codex" : `${behavior} (${source})`);
+          emit({ ...base(threadId, turnId), type: "request.resolved", requestId, behavior, source, ...(nativeActorId ? { nativeActorId } : {}) });
         };
         const timer = setTimeout(
           () => finish("deny", isQuestion ? undefined : DENY_TIMEOUT_NOTE, "timeout"),
@@ -1118,10 +1129,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         );
         timer.unref?.();
         asks.set(requestId, finish);
+        nativeRequests.set(JSON.stringify(msg.id), { threadId: typeof params.threadId === "string" ? params.threadId : codexThreadId, resolve: () => finish("deny", "Codex resolved this request", "system", true) });
         emit({
           ...base(threadId, turnId),
           type: "request.opened",
           requestId,
+          ...(nativeActorId ? { nativeActorId } : {}),
           requestType: isQuestion ? "question" : "permission",
           tool,
           summary,
@@ -1178,8 +1191,14 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         state.lastErrorSetup ||= setup;
         emit({ ...base(threadId, turnId), type: "runtime.error", message, ...(setup ? { setup: true } : {}) });
       };
-      const handleNotification = (msg: any) => {
+      const handleNotification = (msg: any, observe = true) => {
         const p = msg.params ?? {};
+        if (observe) nativeActivity.receive(msg);
+        if (msg.method === "serverRequest/resolved") {
+          const pending = nativeRequests.get(JSON.stringify(p.requestId));
+          if (pending && pending.threadId === p.threadId) pending.resolve();
+          return;
+        }
         if (msg.method === "account/rateLimits/updated") {
           const next = p.rateLimits ?? {};
           state.rateLimits = { primary: next.primary ?? state.rateLimits?.primary, secondary: next.secondary ?? state.rateLimits?.secondary };
@@ -1477,14 +1496,21 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         void settle(false, "exit_before_result");
       });
 
-      active.set(threadId, { stop, turnId, asks, steer: steerActiveTurn });
+      const stopNativeActor = async (actor: CodexActorTarget) => {
+        if (state.settled || abandoned || stopRequested || child.exitCode !== null || child.signalCode !== null) throw new Error("This native run is no longer connected.");
+        const target = nativeActivity.stopTarget(actor);
+        await request("turn/interrupt", target, 10_000);
+      };
+      active.set(threadId, { stop, stopNativeActor, turnId, asks, steer: steerActiveTurn });
       if (attempt === 0) emit({ ...base(threadId, turnId), type: "turn.started" });
+      nativeActivity.capabilities();
 
       try {
-        await request("initialize", {
+        const initialized = await request("initialize", {
           clientInfo: { name: "laterdog", title: "later.dog", version: serverVersion() },
           capabilities: { experimentalApi: true },
         });
+        nativeActivity.capabilities(typeof initialized?.userAgent === "string" ? initialized.userAgent.match(/\b\d+\.\d+\.\d+(?:[-+][^\s()]+)?/)?.[0] : undefined);
         send({ jsonrpc: "2.0", method: "initialized", params: {} });
         let effectiveConfig: unknown;
         try {
@@ -1803,6 +1829,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       sendTurn,
       interruptTurn: async (threadId) => {
         await active.get(threadId)?.stop();
+      },
+      stopNativeActor: async (threadId, actor) => {
+        const turn = active.get(threadId);
+        if (!turn) throw new Error("This native run is no longer connected.");
+        await turn.stopNativeActor(actor);
       },
       steer: async (threadId, text, images) => {
         const turn = active.get(threadId);

@@ -25,6 +25,8 @@ import { foldExchanges, singleExchange } from "@/lib/quiet-lines";
 import { ExchangeLine } from "./QuietLines";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { TurnPresence } from "./TurnPresence";
+import { NativeWork, NativeWorkFallbacks } from "./NativeWork";
+import { nativeReceiptAnchors, useNativeRuns } from "@/lib/native-runs-state";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
@@ -196,6 +198,8 @@ export const Transcript = memo(function Transcript({
 }) {
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
+  const nativeRuns = useNativeRuns(group.threadId, messages[0]?.at);
+  const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   const items = useMemo(() => foldExchanges(groupActivityRuns(messages.filter(message =>
     message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), { openedOnly: true }), [messages, showToolCalls]);
@@ -427,9 +431,11 @@ export const Transcript = memo(function Transcript({
               <ClusterLabel bot={memberOf(m.from.botId)} name={memberOf(m.from.botId)?.name ?? m.from.name} color={memberOf(m.from.botId)?.color ?? m.from.color} tinted={readOnly} />
             )}
             {row}
+            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={memberOf(m.from?.botId)?.color} bodyId={memberOf(m.from?.botId)?.mascotBody} />)}
           </div>
         );
       })}
+      <NativeWorkFallbacks runs={nativeRuns} messages={messages} />
     </>
   );
 });

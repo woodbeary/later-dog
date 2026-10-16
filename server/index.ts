@@ -376,7 +376,11 @@ import { buildRecoveryText, buildTurnContext, engineIsFresh, NATIVELY_REPLAYING_
 import { Handoffs, handedStateUsable, recordHanded, renderUnseen, sessionStart, unseenMessages, withUnseenMessages, type ContextMessage } from "./delta-context.ts";
 import { extractTurnImages } from "./turn-images.ts";
 import { threadTitlePrompt, titleConversationExcerpt, type ThreadTitleSource } from "./thread-title.ts";
-import { HelperBoard } from "./laterdog/helper-board.ts";
+import { NativeRunProjector } from "./laterdog/native-run-projector.ts";
+import { NativeRunPublisher } from "./laterdog/native-run-publisher.ts";
+import { NativeRunStore } from "./laterdog/native-run-store.ts";
+import { nativeRunDatabase } from "./message-db.ts";
+import { createNativeRunRoutes } from "./routes/native-runs.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { TurnResources, type TurnOwner } from "./turn-resources.ts";
 import {
@@ -5327,7 +5331,17 @@ const GROUP_GOAL_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_GOAL_
 const COMPUTER_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_COMPUTER_WAIT_MAX_MS) || 30 * 60_000);
 const GROUP_GOAL_MAX_WAIT_EXHAUSTIONS = 3;
 const roomStallCompletions = new RoomTurnStallRegistry();
-const helperBoard = new HelperBoard();
+const nativeRunStore = new NativeRunStore(nativeRunDatabase);
+nativeRunStore.recoverInterrupted();
+const nativeRunPublisher = new NativeRunPublisher(run => broadcast({ kind: "native.run.updated", run }));
+const nativeRuns = new NativeRunProjector(nativeRunStore, run => nativeRunPublisher.publish(run), threadId => {
+  const bot = store.botByThread(threadId);
+  const speaker = groupSpeakers.get(threadId);
+  return { botId: bot?.id ?? speaker?.botId, label: bot?.name ?? speaker?.name };
+});
+bus.subscribe(event => {
+  if (!shouldIgnoreProviderEvent(event)) nativeRuns.observe(event);
+});
 const watchdog = new TurnWatchdog({
   helpersMaxMs: Math.max(1_000, Number(process.env.LATERDOG_HELPERS_MAX_MS) || 4 * 60 * 60_000),
   stallMs: TURN_STALL_MS,
@@ -5408,12 +5422,9 @@ watchdog.start();
 
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
-  if (event.type === "turn.started") helperBoard.start(event.threadId);
-  if (event.type === "helper.updated") {
-    helperBoard.update(event.threadId, event.helper);
-    watchdog.setWaitingOnHelpers(event.threadId, helperBoard.running(event.threadId));
+  if (event.type === "helper.updated" || event.type === "native.observed") {
+    watchdog.setWaitingOnHelpers(event.threadId, nativeRuns.running(event.threadId));
   }
-  if (event.type === "turn.completed") helperBoard.settle(event.threadId);
   watchdog.observeTool(event);
   if (event.type === "request.opened") watchdog.setWaitingOnHuman(event.threadId, true);
   else if (event.type === "request.resolved") watchdog.setWaitingOnHuman(event.threadId, false);
@@ -6654,6 +6665,7 @@ function recoverUnsettledTurn(event: RuntimeEvent, error: unknown): void {
 
 bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
+  if (event.type === "native.observed") return;
   const localVmTarget = localVmThreadTargets.get(event.threadId);
   if (localVmTarget) {
     localVmLeaseFor(localVmTarget).touch(event.threadId);
@@ -6948,6 +6960,9 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           options: event.choices?.length ? event.choices : permission ? ["Allow", "Deny"] : [],
           requestId: event.requestId,
           requestType: permission ? "permission" : "question",
+          nativeActorId: event.nativeActorId,
+          nativeActorLabel: event.nativeActorId ? nativeRuns.current(event.threadId)?.actors.find(actor => actor.id === event.nativeActorId)?.label : undefined,
+          nativeRunId: event.nativeActorId ? nativeRuns.current(event.threadId)?.id : undefined,
           tool: permission ? event.tool : undefined,
           questionRequest: questions
             ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
@@ -11256,10 +11271,7 @@ async function runGroupMemberTurn(
     let unsub = () => {};
     let unregisterStall = () => {};
     const deadline = new RoomTurnDeadline(timeoutMinutes, () => {
-      for (const helper of helperBoard.fail(threadId, "The room turn timed out; helper shutdown was requested.")) {
-        bus.publish({ type: "helper.updated", eventId: newId(), provider: instance.driverKind,
-          providerInstanceId: instance.instanceId, threadId, turnId: providerTurnId, createdAt: new Date().toISOString(), helper });
-      }
+      nativeRuns.interrupt(threadId, "The room turn timed out; helper shutdown was requested.");
       abandonProviderTurn();
       void instance.adapter.interruptTurn(threadId).catch(() => {});
       store.appendMessage(threadId, {
@@ -13835,10 +13847,22 @@ ROUTES.push(createJobTraceRoutes());
 ROUTES.push(typingSuggestions.routes);
 ROUTES.push(createLaterDogRoutes());
 ROUTES.push(createHelpersRoutes({
-  board: helperBoard,
+  board: nativeRuns,
   visibleThreads: auth => {
     const visible = visibleTo(viewerFor(auth));
     return threadId => visible.thread(threadId);
+  },
+}));
+ROUTES.push(createNativeRunRoutes({
+  store: nativeRunStore,
+  visibleThreads: auth => {
+    const visible = visibleTo(viewerFor(auth));
+    return threadId => visible.thread(threadId);
+  },
+  stop: async (run, actor) => {
+    const instance = run.providerInstanceId ? registry.get(run.providerInstanceId) : undefined;
+    if (!instance?.adapter.stopNativeActor) throw new Error("This harness does not offer individual helper interruption");
+    await instance.adapter.stopNativeActor(run.threadId, actor);
   },
 }));
 ROUTES.push(createDogHelloRoutes({
@@ -22320,7 +22344,7 @@ function sweepThreadEventLogsNow(): void {
       busy: threadBusy(bot.id, task.threadId),
       openDirectHandoff: roomHandoffs.activeDirect(task.threadId),
     })));
-  const swept = sweepThreadEventLogs(candidates, retentionDays);
+  const swept = sweepThreadEventLogs(candidates, retentionDays, Date.now(), threadId => nativeRunStore.pruneDetails(Date.now(), threadId));
   if (swept > 0) console.log(`[retention] removed event logs for ${swept} idle thread(s) past ${retentionDays} day(s)`);
 }
 

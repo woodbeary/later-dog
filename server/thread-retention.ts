@@ -22,6 +22,7 @@ export function sweepThreadEventLogs(
   candidates: Iterable<ThreadLogRetentionCandidate>,
   retentionDays: number,
   now: number = Date.now(),
+  pruneDetails?: (threadId: string) => void,
 ): number {
   const cutoff = now - retentionDays * DAY_MS;
   let swept = 0;
@@ -29,6 +30,7 @@ export function sweepThreadEventLogs(
     if (candidate.unread || candidate.busy || candidate.openDirectHandoff) continue;
     const since = idleSince(candidate);
     if (since === null || since >= cutoff) continue;
+    pruneDetails?.(candidate.threadId);
     let removedAny = false;
     for (const dir of [EVENTS_DIR, NATIVE_DIR]) {
       const path = join(dir, `${candidate.threadId}.ndjson`);

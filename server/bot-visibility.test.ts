@@ -192,6 +192,7 @@ describe("live frames for a member", () => {
       { kind: "group.deleted", groupId: "room-mixed" },
       { kind: "notify", notification: { botId: "hr", threadId: "t-hr" } },
       { kind: "runtime", event: { type: "content.delta", threadId: "t-hr" } },
+      { kind: "native.run.updated", run: { id: "run", threadId: "t-hr" } },
       { kind: "screen", botId: "hr", threadId: "t-hr", png: "…" },
       { kind: "computer", botId: "adm", state: "waking" },
       { kind: "computer-control", botId: "adm", held: true },
@@ -209,6 +210,8 @@ describe("live frames for a member", () => {
     const ctx = context(bob);
     const message = { kind: "message", threadId: "t-pub-2", message: { id: "x" } };
     expect(frameForMember(message, ctx, seen())).toBe(message);
+    const run = { kind: "native.run.updated", run: { id: "run", threadId: "t-pub-2" } };
+    expect(frameForMember(run, ctx, seen())).toBe(run);
     const hook = { kind: "webhook.attempt", attempt: { webhookId: "hook-pub" } };
     expect(frameForMember(hook, ctx, seen())).toBe(hook);
     expect(frameForMember({ kind: "sections", sections: ["Ops", "People"] }, ctx, seen())).toEqual({ kind: "sections", sections: ["Ops"] });

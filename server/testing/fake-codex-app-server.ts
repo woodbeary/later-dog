@@ -352,7 +352,7 @@ process.stdin.on("data", (chunk) => {
         dump();
         if (process.env.FAKE_CODEX_INTERRUPT_SILENT) break;
         out({ jsonrpc: "2.0", id: msg.id, result: {} });
-        notify("turn/completed", { turn: { status: "interrupted" } });
+        notify("turn/completed", { threadId: msg.params?.threadId ?? nativeThreadId, turn: { id: msg.params?.turnId ?? nativeTurnId, status: "interrupted" } });
         break;
       case "thread/start":
         dump();
@@ -691,6 +691,10 @@ process.stdin.on("data", (chunk) => {
             ? JSON.parse(process.env.FAKE_CODEX_APPROVAL_REQUEST)
             : { method: "execCommandApproval", params: { command: approvalCommand } };
           out({ jsonrpc: "2.0", id: 100, ...approval });
+          if (process.env.FAKE_CODEX_REQUEST_RESOLVED === "1") {
+            out({ jsonrpc: "2.0", method: "serverRequest/resolved", params: { threadId: approval.params?.threadId ?? nativeThreadId, requestId: 100 } });
+            finishTurn();
+          }
         } else {
           finishTurn();
           if (process.env.FAKE_CODEX_REVIEW_AFTER_COMPLETION) {

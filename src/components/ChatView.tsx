@@ -65,6 +65,8 @@ import { foldExchanges, expandedExchange, quietTranscriptItemShown } from "@/lib
 import { currentDogName, freshenDogName } from "@/lib/dog-refs";
 import { TreatButton } from "./TreatButton";
 import { TurnPresence } from "./TurnPresence";
+import { NativeWork, NativeWorkFallbacks } from "./NativeWork";
+import { nativeReceiptAnchors, useNativeRuns } from "@/lib/native-runs-state";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { transcriptRowShown } from "@/lib/room-activity";
 import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/mascot";
@@ -819,6 +821,8 @@ const MessagesList = memo(function MessagesList({
   unreadSince: number | null;
 }) {
   const { botId, threadId, botName, focus, showToolCalls, locale } = useChatRows();
+  const nativeRuns = useNativeRuns(threadId, messages[0]?.at);
+  const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
   const emerged = useRef(new Set<string>());
   if (emergingId) emerged.current.add(emergingId);
@@ -869,6 +873,7 @@ const MessagesList = memo(function MessagesList({
                       replyTarget={lookups.replyTarget(message)}
                       onReply={onReply}
                     />
+                    {receipts.get(message.id)?.map(run => <NativeWork key={run.id} run={run} />)}
                   </div>
                 ))}
               </TurnNarrationRun>
@@ -977,9 +982,11 @@ const MessagesList = memo(function MessagesList({
             {newDay && <DaySeparator at={m.at} today={today} />}
             {unreadDivider([m])}
             {row}
+            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} />)}
           </div>
         );
       })}
+      <NativeWorkFallbacks runs={nativeRuns} messages={messages} />
     </>
   );
 });

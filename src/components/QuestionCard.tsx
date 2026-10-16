@@ -143,6 +143,7 @@ export function QuestionCard({
       <div className="flex items-center justify-between gap-3">
         <div className="text-[14px] font-medium text-ink">
           {bot ? t("question.card.named", { name: bot.name }) : t("question.card.title")}
+          {card.nativeActorLabel && <p className="mt-1 text-[11px] font-normal text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
         </div>
         {!settled && (
           <div className="-my-1 -mr-1 flex shrink-0 items-center gap-2">

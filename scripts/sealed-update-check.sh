@@ -3,6 +3,8 @@ set -euo pipefail
 
 OLD="${1:?older release tag, for example v0.3.21}"
 PORT="${2:-19345}"
+CANDIDATE="${3:-}"
+if [ -n "$CANDIDATE" ]; then CANDIDATE=$(cd "$CANDIDATE" && pwd); fi
 REPO="woodbeary/later-dog"
 TRIAL_API="https://cloud.later.dog/v1"
 JOB="dog.later.app.ShipIt"
@@ -12,6 +14,8 @@ ROOT=$(mktemp -d /tmp/laterdog-sealed.XXXXXX)
 SEALED="$ROOT/home"
 APP="$ROOT/run/later.dog.app"
 APP_PID=""
+FEED_PID=""
+UPDATE_URL=""
 touch "$ROOT/started"
 exec 3>&1 4>&2
 
@@ -30,6 +34,7 @@ cleanup() {
     rm -f "$header"
   fi
   [ -n "$APP_PID" ] && kill -KILL "$APP_PID" 2>/dev/null
+  [ -n "$FEED_PID" ] && kill "$FEED_PID" 2>/dev/null
   pkill -KILL -f "$ROOT/run/" 2>/dev/null
   launchctl list "$JOB" >/dev/null 2>&1 && launchctl remove "$JOB" && echo "removed the copy's installer job"
   changed=$(find "$REAL_HOME/.laterdog" "$REAL_HOME/Library/Application Support/later.dog" -newer "$ROOT/started" -type f 2>/dev/null | grep -cv "/task-workspaces/")
@@ -73,11 +78,37 @@ ditto -x -k later.dog-macOS-arm64.zip "$ROOT/run/"
 codesign --verify --deep --strict "$APP"
 version_of() { /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist" 2>/dev/null; }
 OLD_VERSION=$(version_of)
-NEW_VERSION=$(gh release view --repo "$REPO" --json tagName -q .tagName | sed 's/^v//')
+if [ -n "$CANDIDATE" ]; then
+  NEW_VERSION=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$CANDIDATE/candidate.json")
+  mkdir -p "$ROOT/feed"
+  cp "$CANDIDATE/later.dog-macOS-arm64.zip" "$ROOT/feed/"
+  python3 -I - "$CANDIDATE/candidate.json" "$ROOT/feed" "$ROOT/feed-port" <<'PY' &
+import base64, functools, hashlib, http.server, json, pathlib, sys
+candidate = json.load(open(sys.argv[1]))
+directory = pathlib.Path(sys.argv[2])
+name = "later.dog-macOS-arm64.zip"
+data = (directory / name).read_bytes()
+if hashlib.sha256(data).hexdigest() != candidate["files"][name]["sha256"]:
+    sys.exit("candidate zip does not match its manifest")
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory)))
+digest = base64.b64encode(hashlib.sha512(data).digest()).decode()
+url = f"http://127.0.0.1:{server.server_port}/{name}"
+(directory / "latest-mac.yml").write_text(f'version: {json.dumps(candidate["version"])}\nfiles:\n  - url: {json.dumps(url)}\n    sha512: {json.dumps(digest)}\n    size: {len(data)}\npath: {json.dumps(url)}\nsha512: {json.dumps(digest)}\n')
+pathlib.Path(sys.argv[3]).write_text(str(server.server_port))
+server.serve_forever()
+PY
+  FEED_PID=$!
+  for _ in $(seq 1 20); do [ -s "$ROOT/feed-port" ] && break; kill -0 "$FEED_PID" 2>/dev/null || break; sleep 0.2; done
+  [ -s "$ROOT/feed-port" ] || { echo 'candidate update feed did not start'; exit 1; }
+  UPDATE_URL="http://127.0.0.1:$(cat "$ROOT/feed-port")/"
+else
+  NEW_VERSION=$(gh release view --repo "$REPO" --json tagName -q .tagName | sed 's/^v//')
+fi
 [ "$OLD_VERSION" != "$NEW_VERSION" ] || { echo "$OLD is already the newest release"; exit 1; }
 
 launch() {
   env -i HOME="$SEALED" CFFIXED_USER_HOME="$SEALED" LATERDOG_HOME="$SEALED/.laterdog" TMPDIR="$SEALED/tmp" \
+    LATERDOG_UPDATE_URL="$UPDATE_URL" \
     LATERDOG_SUPERVISOR_URL=http://127.0.0.1:9 LATERDOG_TOKEN=sealed-installed-check \
     PATH=/usr/bin:/bin:/usr/sbin:/sbin USER="$USER" LANG=en_US.UTF-8 \
     "$APP/Contents/MacOS/later.dog" --no-sandbox --use-mock-keychain --remote-debugging-port="$PORT" >>"$ROOT/app.log" 2>&1 &

@@ -2,6 +2,7 @@
 import { act, createElement, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+vi.mock("@/lib/native-runs-state", () => ({ useNativeRuns: () => [], receiveNativeRun: () => {}, forgetNativeRuns: () => {}, refreshNativeRuns: () => {}, nativeReceiptAnchors: () => new Map() }));
 import { TurnPresence } from "./TurnPresence";
 import { ActivityPeek } from "./ActivityPeek";
 import { forgetHelpers, receiveHelperEvent } from "@/lib/helpers-state";

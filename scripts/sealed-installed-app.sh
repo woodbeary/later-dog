@@ -3,6 +3,11 @@ set -euo pipefail
 
 TAG="${1:?release tag, for example v0.3.17}"
 PORT="${2:-19344}"
+CANDIDATE=""
+if [ -d "$TAG" ]; then
+  CANDIDATE=$(cd "$TAG" && pwd)
+  TAG=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["tag"])' "$CANDIDATE/candidate.json")
+fi
 REPO="woodbeary/later-dog"
 TRIAL_API="https://cloud.later.dog/v1"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
@@ -54,9 +59,18 @@ if [ -n "${LATERDOG_TRIAL_GRANT_KEY_FILE:-}" ]; then
   echo "granted the copy its own free trial"
 fi
 cd "$ROOT/dl"
-gh release download "$TAG" --repo "$REPO" \
-  --pattern 'later.dog-macOS-arm64.zip' --pattern 'SHA256SUMS.txt' --pattern 'latest-mac.yml'
+if [ -n "$CANDIDATE" ]; then
+  cp "$CANDIDATE/later.dog-macOS-arm64.zip" "$CANDIDATE/later.dog-macOS-arm64.dmg" "$CANDIDATE/SHA256SUMS.txt" "$CANDIDATE/latest-mac.yml" .
+else
+  gh release download "$TAG" --repo "$REPO" \
+    --pattern 'later.dog-macOS-arm64.zip' --pattern 'later.dog-macOS-arm64.dmg' --pattern 'SHA256SUMS.txt' --pattern 'latest-mac.yml'
+fi
 awk '$2 == "later.dog-macOS-arm64.zip"' SHA256SUMS.txt | shasum -a 256 -c -
+awk '$2 == "later.dog-macOS-arm64.dmg"' SHA256SUMS.txt | shasum -a 256 -c -
+hdiutil verify later.dog-macOS-arm64.dmg
+codesign --verify --strict later.dog-macOS-arm64.dmg
+xcrun stapler validate later.dog-macOS-arm64.dmg
+spctl -a -vv -t open --context context:primary-signature later.dog-macOS-arm64.dmg
 python3 -I - latest-mac.yml later.dog-macOS-arm64.zip <<'EOF'
 import base64, hashlib, re, sys
 manifest = open(sys.argv[1]).read()

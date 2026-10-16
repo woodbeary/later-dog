@@ -1775,6 +1775,47 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("--dangerously-skip-permissions");
   });
 
+  it.each(["2.1.210", "2.1.211"])("gates native child text forwarding for Claude %s", async (version) => {
+    const dump = join(scratch, "forwarding.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
+    await instance.adapter.sendTurn({ threadId: "t-forwarding", text: "hi" });
+    await recorder.until(e => e.type === "turn.completed");
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv.includes("--forward-subagent-text")).toBe(version === "2.1.211");
+  });
+
+  it("keeps native child content and usage out of the parent while preserving its activity", async () => {
+    const cli = join(scratch, "native-activity.mjs");
+    writeFileSync(cli, [
+      "#!/usr/bin/env node",
+      "if (process.argv.includes('--version')) { console.log('2.1.293 (Claude Code)'); process.exit(0); }",
+      "const emit = (event) => console.log(JSON.stringify({ session_id: 'native-session', ...event }));",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', () => {",
+      "emit({ type: 'system', subtype: 'init', model: 'test' });",
+      "emit({ type: 'system', subtype: 'task_started', task_id: 'child', run_id: '01', tool_use_id: 'spawn', task_type: 'local_agent', spawn_depth: 1, description: 'Check sources' });",
+      "emit({ type: 'assistant', uuid: 'child-message', agent_id: 'child', parent_tool_use_id: 'spawn', message: { id: 'child-output', content: [{ type: 'thinking', thinking: 'Child thinking' }, { type: 'text', text: 'Child answer' }, { type: 'tool_use', id: 'child-search', name: 'WebSearch', input: { query: 'Source' } }], usage: { input_tokens: 9999, output_tokens: 777 } } });",
+      "emit({ type: 'user', uuid: 'child-result', agent_id: 'child', parent_tool_use_id: 'spawn', message: { content: [{ type: 'tool_result', tool_use_id: 'child-search', content: 'Search complete' }] } });",
+      "emit({ type: 'system', subtype: 'task_notification', task_id: 'child', run_id: '01', status: 'completed' });",
+      "emit({ type: 'assistant', uuid: 'parent-message', message: { id: 'parent-output', content: [{ type: 'text', text: 'Parent answer' }], usage: { input_tokens: 42, output_tokens: 8 } } });",
+      "emit({ type: 'result', subtype: 'success', result: 'Parent answer', total_cost_usd: 0.01, usage: { input_tokens: 42, output_tokens: 8 } });",
+      "});",
+    ].join("\n"), { mode: 0o755 });
+    await create(undefined, {}, { cli });
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-native-child", text: "Check sources" });
+    await recorder.until(e => e.type === "turn.completed");
+    expect(recorder.events.filter(e => e.type === "item.completed" && e.itemType === "assistant_text")).toEqual([expect.objectContaining({ text: "Parent answer" })]);
+    expect(recorder.events.filter(e => e.type === "thread.token-usage.updated")).toEqual([expect.objectContaining({ input: 42, output: 8, contextTokens: 42 })]);
+    expect(recorder.events.some(e => e.type === "item.started" && e.itemType === "tool" && e.itemId === "child-search")).toBe(false);
+    const observed = recorder.events.filter(e => e.type === "native.observed");
+    expect(observed.every(e => e.turnId === turnId)).toBe(true);
+    expect(observed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ observation: { kind: "activity", activity: expect.objectContaining({ kind: "reasoning", text: "Child thinking" }) } }),
+      expect.objectContaining({ observation: { kind: "activity", activity: expect.objectContaining({ kind: "message", text: "Child answer" }) } }),
+      expect.objectContaining({ observation: { kind: "activity", activity: expect.objectContaining({ kind: "search", state: "done" }) } }),
+    ]));
+  });
+
   it.each([false, true])("holds helpers open and resumes exactly once (reordered: %s)", async (reorder) => {
     const gate = join(scratch, "helpers-finish");
     await create("puppies", { FAKE_CLAUDE_PUPPIES_GATE: gate, FAKE_CLAUDE_PUPPIES_STAGGER_MS: "10", FAKE_CLAUDE_PUPPIES_REORDER: reorder ? "1" : "0", FAKE_CLAUDE_PUPPIES_ECHO: "1" });

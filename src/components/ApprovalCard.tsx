@@ -380,6 +380,7 @@ export function ApprovalCard({
         </div>
       </div>
       {outbound?.summary && <div className="mt-0.5 text-[13px] text-ink-secondary">{outbound.summary}</div>}
+      {card.nativeActorLabel && <p className="mt-1 text-[11px] text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
 
       <details className="group mt-1.5 text-[13px] text-ink-secondary">
       <summary className="flex w-fit cursor-pointer list-none items-center gap-1 hover:text-ink">{t("approval.viewDetails")}<ChevronRight size={13} className="transition-transform group-open:rotate-90" aria-hidden="true" /></summary>

@@ -120,6 +120,16 @@ const stringOrMissing = (value: unknown) => value === undefined || typeof value 
 const stringOrNullOrMissing = (value: unknown) => value === undefined || value === null || typeof value === "string";
 const numberOrNullOrMissing = (value: unknown) => value === undefined || value === null || typeof value === "number";
 const stringsOrMissing = (value: unknown) => value === undefined || (Array.isArray(value) && value.every((item) => typeof item === "string"));
+const finiteNumber = (value: unknown) => typeof value === "number" && Number.isFinite(value);
+const nativeState = (value: unknown) => typeof value === "string" && ["running", "waiting", "paused", "done", "failed", "stopped"].includes(value);
+const labeledState = (value: unknown): value is Record<string, unknown> => isRecord(value) && typeof value.id === "string" && typeof value.label === "string" && nativeState(value.state);
+const nativeObservation = (value: unknown): boolean => {
+  if (!isRecord(value)) return false;
+  if (value.kind === "capabilities") return stringOrMissing(value.version) && Array.isArray(value.limitations) && value.limitations.every(item => typeof item === "string") && (value.handlesParentActivity === undefined || typeof value.handlesParentActivity === "boolean");
+  if (value.kind === "actor") return labeledState(value.actor) && ["parent", "subagent", "task", "workflow"].includes(String(value.actor.kind)) && finiteNumber(value.actor.startedAt) && stringOrMissing(value.actor.parentId);
+  if (value.kind === "activity") return labeledState(value.activity) && typeof value.activity.actorId === "string" && ["tool", "search", "reasoning", "message", "plan", "hook", "compaction", "request", "notice"].includes(String(value.activity.kind)) && finiteNumber(value.activity.startedAt) && (value.append === undefined || value.append === "text" || value.append === "output");
+  return false;
+};
 const computerHolderOrMissing = (value: unknown) =>
   value === undefined ||
   (isRecord(value) && typeof value.name === "string" && stringOrMissing(value.task));
@@ -145,13 +155,22 @@ export function isRuntimeEvent(value: unknown): value is RuntimeEvent {
     !stringOrMissing(value.providerInstanceId) ||
     !stringOrMissing(value.turnId) ||
     !stringOrMissing(value.itemId) ||
-    !stringOrMissing(value.requestId)
+    !stringOrMissing(value.requestId) ||
+    !stringOrMissing(value.nativeActorId)
   ) return false;
   switch (value.type) {
     case "session.started":
       return (value.sessionId === null || typeof value.sessionId === "string") && stringOrNullOrMissing(value.model);
     case "session.exited":
       return stringOrMissing(value.reason);
+    case "session.model-variants":
+      return typeof value.model === "string" && isRecord(value.variants) && Array.isArray(value.variants.options) && value.variants.options.every(option => isRecord(option) && typeof option.id === "string" && typeof option.label === "string") && stringOrMissing(value.variants.currentValue);
+    case "cap.exhausted":
+      return typeof value.handoffPath === "string" && value.reason === "cap";
+    case "native.observed":
+      return nativeObservation(value.observation);
+    case "helper.updated":
+      return labeledState(value.helper) && (value.helper.kind === "agent" || value.helper.kind === "workflow") && typeof value.helper.background === "boolean" && finiteNumber(value.helper.startedAt) && (value.helper.members === undefined || (Array.isArray(value.helper.members) && value.helper.members.every(labeledState)));
     case "turn.started":
       return true;
     case "turn.retrying":
@@ -189,7 +208,7 @@ export function isRuntimeEvent(value: unknown): value is RuntimeEvent {
     case "item.updated":
       return (value.itemType === "tool" || value.itemType === "reasoning") && numberOrNullOrMissing(value.tokens);
     case "item.completed":
-      return value.itemType === "assistant_text" ? typeof value.text === "string" : value.itemType === "tool" && typeof value.ok === "boolean";
+      return value.itemType === "assistant_text" ? typeof value.text === "string" : value.itemType === "assistant_image" ? typeof value.data === "string" && stringOrMissing(value.alt) : value.itemType === "tool" && typeof value.ok === "boolean";
     case "content.delta":
       return (value.streamKind === "assistant_text" || value.streamKind === "reasoning_text") && typeof value.delta === "string";
     case "request.opened":

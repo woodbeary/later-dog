@@ -1,5 +1,6 @@
 import type { AskQuestion } from "./ask-question.ts";
 import type { Helper } from "./helpers.ts";
+import type { NativeObservation } from "./native-runs.ts";
 
 export type DriverKind = string;
 export type InstanceId = string;
@@ -25,6 +26,7 @@ export interface RuntimeEventBase {
   turnId?: TurnId;
   itemId?: string;
   requestId?: string;
+  nativeActorId?: string;
   raw?: { source: string; payload: unknown };
   synthetic?: boolean;
 }
@@ -112,6 +114,7 @@ export type RuntimeEvent = RuntimeEventBase &
       }
     | { type: "runtime.notice"; message: string }
     | { type: "helper.updated"; helper: Helper }
+    | { type: "native.observed"; observation: NativeObservation }
   );
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void;

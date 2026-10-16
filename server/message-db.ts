@@ -8,6 +8,7 @@ import type { ResolvedSender, SteerQueueReason } from "../shared/wire.ts";
 import type { Message } from "./store.ts";
 import type { UsageTrigger } from "./usage-ledger.ts";
 import { rollbackQuietly } from "./laterdog/safe-rollback.ts";
+import { ensureNativeRuns, deleteNativeRuns } from "./laterdog/native-run-store.ts";
 import { MessageSearchWorker } from "./message-search-worker.ts";
 import { searchMessagesInDatabase, type SearchHit } from "./message-search-query.ts";
 export type { SearchHit } from "./message-search-query.ts";
@@ -65,6 +66,7 @@ function open(): DatabaseSync {
   `);
   ensureRecallIndex(db);
   ensureMemoryIndex(db);
+  ensureNativeRuns(db);
   return db;
 }
 
@@ -443,11 +445,17 @@ export function latestMessageAts(threadIds: readonly string[]): Map<string, numb
 
 export function deleteThread(threadId: string): void {
   writeFollowups((connection) => {
+    deleteNativeRuns(connection, threadId);
     connection.prepare("DELETE FROM chat_followups WHERE thread_id = ?").run(threadId);
     connection.prepare("DELETE FROM messages WHERE thread_id = ?").run(threadId);
     connection.prepare("DELETE FROM thread_state WHERE thread_id = ?").run(threadId);
   });
 }
+
+export const nativeRunDatabase = {
+  read: <T>(read: (database: DatabaseSync) => T): T => read(db()),
+  write: <T>(write: (database: DatabaseSync) => T): T => transaction(write),
+};
 
 export function threadsReferencing(fragment: string): string[] {
   if (!fragment) return [];

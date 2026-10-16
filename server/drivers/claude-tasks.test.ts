@@ -5,6 +5,33 @@ import type { Helper } from "../../shared/helpers.ts";
 const start = { subtype: "task_started", task_id: "a", task_type: "local_agent", description: "Check the outline", is_backgrounded: true };
 
 describe("Claude helpers", () => {
+  it("tracks resumed generations separately and ignores late older-run completion", () => {
+    const emitted: Helper[] = [];
+    const tasks = new ClaudeTasks(helper => emitted.push(helper));
+    tasks.receive({ ...start, run_id: "01" });
+    tasks.receive({ subtype: "task_notification", task_id: "a", run_id: "01", status: "completed" });
+    expect(tasks.takeContinuation()).toBe(true);
+    tasks.receive({ ...start, run_id: "02" });
+    expect(tasks.backgroundRunning()).toBe(true);
+    expect(emitted.at(-1)).toMatchObject({ id: "a:run:02", state: "running" });
+    tasks.receive({ subtype: "task_notification", task_id: "a", run_id: "01", status: "failed" });
+    expect(tasks.backgroundRunning()).toBe(true);
+    tasks.receive({ subtype: "task_notification", task_id: "a", run_id: "02", status: "completed" });
+    expect(tasks.takeContinuation()).toBe(true);
+  });
+
+  it("accepts background patches, excludes ambient watches and marks paused legacy rows explicitly", () => {
+    const before = mapClaudeTask(undefined, { ...start, is_backgrounded: false })!;
+    const paused = mapClaudeTask(before, { task_id: "a", subtype: "task_updated", patch: { status: "paused", is_backgrounded: true } })!;
+    expect(paused).toMatchObject({ state: "stopped", activity: "Paused", background: true });
+    expect(mapClaudeTask(paused, { task_id: "a", subtype: "task_updated", patch: { status: "running" } })?.state).toBe("running");
+    expect(mapClaudeTask(before, { task_id: "a", subtype: "task_updated", patch: { status: "killed" } })?.state).toBe("stopped");
+    const tasks = new ClaudeTasks(() => {});
+    tasks.receive({ ...start, ambient: true });
+    expect(tasks.running()).toBe(false);
+    expect(tasks.backgroundRunning()).toBe(false);
+  });
+
   it("maps foreground agents, workflow phases and usage without prompts or output paths", () => {
     expect(mapClaudeTask(undefined, { ...start, is_backgrounded: false }, 10)).toMatchObject({ kind: "agent", background: false, startedAt: 10 });
     const flow = mapClaudeTask(undefined, { ...start, task_type: "local_workflow", prompt: "private", output_file: "/private" }, 10)!;

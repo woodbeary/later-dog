@@ -127,6 +127,13 @@ describe("permission proxy", () => {
     expect(res.result.tools.map((tool: any) => tool.name)).toEqual(["approve", "ask_user"]);
   });
 
+  it.each(["Read", "AskUserQuestion"])("retains native invocation identity for %s approvals", async (tool) => {
+    answerWith = () => ({ behavior: tool === "AskUserQuestion" ? "answer" : "allow", source: "user", message: "React" });
+    rpc({ jsonrpc: "2.0", id: 50, method: "tools/call", params: { name: "approve", arguments: { tool_name: tool, input: tool === "AskUserQuestion" ? QUESTION : { file_path: "notes.md" }, tool_use_id: "native-tool", agent_id: "native-agent" } } });
+    await waitFor(50);
+    expect(asks[0]).toMatchObject({ tool_use_id: "native-tool", agent_id: "native-agent" });
+  });
+
   it("asks AskUserQuestion as ONE question card carrying every question it posed", async () => {
     answerWith = () => ({
       behavior: "answer",
