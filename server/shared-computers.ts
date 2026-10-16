@@ -8,6 +8,8 @@ export const sharedComputerRegistration = z.object({
   id: z.string().uuid(), name: z.string().min(1).max(120), environmentId: z.string().uuid(),
   folders: z.array(folder).max(20), terminal: z.boolean(), computer: z.boolean(), home: z.boolean().optional(),
 }).strict().refine(registration => !registration.home || registration.folders.length === 1, { message: "A home grant lends exactly one folder" });
+export const MAX_SHARED_COMMAND = 8000;
+
 export const sharedComputerOperation = z.object({
   computer_id: z.string().uuid().optional(),
   action: z.enum(["list_files", "read_file", "write_file", "run_command", "computer_tools", "computer_call"]),
@@ -15,9 +17,19 @@ export const sharedComputerOperation = z.object({
   content: z.string().max(350_000).optional(), encoding: z.enum(["utf8", "base64"]).optional(),
   expected_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   offset: z.number().int().min(0).max(64 * 1024 * 1024).optional(), length: z.number().int().min(1).max(256 * 1024).optional(),
-  command: z.string().max(8000).optional(), tool_name: z.string().max(100).optional(),
+  command: z.string().max(MAX_SHARED_COMMAND).optional(), tool_name: z.string().max(100).optional(),
   arguments: z.record(z.string(), z.unknown()).optional(),
 }).strict();
+
+export function sharedComputerOperationProblem(body: unknown, error: z.ZodError): string {
+  const command = (body as { command?: unknown } | null)?.command;
+  if (typeof command === "string" && command.length > MAX_SHARED_COMMAND) {
+    return `run_command takes at most ${MAX_SHARED_COMMAND} characters and this one has ${command.length}. Split it, and write a long file in parts (cat > file for the first part, cat >> file for the rest).`;
+  }
+  const fields = [...new Set(error.issues.map((issue) => issue.path.join(".") || "body"))];
+  return `Invalid shared computer operation: check ${fields.join(", ")}.`;
+}
+
 type Registration = z.infer<typeof sharedComputerRegistration>;
 type Operation = z.infer<typeof sharedComputerOperation>;
 export type SharedComputerRegistration = Registration;
