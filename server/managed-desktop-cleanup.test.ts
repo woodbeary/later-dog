@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import { expect, it } from "vitest";
+import { stoppedWorkLine } from "./laterdog/long-work.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 function section(start: string, end: string) {
@@ -78,6 +79,7 @@ function fixture(kind: "direct" | "group", threadIds = ["first"]) {
     turnResourceOwners: owners, directTurnGenerationByThread: generations, directTurnBots: directBots, groupSpeakers: speakers,
     directRequestOwners: new Map(),
     accountBattery: { pending: (threadId: string, generation: string) => pendingBatteryTurns.get(threadId) === generation },
+    stoppedWorkLine,
     cancelBatteryContinuation: (threadId: string, reason: string) => {
       cancelledBatteryTurns.push({ threadId, reason });
       pendingBatteryTurns.delete(threadId);

@@ -18,6 +18,7 @@ import {
   expireStaleDelegations,
   findDelegationReceipt,
   formatDelegationElapsed,
+  MAX_QUEUED_PER_THREAD,
   pendingDelegationInfo,
   pendingDelegationSnapshot,
   queueDelegation,
@@ -137,6 +138,16 @@ describe("queueDelegation", () => {
     expect(_pendingCount(from.threadId)).toBe(6);
     const sibling = store.createTask(from.id, "Separate work", false)!;
     expect(queueDelegation(commsBus, from, item, 1, sibling.threadId).result).toBe("ok");
+  });
+
+  it("lets the owner's turn queue up to its own teammate-thread limit", () => {
+    const item = { toBotId: target.id, message: "next task", depth: 0 };
+    for (let index = 0; index < 40; index++) {
+      expect(queueDelegation(commsBus, from, item, 1, from.threadId, 40).result).toBe("ok");
+    }
+    expect(queueDelegation(commsBus, from, item, 1, from.threadId, 40).result).toBe("too_many");
+    expect(_pendingCount(from.threadId)).toBe(40);
+    expect(MAX_QUEUED_PER_THREAD).toBe(6);
   });
 
   it("queues, broadcasts, and drops a 'Delegated to @Target' chip on the source thread", () => {
@@ -1529,6 +1540,18 @@ describe("peer wake helpers", () => {
     expect(budget.tryAcquire("t2")).toBe(true);
 
     now += DELEGATION_WAKE_WINDOW_MS + 1;
+    expect(budget.tryAcquire("t1")).toBe(true);
+  });
+
+  it("DelegationWakeBudget says when a thread over the rate may be woken again", () => {
+    let now = 1_000_000;
+    const budget = new DelegationWakeBudget(() => now);
+    expect(budget.retryAt("t1")).toBe(now);
+    for (let i = 0; i < DELEGATION_WAKE_MAX_PER_WINDOW; i++) budget.tryAcquire("t1");
+    now += 60_000;
+    expect(budget.tryAcquire("t1")).toBe(false);
+    expect(budget.retryAt("t1")).toBe(1_000_000 + DELEGATION_WAKE_WINDOW_MS);
+    now = budget.retryAt("t1");
     expect(budget.tryAcquire("t1")).toBe(true);
   });
 

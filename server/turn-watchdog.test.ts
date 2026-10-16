@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TurnWatchdog, type WatchedTurn } from "./turn-watchdog.ts";
+import { DEFAULT_TOOL_MAX_MS, TurnWatchdog, toolRunningSince, type WatchedTurn } from "./turn-watchdog.ts";
 
 const STALL = 10_000;
 
@@ -120,5 +120,63 @@ describe("TurnWatchdog", () => {
     tick(STALL);
     dog.sweep();
     expect(stalls).toEqual([expect.objectContaining({ botId: "bot2" })]);
+  });
+
+  it("counts a tool call that is still running as alive, however quiet it is", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    dog.observeTool({ type: "item.started", threadId: "t1", itemType: "tool", itemId: "bash-1" });
+    tick(STALL * 30);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    expect(toolRunningSince(dog.snapshot("t1")!)).toBe(0);
+    dog.observeTool({ type: "item.completed", threadId: "t1", itemType: "tool", itemId: "bash-1" });
+    expect(toolRunningSince(dog.snapshot("t1")!)).toBeUndefined();
+    tick(STALL - 1);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    tick(2);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
+  });
+
+  it("keeps a turn alive while any of its parallel tools still runs, and ignores reasoning items", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    dog.observeTool({ type: "item.started", threadId: "t1", itemType: "reasoning", itemId: "think" });
+    dog.observeTool({ type: "item.started", threadId: "t1", itemType: "tool", itemId: "a" });
+    dog.observeTool({ type: "item.started", threadId: "t1", itemType: "tool", itemId: "b" });
+    dog.observeTool({ type: "item.completed", threadId: "t1", itemType: "tool", itemId: "a" });
+    tick(STALL * 5);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    dog.observeTool({ type: "item.completed", threadId: "t1", itemType: "tool", itemId: "b" });
+    tick(STALL + 1);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
+  });
+
+  it("still stops a tool that runs past its own time limit, and says so", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    dog.toolStarted("t1", "stuck");
+    tick(DEFAULT_TOOL_MAX_MS - 1);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    tick(1);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
+    expect(dog.toolOverran(stalls[0]!)).toBe(true);
+  });
+
+  it("forgets running tools when the turn settles", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    dog.toolStarted("t1", "bash-1");
+    dog.settle("t1");
+    dog.watch("t1", "bot1");
+    tick(STALL + 1);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
   });
 });
