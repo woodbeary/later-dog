@@ -18,7 +18,7 @@ export const nativeRunId = (threadId: string, providerInstanceId: string, turnId
 
 function cleanObservation(observation: NativeObservation): NativeObservation {
   const clean = redactSecrets(observation) as NativeObservation;
-  if (clean.kind === "actor") return { kind: "actor", actor: { ...clean.actor, label: clip(clean.actor.label, 160)!, task: clip(clean.actor.task), summary: clip(clean.actor.summary), activity: clip(clean.actor.activity, 500) } };
+  if (clean.kind === "actor") return { kind: "actor", actor: { ...clean.actor, label: clip(clean.actor.label, 160)!, task: clip(clean.actor.task, 4_000), summary: clip(clean.actor.summary, 4_000), activity: clip(clean.actor.activity, 500) } };
   if (clean.kind === "capabilities") return { ...clean, limitations: clean.limitations.slice(0, 30).map(line => clip(line, 1000)!) };
   const a = clean.activity;
   return { ...clean, activity: { ...a, label: clip(a.label, 250)!, input: clip(a.input), output: clip(a.output), text: clip(a.text),
@@ -124,7 +124,7 @@ export class NativeRunProjector {
       }
       if (next.endedAt && (next.observation === "partial" || next.observation === "complete")) next.observation = next.actors.some(actor => actor.id !== "parent" && !actor.ambient && !terminal(actor.state)) ? "partial" : "complete";
       return { run: next, activity };
-    });
+    }, { sequence: event.nativeSequence, final: event.type === "turn.completed" || event.type === "session.exited" });
     if (run) {
       const current = this.current(event.threadId);
       if (!current || run.startedAt >= current.startedAt) this.latest.set(event.threadId, id);
@@ -141,42 +141,47 @@ export class NativeRunProjector {
     const previous = run.actors[index];
     if (previous && terminal(previous.state) && previous.state !== incoming.state && previous.generation === incoming.generation) return;
     if (incoming.state === "failed" && previous?.state !== "failed") run.failureCount += 1;
-    if (index >= 0) run.actors[index] = { ...previous, ...incoming, startedAt: previous.generation === incoming.generation ? previous.startedAt : incoming.startedAt };
+    if (index >= 0) run.actors[index] = { ...previous, ...incoming, label: incoming.id === "parent" ? previous.label : incoming.label, startedAt: previous.generation === incoming.generation ? previous.startedAt : incoming.startedAt };
     else if (run.actors.length < 128) run.actors.push(incoming);
     else run.truncated = true;
   }
 
-  running(threadId: string): boolean {
-    const run = this.current(threadId);
-    return run?.observation === "live" && run.actors.some(actor => actor.kind !== "parent" && !actor.ambient && active(actor.state));
+  forEvent(event: Pick<RuntimeEvent, "threadId" | "providerInstanceId" | "provider" | "turnId">): NativeRun | undefined {
+    return event.turnId ? this.store.get(nativeRunId(event.threadId, event.providerInstanceId ?? event.provider, event.turnId)) : undefined;
+  }
+
+  running(threadId: string, event?: RuntimeEvent): boolean {
+    const runs = event ? [this.forEvent(event)] : this.store.live(threadId);
+    return runs.some(run => run?.observation === "live" && run.actors.some(actor => actor.kind !== "parent" && !actor.ambient && active(actor.state)));
   }
 
   current(threadId: string): NativeRun | undefined {
     const id = this.latest.get(threadId);
-    return id ? this.store.get(id) : this.store.list(threadId, undefined, 1).runs[0];
+    return (id ? this.store.get(id) : undefined) ?? this.store.list(threadId, undefined, 1).runs[0];
   }
 
   interrupt(threadId: string, reason: string): void {
-    const current = this.current(threadId);
-    if (!current || current.observation !== "live") return;
-    const at = Date.now();
-    const run = this.store.apply(current.id, `interrupted:${current.revision}`, at, { reason }, previous => ({
-      run: { ...previous!, observation: "interrupted", revision: previous!.revision + 1, actors: previous!.actors.map(actor => ({ ...actor, canStop: false })) },
-      activity: { id: "observation-interrupted", actorId: "parent", kind: "notice", label: "Activity interrupted", text: reason, state: "stopped", startedAt: at, endedAt: at },
-    }));
-    if (run) this.publish(run);
+    for (const current of this.store.live(threadId)) {
+      const at = Date.now();
+      const run = this.store.apply(current.id, `interrupted:${current.revision}`, at, { reason }, previous => ({
+        run: { ...previous!, observation: "interrupted", currentActivity: undefined, revision: previous!.revision + 1, actors: previous!.actors.map(actor => ({ ...actor, canStop: false })) },
+        activity: { id: "observation-interrupted", actorId: "parent", kind: "notice", label: "Activity interrupted", text: reason, state: "stopped", startedAt: at, endedAt: at },
+      }), { final: true });
+      if (run) this.publish(run);
+    }
   }
 
   snapshot(visible: (threadId: string) => boolean): HelpersSnapshot {
     const helpers: Record<string, Helper[]> = {};
     for (const [threadId, id] of this.latest) {
       if (!visible(threadId)) continue;
-      const run = this.store.get(id);
-      if (!run || (run.endedAt && Date.now() - run.endedAt > 10_000)) continue;
-      helpers[threadId] = run.actors.filter(actor => actor.kind === "subagent" || actor.kind === "workflow").map(actor => ({
-        id: actor.id, kind: actor.kind === "workflow" ? "workflow" : "agent", label: actor.label, state: actor.state === "paused" ? "stopped" : actor.state === "waiting" ? "running" : actor.state,
+      const current = this.store.get(id);
+      const runs = this.store.live(threadId);
+      if (current && current.observation !== "live" && current.endedAt && Date.now() - current.endedAt <= 10_000) runs.push(current);
+      helpers[threadId] = runs.flatMap(run => run.actors.filter(actor => actor.kind === "subagent" || actor.kind === "workflow").map(actor => ({
+        id: `${run.id}:${actor.id}`, kind: actor.kind === "workflow" ? "workflow" : "agent", label: actor.label, state: actor.state === "paused" ? "stopped" : actor.state === "waiting" ? "running" : actor.state,
         background: actor.background ?? false, startedAt: actor.startedAt, endedAt: actor.endedAt, activity: actor.activity, summary: actor.summary,
-      }));
+      })));
     }
     return { helpers };
   }

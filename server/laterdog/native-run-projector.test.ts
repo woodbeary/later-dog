@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { NativeActor, NativeObservation } from "../../shared/native-runs.ts";
 import type { RuntimeEvent } from "../../shared/runtime-events.ts";
 import { NativeRunProjector } from "./native-run-projector.ts";
-import { deleteNativeRuns, ensureNativeRuns, NativeRunStore } from "./native-run-store.ts";
+import { deleteNativeRuns, ensureNativeRuns, nativeRunLimits, NativeRunStore } from "./native-run-store.ts";
 
 const databases: DatabaseSync[] = [];
 afterEach(() => { for (const database of databases.splice(0)) database.close(); });
@@ -148,6 +148,79 @@ describe("durable native execution", () => {
     deleteNativeRuns(database, "chat");
     expect(store.list("chat").runs).toHaveLength(0);
     expect(store.list("other").runs).toHaveLength(1);
+  });
+
+  it("preserves the speaker name when a provider reports its generic parent label", () => {
+    const { projector } = fixture();
+    const run = projector.observe(observed({ kind: "actor", actor: { id: "parent", kind: "parent", label: "Claude", state: "running", startedAt: 1 } }))!;
+    expect(run.actors[0].label).toBe("Scout");
+  });
+
+  it("attributes overlapping requests and helpers to their exact provider turn", () => {
+    const { projector } = fixture();
+    const first = observed({ kind: "actor", actor: { ...actor("same"), label: "First helper" } });
+    const second = { ...observed({ kind: "actor", actor: { ...actor("same", "done"), label: "Second helper" } }), providerInstanceId: "account-b", turnId: "turn-2", createdAt: "2026-10-16T11:00:00Z" };
+    const firstRun = projector.observe(first)!;
+    const secondRun = projector.observe(second)!;
+    expect(projector.current("chat")?.id).toBe(secondRun.id);
+    expect(projector.forEvent(first)?.id).toBe(firstRun.id);
+    expect(projector.forEvent(first)?.actors.find(row => row.id === "same")?.label).toBe("First helper");
+    expect(projector.running("chat", first)).toBe(true);
+    expect(projector.running("chat", second)).toBe(false);
+    expect(projector.running("chat")).toBe(true);
+    expect(projector.snapshot(() => true).helpers.chat.map(row => row.label)).toEqual(expect.arrayContaining(["First helper", "Second helper"]));
+    projector.interrupt("chat", "Connection lost");
+    expect(projector.running("chat")).toBe(false);
+  });
+
+  it("deduplicates arbitrarily old ordered deltas without retaining per-token events", () => {
+    const { projector, store, database } = fixture();
+    const delta = { ...observed({ kind: "activity", append: "text", activity: { id: "reply", actorId: "parent", kind: "message", label: "Reply", state: "running", startedAt: 1, text: "x" } }), nativeSequence: 1 };
+    const run = projector.observe(delta)!;
+    for (let nativeSequence = 2; nativeSequence <= 6_000; nativeSequence++) projector.observe({ ...delta, eventId: `ordered-${nativeSequence}`, nativeSequence });
+    expect(projector.observe(delta)).toBeUndefined();
+    expect(store.detail("chat", run.id)?.activities[0].text).toHaveLength(6_000);
+    expect(database.prepare("SELECT COUNT(*) AS count FROM native_run_events").get()).toEqual({ count: 0 });
+    expect(database.prepare("SELECT event_sequence FROM native_runs WHERE id = ?").get(run.id)).toEqual({ event_sequence: 6_000 });
+  });
+
+  it("bounds legacy deduplication and marks missing observations while retaining completion", () => {
+    const { projector, store, database } = fixture();
+    let run;
+    for (let n = 0; n <= nativeRunLimits.legacyEvents; n++) run = projector.observe(event({ type: "turn.started" })) ?? run;
+    expect(run).toMatchObject({ truncated: true, limitations: ["This harness reached the legacy event recording limit."] });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM native_run_events").get()).toEqual({ count: nativeRunLimits.legacyEvents });
+    const completed = projector.observe(event({ type: "turn.completed", ok: true } as RuntimeEvent))!;
+    expect(completed.state).toBe("done");
+    store.pruneDetails(Date.now(), "chat");
+    expect(database.prepare("SELECT COUNT(*) AS count FROM native_run_events").get()).toEqual({ count: 0 });
+    expect(projector.observe(event({ type: "turn.started" }))).toBeUndefined();
+    expect(store.get(completed.id)?.state).toBe("done");
+  });
+
+  it("bounds detail bytes and reports shortened history without retaining raw payload copies", () => {
+    const { projector, store, database } = fixture();
+    let run;
+    for (let n = 0; n < 100; n++) run = projector.observe({ ...observed({ kind: "activity", activity: { id: `large-${n}`, actorId: "parent", kind: "tool", label: "Read", state: "done", startedAt: n, output: "x".repeat(24_000) } }), nativeSequence: n + 1 })!;
+    const size = database.prepare("SELECT SUM(length(CAST(json AS BLOB))) AS bytes FROM native_run_items").get() as { bytes: number };
+    expect(size.bytes).toBeLessThanOrEqual(nativeRunLimits.detailBytes);
+    expect(store.get(run!.id)).toMatchObject({ truncated: true, activityCount: 100 });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM native_run_events").get()).toEqual({ count: 0 });
+  });
+
+  it("bounds completed receipts and makes removed cursors explicit without deleting live work", () => {
+    const { projector, store, database } = fixture();
+    const live = projector.observe(event({ type: "turn.started" }))!;
+    let first = "";
+    for (let n = 0; n <= nativeRunLimits.receipts; n++) {
+      const run = projector.observe({ ...event({ type: "turn.completed", ok: true } as RuntimeEvent), turnId: `receipt-${n}`, createdAt: new Date(1_000 + n).toISOString(), nativeSequence: n + 1 })!;
+      if (n === 0) first = run.id;
+    }
+    expect(store.get(live.id)?.observation).toBe("live");
+    expect(store.get(first)).toBeUndefined();
+    expect(store.list("chat")).toMatchObject({ historyIncomplete: true });
+    expect(store.list("chat", first)).toEqual({ runs: [], historyIncomplete: true });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM native_runs").get()).toEqual({ count: nativeRunLimits.receipts + 1 });
   });
 
   it("rolls back event insertion if projection fails", () => {

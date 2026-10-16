@@ -10,6 +10,7 @@ const pending = new Map<string, Promise<void>>();
 const loaded = new Set<string>();
 const cursors = new Map<string, string>();
 const errors = new Map<string, string>();
+const incomplete = new Set<string>();
 const emit = () => { for (const listener of listeners) listener(); };
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 
@@ -36,6 +37,7 @@ export function forgetNativeRuns(): void {
   loaded.clear();
   cursors.clear();
   errors.clear();
+  incomplete.clear();
   emit();
 }
 
@@ -54,6 +56,7 @@ export function loadNativeRuns(threadId: string, options: { refresh?: boolean; o
     if (result.nextCursor) cursors.set(threadId, result.nextCursor);
     else cursors.delete(threadId);
     loaded.add(threadId);
+    if (result.historyIncomplete) incomplete.add(threadId);
     errors.delete(threadId);
   }).catch(error => {
     if (epoch !== startedEpoch) return;
@@ -66,6 +69,12 @@ export function loadNativeRuns(threadId: string, options: { refresh?: boolean; o
   });
   pending.set(key, request);
   return request;
+}
+
+export function nativeHistoryIncomplete(threadId: string): boolean { return incomplete.has(threadId); }
+
+export function useNativeHistoryIncomplete(threadId: string): boolean {
+  return useSyncExternalStore(subscribe, () => nativeHistoryIncomplete(threadId), () => false);
 }
 
 export function useNativeRuns(threadId: string | null | undefined, oldestMessageAt?: number): NativeRun[] {

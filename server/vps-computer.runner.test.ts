@@ -94,8 +94,8 @@ describe("default VPS command runner", () => {
     expect(child.stdout.destroyed && child.stderr.destroyed).toBe(true);
   });
 
-  it.skipIf(process.platform === "win32").each(["timeout", "stdin"])("reaps real SSH-like grandchildren after %s without stopping an unrelated master", async (failure) => {
-    const { spawn: realSpawn } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  it.skipIf(process.platform === "win32").each(["timeout", "stdin"])("stops real SSH-like grandchildren after %s without stopping an unrelated master", async (failure) => {
+    const { spawn: realSpawn, execFileSync: realExecFileSync } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
     const { killCliTree: realStop } = await vi.importActual<typeof import("./procs.ts")>("./procs.ts");
     stopMock.mockImplementation(realStop);
     const idle = "setInterval(() => {}, 1000)";
@@ -109,7 +109,12 @@ describe("default VPS command runner", () => {
     const master = realSpawn(process.execPath, ["-e", idle], { detached: true, stdio: "ignore" });
     const masterClosed = new Promise<void>((resolve) => master.once("close", () => resolve()));
     let helper = 0;
-    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    const alive = (pid: number) => {
+      try {
+        const state = realExecFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim();
+        return state.length > 0 && !/^[ZXx]/.test(state);
+      } catch { return false; }
+    };
     const result = defaultRunner(["info"], { timeoutMs: failure === "timeout" ? 1_000 : 20_000 });
     const rejected = expect(result).rejects.toThrow(failure === "timeout" ? "command timed out" : "stdin failed");
     try {

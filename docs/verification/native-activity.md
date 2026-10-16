@@ -10,7 +10,7 @@ Desktop and phone display native Claude and Codex work from one server-owned run
 - `POST /api/threads/:threadId/runs/:runId/actors/:actorId/stop` is available only when the observed live actor supports it. A successful response means requested; a later native event confirms completion.
 - The activity row, a puppy, overflow and View work all open the same detail surface. Approval and question resolution stays in the existing cards.
 
-The messages database contains the run receipts, deduplication journal and bounded activity previews. Conversation deletion removes these records. Backups include them; restore and process restart preserve history without restarting helpers. Retention can remove details while preserving a visibly shortened receipt. Older servers without the endpoints retain the existing progress presentation.
+The messages database contains run receipts, ordered-event checkpoints and bounded activity previews. Claude and Codex source sequences deduplicate replay without retaining a row or raw payload for every token. Legacy unsequenced sources retain at most 5,000 event IDs per run, then expose a recording-limit notice while allowing the parent to settle. Activity previews are limited to 1,000 items and 2 MiB per run; each conversation retains at most 1,000 completed receipts plus live runs. Missing cursors and removed receipts return `historyIncomplete` so clients display unavailable history explicitly. Conversation deletion removes these records. Backups include them; restore and process restart preserve history without restarting helpers. Retention can remove details while preserving a visibly shortened receipt. Older servers without the endpoints retain the existing progress presentation.
 
 ## Isolated checks
 

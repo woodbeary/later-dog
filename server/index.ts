@@ -124,7 +124,8 @@ import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
 import { isEffortLevel, type BotVisibility, type CardAnswerer, type ResolvedSender, type SteerQueueReason, type WireBot, type WireGroup, type WireTask } from "../shared/wire.ts";
 import { engineRefusesEffort, fittedEffort, offeredEffortLevels } from "./laterdog/effort-levels.ts";
-import { isPersistentQuestionCard, shouldSettleRequestCard } from "../shared/ask-question.ts";
+import { isPersistentQuestionCard } from "../shared/ask-question.ts";
+import { requestCardResolution } from "./laterdog/native-request-resolution.ts";
 import { canUseMcpServer, parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import type { TeamComputersPayload } from "../shared/team-computer.ts";
 import { boatCreateRecoverySnapshot, retireDeletedBoatCreate } from "./boat-create-idempotency.ts";
@@ -5423,7 +5424,7 @@ watchdog.start();
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "helper.updated" || event.type === "native.observed") {
-    watchdog.setWaitingOnHelpers(event.threadId, nativeRuns.running(event.threadId));
+    watchdog.setWaitingOnHelpers(event.threadId, nativeRuns.running(event.threadId, event));
   }
   watchdog.observeTool(event);
   if (event.type === "request.opened") watchdog.setWaitingOnHuman(event.threadId, true);
@@ -6961,8 +6962,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           requestId: event.requestId,
           requestType: permission ? "permission" : "question",
           nativeActorId: event.nativeActorId,
-          nativeActorLabel: event.nativeActorId ? nativeRuns.current(event.threadId)?.actors.find(actor => actor.id === event.nativeActorId)?.label : undefined,
-          nativeRunId: event.nativeActorId ? nativeRuns.current(event.threadId)?.id : undefined,
+          nativeActorLabel: event.nativeActorId ? nativeRuns.forEvent(event)?.actors.find(actor => actor.id === event.nativeActorId)?.label : undefined,
+          nativeRunId: event.nativeActorId ? nativeRuns.forEvent(event)?.id : undefined,
           tool: permission ? event.tool : undefined,
           questionRequest: questions
             ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
@@ -7016,12 +7017,12 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       if (messageId) {
         const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId);
         if (existing?.card && !existing.card.answered) {
-          if (shouldSettleRequestCard(existing.card, event.source)) {
+          const resolution = requestCardResolution(existing.card, event);
+          if (resolution) {
             store.patchMessage(event.threadId, messageId, {
               card: {
                 ...existing.card,
-                answered: event.behavior,
-                dismissed: isPersistentQuestionCard(existing.card) ? false : event.source !== "user",
+                ...resolution,
               },
             });
           }

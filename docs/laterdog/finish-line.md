@@ -21,11 +21,11 @@ Worktrees: desktop/server `codex/native-activity` at `/Users/jacoblopez/.codex/w
 
 | Gate | Current state |
 |---|---|
-| Durable native runs and compact desktop/mobile presentation | Implemented locally; rebased desktop onto 0.3.41; focused checks in progress |
+| Durable native runs and compact desktop/mobile presentation | Implemented on 0.3.41; isolated native renderer passed puppy overflow, nested results, parent isolation, completion and reopened receipts; phone physical checks pending |
 | Claude and Codex attribution, resume, nested helpers, parent isolation and supported controls | Focused fixture coverage exists; integrated fixtures and actual providers still required |
-| Persistence, reconnect, pagination, backup/restore, retention and authenticated contract | Implemented; full verification pending |
-| Exact-source CI and independent review | Pending; author checks do not qualify |
-| Isolated UI and test Cloud home | Pending on the final source |
+| Persistence, reconnect, pagination, backup/restore, retention and authenticated contract | Review fixes passed 54 focused local checks (3 platform skips): ordered deduplication, bounded detail/receipt retention, explicit incomplete history and exact request attribution; full verification pending |
+| Exact-source CI and independent review | Desktop PR #70 CI found integration regressions under repair; phone PR #11 uses a temporary single-job self-hosted runner without billing or visibility changes; separate Cloud review requested changes; retention, attribution and release evidence fixes in progress; private phone requires a fresh independent review with source access; final-source review still required |
+| Isolated UI and test Cloud home | Native renderer passed; existing search regression fixed but browser proof still pending; account-specific candidate handover passed 113 isolated checks and type checks; test Cloud image and live handover pending |
 | Actual-account backup and conversation identity | Pending; existing conversations must remain intact |
 | Physical iPhone Expo Go and new internal TestFlight candidate | Preflight only; new behavior not accepted yet |
 | Signed/notarized desktop candidate, fresh install and stable-to-candidate update | Candidate/promotion workflow implemented; artifacts not built |

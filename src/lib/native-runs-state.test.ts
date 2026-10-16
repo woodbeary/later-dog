@@ -6,7 +6,7 @@ import type { NativeRun } from "../../shared/native-runs";
 
 vi.mock("@/state/store", () => ({ api: vi.fn() }));
 const { api } = await import("@/state/store");
-const { currentNativeRuns, forgetNativeRuns, loadNativeRuns, nativeReceiptAnchors, receiveNativeRun, useNativeRuns } = await import("./native-runs-state");
+const { nativeHistoryIncomplete, currentNativeRuns, forgetNativeRuns, loadNativeRuns, nativeReceiptAnchors, receiveNativeRun, useNativeRuns } = await import("./native-runs-state");
 
 function run(overrides: Partial<NativeRun> = {}): NativeRun {
   return { id: "run", threadId: "thread", turnId: "turn", provider: "claudeAgent", revision: 1, startedAt: 100, endedAt: 200, state: "done", observation: "complete", actors: [], activityCount: 2, failureCount: 0, limitations: [], ...overrides };
@@ -61,6 +61,14 @@ describe("native run state", () => {
       expect(currentNativeRuns("thread").at(-1)?.id).toBe("run-599");
       expect(api).toHaveBeenCalledTimes(6);
     } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it("keeps unavailable history explicit and clears it when changing workspace", async () => {
+    vi.mocked(api).mockResolvedValueOnce({ runs: [], historyIncomplete: true });
+    await loadNativeRuns("thread");
+    expect(nativeHistoryIncomplete("thread")).toBe(true);
+    forgetNativeRuns();
+    expect(nativeHistoryIncomplete("thread")).toBe(false);
   });
 
   it("leaves legacy progress available without repeated loads when an older server has no run route", async () => {

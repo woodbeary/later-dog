@@ -76,5 +76,6 @@ export interface NativeRunDetail {
 
 export interface NativeRunList {
   runs: NativeRun[];
+  historyIncomplete?: boolean;
   nextCursor?: string;
 }

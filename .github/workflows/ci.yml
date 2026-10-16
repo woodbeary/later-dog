@@ -76,6 +76,7 @@ jobs:
       - name: Drive the real renderer
         env:
           LATERDOG_UI_E2E: "1"
+          LATERDOG_UI_EVIDENCE_DIR: .laterdog-scratch/verify-evidence/native-activity
           TMPDIR: ${{ runner.temp }}
         run: pnpm exec vitest run ui.e2e.test cloud-preview.e2e.test --maxWorkers=1 --reporter=default --reporter=github-actions
       - uses: actions/upload-artifact@v4

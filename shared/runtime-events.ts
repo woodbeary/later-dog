@@ -27,6 +27,7 @@ export interface RuntimeEventBase {
   itemId?: string;
   requestId?: string;
   nativeActorId?: string;
+  nativeSequence?: number;
   raw?: { source: string; payload: unknown };
   synthetic?: boolean;
 }
@@ -102,6 +103,7 @@ export type RuntimeEvent = RuntimeEventBase &
         type: "request.resolved";
         behavior: "allow" | "deny" | "answer";
         source: "user" | "auto" | "timeout" | "system" | "unavailable" | "peer";
+        resolvedExternally?: boolean;
         approvalScope?: "local-computer";
       }
     | {
