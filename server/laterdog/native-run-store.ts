@@ -120,7 +120,7 @@ export class NativeRunStore {
       const { run, activity } = result;
       if (activity) database.prepare("INSERT INTO native_run_items(run_id, id, sequence, json) VALUES (?, ?, ?, ?) ON CONFLICT(run_id, id) DO UPDATE SET json = excluded.json")
         .run(id, activity.id, run.revision, JSON.stringify(activity));
-      const items = database.prepare("SELECT id, length(CAST(json AS BLOB)) AS bytes FROM native_run_items WHERE run_id = ? ORDER BY sequence DESC").all(id) as Array<{ id: string; bytes: number }>;
+      const items = database.prepare("SELECT id, length(CAST(json AS BLOB)) AS bytes FROM native_run_items WHERE run_id = ? ORDER BY CASE WHEN json_extract(json, '$.state') IN ('running', 'waiting') THEN 0 ELSE 1 END, sequence DESC").all(id) as Array<{ id: string; bytes: number }>;
       let bytes = 0;
       for (const [index, item] of items.entries()) {
         bytes += item.bytes;
@@ -153,8 +153,10 @@ export class NativeRunStore {
   recoverInterrupted(): void {
     this.access.write(database => {
       const rows = database.prepare("SELECT json FROM native_runs WHERE json_extract(json, '$.observation') = 'live'").all() as Array<{ json: string }>;
+      const threads = new Set<string>();
       for (const row of rows) {
         const run = JSON.parse(row.json) as NativeRun;
+        threads.add(run.threadId);
         run.observation = "interrupted";
         run.currentActivity = undefined;
         run.revision += 1;
@@ -163,6 +165,7 @@ export class NativeRunStore {
         database.prepare("UPDATE native_runs SET sealed = 1 WHERE id = ?").run(run.id);
         database.prepare("DELETE FROM native_run_events WHERE run_id = ?").run(run.id);
       }
+      for (const threadId of threads) this.capReceipts(database, threadId);
     });
   }
 

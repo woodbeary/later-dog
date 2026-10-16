@@ -732,22 +732,26 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     await instance.adapter.respondToRequest("native-helper-request", permission.requestId!, { behavior: "deny" });
     await recorder.until(event => event.type === "turn.completed");
     expect(recorder.events).toContainEqual(expect.objectContaining({ type: "request.resolved", nativeActorId: "codex:helper:0", requestId: permission.requestId, behavior: "deny" }));
+    expect(recorder.events.find(event => event.type === "request.resolved")).not.toHaveProperty("resolvedExternally");
     expect(recorder.events).toContainEqual(expect.objectContaining({ type: "native.observed", observation: expect.objectContaining({ kind: "activity", activity: expect.objectContaining({ actorId: "codex:helper:0", requestId: permission.requestId, state: "stopped", output: "deny (user)" }) }) }));
   });
 
-  it("closes native-resolved helper requests without replying again to Codex", async () => {
+  it.each(["permission", "question"])("closes native-resolved helper %s requests without replying again to Codex", async (requestType) => {
     const dump = join(scratch, "native-helper-resolved.json");
     process.env.FAKE_CODEX_DUMP = dump;
     process.env.FAKE_CODEX_REQUEST_RESOLVED = "1";
     process.env.FAKE_CODEX_REVIEW_EVENTS = JSON.stringify([
       { method: "thread/started", params: { thread: { id: "helper", parentThreadId: "codex-thread-1" } } },
     ]);
-    process.env.FAKE_CODEX_APPROVAL_REQUEST = JSON.stringify({ method: "item/commandExecution/requestApproval", params: { threadId: "helper", turnId: "helper-turn", command: "pwd" } });
+    process.env.FAKE_CODEX_APPROVAL_REQUEST = JSON.stringify(requestType === "permission"
+      ? { method: "item/commandExecution/requestApproval", params: { threadId: "helper", turnId: "helper-turn", command: "pwd" } }
+      : { method: "item/tool/requestUserInput", params: { threadId: "helper", turnId: "helper-turn", questions: [{ id: "proceed", header: "Proceed", question: "Proceed?", isOther: false, isSecret: false, options: [{ label: "Yes", description: "Proceed" }] }] } });
     await create({ mode: "approval" });
     await instance.adapter.sendTurn({ threadId: "native-resolved", text: "Check" });
     await recorder.until(event => event.type === "turn.completed");
     const permission = recorder.events.find(event => event.type === "request.opened")!;
-    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "request.resolved", requestId: permission.requestId, nativeActorId: "codex:helper:0", source: "system" }));
+    expect(permission).toMatchObject({ requestType });
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "request.resolved", requestId: permission.requestId, nativeActorId: "codex:helper:0", source: "system", behavior: "deny", resolvedExternally: true }));
     expect(recorder.events).toContainEqual(expect.objectContaining({ type: "native.observed", observation: expect.objectContaining({ kind: "activity", activity: expect.objectContaining({ requestId: permission.requestId, output: "Resolved by Codex" }) }) }));
     expect(JSON.parse(readFileSync(dump, "utf8")).decision).toBeNull();
     expect(await instance.adapter.respondToRequest("native-resolved", permission.requestId!, { behavior: "allow" })).toBe("unavailable");

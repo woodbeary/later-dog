@@ -201,10 +201,10 @@ describe("durable native execution", () => {
   it("bounds detail bytes and reports shortened history without retaining raw payload copies", () => {
     const { projector, store, database } = fixture();
     let run;
-    for (let n = 0; n < 100; n++) run = projector.observe({ ...observed({ kind: "activity", activity: { id: `large-${n}`, actorId: "parent", kind: "tool", label: "Read", state: "done", startedAt: n, output: "x".repeat(24_000) } }), nativeSequence: n + 1 })!;
+    for (let n = 0; n < 100; n++) run = projector.observe({ ...observed({ kind: "activity", activity: { id: `large-${n}`, actorId: "parent", kind: "tool", label: "Read", state: n === 0 ? "running" : "done", startedAt: n, output: "x".repeat(24_000) } }), nativeSequence: n + 1 })!;
     const size = database.prepare("SELECT SUM(length(CAST(json AS BLOB))) AS bytes FROM native_run_items").get() as { bytes: number };
     expect(size.bytes).toBeLessThanOrEqual(nativeRunLimits.detailBytes);
-    expect(store.get(run!.id)).toMatchObject({ truncated: true, activityCount: 100 });
+    expect(store.get(run!.id)).toMatchObject({ truncated: true, activityCount: 100, currentActivity: { id: "large-0", state: "running" } });
     expect(database.prepare("SELECT COUNT(*) AS count FROM native_run_events").get()).toEqual({ count: 0 });
   });
 
@@ -221,6 +221,15 @@ describe("durable native execution", () => {
     expect(store.list("chat")).toMatchObject({ historyIncomplete: true });
     expect(store.list("chat", first)).toEqual({ runs: [], historyIncomplete: true });
     expect(database.prepare("SELECT COUNT(*) AS count FROM native_runs").get()).toEqual({ count: nativeRunLimits.receipts + 1 });
+  });
+
+  it("caps newly interrupted receipts immediately on restart", () => {
+    const { projector, store, database } = fixture();
+    for (let n = 0; n <= nativeRunLimits.receipts; n++) projector.observe({ ...event({ type: "turn.started" }), turnId: `live-${n}`, createdAt: new Date(1_000 + n).toISOString(), nativeSequence: n + 1 });
+    store.recoverInterrupted();
+    expect(database.prepare("SELECT COUNT(*) AS count FROM native_runs").get()).toEqual({ count: nativeRunLimits.receipts });
+    expect(store.list("chat")).toMatchObject({ historyIncomplete: true });
+    expect(store.live("chat")).toEqual([]);
   });
 
   it("rolls back event insertion if projection fails", () => {

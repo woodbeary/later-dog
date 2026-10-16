@@ -1,6 +1,7 @@
 export type HomeStanding = "holding" | "released";
 
 export interface HandoverPeer {
+  ready?(): Promise<void>;
   release(): Promise<boolean>;
 }
 
@@ -9,7 +10,7 @@ export interface HandoverSide {
   stand(standing: HomeStanding): Promise<void>;
   running(): boolean;
   quiet(): Promise<void>;
-  sibling(): HandoverPeer;
+  siblings(): HandoverPeer[];
 }
 
 export interface StartSteps {
@@ -25,7 +26,11 @@ export class Handover {
   private starting = 0;
   private readonly launching = new Set<Promise<void>>();
 
-  constructor(private readonly side: HandoverSide) {}
+  private readonly side: HandoverSide;
+
+  constructor(side: HandoverSide) {
+    this.side = side;
+  }
 
   holds(): boolean {
     return this.side.standing() === "holding";
@@ -73,7 +78,11 @@ export class Handover {
   private async mayRun(claim: boolean, turn: number): Promise<boolean> {
     if (this.holds()) return true;
     if (!claim) return false;
-    if (!(await this.side.sibling().release())) return false;
+    const siblings = this.side.siblings();
+    await Promise.all(siblings.map((peer) => peer.ready?.()));
+    if (this.turn !== turn) return false;
+    const released = await Promise.all(siblings.map((peer) => peer.release()));
+    if (released.some((idle) => !idle)) return false;
     if (this.turn !== turn) return false;
     await this.side.stand("holding");
     if (this.turn === turn) return true;

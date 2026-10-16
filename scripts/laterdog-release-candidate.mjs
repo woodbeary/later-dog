@@ -6,8 +6,9 @@ import { fileDigest, releaseFiles } from "./laterdog-release-files.mjs";
 
 export const CANDIDATE_ARTIFACT = "later.dog-release-candidate";
 export const RELEASE_ASSETS = ["later.dog-macOS-arm64.zip", "later.dog-macOS-arm64.dmg", "SHA256SUMS.txt", "latest-mac.yml"];
-export const ACCEPTANCE_CHECKS = ["fresh-install", "previous-stable-upgrade", "expo-development", "exact-testflight-build", "real-account-conversation", "real-iphone", "workspace-identity", "desktop-mobile-compatibility", "native-claude", "native-codex", "independent-review"];
+export const ACCEPTANCE_CHECKS = ["fresh-install", "previous-stable-upgrade", "cloud-test-home", "expo-development", "exact-testflight-build", "real-account-conversation", "real-iphone", "workspace-identity", "desktop-mobile-compatibility", "native-claude", "native-codex", "independent-review"];
 export const PHONE_IDENTITY_FIELDS = ["sourceSha", "appVersion", "runtimeVersion", "buildNumber", "ascBuildId", "easBuildId"];
+export const CLOUD_ACCEPTANCE_CHECKS = ["cloud-test-home", "real-account-conversation", "real-iphone", "workspace-identity", "desktop-mobile-compatibility", "native-claude", "native-codex"];
 const shaPattern = /^[0-9a-f]{40}$/;
 const digestPattern = /^[0-9a-f]{64}$/;
 const versionPattern = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
@@ -34,16 +35,26 @@ export function verifyCandidate(directory, candidate) {
 }
 
 export function verifyAcceptance(candidate, evidence) {
-  if (evidence?.schemaVersion !== 2 || evidence.sourceSha !== candidate.sha || evidence.version !== candidate.version || String(evidence.candidateRunId) !== candidate.runId) throw new Error("Acceptance evidence does not match the candidate source, version and run.");
+  if (evidence?.schemaVersion !== 3 || evidence.sourceSha !== candidate.sha || evidence.version !== candidate.version || String(evidence.candidateRunId) !== candidate.runId) throw new Error("Acceptance evidence does not match the candidate source, version and run.");
   for (const name of RELEASE_ASSETS.slice(0, 2)) if (evidence.assets?.[name] !== candidate.files[name].sha256) throw new Error(`Acceptance evidence did not verify these bytes: ${name}`);
   const phone = evidence.phone;
   if (!phone || !shaPattern.test(phone.sourceSha) || !versionPattern.test(phone.appVersion) || typeof phone.runtimeVersion !== "string" || !phone.runtimeVersion.trim() || !/^[1-9]\d*$/.test(phone.buildNumber) || !uuidPattern.test(phone.ascBuildId) || !uuidPattern.test(phone.easBuildId)) throw new Error("Acceptance requires a frozen phone source, app/runtime version, build number, ASC build ID and EAS build ID.");
   for (const provider of ["claude", "codex"]) if (!versionPattern.test(evidence.providerVersions?.[provider] ?? "")) throw new Error(`Acceptance requires an exact ${provider} version.`);
+  const cloud = evidence.cloud;
+  if (!cloud || !shaPattern.test(cloud.sourceSha) || !/^sha256:[0-9a-f]{64}$/.test(cloud.imageDigest)) throw new Error("Acceptance requires a frozen Cloud source and immutable image digest.");
+  for (const provider of ["claude", "codex"]) if (cloud.providerVersions?.[provider] !== evidence.providerVersions[provider]) throw new Error(`Cloud image does not match the frozen ${provider} version.`);
   for (const name of ACCEPTANCE_CHECKS) {
     const check = evidence.checks?.[name];
     if (check?.status !== "pass" || typeof check.evidence !== "string" || !check.evidence.trim()) throw new Error(`Required acceptance is missing: ${name}`);
-    if (check.sourceSha !== (name === "expo-development" ? phone.sourceSha : candidate.sha)) throw new Error(`Acceptance is not pinned to the source commit: ${name}`);
+    const sourceSha = name === "expo-development" ? phone.sourceSha : name === "cloud-test-home" ? cloud.sourceSha : candidate.sha;
+    if (check.sourceSha !== sourceSha) throw new Error(`Acceptance is not pinned to the source commit: ${name}`);
   }
+  for (const name of CLOUD_ACCEPTANCE_CHECKS) {
+    const actual = evidence.checks[name].cloud;
+    if (actual?.sourceSha !== cloud.sourceSha || actual.imageDigest !== cloud.imageDigest || ["claude", "codex"].some(provider => actual.providerVersions?.[provider] !== cloud.providerVersions[provider])) throw new Error(`Acceptance does not match the frozen Cloud image: ${name}`);
+  }
+  const staged = evidence.checks["cloud-test-home"];
+  if (staged.environment !== "staged" || typeof staged.homeId !== "string" || !staged.homeId.trim()) throw new Error("Cloud acceptance must identify the staged test home.");
   const development = evidence.checks["expo-development"];
   if (development.appVersion !== phone.appVersion || development.runtimeVersion !== phone.runtimeVersion) throw new Error("Expo development acceptance does not match the frozen phone app and runtime.");
   for (const name of ["exact-testflight-build", "real-iphone", "desktop-mobile-compatibility"]) {
@@ -51,6 +62,7 @@ export function verifyAcceptance(candidate, evidence) {
   }
   if (evidence.checks["real-iphone"].deviceType !== "physical") throw new Error("Real iPhone acceptance requires a physical device.");
   for (const name of ["real-account-conversation", "workspace-identity", "independent-review"]) if (evidence.checks[name].phoneSourceSha !== phone.sourceSha) throw new Error(`Acceptance is not pinned to the phone source commit: ${name}`);
+  if (evidence.checks["independent-review"].cloudSourceSha !== cloud.sourceSha) throw new Error("Independent review is not pinned to the Cloud source commit.");
   for (const provider of ["claude", "codex"]) if (evidence.checks[`native-${provider}`].providerVersion !== evidence.providerVersions[provider]) throw new Error(`Native acceptance does not match the frozen ${provider} version.`);
   return evidence;
 }

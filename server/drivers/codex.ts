@@ -669,8 +669,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     }
     const active = new Map<string, Turn>();
 
+    let nativeSequence = 0;
     const emit = (event: RuntimeEvent) => {
-      for (const l of Array.from(listeners)) l(event);
+      const ordered = { ...event, nativeSequence: ++nativeSequence };
+      for (const l of Array.from(listeners)) l(ordered);
     };
     const base = (threadId: string, turnId: string) => ({
       eventId: newEventId(),
@@ -1121,7 +1123,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             });
           }
           nativeActivity.request(params, requestId, summary, alreadyResolved ? "Resolved by Codex" : `${behavior} (${source})`);
-          emit({ ...base(threadId, turnId), type: "request.resolved", requestId, behavior, source, ...(nativeActorId ? { nativeActorId } : {}) });
+          emit({ ...base(threadId, turnId), type: "request.resolved", requestId, behavior, source, ...(alreadyResolved ? { resolvedExternally: true } : {}), ...(nativeActorId ? { nativeActorId } : {}) });
         };
         const timer = setTimeout(
           () => finish("deny", isQuestion ? undefined : DENY_TIMEOUT_NOTE, "timeout"),

@@ -24,9 +24,9 @@ Worktrees: desktop/server `codex/native-activity` at `/Users/jacoblopez/.codex/w
 | Durable native runs and compact desktop/mobile presentation | Implemented on 0.3.41; isolated native renderer passed puppy overflow, nested results, parent isolation, completion and reopened receipts; phone physical checks pending |
 | Claude and Codex attribution, resume, nested helpers, parent isolation and supported controls | Focused fixture coverage exists; integrated fixtures and actual providers still required |
 | Persistence, reconnect, pagination, backup/restore, retention and authenticated contract | Review fixes passed 54 focused local checks (3 platform skips): ordered deduplication, bounded detail/receipt retention, explicit incomplete history and exact request attribution; full verification pending |
-| Exact-source CI and independent review | Desktop PR #70 CI found integration regressions under repair; phone PR #11 uses a temporary single-job self-hosted runner without billing or visibility changes; separate Cloud review requested changes; retention, attribution and release evidence fixes in progress; private phone requires a fresh independent review with source access; final-source review still required |
+| Exact-source CI and independent review | Desktop PR #70 CI found integration regressions under repair; phone PR #11 uses a temporary single-job self-hosted runner without billing or visibility changes; separate Cloud review requested changes; retention, attribution and release evidence fixes implemented; private phone independent review found group reconnect/cache repairs; final-source CI and review still required |
 | Isolated UI and test Cloud home | Native renderer passed; existing search regression fixed but browser proof still pending; account-specific candidate handover passed 113 isolated checks and type checks; test Cloud image and live handover pending |
-| Actual-account backup and conversation identity | Pending; existing conversations must remain intact |
+| Actual-account backup and conversation identity | Desktop shell profile archived and extraction-checked privately; full Cloud state checkpoint and conversation identity still pending |
 | Physical iPhone Expo Go and new internal TestFlight candidate | Preflight only; new behavior not accepted yet |
 | Signed/notarized desktop candidate, fresh install and stable-to-candidate update | Candidate/promotion workflow implemented; artifacts not built |
 | Stable desktop promotion and external TestFlight distribution | Not released; publish only after all preceding gates pass |
@@ -118,7 +118,7 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
 ## Notes for whoever picks this up
 
 - After a home image deploy, Cloudflare can keep starting the old image for a few minutes. `wrangler containers instances <app id>` shows the version; wait for the new one before judging a fix.
-- A home's Durable Object keeps its old Worker code while its container runs. A Worker deploy reaches a running home only after it sleeps.
+- Earlier observations suggested a running home retained old Worker code. Current Cloudflare documentation permits Worker updates while the same container runs; verify a new capability and unchanged instance identity on the test home before relying on that for production maintenance.
 - Homes are reached at `h<id>-home.later.dog`, which needs a proxied wildcard record (`*` AAAA `100::`) on later.dog.
 
 ## Evidence

@@ -37,6 +37,7 @@ export class CodexNativeActivity {
       "Native helper activity is observed while this turn is connected; earlier native history is not imported.",
       "Native helpers cannot receive direct messages here.",
       "Unrecognized native activity is shown as a notice; general MCP forms are not supported.",
+      "Conversation branches replay later.dog history; native Codex forks, projects and worktrees are not managed from this activity view.",
       "Activity previews are bounded; truncated details are marked.",
     ] });
   }
@@ -181,6 +182,10 @@ export class CodexNativeActivity {
       this.activity(actor, "turn-diff", "tool", "Changes", "running", { output: text(p.diff) });
       return;
     }
+    if (method === "item/fileChange/patchUpdated" && itemId) {
+      this.activity(actor, itemId, "tool", "File changes", "running", { output: printable(p.changes) });
+      return;
+    }
     if (method === "item/autoApprovalReview/started" || method === "item/autoApprovalReview/completed") {
       const reviewId = string(p.reviewId);
       const review = record(p.review);
@@ -226,7 +231,7 @@ export class CodexNativeActivity {
     if (type === "subAgentActivity") {
       const childId = string(item.agentThreadId);
       if (childId && childId !== this.rootThread) {
-        const child = this.child(childId, actor, { label: text(item.agentPath)?.split("/").filter(Boolean).at(-1) });
+        const child = this.child(childId, actor, { label: text(item.agentPath)?.split("/").filter(Boolean).at(-1), model: text(item.model) });
         if (item.kind === "completed" || item.kind === "interrupted") this.put(childId, { ...child, state: stateOf(item.kind), endedAt: this.now(), canStop: false });
       }
       return;

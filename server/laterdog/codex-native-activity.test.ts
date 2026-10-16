@@ -106,6 +106,18 @@ describe("Codex native activity details", () => {
     expect(f.native.request({ threadId: "foreign" }, "bad", "No")).toBeUndefined();
   });
 
+  it("captures 0.163 resolved child models and incremental file patches without crossing native scopes", () => {
+    const f = fixture();
+    f.send("item/completed", { item: { id: "child-started", type: "subAgentActivity", agentPath: "/root/scout", agentThreadId: "child", kind: "started", model: "gpt-6.1-sol", reasoningEffort: "high" } });
+    f.send("item/fileChange/patchUpdated", { threadId: "child", turnId: "child-turn", itemId: "edit", changes: [{ path: "/workspace/example.ts", kind: { type: "update" }, diff: "-before\n+after" }] });
+    f.send("item/fileChange/patchUpdated", { threadId: "foreign", turnId: "foreign-turn", itemId: "edit", changes: [{ diff: "FOREIGN" }] });
+    expect(f.latestActor("child")).toMatchObject({ label: "scout", model: "gpt-6.1-sol" });
+    expect(f.latestActivity("edit")).toMatchObject({ actorId: "codex:child:0", kind: "tool", label: "File changes", state: "running", output: expect.stringContaining("-before\\n+after") });
+    f.send("item/completed", { threadId: "child", turnId: "child-turn", item: { id: "edit", type: "fileChange", status: "completed", changes: [{ path: "/workspace/example.ts", diff: "Final patch" }] } });
+    expect(f.latestActivity("edit")).toMatchObject({ state: "done", output: expect.stringContaining("Final patch") });
+    expect(JSON.stringify(f.observations)).not.toContain("FOREIGN");
+  });
+
   it("bounds accumulated output and explicitly marks truncation", () => {
     const f = fixture();
     f.send("item/commandExecution/outputDelta", { itemId: "large", delta: "x".repeat(20_000) });
@@ -113,6 +125,6 @@ describe("Codex native activity details", () => {
     expect(f.latestActivity("large")?.output).toHaveLength(24_000);
     expect(f.latestActivity("large")?.truncated).toBe(true);
     f.native.capabilities("0.154.0");
-    expect(f.observations.at(-1)).toMatchObject({ kind: "capabilities", version: "0.154.0", limitations: expect.arrayContaining(["Native helpers stop when the parent turn ends."]) });
+    expect(f.observations.at(-1)).toMatchObject({ kind: "capabilities", version: "0.154.0", limitations: expect.arrayContaining(["Native helpers stop when the parent turn ends.", "Conversation branches replay later.dog history; native Codex forks, projects and worktrees are not managed from this activity view."]) });
   });
 });
