@@ -42,7 +42,7 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
 
 - **0.3.40 shipped** (PR #65, `62105d213`): Stop in the Cloud home (tini as PID 1, zombie-tolerant stop, turns always settle), Steer never silent, account names in the account menu, picture edits, Claude refresh locks kept out of the snapshot with one refresh per account and a quiet retry, the owner's Mac with no Allow card. Cloud home image `later-dog-home:9b96f3568fab` deployed to production. Proof on the test Cloud home in `/Volumes/laterdog-phone/tmp/fix-0340/`.
 - **Test Cloud home** (N1, part): Worker `laterdog-home-test` on `*-hometest.later.dog`, R2 `laterdog-homes-test`, driver Worker `laterdog-home-test-driver` for `test-*` accounts only; `scripts/test-home.mjs` and `scripts/test-home-chat.mjs` sign in and drive it; secrets and a test-only SSH key in `/Volumes/laterdog-phone/tmp/test-home/`. Images reach Cloudflare without the Mac's Docker: CI pushes to GHCR, then `crane copy` with a short-lived `wrangler containers registries credentials --push`.
-- **0.3.41 Cloud home deployed to production 2026-10-15 19:00 PT** (branch `laterdog/fix-0341` at `c4aa931e4`, image `later-dog-home:c4aa931e4b41`, app version 13; not merged to `main`; desktop release and phone OTA held for one build at the end). In it:
+- **0.3.41 Cloud home deployed to production 2026-10-15 21:25 PT** (branch `laterdog/fix-0341` at `38ca13c53`, image `later-dog-home:38ca13c53e9c`; first production deploy 19:00 PT at `c4aa931e4`; merge to `main` through PR #66, then the desktop release). In it:
   - The owner's Off-leash dogs in the Cloud never wait on an approval card. Handoffs from his coordinator, routines and other dogs carry his authority, and only force-pushing a default branch, deleting a remote repository and recursive deletes outside the workspace are refused, in one line.
   - His Off-leash and Full access dogs send through connected apps with no "Send on your behalf?" card, within the daily limit.
   - Questions are never answered for him: the dog decides whether to ask, and its card waits. Codex can ask outside Plan mode.
@@ -53,6 +53,10 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
   - Kimi's inline reasoning stays out of replies. Computers have no global cap.
   - Saves to R2 can no longer hang a home: every store call has a time limit, the last save stops after 2 minutes, and `.tmp` is not synced.
   - The "GitHub connected once" Settings row and routes were reverted, keeping only `GIT_TERMINAL_PROMPT=0`.
+  - Apps on the owner's Mac (the local-tools token) act as the owner: no "not user-typed" frame, no forced Ask, and the chat can still use his Mac. When the Mac isn't connected a dog says to open the later.dog app.
+  - In a home with only the owner's devices, chats that came over from the Mac (lines with no sender) and threads a dog opened on itself count as his, so they can use his Mac. Guests, guest-driven chats, webhooks and routine chats keep the old rule.
+  - Removing an account moves its dogs and chats to another signed-in account (same kind first, model kept when it can), instead of refusing while a chat uses it.
+  - After a restart, a dog that had posted findings on the way is picked up again; only a turn's final words, a failure or an open ask count as an answer. Checked on the test home: back 31 s after SIGTERM to PID 1, picked up with one notice.
 
   Proof is in `/Volumes/laterdog-phone/tmp/fix-0341/`: local Cloud-home fixture checks, then the test Cloud home on the same image. Not proven live: Claude's reviewer honouring the standing grant, a real signed-in Codex push, and finished Claude and ChatGPT sign-ins.
 
