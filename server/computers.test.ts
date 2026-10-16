@@ -237,7 +237,7 @@ describe("the cloud computer facade", () => {
     expect(await computers.joinReadyBoat(noBoat, "sleepy-bot")).toEqual(link);
     computer.state = "sleeping"; wakeTo = "running";
     expect(await computers.joinBoat(noBoat, "sleepy-bot")).toEqual(link);
-    await expect(computers.joinBoat(noBoat, "no-computer-bot")).rejects.toThrow("no computer yet");
+    await expect(computers.joinBoat(noBoat, "no-computer-bot")).rejects.toMatchObject({ message: expect.stringContaining("no computer yet"), status: 409 });
   });
 
   it("hands back the desktop link within one short poll of a waking computer running", async () => {

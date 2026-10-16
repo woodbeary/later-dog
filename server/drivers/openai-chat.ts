@@ -21,6 +21,7 @@ import { appendNative } from "./native.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { classifyContinuable, writeTurnHandoff } from "../turn-continuation.ts";
 import { KEY_REJECTED_REASON, keyRejected, noteKeyAccepted, noteKeyRejected, rejectsKey } from "../key-rejections.ts";
+import { inlineReasoning, reasonsInContent, replyWithoutReasoning } from "../laterdog/inline-reasoning.ts";
 
 export interface OpenAIChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -98,6 +99,7 @@ interface RuntimeOptions<Config> {
   generateModel?: () => string;
   reasoning?: boolean;
   reasoningReplayField?: "reasoning_content" | "reasoning";
+  reasoningInContent?: (model: string) => boolean;
   contentText?: (content: unknown) => string;
   billing?: "metered";
   includeUsageInCompleted?: boolean;
@@ -236,6 +238,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     onUsage?: TextGenerationOptions["onUsage"],
   ): Promise<Completion> => {
     const timeoutController = new AbortController();
+    const splitsReasoning = (options.reasoningInContent ?? reasonsInContent)(model);
     let idleTimer: NodeJS.Timeout | null = null;
     const resetIdleTimer = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -304,7 +307,8 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         const finishReason = json.choices?.[0]?.finish_reason ?? null;
         activeSignal.throwIfAborted();
         return {
-          text: options.contentText ? options.contentText(message?.content) : typeof message?.content === "string" ? message.content : "",
+          text: replyWithoutReasoning(options.contentText ? options.contentText(message?.content) : typeof message?.content === "string" ? message.content : "",
+            (splitsReasoning || reasonsInContent(json.model)) && !(typeof reasoning === "string" && reasoning)),
           reasoning: options.reasoning && typeof reasoning === "string"
             ? reasoning
             : "",
@@ -328,6 +332,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       let sawChoice = false;
       const calls = new ChatToolCalls();
       const details = new ChatReasoningDetails();
+      const inline = inlineReasoning(splitsReasoning, (part, kind) => {
+        if (kind === "assistant_text") text += part;
+        onDelta?.(part, kind);
+      });
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -346,6 +354,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         if (chunkError) throw chunkError;
         const choice = chunk.choices?.find((row) => row.index === undefined || row.index === 0);
         const delta = choice?.delta;
+        inline.answeredBy(chunk.model);
         if (object(delta)) sawChoice = true;
         if (delta?.function_call) throw new ChatProtocolError("legacy function_call is unsupported; use structured tool_calls");
         calls.add(delta?.tool_calls, true);
@@ -353,6 +362,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         if (choice?.finish_reason) finishReason = choice.finish_reason;
         const reasoningPart = delta?.reasoning_content ?? delta?.reasoning;
         if (typeof reasoningPart === "string") protocolReasoning += reasoningPart;
+        if (typeof reasoningPart === "string" && reasoningPart) inline.reasoningApart();
         const reasoningDelta = options.reasoning && typeof reasoningPart === "string"
           ? reasoningPart
           : "";
@@ -361,10 +371,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           reasoning += reasoningDelta;
           onDelta?.(reasoningDelta, "reasoning_text");
         }
-        if (contentDelta) {
-          text += contentDelta;
-          onDelta?.(contentDelta, "assistant_text");
-        }
+        inline.content(contentDelta);
         if (chunk.usage) usage = usageFrom(chunk.usage);
         return false;
       };
@@ -399,6 +406,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       }
       activeSignal.throwIfAborted();
       if (!sawChoice) throw new ChatProtocolError("provider returned no streaming completion choice");
+      inline.end();
       return { text, reasoning, usage, toolCalls: calls.finish(finishReason, malformedFrame), finishReason, protocolReasoning, protocolReasoningDetails: details.blocks };
     } finally {
       if (idleTimer) clearTimeout(idleTimer);

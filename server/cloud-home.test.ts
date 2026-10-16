@@ -281,7 +281,7 @@ it("gives the edge only its routing name and the server the contract, never a ga
   const config = cloudHomeConfiguration(withGateway())!;
   const { server, edge, secrets } = cloudHomeChildEnvironments(config, { ...withGateway(), ...relay, PATH: "/usr/bin" }, "/data");
   expect(server).toMatchObject({ HOME: "/data", LATERDOG_HOME: "/data/.laterdog", LATERDOG_SERVER_PORT: "8799", LATERDOG_WEBHOOK_PORT: "8800",
-    LATERDOG_PUBLIC_URL: "https://laterdog-u-1a2b3c4d5e6f.fly.dev", LATERDOG_WEBHOOK_PUBLIC_URL: "https://laterdog-u-1a2b3c4d5e6f.fly.dev", LATERDOG_CLOUD_SECRETS_FD: "3" });
+    LATERDOG_PUBLIC_URL: "https://laterdog-u-1a2b3c4d5e6f.fly.dev", LATERDOG_WEBHOOK_PUBLIC_URL: "https://laterdog-u-1a2b3c4d5e6f.fly.dev", LATERDOG_CLOUD_SECRETS_FD: "3", GIT_TERMINAL_PROMPT: "0" });
   for (const key of CLOUD_IGNORED_KEYS) expect(server).not.toHaveProperty(key);
   expect(JSON.stringify(server)).not.toContain(token);
   expect(secrets).toEqual({ LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, ...relay });

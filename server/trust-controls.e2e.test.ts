@@ -322,16 +322,15 @@ it("settles only the source task after approval or Stop, leaving the selected si
   }
 });
 
-it("preserves accounts referenced by a fallback chain before delete or credential-directory change", async () => {
+it("keeps a referenced account's credential directory, and removes the account from fallback chains when it is deleted", async () => {
   const account = await api("POST", "/api/instances/claude-accounts", { displayName: "Fallback fixture account" });
   expect(account.status, JSON.stringify(account.body)).toBe(201);
   const instanceId = account.body.instanceId;
   const b = await bot("Referenced fallback");
   expect((await api("PATCH", `/api/bots/${b.id}`, { fallback: [{ instanceId, model: "claude-sonnet-5" }] })).status).toBe(200);
-  expect((await api("DELETE", `/api/instances/${instanceId}`)).status).toBe(409);
   expect((await api("PATCH", `/api/instances/${instanceId}`, { configDir: join(fixture.info.dataDir, "synthetic-account-directory") })).status).toBe(409);
-  await api("PATCH", `/api/bots/${b.id}`, { fallback: [] });
   expect((await api("DELETE", `/api/instances/${instanceId}`)).status).toBe(200);
+  expect(((await api("GET", "/api/bots")).body.bots as any[]).find((row) => row.id === b.id).fallback ?? []).toEqual([]);
 });
 
 it("does not relay if the allowance cannot be durably written", async () => {

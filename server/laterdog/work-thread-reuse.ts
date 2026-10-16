@@ -23,6 +23,19 @@ export function openWorkThread<T extends ReusableTask>(tasks: readonly T[], quer
 
 export const MAX_OWN_THREADS_PER_TURN = 5;
 export const MAX_TEAMMATE_THREADS_PER_TURN = 15;
+export const OWNER_OWN_THREADS_PER_TURN = 20;
+export const OWNER_TEAMMATE_THREADS_PER_TURN = 40;
+
+export interface ThreadsPerTurn {
+  own: number;
+  teammate: number;
+}
+
+export function threadsPerTurn(owner: boolean): ThreadsPerTurn {
+  return owner
+    ? { own: OWNER_OWN_THREADS_PER_TURN, teammate: OWNER_TEAMMATE_THREADS_PER_TURN }
+    : { own: MAX_OWN_THREADS_PER_TURN, teammate: MAX_TEAMMATE_THREADS_PER_TURN };
+}
 
 export class TeammateThreadCount {
   private readonly counts = new WeakMap<object, number>();

@@ -40,6 +40,7 @@ import type { ApprovalMode } from "../../shared/approval-mode.ts";
 import { CodexDeviceAuthController } from "./codex-device-auth.ts";
 import { codexAccountEmail, codexHome } from "./codex-identity.ts";
 import { codexUsageLimit, type CodexRateLimits } from "../laterdog/usage-limit.ts";
+import { withContainerAccess } from "../laterdog/codex-container-sandbox.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
 import { keyRejected, noteKeyAccepted, noteKeyRejected } from "../key-rejections.ts";
 import { classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
@@ -80,8 +81,10 @@ export function codexSignInRefused(error: unknown): boolean {
 
 export const CODEX_SIGN_IN_EXPIRED = "Codex's ChatGPT sign-in has expired. Sign in again in Settings → General → Accounts.";
 
-export function codexSignInExpired(raw: string): string {
-  return `${CODEX_SIGN_IN_EXPIRED} Codex said: ${raw.slice(0, 300)}`;
+export const CODEX_CLOUD_SIGN_IN_AGAIN = "ChatGPT needs signing in again.";
+
+export function codexSignInExpired(raw: string, cloudHome = cloudHomeConfigured()): string {
+  return cloudHome ? CODEX_CLOUD_SIGN_IN_AGAIN : `${CODEX_SIGN_IN_EXPIRED} Codex said: ${raw.slice(0, 300)}`;
 }
 
 class CodexRpcError extends Error {
@@ -1544,7 +1547,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         if (approvalMode === "custom") {
           approvalParams = customApprovalParams(effectiveConfig);
         } else {
-          approvalParams = namedApprovalParams(approvalMode);
+          approvalParams = withContainerAccess(namedApprovalParams(approvalMode), approvalMode, turn);
         }
         autoAcceptPermissions = approvalMode === "full";
         const selection = config.managed
@@ -1721,7 +1724,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       );
     });
     if (authenticated && loginRejected()) {
-      return { state: "available", version, authenticated: false, reason: CODEX_SIGN_IN_EXPIRED,
+      return { state: "available", version, authenticated: false, reason: cloudHomeConfigured() ? CODEX_CLOUD_SIGN_IN_AGAIN : CODEX_SIGN_IN_EXPIRED,
         update: await codexReleaseUpdate(version, config.cli), billing: "subscription" };
     }
     const email = authenticated ? await codexAccountEmail(config.cli, env) : null;

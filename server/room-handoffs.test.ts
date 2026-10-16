@@ -705,3 +705,170 @@ describe("shared room request display", () => {
     for (const node of [a,b,c,d,direct]) expect(engine.sharedRequest(node)).toEqual({ id: node.id, botIds: [node.botId] });
   }));
 });
+
+describe("long work for the owner's auto dogs", () => {
+  const chief = { botId: "chief", threadId: "chief-chat" };
+  const builder = { botId: "builder", threadId: "builder-work" };
+  const scout = { botId: "scout", threadId: "scout-work" };
+
+  it("keeps working past the 4-hour cap while the dogs are busy, then stops at 12 hours with one plain line", async () => {
+    let nowMs = 0;
+    await fixture(async (engine, hooks) => {
+      let reason: unknown;
+      const closed = vi.fn();
+      hooks.longWork = () => true;
+      hooks.closed = closed;
+      hooks.activity = () => ({ at: nowMs });
+      hooks.run = (_node, _resumed, signal) => new Promise(resolve =>
+        signal.addEventListener("abort", () => { reason = signal.reason; resolve({ ok: false, text: "aborted" }); }));
+      const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
+      engine.sourceSettled("turn", true);
+      for (nowMs = 10 * MIN; nowMs < 12 * 60 * MIN; nowMs += 10 * MIN) { engine.tick(); await flush(); expect(node.status).toBe("running"); }
+      nowMs = 12 * 60 * MIN; engine.tick(); await flush(); engine.tick();
+      expect(node).toMatchObject({ status: "failed", endedBy: "ceiling" });
+      expect(node.result).toContain("Stopped after 12 hours");
+      expect(reason).toBe("ceiling");
+      expect(closed).toHaveBeenCalledTimes(1);
+      expect(closed).toHaveBeenCalledWith(expect.objectContaining({ id: "turn", endedBy: "ceiling" }), "ceiling");
+      expect(engine.continuable("turn")).toBe(false);
+    }, () => nowMs);
+  });
+
+  it("never waits for Continue: a tree where nothing moved picks itself back up", async () => {
+    let nowMs = 0;
+    await fixture(async (engine, hooks) => {
+      const closed = vi.fn();
+      const continued = vi.fn();
+      const runs: Array<{ key: string; text: string }> = [];
+      hooks.longWork = () => true;
+      hooks.closed = closed;
+      hooks.continued = continued;
+      hooks.activity = () => ({ at: 0 });
+      hooks.run = (node, resumed) => {
+        runs.push({ key: node.key, text: node.text });
+        return resumed || node.text.includes("Continuing") ? Promise.resolve({ ok: true, text: `${node.key} done` }) : new Promise(() => {});
+      };
+      const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
+      engine.sourceSettled("turn", true);
+      engine.tick(); await flush();
+      nowMs = ROOM_HANDOFF_LIMITS.idleMs + 1; engine.tick(); await flush();
+      expect(node.endedBy).toBe("idle");
+      const old = engine.nodes.get("turn")!;
+      expect(old.continuedAs).toBeDefined();
+      expect(continued).toHaveBeenCalledWith(expect.objectContaining({ id: "turn" }),
+        expect.objectContaining({ id: old.continuedAs, firstCreatedAt: 0 }), "idle");
+      hooks.activity = () => ({ at: nowMs });
+      await settle(engine, 8);
+      expect(engine.nodes.get(old.continuedAs!)?.status).toBe("completed");
+      expect(runs.filter(run => run.key === "build").map(run => run.text.includes("Continuing"))).toEqual([false, true]);
+      expect(closed).not.toHaveBeenCalled();
+    }, () => nowMs);
+  });
+
+  it("keeps the 4-hour cap and the Continue offer when any dog in the tree is not the owner's auto dog", async () => {
+    let nowMs = 0;
+    await fixture(async (engine, hooks) => {
+      let reason: unknown;
+      const closed = vi.fn();
+      hooks.longWork = node => node.botId !== "scout";
+      hooks.closed = closed;
+      hooks.activity = () => ({ at: nowMs });
+      hooks.run = (_node, _resumed, signal) => new Promise(resolve =>
+        signal.addEventListener("abort", () => { reason = signal.reason; resolve({ ok: false, text: "aborted" }); }));
+      const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
+      engine.enqueue(chief, "turn", undefined, scout, "scout", "Find it");
+      engine.sourceSettled("turn", true);
+      nowMs = 4 * 60 * MIN - 1_000; engine.tick(); await flush();
+      expect(node.status).toBe("running");
+      nowMs = 4 * 60 * MIN; engine.tick(); await flush();
+      expect(node).toMatchObject({ status: "failed", endedBy: "capped" });
+      expect(reason).toBe("capped");
+      expect(closed).toHaveBeenCalledWith(expect.objectContaining({ id: "turn" }), "capped");
+      expect(engine.continuable("turn")).toBe(true);
+    }, () => nowMs);
+  });
+
+  it("tries a timed-out turn once more with a note, and names a second timeout as running out of time", () => fixture(async (engine, hooks) => {
+    const seen: Array<boolean | undefined> = [];
+    hooks.run = vi.fn(async (node, resumed) => {
+      if (resumed) return { ok: true, text: "reviewed" };
+      seen.push(node.retried);
+      return { ok: false, text: "Builder's turn ran out of time.", timedOut: true };
+    });
+    const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
+    engine.sourceSettled("turn", true);
+    await settle(engine, 8);
+    expect(seen).toEqual([undefined, true]);
+    expect(node).toMatchObject({ status: "failed", endedBy: "timeout" });
+    expect(node.result).toBe("Builder's turn ran out of time. It was tried again and ran out of time again.");
+    expect(node.result).not.toMatch(/user|stopped by/i);
+    expect(hooks.report).toHaveBeenCalledWith(expect.objectContaining({ id: node.id, endedBy: "timeout" }), expect.anything());
+  }));
+
+  it("finishes normally when the retry of a timed-out turn succeeds", () => fixture(async (engine, hooks) => {
+    let calls = 0;
+    hooks.run = vi.fn(async (_node, resumed) => {
+      if (resumed) return { ok: true, text: "reviewed" };
+      calls++;
+      return calls === 1 ? { ok: false, text: "timed out", timedOut: true } : { ok: true, text: "built" };
+    });
+    const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
+    engine.sourceSettled("turn", true);
+    await settle(engine, 8);
+    expect(node).toMatchObject({ status: "completed", result: "built", retried: true });
+    expect(engine.nodes.get("turn")?.status).toBe("completed");
+  }));
+
+  it("still ends a plain failure at once, without a retry", () => fixture(async (engine, hooks) => {
+    hooks.run = vi.fn(async (_node, resumed) => resumed ? { ok: true, text: "reviewed" } : { ok: false, text: "Provider refused" });
+    const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
+    engine.sourceSettled("turn", true);
+    await settle(engine, 6);
+    expect(node).toMatchObject({ status: "failed", endedBy: "problem", result: "Provider refused" });
+    expect((hooks.run as ReturnType<typeof vi.fn>).mock.calls.filter(call => call[0].id === node.id)).toHaveLength(1);
+  }));
+
+  it("picks the owner's auto work back up after a restart and says so once", () => fixture(async (engine, hooks, file) => {
+    hooks.run = () => new Promise(() => {});
+    hooks.busy = node => node.botId === "scout";
+    const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
+    const waiting = engine.enqueue(chief, "turn", undefined, scout, "scout", "Find it").node;
+    engine.tick(); await flush();
+    expect(node.status).toBe("running");
+    expect(waiting.status).toBe("queued");
+    const restartedLine = vi.fn();
+    const runs: Array<{ key: string; restarted?: boolean; resumed: boolean }> = [];
+    const after: RoomHandoffHooks = {
+      ...hooks, busy: () => false, longWork: () => true, restarted: restartedLine,
+      run: vi.fn(async (n, resumed) => { runs.push({ key: n.key, restarted: n.restarted, resumed }); return { ok: true, text: `${n.key} done` }; }),
+    };
+    const restarted = new RoomHandoffs(file, after);
+    expect(restarted.nodes.get(node.id)?.status).toBe("running");
+    await settle(restarted, 8);
+    expect(restartedLine).toHaveBeenCalledTimes(1);
+    expect(restartedLine).toHaveBeenCalledWith(expect.objectContaining({ id: "turn" }),
+      expect.arrayContaining([expect.objectContaining({ id: node.id }), expect.objectContaining({ id: waiting.id })]), true);
+    expect(runs).toEqual(expect.arrayContaining([
+      { key: "build", restarted: true, resumed: false },
+      { key: "scout", restarted: undefined, resumed: false },
+      { key: "root", restarted: undefined, resumed: true },
+    ]));
+    expect(restarted.nodes.get(node.id)).toMatchObject({ status: "completed", restarted: undefined });
+    expect(restarted.nodes.get("turn")?.status).toBe("completed");
+  }));
+
+  it("does not replay anyone else's work after a restart, and reports it to the coordinator as before", () => fixture(async (engine, hooks, file) => {
+    hooks.run = () => new Promise(() => {});
+    const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
+    const other = engine.enqueue(chief, "turn", undefined, scout, "scout", "Find it").node;
+    engine.tick(); await flush();
+    const restartedLine = vi.fn();
+    const after: RoomHandoffHooks = { ...hooks, longWork: () => false, restarted: restartedLine, report: vi.fn(), run: vi.fn() };
+    const restarted = new RoomHandoffs(file, after);
+    await settle(restarted, 4);
+    for (const id of [node.id, other.id, "turn"]) expect(restarted.nodes.get(id)).toMatchObject({ status: "failed", endedBy: "restart" });
+    expect(restartedLine).not.toHaveBeenCalled();
+    expect(after.run).not.toHaveBeenCalled();
+    expect(JSON.parse(readFileSync(file, "utf8")).every((n: { status: string }) => n.status === "failed")).toBe(true);
+  }));
+});

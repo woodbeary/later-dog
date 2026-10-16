@@ -23,7 +23,7 @@ function exactly(allowed: Readonly<Record<string, Shape>>): Shape {
   return (value) => isRecord(value) && Object.entries(value).every(([key, item]) => Object.hasOwn(allowed, key) && allowed[key]!(item));
 }
 
-const modelSelection = exactly({ instanceId: text, model: text, effort: text });
+const modelSelection = exactly({ instanceId: text, model: text, effort: text, variant: text, fast: flag });
 const responder = exactly({ kind: text, botId: text });
 const roomSetup = exactly({ bulletin: text, defaultResponder: responder });
 

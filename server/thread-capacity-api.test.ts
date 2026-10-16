@@ -116,12 +116,13 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
     for (const project of projectDirs.splice(0)) await removeTempDir(project);
   });
 
-  it("defaults to three, runs ten real turns after raising the limit, and safely queues and cancels overflow", async () => {
-    expect((await api("GET", "/api/config")).body.threads).toEqual({ maxConcurrentPerBot: 3 });
+  it("defaults to ten, runs ten real turns after raising a lowered limit, and safely queues and cancels overflow", async () => {
+    expect((await api("GET", "/api/config")).body.threads).toEqual({ maxConcurrentPerBot: 10 });
     for (const maxConcurrentPerBot of [0, 11, 1.5, "2", null]) {
       expect((await api("PATCH", "/api/config", { threads: { maxConcurrentPerBot } })).status).toBe(400);
     }
-    expect((await api("GET", "/api/config")).body.threads.maxConcurrentPerBot).toBe(3);
+    expect((await api("GET", "/api/config")).body.threads.maxConcurrentPerBot).toBe(10);
+    await limit(3);
     const { botId, threads } = await botWithThreads(12);
     const firstThree = await Promise.all(threads.slice(0, 3).map((threadId, i) => send(botId, threadId, `ACTIVE_${i}`)));
     expect(firstThree.map((result) => result.status)).toEqual([202, 202, 202]);

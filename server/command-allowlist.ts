@@ -123,10 +123,12 @@ export class CommandAllowlistStore {
     if (next.length !== this.rules.length) this.save(next);
   }
 
-  matches(botId: string, value: CommandAllowlistCandidate): boolean {
+  matches(botId: string, value: CommandAllowlistCandidate, sameEngine?: (saved: string, current: string) => boolean): boolean {
     if (this.unreadable || typeof botId !== "string" || !BOT_ID.test(botId)) return false;
     const candidate = commandAllowlistCandidate(value);
-    return candidate !== null && this.rules.some((rule) => rule.botId === botId && sameScope(rule, candidate));
+    return candidate !== null && this.rules.some((rule) => rule.botId === botId && (sameScope(rule, candidate) ||
+      (sameEngine !== undefined && rule.command === candidate.command && rule.cwd === candidate.cwd &&
+        sameEngine(rule.providerInstanceId, candidate.providerInstanceId))));
   }
 
   private assertWritable(): void {

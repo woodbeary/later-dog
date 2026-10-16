@@ -8270,6 +8270,7 @@ describe("harness HTTP API", () => {
       expect(await updates()).toContain("Work quietly");
       const quiet = await turn("plan my week");
       expect(quiet.systemPrompt).toContain("do not narrate your steps");
+      expect(quiet.systemPrompt).toContain("Never give time estimates");
       expect(quiet.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
 
       const on = await api("PATCH", "/api/config", { features: { stepUpdates: true } });
@@ -8279,6 +8280,7 @@ describe("harness HTTP API", () => {
       const chatty = await turn("and next week");
       expect(chatty.systemPrompt).toContain("before each meaningful step");
       expect(chatty.systemPrompt).not.toContain("Work quietly");
+      expect(chatty.systemPrompt).toContain("each time you pass a milestone");
       expect(chatty.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBeUndefined();
     } finally {
       await api("PATCH", "/api/config", { features: { stepUpdates: false } });

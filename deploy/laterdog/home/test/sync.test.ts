@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, skipped, snapshot, transient } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, snapshot, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -230,6 +230,38 @@ describe("home data sync", () => {
     expect(store.counts.puts).toBe(3);
   });
 
+  it("keeps saving the rest of the home when one new file cannot be uploaded, and tries it again next time", async () => {
+    const source = folder();
+    writeFileSync(join(source, "chats.json"), "the chats");
+    writeFileSync(join(source, "stuck.bin"), "a piece the store will not take");
+    const store = memoryStore();
+    const put = store.put.bind(store);
+    let refuse = true;
+    store.put = async (hash: string, bytes: Uint8Array) => {
+      if (refuse && Buffer.from(bytes).toString() === "a piece the store will not take") throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+      return put(hash, bytes);
+    };
+    const first = await snapshot(source, store, null, { scratch: folder() });
+    expect(first.written).toBe(true);
+    expect(first.unsaved).toEqual(["stuck.bin"]);
+    expect(first.manifest.entries.map((entry: { path: string }) => entry.path)).toEqual(["chats.json"]);
+    refuse = false;
+    const second = await snapshot(source, store, first.manifest, { scratch: folder() });
+    expect(second.unsaved).toEqual([]);
+    expect(second.manifest.entries.map((entry: { path: string }) => entry.path).sort()).toEqual(["chats.json", "stuck.bin"]);
+  });
+
+  it("never uploads the throwaway .tmp folders engines fill on every start", async () => {
+    const source = folder();
+    mkdirSync(join(source, ".codex", ".tmp", "plugins", ".git"), { recursive: true });
+    writeFileSync(join(source, ".codex", ".tmp", "plugins", ".git", "pack"), "a cloned plugin catalog");
+    writeFileSync(join(source, ".codex", "state_5.sqlite.json"), "{}");
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    expect(saved.manifest.entries.some((entry: { path: string }) => entry.path.includes(".tmp"))).toBe(false);
+    expect(saved.manifest.entries.some((entry: { path: string }) => entry.path === ".codex/state_5.sqlite.json")).toBe(true);
+  });
+
   it("splits big files into chunks and puts them back together", async () => {
     const source = folder();
     const big = Buffer.alloc(CHUNK_BYTES + 1234, 7);
@@ -268,6 +300,7 @@ describe("home data sync", () => {
   it("skips logs and caches by name", () => {
     expect(skipped("workspace.sqlite-wal")).toBe(true);
     expect(skipped(".cache")).toBe(true);
+    expect(skipped(".tmp")).toBe(true);
     expect(skipped("notes.md")).toBe(false);
     expect(skipped(".laterdog-restoring-0123456789abcdef01234567")).toBe(true);
   });
@@ -354,6 +387,29 @@ describe("reading saved pieces over HTTP", () => {
     await expect(store.get("a".repeat(64))).rejects.toMatchObject({ name: "TimeoutError" });
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(signals).toHaveLength(1);
+  });
+
+  it("gives up on an upload that stalls, so one stuck piece never blocks every later save", async () => {
+    const signals: AbortSignal[] = [];
+    const store = createHttpStore("https://state.invalid/home", "test-token", stalling(signals), { uploadTimeoutMs: 40 });
+    const started = Date.now();
+    await expect(store.put("d".repeat(64), new Uint8Array(8))).rejects.toMatchObject({ name: "TimeoutError" });
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("gives up on every other call to the store that stalls", async () => {
+    const store = createHttpStore("https://state.invalid/home", "test-token", stalling([]), { requestTimeoutMs: 40 });
+    await expect(store.putManifest({ version: 1, createdAt: 1, entries: [] })).rejects.toMatchObject({ name: "TimeoutError" });
+    await expect(store.has("e".repeat(64))).rejects.toMatchObject({ name: "TimeoutError" });
+    await expect(store.manifest()).rejects.toMatchObject({ name: "TimeoutError" });
+    await expect(store.listBlobs()).rejects.toMatchObject({ name: "TimeoutError" });
+    await expect(store.deleteBlob("f".repeat(64))).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("stops waiting for the last save at its deadline, so a stopping home always lets go", async () => {
+    await expect(settleWithin(new Promise(() => {}), 30)).resolves.toBe("late");
+    await expect(settleWithin(Promise.resolve(), 1_000)).resolves.toBe("done");
+    await expect(settleWithin(Promise.reject(new Error("save failed")), 1_000)).resolves.toBe("failed");
   });
 
   it("drops a blob read at once when the restore that asked for it stops", async () => {

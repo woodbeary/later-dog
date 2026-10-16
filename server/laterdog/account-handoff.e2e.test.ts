@@ -5,15 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCloudAiAccounts, type MacKeychain } from "../../electron/cloud-ai-accounts.mjs";
-import type { InstanceConfig, InstanceConfigMap } from "../contracts.ts";
+import type { InstanceConfig, InstanceConfigMap, ProviderSnapshot } from "../contracts.ts";
 import { json, readBody } from "../harness/http.ts";
 import { ProviderRegistry } from "../harness/registry.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import { PASS, type RouteContext, type RouteHandler } from "../routes/table.ts";
 import { fixtureClaudeLogin, fixtureCodexLogin } from "../testing/fake-ai-logins.ts";
 import { makeFakeDriver } from "../testing/fake-driver.ts";
+import { claudeKeychainService } from "./claude-keychain.ts";
 import { heldAccountReason } from "./held-accounts.ts";
-import { createHomeAccountRoutes } from "./home-accounts.ts";
+import { createHomeAccountRoutes, handedOverEmail, withHandedOverEmail } from "./home-accounts.ts";
 import { createMacAccountRoutes } from "./mac-accounts.ts";
 
 const UUID = "0f6c5a52-8d1e-4c3b-9a7e-2b1d0c9e8f7a";
@@ -64,11 +65,19 @@ describe("a signed-in desktop hands its Claude and ChatGPT sign-ins to My Cloud 
   let mac: Awaited<ReturnType<typeof serve>>, home: Awaited<ReturnType<typeof serve>>;
   let logs: string[], timers: Array<() => void>, summaries: unknown[];
   let records: string | null;
+  let macCalls: string[];
 
-  const macInstances = (): InstanceConfigMap => ({
+  const macClaude = () => join(macData, "providers", "claude");
+  const macCodex = () => join(macData, "providers", "codex");
+  let ownCli = false;
+  const macInstances = (): InstanceConfigMap => ownCli ? {
     claude: { driver: "claudeAgent" },
     [WORK]: { driver: "claudeAgent", displayName: "Work Claude", config: { configDir: join(macData, "providers", WORK) } },
     codex: { driver: "codex" },
+  } : ({
+    claude: { driver: "claudeAgent", config: { configDir: macClaude() } },
+    [WORK]: { driver: "claudeAgent", displayName: "Work Claude", config: { configDir: join(macData, "providers", WORK) } },
+    codex: { driver: "codex", environment: { CODEX_HOME: macCodex() } },
   });
   const macHeldFile = () => join(macData, "providers", "held-accounts.json");
   const homeHeldFile = () => join(homeData, "providers", "held-accounts.json");
@@ -81,19 +90,20 @@ describe("a signed-in desktop hands its Claude and ChatGPT sign-ins to My Cloud 
     macData = join(macHome, ".laterdog");
     homeData = join(root, "home", ".laterdog");
     mkdirSync(join(macData, "providers", WORK), { recursive: true });
-    mkdirSync(join(macHome, ".codex"), { recursive: true });
+    mkdirSync(join(macData, "providers", "codex"), { recursive: true });
     mkdirSync(homeData, { recursive: true });
     vi.stubEnv("HOME", macHome);
     vi.stubEnv("USER", "fixture.user");
     vi.stubEnv("CLAUDE_CONFIG_DIR", "");
     vi.stubEnv("CODEX_HOME", "");
-    logs = []; timers = []; summaries = []; records = null; servers = [];
+    logs = []; timers = []; summaries = []; records = null; servers = []; ownCli = false; macCalls = [];
     for (const level of ["log", "info", "warn", "error", "debug"] as const) vi.spyOn(console, level).mockImplementation((...args: unknown[]) => { logs.push(args.map(String).join(" ")); });
 
     keychain = fakeKeychain();
-    keychain.items.set("fixture.user\u0000Claude Code-credentials", Buffer.from(JSON.stringify({ claudeAiOauth: fixtureClaudeLogin(1), mcpOAuth: { fixtureServer: { note: "kept" } } })).toString("hex"));
+    keychain.items.set(`fixture.user\u0000${claudeKeychainService({ CLAUDE_CONFIG_DIR: macClaude() })}`, Buffer.from(JSON.stringify({ claudeAiOauth: fixtureClaudeLogin(1), mcpOAuth: { fixtureServer: { note: "kept" } } })).toString("hex"));
     writeFileSync(join(macData, "providers", WORK, ".credentials.json"), JSON.stringify({ claudeAiOauth: fixtureClaudeLogin(11) }), { mode: 0o600 });
-    writeFileSync(join(macHome, ".codex", "auth.json"), JSON.stringify(fixtureCodexLogin(1)), { mode: 0o600 });
+    writeFileSync(join(macCodex(), "auth.json"), JSON.stringify(fixtureCodexLogin(1)), { mode: 0o600 });
+    writeFileSync(join(macData, "providers", WORK, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "work@fixture.test" } }));
 
     const fake = makeFakeDriver({ kind: "claudeAgent" });
     const fakeCodex = makeFakeDriver({ kind: "codex" });
@@ -155,7 +165,7 @@ describe("a signed-in desktop hands its Claude and ChatGPT sign-ins to My Cloud 
       if (id && dropAnswer.delete(id)) throw new Error("connection lost");
       return response;
     },
-    localRequest: (route, init) => fetch(`${mac.origin}${route}`, init),
+    localRequest: (route, init) => { macCalls.push(`${init.method} ${route}`); return fetch(`${mac.origin}${route}`, init); },
     keychain,
     read: store.read,
     write: store.write,
@@ -211,7 +221,7 @@ describe("a signed-in desktop hands its Claude and ChatGPT sign-ins to My Cloud 
     const accounts = engine();
     await hand(accounts);
     const before = readFileSync(join(homeData, "providers", "codex", "auth.json"), "utf8");
-    writeFileSync(join(macHome, ".codex", "auth.json"), JSON.stringify(fixtureCodexLogin(5)), { mode: 0o600 });
+    writeFileSync(join(macCodex(), "auth.json"), JSON.stringify(fixtureCodexLogin(5)), { mode: 0o600 });
     expect(await hand(accounts)).toBeNull();
     expect(await hand(engine())).toEqual({ moved: { claude: 0, chatgpt: 0 }, stayed: [], waiting: [] });
     expect(readFileSync(join(homeData, "providers", "codex", "auth.json"), "utf8")).toBe(before);
@@ -259,6 +269,7 @@ describe("a signed-in desktop hands its Claude and ChatGPT sign-ins to My Cloud 
     const before = readFileSync(join(homeData, "providers", WORK, ".credentials.json"), "utf8");
     for (const id of ["claude", WORK, "codex"]) await fetch(`${mac.origin}/api/laterdog/mac-accounts/${id}/hold`, { method: "DELETE" });
     writeFileSync(join(macData, "providers", WORK, ".credentials.json"), JSON.stringify({ claudeAiOauth: fixtureClaudeLogin(21) }), { mode: 0o600 });
+    writeFileSync(join(macData, "providers", WORK, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "someone-else@fixture.test" } }));
     let secondRecords: string | null = null;
     const second = engine({ read: () => secondRecords, write: (contents) => { secondRecords = contents; } });
     const summary = await hand(second);
@@ -289,5 +300,56 @@ describe("a signed-in desktop hands its Claude and ChatGPT sign-ins to My Cloud 
       ...[macHeldFile(), homeHeldFile()].filter(existsSync).map((file) => readFileSync(file, "utf8")),
       ...allFiles(join(homeData, "providers")).filter((path) => path.endsWith("handoff.json")).map((file) => readFileSync(file, "utf8"))];
     for (const text of seen) expect(text).not.toMatch(SECRETS);
+  });
+
+  it("never moves the sign-in the person's own claude and codex commands use, and leaves those logins where they are", async () => {
+    ownCli = true;
+    mkdirSync(join(macHome, ".codex"), { recursive: true });
+    writeFileSync(join(macHome, ".codex", "auth.json"), JSON.stringify(fixtureCodexLogin(3)), { mode: 0o600 });
+    keychain.items.set("fixture.user\u0000Claude Code-credentials", Buffer.from(JSON.stringify({ claudeAiOauth: fixtureClaudeLogin(3) })).toString("hex"));
+    await macRegistry.load(macInstances());
+    expect(await hand(engine())).toEqual({ moved: { claude: 1, chatgpt: 0 }, stayed: [], waiting: [] });
+    expect(Object.keys(homeInstances).sort()).toEqual(["claude", "codex", WORK].sort());
+    expect(homeInstances.claude).toEqual({ driver: "claudeAgent", config: { cli: "fixture-claude" } });
+    expect(homeInstances.codex).toEqual({ driver: "codex" });
+    expect(existsSync(join(homeData, "providers", "claude"))).toBe(false);
+    expect(existsSync(join(homeData, "providers", "codex"))).toBe(false);
+    expect(macRegistry.get("claude")).not.toBeNull();
+    expect(macRegistry.get("codex")).not.toBeNull();
+    expect(macCalls.filter((call) => /\/(claude|codex)\/hold$/.test(call))).toEqual([]);
+  });
+
+  it("remembers that the home has its own sign-in and leaves that account alone at every later launch", async () => {
+    homeOwnLogin.add("claude");
+    expect(await hand(engine())).toMatchObject({ moved: { claude: 1, chatgpt: 1 }, stayed: [{ name: "Claude", why: "home" }] });
+    expect(JSON.parse(records!).refused.claude).toMatchObject({ code: "home_signed_in", origin: home.origin });
+    expect(logs.some((line) => line.includes("Claude") && line.includes("home_signed_in"))).toBe(true);
+    macCalls = [];
+    expect(await hand(engine())).toEqual({ moved: { claude: 0, chatgpt: 0 }, stayed: [], waiting: [] });
+    expect(macCalls.filter((call) => call.endsWith("/claude/hold"))).toEqual([]);
+    expect(macRegistry.get("claude")).not.toBeNull();
+    expect(existsSync(join(homeData, "providers", "claude"))).toBe(false);
+  });
+
+  it("carries the Claude account's email so the home's list can tell two entries for one login apart", async () => {
+    await hand(engine());
+    const marker = JSON.parse(readFileSync(join(homeData, "providers", WORK, "handoff.json"), "utf8"));
+    expect(marker).toMatchObject({ email: "work@fixture.test", providerAccount: "email:work@fixture.test" });
+    expect(handedOverEmail(homeData, WORK)).toBe("work@fixture.test");
+    expect(handedOverEmail(homeData, "claude")).toBeNull();
+    const listed = (snapshot: ProviderSnapshot) => withHandedOverEmail(homeData, { instanceId: WORK, snapshot }).snapshot.account;
+    expect(listed({ state: "available", authenticated: true })?.email).toBe("work@fixture.test");
+    expect(listed({ state: "available", authenticated: true, account: { email: "own@fixture.test" } })?.email).toBe("own@fixture.test");
+    expect(listed({ state: "available", authenticated: false })).toBeUndefined();
+  });
+
+  it("takes a fresh login for the same Claude email from another computer instead of refusing it", async () => {
+    await hand(engine());
+    await fetch(`${mac.origin}/api/laterdog/mac-accounts/${WORK}/hold`, { method: "DELETE" });
+    writeFileSync(join(macData, "providers", WORK, ".credentials.json"), JSON.stringify({ claudeAiOauth: fixtureClaudeLogin(31) }), { mode: 0o600 });
+    let secondRecords: string | null = null;
+    const summary = await hand(engine({ read: () => secondRecords, write: (contents) => { secondRecords = contents; } }));
+    expect(summary).toMatchObject({ moved: { claude: 2 }, stayed: [] });
+    expect(JSON.parse(readFileSync(join(homeData, "providers", WORK, ".credentials.json"), "utf8"))).toEqual({ claudeAiOauth: fixtureClaudeLogin(31) });
   });
 });

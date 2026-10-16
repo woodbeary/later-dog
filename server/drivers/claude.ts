@@ -1179,6 +1179,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (hooks) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH);
       if (turn.guestConfined) settings.permissions = GUEST_CLAUDE_PERMISSIONS;
       if (turn.fast) settings.fastMode = true;
+      if (turn.reviewerGrant && permissionMode === "auto") settings.autoMode = turn.reviewerGrant;
       const authSettingsPath = mcpConfigPath && Object.keys(settings).length
         ? join(dirname(mcpConfigPath), "auth-settings.json") : null;
       if (authSettingsPath) args.push("--settings", authSettingsPath);
@@ -1199,6 +1200,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         hooks: Boolean(hooks),
         fast: Boolean(turn.fast),
         quiet: Boolean(turn.quietWork),
+        reviewerGrant: permissionMode === "auto" ? turn.reviewerGrant ?? null : null,
         auth: createHash("sha256").update(JSON.stringify({
           settings: authSettings,
           env: Object.fromEntries(CLAUDE_ACCOUNT_ENV_KEYS.map((key) => [key, env[key]])),

@@ -13,11 +13,17 @@ export type TranscriptItem =
   | ActivityTranscriptItem
   | { kind: "turn"; id: string; turnId: string; label: string; messages: Message[] };
 
-export function statusActivity(message: Message): { kind: "recovery" | "notice"; text: string } | null {
+export function statusActivity(message: Message): { kind: "recovery" | "notice" | "progress"; text: string } | null {
   const name = message.kind === "activity" ? message.tool?.name : undefined;
   if (name?.startsWith("recovery:")) return { kind: "recovery", text: name.slice("recovery:".length).trim() };
-  if (name?.startsWith("notice:")) return { kind: "notice", text: name.slice("notice:".length).trim() };
+  if (name?.startsWith("notice:")) {
+    return { kind: message.tool?.statusLine === "live" ? "progress" : "notice", text: name.slice("notice:".length).trim() };
+  }
   return null;
+}
+
+export function isFoldedStatusLine(message: Message): boolean {
+  return message.kind === "activity" && message.tool?.statusLine === "folded";
 }
 
 export function isRecoveryActivity(message: Message): boolean {

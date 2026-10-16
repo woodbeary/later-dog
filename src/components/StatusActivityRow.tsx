@@ -1,4 +1,4 @@
-import { ArrowRight, Info, RefreshCw } from "lucide-react";
+import { Activity, ArrowRight, Info, RefreshCw } from "lucide-react";
 import { statusActivity } from "@/lib/activity-runs";
 import { useEffect, useState } from "react";
 import { api, useStore, type Message } from "@/state/store";
@@ -50,9 +50,9 @@ export function StatusActivityRow({ message }: { message: Message }) {
   if (!status) return null;
   if (message.tool?.carry) return <CarriedAccount {...message.tool.carry} text={status.text} />;
   if (message.tool?.resume) return <ContinueWork handoffId={message.tool.resume.handoffId} text={status.text} />;
-  const Icon = status.kind === "recovery" ? RefreshCw : Info;
+  const Icon = status.kind === "recovery" ? RefreshCw : status.kind === "progress" ? Activity : Info;
   return (
-    <div role="status" className="flex w-fit max-w-full items-start gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary">
+    <div role="status" data-status-line={status.kind === "progress" ? "" : undefined} className="flex w-fit max-w-full items-start gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary">
       <Icon size={13} aria-hidden="true" className="mt-0.5 shrink-0" />
       <span className="min-w-0 break-words">{status.text}</span>
     </div>

@@ -34,7 +34,7 @@ export function cloudHomeChildEnvironments(config: CloudHomeConfig, env: NodeJS.
   const allowed = Object.fromEntries(Object.entries(offered).filter(([name, value]) => value !== undefined && serverEnvironmentAllowed(name)));
   const dropped = Object.keys(offered).filter((name) => !serverEnvironmentAllowed(name) && name !== "HOME").sort();
   const server: NodeJS.ProcessEnv = {
-    ...allowed, HOME: home, LATERDOG_HOME: env.LATERDOG_HOME || posix.join(home, ".laterdog"),
+    ...allowed, GIT_TERMINAL_PROMPT: "0", HOME: home, LATERDOG_HOME: env.LATERDOG_HOME || posix.join(home, ".laterdog"),
     LATERDOG_SERVER_PORT: "8799", LATERDOG_WEBHOOK_PORT: "8800", LATERDOG_PUBLIC_URL: config.publicOrigin,
     LATERDOG_WEBHOOK_PUBLIC_URL: env.LATERDOG_WEBHOOK_PUBLIC_URL || config.publicOrigin,
     [CLOUD_SECRETS_FD_ENV]: String(SECRETS_FD),

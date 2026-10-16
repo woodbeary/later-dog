@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { seedIncluded } from "./included.mjs";
-import { collectGarbage, createHttpStore, restore, snapshot } from "./sync.mjs";
+import { FINAL_SAVE_MS, collectGarbage, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
 
 const DATA = process.env.HOME || "/data";
 const SCRATCH = "/tmp/laterdog-sync";
@@ -66,6 +66,7 @@ async function main() {
       .then(async (result) => {
         manifest = result.manifest;
         if (result.written) log(`saved (${result.uploaded} changed files)`);
+        if (result.unsaved.length) log(`could not save ${result.unsaved.length} file(s) this time, first ${result.unsaved[0]}; the next save tries again`);
         saves += 1;
         if (final || saves % GC_EVERY_SAVES !== 0) return;
         try {
@@ -89,8 +90,8 @@ async function main() {
   process.on("SIGINT", forward("SIGINT"));
   child.on("exit", async (code, signal) => {
     clearInterval(timer);
-    await running;
-    await save({ final: true });
+    const finished = await settleWithin((running ?? Promise.resolve()).then(() => save({ final: true })), FINAL_SAVE_MS);
+    if (finished === "late") log(`the last save did not finish within ${FINAL_SAVE_MS / 1000} seconds; stopping anyway`);
     process.exit(code ?? (signal ? 1 : 0));
   });
 }

@@ -253,7 +253,8 @@ it("applies requested Full Access workflows through MCP without duplicate approv
     const beforeRestart = providerTurns().length;
     await restart();
     const recovered = await api("GET", pendingRoute);
-    expect(recovered).toMatchObject({ phase: "untracked", activeTurnId: null, executionId: null });
+    expect(recovered).toMatchObject({ phase: "waiting" });
+    await expect.poll(async () => (await messages(interrupted.threadId)).some((message: any) => /picked that work back up/.test(message.tool?.name ?? "")), { timeout: 15_000 }).toBe(true);
     expect(recovered.messages.some((message: any) => message.turnTerminal && message.text === "Assigned the restart check" && message.turnSucceeded)).toBe(true);
     expect((await api("GET", guardedRoutes.get(inverse.activeTaskId)!)).phase).toBe("settled");
     await new Promise(resolve => setTimeout(resolve, 250));

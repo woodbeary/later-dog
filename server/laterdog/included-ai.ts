@@ -34,7 +34,7 @@ export function includedAiError(status: number, body: string): string | undefine
 
 const notReady = () => (savedTrial()?.ended ? ended() : NOT_STARTED);
 
-function includedDriver(driverKind: string, displayName: string, models: typeof KIMI_MODELS): ProviderDriver<Record<string, never>> {
+function includedDriver(driverKind: string, displayName: string, models: typeof KIMI_MODELS, reasonsInContent: boolean): ProviderDriver<Record<string, never>> {
   return {
     driverKind,
     metadata: { displayName, supportsMultipleInstances: false },
@@ -56,6 +56,7 @@ function includedDriver(driverKind: string, displayName: string, models: typeof 
         unavailableReason: notReady(),
         timeoutMs: 120_000,
         generateModel: () => models.default,
+        reasoningInContent: () => reasonsInContent,
         computerUse: true,
         nudgeAnnouncedAction: true,
         nativeLog: {
@@ -68,5 +69,5 @@ function includedDriver(driverKind: string, displayName: string, models: typeof 
   };
 }
 
-export const IncludedAiDriver = includedDriver(INCLUDED_AI_DRIVER, "Kimi", KIMI_MODELS);
-export const IncludedGrokDriver = includedDriver(INCLUDED_GROK_DRIVER, "Grok", GROK_MODELS);
+export const IncludedAiDriver = includedDriver(INCLUDED_AI_DRIVER, "Kimi", KIMI_MODELS, true);
+export const IncludedGrokDriver = includedDriver(INCLUDED_GROK_DRIVER, "Grok", GROK_MODELS, false);

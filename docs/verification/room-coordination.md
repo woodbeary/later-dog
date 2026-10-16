@@ -283,16 +283,30 @@ Each ended request records why in `endedBy` in `room-handoffs.json`, and the wor
 | `idle`, `capped` | "Scout ran out of time" | Nothing moved for 20 minutes… / Ran out of time after 4 hours. |
 | `interrupted` | "Scout was interrupted" | Interrupted before it finished. |
 | `origin` | "Scout never got started" | The request that started this ended before it could begin. |
+| `timeout`, `ceiling` | "Scout ran out of time" | Its turn timed out twice… / Stopped after 12 hours… |
 | `restart`, `deleted`, `limit`, `problem` | "Scout couldn't finish" | each in plain words |
 
 Only the Stop buttons (a conversation, a room, or a guarded request) say it was stopped by the person. A change that interrupts a dog's turn (switching its engine, tightening its permissions) now says "interrupted".
 
 When a tree ends for time, its Chief's conversation gets one line, "Ran out of time after 4 hours. Continue?", with a **Continue** button. Continue (`POST /api/handoffs/:id/continue`) starts a fresh tree from the same request: answers that already came back are kept, and each request that did not finish goes out again to the same teammate in the same thread, told to check what is already done and carry on. When they all return, the Chief resumes and answers you. A tree can be continued once; the button turns into "Picking the work back up where it stopped."
 
-Checks: `server/room-handoffs.test.ts` (idle, hard cap, honest endings, Continue), `server/laterdog/handoff-budget.test.ts`, `src/components/StatusActivityRow.test.ts`.
+A handoff turn that times out (a room turn past its deadline, or a turn the stall watchdog stops) is tried once more, told to check what is already done and carry on. A second timeout ends it as `timeout`. The stall watchdog counts a tool call that is still running as alive, up to 4 hours for one call.
+
+### The owner's own dogs on auto
+
+When every dog in a tree is the owner's own dog in Off-leash (`auto`) or Full access, in a conversation no guest drives and on a workspace that is not shared (`server/laterdog/long-work.ts`):
+
+- a room turn and a room handoff turn get 4 hours instead of the 5-minute room default, unless the conversation set its own limit;
+- the 4-hour cap does not apply; the tree runs until 12 hours after its first attempt began, then ends with one plain line and no Continue button;
+- when nothing moved for 20 minutes, later.dog continues the tree by itself instead of asking "Continue?";
+- after a restart, the requests that were running go out again with a note that later.dog restarted.
+
+Everyone else keeps the 4-hour cap, the Continue button, and no replay after a restart; the Chief's conversation gets one line naming each request to send again.
+
+Checks: `server/room-handoffs.test.ts` (idle, hard cap, honest endings, Continue, long work, retries, restart), `server/laterdog/handoff-budget.test.ts`, `server/laterdog/long-work.test.ts`, `server/turn-watchdog.test.ts`, `src/components/StatusActivityRow.test.ts`.
 
 ## One open thread per teammate
 
 When a dog sends work to a teammate through `send_to_bot` (or the older cross-bot `start_thread`), later.dog first looks for a thread that dog already opened on that teammate from the same conversation and that is still open: not archived, and not closed unless it is the teammate's `@Chief · work` thread, which reopens when new work arrives. If there is one, the request goes into it and runs after anything still running there. The chat says "Added to thread #… on …" instead of "Opened thread", and the dog is told it was added to an open thread instead of opening another. A request that names a folder only reuses a thread in that folder.
 
-New threads are counted per turn only when one is really created, and only to stop a runaway loop: 5 threads a dog opens for itself, 15 with teammates. At the limit the dog is told to finish and say plainly which threads it still wanted, and the conversation gets one line, "This dog opened 5 new threads in one go, so later.dog paused new ones to stop a runaway. Ask again if you want more." (shown once per turn, however many more it tries). The code is in `server/laterdog/work-thread-reuse.ts`; `server/thread-aware-bots.e2e.test.ts` proves the reuse, the chips and the single notice on a fixture.
+New threads are counted per turn only when one is really created, and only to stop a runaway loop: in the owner's own conversations, 20 threads a dog opens for itself and 40 with teammates; where a guest drives the conversation or the workspace is shared, 5 and 15. A dog runs up to 10 threads at once by default (`threads.maxConcurrentPerBot`). At the limit the dog is told to finish and say plainly which threads it still wanted, and the conversation gets one line, "This dog opened 20 new threads in one go, so later.dog paused new ones to stop a runaway. Ask again if you want more." (shown once per turn, however many more it tries). The code is in `server/laterdog/work-thread-reuse.ts`; `server/thread-aware-bots.e2e.test.ts` proves the reuse, the chips and the single notice on a fixture.

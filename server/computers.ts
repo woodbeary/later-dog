@@ -291,7 +291,7 @@ export async function joinBoat(cfg: AppConfig, botId: string) {
   if (!computersSelected()) return boat.joinBoat(cfg, botId);
   const client = ownClient();
   const computer = await findOwn(client, botId);
-  if (!computer) throw new Error("no computer yet — provision it first");
+  if (!computer) throw Object.assign(new Error("no computer yet — provision it first"), { status: 409 });
   const ready = await waitRunning(client, computer.id, JOIN_BUDGET_MS);
   if (!ready) throw new Error("the cloud computer did not wake in time — try again");
   return { joinUrl: await desktopUrl(client, ready.id), state: ready.state };

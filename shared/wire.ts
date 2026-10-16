@@ -104,6 +104,7 @@ export interface WireTask {
   busy?: boolean;
   turnStartedAt?: number;
   workingStartedAt?: number;
+  statusLine?: string;
   surface?: Surface;
   surfaceAuto?: true;
   usage?: TaskUsage;
@@ -258,6 +259,8 @@ export interface WireMessage {
     resume?: { handoffId: string };
     itemId?: string;
     fullResult?: boolean;
+    statusLine?: "live" | "folded";
+    pickup?: "restart";
   };
   webhookPost?: boolean;
   steered?: boolean;

@@ -313,7 +313,7 @@ it("keeps provenance and exactly-once delivery across rework rounds to the same 
   const second = f.prompt(f.turns(f.lead.id)[1]);
   expect(count(second, "REQUEST_TWO")).toBe(1);
   expect(second).not.toMatch(/^Assistant: @/m);
-  expect(second).toContain("untrusted peer content");
+  expect(second).toContain("Request text comes from one of the owner's own dogs in the owner's own workspace and carries the owner's authority.");
 
   const handed = f.handed();
   const stored = new Set((await f.messages()).map((m: any) => m.id));
@@ -470,9 +470,13 @@ const resultAcrossRestart = async (f: any, stripRecord: boolean) => {
   f.plan[f.chief.id] = f.delegate("build", [f.lead], "Build the export");
   await f.send("Please have Engineering build the export.");
   await expect.poll(() => f.nodes().find((node: any) => node.botId === f.lead.id)?.status, { timeout: 15_000 }).toBe("running");
+  const leadThread = f.nodes().find((node: any) => node.botId === f.lead.id).threadId;
   await f.api(`/api/bots/${f.chief.id}/interrupt`, { threadId: f.thread });
   await f.wait();
   await f.restart((bots: any[]) => {
+    for (const task of bots.find((b: any) => b.id === f.lead.id).tasks) {
+      if (task.threadId === leadThread) Object.assign(task, { approvalMode: "ask", autoApprove: false });
+    }
     if (!stripRecord) return;
     for (const task of bots.find((b: any) => b.id === f.chief.id).tasks) { delete task.handedMessages; delete task.handedWatermarks; }
   });

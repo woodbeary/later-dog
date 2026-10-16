@@ -44,10 +44,6 @@ export function idlePolicy(env: { IDLE_SLEEP_MINUTES?: string; MAX_AWAKE_HOURS?:
   };
 }
 
-export function maxComputers(env: { MAX_COMPUTERS?: string }): number {
-  return Math.floor(bounded(env.MAX_COMPUTERS, 10, 0, 1000));
-}
-
 export function inactivityTimeoutMs(policy: IdlePolicy): number {
   return Math.min(6 * 60 * MINUTE, policy.idleSleepMs + 45 * MINUTE);
 }

@@ -14,11 +14,17 @@ export interface CloudLendingTurn {
   starters?: readonly (string | undefined)[];
   reportsFromOthers?: boolean;
   ownerPerson: (person: string | undefined) => boolean;
+  ownersOwnDogs?: boolean;
   cardAnswerer: (card: Card) => string | undefined;
   routineRun: () => { triggerSource: RoutineRunTrigger; ownerStarted: boolean; ownerAuthored: boolean } | null;
 }
 
 const personOf = (line: Line | undefined) => line?.role === "user" && !line.peerAsk ? line.sender?.id : undefined;
+
+export function ownersLine(line: Line | undefined, ownerPerson: (person: string | undefined) => boolean, ownersOwnDogs: boolean): boolean {
+  if (ownerPerson(personOf(line))) return true;
+  return ownersOwnDogs && line?.role === "user" && (Boolean(line.peerAsk) || !line.sender?.id);
+}
 
 export type CloudLendingRefusal = "unproven" | "not-owner" | "someone-else";
 
@@ -29,7 +35,7 @@ export function cloudHomeLendingRefusal(turn: CloudLendingTurn): CloudLendingRef
   if (index < 0) return "unproven";
   let owner: boolean;
   if (request.automation === undefined) {
-    owner = turn.ownerPerson(personOf(turn.thread[index]));
+    owner = ownersLine(turn.thread[index], turn.ownerPerson, turn.ownersOwnDogs === true);
   } else {
     const run = turn.routineRun();
     owner = request.automation !== "webhook" && Boolean(run) && run!.triggerSource !== "webhook" &&
@@ -39,7 +45,7 @@ export function cloudHomeLendingRefusal(turn: CloudLendingTurn): CloudLendingRef
   if (turn.starters?.some((person) => person !== undefined && !turn.ownerPerson(person))) return "someone-else";
   if (turn.reportsFromOthers) return "someone-else";
   const clean = ownerOnlyConversation(turn.thread, turn.ownerPerson, turn.cardAnswerer,
-    request.automation !== undefined ? request.messageId : undefined);
+    request.automation !== undefined ? request.messageId : undefined, turn.ownersOwnDogs === true);
   return clean ? null : "someone-else";
 }
 
@@ -48,9 +54,10 @@ export function ownerOnlyConversation(
   ownerPerson: (person: string | undefined) => boolean,
   cardAnswerer: (card: Card) => string | undefined,
   exempt?: string,
+  ownersOwnDogs = false,
 ): boolean {
   return thread.every(line =>
-    (line.role !== "user" || line.id === exempt || ownerPerson(personOf(line))) &&
+    (line.role !== "user" || line.id === exempt || ownersLine(line, ownerPerson, ownersOwnDogs)) &&
     (!answeredByPerson(line.card) || ownerPerson(cardAnswerer(line.card!))));
 }
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.41 — 2026-10-15
+
+- **Your dogs in My Cloud don't stop to ask.** Pushes, pull requests, commits to main and work your coordinator passes on go through without a card. Only force-pushing main, deleting a repository and deleting outside a dog's folder are refused, in one line.
+- **Sending through your connected apps doesn't ask either.** Emails and messages from your own dogs go out within each dog's daily limit.
+- **Questions wait for you.** A dog decides whether to ask, and Codex dogs can ask with options too.
+- **Long work keeps going.** Dogs can work for hours, handoffs pick themselves back up, a timeout says so and is tried once more, and each dog can run 10 chats at once.
+- **Dogs don't go quiet.** A dog that ends on "I'm checking it now" carries on, a dog working quietly shows "Still on it", and work that was running when My Cloud restarted picks up again, even after the dog has posted what it found so far.
+- **Codex can push from My Cloud**, and when an account runs out of usage the work moves to another one.
+- **Adding ChatGPT and Claude accounts in My Cloud works**, with a device code or a paste code.
+- **The included AI keeps its thinking out of its replies**, and every dog gets its own computer.
+- **My Cloud keeps saving.** One stuck upload used to stop every later save, so a restart could bring back older chats.
+- **A new desktop goes straight to your chats**, with no tours.
+- **Apps on your Mac act as you.** When Claude Code, Codex or a script on your Mac messages your dogs, it counts as you: every dog takes it, and the chat can still use your Mac.
+- **If your Mac isn't connected, a dog just says to open the later.dog app.**
+- **Removing an account moves its dogs** to another signed-in account, keeping the model when it can, instead of asking you to detach them first.
+- **Chats that came over from your Mac can use your Mac again**, instead of saying someone else wrote in them.
+
 ## 0.3.40 — 2026-10-15
 
 - **Stop works in My Cloud.** Programs a dog started are now cleaned up when it stops, so the dog really stops instead of staying "working" with a "could not be confirmed stopped" warning.

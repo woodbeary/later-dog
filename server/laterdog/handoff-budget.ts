@@ -1,7 +1,8 @@
 export const HANDOFF_IDLE_MS = 20 * 60_000;
 export const HANDOFF_HARD_CAP_MS = 4 * 60 * 60_000;
+export const HANDOFF_CEILING_MS = 12 * 60 * 60_000;
 
-export const HANDOFF_ENDS = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem"] as const;
+export const HANDOFF_ENDS = ["person", "api", "interrupted", "deleted", "idle", "capped", "origin", "limit", "restart", "problem", "timeout", "ceiling"] as const;
 export type HandoffEnd = (typeof HANDOFF_ENDS)[number];
 
 export const TIME_ENDS: readonly HandoffEnd[] = ["idle", "capped"];
@@ -14,7 +15,10 @@ export interface HandoffBudgetLimits {
   idleMs: number;
   hardCapMs: number;
   minRunwayMs: number;
+  ceilingMs?: number;
 }
+
+type EndLimits = Pick<HandoffBudgetLimits, "idleMs" | "hardCapMs" | "ceilingMs">;
 
 export interface HandoffActivity {
   at?: number;
@@ -24,7 +28,12 @@ export interface HandoffActivity {
 export interface BudgetRoot {
   id: string;
   createdAt: number;
+  firstCreatedAt?: number;
   lastProgressAt?: number;
+}
+
+export function isHandoffEnd(value: unknown): value is HandoffEnd {
+  return typeof value === "string" && (HANDOFF_ENDS as readonly string[]).includes(value);
 }
 
 export function plainDuration(ms: number): string {
@@ -38,7 +47,7 @@ export function plainDuration(ms: number): string {
   return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
-export function endWords(end: HandoffEnd, limits: Pick<HandoffBudgetLimits, "idleMs" | "hardCapMs">, unstarted = false): string {
+export function endWords(end: HandoffEnd, limits: EndLimits, unstarted = false): string {
   switch (end) {
     case "person": return unstarted ? "The person stopped this before it started." : "The person stopped this work.";
     case "api": return unstarted ? "A local tool on this Mac stopped this before it started." : "A local tool on this Mac stopped this work.";
@@ -50,10 +59,12 @@ export function endWords(end: HandoffEnd, limits: Pick<HandoffBudgetLimits, "idl
     case "limit": return "Too many teammate requests in one go.";
     case "restart": return "later.dog restarted while this was running, so it was not picked up again.";
     case "problem": return "Something changed, so this could not go on.";
+    case "timeout": return "Its turn timed out twice, so later.dog stopped it.";
+    case "ceiling": return `Stopped after ${plainDuration(limits.ceilingMs ?? HANDOFF_CEILING_MS)}, the longest one team task runs on its own. Ask again to carry on.`;
   }
 }
 
-export function continueOffer(end: HandoffEnd, limits: Pick<HandoffBudgetLimits, "idleMs" | "hardCapMs">): string {
+export function continueOffer(end: HandoffEnd, limits: EndLimits): string {
   const words = end === "capped"
     ? `Ran out of time after ${plainDuration(limits.hardCapMs)}.`
     : `Nothing moved for ${plainDuration(limits.idleMs)}.`;
@@ -65,7 +76,7 @@ export function teammateEndLabel(name: string, status: string, end: HandoffEnd |
   if (end === undefined) return status === "cancelled" ? `${name} stopped` : `${name} couldn't finish`;
   if (end === "person") return `${name} stopped`;
   if (end === "api") return `${name} was stopped by a local tool`;
-  if (endedForTime(end)) return `${name} ran out of time`;
+  if (endedForTime(end) || end === "timeout" || end === "ceiling") return `${name} ran out of time`;
   if (end === "origin") return `${name} never got started`;
   if (end === "interrupted") return `${name} was interrupted`;
   return `${name} couldn't finish`;
@@ -103,24 +114,28 @@ export class HandoffBudget {
     return this.idleFor(root) > this.limits.idleMs;
   }
 
-  hardCapAt(root: BudgetRoot): number {
-    return root.createdAt + this.limits.hardCapMs;
+  private capMs(long: boolean): number {
+    return long ? this.limits.ceilingMs ?? HANDOFF_CEILING_MS : this.limits.hardCapMs;
   }
 
-  remaining(root: BudgetRoot): number {
-    return this.hardCapAt(root) - this.now();
+  hardCapAt(root: BudgetRoot, long = false): number {
+    return (long ? root.firstCreatedAt ?? root.createdAt : root.createdAt) + this.capMs(long);
   }
 
-  pastHardCap(root: BudgetRoot): boolean {
-    return this.now() >= this.hardCapAt(root);
+  remaining(root: BudgetRoot, long = false): number {
+    return this.hardCapAt(root, long) - this.now();
   }
 
-  hasRunway(root: BudgetRoot): boolean {
-    return this.remaining(root) >= this.limits.minRunwayMs;
+  pastHardCap(root: BudgetRoot, long = false): boolean {
+    return this.now() >= this.hardCapAt(root, long);
   }
 
-  refusal(root: BudgetRoot): string {
-    const left = plainDuration(Math.max(this.remaining(root), 0));
-    return `Time is nearly up for this team task: ${left} left of ${plainDuration(this.limits.hardCapMs)}, so no new teammate work can start. Finish with what you have and tell the person plainly that time ran out.`;
+  hasRunway(root: BudgetRoot, long = false): boolean {
+    return this.remaining(root, long) >= this.limits.minRunwayMs;
+  }
+
+  refusal(root: BudgetRoot, long = false): string {
+    const left = plainDuration(Math.max(this.remaining(root, long), 0));
+    return `Time is nearly up for this team task: ${left} left of ${plainDuration(this.capMs(long))}, so no new teammate work can start. Finish with what you have and tell the person plainly that time ran out.`;
   }
 }

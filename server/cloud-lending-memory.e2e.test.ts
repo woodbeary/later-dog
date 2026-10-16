@@ -97,6 +97,7 @@ async function leftBehind(of: { threadIds?: string[]; routineIds?: string[] }) {
   for (const proxy of proxies.splice(0)) proxy.kill();
   await waitForExit(child, { signal: "SIGTERM" });
   markLeftBehind(join(home, ".laterdog"), of);
+  rmSync(join(home, ".laterdog", "turns-running.json"), { force: true });
   await boot();
   macAway = true;
 }
@@ -346,7 +347,7 @@ it("what the owner's own turn wrote before a turn in a conversation a guest left
   expect(await review(bot)).toBeUndefined();
 }, 60_000);
 
-it("a process on the Cloud cannot write in the owner's running conversation; a teammate's words handed into it make that turn someone else's", async () => {
+it("a process on the Cloud cannot write in the owner's running conversation; with only the owner's devices, another of his dogs handing words into it keeps the Mac", async () => {
   const bot = await newBot("Steer", "held");
   const teammate = await newBot("Steer teammate", "held");
   await review(bot);
@@ -365,11 +366,10 @@ it("a process on the Cloud cannot write in the owner's running conversation; a t
   expect(asked.status, JSON.stringify(receipt)).toBe(200);
   expect(receipt.aside, JSON.stringify(receipt)).toBe("injected");
   rmSync(runtimes);
-  expect((await sees(tools)).unavailable).toContain("Someone else wrote in this conversation");
-  appendFileSync(ws(bot, "MEMORY.md"), `\n- ${INJECTED}\n`);
+  const after = await sees(tools);
+  expect(after.unavailable).toBeUndefined();
+  expect(after.computers).toHaveLength(1);
   await stop(bot, mine);
-  const ownerTools = await toolsFor(async () => say(owner, bot, "Read plan.md from my Mac.", await newThread(bot)));
-  expect((await sees(ownerTools)).unavailable).toContain("This bot's memory was changed");
 }, 60_000);
 
 it("a link planted in a bot's memory is a change, and what it points at never reaches a turn", async () => {

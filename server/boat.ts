@@ -1142,7 +1142,7 @@ export async function provisionBoat(cfg: AppConfig, botId: string, _botName: str
 export async function joinBoat(cfg: AppConfig, botId: string) {
   cfg = snapshotBoatConfig(cfg);
   const boat = await findBoat(cfg, botId);
-  if (!boat) throw new Error("no computer yet — provision it first");
+  if (!boat) throw Object.assign(new Error("no computer yet — provision it first"), { status: 409 });
   const ready = await waitReady(cfg, boat.id);
   if (!ready) throw new Error("the box did not wake in time — try again");
   return { joinUrl: await mintDesktopUrl(cfg, boat.id), state: ready.state ?? null };
