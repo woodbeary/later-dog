@@ -1581,7 +1581,7 @@
   "approvalMode.antigravityLocalOnly": "Off-leash (full access) is available in the local packaged desktop app.",
   "approvalMode.trustedLocalOnly": "Full and Custom are available in the packaged desktop app.",
   "onboarding.welcome": "Welcome to {app}",
-  "onboarding.intro": "Your dogs, on your Mac. What should they call you?",
+  "onboarding.intro": "What should your dogs call you?",
   "onboarding.name": "Your name",
   "onboarding.continue": "Continue",
   "onboarding.profile.error": "Couldn't save your details. Try again, or choose Maybe later.",
