@@ -64,11 +64,22 @@ describe("what counts as a reply to the person", () => {
 });
 
 describe("whether the person got their answer before the restart", () => {
-  it("counts a turn's final words or a finding on the way, but not a line that only says what comes next", () => {
+  it("counts a turn's final words, not what the dog said on the way", () => {
     expect(answeredSince([midTurn("I'm checking the logs."), step()])).toBe(false);
-    expect(answeredSince([midTurn("Found it: the session cookie expires at once."), step()])).toBe(true);
+    expect(answeredSince([midTurn("Found it: the session cookie expires at once."), step()])).toBe(false);
+    expect(answeredSince([midTurn("Mapped 14 RPC methods so far. Terminal access on the Mac works."), step()])).toBe(false);
     expect(answeredSince([step(), say("Fixed it and opened PR #12.")])).toBe(true);
     expect(answeredSince([step(), say("I'm checking the logs.")])).toBe(true);
+  });
+
+  it("falls back to reading the words when a reply carries no turn", () => {
+    const loose = (text: string) => message({ role: "bot", kind: "text", text });
+    expect(answeredSince([loose("Fixed it and opened PR #12.")])).toBe(true);
+    expect(answeredSince([loose("I'm checking the logs now.")])).toBe(false);
+  });
+
+  it("picks up long work that posted findings before the restart", () => {
+    expect(plan([ask("Continue system 2 in full."), midTurn("Found the RPC table in the bundle."), step(), midTurn("Read 3 of 9 modules."), step()])).toMatchObject({ kind: "resume" });
   });
 
   it("only counts words from the turn that was running last", () => {

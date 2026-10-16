@@ -95,7 +95,8 @@ export function answersPerson(message: Message, carriesOnAfterLimit = false): bo
 function finalWords(message: Message, lastTurnId: string | undefined): boolean {
   if (!message.text?.trim() && !message.attachments?.length) return false;
   if (lastTurnId !== undefined && message.turnId !== lastTurnId) return false;
-  return message.turnTerminal === true || !endsOnPromise(message.text);
+  if (message.turnTerminal === true) return true;
+  return message.turnId === undefined && !endsOnPromise(message.text);
 }
 
 export function answeredSince(after: readonly Message[], carriesOnAfterLimit = false): boolean {
