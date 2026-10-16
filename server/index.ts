@@ -672,6 +672,7 @@ import { createPhonePushRoutes } from "./routes/phone-push.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
 import { removableAccount, renamableAccount } from "./laterdog/account-edit.ts";
+import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalCandidate } from "./laterdog/account-removal.ts";
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import {
@@ -1288,6 +1289,28 @@ function cloudOwnerPerson(person: string | undefined): boolean {
   if (!person) return false;
   if (person === CLOUD_OWNER_KEY || cloudEarlierOwners.adopted.has(person)) return true;
   return cloudOwnerDevice(person);
+}
+
+function accountChosenFor(instanceId: string): boolean {
+  return cfg.defaultModelSelection?.instanceId === instanceId || store.bots.some((bot) =>
+    bot.modelSelection.instanceId === instanceId || store.tasks(bot.id).some((task) => task.modelSelection?.instanceId === instanceId));
+}
+
+function moveOffAccount(instanceId: string, leavingKind: string | undefined, to: RemovalCandidate | undefined): void {
+  for (const bot of store.bots) {
+    const patch: Partial<BotRecord> = {};
+    if (to && bot.modelSelection.instanceId === instanceId) patch.modelSelection = selectionMovedTo(bot.modelSelection, leavingKind, to);
+    if (bot.fallback?.some((candidate) => candidate.instanceId === instanceId)) patch.fallback = bot.fallback.filter((candidate) => candidate.instanceId !== instanceId);
+    if (Object.keys(patch).length) store.patchBot(bot.id, patch);
+    for (const task of store.tasks(bot.id)) {
+      if (to && task.modelSelection?.instanceId === instanceId) store.patchTask(bot.id, task.threadId, { modelSelection: selectionMovedTo(task.modelSelection, leavingKind, to) });
+    }
+  }
+  if (to && cfg.defaultModelSelection?.instanceId === instanceId) {
+    const next = selectionMovedTo(cfg.defaultModelSelection, leavingKind, to);
+    saveConfig({ defaultModelSelection: next });
+    cfg.defaultModelSelection = next;
+  }
 }
 
 function cloudProvenOwnerPerson(person: string | undefined): boolean {
@@ -21113,14 +21136,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!Object.hasOwn(instances, instanceId)) return json(res, 404, { error: "unknown instance" });
       const removable = removableAccount(instanceId, instances[instanceId]);
       if (!removable.ok) return json(res, 400, { error: removable.error });
-      if (cfg.defaultModelSelection?.instanceId === instanceId || store.bots.some((bot) =>
-        bot.modelSelection.instanceId === instanceId || bot.fallback?.some(candidate => candidate.instanceId === instanceId) || store.tasks(bot.id).some((task) => task.modelSelection?.instanceId === instanceId)) ||
-        busyProviderSelections().some((selection) => selection.instanceId === instanceId)) {
-        return json(res, 409, { error: "Choose another account for the bots and default model using this account before removing it." });
+      if (busyProviderSelections().some((selection) => selection.instanceId === instanceId)) {
+        return json(res, 409, { error: "A dog is working on this account right now. Remove it once that turn ends." });
+      }
+      const accounts = (await describeInstances()).map(removalCandidateOf);
+      const leaving = accounts.find((account) => account.instanceId === instanceId);
+      const replacement = replacementAccount(leaving, accounts);
+      if (!replacement && accountChosenFor(instanceId)) {
+        return json(res, 409, { error: "Your dogs use this account and no other account is signed in to move them to. Sign in to another account first." });
       }
       providerConfigBusy = true;
       providerInstancesChanging.add(instanceId);
       try {
+        moveOffAccount(instanceId, leaving?.driverKind, replacement);
         const removed = instances[instanceId];
         delete instances[instanceId];
         await persistProviderInstance(instanceId, instances);
