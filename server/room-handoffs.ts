@@ -132,12 +132,7 @@ export class RoomHandoffs {
         if (picked.length) this.hooks.restarted?.(root, picked, true);
         continue;
       }
-      const lost = this.children(rootId).filter(c => !terminal(c));
-      for (const n of open) {
-        this.lostToRestart(n);
-        if (this.hooks.restarted && n.parentId === rootId) n.reported = true;
-      }
-      if (lost.length) this.hooks.restarted?.(root, lost, false);
+      for (const n of open) this.lostToRestart(n);
     }
     this.save();
   }

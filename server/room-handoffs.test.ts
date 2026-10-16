@@ -857,7 +857,7 @@ describe("long work for the owner's auto dogs", () => {
     expect(restarted.nodes.get("turn")?.status).toBe("completed");
   }));
 
-  it("does not replay anyone else's work after a restart, and tells the coordinator in one line what to send again", () => fixture(async (engine, hooks, file) => {
+  it("does not replay anyone else's work after a restart, and reports it to the coordinator as before", () => fixture(async (engine, hooks, file) => {
     hooks.run = () => new Promise(() => {});
     const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
     const other = engine.enqueue(chief, "turn", undefined, scout, "scout", "Find it").node;
@@ -867,10 +867,7 @@ describe("long work for the owner's auto dogs", () => {
     const restarted = new RoomHandoffs(file, after);
     await settle(restarted, 4);
     for (const id of [node.id, other.id, "turn"]) expect(restarted.nodes.get(id)).toMatchObject({ status: "failed", endedBy: "restart" });
-    expect(restartedLine).toHaveBeenCalledTimes(1);
-    expect(restartedLine).toHaveBeenCalledWith(expect.objectContaining({ id: "turn" }),
-      [expect.objectContaining({ id: node.id }), expect.objectContaining({ id: other.id })], false);
-    expect(after.report).not.toHaveBeenCalled();
+    expect(restartedLine).not.toHaveBeenCalled();
     expect(after.run).not.toHaveBeenCalled();
     expect(JSON.parse(readFileSync(file, "utf8")).every((n: { status: string }) => n.status === "failed")).toBe(true);
   }));

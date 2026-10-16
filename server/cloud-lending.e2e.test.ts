@@ -388,6 +388,7 @@ it("on a Cloud home the owner's answer to an options card is recorded as the own
   await waitForExit(child, { signal: "SIGTERM" });
   const botsFile = join(home, ".laterdog", "bots.json");
   writeFileSync(botsFile, readFileSync(botsFile, "utf8").replaceAll(made.id, WATCHER_OPTIONS_CARD_BOT_ID));
+  rmSync(join(home, ".laterdog", "turns-running.json"), { force: true });
   await boot();
   const agents = await agentsFor(async () => {
     expect((await api("POST", `/api/bots/${WATCHER_OPTIONS_CARD_BOT_ID}/messages`, { token: owner, body: { text: "Check the build." } })).status).toBe(202);
