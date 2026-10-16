@@ -39,6 +39,7 @@ function fixture(root: string): DatabaseSync {
   json(join(root, "delegation-receipts.json"), [{ id: "receipt" }]);
   json(join(root, "sessions.json"), { identity: "source-session" });
   json(join(root, "cloud-owner.json"), { identity: "source-owner-record" });
+  json(join(root, "turns-running.json"), [{ threadId: "thread", botId: "bot", since: 1 }]);
   writeFileSync(join(root, "environment-id"), "source-environment");
   mkdirSync(join(root, "tools"));
   writeFileSync(join(root, "tools", "downloaded"), "reinstallable");
@@ -119,6 +120,7 @@ describe("encrypted full workspace backups", () => {
       expect(existsSync(join(data, "team-computers.json"))).toBe(false);
       expect(existsSync(join(data, "bots.json"))).toBe(true);
       expect(existsSync(join(data, "cloud-owner.json"))).toBe(false);
+      expect(existsSync(join(data, "turns-running.json"))).toBe(false);
       expect(readJson(join(data, "config.json"))).toEqual({ language: "ja" });
       expect(readJson(join(data, "webhooks.json")).webhooks[0]).not.toHaveProperty("secretHash");
       expect(commitPendingWorkspaceRestore(target, staged.id)).toMatchObject({ id: staged.id, restartRequired: true });

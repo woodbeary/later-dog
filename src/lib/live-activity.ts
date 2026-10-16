@@ -49,7 +49,14 @@ export interface LiveActivity {
   spoken: string | null;
 }
 
+function liveStatusLine(message?: Message): boolean {
+  return message?.kind === "activity" && message.tool?.statusLine === "live";
+}
+
 export function liveActivity(message?: Message): LiveActivity {
+  if (liveStatusLine(message)) {
+    return { kind: "working", spoken: message!.tool!.spoken?.trim() ? sentenceCase(message!.tool!.spoken) : null };
+  }
   if (message?.kind !== "activity" || !message.tool || message.tool.ok !== undefined || message.comm) {
     return { kind: "thinking", spoken: null };
   }
@@ -71,6 +78,7 @@ export function stepLabel(message: Message): string {
 export function liveActivityLabel(message?: Message): string {
   const live = liveActivity(message);
   if (live.spoken) return live.spoken;
+  if (liveStatusLine(message)) return t("chat.activity.working");
   if (message?.kind !== "activity" || !message.tool || message.tool.ok !== undefined || message.comm) {
     return t("chat.activity.thinking");
   }
