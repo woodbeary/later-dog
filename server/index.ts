@@ -683,6 +683,8 @@ import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { workUpdatesPrompt } from "./laterdog/work-updates.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
+import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
+import { createInflightTurns, fileInflightLedger, pickUpAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
@@ -3340,9 +3342,11 @@ try {
 if (browserCleanupReferencesReconciled) browserCleanup.startPending();
 
 let activeCoordinationForThread = (_threadId: string): boolean => false;
+let liveStatusLine = (_threadId: string): string | undefined => undefined;
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const { snoozedUntil, ...base } = toWireTask(task, botModel, store.bots);
-  const coordinated = { ...base, waitingForTeammates: activeCoordinationForThread(task.threadId) && !task.busy };
+  const statusLine = liveStatusLine(task.threadId);
+  const coordinated = { ...base, waitingForTeammates: activeCoordinationForThread(task.threadId) && !task.busy, ...(statusLine ? { statusLine } : {}) };
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -5335,14 +5339,65 @@ bus.subscribe((event: RuntimeEvent) => {
 
 const statusLines = createStatusLines({
   work: threadWork(store, (threadId) => watchdog.snapshot(threadId)),
-  append: (threadId, message) => store.appendMessage(threadId, message),
+  append: (threadId, message) => {
+    const owner = directRequestOwners.get(threadId);
+    const ownTurn = owner?.messageId && !owner.stopped && owner.turnId && owner.turnId === message.turnId;
+    return store.appendMessage(threadId, ownTurn ? { ...message, requestMessageId: owner.messageId } : message);
+  },
   patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
   ledger: fileStatusLineLedger(join(DATA_DIR, "status-lines.json")),
+  changed: (threadId) => {
+    const bot = store.botByThread(threadId);
+    if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+  },
 }, statusLineTimingFromEnv());
+liveStatusLine = (threadId) => statusLines.current(threadId);
 statusLines.foldLeftovers();
+const inflightTurns = createInflightTurns(fileInflightLedger(join(DATA_DIR, "turns-running.json")), { stopping: () => companyShutdown });
 store.onChange((change) => {
   if (change.type === "message") statusLines.observe(change.threadId, change.message);
+  else if (change.type === "bot") inflightTurns.sync(change.botId, store.tasks(change.botId));
+  else if (change.type === "bot.deleted") inflightTurns.forget(change.botId);
 });
+const startContinuation = (botId: string, threadId: string, prompt: string, requestMessageId: string) =>
+  startTurn(botId, prompt, { threadId, cardContinuation: true, requestMessageId });
+const promiseNudges = createPromiseNudges({
+  path: (threadId) => store.activePath(threadId),
+  request: (threadId) => {
+    const owner = directRequestOwners.get(threadId);
+    return owner && !owner.stopped ? owner.messageId : undefined;
+  },
+  ownerAutoDog: (threadId) => {
+    const owner = store.botByThread(threadId);
+    if (!owner || store.groupByThread(threadId) || !personAskAt.has(threadId) || isUnattended(owner.id, threadId) || activeRoutineRunForThread(threadId)) return null;
+    if (CLOUD_HOME && (!cloudOwnerOnlyThread(threadId) || cloudGuestDriven(threadId))) return null;
+    return ["auto", "full", "custom"].includes(approvalModeForTurn(botForThread(owner.id, threadId) ?? owner, false, threadId)) ? owner.id : null;
+  },
+  free: (botId, threadId) => !threadBusy(botId, threadId) && !hasQueuedSteeredMessages(botId, threadId) && !botAtThreadCapacity(botId) &&
+    !activeGroupTurnForBot(botId) && !roomHandoffs.activeDirect(threadId) && !pendingThreads().includes(threadId) &&
+    !pendingDelegationWakes.has(threadId) && !limitHold.holds(threadId),
+  start: startContinuation,
+});
+const restartPickupHost: RestartPickupHost = {
+  path: (threadId) => store.activePath(threadId),
+  dog: (threadId) => {
+    const bot = store.botByThread(threadId);
+    const task = bot && !store.groupByThread(threadId) ? store.taskByThread(bot.id, threadId) : undefined;
+    return bot && task && !task.archivedAt ? { botId: bot.id, name: bot.name } : null;
+  },
+  owner: (threadId) => !CLOUD_HOME || cloudOwnerOnlyThread(threadId),
+  queued: (botId, threadId) => hasQueuedSteeredMessages(botId, threadId),
+  busy: (botId, threadId) => threadBusy(botId, threadId),
+  routine: (threadId, at) => {
+    const run = routines?.runForThread(threadId);
+    return Boolean(run && (run.finishedAt === undefined || at <= run.finishedAt));
+  },
+  carriesOnAfterLimit: () => accountBattery.enabled,
+  append: (threadId, message) => store.appendMessage(threadId, message),
+  patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
+  start: startContinuation,
+  blocked: isTurnAdmissionBlocked,
+};
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.started") statusLines.begin(event.threadId, event.turnId);
@@ -6928,6 +6983,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             drainTeamSetupResumes();
             drainDelegationWakes();
           }
+          if (event.ok && completedTurnId && !internal && !routineRun && !carryingOn && !nextAccount) promiseNudges.settled(event.threadId, completedTurnId);
           settleTrackedRequest(event.threadId);
         };
         const tokens = event.usage ?? lastReported;
@@ -22171,6 +22227,9 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   routines!.start();
   memoryUpkeep.start();
+  void pickUpAfterRestart(restartPickupHost, inflightTurns.takeLeftovers()).then((outcomes) => {
+    if (outcomes.length) console.log(`restart pickup: ${outcomes.map((outcome) => `${outcome.threadId} ${outcome.kind}`).join(", ")}`);
+  });
   const leftover = pendingThreads();
   if (leftover.length) console.log(`delegations: ${leftover.length} thread(s) with queued handoffs from a previous run — draining`);
   for (const threadId of leftover) {

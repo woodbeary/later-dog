@@ -23,7 +23,7 @@ import {
 
 const THREAD = "t1";
 
-function fixture(options: { ledger?: OpenStatusLine[] } = {}) {
+function fixture(options: { ledger?: OpenStatusLine[]; changed?: (threadId: string) => void } = {}) {
   let clock = 1_000_000;
   let nextId = 0;
   const work = new Map<string, ThreadWork>([[THREAD, "working"]]);
@@ -46,6 +46,7 @@ function fixture(options: { ledger?: OpenStatusLine[] } = {}) {
       return messages[at]!;
     },
     ledger: { read: () => ledger, write: (open) => { ledger = open; } },
+    ...(options.changed ? { changed: options.changed } : {}),
   }, { now: () => clock });
   const post = (message: Omit<WireMessage, "id" | "at">) => {
     const full = { ...message, id: `m${++nextId}`, at: clock } as WireMessage;
@@ -226,6 +227,34 @@ describe("a quiet status line while a dog works", () => {
     lines.begin(THREAD, "turn-1");
     advance(STATUS_LINE_QUIET_MS);
     expect(statusLines()[0]!.tool).toEqual({ name: "notice: Still on it", ok: true, statusLine: "live" });
+  });
+
+  it("keeps the live line in the thread's state and says each time it changes, so the phone sees it too", () => {
+    const changes: string[] = [];
+    const { lines, step, advance, post } = fixture({ changed: (threadId) => changes.push(threadId) });
+    lines.begin(THREAD, "turn-1");
+    step("running the tests");
+    expect(lines.current(THREAD)).toBeUndefined();
+    advance(STATUS_LINE_QUIET_MS);
+    expect(lines.current(THREAD)).toBe("Still on it: running the tests");
+    expect(changes).toEqual([THREAD]);
+    step("making edits");
+    advance(STATUS_LINE_EVERY_MS);
+    expect(lines.current(THREAD)).toBe("Still on it: making edits");
+    expect(changes).toEqual([THREAD, THREAD]);
+    post({ role: "bot", kind: "text", turnId: "turn-1", text: "All green." });
+    expect(lines.current(THREAD)).toBeUndefined();
+    expect(changes).toEqual([THREAD, THREAD, THREAD]);
+  });
+
+  it("keeps going when sharing a change fails", () => {
+    const { lines, step, advance, statusLines } = fixture({ changed: () => { throw new Error("no clients"); } });
+    lines.begin(THREAD, "turn-1");
+    step("running the tests");
+    advance(STATUS_LINE_QUIET_MS);
+    expect(statusLines()).toHaveLength(1);
+    lines.settle(THREAD);
+    expect(statusLines()[0]!.tool?.statusLine).toBe("folded");
   });
 
   it("folds a line left open when the server stopped mid-turn", () => {

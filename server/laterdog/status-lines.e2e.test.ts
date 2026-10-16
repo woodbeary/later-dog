@@ -62,6 +62,8 @@ it.skipIf(process.platform === "win32")("posts one quiet status line while a dog
     transcript = messages;
     const lines = async () => (await messages()).filter((message) => message.tool?.statusLine);
     const busy = async () => (await api("GET", "/api/bots?messages=0")).bots.find((entry: any) => entry.id === bot.id)?.busy === true;
+    const taskLine = async () => (await api("GET", "/api/bots?messages=0")).bots.find((entry: any) => entry.id === bot.id)
+      ?.tasks?.find((task: any) => task.threadId === threadId)?.statusLine;
 
     await control("send", "--bot", bot.id, "--task", threadId, "--text", "Run the tests and tell me when they pass.");
     await expect.poll(async () => (await lines()).length, { timeout: 20_000, interval: 200 }).toBe(1);
@@ -71,6 +73,8 @@ it.skipIf(process.platform === "win32")("posts one quiet status line while a dog
       tool: { name: "notice: Still on it: running the focused tests", ok: true, statusLine: "live", spoken: "running the focused tests" },
     });
     expect(await busy()).toBe(true);
+    expect(await taskLine()).toBe("Still on it: running the focused tests");
+    expect(live.requestMessageId).toBe((await messages()).findLast((message) => message.role === "user").id);
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     expect(await lines()).toHaveLength(1);
     evidence.push({ live });
@@ -79,6 +83,7 @@ it.skipIf(process.platform === "win32")("posts one quiet status line while a dog
     await expect.poll(async () => (await lines()).map((line) => line.tool.statusLine), { timeout: 20_000, interval: 200 }).toEqual(["folded"]);
     expect((await lines())[0]).toMatchObject({ id: live.id, tool: { name: "Still on it: running the focused tests", ok: true, statusLine: "folded" } });
     await expect.poll(busy, { timeout: 20_000 }).toBe(false);
+    expect(await taskLine()).toBeUndefined();
     const transcriptAfterReply = await messages();
     const lineAt = transcriptAfterReply.findIndex((message) => message.id === live.id);
     expect(transcriptAfterReply.slice(lineAt + 1).some((message) => message.role === "bot" && message.kind === "text" && message.text.startsWith("reply to:"))).toBe(true);
@@ -91,10 +96,14 @@ it.skipIf(process.platform === "win32")("posts one quiet status line while a dog
       expect.objectContaining({ threadId, messageId: second.id, text: "Still on it: running the focused tests" }),
     ]);
     await waitForExit(server, { signal: "SIGKILL" });
+    writeFileSync(finishGate, "done");
     start();
     await healthy();
     await expect.poll(async () => (await lines()).map((line) => line.tool.statusLine), { timeout: 20_000, interval: 200 }).toEqual(["folded", "folded"]);
     expect(JSON.parse(readFileSync(join(dataDir, "status-lines.json"), "utf8"))).toEqual([]);
+    await expect.poll(async () => (await messages()).some((message) => message.tool?.pickup === "restart"), { timeout: 20_000, interval: 200 }).toBe(true);
+    await expect.poll(busy, { timeout: 20_000 }).toBe(false);
+    expect((await lines()).map((line) => line.tool.statusLine)).toEqual(["folded", "folded"]);
     evidence.push({ afterRestart: await lines() });
   } finally {
     evidence.push({ transcript: await transcript().catch((error: unknown) => String(error)) });

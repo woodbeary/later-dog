@@ -33,6 +33,7 @@ export interface StatusLineHost {
   append(threadId: string, message: NewMessage): WireMessage;
   patch(threadId: string, messageId: string, patch: Partial<WireMessage>): WireMessage | null;
   ledger?: StatusLineLedger;
+  changed?: (threadId: string) => void;
 }
 
 export interface StatusLineTiming {
@@ -127,6 +128,12 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
   const stretches = new Map<string, QuietStretch>();
   let timer: ReturnType<typeof setInterval> | null = null;
 
+  const changed = (threadId: string) => {
+    try { host.changed?.(threadId); } catch (error) {
+      console.error("[status-lines] could not share a status line change", error);
+    }
+  };
+
   const remember = () => {
     if (!host.ledger) return;
     const open = [...stretches].flatMap(([threadId, stretch]) => stretch.line
@@ -143,6 +150,7 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
     stretch.line = null;
     host.patch(threadId, line.id, { tool: foldedStatusTool(line) });
     remember();
+    changed(threadId);
   };
 
   const say = (threadId: string, stretch: QuietStretch, at: number) => {
@@ -156,16 +164,19 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
       });
       stretch.line = { id: message.id, ...next, at };
       remember();
+      changed(threadId);
       return;
     }
     if (at - stretch.line.at < everyMs || next.text === stretch.line.text) return;
     if (!host.patch(threadId, stretch.line.id, { tool: liveStatusTool(next) })) {
       stretch.line = null;
       remember();
+      changed(threadId);
       return;
     }
     stretch.line = { id: stretch.line.id, ...next, at };
     remember();
+    changed(threadId);
   };
 
   const tick = (): void => {
@@ -238,6 +249,10 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
 
     open(threadId: string): string | null {
       return stretches.get(threadId)?.line?.id ?? null;
+    },
+
+    current(threadId: string): string | undefined {
+      return stretches.get(threadId)?.line?.text;
     },
 
     start(): void {
