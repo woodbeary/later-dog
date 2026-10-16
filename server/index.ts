@@ -1002,6 +1002,7 @@ function cloudLendingTurn(capability: Pick<InternalCapability, "botId" | "thread
     starters: cloudThreadStarters(capability.threadId),
     reportsFromOthers: store.messagesFor(capability.threadId).some(cloudReportFromOthers),
     ownerPerson: cloudProvenOwnerPerson,
+    ownersOwnDogs: ownersOwnDogs(capability.threadId),
     cardAnswerer: cloudCardAnswerer,
     routineRun: () => {
       const run = activeRoutineRunForThread(capability.threadId);
@@ -1117,6 +1118,13 @@ function cloudReportFromOthers(line: Message): boolean {
 }
 
 const ownerOnlyCache = new Map<string, { length: number; last?: string; owner: boolean }>();
+function ownersOwnDogs(threadId: string): boolean {
+  const bot = store.botByThread(threadId);
+  const routineThread = Boolean(routines?.runForThread(threadId) || (bot && store.taskByThread(bot.id, threadId)?.routineRunId));
+  return !routineThread && !cloudGuestDriven(threadId) && !workspaceShared({ hosted: HOSTED_WORKSPACE, cloudHome: Boolean(CLOUD_HOME), signIn: signInAllowList() }) &&
+    sessions.list().every((session) => session.scopes.includes("admin") || session.localTools === true);
+}
+
 function cloudOwnerOnlyThread(threadId: string): boolean {
   if (cloudThreadStarters(threadId).some((person) => person !== undefined && !cloudProvenOwnerPerson(person))) return false;
   const thread = store.messagesFor(threadId);
@@ -1124,7 +1132,7 @@ function cloudOwnerOnlyThread(threadId: string): boolean {
   const cached = ownerOnlyCache.get(threadId);
   const lastKey = last ? `${last.id}:${last.card?.answeredBy ? JSON.stringify(last.card.answeredBy) : ""}` : undefined;
   if (cached && cached.length === thread.length && cached.last === lastKey) return cached.owner;
-  const owner = ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer) && !thread.some(cloudReportFromOthers);
+  const owner = ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer, undefined, ownersOwnDogs(threadId)) && !thread.some(cloudReportFromOthers);
   if (ownerOnlyCache.size > 5_000) ownerOnlyCache.clear();
   ownerOnlyCache.set(threadId, { length: thread.length, last: lastKey, owner });
   return owner;

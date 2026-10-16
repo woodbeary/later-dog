@@ -25,6 +25,12 @@ describe("who may use a Mac lent to a Cloud home (review: guests, webhooks)", ()
     expect(mayLend(turn({ thread: [said("m1")] }))).toBe(false);
     expect(mayLend(turn({ thread: [said("m1", OWNER, { peerAsk: { botId: "b" } })] }))).toBe(false);
   });
+  it("in a home with only the owner's own devices, lines from before the move and the owner's own dogs count as the owner's", () => {
+    expect(mayLend(turn({ thread: [said("m0"), said("m1", OWNER)], ownersOwnDogs: true }))).toBe(true);
+    expect(mayLend(turn({ thread: [said("m1", undefined, { peerAsk: { botId: "b" } })], ownersOwnDogs: true }))).toBe(true);
+    expect(mayLend(turn({ thread: [said("m0", GUEST), said("m1", OWNER)], ownersOwnDogs: true }))).toBe(false);
+    expect(mayLend(turn({ thread: [said("m0"), said("m1", OWNER)] }))).toBe(false);
+  });
   it("nobody else's words may be slipped into the owner's running turn", () => {
     expect(mayLend(turn({ thread: [said("m1", OWNER), reply("r1"), said("m2", GUEST, { steered: true })] }))).toBe(false);
     expect(mayLend(turn({ thread: [said("m1", OWNER), said("m2", undefined, { aside: true, peerAsk: { botId: "webhook-bot" } })] }))).toBe(false);
