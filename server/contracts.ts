@@ -76,6 +76,7 @@ export interface SendTurnInput {
   botId?: string;
   text: string;
   approvalMode?: ApprovalMode;
+  reviewerGrant?: { environment: string[]; allow: string[] };
   toolScope?: ToolScope;
   guestConfined?: boolean;
   confinedWhy?: string;

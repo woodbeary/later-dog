@@ -73,6 +73,61 @@ own default and its other conversations do not change, and an ordinary bot's
 delegation still uses the recipient's setting. Questions and missing
 credentials still reach you.
 
+### Your own Off-leash dogs work without you
+
+A dog is **yours** when it works in your own workspace (not a hosted or
+shared-sign-in workspace), in a conversation no guest drives, and its latest
+person message is not from a local tool on your Mac. Then three things carry
+your authority, not only what you type: your routines, and what your
+coordinator dog or any other of your dogs hands it (`start_thread`,
+`send_to_bot`, `ask_bot`, a room post and `coordinate_bots`). The handoff note
+says "one of <your name>'s own dogs, passing on <your name>'s instructions"
+instead of "not from your user".
+
+An Off-leash dog of yours also gets a **standing grant**: you authorize it to
+commit, push branches, commit and push to the default branch, open, update and
+comment on pull requests, and run the repository's build, test and release
+scripts (beta and over-the-air updates included) when you, your coordinator
+dog, a routine or another of your dogs asks. The grant is in the dog's system
+prompt, which Codex's reviewer reads as developer instructions, and Claude
+Code's auto-mode reviewer gets it in the session's `--settings` as
+`autoMode.environment` and `autoMode.allow` entries after `"$defaults"`. Claude
+Code 2.1.293 lists both in `claude auto-mode config`. Whether a reviewer then
+approves a given action is still its own decision. later.dog cannot overrule a
+reviewer that denies outright. It only answers the actions a reviewer leaves
+for you.
+
+In a Cloud home, later.dog answers for your Off-leash dogs at once, with no
+card and no wait:
+
+- Every request the engine leaves for you is approved, including a sandbox
+  exit, a sending tool and every action of a dog whose engine reviewer is off
+  for its model or account. The chat gets no line per approval. The decision
+  log records each one with source `owner-auto`.
+- A question (`AskUserQuestion`, `ask_user`, Codex questions) gets "<your
+  name> is away; use your best judgment and continue. <your name> can redirect
+  you later." The question card stays in the chat, open. Answering it later
+  reaches the dog as a new message.
+- Only a small guard is refused, at once and with one plain line in the chat
+  (decision log source `owner-guard`): force-pushing a repository's default
+  branch (its `origin/HEAD`, or `main` and `master` when that is unknown),
+  deleting a remote repository (`gh repo delete`, `DELETE /repos/{owner}/{repo}`,
+  a tool that deletes a repository) and recursive deletes outside the dog's
+  workspace or `/tmp`. A recursive delete whose target is a variable later.dog
+  cannot see is refused too, with a request to write the literal path.
+
+Nothing changes for Heel or Auto-accept edits dogs, guests and the
+conversations they drive, hosted or shared workspaces, turns a local tool
+started, your Mac's own setting for `mac_*` and computer control, a connected
+app's send rule ("Send on your behalf?") and a dog changing another dog or
+your team. On a later.dog that runs only on your Mac, your Off-leash dogs get
+the grant and the handoff authority, and the reviewer's requests still reach
+you as cards. Use a dog's Full access there.
+
+Saved command approvals ("Always allow this command") belong to the dog,
+command and folder. They keep matching after the dog moves to another account
+of the same engine.
+
 ## Answering a request
 
 Approve or deny requests in the conversation to let the bot continue. **Allow
@@ -120,9 +175,11 @@ teammate can delegate work to this bot without downgrading its explicit Auto
 
 ## Asking you questions
 
-Every engine can stop and ask, and no approval level ever answers a question
-for you: Ask, Auto-accept edits, Auto, and Full access all leave a question
-card for a person. What differs per engine is only how the ask travels:
+Every engine can stop and ask, and no approval level answers a question for
+you: Ask, Auto-accept edits, Auto, and Full access all leave a question card
+for a person. The one exception is your own Off-leash dog in a Cloud home,
+which is told you are away and keeps going while the card stays open (see
+above). What differs per engine is only how the ask travels:
 
 | Engine family | How an ask travels | Multiple questions at once |
 | --- | --- | --- |
