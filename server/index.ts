@@ -647,7 +647,7 @@ import {
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
 import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, signsItselfOut, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 import { EDIT_REFUSAL, UNGUARDED_REFUSAL, localToolMessageText, localToolSpeaker, unguardedMode } from "./laterdog/local-tool-message.ts";
-import { answersForAwayOwner, claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerAwayAnswer, ownerAwayNote, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerReviewerOffNotice, type OwnerAutoScope, type OwnerQuestionScope } from "./laterdog/owner-auto.ts";
+import { answersForAwayOwner, claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerAwayAnswer, ownerAwayNote, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerReviewerOffNotice, ownerSendsWithoutAsking, type OwnerAutoScope, type OwnerQuestionScope } from "./laterdog/owner-auto.ts";
 import { OwnerAwayAnswers, settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
 import { ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext } from "./laterdog/owner-guard.ts";
 import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
@@ -16534,7 +16534,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }).join("\n\n");
           const capNote = (count: number) =>
             `later.dog did not send this. ${currentSender.name} has reached its daily limit of ${count} outbound action${count === 1 ? "" : "s"}. Ask the person to raise the limit under the bot's Permissions before trying again.`;
-          if (policy.policy === "allow" && !opaque) {
+          const ownerSends = ownerSendsWithoutAsking(sourceApprovalMode(currentSender.id, threadId), ownerAutoScope(threadId));
+          if ((policy.policy === "allow" || ownerSends) && !opaque) {
             const today = outboundCounts.today(currentSender.id);
             if (today + outboundCalls.length > policy.dailyCap) {
               appendDecision(DATA_DIR, {
@@ -16622,7 +16623,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             }
             if (outboundTool) {
               const policy = fresh.outbound ?? DEFAULT_OUTBOUND_POLICY;
-              if (policy.policy === "allow" && !opaque) {
+              const ownerSends = ownerSendsWithoutAsking(sourceApprovalMode(fresh.id, internalCapability.threadId), ownerAutoScope(internalCapability.threadId));
+              if ((policy.policy === "allow" || ownerSends) && !opaque) {
                 let reserved: number | null;
                 try { reserved = outboundCounts.reserve(fresh.id, outboundCalls.length, policy.dailyCap); }
                 catch { refuseDispatch("The daily allowance could not be saved. Nothing was sent."); }

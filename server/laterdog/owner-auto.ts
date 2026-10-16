@@ -35,6 +35,10 @@ export function answersForAwayOwner(mode: ApprovalMode, scope: OwnerQuestionScop
   return scope.workingOnRequest && ownerAutoAnswers(mode, scope);
 }
 
+export function ownerSendsWithoutAsking(mode: ApprovalMode, scope: OwnerAutoScope): boolean {
+  return scope.cloudHome && (mode === "auto" || mode === "full") && ownerAuthority(scope);
+}
+
 const NO_NAME = "The owner";
 
 export function ownerDisplayName(name: string | undefined): string {

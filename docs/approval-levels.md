@@ -107,7 +107,14 @@ card and no wait:
 - A question (`AskUserQuestion`, `ask_user`, Codex questions) gets "<your
   name> is away; use your best judgment and continue. <your name> can redirect
   you later." The question card stays in the chat, open. Answering it later
-  reaches the dog as a new message.
+  reaches the dog as a new message. A new dog's first-meeting question ("what
+  should I help with first?") is not answered for you: a chat with no message
+  in it yet keeps its question open and waits.
+- Sends through a connected app (an email, a message, a post) go out with no
+  "Send on your behalf?" card, for your Off-leash and Full access dogs alike,
+  within the dog's daily limit (25 unless you change it under its
+  Permissions). Code run through the catch-all workbench, which later.dog
+  cannot read as one send, still asks.
 - Only a small guard is refused, at once and with one plain line in the chat
   (decision log source `owner-guard`): force-pushing a repository's default
   branch (its `origin/HEAD`, or `main` and `master` when that is unknown),
@@ -118,11 +125,12 @@ card and no wait:
 
 Nothing changes for Heel or Auto-accept edits dogs, guests and the
 conversations they drive, hosted or shared workspaces, turns a local tool
-started, your Mac's own setting for `mac_*` and computer control, a connected
-app's send rule ("Send on your behalf?") and a dog changing another dog or
-your team. On a later.dog that runs only on your Mac, your Off-leash dogs get
-the grant and the handoff authority, and the reviewer's requests still reach
-you as cards. Use a dog's Full access there.
+started, your Mac's own setting for `mac_*` and computer control, and a dog
+changing another dog or your team. On a later.dog that runs only on your Mac,
+your Off-leash dogs get the grant and the handoff authority, the reviewer's
+requests still reach you as cards (a dog's Full access answers those), and
+connected-app sends ask unless the dog's sends are set to Allow under its
+Permissions.
 
 Saved command approvals ("Always allow this command") belong to the dog,
 command and folder. They keep matching after the dog moves to another account

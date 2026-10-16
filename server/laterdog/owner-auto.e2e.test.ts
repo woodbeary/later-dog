@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer, type Server } from "node:http";
 import { connect, type Socket } from "node:net";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,6 +22,8 @@ let child: ChildProcess | undefined;
 let log = "";
 let owner = "";
 const sockets: Socket[] = [];
+let broker: Server | undefined;
+const relayed: unknown[] = [];
 
 async function api(method: string, path: string, body?: unknown) {
   const response = await fetch(`${base}${path}`, {
@@ -50,7 +53,30 @@ const dump = () => join(home, "claude.json");
 type Launch = { argv: string[]; cwd: string; prompt: unknown; systemPrompt: string | null; settings: any; mcpConfig: { mcpServers: { dog: { args: string[] } } } };
 const launched = () => JSON.parse(readFileSync(dump(), "utf8")) as Launch;
 
+async function startBroker(): Promise<string> {
+  broker = createServer(async (req, res) => {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const body = raw ? JSON.parse(raw) : {};
+    res.setHeader("content-type", "application/json");
+    if (req.url === "/v1/connectors/connected") return res.end(JSON.stringify({ services: { gmail: { connected: true } } }));
+    if (req.url === "/api/tool_router/session/fixture-session" || req.url === "/api/tool_router/session") {
+      return res.end(JSON.stringify({ session_id: "fixture-session", mcp: { type: "http", url: `${origin}/mcp` },
+        config: { user_id: "fixture-user", multi_account: { enable: true, max_accounts_per_toolkit: 5, require_explicit_selection: true } } }));
+    }
+    if (req.url === "/mcp") {
+      relayed.push(body);
+      return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: "relay-ok" }] } }));
+    }
+    return res.end(JSON.stringify({ items: [{ slug: "gmail", connected_account: { id: "fixture-account", status: "ACTIVE" } }] }));
+  });
+  await new Promise<void>((resolve) => broker!.listen(0, "127.0.0.1", resolve));
+  const origin = `http://127.0.0.1:${(broker.address() as { port: number }).port}`;
+  return origin;
+}
+
 beforeAll(async () => {
+  const brokerOrigin = await startBroker();
   home = mkdtempSync(join(tmpdir(), "laterdog-owner-auto-"));
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
@@ -67,6 +93,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
       ...Object.fromEntries(["codex", "cursor", "openaiCompat", "qwen", "hermes", "pi", "claude"].map((id) => [id, { driver: "not-a-real-driver" }])),
       held: { driver: "claudeAgent", displayName: "Held", config: { cli } },
     },
+    composio: { apiKey: "ak_isolated_fixture", userId: "fixture-user", sessionId: "fixture-session" },
   }));
   const port = await freePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
@@ -77,6 +104,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
       PATH: process.env.PATH, HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
       LATERDOG_CLOUD_ROLE: "home", LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93", LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
       LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, LATERDOG_PUBLIC_URL: `https://${HOST}`, LATERDOG_TEST_INTERNAL_CAPABILITY_KEY: CAPABILITY_KEY,
+      LATERDOG_COMPOSIO_API: `${brokerOrigin}/api`, LATERDOG_COMPOSIO_TOOLKITS_API: `${brokerOrigin}/api`,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -96,6 +124,7 @@ afterAll(async () => {
   for (const socket of sockets) socket.destroy();
   if (child) await waitForExit(child, { signal: "SIGTERM" });
   if (home) await removeTempDir(home);
+  if (broker) await new Promise<void>((resolve) => broker!.close(() => resolve()));
 });
 
 async function newDog(name: string, approvalMode: "ask" | "auto") {
@@ -190,6 +219,44 @@ it("a new Off-leash dog's first-meeting question waits for the person", async ()
   expect(turn.answers.has(question)).toBe(false);
   expect((await turn.card(question)).answered).toBeUndefined();
   await turn.stop();
+}, 60_000);
+
+async function mintConnectors(botId: string, threadId: string): Promise<string> {
+  const minted = await fetch(`${base}/api/testing/internal-capability`, {
+    method: "POST", headers: { "content-type": "application/json", "x-laterdog-test-capability": CAPABILITY_KEY },
+    body: JSON.stringify({ botId, threadId, kind: "connectors" }),
+  });
+  expect(minted.status).toBe(201);
+  return (await minted.json() as { token: string }).token;
+}
+
+function relay(token: string, name: string, args: unknown) {
+  return fetch(`${base}/api/internal/connectors/mcp`, {
+    method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: randomUUID(), method: "tools/call", params: { name, arguments: args } }),
+  }).then(async (response) => ({ status: response.status, body: await response.json() as any }));
+}
+
+const sendCards = async (threadId: string) => ((await api("GET", `/api/threads/${threadId}/messages?limit=100`)).body.messages as any[])
+  .filter((message) => message.card?.outboundRequest);
+
+it("an owner Off-leash dog sends through a connected app with no card, and a Heel dog still asks", async () => {
+  const mailer = await newDog("Mailer", "auto");
+  const before = relayed.length;
+  const sent = await relay(await mintConnectors(mailer.id, mailer.threadId), "GMAIL_SEND_EMAIL", { to: "friend@example.test", body: "On my way." });
+  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+  expect(sent.body.result?.isError, JSON.stringify(sent.body)).not.toBe(true);
+  expect(relayed).toHaveLength(before + 1);
+  expect(await sendCards(mailer.threadId)).toHaveLength(0);
+  expect((await api("GET", `/api/bots/${mailer.id}/outbound`)).body.today).toBe(1);
+
+  const careful = await newDog("Careful mailer", "ask");
+  const held = relay(await mintConnectors(careful.id, careful.threadId), "GMAIL_SEND_EMAIL", { to: "friend@example.test" });
+  await expect.poll(async () => (await sendCards(careful.threadId)).length, { timeout: 10_000 }).toBe(1);
+  const [card] = await sendCards(careful.threadId);
+  await api("POST", `/api/threads/${careful.threadId}/respond`, { requestId: card.card.requestId, behavior: "deny" });
+  expect((await held).body.result.isError).toBe(true);
+  expect(relayed).toHaveLength(before + 1);
 }, 60_000);
 
 it("a Heel dog still asks the person", async () => {

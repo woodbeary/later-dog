@@ -8,7 +8,7 @@ import type { RequestOutcome } from "../contracts.ts";
 import { peerProvenanceAuthor, peerProvenanceNote, withPeerProvenance } from "../peer-provenance.ts";
 import {
   answersForAwayOwner, claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerAwayAnswer, ownerCoordinationRequestNote, ownerGrantApplies,
-  ownerGrantPrompt, ownerReviewerOffNotice, type OwnerAutoScope,
+  ownerGrantPrompt, ownerReviewerOffNotice, ownerSendsWithoutAsking, type OwnerAutoScope,
 } from "./owner-auto.ts";
 import { OwnerAwayAnswers, settleOwnerAutoPermission, type OwnerAutoPermissionDeps } from "./owner-auto-request.ts";
 import type { GitLookup } from "./owner-guard.ts";
@@ -42,6 +42,16 @@ describe("whose authority a dog's turn carries", () => {
     expect(answersForAwayOwner("auto", { ...owner, workingOnRequest: false })).toBe(false);
     expect(answersForAwayOwner("ask", { ...owner, workingOnRequest: true })).toBe(false);
     expect(answersForAwayOwner("auto", { ...owner, cloudHome: false, workingOnRequest: true })).toBe(false);
+  });
+
+  it("lets the owner's Off-leash and Full access dogs in the Cloud send through his connected apps without asking", () => {
+    expect(ownerSendsWithoutAsking("auto", owner)).toBe(true);
+    expect(ownerSendsWithoutAsking("full", owner)).toBe(true);
+    for (const mode of ["ask", "edits", "custom"] as const) expect(ownerSendsWithoutAsking(mode, owner), mode).toBe(false);
+    expect(ownerSendsWithoutAsking("auto", { ...owner, cloudHome: false })).toBe(false);
+    expect(ownerSendsWithoutAsking("full", { ...owner, guestDriven: true })).toBe(false);
+    expect(ownerSendsWithoutAsking("auto", { ...owner, sharedWorkspace: true })).toBe(false);
+    expect(ownerSendsWithoutAsking("auto", { ...owner, lastPersonVia: "api" })).toBe(false);
   });
 });
 
