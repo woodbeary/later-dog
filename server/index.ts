@@ -647,7 +647,7 @@ import {
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
 import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, signsItselfOut, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 import { EDIT_REFUSAL, UNGUARDED_REFUSAL, localToolMessageText, localToolSpeaker, unguardedMode } from "./laterdog/local-tool-message.ts";
-import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerAwayAnswer, ownerAwayNote, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerReviewerOffNotice, type OwnerAutoScope } from "./laterdog/owner-auto.ts";
+import { answersForAwayOwner, claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerAwayAnswer, ownerAwayNote, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerReviewerOffNotice, type OwnerAutoScope, type OwnerQuestionScope } from "./laterdog/owner-auto.ts";
 import { OwnerAwayAnswers, settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
 import { ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext } from "./laterdog/owner-guard.ts";
 import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
@@ -3551,6 +3551,10 @@ function ownerAutoScope(threadId: string, guestDriven = cloudGuestDriven(threadI
     guestDriven,
     lastPersonVia: store.activePath(threadId).findLast((message) => message.role === "user" && !message.peerAsk)?.via,
   };
+}
+
+function ownerQuestionScope(threadId: string, guestDriven: boolean): OwnerQuestionScope {
+  return { ...ownerAutoScope(threadId, guestDriven), workingOnRequest: store.activePath(threadId).some((message) => message.role === "user") };
 }
 
 function ownerAuthorityFor(threadId: string): { name: string | undefined } | undefined {
@@ -6958,7 +6962,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         origin: !permission && event.origin === "output" ? "output" : undefined,
         unattended: unattended || undefined,
       });
-      if (ownerAuto && event.requestType === "question" && asker && event.requestId) {
+      if (ownerAuto && event.requestType === "question" && answersForAwayOwner(effectiveApprovalMode, ownerQuestionScope(event.threadId, guestDriven)) && asker && event.requestId) {
         const requestId = event.requestId;
         const instance = registry.get(event.providerInstanceId ?? asker.modelSelection.instanceId);
         ownerAwayAnswers.mark(event.threadId, requestId);

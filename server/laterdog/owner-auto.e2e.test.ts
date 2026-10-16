@@ -179,6 +179,19 @@ it("an owner Off-leash dog gets the standing grant its reviewer can see, and esc
   await turn.stop();
 }, 90_000);
 
+it("a new Off-leash dog's first-meeting question waits for the person", async () => {
+  const dog = await newDog("Newcomer", "auto");
+  rmSync(dump(), { force: true });
+  expect((await api("POST", `/api/bots/${dog.id}/hello`)).body).toMatchObject({ asked: true });
+  const turn = await attach(dog, dog.threadId);
+  const question = turn.ask("AskUserQuestion", { questions: [{ question: "What should I help with first?", header: "Start", multiSelect: false, options: [{ label: "Code and GitHub" }, { label: "Research and writing" }] }] }, "question");
+  await expect.poll(() => turn.card(question), { timeout: 10_000 }).toMatchObject({ requestType: "question" });
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  expect(turn.answers.has(question)).toBe(false);
+  expect((await turn.card(question)).answered).toBeUndefined();
+  await turn.stop();
+}, 60_000);
+
 it("a Heel dog still asks the person", async () => {
   const heel = await newDog("Careful", "ask");
   const turn = await startTurn(heel, "Commit the fix to main.");

@@ -7,7 +7,7 @@ import { CommandAllowlistStore } from "../command-allowlist.ts";
 import type { RequestOutcome } from "../contracts.ts";
 import { peerProvenanceAuthor, peerProvenanceNote, withPeerProvenance } from "../peer-provenance.ts";
 import {
-  claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerAwayAnswer, ownerCoordinationRequestNote, ownerGrantApplies,
+  answersForAwayOwner, claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerAwayAnswer, ownerCoordinationRequestNote, ownerGrantApplies,
   ownerGrantPrompt, ownerReviewerOffNotice, type OwnerAutoScope,
 } from "./owner-auto.ts";
 import { OwnerAwayAnswers, settleOwnerAutoPermission, type OwnerAutoPermissionDeps } from "./owner-auto-request.ts";
@@ -35,6 +35,13 @@ describe("whose authority a dog's turn carries", () => {
     expect(ownerAutoAnswers("auto", { ...owner, cloudHome: false })).toBe(false);
     expect(ownerAutoAnswers("ask", owner)).toBe(false);
     expect(ownerAutoAnswers("auto", { ...owner, guestDriven: true })).toBe(false);
+  });
+
+  it("answers a question for the away owner only while the dog works on a request, never its first-meeting question", () => {
+    expect(answersForAwayOwner("auto", { ...owner, workingOnRequest: true })).toBe(true);
+    expect(answersForAwayOwner("auto", { ...owner, workingOnRequest: false })).toBe(false);
+    expect(answersForAwayOwner("ask", { ...owner, workingOnRequest: true })).toBe(false);
+    expect(answersForAwayOwner("auto", { ...owner, cloudHome: false, workingOnRequest: true })).toBe(false);
   });
 });
 

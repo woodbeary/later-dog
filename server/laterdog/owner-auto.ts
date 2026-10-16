@@ -27,6 +27,14 @@ export function ownerAutoAnswers(mode: ApprovalMode, scope: OwnerAutoScope): boo
   return scope.cloudHome && ownerGrantApplies(mode, scope);
 }
 
+export interface OwnerQuestionScope extends OwnerAutoScope {
+  workingOnRequest: boolean;
+}
+
+export function answersForAwayOwner(mode: ApprovalMode, scope: OwnerQuestionScope): boolean {
+  return scope.workingOnRequest && ownerAutoAnswers(mode, scope);
+}
+
 const NO_NAME = "The owner";
 
 export function ownerDisplayName(name: string | undefined): string {
