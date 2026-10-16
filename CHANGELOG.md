@@ -12,6 +12,8 @@
 - **The included AI keeps its thinking out of its replies**, and every dog gets its own computer.
 - **My Cloud keeps saving.** One stuck upload used to stop every later save, so a restart could bring back older chats.
 - **A new desktop goes straight to your chats**, with no tours.
+- **Apps on your Mac act as you.** When Claude Code, Codex or a script on your Mac messages your dogs, it counts as you: every dog takes it, and the chat can still use your Mac.
+- **If your Mac isn't connected, a dog just says to open the later.dog app.**
 
 ## 0.3.40 — 2026-10-15
 
