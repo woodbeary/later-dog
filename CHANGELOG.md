@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.41 — 2026-10-15
+
+- **Your dogs in My Cloud don't stop to ask.** Pushes, pull requests, commits to main and work your coordinator passes on go through without a card. Only force-pushing main, deleting a repository and deleting outside a dog's folder are refused, in one line.
+- **Sending through your connected apps doesn't ask either.** Emails and messages from your own dogs go out within each dog's daily limit.
+- **Questions wait for you.** A dog decides whether to ask, and Codex dogs can ask with options too.
+- **Long work keeps going.** Dogs can work for hours, handoffs pick themselves back up, a timeout says so and is tried once more, and each dog can run 10 chats at once.
+- **Dogs don't go quiet.** A dog that ends on "I'm checking it now" carries on, a dog working quietly shows "Still on it", and work that was running when My Cloud restarted picks up again.
+- **Codex can push from My Cloud**, and when an account runs out of usage the work moves to another one.
+- **Adding ChatGPT and Claude accounts in My Cloud works**, with a device code or a paste code.
+- **The included AI keeps its thinking out of its replies**, and every dog gets its own computer.
+- **My Cloud keeps saving.** One stuck upload used to stop every later save, so a restart could bring back older chats.
+- **A new desktop goes straight to your chats**, with no tours.
+
 ## 0.3.40 — 2026-10-15
 
 - **Stop works in My Cloud.** Programs a dog started are now cleaned up when it stops, so the dog really stops instead of staying "working" with a "could not be confirmed stopped" warning.
