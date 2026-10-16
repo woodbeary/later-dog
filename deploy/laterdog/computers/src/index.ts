@@ -6,7 +6,6 @@ import { TooLarge, apiError, json, readLimited } from "./http";
 import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
 import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, SCREEN_CHECKS_PER_DAY, SCREEN_CHECKS_TOTAL_PER_DAY, TOOL_DECISIONS_PER_DAY, TOOL_DECISIONS_TOTAL_PER_DAY, type Decision, type UsageKind, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom, toolDecisionFrom } from "./decide";
 import { COMPLETE_DEFAULT_MODEL, COMPLETE_MAX_BODY_BYTES, COMPLETIONS_PER_DAY, COMPLETIONS_TOTAL_PER_DAY, completeInput, completeRequest, completionFrom } from "./complete";
-import { maxComputers } from "./idle";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
 import { type McpBackend, handleMcp } from "./mcp";
 import type { ComputerRegistry } from "./registry";
@@ -149,7 +148,7 @@ async function createComputer(request: Request, env: Env, caller: Caller): Promi
   const reservation = await caller.registry.reserve({
     ...input.value,
     ...(key.value === undefined ? {} : { idempotencyKey: key.value }),
-    max: caller.trial ? 1 : maxComputers(env),
+    ...(caller.trial ? { max: 1 } : {}),
   });
   if (!reservation.ok) {
     if (caller.trial && reservation.refusal.code === "limit_reached") {

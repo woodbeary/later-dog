@@ -36,7 +36,6 @@
     "TrialRegistry": { "type": "durable-object", "storage": "sqlite" }
   },
   "vars": {
-    "MAX_COMPUTERS": "10",
     "IDLE_SLEEP_MINUTES": "15",
     "MAX_AWAKE_HOURS": "8",
     "TRIALS_ENABLED": "true",

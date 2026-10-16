@@ -263,8 +263,8 @@ describe("free trials, end to end", () => {
     }
   });
 
-  it("gives a free trial one standard computer at a time, apart from the owner's limit", async () => {
-    const w = await world({ MAX_COMPUTERS: "2" });
+  it("gives a free trial one standard computer at a time, and the owner as many as they need", async () => {
+    const w = await world();
     siteverify();
     const key = trialKey("a");
     await startTrial(w, key);
@@ -289,12 +289,7 @@ describe("free trials, end to end", () => {
 
     const owned = await createdId(w, OWNER_KEY, { size: "large" });
     expect(w.containers.get(owned)!.starts).toMatchObject([{ instance: "standard-3" }]);
-    expect((await create(w, OWNER_KEY)).status).toBe(201);
-    expect(await refusal(await create(w, OWNER_KEY))).toEqual({
-      status: 409,
-      code: "limit_reached",
-      message: "This deployment allows 2 computers at once; delete one first.",
-    });
+    for (let i = 0; i < 12; i += 1) expect((await create(w, OWNER_KEY)).status).toBe(201);
 
     expect(await body(await w.fetch(apiRequest("DELETE", `/v1/computers/${computer.id}`, key)))).toEqual({ deleted: true });
     expect(w.containers.get(computer.id)!.running).toBe(false);

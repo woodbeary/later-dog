@@ -49,7 +49,7 @@ person's browser ──/desktop/<id>/<token>/──▶ Worker ──fetch──�
 - `src/computer.ts`: `DogComputer`, one Durable Object per computer. It starts the container from the image or from the
   latest snapshot, picks the instance size, keeps the computer's record, runs commands, bridges the viewer's WebSocket,
   and uses its alarm for readiness and the idle policy.
-- `src/registry.ts`: `ComputerRegistry`, one Durable Object. It lists computers and enforces `MAX_COMPUTERS` and
+- `src/registry.ts`: `ComputerRegistry`, one Durable Object. It lists computers and enforces
   `Idempotency-Key` replays. Each computer's own object stays the truth.
 - `src/trial.ts`, `src/trial-page.ts` and `src/trial-registry.ts`: free trials (see Free trials). `TrialRegistry` is
   one Durable Object, named `trials`. It starts trials, limits them per network and per day, keeps their minutes and
@@ -89,7 +89,7 @@ still drawing has it `false` (see Waking and readiness).
 
 | Request | Answer |
 | --- | --- |
-| `POST /computers` `{ "name"?, "size"?: "small" \| "standard" \| "large" \| "xlarge" }`, optional `Idempotency-Key` header | 201 `{ computer }` in state `starting`. It answers once Cloudflare has placed the container (1 to 16 s measured). Sizes: `standard-1` (½ vCPU, 4 GiB, 8 GB disk), `standard-2` (1 vCPU, 6 GiB, 12 GB; the default), `standard-3` (2 vCPU, 8 GiB, 16 GB) and `standard-4` (4 vCPU, 12 GiB, 20 GB). The same key within 24 hours returns the same computer, with header `Idempotent-Replayed: true`. At `MAX_COMPUTERS`: 409 `limit_reached`. |
+| `POST /computers` `{ "name"?, "size"?: "small" \| "standard" \| "large" \| "xlarge" }`, optional `Idempotency-Key` header | 201 `{ computer }` in state `starting`. It answers once Cloudflare has placed the container (1 to 16 s measured). Sizes: `standard-1` (½ vCPU, 4 GiB, 8 GB disk), `standard-2` (1 vCPU, 6 GiB, 12 GB; the default), `standard-3` (2 vCPU, 8 GiB, 16 GB) and `standard-4` (4 vCPU, 12 GiB, 20 GB). The same key within 24 hours returns the same computer, with header `Idempotent-Replayed: true`. |
 | `GET /computers` | `{ computers: [...] }` |
 | `GET /computers/:id` | `{ computer }` or 404 |
 | `PATCH /computers/:id` `{ "name" }` | `{ computer }` |
@@ -290,7 +290,7 @@ viewer. Reading a computer's state with `GET` is not activity. The `DogComputer`
 - The platform's own inactivity timeout is the idle time plus 45 minutes. It is a backstop in case the alarm cannot run.
   That stop takes no snapshot.
 
-`MAX_COMPUTERS` (default 10) caps how many computers exist at once, awake or asleep. All three are `vars` in
+There is no cap on how many computers exist; every dog gets its own. Both are `vars` in
 `wrangler.jsonc`. The rules are unit tested in `test/idle.test.ts`. The first two were also seen working live (see
 Measured).
 
@@ -318,7 +318,7 @@ How a trial starts:
 
 What a trial may do:
 
-- One computer at a time, size `standard`. Trial computers do not count toward `MAX_COMPUTERS`.
+- One computer at a time, size `standard`.
 - A trial key sees only its own trial's computers. Anything else answers 404.
 - Minutes count while a trial computer is starting, awake or going to sleep. Asleep costs nothing.
 - A trial computer sleeps after `TRIAL_IDLE_SLEEP_MINUTES` (default 5) without activity, and as soon as the minutes run
@@ -490,7 +490,7 @@ Seen working on 2026-10-08:
   requests during the delete get 200 or 404, never an error.
 
 Not seen live yet: the 8-hour `MAX_AWAKE_HOURS` backstop, the platform's inactivity-timeout backstop, the 30-day snapshot
-expiry, recovery after Cloudflare restarts a host, the `small`, `large` and `xlarge` sizes, the `MAX_COMPUTERS` cap, renaming
+expiry, recovery after Cloudflare restarts a host, the `small`, `large` and `xlarge` sizes, renaming
 (`PATCH`), and the list endpoint with computers in it.
 
 Also not seen live yet, added after the last deploy and only unit tested against the stand-ins:
