@@ -15,7 +15,7 @@ export function CredentialStoreNotice() {
   if (capabilities.credentialStore === "reset") {
     return (
       <div
-        className="animate-panel-in fixed bottom-4 left-4 z-50 w-[300px] rounded-xl border border-hairline/40 bg-panel p-3.5 shadow-2xl shadow-black/50"
+        className="animate-panel-in fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] z-50 w-[300px] rounded-xl border border-hairline/40 bg-panel p-3.5 shadow-2xl shadow-black/50"
         data-testid="credential-store-reset-notice"
       >
         <div className="flex items-start gap-2.5">
@@ -53,7 +53,7 @@ export function CredentialStoreNotice() {
   };
   return (
     <div
-      className="animate-panel-in fixed bottom-4 left-4 z-50 w-[300px] rounded-xl border border-hairline/40 bg-panel p-3.5 shadow-2xl shadow-black/50"
+      className="animate-panel-in fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] z-50 w-[300px] rounded-xl border border-hairline/40 bg-panel p-3.5 shadow-2xl shadow-black/50"
       data-testid="credential-store-notice"
     >
       <div className="flex items-start gap-2.5">

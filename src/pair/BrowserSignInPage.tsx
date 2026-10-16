@@ -20,7 +20,7 @@ export function BrowserSignInPage({ credential, owner }: { credential: string; o
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-app px-6 text-ink">
+    <main className="flex min-h-dvh items-center justify-center bg-app px-6 text-ink">
       <div className="w-full max-w-[420px]">
         <h1 className="text-[20px] font-semibold">Signing in to {owner}’s Cloud</h1>
         <p className="mt-1.5 text-[13.5px] text-ink-secondary">Not your email? Close this tab.</p>

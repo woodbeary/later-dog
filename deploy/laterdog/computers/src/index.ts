@@ -1,5 +1,6 @@
 
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { appSiteAssociationResponse } from "../../../../shared/apple-app";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
@@ -754,6 +755,8 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
     switch (target.kind) {
       case "health":
         return new Response("ok\n", { headers: { "cache-control": "no-store" } });
+      case "app_site_association":
+        return appSiteAssociationResponse(request, "service")!;
       case "redirect":
         return new Response(null, { status: 302, headers: { location: target.location, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
       case "desktop":

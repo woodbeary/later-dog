@@ -166,7 +166,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   }, [dispatch]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="safe-area-frame flex h-full flex-col">
       <CredentialStoreNotice />
       <div className="relative flex min-h-0 flex-1">
       <button

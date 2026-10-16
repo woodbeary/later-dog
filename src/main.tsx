@@ -8,6 +8,7 @@ import { bootstrapBrand } from "./lib/brand";
 import { applyTheme, readTheme } from "./lib/theme";
 import { applyFont, readFont } from "./lib/fonts";
 import { installPressFeedback } from "./lib/press";
+import { followThemeColor, keepSmartAppBannerCurrent } from "./lib/safari-chrome";
 import { BrowserSignInPage } from "./pair/BrowserSignInPage";
 import { PairPage } from "./pair/PairPage";
 import "katex/dist/katex.min.css";
@@ -16,6 +17,8 @@ import "./styles.css";
 applyTheme(readTheme());
 applyFont(readFont());
 installPressFeedback();
+followThemeColor();
+keepSmartAppBannerCurrent();
 
 async function chooseRoot(): Promise<React.ReactNode> {
   if (location.pathname === "/pair") {
