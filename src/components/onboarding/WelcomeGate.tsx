@@ -72,7 +72,6 @@ export function WelcomeGate({ viewer, hold = false }: { viewer: WelcomeViewer | 
         setDismissed(true);
         setResumeAt(undefined);
         dispatch({ type: "toggleWelcome", open: false });
-        if (!replay) dispatch({ type: "toggleTour", open: true });
       }}
     />
   );
