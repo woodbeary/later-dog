@@ -160,6 +160,7 @@ export interface ProviderAdapter {
   };
   sendTurn(input: SendTurnInput): Promise<TurnStartResult>;
   interruptTurn(threadId: ThreadId, turnId?: TurnId): Promise<void>;
+  stopNativeActor?(threadId: ThreadId, actor: { id: string; nativeThreadId?: string; nativeTurnId?: string; generation?: string }): Promise<void>;
   respondToRequest(
     threadId: ThreadId,
     requestId: string,

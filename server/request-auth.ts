@@ -215,6 +215,8 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["GET"], path: /^\/api\/brand$/ },
   { methods: ["GET"], path: /^\/api\/events$/ },
   { methods: ["GET"], path: /^\/api\/helpers$/ },
+  { methods: ["GET"], path: /^\/api\/threads\/[\w-]+\/runs(?:\/[\w-]+)?$/ },
+  { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/runs\/[\w-]+\/actors\/[\w.:%-]+\/stop$/ },
   { methods: ["GET"], path: /^\/api\/bots$/ },
   { methods: ["GET"], path: /^\/api\/team-map$/ },
   { methods: ["GET"], path: /^\/api\/bots\/[\w-]+\/slack-management$/ },

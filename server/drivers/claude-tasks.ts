@@ -1,10 +1,12 @@
 import type { Helper, HelperMember, HelperState } from "../../shared/helpers.ts";
+import { claudeTaskState } from "../laterdog/claude-native-activity.ts";
 
 type Fields = Record<string, unknown>;
 const fields = (value: unknown): Fields => value && typeof value === "object" && !Array.isArray(value) ? value as Fields : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim().slice(0, 500) : undefined;
 const count = (value: unknown): number | undefined => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-const state = (value: unknown): HelperState => value === "completed" || value === "done" ? "done" : value === "failed" || value === "error" ? "failed" : value === "stopped" ? "stopped" : "running";
+const state = (value: unknown): HelperState => { const native = claudeTaskState(value); return native === "waiting" || native === undefined ? "running" : native === "paused" ? "stopped" : native; };
+interface ClaudeHelper extends Helper { nativeId?: string; generation?: string; paused?: boolean; ambient?: boolean; }
 
 function members(value: unknown): HelperMember[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -15,25 +17,31 @@ function members(value: unknown): HelperMember[] | undefined {
   }));
 }
 
-export function mapClaudeTask(previous: Helper | undefined, value: unknown, now = Date.now()): Helper | undefined {
+export function mapClaudeTask(previous: ClaudeHelper | undefined, value: unknown, now = Date.now()): ClaudeHelper | undefined {
   const event = fields(value);
   const id = text(event.task_id);
   if (!id) return undefined;
   const patch = fields(event.patch);
   const usage = fields(event.usage);
-  if (previous && previous.state !== "running" && patch.status === undefined && event.status === undefined) return previous;
+  const generation = text(event.run_id);
+  if (generation && previous?.generation && generation < previous.generation) return previous;
+  if (generation && previous?.generation !== generation) previous = undefined;
+  if (previous && !previous.paused && previous.state !== "running" && patch.status === undefined && event.status === undefined) return previous;
   const status = state(patch.status ?? event.status ?? previous?.state);
-  if (previous && previous.state !== "running" && status === "running") return previous;
+  if (previous && !previous.paused && previous.state !== "running" && status === "running") return previous;
   const flow = event.task_type === "local_workflow" || previous?.kind === "workflow";
   const workflow = members(event.workflow_progress) ?? previous?.members;
   return {
-    ...previous, id, kind: flow ? "workflow" : "agent",
+    ...previous, id: generation ? `${id}:run:${generation}` : previous?.id ?? id, nativeId: id, generation: generation ?? previous?.generation, kind: flow ? "workflow" : "agent",
     label: previous?.label ?? text(event.description) ?? text(event.workflow_name) ?? text(event.subagent_type) ?? "Helper",
     state: status,
-    background: typeof event.is_backgrounded === "boolean" ? event.is_backgrounded : previous?.background ?? flow,
+    background: typeof patch.is_backgrounded === "boolean" ? patch.is_backgrounded : typeof event.is_backgrounded === "boolean" ? event.is_backgrounded : previous?.background ?? flow,
+    paused: patch.status === "paused" || event.status === "paused",
+    ambient: typeof event.ambient === "boolean" ? event.ambient : previous?.ambient,
     startedAt: previous?.startedAt ?? now,
     ...(status !== "running" ? { endedAt: count(patch.end_time) ?? previous?.endedAt ?? now } : {}),
     ...(event.subtype === "task_progress" && text(event.description) ? { activity: text(event.description) } : {}),
+    ...(patch.status === "paused" || event.status === "paused" ? { activity: "Paused" } : {}),
     ...(text(event.summary) ? { summary: text(event.summary) } : {}),
     ...(count(usage.total_tokens) !== undefined ? { tokens: count(usage.total_tokens) } : {}),
     ...(count(usage.tool_uses) !== undefined ? { toolUses: count(usage.tool_uses) } : {}),
@@ -43,7 +51,7 @@ export function mapClaudeTask(previous: Helper | undefined, value: unknown, now 
 }
 
 export class ClaudeTasks {
-  private helpers = new Map<string, Helper>();
+  private helpers = new Map<string, ClaudeHelper>();
   private published = new Map<string, { at: number; helper: Helper }>();
   private consumed = new Set<string>();
   private continuations = 0;
@@ -53,8 +61,8 @@ export class ClaudeTasks {
 
   beginTurn(): void { this.helpers.clear(); this.published.clear(); this.consumed.clear(); this.continuations = 0; }
 
-  running(): boolean { return [...this.helpers.values()].some(helper => helper.state === "running"); }
-  backgroundRunning(): boolean { return [...this.helpers.values()].some(helper => helper.background && helper.state === "running"); }
+  running(): boolean { return [...this.helpers.values()].some(helper => helper.state === "running" && !helper.ambient); }
+  backgroundRunning(): boolean { return [...this.helpers.values()].some(helper => helper.background && helper.state === "running" && !helper.ambient); }
 
   receive(value: unknown): boolean {
     const event = fields(value);
@@ -62,8 +70,8 @@ export class ClaudeTasks {
       if (!Array.isArray(event.tasks)) return true;
       const liveIds = new Set(event.tasks.map(task => text(fields(task).task_id)).filter(Boolean));
       for (const helper of this.helpers.values()) {
-        if (helper.background && helper.state === "running" && !liveIds.has(helper.id)) {
-          this.update({ task_id: helper.id, subtype: "task_updated", patch: { status: "stopped" } });
+        if (helper.background && helper.state === "running" && !liveIds.has(helper.nativeId ?? helper.id)) {
+          this.update({ task_id: helper.nativeId ?? helper.id, run_id: helper.generation, subtype: "task_updated", patch: { status: "stopped" } });
         }
       }
       for (const task of event.tasks) this.update({ ...fields(task), is_backgrounded: true });
@@ -81,18 +89,18 @@ export class ClaudeTasks {
     const next = mapClaudeTask(previous, event, this.now());
     if (!next || next === previous) return;
     this.helpers.set(id, next);
-    const last = this.published.get(id);
+    const last = this.published.get(next.id);
     const memberState = (helper: Helper) => helper.members?.map(member => `${member.id}:${member.state}:${member.phase}`).join("|");
     if (last && next.state === "running" && next.state === last.helper.state && memberState(next) === memberState(last.helper) && this.now() - last.at < 750) return;
-    this.published.set(id, { at: this.now(), helper: next });
+    this.published.set(next.id, { at: this.now(), helper: next });
     this.emit(next);
   }
 
-  continuationLimitReached(): boolean { return this.continuations >= 3 && [...this.helpers.values()].some(helper => helper.background && helper.state !== "running" && !this.consumed.has(helper.id)); }
+  continuationLimitReached(): boolean { return this.continuations >= 3 && [...this.helpers.values()].some(helper => helper.background && !helper.paused && !helper.ambient && helper.state !== "running" && !this.consumed.has(helper.id)); }
 
   takeContinuation(): boolean {
     if (this.backgroundRunning() || this.continuations >= 3) return false;
-    const done = [...this.helpers.values()].filter(helper => helper.background && helper.state !== "running" && !this.consumed.has(helper.id));
+    const done = [...this.helpers.values()].filter(helper => helper.background && !helper.paused && !helper.ambient && helper.state !== "running" && !this.consumed.has(helper.id));
     if (!done.length) return false;
     for (const helper of done) this.consumed.add(helper.id);
     this.continuations += 1;
@@ -104,7 +112,7 @@ export class ClaudeTasks {
     for (const helper of this.helpers.values()) {
       if (helper.state !== "running") continue;
       const next: Helper = { ...helper, state: "stopped", endedAt: this.now(), members: helper.members?.map(member => member.state === "running" ? { ...member, state: "stopped" } : member) };
-      this.helpers.set(helper.id, next);
+      this.helpers.set(helper.nativeId ?? helper.id, next);
       this.emit(next);
       stopped += 1;
     }

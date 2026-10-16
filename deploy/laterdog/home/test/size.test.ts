@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { homeIdentity } from "../src/identity.ts";
-import { homeNamespace, homeSize, largeHomeAccounts, largeHomes, otherSize } from "../src/size.ts";
+import { candidateHomes, homeLane, homeLanes, homeNamespace, homeSize, largeHomeAccounts, largeHomes, otherSize } from "../src/size.ts";
 
 const env = (accounts?: string) => ({ HOME_SECRET: "size-secret", HOME_HOST_SUFFIX: "-home.later.dog", LARGE_HOME_ACCOUNTS: accounts });
 
@@ -34,5 +34,19 @@ describe("who gets a large home", () => {
     expect(homeNamespace(namespaces, "large")).toBe("large homes");
     expect(otherSize("standard")).toBe("large");
     expect(otherSize("large")).toBe("standard");
+  });
+
+  it("selects only an exact candidate account and retains its original size for rollback", async () => {
+    const config = { ...env("owner-1"), CANDIDATE_HOME_ACCOUNTS: "owner-1" };
+    const owner = await homeIdentity(config.HOME_SECRET, "owner-1", config.HOME_HOST_SUFFIX);
+    const other = await homeIdentity(config.HOME_SECRET, "owner-10", config.HOME_HOST_SUFFIX);
+    expect(await homeLane(config, owner.machineId)).toBe("candidate");
+    expect(await homeLane(config, other.machineId)).toBe("standard");
+    expect(await homeSize(config, owner.machineId)).toBe("large");
+    expect((await candidateHomes(config)).get(owner.machineId)).toEqual(owner);
+    config.CANDIDATE_HOME_ACCOUNTS = "";
+    expect(await homeLane(config, owner.machineId)).toBe("large");
+    expect(() => homeNamespace({ HOMES: 1, HOMES_LARGE: 2 }, "candidate")).toThrow("not configured");
+    expect(homeLanes({ HOMES: 1, HOMES_LARGE: 2, HOMES_CANDIDATE: 3 })).toEqual(["standard", "large", "candidate"]);
   });
 });

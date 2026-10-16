@@ -341,6 +341,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     delete process.env.FAKE_CODEX_REVIEW_EVENTS;
     delete process.env.FAKE_CODEX_REVIEW_AFTER_COMPLETION;
     delete process.env.FAKE_CODEX_APPROVAL_REQUEST;
+    delete process.env.FAKE_CODEX_REQUEST_RESOLVED;
     delete process.env.FAKE_CODEX_DUMP;
     delete process.env.FAKE_CODEX_ASK_HOLD;
     delete process.env.FAKE_CODEX_TRANSIENTS;
@@ -554,7 +555,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     });
     await recorder.until((e) => e.type === "turn.completed");
 
-    const types = recorder.events.map((e) => e.type);
+    const types = recorder.events.filter(event => event.type !== "native.observed").map((e) => e.type);
     expect(types).toEqual([
       "turn.started",
       "session.started",
@@ -661,14 +662,15 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     expect(permission).toMatchObject({ summary: "echo parent continues" });
     expect(recorder.events).toContainEqual(expect.objectContaining({ type: "helper.updated", helper: expect.objectContaining({ label: "checker", state: "done" }) }));
     expect(recorder.events.some((event) => event.type === "turn.completed")).toBe(false);
-    expect(JSON.stringify(recorder.events)).not.toContain("FOREIGN");
+    expect(JSON.stringify(recorder.events.filter(event => event.type !== "native.observed"))).not.toContain("FOREIGN");
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "native.observed", observation: expect.objectContaining({ kind: "activity", activity: expect.objectContaining({ actorId: "codex:helper-thread:0", input: "FOREIGN command" }) }) }));
     expect(recorder.events.some((event) => event.type === "thread.token-usage.updated")).toBe(false);
     await instance.adapter.respondToRequest("t-helper-events", permission.requestId!, { behavior: "allow" });
     await recorder.until((event) => event.type === "turn.completed");
     expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
     expect(recorder.events.at(-1)).toMatchObject({ ok: true, usage: { input: 7, output: 3 } });
     expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({ text: "done from fake codex" });
-    expect(JSON.stringify(recorder.events)).not.toContain("FOREIGN");
+    expect(JSON.stringify(recorder.events.filter(event => event.type !== "native.observed"))).not.toContain("FOREIGN");
 
     const repeat = await instance.adapter.sendTurn({
       threadId: "t-helper-events", resumeCursor: "codex-thread-1", text: "continue and deny the next request",
@@ -679,7 +681,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(2);
     expect(recorder.events.at(-1)).toMatchObject({ ok: true });
     expect(recorder.events.find((event) => event.turnId === repeat.turnId && event.type === "request.resolved")).toMatchObject({ behavior: "deny" });
-    expect(JSON.stringify(recorder.events)).not.toContain("FOREIGN");
+    expect(JSON.stringify(recorder.events.filter(event => event.type !== "native.observed"))).not.toContain("FOREIGN");
   });
 
   it("retains parent notifications delivered before the turn/start response", async () => {
@@ -689,6 +691,70 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     expect(recorder.events.at(-1)).toMatchObject({ ok: true });
     expect(recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
     expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({ text: "done from fake codex" });
+  });
+
+  it("stops only the owned helper's active native turn while the parent keeps working", async () => {
+    const dump = join(scratch, "native-helper-stop.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    process.env.FAKE_CODEX_REVIEW_EVENTS = JSON.stringify([
+      { method: "item/completed", params: { threadId: "codex-thread-1", turnId: "turn-1", item: { id: "spawn", type: "collabAgentToolCall", tool: "spawnAgent", status: "completed", receiverThreadIds: ["helper"], agentsStates: { helper: { status: "running" } } } } },
+      { method: "turn/started", params: { threadId: "helper", turn: { id: "helper-turn" } } },
+      { method: "item/agentMessage/delta", params: { threadId: "helper", turnId: "helper-turn", itemId: "helper-msg", delta: "Helper is working" } },
+    ]);
+    await create({ mode: "approval" });
+    const started = await instance.adapter.sendTurn({ threadId: "native-helper-stop", text: "Delegate then continue" });
+    const permission = await recorder.until(event => event.type === "request.opened");
+    const target = { id: "codex:helper:0", nativeThreadId: "helper", nativeTurnId: "helper-turn", generation: "0" };
+    await expect(instance.adapter.stopNativeActor!("native-helper-stop", { ...target, nativeTurnId: "stale" })).rejects.toThrow("no longer running");
+    await expect(instance.adapter.stopNativeActor!("native-helper-stop", { ...target, nativeThreadId: "codex-thread-1" })).rejects.toThrow("no longer running");
+    await instance.adapter.stopNativeActor!("native-helper-stop", target);
+    await recorder.until(event => event.type === "native.observed" && event.observation.kind === "actor" && event.observation.actor.id === target.id && event.observation.actor.state === "stopped");
+    expect(recorder.events.some(event => event.type === "turn.completed")).toBe(false);
+    expect(recorder.events.filter(event => event.type === "content.delta")).toEqual([]);
+    const calls = JSON.parse(readFileSync(dump, "utf8")).calls.filter((call: { method: string }) => call.method === "turn/interrupt");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].params).toEqual({ threadId: "helper", turnId: "helper-turn" });
+    await instance.adapter.respondToRequest("native-helper-stop", permission.requestId!, { behavior: "allow" });
+    await recorder.until(event => event.type === "turn.completed" && event.turnId === started.turnId);
+    expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
+    await expect(instance.adapter.stopNativeActor!("native-helper-stop", target)).rejects.toThrow("no longer connected");
+  });
+
+  it("attributes a helper's permission and its resolution to the native actor", async () => {
+    process.env.FAKE_CODEX_REVIEW_EVENTS = JSON.stringify([
+      { method: "thread/started", params: { thread: { id: "helper", parentThreadId: "codex-thread-1", agentNickname: "Checker" } } },
+    ]);
+    process.env.FAKE_CODEX_APPROVAL_REQUEST = JSON.stringify({ method: "item/commandExecution/requestApproval", params: { threadId: "helper", turnId: "helper-turn", itemId: "command", command: "pwd", cwd: scratch } });
+    await create({ mode: "approval" });
+    await instance.adapter.sendTurn({ threadId: "native-helper-request", text: "Delegate a check" });
+    const permission = await recorder.until(event => event.type === "request.opened");
+    expect(permission).toMatchObject({ nativeActorId: "codex:helper:0", summary: "pwd" });
+    await instance.adapter.respondToRequest("native-helper-request", permission.requestId!, { behavior: "deny" });
+    await recorder.until(event => event.type === "turn.completed");
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "request.resolved", nativeActorId: "codex:helper:0", requestId: permission.requestId, behavior: "deny" }));
+    expect(recorder.events.find(event => event.type === "request.resolved")).not.toHaveProperty("resolvedExternally");
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "native.observed", observation: expect.objectContaining({ kind: "activity", activity: expect.objectContaining({ actorId: "codex:helper:0", requestId: permission.requestId, state: "stopped", output: "deny (user)" }) }) }));
+  });
+
+  it.each(["permission", "question"])("closes native-resolved helper %s requests without replying again to Codex", async (requestType) => {
+    const dump = join(scratch, "native-helper-resolved.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+    process.env.FAKE_CODEX_REQUEST_RESOLVED = "1";
+    process.env.FAKE_CODEX_REVIEW_EVENTS = JSON.stringify([
+      { method: "thread/started", params: { thread: { id: "helper", parentThreadId: "codex-thread-1" } } },
+    ]);
+    process.env.FAKE_CODEX_APPROVAL_REQUEST = JSON.stringify(requestType === "permission"
+      ? { method: "item/commandExecution/requestApproval", params: { threadId: "helper", turnId: "helper-turn", command: "pwd" } }
+      : { method: "item/tool/requestUserInput", params: { threadId: "helper", turnId: "helper-turn", questions: [{ id: "proceed", header: "Proceed", question: "Proceed?", isOther: false, isSecret: false, options: [{ label: "Yes", description: "Proceed" }] }] } });
+    await create({ mode: "approval" });
+    await instance.adapter.sendTurn({ threadId: "native-resolved", text: "Check" });
+    await recorder.until(event => event.type === "turn.completed");
+    const permission = recorder.events.find(event => event.type === "request.opened")!;
+    expect(permission).toMatchObject({ requestType });
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "request.resolved", requestId: permission.requestId, nativeActorId: "codex:helper:0", source: "system", behavior: "deny", resolvedExternally: true }));
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "native.observed", observation: expect.objectContaining({ kind: "activity", activity: expect.objectContaining({ requestId: permission.requestId, output: "Resolved by Codex" }) }) }));
+    expect(JSON.parse(readFileSync(dump, "utf8")).decision).toBeNull();
+    expect(await instance.adapter.respondToRequest("native-resolved", permission.requestId!, { behavior: "allow" })).toBe("unavailable");
   });
 
   it.each([

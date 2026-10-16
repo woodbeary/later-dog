@@ -67,7 +67,7 @@ const ASK_USER_QUESTION = "AskUserQuestion";
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
-async function answerNativeQuestions(input: unknown): Promise<string> {
+async function answerNativeQuestions(input: unknown, provenance: { tool_use_id?: string; agent_id?: string } = {}): Promise<string> {
   const questions = parseAskQuestions(input);
   if (!questions?.length) {
     return JSON.stringify({
@@ -82,6 +82,7 @@ async function answerNativeQuestions(input: unknown): Promise<string> {
     kind: "question",
     tool: ASK_USER_QUESTION,
     input: { questions },
+    ...provenance,
   });
   if (answer.behavior === "deny") {
     return JSON.stringify({ behavior: "deny", message: answer.message || "Denied from later.dog" });
@@ -103,6 +104,7 @@ const TOOLS = [
         tool_name: { type: "string" },
         input: { type: "object" },
         tool_use_id: { type: "string" },
+        agent_id: { type: "string" },
       },
       required: ["tool_name", "input"],
     },
@@ -142,10 +144,11 @@ async function handle(msg: any) {
   if (msg.method === "tools/call") {
     const name = msg.params?.name;
     const args = msg.params?.arguments ?? {};
+    const provenance = { tool_use_id: typeof args.tool_use_id === "string" ? args.tool_use_id : undefined, agent_id: typeof args.agent_id === "string" ? args.agent_id : undefined };
     const reply = (text: string) => send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }] } });
     if (name === "ask_user" && !allowQuestion) return reply("later.dog: this question tool is excluded by the bot's tool selection.");
     if (name === "approve" && args.tool_name === ASK_USER_QUESTION) {
-      return reply(await answerNativeQuestions(args.input));
+      return reply(await answerNativeQuestions(args.input, provenance));
     }
     const askId = randomUUID();
     const isQuestion = name === "ask_user";
@@ -157,7 +160,7 @@ async function handle(msg: any) {
     const answer: any = await askBroker(
       isQuestion
         ? { t: "ask", id: askId, kind: "question", tool: "ask_user", input: { question: args.question, choices: args.choices } }
-        : { t: "ask", id: askId, tool: args.tool_name, input: args.input },
+        : { t: "ask", id: askId, tool: args.tool_name, input: args.input, ...provenance },
     );
     let text = answer.message || "No answer was given — use your best judgment.";
     if (!isQuestion) {

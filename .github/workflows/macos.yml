@@ -1,9 +1,9 @@
-name: macOS preview build
+name: macOS candidate build
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Optional new tag to publish as a release (vX.Y.Z matching package.json, or vX.Y.Z-preview.N)
+        description: Optional stable candidate tag vX.Y.Z matching package.json; building never publishes an update
         type: string
         default: ''
   push:
@@ -12,8 +12,8 @@ permissions:
   contents: read
 jobs:
   package:
-    permissions:
-      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
     runs-on: macos-14
     timeout-minutes: 90
     steps:
@@ -36,6 +36,12 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'A candidate needs a stable vX.Y.Z tag.'; exit 1; }
+            for NAME in MAC_DEVELOPER_ID_P12 MAC_DEVELOPER_ID_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+              if [ -z "${!NAME}" ]; then echo "A release candidate requires $NAME; refusing an unsigned or unnotarized candidate."; exit 1; fi
+            done
+          fi
           if [ -z "$MAC_DEVELOPER_ID_P12" ] && [ -z "$MAC_SIGNING_P12" ]; then echo 'No signing identity configured; this build is signed ad hoc.'; exit 0; fi
           KC="$RUNNER_TEMP/laterdog-signing.keychain-db"
           KPW="$(openssl rand -hex 16)"
@@ -142,39 +148,24 @@ jobs:
           xcrun stapler validate "$DMG"
           spctl -a -vvv -t open --context context:primary-signature "$DMG"
           rm -f "$KEY"
-      - name: Zip the app for download
-        run: ditto -c -k --sequesterRsrc --keepParent release/mac-arm64/later.dog.app later.dog-macOS-arm64.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: later.dog-macOS-arm64
-          path: |
-            later.dog-macOS-arm64.zip
-            release/later.dog-macOS-arm64.dmg
-          retention-days: 14
-          if-no-files-found: error
-      - name: Publish the requested release
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+      - name: Preserve the packaged bytes
         run: |
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-preview\.[0-9]+)?$ ]]
-          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            echo 'Release already exists; refusing to replace its binaries.'
-            exit 1
-          fi
+          mkdir -p out
+          ditto -c -k --sequesterRsrc --keepParent release/mac-arm64/later.dog.app out/later.dog-macOS-arm64.zip
+          cp release/later.dog-macOS-arm64.dmg out/later.dog-macOS-arm64.dmg
+      - name: Record the release candidate
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        run: |
+          test "$LATERDOG_NOTARIZE" = '1'
           APP='release/mac-arm64/later.dog.app'
           VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-          if [[ "$RELEASE_TAG" != "v$VERSION" && "$RELEASE_TAG" != "v$VERSION"-preview.* ]]; then
-            echo "The app is $VERSION; a $RELEASE_TAG release would offer it as an update forever. Refusing."
-            exit 1
-          fi
-          mkdir -p out
-          ditto -c -k --sequesterRsrc --keepParent "$APP" out/later.dog-macOS-arm64.zip
-          cp release/later.dog-macOS-arm64.dmg out/later.dog-macOS-arm64.dmg
-          node scripts/laterdog-release-files.mjs --tag "$RELEASE_TAG" --zip out/later.dog-macOS-arm64.zip --dmg out/later.dog-macOS-arm64.dmg --out out
-          assets=(out/later.dog-macOS-arm64.dmg out/later.dog-macOS-arm64.zip out/SHA256SUMS.txt)
-          [[ -f out/latest-mac.yml ]] && assets+=(out/latest-mac.yml)
-          prerelease=()
-          [[ "$RELEASE_TAG" == *-preview.* ]] && prerelease=(--prerelease)
-          gh release create "$RELEASE_TAG" "${assets[@]}" --target "$GITHUB_SHA" "${prerelease[@]}" --title "later.dog $RELEASE_TAG" --notes-file out/NOTES.md
+          test "$RELEASE_TAG" = "v$VERSION"
+          xcrun stapler validate "$APP"
+          xcrun stapler validate out/later.dog-macOS-arm64.dmg
+          node scripts/laterdog-release-candidate.mjs --tag "$RELEASE_TAG" --directory out --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --identity "Developer ID Application: $LATERDOG_MAC_IDENTITY" --app-notary "$RUNNER_TEMP/notary.json" --dmg-notary "$RUNNER_TEMP/notary-dmg.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.release_tag != '' && 'later.dog-release-candidate' || 'later.dog-macOS-arm64' }}
+          path: out/
+          retention-days: 30
+          if-no-files-found: error

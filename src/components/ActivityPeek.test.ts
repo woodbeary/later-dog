@@ -2,6 +2,9 @@
 import { act, createElement, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { NativeRun } from "../../shared/native-runs";
+const nativeState = vi.hoisted(() => ({ runs: [] as NativeRun[] }));
+vi.mock("@/lib/native-runs-state", () => ({ useNativeRuns: () => nativeState.runs, useNativeHistoryIncomplete: () => false, receiveNativeRun: () => {}, forgetNativeRuns: () => {}, refreshNativeRuns: () => {}, nativeReceiptAnchors: () => new Map() }));
 import { TurnPresence } from "./TurnPresence";
 import { ActivityPeek } from "./ActivityPeek";
 import { forgetHelpers, receiveHelperEvent } from "@/lib/helpers-state";
@@ -11,9 +14,36 @@ import type { RuntimeEvent } from "../../shared/runtime-events";
 let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => {
+  nativeState.runs = [];
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   document.documentElement.dataset.reducedMotion = "true";
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+});
+
+it("scopes native activity to the visible speaker and preserves the initial delay and answer handoff", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(100_000);
+  const run = (id: string, botId: string): NativeRun => ({ id, botId, threadId: "room", turnId: id, provider: "claudeAgent", revision: 1, startedAt: 100_000, state: "running", observation: "live", actors: [], activityCount: 0, failureCount: 0, limitations: [], nativeActivity: true });
+  nativeState.runs = [run("other", "other-bot"), run("speaker", "speaker-bot")];
+  const draw = (visible: boolean, answering = false) => act(async () => root.render(createElement(TurnPresence, { avatar: null, threadId: "room", botId: "speaker-bot", visible, answering, since: 100_000, showDelayMs: 400 })));
+  await draw(false);
+  expect(host.querySelector("[data-native-work]")).toBeNull();
+  await draw(true);
+  await act(async () => vi.advanceTimersByTime(399));
+  expect(host.querySelector("[data-native-work]")).toBeNull();
+  await act(async () => vi.advanceTimersByTime(1));
+  expect(host.querySelector("[data-native-work]")?.getAttribute("data-native-work")).toBe("speaker");
+  await draw(true, true);
+  expect(host.querySelector("[data-native-work]")).toBeNull();
+  await draw(false);
+  await act(async () => vi.advanceTimersByTime(400));
+  expect(host.querySelector("[data-native-work]")).toBeNull();
+});
+
+it("does not borrow another group speaker's native run", async () => {
+  nativeState.runs = [{ id: "other", botId: "other-bot", threadId: "room", turnId: "turn", provider: "claudeAgent", revision: 1, startedAt: 100, state: "running", observation: "live", actors: [], activityCount: 0, failureCount: 0, limitations: [] }];
+  await act(async () => root.render(createElement(TurnPresence, { avatar: null, threadId: "room", botId: "speaker-bot", visible: true, showDelayMs: 0 })));
+  expect(host.querySelector("[data-native-work]")).toBeNull();
+  expect(host.querySelector("button.thinking-row")).not.toBeNull();
 });
 afterEach(async () => {
   await act(async () => root.unmount());

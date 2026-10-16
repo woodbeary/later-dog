@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { activeLocale, t } from "@/lib/i18n";
 import { ArrowDown, Check, ChevronDown, ChevronRight, Folder, FolderOpen, Loader2, MessageSquareReply, Pin, PinOff, Plus, Search, X } from "lucide-react";
 import {
@@ -25,6 +25,8 @@ import { foldExchanges, singleExchange } from "@/lib/quiet-lines";
 import { ExchangeLine } from "./QuietLines";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { TurnPresence } from "./TurnPresence";
+import { NativeWork, NativeWorkFallbacks, NativeHistoryNotice } from "./NativeWork";
+import { nativeReceiptAnchors, useNativeRuns } from "@/lib/native-runs-state";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
@@ -196,6 +198,8 @@ export const Transcript = memo(function Transcript({
 }) {
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
+  const nativeRuns = useNativeRuns(group.threadId, messages[0]?.at);
+  const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   const items = useMemo(() => foldExchanges(groupActivityRuns(messages.filter(message =>
     message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), { openedOnly: true }), [messages, showToolCalls]);
@@ -416,20 +420,25 @@ export const Transcript = memo(function Transcript({
           ) : null;
         if (!row) return null;
         return (
-          <div key={m.id} className="contents" data-mid={m.id}>
-            {newDay && (
-              <div className="py-3 text-center text-[13px] text-ink-secondary">
-                {dayLabel(m.at)} {formatTime(m.at)}
-              </div>
-            )}
-            {unreadDivider([m])}
-            {!user && m.from && newCluster && !(m.kind === "activity" && m.comm) && (
-              <ClusterLabel bot={memberOf(m.from.botId)} name={memberOf(m.from.botId)?.name ?? m.from.name} color={memberOf(m.from.botId)?.color ?? m.from.color} tinted={readOnly} />
-            )}
-            {row}
-          </div>
+          <Fragment key={m.id}>
+            <div className="contents" data-mid={m.id}>
+              {newDay && (
+                <div className="py-3 text-center text-[13px] text-ink-secondary">
+                  {dayLabel(m.at)} {formatTime(m.at)}
+                </div>
+              )}
+              {unreadDivider([m])}
+              {!user && m.from && newCluster && !(m.kind === "activity" && m.comm) && (
+                <ClusterLabel bot={memberOf(m.from.botId)} name={memberOf(m.from.botId)?.name ?? m.from.name} color={memberOf(m.from.botId)?.color ?? m.from.color} tinted={readOnly} />
+              )}
+              {row}
+            </div>
+            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={memberOf(run.botId ?? m.from?.botId)?.color} bodyId={memberOf(run.botId ?? m.from?.botId)?.mascotBody} />)}
+          </Fragment>
         );
       })}
+      <NativeWorkFallbacks runs={nativeRuns} messages={messages} ownerForRun={run => memberOf(run.botId)} />
+      <NativeHistoryNotice threadId={group.threadId} />
     </>
   );
 });
@@ -1384,6 +1393,7 @@ export function GroupView({ group }: { group: Group }) {
           {(speaker || presenceVisible) && (
             <TurnPresence
               threadId={group.threadId}
+              botId={presenceSpeaker?.id}
               color={presenceSpeaker?.color}
               bodyId={presenceSpeaker?.mascotBody}
               avatar={

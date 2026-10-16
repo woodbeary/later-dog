@@ -52,6 +52,7 @@ import { plainClientError, statusFallback } from "@/lib/plain-client-error";
 import { queuedSteerResult } from "@/lib/queued-steer";
 import { SEND_ATTEMPT_TIMEOUT_MS, UncertainSends, isUncertainSendFailure, sendWithRetry } from "@/lib/send-retry";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
+import { receiveNativeRun, forgetNativeRuns, refreshNativeRuns } from "@/lib/native-runs-state";
 import { receiveReasoningEvent, forgetReasoning } from "@/lib/turn-reasoning";
 
 const MAX_ROUTINE_RUNS = 2_000;
@@ -76,7 +77,7 @@ function trimRoutineRuns(runs: readonly RoutineRun[]): RoutineRun[] {
 export type { DogColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
 
-export interface OptionCardData {
+export interface OptionCardData extends Pick<import("../../shared/wire").OptionCardData, "nativeActorId" | "nativeActorLabel" | "nativeRunId"> {
   title: string;
   subtitle: string;
   options: string[];
@@ -3424,6 +3425,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "webhook.deleted":
           rawDispatch({ type: "webhookDeleted", webhookId: frame.webhookId });
           break;
+        case "native.run.updated":
+          receiveNativeRun(frame.run);
+          break;
         case "runtime": {
           if (receiveHelperEvent(frame.event)) bumpPeripheralVersion("helpers");
           receiveReasoningEvent(frame.event);
@@ -3479,6 +3483,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       onSnapshotRequired: () => {
         clearTimeout(hydrationFallback);
         publishMissedFrames();
+        refreshNativeRuns();
         pendingFrames.splice(0);
         return hydrate();
       },
@@ -3491,6 +3496,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
       forgetHelpers();
+      forgetNativeRuns();
       forgetReasoning();
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {

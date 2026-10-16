@@ -4,8 +4,15 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "workers_dev": false,
-  "observability": { "enabled": true },
-  "routes": [{ "pattern": "*-home.later.dog/*", "zone_name": "later.dog" }],
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "*-home.later.dog/*",
+      "zone_name": "later.dog"
+    }
+  ],
   "containers": [
     {
       "class_name": "CloudHomeHost",
@@ -13,7 +20,9 @@
       "image_build_context": "../../..",
       "instance_type": "standard-1",
       "max_instances": 400,
-      "observability": { "enabled": true }
+      "observability": {
+        "enabled": true
+      }
     },
     {
       "class_name": "CloudHomeHostLarge",
@@ -21,29 +30,83 @@
       "image_build_context": "../../..",
       "instance_type": "standard-4",
       "max_instances": 10,
-      "observability": { "enabled": true }
+      "observability": {
+        "enabled": true
+      }
+    },
+    {
+      "class_name": "CloudHomeHostCandidate",
+      "image": "./Dockerfile",
+      "image_build_context": "../../..",
+      "instance_type": "standard-1",
+      "max_instances": 2,
+      "observability": {
+        "enabled": true
+      }
     }
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "HOMES", "class_name": "CloudHomeHost" },
-      { "name": "HOMES_LARGE", "class_name": "CloudHomeHostLarge" }
+      {
+        "name": "HOMES",
+        "class_name": "CloudHomeHost"
+      },
+      {
+        "name": "HOMES_LARGE",
+        "class_name": "CloudHomeHostLarge"
+      },
+      {
+        "name": "HOMES_CANDIDATE",
+        "class_name": "CloudHomeHostCandidate"
+      }
     ]
   },
   "exports": {
-    "CloudHomeHost": { "type": "durable-object", "storage": "sqlite" },
-    "CloudHomeHostLarge": { "type": "durable-object", "storage": "sqlite" }
+    "CloudHomeHost": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "CloudHomeHostLarge": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "CloudHomeHostCandidate": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
   },
-  "r2_buckets": [{ "binding": "STATE", "bucket_name": "laterdog-homes" }],
+  "r2_buckets": [
+    {
+      "binding": "STATE",
+      "bucket_name": "laterdog-homes"
+    }
+  ],
   "services": [
-    { "binding": "COMPUTERS", "service": "laterdog-computers", "entrypoint": "ComputersApi" },
-    { "binding": "ACCOUNTS", "service": "laterdog-control-plane", "entrypoint": "AccountsApi" }
+    {
+      "binding": "COMPUTERS",
+      "service": "laterdog-computers",
+      "entrypoint": "ComputersApi"
+    },
+    {
+      "binding": "ACCOUNTS",
+      "service": "laterdog-control-plane",
+      "entrypoint": "AccountsApi"
+    }
   ],
   "vars": {
     "HOME_HOST_SUFFIX": "-home.later.dog",
     "ADMIN_ORIGIN": "https://accounts.later.dog",
     "INCLUDED_API": "https://cloud.later.dog/v1",
-    "LARGE_HOME_ACCOUNTS": ""
+    "LARGE_HOME_ACCOUNTS": "",
+    "CANDIDATE_HOME_ACCOUNTS": "",
+    "CANDIDATE_HOME_CHECKPOINTS": "{}",
+    "CANDIDATE_HOME_IMAGE_DIGEST": "",
+    "HOME_IMAGE_DIGEST": "",
+    "LARGE_HOME_IMAGE_DIGEST": ""
   },
-  "secrets": { "required": ["HOME_SECRET"] }
+  "secrets": {
+    "required": [
+      "HOME_SECRET"
+    ]
+  }
 }

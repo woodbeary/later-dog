@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, ChevronRight, ShieldCheck, Undo2, X } from "lucide-react";
+import { Check, ChevronRight, Minus, ShieldCheck, Undo2, X } from "lucide-react";
 import { api, ApiError, useOptionalStore, type Bot, type Message, type OptionCardData } from "@/state/store";
 import { RoutineCreatedLine } from "./QuietLines";
 import { cn } from "@/lib/cn";
@@ -58,6 +58,7 @@ const PROFILE_FIELD_LABEL: Record<ProfileRequestField, LocaleKey> = {
 };
 
 export function approvalCardOutcome(card: OptionCardData): string | undefined {
+  if (card.answered === "resolved") return card.answeredText || "Resolved externally";
   if (card.expired === true) return t("approval.status.expired");
   if (!card.answered) return undefined;
   if (card.undone === true) return t("approval.status.undone");
@@ -332,6 +333,7 @@ export function ApprovalCard({
   }
   if (applied) return <AppliedChangeLine card={card} name={bot?.name ?? t("approval.someone")} threadId={threadId} summary={applied} />;
   const settled = card.answered;
+  const external = settled === "resolved";
   const expired = card.expired === true;
   const byVoice = card.answeredBy?.via === "call" ? <span className="text-ink-tertiary">· {t("approval.status.byVoice")}</span> : null;
   const isRoutineRequest = Boolean(card.routineRequest);
@@ -380,6 +382,7 @@ export function ApprovalCard({
         </div>
       </div>
       {outbound?.summary && <div className="mt-0.5 text-[13px] text-ink-secondary">{outbound.summary}</div>}
+      {card.nativeActorLabel && <p className="mt-1 text-[11px] text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
 
       <details className="group mt-1.5 text-[13px] text-ink-secondary">
       <summary className="flex w-fit cursor-pointer list-none items-center gap-1 hover:text-ink">{t("approval.viewDetails")}<ChevronRight size={13} className="transition-transform group-open:rotate-90" aria-hidden="true" /></summary>
@@ -413,7 +416,7 @@ export function ApprovalCard({
       <div className="mt-3 flex items-center gap-1.5 text-[13px] text-ink-secondary">
         {outcome ? (
           <>
-            {settled === "allow" && !expired ? <Check size={14} className="text-success" /> : <X size={14} />} {outcome}
+            {external ? <Minus size={14} /> : settled === "allow" && !expired ? <Check size={14} className="text-success" /> : <X size={14} />} {outcome}
             {byVoice}
           </>
         ) : (
@@ -430,8 +433,8 @@ export function ApprovalCard({
   if (!outcome) return body;
   return (
     <FoldedCard
-      icon={settled === "allow" && !expired ? <Check size={14} className="shrink-0 text-success" /> : <X size={14} className="shrink-0" />}
-      summary={<><span className="min-w-0 truncate">{outcome}{foldedAction && <span className="text-ink-tertiary"> · {foldedAction}</span>}</span>{byVoice}</>}
+      icon={external ? <Minus size={14} className="shrink-0" /> : settled === "allow" && !expired ? <Check size={14} className="shrink-0 text-success" /> : <X size={14} className="shrink-0" />}
+      summary={<><span className="min-w-0 truncate">{outcome}{foldedAction && <span className="text-ink-tertiary"> · {foldedAction}</span>}{external && card.nativeActorLabel && <span className="text-ink-tertiary"> · Requested by {card.nativeActorLabel}</span>}</span>{byVoice}</>}
       title={foldedAction ? `${outcome} · ${foldedAction}` : outcome}
       arriving={false}
       centered={Boolean(foldedAction)}

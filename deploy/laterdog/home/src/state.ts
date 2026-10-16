@@ -59,16 +59,18 @@ export async function handleState(request: Request, bucket: StateBucket, contain
 }
 
 export async function forgetHomeState(bucket: StateBucket, containerId: string): Promise<number> {
-  const prefix = homePrefix(containerId);
+  const prefixes = [homePrefix(containerId), `checkpoints/${containerId}/`];
   let removed = 0;
-  let cursor: string | undefined;
-  do {
-    const page = await bucket.list({ prefix, cursor, limit: 1000 });
-    const keys = page.objects.map((object) => object.key);
-    if (keys.length) await bucket.delete(keys);
-    removed += keys.length;
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
+  for (const prefix of prefixes) {
+    let cursor: string | undefined;
+    do {
+      const page = await bucket.list({ prefix, cursor, limit: 1000 });
+      const keys = page.objects.map((object) => object.key);
+      if (keys.length) await bucket.delete(keys);
+      removed += keys.length;
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+  }
   return removed;
 }
 

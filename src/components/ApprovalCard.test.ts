@@ -52,6 +52,20 @@ describe("ApprovalCard decided by voice", () => {
   it("says nothing extra for a tap", () => {
     expect(renderToStaticMarkup(createElement(ApprovalCard, { message: bash("allow") }))).not.toContain("by voice");
   });
+
+  it("records an externally resolved native request neutrally and retains its requesting helper", () => {
+    const message = bash("resolved");
+    message.card = { ...message.card!, answeredText: "Resolved by Codex", nativeActorLabel: "Reviewer" };
+    const markup = renderToStaticMarkup(createElement(ApprovalCard, { message }));
+    expect(markup).toContain("Resolved by Codex");
+    expect(markup).toContain("Requested by");
+    expect(markup).toContain("Reviewer");
+    expect(markup).toContain("lucide-minus");
+    expect(markup).not.toContain("Denied");
+    expect(markup).not.toContain("Allowed");
+    expect(markup).not.toContain("Waiting for");
+    expect(markup).not.toContain("text-success");
+  });
 });
 
 describe("ApprovalCard routine proposals", () => {

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import type { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
@@ -22,6 +22,10 @@ function reportedPid(stdout: Readable): Promise<number> {
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
+    if (process.platform !== "win32") {
+      const state = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim();
+      return state.length > 0 && !/^[ZXx]/.test(state);
+    }
     return true;
   } catch {
     return false;
@@ -38,7 +42,7 @@ describe("killCliTree", () => {
     }
   });
 
-  it("reaps a grandchild, not just the process it was handed", async () => {
+  it("stops a grandchild, not just the process it was handed", async () => {
     const parent = spawnCli(
       process.execPath,
       [

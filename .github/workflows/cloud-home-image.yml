@@ -31,7 +31,7 @@ jobs:
       - name: Build the Cloud home base image
         run: docker build --target cloud-home -t laterdog-cloud-home:latest .
       - name: Add the Cloudflare runtime
-        run: docker build -f deploy/laterdog/home/Dockerfile -t "$IMAGE" .
+        run: docker build -f deploy/laterdog/home/Dockerfile --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "$IMAGE" .
       - name: Boot it and check pairing, sessions and live updates
         run: |
           secret="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
@@ -55,6 +55,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: docker push "$IMAGE"
+      - name: Record the pushed image and installed providers
+        run: node scripts/cloud-image-receipt.mjs --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --image "$IMAGE" --directory out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: later.dog-cloud-image-receipt
+          path: out/cloud-image.json
+          if-no-files-found: error
+          retention-days: 90
       - run: echo "Pushed $IMAGE" >> "$GITHUB_STEP_SUMMARY"
       - name: Push the image to Cloudflare's registry
         if: env.CLOUDFLARE_PUSH == 'true'
@@ -65,7 +73,7 @@ jobs:
         run: |
           short="${GITHUB_SHA::12}"
           docker tag "$IMAGE" "later-dog-home:$short"
-          npx --yes wrangler@4.148.0 containers push "later-dog-home:$short" 2>&1 | tee push.log
+          corepack pnpm dlx wrangler@4.148.0 containers push "later-dog-home:$short" 2>&1 | tee push.log
           uri="$(grep -o 'registry\.cloudflare\.com/[^ ]*' push.log | tail -1)"
           if [ -z "$uri" ]; then echo "The push printed no registry address"; exit 1; fi
           {

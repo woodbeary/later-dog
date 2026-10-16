@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.42 — 2026-10-16
+
+- **See what Claude and Codex are doing.** A compact activity row shows searches, tools, thinking, writing and requests for attention.
+- **Puppies show native subagents.** Select a puppy to inspect its assignment, nested work, tools, sources and results. Other tasks remain steps in the work details.
+- **Completed work stays available.** View work reopens the recorded activity, including failed helpers when the main agent succeeds. Interrupted or incomplete history is labeled.
+- **Requests identify their helper.** Approval and question cards retain the agent that asked. Supported helper controls wait for native confirmation.
+- **Desktop and iPhone share the same Cloud work history.** The companion iPhone update adds native work details, group conversation navigation and saved drafts.
+- **Updates are verified before publication.** Desktop candidates are signed and notarized once, then promoted as the same bytes after installation and device acceptance.
+
 ## 0.3.41 — 2026-10-15
 
 - **Your dogs in My Cloud don't stop to ask.** Pushes, pull requests, commits to main and work your coordinator passes on go through without a card. Only force-pushing main, deleting a repository and deleting outside a dog's folder are refused, in one line.

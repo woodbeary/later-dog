@@ -31,6 +31,15 @@
       "observability": {
         "enabled": true
       }
+    },
+    {
+      "class_name": "CloudHomeHostCandidate",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/later-dog-home:c4aa931e4b41",
+      "instance_type": "standard-1",
+      "max_instances": 2,
+      "observability": {
+        "enabled": true
+      }
     }
   ],
   "durable_objects": {
@@ -42,6 +51,10 @@
       {
         "name": "HOMES_LARGE",
         "class_name": "CloudHomeHostLarge"
+      },
+      {
+        "name": "HOMES_CANDIDATE",
+        "class_name": "CloudHomeHostCandidate"
       }
     ]
   },
@@ -51,6 +64,10 @@
       "storage": "sqlite"
     },
     "CloudHomeHostLarge": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "CloudHomeHostCandidate": {
       "type": "durable-object",
       "storage": "sqlite"
     }
@@ -77,7 +94,12 @@
     "HOME_HOST_SUFFIX": "-home.later.dog",
     "ADMIN_ORIGIN": "https://accounts.later.dog",
     "INCLUDED_API": "https://cloud.later.dog/v1",
-    "LARGE_HOME_ACCOUNTS": ""
+    "LARGE_HOME_ACCOUNTS": "",
+    "CANDIDATE_HOME_ACCOUNTS": "",
+    "CANDIDATE_HOME_CHECKPOINTS": "{}",
+    "CANDIDATE_HOME_IMAGE_DIGEST": "",
+    "HOME_IMAGE_DIGEST": "",
+    "LARGE_HOME_IMAGE_DIGEST": ""
   },
   "secrets": {
     "required": [

@@ -6,7 +6,8 @@ import { bootstrapSecret, type HomeIdentity } from "./identity.ts";
 import { parsePairingGrant, signedPairingRequest, type PairingGrant } from "./pairing.ts";
 import { handleOwnerEmail, type OwnerMail } from "./email.ts";
 import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
-import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
+import { homeLane, homeLanes, homeNamespace, type HomeLane, type HomeSize } from "./size.ts";
+import { checkpointSelection, verifyHomeCheckpoint } from "./checkpoint.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
 
@@ -19,6 +20,8 @@ const BUSY_MEMORY_MS = 10_000;
 const STARTED_KEY = "started-included-key";
 const STANDING_KEY = "standing";
 const REMOVED_KEY = "removed";
+const CHECKPOINT_KEY = "release-checkpoint";
+const CANDIDATE_USED_KEY = "candidate-used";
 const REMOVED = "This home was removed.";
 export const PERSON_SLEEP_AFTER = "2h";
 export const ROUTINE_SLEEP_AFTER = "15m";
@@ -51,21 +54,25 @@ export class CloudHomeHost extends Container<Env> {
   sleepAfter = PERSON_SLEEP_AFTER;
   enableInternet = true;
   readonly size: HomeSize = "standard";
+  readonly lane: HomeLane = "standard";
   private record: HomeRecord | null = null;
   private booting: Promise<void> | null = null;
   private lastStart: { wake: HomeWake; at: number } | null = null;
   private storedStanding: HomeStanding | null = null;
   private signalled = false;
   private removed = false;
+  private acceptedCheckpoint: string | null = null;
+  private candidateUsed = false;
+  private releaseEpoch = 0;
   private readonly handover = new Handover({
-    standing: () => this.storedStanding ?? (this.size === "standard" ? "holding" : "released"),
+    standing: () => this.storedStanding ?? (this.lane === "standard" ? "holding" : "released"),
     stand: async (standing) => {
       this.storedStanding = standing;
       await this.ctx.storage.put(STANDING_KEY, standing);
     },
     running: () => this.ctx.container?.running === true,
     quiet: () => this.quiet(),
-    sibling: () => this.sibling(),
+    siblings: () => this.siblings(),
   });
 
   override onStop({ exitCode, reason }: { exitCode: number; reason: string }): void {
@@ -78,6 +85,8 @@ export class CloudHomeHost extends Container<Env> {
       this.record = (await ctx.storage.get<HomeRecord>(RECORD_KEY)) ?? null;
       this.storedStanding = (await ctx.storage.get<HomeStanding>(STANDING_KEY)) ?? null;
       this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
+      this.acceptedCheckpoint = (await ctx.storage.get<string>(CHECKPOINT_KEY)) ?? null;
+      this.candidateUsed = (await ctx.storage.get<boolean>(CANDIDATE_USED_KEY)) === true;
       if (this.record) this.envVars = await this.environment(this.record);
     });
   }
@@ -86,15 +95,51 @@ export class CloudHomeHost extends Container<Env> {
     return this.env.HOMES.idFromName(machineId).toString();
   }
 
-  private sibling(): HandoverPeer {
+  private siblings(): HandoverPeer[] {
     const record = this.record;
     if (!record) throw new Error("This home has no owner yet.");
-    const namespace = homeNamespace(this.env, otherSize(this.size));
-    return namespace.get(namespace.idFromName(record.machineId));
+    return homeLanes(this.env).filter((lane) => lane !== this.lane).map((lane) => {
+      const namespace = homeNamespace(this.env, lane);
+      const owner = namespace.get(namespace.idFromName(record.machineId));
+      return {
+        ready: async () => {
+          if (this.env.HOMES_CANDIDATE && await owner.releaseProtocol() !== 1) throw new Error("The home release controller needs to finish updating before changing lanes.");
+        },
+        release: () => owner.release(),
+      };
+    });
+  }
+
+  async releaseProtocol(): Promise<1> {
+    return 1;
   }
 
   async release(): Promise<boolean> {
+    this.releaseEpoch += 1;
+    this.acceptedCheckpoint = null;
+    await this.ctx.storage.delete(CHECKPOINT_KEY);
     return this.handover.release();
+  }
+
+  async markCandidateUsed(): Promise<void> {
+    await this.ctx.storage.put(CANDIDATE_USED_KEY, true);
+    this.candidateUsed = true;
+  }
+
+  private async prepareRelease(record: HomeRecord): Promise<void> {
+    const epoch = this.releaseEpoch;
+    if (await homeLane(this.env, record.machineId) !== this.lane) throw new Error("This home is assigned to another release lane.");
+    if (this.lane !== "candidate" && !this.candidateUsed) return;
+    const selected = checkpointSelection(this.env, record.accountId, this.lane);
+    if (this.acceptedCheckpoint === selected.key) return;
+    const verified = await verifyHomeCheckpoint(this.env, record, this.stateHome(record.machineId), this.lane);
+    if (epoch !== this.releaseEpoch || !this.handover.holds()) throw new Error("This home is handing over to another release lane.");
+    await this.ctx.storage.put(CHECKPOINT_KEY, verified);
+    if (epoch !== this.releaseEpoch || !this.handover.holds()) {
+      await this.ctx.storage.delete(CHECKPOINT_KEY);
+      throw new Error("This home is handing over to another release lane.");
+    }
+    this.acceptedCheckpoint = verified;
   }
 
   async standing(): Promise<HomeStanding> {
@@ -111,7 +156,18 @@ export class CloudHomeHost extends Container<Env> {
 
   override startAndWaitForPorts(...args: Parameters<Container<Env>["startAndWaitForPorts"]>): Promise<void> {
     if (this.removed) return Promise.reject(new Error(REMOVED));
-    return this.handover.launch(() => super.startAndWaitForPorts(...args));
+    return this.handover.launch(async () => {
+      if (this.record) await this.prepareRelease(this.record);
+      if (this.lane === "candidate") {
+        const record = this.record;
+        if (!record) throw new Error("This home has no owner yet.");
+        await Promise.all(homeLanes(this.env).map((lane) => {
+          const namespace = homeNamespace(this.env, lane);
+          return lane === this.lane ? this.markCandidateUsed() : namespace.get(namespace.idFromName(record.machineId)).markCandidateUsed();
+        }));
+      }
+      await super.startAndWaitForPorts(...args);
+    });
   }
 
   private async environment(record: HomeRecord): Promise<Record<string, string>> {
@@ -251,6 +307,8 @@ export class CloudHomeHost extends Container<Env> {
     await this.ctx.storage.deleteAll();
     this.record = null;
     this.storedStanding = null;
+    this.acceptedCheckpoint = null;
+    this.candidateUsed = false;
     await this.bury();
   }
 
@@ -314,16 +372,23 @@ export class CloudHomeHost extends Container<Env> {
   private boot(known: HomeRecord, claim: boolean): void {
     if (this.booting || this.removed) return;
     let record = known;
-    this.booting = this.handover.start(claim, {
-      prepare: async () => {
-        record = await this.grantIncluded(known);
-        await this.armMaintenance();
-      },
-      start: async () => {
-        this.signalled = false;
-        await this.startAndWaitForPorts(HOME_PORT, { portReadyTimeoutMS: BOOT_PORT_TIMEOUT_MS });
-      },
-      stop: () => this.quiet(),
+    this.booting = Promise.resolve().then(async () => {
+      if (await homeLane(this.env, record.machineId) !== this.lane) return false;
+      if (this.lane === "candidate" && !this.acceptedCheckpoint) {
+        await verifyHomeCheckpoint(this.env, record, this.stateHome(record.machineId), this.lane);
+      }
+      return this.handover.start(claim, {
+        prepare: async () => {
+          await this.prepareRelease(record);
+          record = await this.grantIncluded(known);
+          await this.armMaintenance();
+        },
+        start: async () => {
+          this.signalled = false;
+          await this.startAndWaitForPorts(HOME_PORT, { portReadyTimeoutMS: BOOT_PORT_TIMEOUT_MS });
+        },
+        stop: () => this.quiet(),
+      });
     })
       .then(async (started) => {
         if (!started) return;
@@ -372,6 +437,13 @@ CloudHomeHost.outboundHandlers = {
 
 export class CloudHomeHostLarge extends CloudHomeHost {
   override readonly size: HomeSize = "large";
+  override readonly lane: HomeLane = "large";
 }
 
 CloudHomeHostLarge.outboundHandlers = CloudHomeHost.outboundHandlers;
+
+export class CloudHomeHostCandidate extends CloudHomeHost {
+  override readonly lane: HomeLane = "candidate";
+}
+
+CloudHomeHostCandidate.outboundHandlers = CloudHomeHost.outboundHandlers;

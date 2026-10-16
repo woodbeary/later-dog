@@ -23,7 +23,7 @@ function pair() {
       quiet: async () => {
         if (side.running) side.signals += 1;
       },
-      sibling: () => ({ release: () => sibling().handover.release() }),
+      siblings: () => [{ release: () => sibling().handover.release() }],
     });
     return side;
   };
@@ -162,5 +162,72 @@ describe("starts that begin inside a request", () => {
     const { standard } = pair();
     await standard.handover.release();
     await expect(standard.handover.launch(async () => undefined)).rejects.toThrow();
+  });
+});
+
+describe("release lanes with three possible owners", () => {
+  function lanes() {
+    const sides: Side[] = [];
+    const live = new Set<string>();
+    const overlaps: string[] = [];
+    for (const name of ["standard", "large", "candidate"]) {
+      const side = { name, standing: "released" as HomeStanding, running: false, signals: 0, handover: null as unknown as Handover };
+      side.handover = new Handover({
+        standing: () => side.standing,
+        stand: async (standing) => { side.standing = standing; },
+        running: () => side.running,
+        quiet: async () => { if (side.running) side.signals += 1; },
+        siblings: () => sides.filter((other) => other !== side).map((other) => ({ release: () => other.handover.release() })),
+      });
+      sides.push(side);
+    }
+    const steps = (side: Side, prepare: () => Promise<void> = async () => undefined): StartSteps => ({
+      prepare,
+      start: async () => {
+        if (live.size) overlaps.push(`${side.name} overlaps ${[...live].join(",")}`);
+        live.add(side.name);
+        side.running = true;
+      },
+      stop: async () => { side.signals += 1; },
+    });
+    const exit = (side: Side) => { live.delete(side.name); side.running = false; };
+    return { sides, steps, exit, overlaps };
+  }
+
+  it("waits for every peer, including an in-flight launch on the non-selected size", async () => {
+    const { sides: [standard, large, candidate], steps, exit, overlaps } = lanes();
+    standard.standing = "holding";
+    large.standing = "holding";
+    const pending = deferred();
+    const launched = large.handover.launch(async () => { await pending.promise; large.running = true; });
+    const claiming = candidate.handover.start(true, steps(candidate));
+    await Promise.resolve();
+    expect(candidate.running).toBe(false);
+    pending.open();
+    await launched;
+    expect(await claiming).toBe(false);
+    expect(standard.standing).toBe("released");
+    expect(large.signals).toBe(1);
+    exit(large);
+    expect(await candidate.handover.start(true, steps(candidate))).toBe(true);
+    expect(overlaps).toEqual([]);
+  });
+
+  it("cancels an in-flight checkpoint when another owner claims and never starts twice", async () => {
+    const { sides, steps, exit, overlaps } = lanes();
+    const pending = deferred();
+    const reached = deferred();
+    const candidate = sides[2];
+    const starting = candidate.handover.start(true, steps(candidate, async () => { reached.open(); await pending.promise; }));
+    await reached.promise;
+    expect(await sides[0].handover.start(true, steps(sides[0]))).toBe(false);
+    pending.open();
+    expect(await starting).toBe(false);
+    for (let round = 0; round < 12; round += 1) {
+      await Promise.all(sides.map((side) => side.handover.start(true, steps(side))));
+      expect(sides.filter((side) => side.running).length).toBeLessThanOrEqual(1);
+      for (const side of sides) exit(side);
+    }
+    expect(overlaps).toEqual([]);
   });
 });

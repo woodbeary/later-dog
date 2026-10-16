@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createPuppies } from "./fake-claude-puppies.ts";
+import { createNativeActivity } from "./fake-claude-native-activity.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
@@ -369,6 +370,8 @@ const playPuppies = createPuppies({
   model,
 });
 
+const playNativeActivity = createNativeActivity({ out, sessionId, model, endTurn: () => { turnRunning = false; finishIfDone(); } });
+
 const playTurn = async (prompt: JsonValue, late = false) => {
   turnRunning = true;
   lateContinuation = late;
@@ -502,6 +505,11 @@ const playTurn = async (prompt: JsonValue, late = false) => {
 
   if (mode === "puppies") {
     playPuppies(steerText(prompt));
+    return;
+  }
+
+  if (mode === "native-activity") {
+    await playNativeActivity();
     return;
   }
 

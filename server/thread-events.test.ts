@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { readThreadEvents } from "./thread-events.ts";
+import { isRuntimeEvent, readThreadEvents } from "./thread-events.ts";
 
 const dirs: string[] = [];
 function tmp() {
@@ -19,6 +19,29 @@ const line = (o: unknown) => JSON.stringify(o) + "\n";
 const runtime = (event: Record<string, unknown>) => ({ provider: "test", threadId: "t1", ...event });
 
 describe("readThreadEvents", () => {
+  it("preserves native helper attribution, model variants and images while rejecting malformed or unknown events", () => {
+    const base = { eventId: "e", provider: "claude", threadId: "t", createdAt: "2026-10-16T10:00:00Z", nativeActorId: "child" };
+    const actor = { id: "child", label: "Research", state: "running", kind: "subagent", startedAt: 1 };
+    const events = [
+      { type: "native.observed", observation: { kind: "actor", actor } },
+      { type: "native.observed", observation: { kind: "activity", activity: { ...actor, kind: "search", actorId: "child" } } },
+      { type: "native.observed", observation: { kind: "capabilities", version: "1.2.3", limitations: ["Child deltas unavailable"] } },
+      { type: "helper.updated", helper: { ...actor, kind: "agent", background: false } },
+      { type: "session.model-variants", model: "native", variants: { options: [{ id: "high", label: "High" }] } },
+      { type: "item.completed", itemType: "assistant_image", data: "data:image/png;base64,a" },
+      { type: "cap.exhausted", handoffPath: "/private/handoff", reason: "cap" },
+    ];
+    for (const event of events) expect(isRuntimeEvent({ ...base, ...event })).toBe(true);
+    for (const event of [
+      { type: "native.observed", observation: { kind: "future" } },
+      { type: "native.observed", observation: { kind: "actor", actor: { ...actor, state: "imagined" } } },
+      { type: "native.observed", observation: { kind: "activity", activity: { ...actor, kind: "search" } } },
+      { type: "native.observed", observation: { kind: "capabilities", limitations: [4] } },
+      { type: "helper.updated", helper: null },
+      { type: "session.model-variants", model: "native", variants: { options: [{}] } },
+      { type: "item.completed", itemType: "assistant_image" },
+    ]) expect(isRuntimeEvent({ ...base, ...event })).toBe(false);
+  });
   it("returns an empty page when neither log exists", () => {
     const eventsDir = tmp();
     const nativeDir = tmp();

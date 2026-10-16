@@ -7,6 +7,7 @@ import { gzipSync } from "node:zlib";
 import { Header } from "tar";
 import { SessionRegistry } from "./sessions.ts";
 import { afterEach, describe, expect, it } from "vitest";
+import { ensureNativeRuns, NativeRunStore } from "./laterdog/native-run-store.ts";
 import {
   applyPendingWorkspaceRestore, commitPendingWorkspaceRestore, createWorkspaceBackup,
   readLastWorkspaceRestore, readPendingWorkspaceRestoreMetadata, readStagedWorkspaceBackup,
@@ -54,6 +55,12 @@ function fixture(root: string): DatabaseSync {
   };
   db.prepare("INSERT INTO messages VALUES (?, ?, ?, ?)").run("thread", message.id, message.text, JSON.stringify(message));
   db.prepare("INSERT INTO thread_state VALUES (?, ?)").run("thread", "message");
+  ensureNativeRuns(db);
+  const runs = new NativeRunStore({ read: fn => fn(db), write: fn => fn(db) });
+  runs.apply("native-run", "native-event", 123, { kind: "notice" }, () => ({
+    run: { id: "native-run", threadId: "thread", turnId: "turn", provider: "codex", revision: 1, startedAt: 123, state: "running", observation: "live", actors: [{ id: "child", parentId: "parent", kind: "subagent", label: "Research", state: "running", startedAt: 123, canStop: true }], activityCount: 1, failureCount: 0, limitations: [] },
+    activity: { id: "native-tool", actorId: "child", kind: "tool", label: "Read", state: "done", startedAt: 123, output: "Preserved result" },
+  }));
   db.exec("CREATE TABLE chat_followups(id TEXT PRIMARY KEY, kind TEXT, owner_id TEXT, thread_id TEXT, send_id TEXT, status TEXT, payload TEXT)");
   for (const status of ["pending", "dispatching", "cancelled"]) {
     db.prepare("INSERT INTO chat_followups VALUES (?, 'bot', 'bot', 'thread', ?, ?, ?)").run(status, `send-${status}`, status,
@@ -156,6 +163,8 @@ describe("encrypted full workspace backups", () => {
         expect(message.text).toContain(`<attached-image path="${join(target, "attachments", "image.png")}" name="image.png" />`);
         expect(message.text).toContain(`\`\`\`\n<attached-image path="${join(source, "attachments", "image.png")}" />\n\`\`\``);
         expect(restoredDb.prepare("SELECT active_leaf_id FROM thread_state").get()?.active_leaf_id).toBe("message");
+        const native = new NativeRunStore({ read: fn => fn(restoredDb), write: fn => fn(restoredDb) });
+        expect(native.detail("thread", "native-run")).toMatchObject({ run: { turnId: "turn", actors: [{ id: "child" }] }, activities: [{ output: "Preserved result" }] });
         expect(restoredDb.prepare("SELECT id, status FROM chat_followups ORDER BY rowid").all()).toEqual([
           { id: "pending", status: "interrupted" }, { id: "dispatching", status: "interrupted" }, { id: "cancelled", status: "cancelled" },
         ]);

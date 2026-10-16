@@ -1,43 +1,50 @@
 import { ContainerProxy } from "@cloudflare/containers";
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { CloudHomeHost, CloudHomeHostLarge, type HomeSummary, type PairOutcome } from "./host.ts";
+import { CloudHomeHost, CloudHomeHostLarge, CloudHomeHostCandidate, type HomeSummary, type PairOutcome } from "./host.ts";
 import { homeIdentity, machineFromHost } from "./identity.ts";
-import { homeNamespace, largeHomes, type HomeSize } from "./size.ts";
+import { candidateHomes, homeLane, homeLanes, homeNamespace, largeHomes, type HomeLane } from "./size.ts";
 
-export { CloudHomeHost, CloudHomeHostLarge, ContainerProxy };
+export { CloudHomeHost, CloudHomeHostLarge, CloudHomeHostCandidate, ContainerProxy };
 
 const CLIENT_IP_HEADER = "x-laterdog-client-ip";
 const PAIRING_LABEL = /^[^\p{Cc}]{1,80}$/u;
 
-function hostFor(env: Env, size: HomeSize, machineId: string) {
-  const namespace = homeNamespace(env, size);
+function hostFor(env: Env, lane: HomeLane, machineId: string) {
+  const namespace = homeNamespace(env, lane);
   return namespace.get(namespace.idFromName(machineId));
 }
 
 async function homeFor(env: Env, accountId: string) {
   const identity = await homeIdentity(env.HOME_SECRET, accountId, env.HOME_HOST_SUFFIX);
-  const size: HomeSize = (await largeHomes(env)).has(identity.machineId) ? "large" : "standard";
-  return { identity, size, stub: hostFor(env, size, identity.machineId) };
+  const lane = await homeLane(env, identity.machineId);
+  return { identity, lane, stub: hostFor(env, lane, identity.machineId) };
 }
 
 async function adoptedHomeFor(env: Env, accountId: string) {
   const home = await homeFor(env, accountId);
-  if (home.size === "large") await home.stub.adopt(home.identity);
+  if (home.lane === "candidate") await hostFor(env, "standard", home.identity.machineId).adopt(home.identity);
+  if (home.lane !== "standard") await home.stub.adopt(home.identity);
   return home;
 }
 
 async function hostForMachine(env: Env, machineId: string) {
-  const owner = (await largeHomes(env)).get(machineId);
+  const lane = await homeLane(env, machineId);
+  const owner = (await candidateHomes(env)).get(machineId) ?? (await largeHomes(env)).get(machineId);
   if (!owner) return hostFor(env, "standard", machineId);
-  const stub = hostFor(env, "large", machineId);
+  const stub = hostFor(env, lane, machineId);
+  if (lane === "candidate") await hostFor(env, "standard", machineId).adopt(owner);
   await stub.adopt(owner);
   return stub;
 }
 
 export class HomesApi extends WorkerEntrypoint<Env> {
   async open(accountId: string): Promise<HomeSummary> {
-    const { identity, size, stub } = await homeFor(this.env, accountId);
-    if (size === "large") await hostFor(this.env, "standard", identity.machineId).reopen();
+    const { identity, lane, stub } = await homeFor(this.env, accountId);
+    if (lane !== "standard") {
+      const standard = hostFor(this.env, "standard", identity.machineId);
+      await standard.reopen();
+      if (lane === "candidate") await standard.adopt(identity);
+    }
     await stub.reopen();
     await stub.adopt(identity);
     const summary = await stub.summary();
@@ -59,10 +66,11 @@ export class HomesApi extends WorkerEntrypoint<Env> {
   }
 
   async remove(accountId: string): Promise<{ removed: number }> {
-    const { identity, size } = await homeFor(this.env, accountId);
+    const { identity } = await homeFor(this.env, accountId);
     const standard = hostFor(this.env, "standard", identity.machineId);
-    await standard.bury();
-    if (size === "large" || (await standard.standing()) === "released") await hostFor(this.env, "large", identity.machineId).forget();
+    const owners = homeLanes(this.env).map((lane) => ({ lane, owner: hostFor(this.env, lane, identity.machineId) }));
+    await Promise.all(owners.map(({ owner }) => owner.bury()));
+    await Promise.all(owners.filter(({ lane }) => lane !== "standard").map(({ owner }) => owner.forget()));
     return standard.remove();
   }
 }
