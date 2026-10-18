@@ -238,7 +238,6 @@
   "sidebar.bot.pin": "Закріпити",
   "sidebar.bot.unpin": "Відкріпити",
   "sidebar.bot.makeChief": "Призначити керівником штабу",
-  "sidebar.bot.removeChief": "Зняти з посади керівника штабу",
   "sidebar.bot.chiefNeedsEngine": "Спершу оберіть Claude або ACP-провайдера моделей",
   "sidebar.bot.chiefOfStaff": "Керівник штабу",
   "sidebar.bot.moveToSection": "Перемістити до зграї",

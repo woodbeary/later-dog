@@ -5,7 +5,6 @@ describe("built-in agent tool read policy", () => {
   it("includes only the reviewed local reads", () => {
     expect([...READ_ONLY_AGENT_TOOL_NAMES]).toEqual([
       "list_bots",
-      "list_team_setup",
       "list_shared_computers",
       "list_rooms",
       "check_delegation",

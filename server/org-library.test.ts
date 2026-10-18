@@ -527,40 +527,6 @@ describe("adding from the shelf", () => {
     restarted.dispose();
   });
 
-  it("removes a team the app stopped adding just before its leader was set", async () => {
-    const app = await installation();
-    const library = app.open();
-    const team = release("full-team.v2.json");
-    app.writeBlob(team.bytes);
-    library.applyRelay(relay(catalog([entry(TEAM_ID, team)])));
-    await library.settled();
-    let crash: string | null = null;
-    let stamped = 0;
-    const deps = {
-      ...app.importDeps,
-      routines: {
-        create: (input: any) => app.routines.create(input),
-        remove: (id: string) => app.routines.remove(id),
-        stampInstalledPackage: (id: string, stamp: any) => {
-          const done = app.routines.stampInstalledPackage(id, stamp);
-          if (++stamped === 2) crash = snapshot();
-          return done;
-        },
-      },
-    };
-    library.add(TEAM_ID, deps);
-    library.dispose();
-
-    const crashed = await installation(crash!);
-    expect(crashed.routines.listRoutines()).toHaveLength(2);
-    expect(crashed.store.bots.some((bot) => bot.chiefOfStaff)).toBe(false);
-    crashed.open().dispose();
-    expect(crashed.store.bots).toEqual([]);
-    expect(crashed.store.groups).toEqual([]);
-    expect(crashed.routines.listRoutines()).toEqual([]);
-    expect(crashed.readState()).toMatchObject({ installs: {}, adding: {} });
-  });
-
   it("keeps a team the app stopped adding only after its last record", async () => {
     const app = await installation();
     const library = app.open();
@@ -570,11 +536,11 @@ describe("adding from the shelf", () => {
     library.applyRelay(relay(body));
     await library.settled();
     let crash: string | null = null;
-    const setChief = app.store.setChiefOfStaff.bind(app.store);
-    vi.spyOn(app.store, "setChiefOfStaff").mockImplementation((...args) => {
-      const changed = setChief(...args);
-      crash ??= snapshot();
-      return changed;
+    const stamp = app.routines.stampInstalledPackage.bind(app.routines);
+    vi.spyOn(app.routines, "stampInstalledPackage").mockImplementation((...args) => {
+      const stamped = stamp(...args);
+      crash = snapshot();
+      return stamped;
     });
     const installId = (library.add(TEAM_ID, app.importDeps) as any).value.result.installId;
     library.dispose();

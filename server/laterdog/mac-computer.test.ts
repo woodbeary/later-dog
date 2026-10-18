@@ -4,7 +4,7 @@ import { COMPUTER_RULE, MAC_OFFLINE_RESULT, isMacOffline, macOfflineResult, macO
 
 const profile = (overrides: Partial<CatalogProfile> = {}): CatalogProfile => ({
   externalRuntime: false, coordinating: false, skillAuthoring: false,
-  sharedComputers: true, voiceNotes: false, cloudHome: true, chief: false, botId: "bot-1", ...overrides,
+  sharedComputers: true, voiceNotes: false, cloudHome: true, botId: "bot-1", ...overrides,
 });
 const online = [{ name: "Jo's MacBook", online: true }];
 const offline = [{ name: "Jo's MacBook", online: false }];

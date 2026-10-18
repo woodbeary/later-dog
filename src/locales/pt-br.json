@@ -210,7 +210,6 @@
   "sidebar.bot.pin": "Fixar",
   "sidebar.bot.unpin": "Desafixar",
   "sidebar.bot.makeChief": "Tornar chefe de gabinete",
-  "sidebar.bot.removeChief": "Remover chefe de gabinete",
   "sidebar.bot.chiefNeedsEngine": "Escolha primeiro Claude ou um provedor de modelos ACP",
   "sidebar.bot.chiefOfStaff": "Chefe de gabinete",
   "sidebar.bot.markUnread": "Marcar como não lida",

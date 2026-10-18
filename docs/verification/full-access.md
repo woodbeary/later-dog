@@ -4,7 +4,7 @@ Run the isolated integration recipe:
 
 ```sh
 pnpm exec vitest run server/full-access-workflows.e2e.test.ts
-pnpm exec vitest run server/team-setup-requests.test.ts server/profile-requests.test.ts server/routine-requests.test.ts
+pnpm exec vitest run server/profile-requests.test.ts server/routine-requests.test.ts
 pnpm exec electron scripts/smoke-approval-modes.cjs --all-threads-only
 pnpm typecheck
 pnpm lint
@@ -23,22 +23,19 @@ of a real provider's planning quality or authentication.
 
 ## What it checks
 
-- One Full Access turn updates the Chief's profile, creates a monthly cron
-  routine with an explicit timezone, saves an enabled skill, creates a named
-  Research team and specialist, and updates the active Chief's own setup.
-- A later turn updates the named skill, pauses the routine, updates the
-  specialist, and deletes that exact specialist through the normal lifecycle.
-  Saved profiles, routines, skill content, scope grants, and deletion are
-  checked independently of the scripted reply.
+- One Full Access turn updates the dog's own profile, creates a monthly cron
+  routine with an explicit timezone, and saves an enabled skill.
+- A later turn updates the named skill and pauses the routine; a call to the
+  retired team setup tools is refused. Saved profiles, routines and skill
+  content are checked independently of the scripted reply.
 - Immediate tool results say the change was applied. No unanswered review
-  card or extra setup continuation appears, and new specialists retain Ask.
+  card or extra setup continuation appears.
 - Real peer coordination succeeds with `approvePeerComms` enabled. Its one
   downstream summary is expected; unrelated setup continuations are not.
-- An explicit Ask sibling retains four pending reviews even though the bot
-  default is Full. Conversely, an explicit Full thread applies its profile
+- An explicit Ask sibling keeps a new working folder waiting for review even
+  though the bot default is Full. Conversely, an explicit Full thread applies its profile
   change while the bot default remains Ask.
-- An expired turn token is refused, and Full does not authorize changes to
-  an existing bot outside the Chief's team scope.
+- An expired turn token is refused.
 
 ## Evidence and limits
 

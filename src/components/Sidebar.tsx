@@ -729,13 +729,13 @@ export function BotContextMenu({
           bot.pinned ? t("sidebar.bot.unpin") : t("sidebar.bot.pin"),
           () => dispatch({ type: "updateBot", botId: bot.id, patch: { pinned: !bot.pinned } }),
         ),
-        item(
-          <Crown size={16} className={bot.chiefOfStaff ? "text-accent" : "text-ink-secondary"} />,
-          bot.chiefOfStaff ? t("sidebar.bot.removeChief") : t("sidebar.bot.makeChief"),
-          () => dispatch({ type: "updateBot", botId: bot.id, patch: { chiefOfStaff: !bot.chiefOfStaff } }),
+        !bot.chiefOfStaff && item(
+          <Crown size={16} className="text-ink-secondary" />,
+          t("sidebar.bot.makeChief"),
+          () => dispatch({ type: "updateBot", botId: bot.id, patch: { chiefOfStaff: true } }),
           {
-            disabled: !bot.chiefOfStaff && !canCoordinate,
-            hint: !bot.chiefOfStaff && !canCoordinate ? t("sidebar.bot.chiefNeedsEngine") : undefined,
+            disabled: !canCoordinate,
+            hint: !canCoordinate ? t("sidebar.bot.chiefNeedsEngine") : undefined,
           },
         ),
         item(<FolderPlus size={16} className="text-ink-secondary" />, t("sidebar.bot.moveToSection"), () => {
@@ -767,7 +767,7 @@ export function BotContextMenu({
             hint: archiveHint,
           },
         ),
-        <BotDeleteMenuItem
+        !bot.chiefOfStaff && <BotDeleteMenuItem
           key="delete"
           deleting={deleting}
           onClick={() => {
@@ -1109,7 +1109,7 @@ export function ArchivedBotRow({
   deleting: boolean;
   disabled: boolean;
   onRestore: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
 }) {
   return (
     <div className="flex min-h-[82px] items-center gap-3 border-b border-hairline/35 px-1 py-3">
@@ -1127,16 +1127,18 @@ export function ArchivedBotRow({
           {restoring && <Loader2 size={13} className="animate-spin" />}
           {t("sidebar.archived.restore")}
         </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={disabled || deleting}
-          aria-label={t("sidebar.archived.deleteAria", { name: bot.name })}
-          className="flex items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] text-danger hover:bg-danger/10 disabled:opacity-40"
-        >
-          {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-          {t("common.delete")}
-        </button>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={disabled || deleting}
+            aria-label={t("sidebar.archived.deleteAria", { name: bot.name })}
+            className="flex items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] text-danger hover:bg-danger/10 disabled:opacity-40"
+          >
+            {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+            {t("common.delete")}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1158,6 +1160,7 @@ function ArchivedBotsPanel({
   const [pendingDelete, setPendingDelete] = useState<Bot | "all" | null>(null);
   const [error, setError] = useState("");
   const deleting = bots.some((bot) => Boolean(state.deletingBots[bot.id]));
+  const deletable = bots.filter((bot) => !bot.chiefOfStaff);
   const locked = restoringAll || Boolean(busyId) || deleting || Boolean(pendingDelete);
 
   useEffect(() => {
@@ -1249,7 +1252,7 @@ function ArchivedBotsPanel({
                 {t("sidebar.archived.restoreAll")}
               </button>
             )}
-            {bots.length > 0 && (
+            {deletable.length > 0 && (
               <button
                 type="button"
                 onClick={() => setPendingDelete("all")}
@@ -1281,7 +1284,7 @@ function ArchivedBotsPanel({
                 deleting={Boolean(state.deletingBots[bot.id])}
                 disabled={locked}
                 onRestore={() => void restore(bot)}
-                onDelete={() => setPendingDelete(bot)}
+                onDelete={bot.chiefOfStaff ? undefined : () => setPendingDelete(bot)}
               />
             ))}
           </div>
@@ -1300,7 +1303,7 @@ function ArchivedBotsPanel({
           const target = pendingDelete;
           setPendingDelete(null);
           if (target === "all") {
-            for (const bot of bots) dispatch({ type: "deleteBot", botId: bot.id });
+            for (const bot of deletable) dispatch({ type: "deleteBot", botId: bot.id });
             return;
           }
           dispatch({ type: "deleteBot", botId: target.id });

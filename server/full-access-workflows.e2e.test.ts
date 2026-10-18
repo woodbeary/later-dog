@@ -98,7 +98,6 @@ it("applies requested Full Access workflows through MCP without duplicate approv
     const ask = (await api("POST", `/api/bots/${chief.id}/tasks`, { title: "Ask sibling" }, 201)).task;
     const peer = (await cli("new-bot", "--name", "Ada", "--section", "Operations")).bot;
     const inverse = (await cli("new-bot", "--name", "Thread Full", "--section", "Private")).bot;
-    const modelSelection = chief.modelSelection;
     await api("PATCH", "/api/config", { features: { skillAuthoring: true } });
 
     await waitForExit(fixture.child, { signal: "SIGTERM" });
@@ -129,29 +128,21 @@ it("applies requested Full Access workflows through MCP without duplicate approv
 
     const skill = (name: string, instruction: string) => `---\nname: ${name}\ndescription: Summarize fixture-only monthly activity.\n---\n\n# Monthly fixture review\n\n${instruction}\n`;
     const schedule = { type: "cron", expression: "0 9 1 * *", timeZone: "America/New_York" };
-    const specialist = (name: string, section: string) => ({ action: "create", key: name,
-      fields: { name, title: "Research specialist", soul: "Use only fixture evidence.", section, modelSelection } });
     const created = await run(chief, chief.activeTaskId,
-      "Set up my monthly reporting profile, save its reusable skill, schedule 9am New York time on the first of each month, and create Mira in Research.", [
+      "Set up my monthly reporting profile, save its reusable skill, and schedule 9am New York time on the first of each month.", [
         step("propose_profile", { title: "Monthly reporting Chief", soul: "Report only verified fixture results.", reason: "Requested reporting profile" }),
         step("list_routines", {}),
         step("propose_routine", { name: "Monthly fixture report", instructions: "Summarize fixture-only monthly results.", schedule }),
         step("skills_list", {}),
         step("skill_manage", { action: "create", skill_md: skill("monthly-fixture-review", "Read fixture notes and summarize the month."), source: "conversation" }),
-        step("list_team_setup", {}),
-        step("propose_team_setup", { reason: "Requested Research specialist and Chief description", newTeams: ["Research"], operations: [
-          specialist("Mira", "Research"), { action: "update", botId: chief.id, fields: { description: "Coordinates monthly fixture reports" } },
-        ] }),
       ], { guarded: "full" });
     expect(created.permissionMode).toBe("bypassPermissions");
-    for (const entry of created.evidence.filter((item: any) => ["propose_profile", "propose_routine", "skill_manage", "propose_team_setup"].includes(item.step?.tool))) {
+    for (const entry of created.evidence.filter((item: any) => ["propose_profile", "propose_routine", "skill_manage"].includes(item.step?.tool))) {
       expect(entry.response.result.content[0].text).toContain("No additional confirmation is needed");
       expect(entry.response.result.content[0].text).not.toContain("End this turn and wait");
     }
     const updatedChief = (await bots()).find(bot => bot.id === chief.id);
-    expect(updatedChief).toMatchObject({ title: "Monthly reporting Chief", description: "Coordinates monthly fixture reports", soul: "Report only verified fixture results.", approvalMode: "full", approvePeerComms: true, managedSections: ["Research"] });
-    const mira = (await bots()).find(bot => bot.name === "Mira");
-    expect(mira).toMatchObject({ section: "Research", approvalMode: "ask", autoApprove: false, composio: false });
+    expect(updatedChief).toMatchObject({ title: "Monthly reporting Chief", soul: "Report only verified fixture results.", approvalMode: "full", approvePeerComms: true });
     const routine = (await api("GET", "/api/routines")).routines.find((item: any) => item.name === "Monthly fixture report");
     expect(routine).toMatchObject({ botId: chief.id, enabled: true, schedule });
     expect((await api("GET", `/api/bots/${chief.id}/skills`)).skills).toEqual(expect.arrayContaining([expect.objectContaining({ name: "monthly-fixture-review", enabled: true })]));
@@ -162,16 +153,13 @@ it("applies requested Full Access workflows through MCP without duplicate approv
 
     const dump = JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8"));
     const lateToken = dump.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN;
-    await api("POST", "/api/internal/team-setup-requests", { plan: { reason: "Late fixture token", operations: [specialist("Must not exist", "Operations")] } }, 401, lateToken);
+    await api("POST", "/api/internal/profile-requests", { fromBotId: chief.id, fromThreadId: chief.activeTaskId, changes: { title: "Must not apply" }, reason: "Late fixture token" }, 401, lateToken);
 
-    await run(chief, chief.activeTaskId, "Update the named monthly skill, pause the report, update Mira, then delete Mira as requested.", [
+    await run(chief, chief.activeTaskId, "Update the named monthly skill and pause the report.", [
       step("skill_manage", { action: "update", skill_name: "monthly-fixture-review", skill_md: skill("monthly-fixture-review", "Read fixture notes, verify totals, and report missing data."), source: "conversation" }),
       step("list_routines", {}), step("propose_routine_action", { action: "pause", routine_id: routine.id }),
-      step("propose_team_setup", { reason: "Requested Mira update", operations: [{ action: "update", botId: mira.id, fields: { title: "Verified research specialist" } }] }),
-      step("propose_bot_deletion", { bot_id: mira.id, reason: "User explicitly requested removal after the fixture check" }),
-      step("propose_team_setup", { reason: "Out-of-scope fixture check", operations: [{ action: "update", botId: inverse.id, fields: { title: "Must not apply" } }] }, true),
+      step("list_team_setup", {}, true),
     ]);
-    expect((await bots()).some(bot => bot.id === mira.id)).toBe(false);
     expect((await api("GET", "/api/routines")).routines.find((item: any) => item.id === routine.id)).toMatchObject({ enabled: false, nextRunAt: null, schedule });
     expect((await api("GET", `/api/bots/${chief.id}/skills/monthly-fixture-review`)).text).toContain("verify totals");
     const updatedSkills = await api("GET", `/api/bots/${chief.id}/skills`);
@@ -193,18 +181,18 @@ it("applies requested Full Access workflows through MCP without duplicate approv
     expect((await messages(peerTurn.threadId)).some(message => message.kind === "activity" && /delegated by/.test(message.tool?.name ?? ""))).toBe(false);
     evidence.push({ teammateOwnLevel: { peerThreadId: peerTurn.threadId, permissionMode: peerTurn.permissionMode } });
 
-    const askTurn = await run(chief, ask.threadId, "Change my own profile, routine and named skill, and prepare a specialist for review in this Ask task.", [
+    const askTurn = await run(chief, ask.threadId, "Change my own profile, routine and named skill, and move my working folder after review in this Ask task.", [
       step("propose_profile", { title: "Applied in Ask", reason: "The bot's own profile applies at any level" }),
       step("propose_routine", { name: "Own Ask report", instructions: "Report from the Ask task.", schedule }),
       step("skill_manage", { action: "create", skill_md: skill("own-ask-review", "Applies at once as the bot's own skill."), source: "conversation" }),
-      step("propose_team_setup", { reason: "Ask task specialist review", operations: [specialist("Pending specialist", "Operations")] }),
+      step("propose_profile", { cwd: dataDir, reason: "Requested working folder for review" }),
     ], { pending: true, guarded: "ask" });
     expect(askTurn.permissionMode).not.toBe("bypassPermissions");
     const askCards = await unanswered(ask.threadId);
     expect(askCards).toHaveLength(1);
-    expect(askCards[0].card.teamSetupRequest).toBeDefined();
+    expect(askCards[0].card.profileRequest?.changes).toMatchObject({ cwd: dataDir });
     expect((await bots()).find(bot => bot.id === chief.id).title).toBe("Applied in Ask");
-    expect((await bots()).some(bot => bot.name === "Pending specialist")).toBe(false);
+    expect((await bots()).find(bot => bot.id === chief.id).cwd).not.toBe(dataDir);
     expect((await api("GET", "/api/routines")).routines).toHaveLength(2);
     expect((await api("GET", `/api/bots/${chief.id}/skills`)).skills.some((item: any) => item.name === "own-ask-review" && item.enabled)).toBe(true);
     const receipts = (await messages(ask.threadId)).filter(message => message.card?.autoApplied);

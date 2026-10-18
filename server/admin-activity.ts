@@ -201,7 +201,7 @@ export function configChangeRows(before: unknown, after: unknown): Array<Omit<Ad
 
 export const BOT_AUDIT_FIELDS = [
   "approvalMode", "autoApprove", "alwaysAllow", "peers", "approvePeerComms", "computer", "cloudBackend", "autoStartVps",
-  "cwd", "composio", "browser", "browserProfile", "mcpServers", "chiefOfStaff", "managedSections", "section",
+  "cwd", "composio", "browser", "browserProfile", "mcpServers", "chiefOfStaff", "section",
   "parkDirectMessages", "hidden", "modelSelection", "visibility",
 ] as const;
 

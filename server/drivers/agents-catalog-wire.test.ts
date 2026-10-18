@@ -23,29 +23,26 @@ const flag = (on: boolean) => (on ? "1" : "0");
 
 function profiles(): Record<string, Profile> {
   const all: Record<string, Profile> = {};
-  for (const chief of [true, false]) {
-    for (const room of [false, true]) {
-      for (const skills of [false, true]) {
-        for (const shared of [false, true]) {
-          for (const voice of [false, true]) {
-            const name = [room ? "room" : "direct", skills && "skills", shared && "shared", voice && "voice", !chief && "non-chief"]
-              .filter(Boolean).join("+");
-            all[name] = {
-              family: room ? "room" : "direct",
-              env: {
-                LATERDOG_ROOM_TURN: flag(room),
-                LATERDOG_SKILL_AUTHORING_ENABLED: flag(skills),
-                LATERDOG_SHARED_COMPUTERS_ENABLED: flag(shared),
-                LATERDOG_VOICE_NOTES: flag(voice),
-                LATERDOG_CHIEF_OF_STAFF: flag(chief),
-              },
-            };
-          }
+  for (const room of [false, true]) {
+    for (const skills of [false, true]) {
+      for (const shared of [false, true]) {
+        for (const voice of [false, true]) {
+          const name = [room ? "room" : "direct", skills && "skills", shared && "shared", voice && "voice"]
+            .filter(Boolean).join("+");
+          all[name] = {
+            family: room ? "room" : "direct",
+            env: {
+              LATERDOG_ROOM_TURN: flag(room),
+              LATERDOG_SKILL_AUTHORING_ENABLED: flag(skills),
+              LATERDOG_SHARED_COMPUTERS_ENABLED: flag(shared),
+              LATERDOG_VOICE_NOTES: flag(voice),
+            },
+          };
         }
       }
     }
   }
-  for (const name of ["direct+skills+shared+voice", "room+skills+shared+voice", "direct+skills+shared+voice+non-chief", "room+skills+shared+voice+non-chief"]) {
+  for (const name of ["direct+skills+shared+voice", "room+skills+shared+voice"]) {
     all[`${name}+cloud-home`] = { family: all[name]!.family, env: { ...all[name]!.env, LATERDOG_CLOUD_HOME: "1" } };
   }
   all.external = { family: "external", env: { LATERDOG_EXTERNAL_RUNTIME: "1" } };
@@ -58,54 +55,34 @@ function profiles(): Record<string, Profile> {
       LATERDOG_SHARED_COMPUTERS_ENABLED: "1",
       LATERDOG_VOICE_NOTES: "1",
       LATERDOG_CLOUD_HOME: "1",
-      LATERDOG_CHIEF_OF_STAFF: "1",
     },
   };
   return all;
 }
 
 const PROFILES = profiles();
-const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
-const CHIEF_TARGET_TOOLS = ["propose_model"];
+const REMOVED_TEAM_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 const FULL = { direct: "direct+skills+shared+voice", room: "room+skills+shared+voice", external: "external" } as const;
 
 const BUDGET_BASELINE: Record<string, number> = {
-  "direct": 46413,
-  "direct+voice": 47154,
-  "direct+shared": 49154,
-  "direct+shared+voice": 49895,
-  "direct+skills": 48466,
-  "direct+skills+voice": 49207,
-  "direct+skills+shared": 51207,
-  "direct+skills+shared+voice": 51948,
-  "room": 46478,
-  "room+voice": 47219,
-  "room+shared": 49219,
-  "room+shared+voice": 49960,
-  "room+skills": 48531,
-  "room+skills+voice": 49272,
-  "room+skills+shared": 51272,
-  "room+skills+shared+voice": 52013,
-  "direct+non-chief": 40589,
-  "direct+voice+non-chief": 41330,
-  "direct+shared+non-chief": 43330,
-  "direct+shared+voice+non-chief": 44071,
-  "direct+skills+non-chief": 42642,
-  "direct+skills+voice+non-chief": 43383,
-  "direct+skills+shared+non-chief": 45383,
-  "direct+skills+shared+voice+non-chief": 46124,
-  "room+non-chief": 40654,
-  "room+voice+non-chief": 41395,
-  "room+shared+non-chief": 43395,
-  "room+shared+voice+non-chief": 44136,
-  "room+skills+non-chief": 42707,
-  "room+skills+voice+non-chief": 43448,
-  "room+skills+shared+non-chief": 45448,
-  "room+skills+shared+voice+non-chief": 46189,
-  "direct+skills+shared+voice+cloud-home": 51900,
-  "room+skills+shared+voice+cloud-home": 51965,
-  "direct+skills+shared+voice+non-chief+cloud-home": 46076,
-  "room+skills+shared+voice+non-chief+cloud-home": 46141,
+  "direct": 39166,
+  "direct+voice": 39907,
+  "direct+shared": 41907,
+  "direct+shared+voice": 42648,
+  "direct+skills": 41219,
+  "direct+skills+voice": 41960,
+  "direct+skills+shared": 43960,
+  "direct+skills+shared+voice": 44701,
+  "room": 39231,
+  "room+voice": 39972,
+  "room+shared": 41972,
+  "room+shared+voice": 42713,
+  "room+skills": 41284,
+  "room+skills+voice": 42025,
+  "room+skills+shared": 44025,
+  "room+skills+shared+voice": 44766,
+  "direct+skills+shared+voice+cloud-home": 44653,
+  "room+skills+shared+voice+cloud-home": 44718,
   "external": 3083,
   "external+everything": 3083,
 };
@@ -194,7 +171,6 @@ describe("agents proxy tools/list golden", () => {
       const full = new Map(toolsOf(wires[FULL[profile.family]]!).map((tool) => [tool.name, JSON.stringify(tool)]));
       for (const tool of toolsOf(wires[name]!)) {
         if (profile.env.LATERDOG_CLOUD_HOME === "1" && tool.name === "select_computer") continue;
-        if (profile.env.LATERDOG_CHIEF_OF_STAFF === "0" && CHIEF_TARGET_TOOLS.includes(tool.name)) continue;
         expect(JSON.stringify(tool), `${name}: ${tool.name}`).toBe(full.get(tool.name));
       }
     }
@@ -204,7 +180,7 @@ describe("agents proxy tools/list golden", () => {
     type SelectTool = Tool & { inputSchema: { properties: { surface: { enum: string[]; description: string } } } };
     const select = (wire: string) => toolsOf(wire).find((tool) => tool.name === "select_computer") as SelectTool;
     const cloudHome = Object.keys(PROFILES).filter((name) => name.endsWith("+cloud-home"));
-    expect(cloudHome).toHaveLength(4);
+    expect(cloudHome).toHaveLength(2);
     for (const name of cloudHome) {
       const desktop = wires[name.slice(0, -"+cloud-home".length)]!;
       expect(toolsOf(wires[name]!).map((tool) => tool.name)).toEqual(toolsOf(desktop).map((tool) => tool.name));
@@ -216,34 +192,14 @@ describe("agents proxy tools/list golden", () => {
     for (const wire of Object.values(wires)) expect(toolsOf(wire).map((tool) => tool.name)).not.toContain("vm_exec");
   });
 
-  it("offers everyone reviewed teammate renames while keeping model targeting and team setup Chief-only", () => {
-    type SchemaTool = Tool & { description: string; inputSchema: { properties: Record<string, unknown> } };
-    const nonChief = Object.keys(PROFILES).filter((name) => PROFILES[name]!.env.LATERDOG_CHIEF_OF_STAFF === "0");
-    expect(nonChief).toHaveLength(18);
-    for (const name of nonChief) {
-      const chiefTools = toolsOf(wires[name.replace("+non-chief", "")]!) as SchemaTool[];
-      const tools = new Map((toolsOf(wires[name]!) as SchemaTool[]).map((tool) => [tool.name, tool]));
-      expect(chiefTools.map((tool) => tool.name)).toEqual(expect.arrayContaining(CHIEF_ONLY_TOOLS));
-      expect([...tools.keys()], name).toEqual(chiefTools.map((tool) => tool.name).filter((tool) => !CHIEF_ONLY_TOOLS.includes(tool)));
-      expect(tools.has("create_bot"), name).toBe(true);
-      for (const chiefTool of chiefTools.filter((tool) => tools.has(tool.name))) {
-        let expected: SchemaTool = chiefTool;
-        if (CHIEF_TARGET_TOOLS.includes(chiefTool.name)) {
-          const { for_bot_id: forBotId, ...properties } = chiefTool.inputSchema.properties;
-          expect(forBotId, `${name}: ${chiefTool.name}`).toBeDefined();
-          expected = { ...chiefTool, inputSchema: { ...chiefTool.inputSchema, properties } };
-        }
-        expect(JSON.stringify(tools.get(chiefTool.name)), `${name}: ${chiefTool.name}`).toBe(JSON.stringify(expected));
-      }
-      const profile = tools.get("propose_profile")!;
-      expect(profile.inputSchema.properties).toHaveProperty("for_bot_id");
-      expect(profile.description).toContain("only name and reason");
-      expect(profile.description).toContain("wait for confirmation in the app");
-      expect(JSON.stringify(CHIEF_TARGET_TOOLS.map((tool) => tools.get(tool)))).not.toContain("for_bot_id");
-      for (const routine of ["propose_routine", "propose_routine_action"]) {
-        expect(tools.get(routine)!.inputSchema.properties, `${name}: ${routine}`).toHaveProperty("for_bot_id");
-      }
+  it("gives no dog the retired team setup tools or a way to change another dog's profile, model or routines", () => {
+    type SchemaTool = Tool & { inputSchema: { properties: Record<string, unknown> } };
+    for (const [name, wire] of Object.entries(wires)) {
+      const tools = toolsOf(wire) as SchemaTool[];
+      expect(REMOVED_TEAM_TOOLS.filter((tool) => tools.some((candidate) => candidate.name === tool)), name).toEqual([]);
+      for (const tool of tools) expect(tool.inputSchema.properties, `${name}: ${tool.name}`).not.toHaveProperty("for_bot_id");
     }
+    expect(wires[FULL.direct]).not.toMatch(/Chief/);
     expect(wires["external+everything"]).toBe(wires.external);
   });
 

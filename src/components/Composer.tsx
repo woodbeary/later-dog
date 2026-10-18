@@ -941,7 +941,7 @@ export function Composer({
               index={0}
               locale={activeLocale()}
               botName={approvalBot?.name}
-              onCancelTurn={approval.message.card?.routineRequest || approval.message.card?.skillRequest || approval.message.card?.profileRequest || approval.message.card?.teamSetupRequest ? undefined : interruptTurn}
+              onCancelTurn={approval.message.card?.routineRequest || approval.message.card?.skillRequest || approval.message.card?.profileRequest ? undefined : interruptTurn}
             />
             <PendingApprovalActions
               pending={approval}

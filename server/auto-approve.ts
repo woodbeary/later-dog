@@ -1,5 +1,5 @@
 
-import { supportsApprovalMode, type ApprovalMode } from "../shared/approval-mode.ts";
+import type { ApprovalMode } from "../shared/approval-mode.ts";
 import { isOutboundTool } from "../shared/outbound.ts";
 import type { ProviderAdapter, RequestOutcome } from "./contracts.ts";
 
@@ -22,28 +22,6 @@ export async function deliverFullAccessApproval(
 export function approvalModeForOrigin(mode: ApprovalMode, origin: { peerInitiated: boolean }): ApprovalMode {
   if (mode === "custom" && origin.peerInitiated) return "auto";
   return mode;
-}
-
-const LEVEL_RANK: Partial<Record<ApprovalMode, number>> = { ask: 0, edits: 1, auto: 2, full: 3 };
-
-export function delegatedApprovalMode(input: {
-  senderIsChief: boolean;
-  senderMode: ApprovalMode;
-  sameBot: boolean;
-  recipientMode: ApprovalMode;
-  recipientDriverKind: string | undefined;
-}): ApprovalMode | null {
-  if (!input.senderIsChief || input.sameBot) return null;
-  const sender = LEVEL_RANK[approvalModeForOrigin(input.senderMode, { peerInitiated: true })] ?? 0;
-  const own = LEVEL_RANK[input.recipientMode];
-  if (own === undefined) return null;
-  for (const mode of ["full", "auto", "edits"] as const) {
-    const rank = LEVEL_RANK[mode]!;
-    if (rank > sender) continue;
-    if (rank <= own) return null;
-    if (supportsApprovalMode(input.recipientDriverKind, mode)) return mode;
-  }
-  return null;
 }
 
 const ASKS_A_PERSON = new Set(["askuserquestion", "ask_user"]);

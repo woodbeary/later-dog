@@ -30,7 +30,6 @@ export type BotPatch = Partial<
     | "memoryEnabled"
     | "voice"
     | "chiefOfStaff"
-    | "managedSections"
     | "approvePeerComms"
     | "composio"
     | "browser"

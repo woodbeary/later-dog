@@ -210,7 +210,6 @@
   "sidebar.bot.pin": "पिन करें",
   "sidebar.bot.unpin": "पिन हटाएँ",
   "sidebar.bot.makeChief": "चीफ़ ऑफ़ स्टाफ़ बनाएँ",
-  "sidebar.bot.removeChief": "चीफ़ ऑफ़ स्टाफ़ हटाएँ",
   "sidebar.bot.chiefNeedsEngine": "पहले Claude या कोई ACP मॉडल प्रदाता चुनें",
   "sidebar.bot.chiefOfStaff": "चीफ़ ऑफ़ स्टाफ़",
   "sidebar.bot.markUnread": "अपठित के रूप में चिह्नित करें",

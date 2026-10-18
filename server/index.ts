@@ -57,7 +57,7 @@ import {
   type CredentialTargetId,
 } from "../shared/credential-request.ts";
 
-import { HELD_NOTE, approvalHeldNote, approvalHeldReason, approvalModeForOrigin, autoVerdict, deliverFullAccessApproval, delegatedApprovalMode } from "./auto-approve.ts";
+import { HELD_NOTE, approvalHeldNote, approvalHeldReason, approvalModeForOrigin, autoVerdict, deliverFullAccessApproval } from "./auto-approve.ts";
 import { CommandAllowlistStore, commandAllowlistCandidate } from "./command-allowlist.ts";
 import type { CommandAllowlistCandidate, CommandAllowlistResponse } from "../shared/command-allowlist.ts";
 import { updateClaudeCli } from "./claude-update.ts";
@@ -139,7 +139,8 @@ import {
 import * as composio from "./composio.ts";
 import { connectorCallFromFrame, connectorRefusalText, connectorUnrecognizedText, evaluateConnectorTools } from "./connector-verdict.ts";
 import { connectorCardText } from "./connector-card-text.ts";
-import { chiefOfStaffSystemPrompt } from "./chief-of-staff.ts";
+import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
+import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
 import { buildRecall } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
 import { appendAboutMe, commitLearned, planLearned } from "./profile-learned.ts";
@@ -278,7 +279,7 @@ import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type C
 import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
-import { chiefForBot, INCIDENTS_THREAD_TITLE, IncidentLedger, incidentChip, incidentText, type Incident, type IncidentKind } from "./incidents.ts";
+import { IncidentLedger, incidentChip, type Incident, type IncidentKind } from "./incidents.ts";
 
 const SESSION_READ_MAX_CHARS = 8_000;
 import {
@@ -299,7 +300,6 @@ import {
   onSteeredQueueChange,
   queuedSteerSnapshot,
   queuedSteeredMessage,
-  queuedThreadPosition,
   queueSteeredMessage,
   restoreHeldSteeredQueue,
   restoreSteeredMessages,
@@ -404,7 +404,6 @@ import {
 } from "./memory-journal.ts";
 import {
   readSectionContext,
-  readSections,
   sectionContextKey,
   sectionContextLabel,
   sectionContextSystemPrompt,
@@ -500,10 +499,7 @@ import { createOptionsCard } from "./options-card.ts";
 import { buildBotOverview, type BotOverview, connectedAppsFacts } from "./bot-overview.ts";
 import { submitProfileAvatar } from "./profile-avatar.ts";
 import { ProfileRequestService } from "./profile-requests.ts";
-import { profileTargetPolicy } from "./laterdog/profile-target-policy.ts";
 import { ModelRequestService } from "./model-requests.ts";
-import { TeamSetupError, TeamSetupRequestService } from "./team-setup-requests.ts";
-import type { TeamSetupRequest } from "../shared/team-setup.ts";
 import { profileRevision, profileSnapshot } from "./profile-revision.ts";
 import { flushAllProfileHistory, flushProfileHistory, readHistory, recordProfileChange } from "./profile-versions.ts";
 import { fetchBotDirectory, matchDirectoryBots, type MatchedDirectoryBot } from "./bot-directory.ts";
@@ -1659,7 +1655,6 @@ function requestedBotFields(req: IncomingMessage, path: string): string[] {
   if (!body || typeof body !== "object" || Array.isArray(body)) return [];
   const fields = new Set(Object.keys(body));
   if (fields.has("autoApprove") || fields.has("approvalMode")) fields.add("autoApprove").add("approvalMode");
-  if (fields.has("chiefOfStaff")) fields.add("managedSections");
   return [...fields];
 }
 
@@ -2263,7 +2258,6 @@ function agentsIntegration(
         const speaking = botForThread(botId, threadId) ?? store.bot(botId);
         return tts.voiceReady(cfg, speaking?.voice) && speaking?.voiceNotes !== false ? "1" : "0";
       })(),
-      LATERDOG_CHIEF_OF_STAFF: store.bot(botId)?.chiefOfStaff === true ? "1" : "0",
     },
   };
 }
@@ -2686,7 +2680,6 @@ const compactionControllers = new Map<string, { generation: string; controller: 
 function cancelDirectTurnDispatch(botId: string, expectedThreadId?: string): DirectTurnDispatchClaim | null {
   const threadId = expectedThreadId ?? store.bot(botId)?.threadId;
   if (!threadId) return null;
-  cancelTeamSetupResumesForThread(threadId);
   const claim = directTurnDispatchClaims.get(threadId);
   if (!claim || claim.botId !== botId) return null;
   const compacting = compactionControllers.get(threadId);
@@ -2843,16 +2836,15 @@ const routineRequestSourceSchema = {
   fromThreadId: z.string().min(1).max(128),
 };
 const routineRequestEnvelopeSchema = z.discriminatedUnion("action", [
-  z.object({ ...routineRequestSourceSchema, action: z.literal("create"), routine: z.unknown(), forBotId: z.unknown().optional() }).strict(),
+  z.object({ ...routineRequestSourceSchema, action: z.literal("create"), routine: z.unknown() }).strict(),
   z.object({
     ...routineRequestSourceSchema,
     action: z.literal("update"),
     routineId: z.unknown(),
     changes: z.unknown(),
-    forBotId: z.unknown().optional(),
   }).strict(),
   ...(["pause", "resume", "run_now", "delete"] as const).map((action) =>
-    z.object({ ...routineRequestSourceSchema, action: z.literal(action), routineId: z.unknown(), forBotId: z.unknown().optional() }).strict()
+    z.object({ ...routineRequestSourceSchema, action: z.literal(action), routineId: z.unknown() }).strict()
   ),
 ]);
 
@@ -3385,7 +3377,7 @@ const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
 };
 
 const wireBot = (bot: BotRecord): WireBot => {
-  const { resumeCursors: _resumeCursors, tasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, ...rest } = bot;
+  const { resumeCursors: _resumeCursors, tasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, packageBase: _packageBase, assignedSkills: _assignedSkills, ...rest } = bot;
   const visible = approvalGrant && !approvalGrant.threadOnly
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
     : rest;
@@ -3402,7 +3394,7 @@ function toolScopeForTurn(botId: string) {
 }
 
 const wireTrustedApprovalBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
-  const { resumeCursors: _resumeCursors, tasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, ...rest } = bot;
+  const { resumeCursors: _resumeCursors, tasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, packageBase: _packageBase, assignedSkills: _assignedSkills, ...rest } = bot;
   return { ...rest, approvalMode: approvalModeFor(rest), avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
@@ -3424,11 +3416,7 @@ function previewSystemPrompt(bot: BotRecord) {
     vmPrivate: localVmMode(cfg) === "per-bot",
   });
   const peers = reachablePeers(store.bots, bot);
-  const coordination = bot.chiefOfStaff
-    ? chiefOfStaffSystemPrompt(bot.id, store.bots, true)
-    : peers.length > 0
-      ? peerRosterSystemPrompt(peers)
-      : "";
+  const coordination = withMainDogRouting(bot.id === store.mainBotId(), peers.length > 0 ? peerRosterSystemPrompt(peers) : "");
   const agentsMounted = caps?.agentsMcp === true;
   const previewPlan = resolveSurface({
     destination: previewComputer,
@@ -3504,7 +3492,6 @@ async function botOverview(bot: BotRecord): Promise<BotOverview> {
       connectorTools: bot.connectorTools,
       browser: bot.browser,
       chiefOfStaff: bot.chiefOfStaff,
-      managedSections: bot.managedSections,
     },
     routines: routines!.listRoutines()
       .filter((routine) => routine.botId === bot.id)
@@ -3605,41 +3592,9 @@ function peerReviewRequired(bot: BotRecord, threadId: string): boolean {
   return Boolean(bot.approvePeerComms && !fullAccessForSource(bot.id, threadId));
 }
 
-function delegatedLevel(from: BotRecord, fromThreadId: string, target: BotRecord, recipientMode: ApprovalMode): ApprovalMode | null {
-  return delegatedApprovalMode({
-    senderIsChief: Boolean(from.chiefOfStaff),
-    senderMode: sourceApprovalMode(from.id, fromThreadId),
-    sameBot: from.id === target.id,
-    recipientMode,
-    recipientDriverKind: registry.cliTarget(target.modelSelection.instanceId)?.driverKind,
-  });
-}
-
-function ownThreadLevel(target: BotRecord, threadId: string): ApprovalMode {
-  return approvalModeForTurn(store.projectBotForTask(target.id, threadId) ?? target, false, threadId);
-}
-
-const DELEGATED_LEVEL_NAMES: Partial<Record<ApprovalMode, string>> = { edits: "Auto-accept edits", auto: "Off-leash", full: "Full access" };
-
-function applyDelegatedLevel(from: BotRecord, fromThreadId: string, target: BotRecord, threadId: string): void {
-  const level = delegatedLevel(from, fromThreadId, target, ownThreadLevel(target, threadId));
-  if (!level || store.taskByThread(target.id, threadId)?.approvalMode === level) return;
-  store.patchTask(target.id, threadId, { approvalMode: level, autoApprove: false, alwaysAllow: [] });
-  const name = DELEGATED_LEVEL_NAMES[level] ?? level;
-  store.appendMessage(threadId, {
-    role: "bot",
-    kind: "activity",
-    tool: { name: `${name} — delegated by ${from.name}, a Chief of Staff on ${name}`, ok: true },
-  });
-}
-
 function roomTurnApprovalMode(bot: BotRecord, threadId: string, orchestration?: GroupTurnOrchestration): ApprovalMode {
   if (cloudGuestDriven(threadId)) return "ask";
-  const handoff = orchestration?.roomHandoffId ? roomHandoffs.nodes.get(orchestration.roomHandoffId) : undefined;
-  const source = handoff?.parentId ? roomHandoffs.nodes.get(handoff.parentId) : undefined;
-  const from = source ? store.bot(source.botId) : undefined;
-  const own = approvalModeForTurn(bot, Boolean(orchestration?.roomHandoffId), threadId);
-  return (from && source && delegatedLevel(from, source.threadId, bot, own)) || own;
+  return approvalModeForTurn(bot, Boolean(orchestration?.roomHandoffId), threadId);
 }
 
 function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
@@ -4780,7 +4735,6 @@ function cancelGroupTurnOperations(
   by: HandoffEnd = outcome.status === "limit-reached" ? "limit" : "interrupted",
 ) {
   pendingComputerResumes.delete(threadId);
-  cancelTeamSetupResumesForThread(threadId);
   roomHandoffs.cancelRoom(groupId, threadId, by);
   for (const operation of groupTurnOperations.get(groupId) ?? []) {
     if (operation.threadId !== threadId) continue;
@@ -4923,8 +4877,7 @@ function guardedRequestSnapshot(botId: string, threadId: string, sendId: string)
   const messageId = messages[0].id;
   const owner = directRequestOwners.get(threadId);
   const busy = threadBusy(botId, threadId);
-  const waiting = messages.some(requestNeedsInput) || roomHandoffs.activeDirect(threadId) ||
-    [...pendingTeamSetupResumes.values()].some(entry => entry.request.threadId === threadId);
+  const waiting = messages.some(requestNeedsInput) || roomHandoffs.activeDirect(threadId);
   const latestTerminal = messages.findLast(message => message.role === "bot" && message.kind === "text" && message.turnTerminal);
   const latestTurn = messages.findLast(message => message.turnId);
   const latestOutcome = messages.findLast(message => message.turnSucceeded !== undefined);
@@ -4949,8 +4902,7 @@ function guardedRequestSnapshot(botId: string, threadId: string, sendId: string)
 function settleTrackedRequest(threadId: string): void {
   const owner = directRequestOwners.get(threadId);
   const bot = store.botByThread(threadId);
-  if (!owner?.messageId || owner.stopped || !bot || threadBusy(bot.id, threadId) || roomHandoffs.activeDirect(threadId) ||
-      [...pendingTeamSetupResumes.values()].some(entry => entry.request.threadId === threadId)) return;
+  if (!owner?.messageId || owner.stopped || !bot || threadBusy(bot.id, threadId) || roomHandoffs.activeDirect(threadId)) return;
   if ([...roomHandoffs.nodes.values()].some(node => !node.parentId && node.threadId === threadId &&
       owner.generations.has(node.id) && node.status !== "completed")) return;
   const path = store.activePath(threadId);
@@ -5377,7 +5329,6 @@ const watchdog = new TurnWatchdog({
         drainComputerResumes();
         drainSecretResumes();
         drainTakeoverResumes();
-        drainTeamSetupResumes();
       }
     };
     const release = setTimeout(releaseOwnership, 6_000);
@@ -6632,7 +6583,6 @@ function recoverUnsettledTurn(event: RuntimeEvent, error: unknown): void {
     drainComputerResumes();
     drainSecretResumes();
     drainTakeoverResumes();
-    drainTeamSetupResumes();
     drainDelegationWakes();
     settleTrackedRequest(threadId);
   }, { everyMs: 3_000, forMs: 10 * 60_000, onGiveUp: (giveUp) => console.error(`turn end: ${threadId} is still marked working after a failed save`, giveUp) });
@@ -7128,7 +7078,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             drainComputerResumes();
             drainSecretResumes();
             drainTakeoverResumes();
-            drainTeamSetupResumes();
             drainDelegationWakes();
           }
           if (event.ok && completedTurnId && !internal && !routineRun && !carryingOn && !nextAccount) promiseNudges.settled(event.threadId, completedTurnId);
@@ -7412,14 +7361,6 @@ function wakeDelegationSource(source: BotRecord, threadId: string, targetName: s
 
 const incidentLedger = new IncidentLedger();
 
-function incidentContext(threadId: string): { lastRequest: string | null; lastReply: string | null } {
-  const messages = [...store.messagesFor(threadId)].reverse();
-  return {
-    lastRequest: messages.find((message) => message.role === "user" && message.kind === "text" && message.text)?.text ?? null,
-    lastReply: messages.find((message) => message.role === "bot" && message.kind === "text" && message.text)?.text ?? null,
-  };
-}
-
 function reportIncident(input: { kind: IncidentKind; bot: BotRecord; threadId: string; detail: string }): void {
   const { bot, threadId } = input;
   const task = store.taskByThread(bot.id, threadId);
@@ -7432,50 +7373,12 @@ function reportIncident(input: { kind: IncidentKind; bot: BotRecord; threadId: s
     title: task?.title ?? null,
     room: group?.name ?? null,
     detail: redactSecretsInText(input.detail),
-    ...incidentContext(threadId),
   };
-  const count = incidentLedger.note(threadId);
-  if (count.muted) return;
-  const chief = chiefForBot(store.bots, bot);
-  const alreadyNotified = input.kind === "could-not-start" || input.kind === "routine-failed";
-  const tellThePerson = () => {
-    if (alreadyNotified) return;
-    notify(buildNotification("incident", bot, threadId, incidentChip(incident), {
-      avatarUrl: bot.avatarUrl,
-      ...(group ? { group: { id: group.id, name: group.name } } : {}),
-    }));
-  };
-  if (!chief) {
-    tellThePerson();
-    return;
-  }
-  const incidents = store.tasks(chief.id).find((candidate) => candidate.title === INCIDENTS_THREAD_TITLE && !candidate.archivedAt)
-    ?? store.createTask(chief.id, INCIDENTS_THREAD_TITLE, false, undefined, { botId: chief.id, name: chief.name, at: Date.now() });
-  if (!incidents || incidents.threadId === threadId) {
-    tellThePerson();
-    return;
-  }
-  store.appendMessage(incidents.threadId, {
-    role: "bot",
-    kind: "activity",
-    tool: { name: incidentChip(incident), ok: false },
-    threadRef: { botId: bot.id, threadId, title: task?.title ?? (group ? group.name : `${bot.name}'s conversation`) },
-  });
-  const text = incidentText(incident, count);
-  const peerAsk = { botId: bot.id, name: bot.name, unattended: true };
-  if (botAtThreadCapacity(chief.id) || activeGroupTurnForBot(chief.id)) {
-    queueSteeredMessage(chief.id, incidents.threadId, text, { reason: "capacity", unattended: true, peerAsk });
-    return;
-  }
-  void startTurn(chief.id, text, { threadId: incidents.threadId, unattended: true, peerAsk }).catch((error) => {
-    const why = error instanceof Error ? error.message : String(error);
-    store.appendMessage(incidents.threadId, {
-      role: "bot",
-      kind: "activity",
-      tool: failedTurnTool(`the incident could not reach ${chief.name} — ${why}`),
-    });
-    tellThePerson();
-  });
+  if (incidentLedger.note(threadId).muted) return;
+  notify(buildNotification("incident", bot, threadId, incidentChip(incident), {
+    avatarUrl: bot.avatarUrl,
+    ...(group ? { group: { id: group.id, name: group.name } } : {}),
+  }));
 }
 
 function drainDelegationWakes(): void {
@@ -8602,7 +8505,6 @@ async function startTurn(
         drainComputerResumes();
         drainSecretResumes();
         drainTakeoverResumes();
-        drainTeamSetupResumes();
         drainDelegationWakes();
         return;
       }
@@ -8845,7 +8747,6 @@ async function startTurn(
         });
         if (opts?.automationSource === undefined && !opts?.commsDepth && !opts?.cardContinuation) {
           notify(buildNotification("turn-failed", bot, threadId, redactSecretsInText(message), { avatarUrl: bot.avatarUrl }));
-          reportIncident({ kind: "could-not-start", bot, threadId, detail: message });
           resourceOwner.lazyClaimFailureReported = true;
         }
         opts?.onDispatchError?.(message);
@@ -9062,16 +8963,10 @@ async function startTurn(
             sectionPeers,
           )
         : [];
-      const coordinationPrompt = bot.chiefOfStaff
-        ? chiefOfStaffSystemPrompt(
-            bot.id,
-            store.bots,
-            Boolean(integrations.agents),
-            boundedCoordination,
-          )
-        : integrations.agents && sectionPeers.length > 0
-          ? peerRosterSystemPrompt(sectionPeers, boundedCoordination)
-          : "";
+      const coordinationPrompt = withMainDogRouting(
+        bot.id === store.mainBotId(),
+        integrations.agents && sectionPeers.length > 0 ? peerRosterSystemPrompt(sectionPeers, boundedCoordination) : "",
+      );
       const credentialPrompt = integrations.agents ? CREDENTIAL_PROMPT : "";
       const routinePrompt = integrations.agents ? ROUTINE_PROMPT : "";
       const profilePrompt = integrations.agents ? PROFILE_PROMPT : "";
@@ -9255,7 +9150,6 @@ async function startTurn(
         drainComputerResumes();
         drainSecretResumes();
         drainTakeoverResumes();
-        drainTeamSetupResumes();
         drainDelegationWakes();
       }
     } catch (cause) {
@@ -9297,7 +9191,6 @@ async function startTurn(
           drainComputerResumes();
           drainSecretResumes();
           drainTakeoverResumes();
-          drainTeamSetupResumes();
           drainDelegationWakes();
         }
         return;
@@ -9325,7 +9218,6 @@ async function startTurn(
         drainComputerResumes();
         drainSecretResumes();
         drainTakeoverResumes();
-        drainTeamSetupResumes();
         drainDelegationWakes();
         return;
       }
@@ -9383,7 +9275,6 @@ async function startTurn(
         notify(
           buildNotification("turn-failed", bot, threadId, redactSecretsInText(message), { avatarUrl: bot.avatarUrl }),
         );
-        reportIncident({ kind: "could-not-start", bot, threadId, detail: message });
       }
       store.setTaskActivity(bot.id, threadId, "idle");
       directTurnBots.delete(threadId);
@@ -9394,7 +9285,6 @@ async function startTurn(
       drainComputerResumes();
       drainSecretResumes();
       drainTakeoverResumes();
-      drainTeamSetupResumes();
       drainDelegationWakes();
     }
   })();
@@ -9641,7 +9531,6 @@ routines = new RoutineManager({
     const detail = run.error ? `${run.routineName}: ${run.error}` : run.routineName;
     const notificationBot = routineSourceOwner(run)?.bot ?? bot;
     notify(buildNotification("routine-failed", notificationBot, routineSourceThread(run) ?? run.threadId ?? bot.threadId, detail));
-    reportIncident({ kind: "routine-failed", bot, threadId: run.threadId ?? bot.threadId, detail });
   },
   onRunDeferred: (run) => {
     const bot = store.bot(run.botId);
@@ -9806,11 +9695,12 @@ const routineRequests = new RoutineRequestService({
     return null;
   },
 });
-async function deleteBotWithLifecycle(botId: string, revalidate: () => void = () => {}, setupRequest?: TeamSetupRequest) {
+async function deleteBotWithLifecycle(botId: string, revalidate: () => void = () => {}) {
   const deletionResponse = (status: number, body: { error?: string; ok?: boolean }) => ({ status, body });
       revalidate();
       const bot = store.bot(botId);
       if (!bot) return deletionResponse( 404, { error: "no such bot" });
+      if (bot.id === store.mainBotId()) return deletionResponse(409, { error: MAIN_DOG_DELETE_REFUSAL });
       if (computerProviderConfigTransitions.size > 0) {
         return deletionResponse( 409, { error: "computer provider settings are being updated — wait before deleting this dog" });
       }
@@ -9900,6 +9790,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
         const ownedBoatComputers = cloudInventory.instances.filter((instance) => instance.ownerBotId === bot.id);
 
         revalidate();
+        if (bot.id === store.mainBotId()) return deletionResponse(409, { error: MAIN_DOG_DELETE_REFUSAL });
         const browserCleanupRequest = browserCleanup.prepare("bot", bot.id);
         try {
           for (const instance of ownedBoatComputers) {
@@ -9924,11 +9815,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
             localVmIdles.delete(localVmCleanup.target.key);
             localVmLeases.forget(localVmCleanup.target.key);
           }
-          for (const entry of pendingTeamSetupResumes.values()) {
-            if (entry.request.botId === bot.id) cancelTeamSetupResumesForThread(entry.request.threadId);
-          }
           for (const task of store.tasks(bot.id)) {
-            cancelTeamSetupResumesForThread(task.threadId);
             revokeInternalCapabilitiesForThread(task.threadId);
           }
           await interruptAllDirectThreads(bot.id);
@@ -9951,7 +9838,8 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
           localVmIdles.get(target.key)?.cancel();
           localVmIdles.delete(target.key);
           revalidate();
-          store.deleteBot(bot.id, setupRequest);
+          if (bot.id === store.mainBotId()) throw Object.assign(new Error(MAIN_DOG_DELETE_REFUSAL), { status: 409 });
+          store.deleteBot(bot.id);
           await boat.releaseDeletedDogsComputers(cfg).catch((error: unknown) => console.warn(`free trial computer: could not release a deleted dog's computer: ${error instanceof Error ? error.message : String(error)}`));
           routines!.disableForBot(bot.id);
           webhooks.disableForBot(bot.id);
@@ -9981,14 +9869,6 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
 const driverCapabilitiesFor = (instanceId: string) => {
   const instance = registry.get(instanceId);
   return instance ? { driverKind: instance.driverKind, agentsMcp: instance.adapter.capabilities.agentsMcp === true } : undefined;
-};
-const chiefPeerTargetRule = (noun: string) => (proposerBotId: string, targetBotId: string): string | null => {
-  const proposer = store.bot(proposerBotId);
-  const target = store.bot(targetBotId);
-  if (!target) return "that bot no longer exists";
-  if (!proposer?.chiefOfStaff) return "only a section's Chief of Staff can change another bot's " + noun;
-  if (!canAccessTeam(proposer, target.section) || !canReachPeer(proposer, target)) return "that bot is not in a team this Chief is allowed to manage";
-  return null;
 };
 const validateModelProposal = (selection: ModelSelection, current?: BotRecord): string | null => {
   const checked = checkedModelSelection(selection, undefined, true);
@@ -10071,119 +9951,16 @@ function resolveAndSendTrust(res: ServerResponse, threadId: string, requestId: s
 
 const profileRequests = new ProfileRequestService({
   store,
-  ...profileTargetPolicy(store, appliesDirectly),
+  autoApply: appliesDirectly,
   canPersist: proposalPersistence,
 });
 const modelRequests = new ModelRequestService({
   store,
   autoApply: appliesDirectly,
   canPersist: proposalPersistence,
-  validateTarget: chiefPeerTargetRule("default model"),
   validateModel: validateModelProposal,
   driverCapabilities: driverCapabilitiesFor,
 });
-const teamSetupTeams = () => [...new Set(["", ...readSections(), ...store.bots.map((bot) => sectionKey(bot.section)), ...store.groups.map((group) => sectionKey(group.section))])];
-const teamSetupRequests = new TeamSetupRequestService({
-  store, teams: teamSetupTeams, canAccessTeam, canPersist: proposalPersistence, maxBots: MAX_WORKSPACE_BOTS,
-  autoApply: fullAccessForSource,
-  validateChange: (before, fields) => assertTeamComputerChangeIdle(before, { ...before, ...fields }),
-  ownsThread: (botId, threadId) => Boolean(connectorThread(botId, threadId)),
-  targetBusy: (botId, sourceThreadId) => {
-    if (!sourceThreadId) return Boolean(store.bot(botId)?.busy || hasDirectDispatch(botId) || activeGroupTurnForBot(botId) || routines?.activeRunForBot(botId));
-    const group = activeGroupTurnForBot(botId);
-    const run = routines?.activeRunForBot(botId);
-    return store.tasks(botId).some(task => task.threadId !== sourceThreadId && threadBusy(botId, task.threadId)) ||
-      [...directTurnDispatchClaims].some(([threadId, claim]) => threadId !== sourceThreadId && claim.botId === botId) ||
-      Boolean(group && group.threadId !== sourceThreadId) || Boolean(run && run.threadId !== sourceThreadId);
-  },
-  validateModel: validateModelProposal,
-  driverCapabilities: driverCapabilitiesFor,
-  deleteBot: async (botId, revalidate, request) => {
-    const result = await deleteBotWithLifecycle(botId, revalidate, request);
-    if (result.status >= 400) throw new TeamSetupError(result.body.error ?? "The dog could not be deleted", result.status);
-  },
-});
-
-type TeamSetupResumeEntry = { request: TeamSetupRequest; messageId: string; generation: number };
-const pendingTeamSetupResumes = new Map<string, TeamSetupResumeEntry>();
-const teamSetupResumeGenerations = new Map<string, number>();
-function cancelTeamSetupResumesForThread(threadId: string): void {
-  teamSetupResumeGenerations.set(threadId, (teamSetupResumeGenerations.get(threadId) ?? 0) + 1);
-  for (const [key, entry] of pendingTeamSetupResumes) {
-    if (entry.request.threadId === threadId) pendingTeamSetupResumes.delete(key);
-  }
-}
-function dispatchTeamSetupResume(entry: TeamSetupResumeEntry): void {
-  const { request, messageId } = entry;
-  const cancelled = () => entry.generation !== (teamSetupResumeGenerations.get(request.threadId) ?? 0);
-  if (cancelled()) return;
-  const owner = connectorThread(request.botId, request.threadId);
-  const message = store.messagesFor(request.threadId).find((item) => item.id === messageId);
-  if (!owner || !message?.card?.teamSetupRequest?.result) return;
-  if (!canAdmitDirectTurn(request.botId, request.threadId)) {
-    pendingTeamSetupResumes.set(request.requestId, entry);
-    return;
-  }
-  const prompt = `later.dog team setup decision ${request.requestId}: ${JSON.stringify(request.result)}. Report this exact result and continue the person's already requested work. Do not ask for confirmation again or repeat this setup/deletion. A denied or cancelled operation did not authorize any substitute action. Existing thread models were not changed.`;
-  const failed = (error: string) => {
-    if (cancelled()) return;
-    const current = store.messagesFor(request.threadId).find((item) => item.id === messageId);
-    if (current?.card) store.patchMessage(request.threadId, messageId, { card: { ...current.card, held: `The decision was recorded, but the Chief could not continue: ${redactSecretsInText(error).slice(0, 300)}` } });
-  };
-  if (owner.group) {
-    const groupId = owner.group.id;
-    const operation = beginGroupTurnOperation(groupId, request.threadId, [request.botId]);
-    const previous = groupQueues.get(groupId) ?? Promise.resolve();
-    const next = previous.then(async () => {
-      if (operation.cancelled || cancelled()) return;
-      const current = connectorThread(request.botId, request.threadId);
-      if (!current?.group) return;
-      if (current.bot.busy) { pendingTeamSetupResumes.set(request.requestId, entry); return; }
-      await runGroupMemberTurn(groupId, request.threadId, request.botId, 0, new Set(), prompt, failed,
-        () => operation.cancelled, () => groupProviderHandshakeStarted(operation), () => groupProviderHandshakeSettled(operation));
-    });
-    groupQueues.set(groupId, next.finally(() => finishGroupTurnOperation(groupId, operation)).catch((error) => failed(error instanceof Error ? error.message : String(error))));
-    return;
-  }
-  void startTurn(request.botId, prompt, { threadId: request.threadId, cardContinuation: true,
-    requestMessageId: requestSourceForCard(store.messagesFor(request.threadId), messageId), onDispatchError: failed }).catch((error) => {
-    if (cancelled()) return;
-    if (isTurnAdmissionBlocked(error)) pendingTeamSetupResumes.set(request.requestId, entry);
-    else failed(error instanceof Error ? error.message : String(error));
-  });
-}
-function drainTeamSetupResumes(): void {
-  for (const [key, entry] of pendingTeamSetupResumes) {
-    if (!canAdmitDirectTurn(entry.request.botId, entry.request.threadId)) continue;
-    pendingTeamSetupResumes.delete(key);
-    dispatchTeamSetupResume(entry);
-  }
-}
-async function resolveAndSendTeamSetup(res: ServerResponse, args: { botId: string; threadId: string; requestId: string; behavior: string }, ownerReview: boolean): Promise<boolean> {
-  const card = store.messagesFor(args.threadId).find((item) => item.card?.requestId === args.requestId && item.card.teamSetupRequest)?.card;
-  if (!card) return false;
-  if (args.behavior === "allow" && !ownerReview) { json(res, 403, { error: "Approve pack setup or deletion from the desktop app or a paired Full-access device. In a local browser, wait until every dog is idle." }); return true; }
-  if (args.behavior === "allow" && !card.answered && !card.dismissed && !card.expired) {
-    for (const operation of card.teamSetupRequest!.operations) {
-      const before = store.bot(operation.botId);
-      if (before && operation.action === "update") assertTeamComputerChangeIdle(before, { ...before, ...operation.fields });
-    }
-  }
-  const resumeGeneration = teamSetupResumeGenerations.get(args.threadId) ?? 0;
-  const resolved = await teamSetupRequests.resolve(args);
-  if (!resolved) return false;
-  if (!resolved.duplicate) {
-    appendDecision(DATA_DIR, { threadId: args.threadId, requestId: args.requestId, botId: args.botId, tool: card.tool,
-      summary: card.subtitle, decision: resolved.result.state === "applied" ? "user-approved" : "user-denied", source: "user" });
-  }
-  const current = store.messagesFor(args.threadId).find((item) => item.id === resolved.messageId);
-  if (current?.card?.teamSetupRequest?.result && !current.card.teamSetupRequest.resumed) {
-    store.patchMessage(args.threadId, current.id, { card: { ...current.card, teamSetupRequest: { ...current.card.teamSetupRequest, resumed: true } } });
-    dispatchTeamSetupResume({ request: resolved.request, messageId: resolved.messageId, generation: resumeGeneration });
-  }
-  json(res, 200, { ok: true, outcome: resolved.result.state === "applied" ? "allowed-once" : "rejected", result: resolved.result, alreadySettled: resolved.duplicate });
-  return true;
-}
 const ROUTINE_WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 const routineTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const routineTimestamp = (value: number | undefined) =>
@@ -11355,7 +11132,6 @@ async function runGroupMemberTurn(
     drainComputerResumes();
     drainSecretResumes();
     drainTakeoverResumes();
-    drainTeamSetupResumes();
     return false;
   }
   if (outcome === "timed_out") {
@@ -11382,7 +11158,6 @@ async function runGroupMemberTurn(
         drainComputerResumes();
         drainSecretResumes();
         drainTakeoverResumes();
-        drainTeamSetupResumes();
       }
     };
     const release = setTimeout(releaseOwnership, 6_000);
@@ -11405,7 +11180,6 @@ async function runGroupMemberTurn(
     drainComputerResumes();
     drainSecretResumes();
     drainTakeoverResumes();
-    drainTeamSetupResumes();
   }
   if (outcome === "provider_failed" || outcome === "parked") {
     if (skillAuthoring) skillAuthoringClaim.claimed = false;
@@ -11520,7 +11294,6 @@ async function runGroupMemberTurn(
       drainComputerResumes();
       drainSecretResumes();
       drainTakeoverResumes();
-      drainTeamSetupResumes();
     }
   }
 }
@@ -12310,7 +12083,7 @@ function proposalPersistence(botId: string, threadId: string, opensCard = true) 
   if (!opensCard || fullAccessForSource(botId, threadId)) return { ok: true as const };
   const openRequests = store.activePath(threadId).filter(
     (message) =>
-      (message.card?.routineRequest?.botId === botId || message.card?.profileRequest?.botId === botId || message.card?.modelRequest?.botId === botId || message.card?.teamSetupRequest?.botId === botId) &&
+      (message.card?.routineRequest?.botId === botId || message.card?.profileRequest?.botId === botId || message.card?.modelRequest?.botId === botId) &&
       !message.card.answered &&
       !message.card.dismissed && !message.card.expired,
   ).length;
@@ -13187,7 +12960,6 @@ bus.subscribe((event: RuntimeEvent) => {
     drainComputerResumes();
     drainSecretResumes();
     drainTakeoverResumes();
-    drainTeamSetupResumes();
   }
 });
 
@@ -13615,7 +13387,6 @@ async function reloadProviders() {
   drainComputerResumes();
   drainSecretResumes();
   drainTakeoverResumes();
-  drainTeamSetupResumes();
 }
 
 let providerConfigBusy = false;
@@ -14802,33 +14573,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const fromThreadId = internalCapability.threadId;
         const owner = connectorThread(from.id, fromThreadId);
         if (!owner) return json(res, 403, { error: "source conversation does not belong to sender" });
-        let forBot: { botId: string; name: string } | undefined;
-        if (body.forBotId !== undefined) {
-          const parsedForBotId = z.string().max(128).safeParse(body.forBotId);
-          const forBotId = parsedForBotId.success ? parsedForBotId.data.trim() : "";
-          if (!forBotId) {
-            return json(res, 400, { error: 'for_bot_id must be a bot id from list_bots, e.g. { "for_bot_id": "bot-abc123" }' });
-          }
-          if (forBotId !== from.id) {
-            const target = store.bot(forBotId);
-            if (!target) {
-              return json(res, 404, { error: "no bot with that id — call list_bots and copy the exact id from the result" });
-            }
-            if (!canAccessTeam(from, target.section) || !canReachPeer(from, target)) {
-              return json(res, 403, { error: `that bot is outside this bot's routine-management scope or is unavailable. ${PEER_ACCESS_HELP}` });
-            }
-            forBot = { botId: target.id, name: target.name };
-          }
-        }
         const persistence = proposalPersistence(from.id, fromThreadId, false);
         if (!persistence.ok) {
           return json(res, persistence.status, { error: persistence.error });
         }
         const proposedInput = body.action === "create"
-          ? { action: body.action, routine: body.routine, forBot }
+          ? { action: body.action, routine: body.routine }
           : body.action === "update"
-            ? { action: body.action, routineId: body.routineId, changes: body.changes, forBot }
-            : { action: body.action, routineId: body.routineId, forBot };
+            ? { action: body.action, routineId: body.routineId, changes: body.changes }
+            : { action: body.action, routineId: body.routineId };
         const wasOwners = proposedInput.action !== "create" && typeof proposedInput.routineId === "string" ? cloudRoutineIsOwners(proposedInput.routineId) : false;
         const run = routineRunForTurn(fromThreadId);
         const ownersTurn = cloudOwnerOnlyThread(fromThreadId) || cloudRoutineRunIsOwners(run, from.id, fromThreadId);
@@ -14918,7 +14671,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const parsed = z.object({
           fromBotId: z.string().min(1).max(128),
           fromThreadId: z.string().min(1).max(128),
-          forBotId: z.string().max(128).optional(),
           changes: z.unknown(),
           avatarPrompt: z.string().trim().min(1).max(400).optional(),
           reason: z.unknown(),
@@ -14929,7 +14681,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!from) return json(res, 403, { error: "unknown sender" });
         const owner = connectorThread(from.id, body.fromThreadId);
         if (!owner) return json(res, 403, { error: "source conversation does not belong to sender" });
-        const targetBotId = body.forBotId?.trim() || from.id;
+        const targetBotId = from.id;
         const submit = (changes: unknown) => profileRequests.submit({
           botId: from.id,
           threadId: body.fromThreadId,
@@ -14969,7 +14721,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const parsed = z.object({
           fromBotId: z.string().min(1).max(128),
           fromThreadId: z.string().min(1).max(128),
-          forBotId: z.string().max(128).optional(),
           modelSelection: z.unknown(),
           reason: z.unknown(),
         }).strict().safeParse(await readInternalBody());
@@ -14982,7 +14733,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const proposed = modelRequests.submit({
           botId: from.id,
           threadId: body.fromThreadId,
-          targetBotId: body.forBotId?.trim() || from.id,
+          targetBotId: from.id,
           selection: body.modelSelection,
           reason: body.reason,
           from: owner.group ? { botId: from.id, name: from.name, color: from.color } : undefined,
@@ -14992,50 +14743,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           tool: "update_model", summary: proposed.detail, decision: proposed.state === "applied" ? "auto-approved" : "card-shown",
           source: proposed.state === "applied" ? proposed.appliedBy ?? "full-access" : "model",
         });
-        return json(res, 201, proposed);
-      }
-      if (method === "GET" && path === "/api/internal/team-setup-catalog") {
-        let chief = store.bot(internalCapability.botId)!;
-        if (!chief.chiefOfStaff || chief.hidden) return json(res, 403, { error: "Only an active Chief may plan team setup" });
-        const instances = await registry.describe();
-        requireActiveInternalCapability();
-        chief = store.bot(internalCapability.botId)!;
-        if (!chief.chiefOfStaff || chief.hidden) return json(res, 403, { error: "Only an active Chief may plan team setup" });
-        return json(res, 200, {
-          teams: teamSetupTeams().filter((name) => canAccessTeam(chief, name)),
-          bots: store.bots.filter((bot) => !bot.hidden && canAccessTeam(chief, bot.section) && (bot.id === chief.id || peerAllowed(chief, bot)))
-            .map((bot) => ({ id: bot.id, name: bot.name, title: bot.title, section: bot.section ?? "", modelSelection: bot.modelSelection, chiefOfStaff: Boolean(bot.chiefOfStaff) })),
-          instances: instances.map((instance) => ({ instanceId: instance.instanceId, driverKind: instance.driverKind, displayName: instance.displayName,
-            state: instance.snapshot.state, models: instance.models, effortLevels: instance.capabilities?.effortLevels ?? [] })),
-          scope: "Bot model defaults apply to groups and new threads; existing threads retain their models. Full Access applies requested team setup immediately; other modes return a review card. Existing unauthorized teams remain outside this Chief's scope.",
-        });
-      }
-      if (method === "POST" && path === "/api/internal/team-setup-requests") {
-        const parsed = z.object({ fromBotId: z.string().optional(), fromThreadId: z.string().optional(), plan: z.unknown() }).strict().safeParse(await readInternalBody());
-        if (!parsed.success) return json(res, 400, { error: "Invalid team setup request" });
-        const chief = store.bot(internalCapability.botId)!;
-        const owner = connectorThread(chief.id, internalCapability.threadId);
-        if (!owner) return json(res, 403, { error: "Source conversation no longer belongs to the Chief" });
-        const proposed = await teamSetupRequests.submit({ botId: chief.id, threadId: internalCapability.threadId, plan: parsed.data.plan,
-          canCommit: () => internalCapabilityIsActive(internalCapability),
-          ...(owner.group ? { from: { botId: chief.id, name: chief.name, color: chief.color } } : {}) });
-        if (proposed.state === "applied" || proposed.state === "pending") appendDecision(DATA_DIR, { threadId: internalCapability.threadId, requestId: proposed.requestId, botId: chief.id,
-          tool: "set_up_team", summary: proposed.detail, decision: proposed.state === "applied" ? "auto-approved" : "card-shown",
-          source: proposed.state === "pending" ? "profile" : "full-access" });
-        return json(res, 201, proposed);
-      }
-      if (method === "POST" && path === "/api/internal/bot-deletion-requests") {
-        const parsed = z.object({ fromBotId: z.string().optional(), fromThreadId: z.string().optional(), targetBotId: z.string().min(1), reason: z.string().trim().min(1).max(500) }).strict().safeParse(await readInternalBody());
-        if (!parsed.success) return json(res, 400, { error: "An exact bot id and deletion reason are required" });
-        const chief = store.bot(internalCapability.botId)!;
-        const owner = connectorThread(chief.id, internalCapability.threadId);
-        if (!owner) return json(res, 403, { error: "Source conversation no longer belongs to the Chief" });
-        const proposed = await teamSetupRequests.submitDeletion({ botId: chief.id, threadId: internalCapability.threadId, targetBotId: parsed.data.targetBotId, reason: parsed.data.reason,
-          canCommit: () => internalCapabilityIsActive(internalCapability),
-          ...(owner.group ? { from: { botId: chief.id, name: chief.name, color: chief.color } } : {}) });
-        if (proposed.state === "applied" || proposed.state === "pending") appendDecision(DATA_DIR, { threadId: internalCapability.threadId, requestId: proposed.requestId, botId: chief.id,
-          tool: "delete_bot", summary: proposed.detail, decision: proposed.state === "applied" ? "auto-approved" : "card-shown",
-          source: proposed.state === "pending" ? "profile" : "full-access" });
         return json(res, 201, proposed);
       }
       const discloseRecall = (bot: BotRecord, roomThreadId: string, sourceThreadIds: readonly string[]): void => {
@@ -15500,41 +15207,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           await new Promise((wake) => setTimeout(wake, 500));
         }
       }
-      if (method === "POST" && path === "/api/internal/retry-thread") {
-        const body = await readInternalBody();
-        const from = internalSender;
-        const fromThreadId = internalCapability.threadId;
-        if (!from.chiefOfStaff || from.hidden) return json(res, 403, { error: "only a Chief of Staff can retry a teammate's thread" });
-        const botId = typeof body.toBotId === "string" ? body.toBotId : "";
-        const threadId = typeof body.toThreadId === "string" ? body.toThreadId : "";
-        const note = typeof body.note === "string" ? body.note.trim().slice(0, 300) : "";
-        const target = store.bot(botId);
-        if (!target || target.id === from.id) return json(res, 404, { error: "no such teammate" });
-        if (target.hidden || !canAccessTeam(from, target.section) || !peerAllowed(from, target)) {
-          return json(res, 403, { error: "that bot is not on this Chief's team — call list_bots for the ones you can reach" });
-        }
-        if (store.groupByThread(threadId)) return json(res, 400, { error: "that is a room thread — use coordinate_bots in the room instead" });
-        const task = store.taskByThread(target.id, threadId);
-        if (!task) return json(res, 404, { error: "no such thread on that bot" });
-        if (threadBusy(target.id, threadId) || queuedThreadPosition(target.id, threadId) !== null) {
-          return json(res, 409, { error: "that thread is still running — wait for it to settle before retrying" });
-        }
-        requireActiveInternalCapability();
-        const unattended = isUnattended(from.id, fromThreadId);
-        const text = `[Retry requested by ${from.name}, your Chief of Staff, after this thread's last run stopped.${note ? ` Note from ${from.name}: ${note}` : ""} Continue the request above from where it stopped and finish it. If the same problem comes back, say exactly what is blocking and stop.]`;
-        try {
-          await startTurn(target.id, text, { threadId, unattended, peerAsk: { botId: from.id, name: from.name, ...(unattended ? { unattended: true } : {}) } });
-        } catch (error) {
-          return json(res, 409, { error: error instanceof Error ? error.message : String(error) });
-        }
-        store.appendMessage(fromThreadId, {
-          role: "bot",
-          kind: "activity",
-          tool: { name: `Retried ${target.name}'s thread #${task.title}`, ok: true },
-          threadRef: { botId: target.id, threadId, title: task.title },
-        });
-        return json(res, 200, { started: true, message: `${target.name}'s thread #${task.title} is running again. Its result stays in that thread; you are not woken for it — check later with session_search if you need to.` });
-      }
       if (method === "POST" && path === "/api/internal/delegate-bot") {
         const body = await readInternalBody();
         const toBotRef = String(body.toBotId ?? "");
@@ -15904,7 +15576,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const task = reused ?? store.createTask(target.id, title, false, undefined, { botId: from.id, name: from.name, threadId: fromThreadId, at: Date.now() });
         if (!task) return json(res, 500, { error: "couldn't create that thread" });
         if (!reused) threadStarters.set(task.threadId, openerFrom(fromThreadId));
-        applyDelegatedLevel(from, fromThreadId, target, task.threadId);
         const sourceUrl = threadRefUrl({ botId: owner.group?.id ?? from.id, threadId: fromThreadId });
         const queued = queueDelegation(
           commsBus,
@@ -15951,12 +15622,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/create-bot") {
         const body = await readInternalBody();
-        const chief = internalSender;
+        const creator = internalSender;
         const fromThreadId = internalCapability.threadId;
-        if (!connectorThread(chief.id, fromThreadId)) {
+        if (!connectorThread(creator.id, fromThreadId)) {
           return json(res, 403, { error: "source conversation does not belong to sender" });
         }
-        if (!mayCreateDogs(chief)) return json(res, 403, { error: DOG_CREATION_REFUSAL });
+        if (!mayCreateDogs(creator)) return json(res, 403, { error: DOG_CREATION_REFUSAL });
         if (internalCapability.createdBots >= MAX_CREATED_BOTS_PER_TURN) {
           return json(res, 429, { error: `You can create at most ${MAX_CREATED_BOTS_PER_TURN} bots in one turn. Use the team you have before adding more.` });
         }
@@ -15991,7 +15662,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (!checkedCwd.ok) return json(res, 400, { error: checkedCwd.error });
           cwd = checkedCwd.cwd ?? undefined;
         }
-        if (store.bot(chief.id) !== chief || !mayCreateDogs(chief) || !connectorThread(chief.id, fromThreadId)) {
+        if (store.bot(creator.id) !== creator || !mayCreateDogs(creator) || !connectorThread(creator.id, fromThreadId)) {
           return json(res, 403, { error: "This bot was archived or changed while the new bot was being set up, so nothing was created." });
         }
         if (internalCapability.createdBots >= MAX_CREATED_BOTS_PER_TURN) {
@@ -16001,7 +15672,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const duplicate = store.bots.find(
           (candidate) =>
             !candidate.hidden &&
-            sectionKey(candidate.section) === sectionKey(chief.section) &&
+            sectionKey(candidate.section) === sectionKey(creator.section) &&
             candidate.name.trim().toLowerCase() === name.toLowerCase(),
         );
         if (duplicate) {
@@ -16013,20 +15684,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             title: role,
             description: instructions,
             modelSelection: selection,
-            section: chief.section,
+            section: creator.section,
             ...(cwd !== undefined ? { cwd } : {}),
-            ...(chief.visibility ? { visibility: chief.visibility } : {}),
+            ...(creator.visibility ? { visibility: creator.visibility } : {}),
           },
           { seedMessages: false },
         );
         const safeBot = store.patchBot(created.id, dogMadeDogAccess(
-          chief,
-          sourceApprovalMode(chief.id, fromThreadId),
+          creator,
+          sourceApprovalMode(creator.id, fromThreadId),
           newBotDefaultsOrBuiltIn(cfg.newBotDefaults).profile.approvalMode,
           (mode) => supportsApprovalMode(created.modelSelection, mode),
         ))!;
         internalCapability.createdBots += 1;
-        const greeted = greetNewDog(store, safeBot, { creatorName: chief.name, threadId: fromThreadId, profileName: cfg.profile?.name });
+        const greeted = greetNewDog(store, safeBot, { creatorName: creator.name, threadId: fromThreadId, profileName: cfg.profile?.name });
         return json(res, 201, {
           id: safeBot.id,
           name: safeBot.name,
@@ -17692,7 +17363,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (notYours) return json(res, 403, { error: notYours });
       const stagedSkillCleanups = stagedSkillCleanupsForThread(m[2]);
       lastReply.delete(m[2]);
-      cancelTeamSetupResumesForThread(m[2]);
       const updated = store.deleteGroupTask(group.id, m[2]);
       if (!updated) return json(res, 400, { error: "a channel keeps at least one task" });
       clearTurnDigestState(m[2]);
@@ -17737,8 +17407,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const threadIds = new Set([group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]);
       const stagedSkillCleanups = [...threadIds].flatMap(stagedSkillCleanupsForThread);
       for (const threadId of threadIds) {
-        cancelTeamSetupResumesForThread(threadId);
-        lastReply.delete(threadId);
+              lastReply.delete(threadId);
         clearTurnDigestState(threadId);
       }
       routines!.disableForGroup(group.id);
@@ -18026,6 +17695,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!patched) return json(res, 404, { error: "no such message" });
       return json(res, 200, { message: patched });
     }
+    if (method === "PATCH" && path === "/api/main-dog") {
+      if (auth.kind === "session" && !auth.scopes.includes("admin")) {
+        return json(res, 403, { error: "Choosing the main dog needs the admin scope" });
+      }
+      const parsed = z.object({ botId: z.string().trim().min(1).max(128) }).strict().safeParse(await readBody(req));
+      if (!parsed.success) return json(res, 400, { error: "Provide the botId of the new main dog" });
+      if (store.setMainBot(parsed.data.botId) === null) return json(res, 404, { error: "no such bot" });
+      return json(res, 200, { mainDogId: store.mainBotId() });
+    }
     if (path === "/api/sidebar-sections" && method === "GET") {
       return json(res, 200, { sections: store.sections });
     }
@@ -18057,8 +17735,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const result = store.updateTeamMembers(section, parsed.data.addBotIds, parsed.data.removeBotIds);
       if (!result.ok) return json(res, result.reason === "unavailable" ? 404 : 409, { error:
-        result.reason === "chief-conflict" ? "A pack can have only one Chief of Staff. Change the Chief before moving this dog."
-          : result.reason === "membership-changed" ? "Pack membership changed. Reopen the dialog and try again."
+        result.reason === "membership-changed" ? "Pack membership changed. Reopen the dialog and try again."
           : "One or more dogs are unavailable" });
       return json(res, 200, { sections: store.sections, bots: result.bots.map(wireBot) });
     }
@@ -18079,11 +17756,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const result = store.setBotsSection(botIds, name);
       if (!result.ok) {
-        if (result.reason === "chief-conflict") {
-          return json(res, 409, {
-            error: "A pack can have only one Chief of Staff. Choose one Chief or use a pack without one.",
-          });
-        }
         return json(res, 404, { error: "one or more dogs are unavailable" });
       }
       return json(res, 200, { section: name, sections: store.sections, bots: result.bots.map(wireBot) });
@@ -18164,15 +17836,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (settings.mcpServers?.some(name => mcpServerNameError(name) !== null) || (settings.mcpServers?.length ?? 0) > MAX_MCP_SERVERS) {
         return json(res, 400, { error: "Invalid MCP server selection" });
       }
-      if (settings.managedSections?.length) {
-        if (!settings.chiefOfStaff || settings.managedSections.some(name => name !== "" && !store.sections.includes(name))) {
-          return json(res, 400, { error: "Only a Chief may manage existing additional teams" });
-        }
-        if (body.acknowledgePeerScope !== true) return json(res, 400, { error: "Confirm additional team access (acknowledgePeerScope)" });
-        if (auth.kind === "loopback" && !DESKTOP_MANAGED && store.bots.some(bot => bot.busy)) {
-          return json(res, 409, { error: "Stop running dogs before granting access to another pack" });
-        }
-      }
       const checkedCwd = validateBotCwd(settings.cwd ?? null);
       if (!checkedCwd.ok) return json(res, 400, { error: checkedCwd.error });
       if (body.requireAvailableModel !== undefined && typeof body.requireAvailableModel !== "boolean") {
@@ -18215,7 +17878,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ...(created?.ok ? { visibility: created.visibility } : {}) });
       const createdRoutines: Array<{ id: string; enabled: boolean }> = [];
       try {
-        const { chiefOfStaff: _chief, managedSections: _managed, toolScope: _toolScope, ...ordinary } = settings;
+        const { toolScope: _toolScope, ...ordinary } = settings;
         store.patchBot(bot.id, {
           ...ordinary, name: bot.name, section, modelSelection: bot.modelSelection,
           mascotExpression: ordinary.mascotExpression ?? undefined,
@@ -18261,14 +17924,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         throw error;
       }
       const warnings: string[] = [];
-      if (settings.chiefOfStaff) {
-        try {
-          store.patchBot(bot.id, { managedSections: settings.managedSections ?? [] });
-          store.setChiefOfStaff(bot.id);
-        } catch {
-          warnings.push("Dog created; review its Chief of Staff setting before delegating work.");
-        }
-      }
       for (const routine of createdRoutines) if (routine.enabled) {
         try { routines!.update(routine.id, { enabled: true }); }
         catch { warnings.push(`Dog created; routine ${routine.id} could not be activated.`); }
@@ -18520,7 +18175,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         } else return json(res, 400, { error: "pinnedMessageId must be a message id" });
       }
       if (section !== undefined) patch.section = section ?? undefined;
-      if (body.chiefOfStaff === false) patch.chiefOfStaff = false;
       if (body.fallback !== undefined) {
         if (!Array.isArray(body.fallback) || body.fallback.length > 5) {
           return json(res, 400, { error: "fallback must be a list of up to five { instanceId, model } entries" });
@@ -18643,6 +18297,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.chiefOfStaff !== undefined && typeof body.chiefOfStaff !== "boolean") {
         return json(res, 400, { error: "chiefOfStaff must be true or false" });
       }
+      if (body.chiefOfStaff === false && existingBot && existingBot.id === store.mainBotId()) {
+        return json(res, 409, { error: MAIN_DOG_REQUIRED });
+      }
       if (body.cloudBackend !== undefined) {
         const backendError = cloudBackendChangeError(Boolean(existingBot?.busy), activeVpsThreads.has(m[1]));
         if (backendError) return json(res, 409, { error: backendError });
@@ -18651,9 +18308,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const checked = validateBotCwd(body.cwd);
         if (!checked.ok) return json(res, 400, { error: checked.error });
         patch.cwd = checked.cwd ?? undefined;
-      }
-      if (body.hidden === true && existingBot?.chiefOfStaff && body.chiefOfStaff !== false) {
-        return json(res, 400, { error: "choose another Chief of Staff before hiding this dog" });
       }
       if (body.autoApprove !== undefined) {
         if (typeof body.autoApprove !== "boolean") return json(res, 400, { error: "autoApprove must be true or false" });
@@ -18747,23 +18401,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         patch.peers = nextPeers;
       }
-      if (body.managedSections !== undefined) {
-        const parsed = z.array(z.string().trim().max(60)).max(100).safeParse(body.managedSections);
-        if (!parsed.success) return json(res, 400, { error: "managedSections must be a list of up to 100 team names (60 characters each)" });
-        const sections = [...new Set(parsed.data)];
-        const newSections = sections.filter(section => !(existingBot?.managedSections ?? []).includes(section));
-        if (newSections.some(section => section !== "" && !store.sections.includes(section))) {
-          return json(res, 400, { error: "Create the named team before giving a Chief access to it" });
-        }
-        if (sections.length && !(body.chiefOfStaff === true || (existingBot?.chiefOfStaff && body.chiefOfStaff !== false))) {
-          return json(res, 400, { error: "Only a Chief of Staff can be given access to additional teams" });
-        }
-        if (newSections.length && body.acknowledgePeerScope !== true) {
-          return json(res, 400, { error: "Confirm which additional teams this Chief may work with (acknowledgePeerScope)" });
-        }
-        patch.managedSections = sections;
-      }
-      if (body.chiefOfStaff === false) patch.managedSections = [];
       if (Object.hasOwn(body, "visibility")) {
         const parsed = parseVisibility(body.visibility);
         if (!parsed.ok) return json(res, 400, { error: parsed.error });
@@ -18784,12 +18421,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             !existingBot.connectorScopes!.apps[slug] || (scope === "write" && existingBot.connectorScopes!.apps[slug] === "read")))) loosened.push("connectorScopes");
       if (body.fallback !== undefined && trustPatch.fallback?.some(candidate =>
           !existingBot?.fallback?.some(previous => previous.instanceId === candidate.instanceId && previous.model === candidate.model))) loosened.push("fallback");
-      if (Array.isArray(patch.managedSections) && patch.managedSections.some(section => !(existingBot?.managedSections ?? []).includes(section))) {
-        loosened.push("managedSections");
-      }
-      if (loosened.includes("managedSections") && auth.kind === "loopback" && !DESKTOP_MANAGED && store.bots.some(bot => bot.busy)) {
-        return json(res, 409, { error: "Stop running dogs before granting access to another pack, or use the desktop app or a paired Full-access session." });
-      }
       if (body.peers !== undefined && Array.isArray(existingBot?.peers)) {
         const nextPeers = patch.peers;
         if (nextPeers === undefined || (Array.isArray(nextPeers) && nextPeers.some((peerId) => !existingBot.peers!.includes(peerId)))) {
@@ -18827,11 +18458,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           closeOpenApprovals(groupTurn.threadId);
         }
       }
-      const chiefMovedSections =
-        Boolean(existingBot?.chiefOfStaff) &&
-        body.chiefOfStaff !== false &&
-        section !== undefined &&
-        sectionKey(existingBot?.section) !== sectionKey(section);
       let bot: BotRecord | null;
       const freshBrowserBot = store.bot(m[1]);
       if (freshBrowserBot && body.memoryEnabled !== undefined &&
@@ -18902,11 +18528,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           void forgetTemporaryBrowser(bot.id).catch((error) => console.warn("temporary browser cleanup failed", error));
         }
       }
-      const chiefChanges =
-        body.chiefOfStaff === true || chiefMovedSections
-          ? store.setChiefOfStaff(bot.id)
-          : [];
-      if (chiefChanges === null) return json(res, 404, { error: "no such bot" });
+      if (body.chiefOfStaff === true && store.setMainBot(bot.id) === null) return json(res, 404, { error: "no such bot" });
       if (beforeProfile) {
         const now = store.bot(bot.id)!;
         recordProfileChange(bot.id, "user", "api", beforeProfile, profileSnapshot(now));
@@ -19603,9 +19225,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return await answeringCardAs(auth, bot.threadId, String(body.requestId), async () => {
         recordAnswerScope(store, bot.threadId, String(body.requestId), behavior, body, answerGrants);
         if (resolveAndSendTrust(res, bot.threadId, String(body.requestId), behavior)) return;
-        if (await resolveAndSendTeamSetup(res, {
-          botId: bot.id, threadId: bot.threadId, requestId: String(body.requestId), behavior,
-        }, auth.kind === "loopback" ? DESKTOP_MANAGED || Boolean(req.headers.origin) && !store.bots.some((bot) => bot.busy || activeGroupTurnForBot(bot.id)) : auth.scopes.includes("admin"))) return;
         if (resolveAndSendRoutine(res, {
           botId: bot.id,
           botName: bot.name,
@@ -19715,13 +19334,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             requestId,
             behavior,
           }, auth.kind === "session" && cloudOwnerSession(auth))) return;
-        }
-        const setupCard = store.messagesFor(threadId).find((message) => message.card?.requestId === requestId && message.card.teamSetupRequest);
-        if (setupCard) {
-          const setupBotId = setupCard.from?.botId ?? store.botByThread(threadId)?.id;
-          if (!setupBotId) return json(res, 400, { error: "This team setup has no valid owner" });
-          if (await resolveAndSendTeamSetup(res, { botId: setupBotId, threadId, requestId, behavior },
-            auth.kind === "loopback" ? DESKTOP_MANAGED || Boolean(req.headers.origin) && !store.bots.some((bot) => bot.busy || activeGroupTurnForBot(bot.id)) : auth.scopes.includes("admin"))) return;
         }
         const profileCard = store.messagesFor(threadId).find(
           (message) => message.card?.requestId === requestId && message.card.profileRequest,
@@ -20096,7 +19708,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const stagedSkillCleanups = stagedSkillCleanupsForThread(m[2]);
       roomHandoffs.cancelDirect(m[2], "deleted");
-      cancelTeamSetupResumesForThread(m[2]);
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 404, { error: "no such task" });
       clearTurnDigestState(m[2]);
@@ -21606,7 +21217,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             drainComputerResumes();
             drainSecretResumes();
             drainTakeoverResumes();
-            drainTeamSetupResumes();
           }
           if (mandatoryError) throw mandatoryError;
           return status;

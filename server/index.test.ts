@@ -22,6 +22,7 @@ import { startFakeHttpMcp } from "./testing/fake-http-mcp-server.ts";
 import { startFakeOAuth } from "./testing/fake-oauth-server.ts";
 import { freePortBlock, withFreeSignInPort } from "./testing/ports.ts";
 import { openSse } from "./testing/sse.ts";
+import { MAIN_DOG_ROUTING } from "./laterdog/main-dog-prompt.ts";
 import { FILE_MAX_BYTES, IMAGE_MAX_BYTES } from "./attachments.ts";
 import { computerPrompt, SIGN_IN_PROMPT, VOICE_PROMPT } from "./system-prompt.ts";
 import {
@@ -1721,7 +1722,6 @@ describe("harness HTTP API", () => {
     expect(created.status).toBe(201);
     const routineId = created.body.routine.id;
     try {
-      expect((await api("PATCH", `/api/bots/${other.id}`, { chiefOfStaff: true })).status).toBe(200);
       const chiefToken = await mintTestCapability(BASE, other.id, other.threadId);
       const internalBlocked = await chiefRoomRequest(BASE, chiefToken, "manage-room", {
         roomId: room.id, action: "remove_members", memberIds: [lead.id],
@@ -2314,7 +2314,6 @@ describe("harness HTTP API", () => {
       const selected = await api("PATCH", `/api/bots/${chief.id}`, {
         name: "Channel Chief",
         section: "Channel creation test",
-        chiefOfStaff: true,
         modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
       });
       expect(selected.status).toBe(200);
@@ -2406,7 +2405,7 @@ describe("harness HTTP API", () => {
     const [chief, peer, second, excluded, foreign] = bots;
     const roomIds: string[] = [];
     try {
-      expect((await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true, peers: [peer.id, second.id] })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${chief.id}`, { peers: [peer.id, second.id] })).status).toBe(200);
       const token = await mintTestCapability(BASE, chief.id, chief.threadId);
       const create = (body: unknown) => chiefRoomRequest(BASE, token, "create-room", body);
       const managed = await create({ name: "Managed room", memberIds: [peer.id, peer.id], bulletin: "A short brief." });
@@ -2533,9 +2532,6 @@ describe("harness HTTP API", () => {
     let held: Awaited<ReturnType<typeof delayedJsonBody>> | undefined;
     let deleted = false;
     try {
-      expect((await api("PATCH", `/api/bots/${chief.id}`, {
-        chiefOfStaff: true,
-      })).status).toBe(200);
       const token = await mintTestCapability(BASE, chief.id, chief.threadId);
       held = await delayedJsonBody(
         "POST",
@@ -2573,7 +2569,6 @@ describe("harness HTTP API", () => {
     const chief = (await api("POST", "/api/bots")).body.bot;
     let createdId: string | undefined;
     try {
-      expect((await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true })).status).toBe(200);
       const token = await mintTestCapability(BASE, chief.id, chief.threadId);
       const create = async (name: string, cwd: unknown) => {
         const response = await fetch(`${BASE}/api/internal/create-bot`, {
@@ -2635,33 +2630,6 @@ describe("harness HTTP API", () => {
     const blocked = await api("POST", "/api/groups/test-stranded-room/tasks", {});
     expect(blocked.status).toBe(409);
     expect(blocked.body.error).toMatch(/waiting on you/i);
-  });
-
-  it("keeps Chief room changes behind pending user approvals", async () => {
-    const bot = (await api("POST", "/api/bots", { name: "Pending Chief", section: "Pending room" })).body.bot;
-    const peer = (await api("POST", "/api/bots", { name: "Pending peer", section: "Pending room" })).body.bot;
-    await api("PATCH", `/api/bots/${bot.id}`, { chiefOfStaff: true });
-    const room = (await api("POST", "/api/groups", { name: "Pending room", memberIds: [bot.id], section: "Pending room" })).body.group;
-    try {
-      const roomToken = await mintTestCapability(BASE, bot.id, room.threadId);
-      const proposed = await fetch(`${BASE}/api/internal/profile-requests`, {
-        method: "POST", headers: { authorization: `Bearer ${roomToken}`, "content-type": "application/json" },
-        body: JSON.stringify({ fromBotId: bot.id, fromThreadId: room.threadId, forBotId: peer.id, changes: { description: "Only after approval" }, reason: "Fixture check" }),
-      });
-      expect(proposed.status).toBe(201);
-      await proposed.json();
-      const token = await mintTestCapability(BASE, bot.id, bot.threadId);
-      const changed = await chiefRoomRequest(BASE, token, "manage-room", {
-        roomId: room.id, action: "set_bulletin", bulletin: "Changed during approval",
-      });
-      expect(changed.status).toBe(409);
-      expect(changed.body.error).toMatch(/waiting on you/);
-      expect((await chiefRoomRequest(BASE, token, "manage-room", { roomId: "test-dm", action: "rename", name: "A room" })).status).toBe(403);
-    } finally {
-      await api("DELETE", `/api/groups/${room.id}`);
-      await api("DELETE", `/api/bots/${bot.id}`);
-      await api("DELETE", `/api/bots/${peer.id}`);
-    }
   });
 
   it("keeps direct-message channels folderless at the API boundary", async () => {
@@ -4013,81 +3981,6 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("keeps a reviewed deletion target that changes during slow cloud cleanup", async () => {
-    const chief = (await api("POST", "/api/bots", { name: "Deletion Chief", section: "Deletion race" })).body.bot;
-    const target = (await api("POST", "/api/bots", { name: "Deletion Target", section: "Deletion race" })).body.bot;
-    let targetDeleted = false;
-    try {
-      expect((await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true })).status).toBe(200);
-      expect((await api("PUT", "/api/config", { box: { token: "box_route" } })).status).toBe(200);
-      managedBoatRows = [{
-        id: "bx_456789ab",
-        name: managedBoatNameForFixture(target.id),
-        state: "archived",
-      }];
-
-      const token = await mintTestCapability(BASE, chief.id, chief.threadId);
-      const proposedResponse = await fetch(`${BASE}/api/internal/bot-deletion-requests`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          fromBotId: chief.id,
-          fromThreadId: chief.threadId,
-          targetBotId: target.id,
-          reason: "Verify a reviewed deletion stays bound to the exact target profile",
-        }),
-      });
-      expect(proposedResponse.status).toBe(201);
-      const proposed = z.object({ requestId: z.string() }).passthrough().parse(await proposedResponse.json());
-
-      managedBoatDeleteGate = deferredGate();
-      const resolving = fetch(`${BASE}/api/threads/${chief.threadId}/respond`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          origin: BASE,
-        },
-        body: JSON.stringify({ requestId: proposed.requestId, behavior: "allow" }),
-      });
-      await managedBoatDeleteGate.entered;
-      const changed = await api("PATCH", `/api/bots/${target.id}`, {
-        title: "Changed while cloud cleanup was pending",
-      });
-      expect(changed.status).toBe(200);
-      managedBoatDeleteGate.release();
-      managedBoatDeleteGate = null;
-
-      const response = await resolving;
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({
-        ok: true,
-        outcome: "rejected",
-        result: { state: "cancelled", error: expect.stringMatching(/deletion target changed/i) },
-      });
-      const fleet = (await api("GET", "/api/bots?messages=0")).body.bots;
-      expect(fleet.find((candidate: { id: string }) => candidate.id === target.id)).toMatchObject({
-        title: "Changed while cloud cleanup was pending",
-      });
-      expect(managedBoatDeleteConfirmations).toHaveLength(1);
-    } finally {
-      managedBoatDeleteGate?.release();
-      managedBoatDeleteGate = null;
-      managedBoatRows = [];
-      managedBoatDeleteConfirmations.length = 0;
-      await api("POST", `/api/bots/${chief.id}/interrupt`, {}).catch(() => undefined);
-      const removed = await api("DELETE", `/api/bots/${target.id}`).catch(() => undefined);
-      targetDeleted = removed?.status === 200 || removed?.status === 404;
-      if (!targetDeleted) await api("DELETE", `/api/bots/${target.id}`).catch(() => undefined);
-      await api("PUT", "/api/config", { box: { token: "" } }).catch(() => undefined);
-      await expect.poll(async () =>
-        (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: { id: string }) => bot.id === chief.id)?.busy !== true,
-      { timeout: 15_000 }).toBe(true);
-      await api("DELETE", `/api/bots/${chief.id}`).catch(() => undefined);
-      expect((await api("GET", "/api/bots")).body.bots.some((bot: { id: string }) => bot.id === chief.id)).toBe(false);
-      boatRouteCalls.length = 0;
-    }
-  });
-
   it("keeps the bot while an owned Boat deletion is pending and finishes on retry", async () => {
     let botId = "";
     try {
@@ -4348,40 +4241,39 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("elects one Chief of Staff per section and preserves other section Chiefs", async () => {
-    const workA = (await api("POST", "/api/bots")).body.bot;
-    const workB = (await api("POST", "/api/bots")).body.bot;
-    const personal = (await api("POST", "/api/bots")).body.bot;
+  it("keeps one main dog: moved on request, never deleted, still hideable", async () => {
+    const mainOf = async () => ((await api("GET", "/api/bots?messages=0")).body.bots as Array<{ id: string; chiefOfStaff?: boolean; hidden?: boolean }>)
+      .filter((bot) => bot.chiefOfStaff);
+    const before = (await mainOf())[0]?.id;
+    const first = (await api("POST", "/api/bots")).body.bot;
+    const second = (await api("POST", "/api/bots")).body.bot;
     try {
-      await api("PATCH", `/api/bots/${workA.id}`, { section: "Work", chiefOfStaff: true });
-      await api("PATCH", `/api/bots/${workB.id}`, { section: "Work" });
-      await api("PATCH", `/api/bots/${personal.id}`, { section: "Personal", chiefOfStaff: true });
-
-      let bots = (await api("GET", "/api/bots")).body.bots;
-      expect(bots.find((bot: { id: string }) => bot.id === workA.id).chiefOfStaff).toBe(true);
-      expect(bots.find((bot: { id: string }) => bot.id === personal.id).chiefOfStaff).toBe(true);
-
-      await api("PATCH", `/api/bots/${workB.id}`, { chiefOfStaff: true });
-      bots = (await api("GET", "/api/bots")).body.bots;
-      expect(bots.find((bot: { id: string }) => bot.id === workA.id).chiefOfStaff).toBe(false);
-      expect(bots.find((bot: { id: string }) => bot.id === workB.id).chiefOfStaff).toBe(true);
-      expect(bots.find((bot: { id: string }) => bot.id === personal.id).chiefOfStaff).toBe(true);
-
-      await api("PATCH", `/api/bots/${workB.id}`, { section: "Personal" });
-      bots = (await api("GET", "/api/bots")).body.bots;
-      expect(bots.find((bot: { id: string }) => bot.id === workB.id).chiefOfStaff).toBe(true);
-      expect(bots.find((bot: { id: string }) => bot.id === personal.id).chiefOfStaff).toBe(false);
+      expect(await api("PATCH", "/api/main-dog", { botId: first.id })).toEqual({ status: 200, body: { mainDogId: first.id } });
+      expect((await mainOf()).map((bot) => bot.id)).toEqual([first.id]);
+      const refused = await api("DELETE", `/api/bots/${first.id}`);
+      expect(refused.status).toBe(409);
+      expect(refused.body.error).toMatch(/main dog/);
+      expect((await api("PATCH", `/api/bots/${first.id}`, { chiefOfStaff: false })).status).toBe(409);
+      expect((await api("PATCH", `/api/bots/${first.id}`, { hidden: true })).status).toBe(200);
+      expect(await mainOf()).toEqual([expect.objectContaining({ id: first.id, hidden: true })]);
+      expect((await api("PATCH", `/api/bots/${second.id}`, { chiefOfStaff: true })).status).toBe(200);
+      expect((await mainOf()).map((bot) => bot.id)).toEqual([second.id]);
+      const listed = (await api("GET", "/api/bots?messages=0")).body.bots as Array<{ id: string; chiefOfStaff?: boolean }>;
+      expect(listed.find((bot) => bot.id === first.id)?.chiefOfStaff).toBe(false);
+      expect((await api("PATCH", "/api/main-dog", { botId: "missing" })).status).toBe(404);
+      expect((await api("PATCH", "/api/main-dog", {})).status).toBe(400);
     } finally {
-      for (const bot of [workA, workB, personal]) await api("DELETE", `/api/bots/${bot.id}`);
+      if (before) await api("PATCH", "/api/main-dog", { botId: before });
+      for (const bot of [first, second]) await api("DELETE", `/api/bots/${bot.id}`);
     }
   });
 
-  it("files a sidebar section atomically, trims and dedupes, and preserves its Chief", async () => {
+  it("files a sidebar section atomically, trims and dedupes, and keeps who was already there", async () => {
     const incumbent = (await api("POST", "/api/bots")).body.bot;
     const incoming = (await api("POST", "/api/bots")).body.bot;
     const teammate = (await api("POST", "/api/bots")).body.bot;
     try {
-      await api("PATCH", `/api/bots/${incumbent.id}`, { section: "Launch", chiefOfStaff: true });
+      await api("PATCH", `/api/bots/${incumbent.id}`, { section: "Launch" });
       await api("PATCH", `/api/bots/${incoming.id}`, { section: "Research" });
       await api("PATCH", `/api/bots/${teammate.id}`, { section: "Personal" });
 
@@ -4400,8 +4292,6 @@ describe("harness HTTP API", () => {
         ]);
         expect(created.body.bots.find((bot: { id: string }) => bot.id === incoming.id))
           .toMatchObject({ section: "Launch" });
-        expect(Boolean(created.body.bots.find((bot: { id: string }) => bot.id === incoming.id)?.chiefOfStaff))
-          .toBe(false);
 
         for (const id of [incoming.id, teammate.id]) {
           const frame = await stream.until(
@@ -4412,44 +4302,10 @@ describe("harness HTTP API", () => {
 
         const bots = (await api("GET", "/api/bots")).body.bots;
         expect(bots.find((bot: { id: string }) => bot.id === incumbent.id))
-          .toMatchObject({ section: "Launch", chiefOfStaff: true });
+          .toMatchObject({ section: "Launch" });
       } finally {
         stream.close();
       }
-    } finally {
-      for (const bot of [incumbent, incoming, teammate]) await api("DELETE", `/api/bots/${bot.id}`);
-    }
-  });
-
-  it("rejects a sidebar section Chief collision without changing any bot", async () => {
-    const incumbent = (await api("POST", "/api/bots")).body.bot;
-    const incoming = (await api("POST", "/api/bots")).body.bot;
-    const teammate = (await api("POST", "/api/bots")).body.bot;
-    try {
-      await api("PATCH", `/api/bots/${incumbent.id}`, { section: "Launch", chiefOfStaff: true });
-      await api("PATCH", `/api/bots/${incoming.id}`, { section: "Research", chiefOfStaff: true });
-      await api("PATCH", `/api/bots/${teammate.id}`, { section: "Personal" });
-
-      const response = await api("POST", "/api/sidebar-sections", {
-        name: "Launch",
-        botIds: [incoming.id, teammate.id],
-      });
-      expect(response).toEqual({
-        status: 409,
-        body: {
-          error: "A pack can have only one Chief of Staff. Choose one Chief or use a pack without one.",
-        },
-      });
-
-      const bots = (await api("GET", "/api/bots")).body.bots;
-      expect(bots.find((bot: { id: string }) => bot.id === incumbent.id))
-        .toMatchObject({ section: "Launch", chiefOfStaff: true });
-      expect(bots.find((bot: { id: string }) => bot.id === incoming.id))
-        .toMatchObject({ section: "Research", chiefOfStaff: true });
-      expect(bots.find((bot: { id: string }) => bot.id === teammate.id))
-        .toMatchObject({ section: "Personal" });
-      expect(Boolean(bots.find((bot: { id: string }) => bot.id === teammate.id)?.chiefOfStaff))
-        .toBe(false);
     } finally {
       for (const bot of [incumbent, incoming, teammate]) await api("DELETE", `/api/bots/${bot.id}`);
     }
@@ -5405,7 +5261,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("installs a complete bot package with a Chief, room, playbook, connector intent, and paused routine", async () => {
+  it("installs a complete bot package with a room, playbook, connector intent, and paused routine, leaving the main dog alone", async () => {
     const packageFile = {
       format: "laterdog.package",
       version: 1,
@@ -5490,8 +5346,8 @@ describe("harness HTTP API", () => {
 
     const scout = installed.body.bots.find((bot: { name: string }) => bot.name.startsWith("Package Scout"));
     const editor = installed.body.bots.find((bot: { name: string }) => bot.name.startsWith("Package Editor"));
+    expect(scout.chiefOfStaff).toBeUndefined();
     expect(scout).toMatchObject({
-      chiefOfStaff: true,
       composio: false,
       connectorTools: {},
       playbooks: [{ key: "signal-check", instructions: "Keep the source URL and confidence." }],
@@ -5591,7 +5447,6 @@ describe("harness HTTP API", () => {
       autoApprove: true,
       alwaysAllow: ["Bash:git"],
       approvePeerComms: true,
-      chiefOfStaff: true,
       composio: true,
       computer: "off",
     });
@@ -5652,7 +5507,6 @@ describe("harness HTTP API", () => {
       autoApprove: true,
       alwaysAllow: ["Bash:git"],
       approvePeerComms: true,
-      chiefOfStaff: true,
       composio: true,
       computer: "off",
     });
@@ -6126,7 +5980,6 @@ describe("harness HTTP API", () => {
       const direct = await createBot();
       const channelOwner = await createBot();
       const channelPeer = await createBot();
-      expect((await isolatedApi("PATCH", `/api/bots/${channelPeer.id}`, { chiefOfStaff: true })).status).toBe(200);
       const roomChiefToken = await mintTestCapability(`http://127.0.0.1:${isolatedPort}`, channelPeer.id, channelPeer.threadId);
 
       const directOriginalThread = direct.threadId as string;
@@ -8009,30 +7862,33 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("ends a Chief of Staff's team section at the roster, in the preview and in a real turn", async () => {
+  it("gives only the main dog its routing sentence, in the preview and in a real turn", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Atlas", section: "Roster end" })).body.bot;
+    const peer = (await api("POST", "/api/bots", { name: "Peer", section: "Roster end" })).body.bot;
+    const before = ((await api("GET", "/api/bots?messages=0")).body.bots as Array<{ id: string; chiefOfStaff?: boolean }>)
+      .find((candidate) => candidate.chiefOfStaff)?.id;
+    const coordination = async () => ((await api("GET", `/api/bots/${bot.id}/system-prompt`)).body.sections as Array<{ id: string; text: string }>)
+      .find((section) => section.id === "coordination")?.text ?? "";
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        chiefOfStaff: true,
         modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
       })).status).toBe(200);
-      const rosterHeading = "Reachable teammates across packs in this workspace:\n";
-
-      const sections = (await api("GET", `/api/bots/${bot.id}/system-prompt`)).body.sections as Array<{ id: string; text: string }>;
-      const team = sections.find((section) => section.id === "coordination")?.text ?? "";
-      expect(team).toContain("You are the Chief of Staff for the Roster end section.");
-      const roster = team.slice(team.lastIndexOf(rosterHeading));
-      expect(roster.startsWith(rosterHeading)).toBe(true);
-      expect(roster.slice(rosterHeading.length).split("\n").every((line) => line.startsWith("- "))).toBe(true);
+      expect(await coordination()).not.toContain(MAIN_DOG_ROUTING);
+      expect((await api("PATCH", "/api/main-dog", { botId: bot.id })).status).toBe(200);
+      const team = await coordination();
+      expect(team).toContain(MAIN_DOG_ROUTING);
+      expect(team).not.toMatch(/Chief of Staff|list_team_setup|retry_thread/);
 
       rmSync(fakeClaudeDump, { force: true });
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello" })).status).toBe(202);
       const system = (await readJsonFileWhenReady<{ systemPrompt: string }>(fakeClaudeDump, 15_000)).systemPrompt;
-      expect(system).toContain(roster);
+      expect(system).toContain(MAIN_DOG_ROUTING);
       expect(system).not.toContain("LATERDOG STATUS");
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`);
+      if (before) await api("PATCH", "/api/main-dog", { botId: before });
       await api("DELETE", `/api/bots/${bot.id}`);
+      await api("DELETE", `/api/bots/${peer.id}`);
     }
   });
 
@@ -9363,7 +9219,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("applies a bot's own chat-created routine at once and keeps a teammate's behind its card", async () => {
+  it("applies a bot's own chat-created routine at once and refuses one aimed at another dog", async () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     let routineId = "";
     let orphanRoutineId = "";
@@ -9474,7 +9330,7 @@ describe("harness HTTP API", () => {
       expect((await api("GET", "/api/routines")).body.routines
         .filter((routine: { botId: string }) => routine.botId === bot.id)).toHaveLength(1);
 
-      const badTarget = await fetch(`${BASE}/api/internal/routine-requests`, {
+      const retiredTarget = await fetch(`${BASE}/api/internal/routine-requests`, {
         method: "POST",
         headers: internalHeaders,
         body: JSON.stringify({
@@ -9490,84 +9346,7 @@ describe("harness HTTP API", () => {
           },
         }),
       });
-      expect(badTarget.status).toBe(404);
-      expect(z.object({ error: z.string() }).parse(await badTarget.json()).error).toMatch(/list_bots/);
-
-      const teammate = (await api("POST", "/api/bots", {})).body.bot;
-      const crossProposed = await fetch(`${BASE}/api/internal/routine-requests`, {
-        method: "POST",
-        headers: internalHeaders,
-        body: JSON.stringify({
-          fromBotId: bot.id,
-          fromThreadId: bot.threadId,
-          action: "create",
-          forBotId: teammate.id,
-          routine: {
-            name: "Teammate brief",
-            instructions: "Summarize for the teammate every weekday.",
-            schedule: { type: "weekly", time: "08:30", weekdays: ["monday"] },
-            runOn: "dog",
-            durationMinutes: 30,
-          },
-        }),
-      });
-      expect(crossProposed.status).toBe(201);
-      const crossProposal = z.object({ requestId: z.string() }).passthrough().parse(await crossProposed.json());
-      const crossState = (await api("GET", "/api/bots")).body;
-      const crossCard = crossState.bots
-        .find((candidate: { id: string }) => candidate.id === bot.id)
-        ?.messages.find((message: { card?: { requestId?: string } }) => message.card?.requestId === crossProposal.requestId);
-      expect(crossCard?.card.title).toContain(`for @${teammate.name}`);
-      const crossConfirmed = await api("POST", `/api/threads/${bot.threadId}/respond`, {
-        requestId: crossProposal.requestId,
-        behavior: "allow",
-      });
-      expect(crossConfirmed).toMatchObject({ status: 200, body: { routineAction: "create" } });
-      const crossRoutine = (await api("GET", "/api/routines")).body.routines
-        .find((routine: { id: string }) => routine.id === crossConfirmed.body.resultId);
-      expect(crossRoutine).toMatchObject({ botId: teammate.id, sourceThreadId: bot.threadId, enabled: true });
-      expect((await api("PATCH", `/api/bots/${teammate.id}`, {
-        modelSelection: { instanceId: "ghost", model: "unavailable-fixture" },
-      })).status).toBe(200);
-      expect((await api("POST", `/api/bots/${teammate.id}/read`, { threadId: teammate.threadId })).status).toBe(200);
-      const crossEvents = await openSse(`${BASE}/api/events`);
-      let crossRun;
-      try {
-        crossRun = await api("POST", `/api/routines/${crossRoutine.id}/run`);
-        const failedNotice = await crossEvents.until(
-          (frame) => frame.kind === "notify" && frame.notification?.kind === "routine-failed",
-          5_000,
-        );
-        expect(failedNotice.notification).toMatchObject({ botId: teammate.id, threadId: teammate.threadId });
-      } finally {
-        crossEvents.close();
-      }
-      expect(crossRun.status).toBe(201);
-      await expect.poll(async () => {
-        const destination = (await api("GET", `/api/threads/${teammate.threadId}/messages`)).body;
-        return destination.messages.filter(
-          (message: { routineRun?: { runId?: string; status?: string } }) =>
-            message.routineRun?.runId === crossRun.body.run.id && message.routineRun?.status === "failed",
-        );
-      }, { timeout: 5_000 }).toHaveLength(1);
-      expect((await api("GET", `/api/threads/${bot.threadId}/messages`)).body.messages.some(
-        (message: { routineRun?: { runId?: string } }) => message.routineRun?.runId === crossRun.body.run.id,
-      )).toBe(false);
-      const crossStateAfterRun = (await api("GET", "/api/bots?messages=0")).body;
-      expect(crossStateAfterRun.bots.find((candidate: { id: string }) => candidate.id === teammate.id)
-        ?.tasks.find((task: { threadId: string }) => task.threadId === teammate.threadId)?.unread).toBe(true);
-
-      expect((await api("PATCH", `/api/bots/${teammate.id}`, { section: "Private routine work" })).status).toBe(200);
-      const movedRun = await api("POST", `/api/routines/${crossRoutine.id}/run`);
-      expect(movedRun.status).toBe(201);
-      await expect.poll(async () => {
-        const runs = (await api("GET", "/api/routines")).body.runs;
-        return runs.find((run: { id: string }) => run.id === movedRun.body.run.id)?.status;
-      }, { timeout: 5_000 }).toBe("failed");
-      expect((await api("GET", `/api/threads/${bot.threadId}/messages`)).body.messages.some(
-        (message: { routineRun?: { runId?: string } }) => message.routineRun?.runId === movedRun.body.run.id,
-      )).toBe(false);
-      await api("DELETE", `/api/bots/${teammate.id}`);
+      expect(retiredTarget.status).toBe(400);
 
       expect((await api("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
       await expect.poll(async () => {
@@ -9770,153 +9549,6 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("gates targeted routine actions like creation and re-checks the target at confirm", async () => {
-    const chief = (await api("POST", "/api/bots", { name: "Acting chief" })).body.bot;
-    let teammateId = "";
-    let outsiderId = "";
-    try {
-      const teammate = (await api("POST", "/api/bots", { name: "Ops helper" })).body.bot;
-      const outsider = (await api("POST", "/api/bots", { name: "Other section", section: "Routine elsewhere" })).body.bot;
-      teammateId = teammate.id;
-      outsiderId = outsider.id;
-      const teammateRoutine = (await api("POST", "/api/routines", {
-        name: "Teammate digest",
-        prompt: "Summarize the teammate's queue.",
-        botId: teammate.id,
-        runOn: "dog",
-        enabled: true,
-        schedule: { type: "daily", time: "07:30", weekdays: [1, 2, 3, 4, 5] },
-      })).body.routine;
-      const ownRoutine = (await api("POST", "/api/routines", {
-        name: "Chief digest",
-        prompt: "Summarize the chief's queue.",
-        botId: chief.id,
-        runOn: "dog",
-        enabled: true,
-        schedule: { type: "daily", time: "08:00", weekdays: [1] },
-      })).body.routine;
-      const token = await mintTestCapability(BASE, chief.id, chief.threadId);
-      const internalHeaders = {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      };
-      const post = (body: Record<string, unknown>) => fetch(`${BASE}/api/internal/routine-requests`, {
-        method: "POST",
-        headers: internalHeaders,
-        body: JSON.stringify(body),
-      });
-
-      const rosterResponse = await fetch(`${BASE}/api/internal/agents`, { headers: internalHeaders });
-      expect(rosterResponse.status).toBe(200);
-      const roster = z.object({ bots: z.array(z.object({ id: z.string() }).passthrough()) }).parse(await rosterResponse.json());
-      expect(roster.bots.map((bot) => bot.id)).toContain(outsider.id);
-
-      const outOfSection = await post({
-        fromBotId: chief.id,
-        fromThreadId: chief.threadId,
-        action: "pause",
-        routineId: teammateRoutine.id,
-        forBotId: outsider.id,
-      });
-      expect(outOfSection.status).toBe(403);
-      expect(z.object({ error: z.string() }).parse(await outOfSection.json()).error).toMatch(/routine-management scope/);
-
-      const unknown = await post({
-        fromBotId: chief.id,
-        fromThreadId: chief.threadId,
-        action: "pause",
-        routineId: teammateRoutine.id,
-        forBotId: "bot-that-does-not-exist",
-      });
-      expect(unknown.status).toBe(404);
-
-      const wrongOwner = await post({
-        fromBotId: chief.id,
-        fromThreadId: chief.threadId,
-        action: "pause",
-        routineId: ownRoutine.id,
-        forBotId: teammate.id,
-      });
-      expect(wrongOwner.status).toBe(404);
-
-      const proposed = await post({
-        fromBotId: chief.id,
-        fromThreadId: chief.threadId,
-        action: "pause",
-        routineId: teammateRoutine.id,
-        forBotId: teammate.id,
-      });
-      expect(proposed.status).toBe(201);
-      const proposal = z.object({ requestId: z.string() }).parse(await proposed.json());
-      const proposerState = (await api("GET", "/api/bots")).body;
-      const card = proposerState.bots
-        .find((candidate: { id: string }) => candidate.id === chief.id)
-        ?.messages.find((message: { card?: { requestId?: string } }) => message.card?.requestId === proposal.requestId);
-      expect(card?.card.title).toContain(`for @${teammate.name}`);
-
-      const confirmed = await api("POST", `/api/threads/${chief.threadId}/respond`, {
-        requestId: proposal.requestId,
-        behavior: "allow",
-      });
-      expect(confirmed).toMatchObject({ status: 200, body: { routineAction: "pause" } });
-      const paused = (await api("GET", "/api/routines")).body.routines
-        .find((routine: { id: string }) => routine.id === teammateRoutine.id);
-      expect(paused).toMatchObject({ botId: teammate.id, enabled: false });
-
-      const resume = await post({
-        fromBotId: chief.id,
-        fromThreadId: chief.threadId,
-        action: "resume",
-        routineId: teammateRoutine.id,
-        forBotId: teammate.id,
-      });
-      expect(resume.status).toBe(201);
-      const resumeProposal = z.object({ requestId: z.string() }).parse(await resume.json());
-      expect((await api("PATCH", `/api/bots/${teammate.id}`, { section: "Moved away" })).status).toBe(200);
-      const refused = await api("POST", `/api/threads/${chief.threadId}/respond`, {
-        requestId: resumeProposal.requestId,
-        behavior: "allow",
-      });
-      expect(refused.status).toBe(404);
-      const stillPaused = (await api("GET", "/api/routines")).body.routines
-        .find((routine: { id: string }) => routine.id === teammateRoutine.id);
-      expect(stillPaused).toMatchObject({ enabled: false });
-    } finally {
-      await api("DELETE", `/api/bots/${chief.id}`);
-      if (teammateId) await api("DELETE", `/api/bots/${teammateId}`);
-      if (outsiderId) await api("DELETE", `/api/bots/${outsiderId}`);
-    }
-  });
-
-  it("lets a bot change its own routines while 8 cards for a teammate are open", async () => {
-    const bot = (await api("POST", "/api/bots", {})).body.bot;
-    const teammate = (await api("POST", "/api/bots", {})).body.bot;
-    try {
-      const token = await mintTestCapability(BASE, bot.id, bot.threadId);
-      const post = (body: Record<string, unknown>) => fetch(`${BASE}/api/internal/routine-requests`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ fromBotId: bot.id, fromThreadId: bot.threadId, ...body }),
-      });
-      const routine = (name: string) => ({ name, instructions: `Run ${name}.`, schedule: { type: "weekly", time: "09:00", weekdays: ["monday"] }, runOn: "dog" });
-      for (let index = 0; index < 8; index += 1) {
-        expect((await post({ action: "create", forBotId: teammate.id, routine: routine(`Teammate ${index}`) })).status).toBe(201);
-      }
-      expect((await post({ action: "create", forBotId: teammate.id, routine: routine("Teammate 8") })).status).toBe(429);
-      const own = await post({ action: "create", routine: routine("Own brief") });
-      expect(own.status).toBe(201);
-      const applied = z.object({ state: z.literal("applied"), result: z.object({ resultId: z.string() }).passthrough() }).passthrough().parse(await own.json());
-      const paused = await post({ action: "pause", routineId: applied.result.resultId });
-      expect(paused.status).toBe(201);
-      expect(await paused.json()).toMatchObject({ state: "applied", appliedBy: "self" });
-    } finally {
-      const routines = (await api("GET", "/api/routines")).body.routines as Array<{ id: string; botId: string }>;
-      for (const routine of routines.filter((candidate) => candidate.botId === bot.id)) await api("DELETE", `/api/routines/${routine.id}`);
-      await api("DELETE", `/api/bots/${bot.id}`);
-      await api("DELETE", `/api/bots/${teammate.id}`);
-    }
-  });
-
   it("applies a bot's own profile change at once, records history, and undoes it from its receipt", async () => {
     const soulFileOf = (botId: string) => join(home, ".laterdog", "bots", botId, "SOUL.md");
     const bot = (await api("POST", "/api/bots", { name: "Scout" })).body.bot;
@@ -9990,95 +9622,6 @@ describe("harness HTTP API", () => {
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`);
       await api("DELETE", `/api/bots/${bot.id}`);
-    }
-  });
-
-  it("only lets a section's Chief of Staff propose (and hold) a change to another bot's profile", async () => {
-    const a = (await api("POST", "/api/bots", { name: "Ari" })).body.bot;
-    const b = (await api("POST", "/api/bots", { name: "Bo" })).body.bot;
-    try {
-      await api("PATCH", `/api/bots/${a.id}`, { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } });
-
-      const token = await mintTestCapability(BASE, a.id, a.threadId);
-      const internalHeaders = {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      };
-      const botTitle = async (id: string) =>
-        (await api("GET", "/api/bots")).body.bots.find((candidate: { id: string }) => candidate.id === id)?.title;
-
-      const refused = await fetch(`${BASE}/api/internal/profile-requests`, {
-        method: "POST",
-        headers: internalHeaders,
-        body: JSON.stringify({
-          fromBotId: a.id, fromThreadId: a.threadId, forBotId: b.id,
-          changes: { title: "Should never land" }, reason: "testing the Chief rule",
-        }),
-      });
-      expect(refused.status).toBe(403);
-      expect(await botTitle(b.id)).toBe("");
-
-      expect((await api("PATCH", `/api/bots/${a.id}`, { chiefOfStaff: true })).status).toBe(200);
-      expect((await api("PATCH", `/api/bots/${b.id}`, { section: "Separate profile management" })).status).toBe(200);
-      const rosterResponse = await fetch(`${BASE}/api/internal/agents`, { headers: internalHeaders });
-      expect(rosterResponse.status).toBe(200);
-      const roster = z.object({ bots: z.array(z.object({ id: z.string() }).passthrough()) }).parse(await rosterResponse.json());
-      expect(roster.bots.map((bot) => bot.id)).toContain(b.id);
-      const outsideTeam = await fetch(`${BASE}/api/internal/profile-requests`, {
-        method: "POST",
-        headers: internalHeaders,
-        body: JSON.stringify({
-          fromBotId: a.id, fromThreadId: a.threadId, forBotId: b.id,
-          changes: { title: "Outside management scope" }, reason: "Communication does not grant management access",
-        }),
-      });
-      expect(outsideTeam.status).toBe(403);
-      expect(await botTitle(b.id)).toBe("");
-      expect((await api("PATCH", `/api/bots/${b.id}`, { section: "" })).status).toBe(200);
-      const proposedResponse = await fetch(`${BASE}/api/internal/profile-requests`, {
-        method: "POST",
-        headers: internalHeaders,
-        body: JSON.stringify({
-          fromBotId: a.id, fromThreadId: a.threadId, forBotId: b.id,
-          changes: { title: "Lead scout" }, reason: "testing the Chief rule",
-        }),
-      });
-      expect(proposedResponse.status).toBe(201);
-      const proposed = z.object({ requestId: z.string() }).passthrough().parse(await proposedResponse.json());
-
-      expect((await api("PATCH", `/api/bots/${a.id}`, { chiefOfStaff: false })).status).toBe(200);
-      const refusedConfirm = await api("POST", `/api/threads/${a.threadId}/respond`, {
-        requestId: proposed.requestId, behavior: "allow",
-      });
-      expect(refusedConfirm.status).toBeGreaterThanOrEqual(400);
-      expect(await botTitle(b.id)).toBe("");
-
-      expect((await api("PATCH", `/api/bots/${a.id}`, { chiefOfStaff: true })).status).toBe(200);
-      const expiredConfirm = await api("POST", `/api/threads/${a.threadId}/respond`, {
-        requestId: proposed.requestId, behavior: "allow",
-      });
-      expect(expiredConfirm.status).toBe(409);
-      expect(await botTitle(b.id)).toBe("");
-
-      const freshResponse = await fetch(`${BASE}/api/internal/profile-requests`, {
-        method: "POST",
-        headers: internalHeaders,
-        body: JSON.stringify({
-          fromBotId: a.id, fromThreadId: a.threadId, forBotId: b.id,
-          changes: { title: "Lead scout" }, reason: "testing the Chief rule",
-        }),
-      });
-      expect(freshResponse.status).toBe(201);
-      const fresh = z.object({ requestId: z.string() }).passthrough().parse(await freshResponse.json());
-      const okConfirm = await api("POST", `/api/threads/${a.threadId}/respond`, {
-        requestId: fresh.requestId, behavior: "allow",
-      });
-      expect(okConfirm.status).toBe(200);
-      expect(await botTitle(b.id)).toBe("Lead scout");
-    } finally {
-      await api("POST", `/api/bots/${a.id}/interrupt`);
-      await api("DELETE", `/api/bots/${a.id}`);
-      await api("DELETE", `/api/bots/${b.id}`);
     }
   });
 

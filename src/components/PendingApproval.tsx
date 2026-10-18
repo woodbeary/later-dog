@@ -51,7 +51,6 @@ export function pendingApprovals(messages: Message[]): Pending[] {
 }
 
 export function spokenApprovalPrompt(pending: Pending, requester: string): string {
-  if (pending.message.card?.teamSetupRequest) return `${requester}: ${pending.message.card.title} Review the details and choose ${pending.message.card.options[0]} or Cancel.`;
   const isRoutineRequest = isRoutineApproval(pending);
   const isSkillRequest = isSkillApproval(pending);
   const isProfileRequest = isProfileApproval(pending);
@@ -81,7 +80,6 @@ export function spokenApprovalPrompt(pending: Pending, requester: string): strin
 }
 
 function label(pending: Pending, botName?: string): string {
-  if (pending.message.card?.teamSetupRequest) return pending.message.card.title;
   if (isSkillApproval(pending)) {
     return pending.message.card?.skillRequest?.action === "update"
       ? t("approval.label.updateSkill")
@@ -115,7 +113,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
 }) {
   const heldNote = tFromServer(pending.heldCode, pending.held);
   const outbound = pending.message.card ? outboundSummary(pending.message.card) : undefined;
-  const reviewed = isSkillApproval(pending) || isRoutineApproval(pending) || isProfileApproval(pending) || Boolean(pending.message.card?.teamSetupRequest || pending.message.card?.modelRequest || pending.message.card?.teamMemoryRequest);
+  const reviewed = isSkillApproval(pending) || isRoutineApproval(pending) || isProfileApproval(pending) || Boolean(pending.message.card?.modelRequest || pending.message.card?.teamMemoryRequest);
   const command = pending.commandAllowlist?.command ?? pending.detail;
   const details = (
     <pre
@@ -199,8 +197,7 @@ export function PendingApprovalActions({
   const isRoutineRequest = isRoutineApproval(pending);
   const isSkillRequest = isSkillApproval(pending);
   const isProfileRequest = isProfileApproval(pending);
-  const isTeamSetup = Boolean(pending.message.card?.teamSetupRequest);
-  const durableRequest = isRoutineRequest || isSkillRequest || isProfileRequest || isTeamSetup;
+  const durableRequest = isRoutineRequest || isSkillRequest || isProfileRequest;
   const canRememberCommand = ownerOrAdmin === true && !durableRequest && !pending.allowKey && Boolean(pending.commandAllowlist);
   const reviewedSha256 = pending.message.card?.skillRequest
     ? reviewedSkillSha256(pending.message.card.skillRequest)
@@ -241,7 +238,7 @@ export function PendingApprovalActions({
           disabled={isSkillRequest && !reviewedSha256}
           className={cn(base, primary, "disabled:cursor-not-allowed disabled:opacity-40")}
         >
-          {isTeamSetup ? pending.message.card?.options[0] : isSkillRequest
+          {isSkillRequest
             ? pending.message.card?.skillRequest?.action === "update"
               ? t("approval.action.update")
               : t("approval.action.enable")
@@ -251,10 +248,9 @@ export function PendingApprovalActions({
         </button>
         <button
           onClick={() => decide("deny")}
-          autoFocus={isTeamSetup}
           className={cn(base, quiet)}
         >
-          {isRoutineRequest || isProfileRequest || isTeamSetup ? t("approval.action.cancel") : t("approval.action.deny")}
+          {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : t("approval.action.deny")}
         </button>
         {!durableRequest && bot && pending.allowKey && (
           <button

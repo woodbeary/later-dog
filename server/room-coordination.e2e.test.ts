@@ -196,7 +196,7 @@ it.each(["rename", "delete"])("returns an in-flight result after team %s and rec
   await f.api("/api/sidebar-sections", { name: "Engineering" });
   await move("Engineering");
   const chief = (await f.api("/api/bots?messages=0")).bots.find((bot: any) => bot.id === f.sender.id);
-  expect(chief.managedSections).toEqual([]);
+  expect(chief.managedSections).toBeUndefined();
   expect((await f.wait()).status).toBe("settled");
   expect(f.nodes().find((n: any) => n.parentId)).toMatchObject({ status: "completed", result: "RESULT_AFTER_TEAM_RECREATION" });
   const messages = await f.messages(f.source.activeTaskId);

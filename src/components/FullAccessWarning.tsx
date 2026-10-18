@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ShieldAlert } from "lucide-react";
 
 export const FULL_ACCESS_WARNING =
-  "This dog can read, edit, delete files, use the internet, and control its selected computer without asking—even for potentially destructive or sensitive actions. This also applies to scheduled work and tasks delegated by your Chief or other dogs. It does not enable Full access on other dogs. Some providers may still require approval. Questions and separate later.dog confirmations still wait for you. This does not grant operating-system permissions or access to accounts you have not connected.";
+  "This dog can read, edit, delete files, use the internet, and control its selected computer without asking—even for potentially destructive or sensitive actions. This also applies to scheduled work and tasks delegated by other dogs. It does not enable Full access on other dogs. Some providers may still require approval. Questions and separate later.dog confirmations still wait for you. This does not grant operating-system permissions or access to accounts you have not connected.";
 
 export function FullAccessWarning({
   open,

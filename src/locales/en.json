@@ -866,7 +866,6 @@
   "sidebar.bot.pin": "Pin",
   "sidebar.bot.unpin": "Unpin",
   "sidebar.bot.makeChief": "Make Chief of Staff",
-  "sidebar.bot.removeChief": "Remove Chief of Staff",
   "sidebar.bot.chiefNeedsEngine": "Choose Claude or an ACP model provider first",
   "sidebar.bot.chiefOfStaff": "Chief of Staff",
   "sidebar.bot.moveToSection": "Move to pack",

@@ -13,7 +13,7 @@ type Bot = { id: string; threadId: string; name: string };
 type Mounted = { command: string; args: string[]; env: Record<string, string> };
 type ToolResult = { isError?: boolean; content: Array<{ text: string }> };
 
-const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
+const REMOVED_TEAM_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 const dumpSchema = z.object({
   systemPrompt: z.string(),
   mcpConfig: z.object({ mcpServers: z.object({
@@ -45,7 +45,7 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     const dump = dumpSchema.parse(JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8")));
     const mounted: Mounted = dump.mcpConfig.mcpServers.agents;
     expect(mounted.env.LATERDOG_BOT_ID).toBe(bot.id);
-    expect(mounted.env.LATERDOG_CHIEF_OF_STAFF).toBe("0");
+    expect(mounted.env.LATERDOG_CHIEF_OF_STAFF).toBeUndefined();
     const proxy = spawn(mounted.command, mounted.args, {
       env: { ...mounted.env, HOME: fixture.info.dataDir, USERPROFILE: fixture.info.dataDir, ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
       stdio: ["pipe", "pipe", "pipe"],
@@ -77,14 +77,14 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     await api("PUT", "/api/config", { profile: { name: "Jacob" } });
     const biscuit: Bot = (await api("POST", "/api/bots", { name: "Biscuit", section: "Research" }, 201)).bot;
     const rex: Bot = (await api("POST", "/api/bots", { name: "Rex", section: "Research" }, 201)).bot;
-    expect((await bots()).filter((bot) => bot.chiefOfStaff)).toEqual([]);
+    expect((await bots()).filter((bot) => bot.chiefOfStaff && [biscuit.id, rex.id].includes(bot.id))).toEqual([]);
     await api("PATCH", `/api/bots/${biscuit.id}`, { approvalMode: "auto" });
 
     const turn = await startTurn(biscuit, "can u make another agent");
     const tools = await turn.toolNames();
     evidence.push({ biscuitTools: tools });
     expect(tools).toContain("create_bot");
-    expect(CHIEF_ONLY_TOOLS.filter((name) => tools.includes(name))).toEqual([]);
+    expect(REMOVED_TEAM_TOOLS.filter((name) => tools.includes(name))).toEqual([]);
     expect(turn.systemPrompt).toContain("create_bot");
     expect(turn.systemPrompt).not.toMatch(/bot-creation and team-setup tools for Chiefs|only the section's Chief of Staff creates bots|create bots unless you are a Chief/);
 

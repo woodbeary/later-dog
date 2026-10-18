@@ -74,9 +74,6 @@ let profileRequestResponse: unknown = DEFAULT_PROFILE_RESPONSE;
 let lastModelRequestBody: any = null;
 const DEFAULT_MODEL_RESPONSE = { requestId: "model-request-1", summary: "Default engine/model → codex gpt-5" };
 let modelRequestResponse: unknown = DEFAULT_MODEL_RESPONSE;
-const DEFAULT_TEAM_RESPONSE = { requestId: "team-request-1", title: "Requested team change" };
-let teamRequestResponse: unknown = DEFAULT_TEAM_RESPONSE;
-let lastTeamRequestBody: any = null;
 let lastSessionSearchUrl = "";
 let lastSessionReadUrl = "";
 let lastMemoryBody: any = null;
@@ -119,7 +116,6 @@ afterEach(() => {
   routineRequestResponse = DEFAULT_ROUTINE_RESPONSE;
   profileRequestResponse = DEFAULT_PROFILE_RESPONSE;
   modelRequestResponse = DEFAULT_MODEL_RESPONSE;
-  teamRequestResponse = DEFAULT_TEAM_RESPONSE;
   skillStageResponse = DEFAULT_SKILL_RESPONSE;
   computerRequests = [];
   computerResponse = { current: "local", available: ["local", "cloud"] };
@@ -129,7 +125,6 @@ afterEach(() => {
 function setProposalResponse(tool: string, response: unknown) {
   if (tool === "propose_profile") profileRequestResponse = response;
   else if (tool === "propose_model") modelRequestResponse = response;
-  else if (tool === "propose_team_setup" || tool === "propose_bot_deletion") teamRequestResponse = response;
   else if (tool === "skill_manage") skillStageResponse = response;
   else routineRequestResponse = response;
 }
@@ -138,8 +133,6 @@ const proposalCases = [
   { tool: "propose_profile", args: { name: "Kiwi" } },
   { tool: "propose_routine", args: { name: "Brief", instructions: "Summarize the queue.", schedule: { type: "daily", time: "09:00" } } },
   { tool: "propose_routine_action", args: { action: "pause", routine_id: "routine-1" } },
-  { tool: "propose_team_setup", args: { operations: [] } },
-  { tool: "propose_bot_deletion", args: { bot_id: "bot-helper", reason: "User requested deletion" } },
   { tool: "skill_manage", args: { action: "create", skill_md: "---\nname: fixture-skill\ndescription: Fixture only\n---\n# Fixture\n", source: "conversation" } },
   { tool: "skill_manage", args: { action: "update", skill_name: "fixture-skill", skill_md: "---\nname: fixture-skill\ndescription: Updated fixture\n---\n# Fixture\n", source: "conversation" } },
 ];
@@ -351,16 +344,6 @@ beforeAll(async () => {
       });
       return;
     }
-    if (req.method === "POST" && ["/api/internal/team-setup-requests", "/api/internal/bot-deletion-requests"].includes(req.url ?? "")) {
-      let data = "";
-      req.on("data", (c) => (data += c));
-      req.on("end", () => {
-        lastTeamRequestBody = JSON.parse(data);
-        res.writeHead(201, { "content-type": "application/json" });
-        res.end(JSON.stringify(teamRequestResponse));
-      });
-      return;
-    }
     if (req.method === "POST" && req.url === "/api/internal/memory") {
       let data = "";
       req.on("data", (c) => (data += c));
@@ -432,7 +415,6 @@ beforeAll(async () => {
       LATERDOG_TURN_DEPTH: "0",
       LATERDOG_SKILL_AUTHORING_ENABLED: "1",
       LATERDOG_SHARED_COMPUTERS_ENABLED: "1",
-      LATERDOG_CHIEF_OF_STAFF: "1",
     },
     stdio: ["pipe", "pipe", "inherit"],
   });
@@ -461,14 +443,9 @@ describe("agents-proxy MCP surface", () => {
     const list = await rpc("tools/list");
     for (const tool of new Set(proposalCases.map(entry => entry.tool))) {
       const description = list.result.tools.find((entry: { name: string }) => entry.name === tool).description;
-      if (tool === "propose_team_setup" || tool === "propose_bot_deletion") {
-        expect(description).toContain("granted Full Access may apply the change immediately");
-        expect(description).toContain("Never claim success from the permission mode alone");
-      } else {
-        expect(description).toContain("a change to your own routines, skills, profile or model applies immediately");
-        expect(description).toContain("a change for another bot may wait for the person's confirmation");
-        expect(description).toContain("Never claim success without an applied result");
-      }
+      expect(description).toContain("a change to your own routines, skills, profile or model applies immediately");
+      expect(description).toContain("a change for another bot may wait for the person's confirmation");
+      expect(description).toContain("Never claim success without an applied result");
       expect(description).toContain("If applied, continue the requested work without another confirmation");
       expect(description).toContain("Only a pending result requires ending the turn");
       expect(description).toContain("does not elevate another bot's execution permissions");
@@ -509,25 +486,6 @@ describe("agents-proxy MCP surface", () => {
     expect(response.result.isError).toBeFalsy();
     expect(response.result.content[0].text).toContain("End this turn");
     expect(response.result.content[0].text).not.toContain("No additional confirmation is needed");
-  });
-
-  it.each(["failed", "cancelled", "denied"])("does not misreport a %s team result as applied or pending", async state => {
-    teamRequestResponse = { state, result: { state, error: "Fixture target changed", bots: [], newTeams: [] } };
-    const response = await callTool("propose_team_setup", { operations: [] });
-    expect(response.result.isError).toBe(true);
-    expect(response.result.content[0].text).toContain("Fixture target changed");
-    expect(response.result.content[0].text).toContain("Do not claim it was applied");
-    expect(response.result.content[0].text).not.toContain("review card is visible");
-  });
-
-  it("reports committed deletion cleanup attention without asking to apply deletion again", async () => {
-    teamRequestResponse = { state: "applied", result: { state: "applied", error: "Saved, but cleanup needs attention", bots: [{ id: "bot-helper", action: "deleted" }], newTeams: [] } };
-    const response = await callTool("propose_bot_deletion", { bot_id: "bot-helper" });
-    expect(response.result.isError).toBeFalsy();
-    expect(response.result.content[0].text).toContain("Applied the requested bot deletion");
-    expect(response.result.content[0].text).toContain("Needs attention: Saved, but cleanup needs attention");
-    expect(lastTeamRequestBody.targetBotId).toBe("bot-helper");
-    expect(lastTeamRequestBody).not.toHaveProperty("approvalMode");
   });
 
   it("retains the skill's post-commit receipt warning without requesting another approval", async () => {
@@ -602,15 +560,11 @@ describe("agents-proxy MCP surface", () => {
       "attach_file",
       "post_to_room",
       "create_bot",
-      "list_team_setup",
-      "propose_team_setup",
-      "propose_bot_deletion",
       "create_room",
       "manage_room",
       "request_credential",
       "request_takeover",
       "memory_update",
-      "retry_thread",
       "memory_log",
       "session_search",
       "session_read",
@@ -689,7 +643,6 @@ describe("agents-proxy MCP surface", () => {
       "tool_result_read",
       "list_shared_computers",
       "list_bots", "list_rooms", "check_delegation", "wait_delegation",
-      "list_team_setup",
       "session_search", "session_read", "list_routines", "skills_list",
     ];
     expect(list.result.tools.filter((tool: any) => tool.annotations?.readOnlyHint)
@@ -1452,32 +1405,6 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.isError).toBeFalsy();
   });
 
-  it("forwards for_bot_id when the routine is for another bot", async () => {
-    lastRoutineRequestBody = null;
-    const res = await callTool("propose_routine", {
-      name: "Teammate brief",
-      instructions: "Summarize for the teammate.",
-      schedule: { type: "weekly", time: "08:00", weekdays: ["tuesday"] },
-      for_bot_id: "bot-helper",
-    });
-    expect(lastRoutineRequestBody.forBotId).toBe("bot-helper");
-    expect(lastRoutineRequestBody.routine).not.toHaveProperty("forBotId");
-    expect(lastRoutineRequestBody.routine).not.toHaveProperty("for_bot_id");
-    expect(res.result.isError).toBeFalsy();
-  });
-
-  it("forwards for_bot_id when the action targets another bot's routine", async () => {
-    lastRoutineRequestBody = null;
-    const res = await callTool("propose_routine_action", {
-      action: "pause",
-      routine_id: "routine-morning",
-      for_bot_id: "bot-helper",
-    });
-    expect(lastRoutineRequestBody.forBotId).toBe("bot-helper");
-    expect(lastRoutineRequestBody.routineId).toBe("routine-morning");
-    expect(res.result.isError).toBeFalsy();
-  });
-
   it.each(["box", "cloud"])("maps %s execution to the explicit Boat runner without changing stored wire values", async (run_on) => {
     const res = await callTool("propose_routine", {
       name: "Boat check", instructions: "Check explicitly on Boat.",
@@ -1780,18 +1707,6 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.isError).toBeFalsy();
   });
 
-  it("propose_profile forwards for_bot_id when proposing for another bot", async () => {
-    lastProfileRequestBody = null;
-    await callTool("propose_profile", { title: "Chief of Staff", reason: "asked", for_bot_id: "bot-helper" });
-    expect(lastProfileRequestBody).toEqual({
-      fromBotId: "bot-asker",
-      fromThreadId: "thread-asker-routine",
-      changes: { title: "Chief of Staff" },
-      reason: "asked",
-      forBotId: "bot-helper",
-    });
-  });
-
   it("propose_profile refuses an empty change set without calling the harness", async () => {
     lastProfileRequestBody = null;
     const res = await callTool("propose_profile", { reason: "asked" });
@@ -1815,16 +1730,6 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.content[0].text).toContain("confirmation card is now visible");
     expect(res.result.content[0].text).toContain("do not claim the model was created or changed");
     expect(res.result.isError).toBeFalsy();
-  });
-
-  it("propose_model forwards for_bot_id when proposing for another bot", async () => {
-    lastModelRequestBody = null;
-    await callTool("propose_model", {
-      model_selection: { instanceId: "codex", model: "gpt-5" },
-      reason: "asked",
-      for_bot_id: "bot-helper",
-    });
-    expect(lastModelRequestBody).toMatchObject({ forBotId: "bot-helper" });
   });
 
   it("propose_model refuses a missing selection without calling the harness", async () => {
@@ -2068,7 +1973,7 @@ describe("with computer sharing off and no Chief of Staff (the defaults)", () =>
     }
   });
 
-  it("offers ordinary bots reviewed peer renames while retaining Chief-only setup and model targeting", async () => {
+  it("offers no team setup tools and no way to change another dog's profile, model or routines", async () => {
     type ListedTool = { name: string; description: string; inputSchema: { properties: Record<string, unknown> } };
     const tools = new Map(((await gatedRpc("tools/list")).result.tools as ListedTool[]).map((tool) => [tool.name, tool]));
     for (const name of ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"]) {
@@ -2076,37 +1981,20 @@ describe("with computer sharing off and no Chief of Staff (the defaults)", () =>
     }
     for (const name of ["create_bot", "create_room", "manage_room"]) expect(tools.has(name), name).toBe(true);
     for (const name of ["create_room", "manage_room"]) expect(tools.get(name)!.description).not.toMatch(/Chief/);
-    expect(tools.get("propose_model")!.inputSchema.properties).not.toHaveProperty("for_bot_id");
-    expect(tools.get("propose_model")!.description).not.toContain("for_bot_id");
-    expect(tools.get("propose_profile")!.inputSchema.properties).toHaveProperty("for_bot_id");
-    expect(tools.get("propose_profile")!.description).toContain("Non-Chiefs may submit only name and reason");
-    expect(tools.get("propose_profile")!.description).toContain("wait for confirmation in the app");
-    expect(tools.get("propose_routine_action")!.inputSchema.properties).toHaveProperty("for_bot_id");
+    for (const name of ["propose_model", "propose_profile", "propose_routine", "propose_routine_action"]) {
+      expect(tools.get(name)!.inputSchema.properties, name).not.toHaveProperty("for_bot_id");
+      expect(tools.get(name)!.description, name).not.toMatch(/for_bot_id|Chief/);
+    }
   });
 
-  it("forwards an ordinary bot's peer rename and preserves its pending confirmation outcome", async () => {
-    lastProfileRequestBody = null;
-    profileRequestResponse = { ...DEFAULT_PROFILE_RESPONSE, state: "pending" };
-    const renamed = await gatedRpc("tools/call", { name: "propose_profile", arguments: {
-      for_bot_id: "bot-helper", name: "Minor changes", reason: "Requested rename",
-    } });
-    expect(renamed.result.isError).toBeFalsy();
-    expect(renamed.result.content[0].text).toContain("confirmation card is now visible");
-    expect(renamed.result.content[0].text).toContain("do not claim the profile was created or changed");
-    expect(lastProfileRequestBody).toEqual({
-      fromBotId: "bot-asker", fromThreadId: "thread-asker-routine", forBotId: "bot-helper",
-      changes: { name: "Minor changes" }, reason: "Requested rename",
-    });
-  });
-
-  it("refuses a Chief-only tool called by name without reaching the harness", async () => {
+  it("refuses a retired team setup tool called by name without reaching the harness", async () => {
     const deletion = await gatedRpc("tools/call", { name: "propose_bot_deletion", arguments: { bot_id: "bot-helper", reason: "Done." } });
     expect(deletion.error).toMatchObject({ code: -32602, message: "Unknown tool: propose_bot_deletion" });
     const setup = await gatedRpc("tools/call", { name: "list_team_setup", arguments: {} });
     expect(setup.error).toMatchObject({ code: -32602, message: "Unknown tool: list_team_setup" });
   });
 
-  it("lets a bot that is not a Chief make a group chat through the harness", async () => {
+  it("lets any dog make a group chat through the harness", async () => {
     lastCreateRoomBody = null;
     const room = await gatedRpc("tools/call", { name: "create_room", arguments: { name: "Ivy, etsy", member_bot_ids: ["bot-helper"] } });
     expect(room.result.isError).toBeFalsy();

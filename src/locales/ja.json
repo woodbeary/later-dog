@@ -212,7 +212,6 @@
   "sidebar.bot.pin": "ピン留め",
   "sidebar.bot.unpin": "ピン留めを外す",
   "sidebar.bot.makeChief": "チーフ・オブ・スタッフにする",
-  "sidebar.bot.removeChief": "チーフ・オブ・スタッフを解除",
   "sidebar.bot.chiefNeedsEngine": "先に Claude か ACP のモデルプロバイダーを選んでください",
   "sidebar.bot.chiefOfStaff": "チーフ・オブ・スタッフ",
   "sidebar.bot.markUnread": "未読にする",

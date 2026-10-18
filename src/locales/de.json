@@ -210,7 +210,6 @@
   "sidebar.bot.pin": "Anheften",
   "sidebar.bot.unpin": "Loslösen",
   "sidebar.bot.makeChief": "Zum Stabschef machen",
-  "sidebar.bot.removeChief": "Als Stabschef entfernen",
   "sidebar.bot.chiefNeedsEngine": "Wähle zuerst Claude oder einen ACP-Modellanbieter",
   "sidebar.bot.chiefOfStaff": "Stabschef",
   "sidebar.bot.markUnread": "Als ungelesen markieren",

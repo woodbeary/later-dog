@@ -429,7 +429,6 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
       }
     }
 
-    if (pkg?.team?.leader) store.setChiefOfStaff(botIds.get(pkg.team.leader)!);
     if (org && pkg?.team) {
       orgIndex.section = section;
       orgIndex.team.parts = pairs(TEAM_PARTS, {

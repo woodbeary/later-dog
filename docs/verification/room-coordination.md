@@ -30,8 +30,7 @@ handoff loop inside those turns.
 The tools are `list_room_targets` and `coordinate_bots`. Discovery includes
 reachable bots as well as rooms. The latter addresses 1–4 existing bots in this
 room (default), or — in ordinary direct chat without a room — the sender's one
-thread with each recipient for that conversation. A Chief can reach additional teams only
-after the owner grants that access in [team settings](team-access.md).
+thread with each recipient for that conversation.
 A multi-recipient room request posts its brief once, addressed to all accepted
 recipients. Each recipient still has a separate execution and result. An
 identical retry does not post again; different briefs remain separate. Requests

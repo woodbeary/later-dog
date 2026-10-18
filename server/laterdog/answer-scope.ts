@@ -20,7 +20,7 @@ export function answerScopeOf(behavior: string, body: ScopeBody): AnswerScope | 
 
 function isProposal(card: Card): boolean {
   return Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest ||
-    card.teamSetupRequest || card.teamMemoryRequest || card.questionRequest || card.takeoverRequest);
+    card.teamMemoryRequest || card.questionRequest || card.takeoverRequest);
 }
 
 function confirmedScope(claimed: AnswerScope, message: Message, body: ScopeBody, threadId: string, grants: GrantLookup): AnswerScope {

@@ -554,8 +554,7 @@ export class OrgLibrary {
     const { store } = this.deps;
     return add.expect.bots.every((key) => Boolean(live.bots[key] && store.bot(live.bots[key]!)?.packageBase)) &&
       add.expect.rooms.every((key) => Boolean(live.rooms[key])) &&
-      add.expect.routines.every((key) => Boolean(live.routines[key])) &&
-      (add.expect.leader === null || store.bot(live.bots[add.expect.leader] ?? "")?.chiefOfStaff === true);
+      add.expect.routines.every((key) => Boolean(live.routines[key]));
   }
 
   private discardPartial(installId: string, live: LiveRecords): void {

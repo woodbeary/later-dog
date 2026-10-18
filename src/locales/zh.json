@@ -312,7 +312,6 @@
   "sidebar.bot.pin": "置顶",
   "sidebar.bot.unpin": "取消置顶",
   "sidebar.bot.makeChief": "设为幕僚长",
-  "sidebar.bot.removeChief": "取消幕僚长",
   "sidebar.bot.chiefNeedsEngine": "请先选择 Claude 或某个 ACP 模型提供方",
   "sidebar.bot.chiefOfStaff": "幕僚长",
   "sidebar.bot.moveToSection": "移至狗群",

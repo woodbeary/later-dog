@@ -12,9 +12,9 @@ type Room = { id: string; name: string; memberIds: string[]; section?: string; b
 type RpcReply = { result: { isError?: boolean; content: Array<{ text: string }> } };
 type Mounted = { command: string; args: string[]; env: Record<string, string> };
 
-const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
+const REMOVED_TEAM_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 
-it("creates and manages an own-section room through the mounted MCP proxy, for a Chief and for any dog", async () => {
+it("creates and manages an own-section room through the mounted MCP proxy, for the main dog and for any dog", async () => {
   const fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_MODE: "hang" });
   const evidence: unknown[] = [{ fixture: fixture.info }];
   const proxies: ChildProcess[] = [];
@@ -76,11 +76,11 @@ it("creates and manages an own-section room through the mounted MCP proxy, for a
       (await rpc<{ tools: Array<{ name: string }> }>("tools/list")).tools.map((entry) => entry.name);
 
     const peerMount = await mount(peer, "Say hello.");
-    expect(peerMount.env.LATERDOG_CHIEF_OF_STAFF).toBe("0");
+    expect(peerMount.env.LATERDOG_CHIEF_OF_STAFF).toBeUndefined();
     const peerTools = await toolNames(connect(peerMount));
     expect(peerTools).toContain("list_rooms");
     expect(peerTools).toEqual(expect.arrayContaining(["create_bot", "create_room", "manage_room"]));
-    expect(CHIEF_ONLY_TOOLS.filter((name) => peerTools.includes(name))).toEqual([]);
+    expect(REMOVED_TEAM_TOOLS.filter((name) => peerTools.includes(name))).toEqual([]);
     evidence.push({ peerTools });
     const peerRpc = connect(peerMount);
     const peerMade = await peerRpc("tools/call", { name: "create_room", arguments: { name: "Peer chat", member_bot_ids: [second.id] } });
@@ -94,9 +94,10 @@ it("creates and manages an own-section room through the mounted MCP proxy, for a
     await control(["interrupt", "--bot", peer.id]);
 
     const mounted = await mount(chief, "Set up a small room for the team.");
-    expect(mounted.env.LATERDOG_CHIEF_OF_STAFF).toBe("1");
+    expect(mounted.env.LATERDOG_CHIEF_OF_STAFF).toBeUndefined();
     const rpc = connect(mounted);
-    expect(await toolNames(rpc)).toEqual(expect.arrayContaining(CHIEF_ONLY_TOOLS));
+    const mainTools = await toolNames(rpc);
+    expect(REMOVED_TEAM_TOOLS.filter((name) => mainTools.includes(name))).toEqual([]);
     const tool = async (name: string, args: Record<string, unknown>, denied = false) => {
       const result = await rpc("tools/call", { name, arguments: args });
       evidence.push({ tool: name, args, result });

@@ -48,7 +48,6 @@ export interface OverviewFacts {
     | "connectorTools"
     | "browser"
     | "chiefOfStaff"
-    | "managedSections"
   >;
   routines: Array<{
     id: string;
@@ -218,10 +217,7 @@ function reachesLines(facts: OverviewFacts): string[] {
   if (facts.engine?.agentsMcp && facts.sectionPeers > 0 && facts.bot.peers?.length !== 0) {
     lines.push(`Can talk to ${facts.sectionPeers} other dog${facts.sectionPeers === 1 ? "" : "s"} across packs in this workspace.`);
   }
-  if (facts.bot.chiefOfStaff) lines.push("Coordinates its section as Chief of Staff.");
-  if (facts.bot.chiefOfStaff && facts.bot.managedSections?.length) {
-    lines.push(`May also propose setup changes for these packs: ${facts.bot.managedSections.map(name => name || "General").join(", ")}.`);
-  }
+  if (facts.bot.chiefOfStaff) lines.push("Is your main dog.");
   return lines;
 }
 

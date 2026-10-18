@@ -19,7 +19,13 @@ export const botDefaultModelSchema = z.object({
 }).strict().refine(value => value.effort === undefined || value.variant === undefined,
   "choose either a model variant or an effort level");
 
-export const botDefaultsProfileSchema = z.preprocess(retireDefaultsPlace, profilePatchSchema.extend({
+const dropRetiredChief = (value: unknown): unknown => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const { chiefOfStaff: _chief, managedSections: _sections, ...rest } = value as Record<string, unknown>;
+  return rest;
+};
+
+export const botDefaultsProfileSchema = z.preprocess((value) => retireDefaultsPlace(dropRetiredChief(value)), profilePatchSchema.extend({
   name: z.string().max(100).refine(fitsOnOneLine, "name must fit on one line").optional(),
   section: z.string().trim().max(60).optional(),
   color: z.enum(["green", "blue", "red", "orange", "purple", "cyan", "pink", "yellow", "teal", "coral"]).optional(),
@@ -31,8 +37,6 @@ export const botDefaultsProfileSchema = z.preprocess(retireDefaultsPlace, profil
   cwd: z.string().max(4096).nullable().optional(),
   approvalMode: z.enum(["ask", "auto", "full", "custom"]).optional(),
   alwaysAllow: strings(200, 500).optional(),
-  chiefOfStaff: z.boolean().optional(),
-  managedSections: strings(100, 60).optional(),
   approvePeerComms: z.boolean().optional(),
   peers: strings(1000, 100).nullable().optional(),
   composio: z.boolean().optional(),

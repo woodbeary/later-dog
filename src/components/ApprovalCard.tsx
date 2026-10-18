@@ -61,9 +61,8 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
   if (card.expired === true) return t("approval.status.expired");
   if (!card.answered) return undefined;
   if (card.undone === true) return t("approval.status.undone");
-  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamSetupRequest || card.teamMemoryRequest);
+  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamMemoryRequest);
   if (card.answered !== "allow") return isProposal ? t("approval.status.cancelled") : t("approval.status.denied");
-  if (card.teamSetupRequest) return card.teamSetupRequest.deletion ? "Dog deleted" : "Pack setup applied";
   const routineAction = card.routineRequest?.operation.action;
   if (routineAction) return t(ROUTINE_SETTLED_LABEL[routineAction]);
   const skillAction = card.skillRequest?.action;
@@ -81,7 +80,7 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
 export function approvalFoldSummary(card: OptionCardData, tool: string): { outcome: string; action?: string } | undefined {
   const outcome = approvalCardOutcome(card);
   if (!outcome) return undefined;
-  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamSetupRequest || card.teamMemoryRequest);
+  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamMemoryRequest);
   if (isProposal || card.expired === true || !card.tool) return { outcome };
   const phrase = toolLabel(tool, card.approvalScope);
   return { outcome, action: phrase.charAt(0).toUpperCase() + phrase.slice(1) };
@@ -349,7 +348,6 @@ export function ApprovalCard({
   const isRoutineRequest = Boolean(card.routineRequest);
   const isSkillRequest = Boolean(card.skillRequest);
   const isProfileRequest = Boolean(card.profileRequest);
-  const isTeamSetup = Boolean(card.teamSetupRequest);
   const heldNote = tFromServer(card.heldCode, card.held);
   const outcome = approvalCardOutcome(card);
   const outbound = outboundSummary(card);
@@ -363,7 +361,7 @@ export function ApprovalCard({
         })
     : undefined;
 
-  const isProposal = isRoutineRequest || isSkillRequest || isProfileRequest || isTeamSetup || Boolean(card.modelRequest || card.teamMemoryRequest);
+  const isProposal = isRoutineRequest || isSkillRequest || isProfileRequest || Boolean(card.modelRequest || card.teamMemoryRequest);
   const details = (
     <pre
       tabIndex={0}
@@ -392,7 +390,7 @@ export function ApprovalCard({
     >
       <div className="flex items-baseline justify-between gap-3">
         <div className="text-[14px] font-medium text-ink">
-          {isTeamSetup ? card.title : outbound ? outbound.headline : profileHeader ?? (
+          {outbound ? outbound.headline : profileHeader ?? (
             <>
               {bot
                 ? t("approval.card.namedWantsTo", { name: bot.name, action: approvalAction(card) })
@@ -429,7 +427,7 @@ export function ApprovalCard({
         ) : (
           <>
             <ShieldCheck size={14} className="text-accent" />
-            {isRoutineRequest || isSkillRequest || isProfileRequest || isTeamSetup
+            {isRoutineRequest || isSkillRequest || isProfileRequest
               ? t("approval.status.waitingConfirmation")
               : t("approval.status.waitingAnswer")}
           </>

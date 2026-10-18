@@ -239,7 +239,7 @@ it.each(["resume", "stop", "failed resume", "failed root"] as const)("keeps a gu
     const target = { threadId, messageId: waiting.messageId, expectedActiveLeafId: waiting.activeLeafId,
       expectedTurnId: waiting.activeTurnId, expectedExecutionId: waiting.executionId };
     if (action === "failed root") {
-      await api("PATCH", `/api/bots/${f.chief.id}`, { chiefOfStaff: false, hidden: true });
+      await api("PATCH", `/api/bots/${f.chief.id}`, { hidden: true });
       await expect.poll(() => f.nodes().find((node: any) => node.id === waiting.executionId)?.status, { timeout: 15_000 }).toBe("failed");
       writeFileSync(gate, "release the isolated teammate after its root failed");
       const finalWait = await f.wait();

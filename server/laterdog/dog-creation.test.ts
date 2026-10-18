@@ -112,14 +112,12 @@ describe("what a dog is told about creating dogs", () => {
     expect(PROFILE_PROMPT).not.toMatch(/bot-creation and team-setup tools for Chiefs|bots cannot be created/);
   });
 
-  it("an ordinary dog's roster names a Chief only when one is on it", () => {
-    const team = [{ id: "rex", name: "Rex", section: "Research" }];
+  it("a dog's roster never names a Chief or offers bot creation", () => {
+    const team = [{ id: "rex", name: "Rex", section: "Research" }, { id: "clive", name: "Clive", section: "Research" }];
     for (const roster of [peerRosterSystemPrompt(team), peerRosterSystemPrompt(team, true)]) {
       expect(roster).not.toMatch(/create (new )?bots|Chief of Staff creates|bot creation/);
       expect(roster).not.toMatch(/Chief/);
     }
-    const led = [...team, { id: "clive", name: "Clive", section: "Research", chiefOfStaff: true }];
-    expect(peerRosterSystemPrompt(led)).toContain("For requested team configuration, send a self-contained request to a reachable Chief of Staff");
   });
 });
 

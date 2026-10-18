@@ -618,20 +618,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     });
     return { text: JSON.stringify(result) };
   }
-  if (name === "list_team_setup") {
-    return { text: JSON.stringify(await api("/api/internal/team-setup-catalog")) };
-  }
-  if (name === "propose_team_setup" || name === "propose_bot_deletion") {
-    const deleting = name === "propose_bot_deletion";
-    const result = await api(deleting ? "/api/internal/bot-deletion-requests" : "/api/internal/team-setup-requests", {
-      method: "POST", body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID,
-        ...(deleting ? { targetBotId: args.bot_id, reason: args.reason } : { plan: args }),
-      }),
-    });
-    const completed = completedProposalResult(result, deleting ? "the requested bot deletion" : "the requested team setup");
-    if (completed) return completed;
-    return { text: `One review card is visible: ${String(result.title)}. Nothing has been applied. End this turn; the decision and structured result resume you automatically once. Do not ask again, poll, or repeat this proposal.` };
-  }
   if (name === "create_bot") {
     const botName = String(args.name ?? "").trim();
     const role = String(args.role ?? "").trim();
@@ -779,7 +765,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (!routine.name || !routine.instructions || !routine.schedule) {
       return { text: "propose_routine needs name, instructions, and schedule.", isError: true };
     }
-    const forBotId = String(args.for_bot_id ?? "").trim();
     const r = await api("/api/internal/routine-requests", {
       method: "POST",
       body: JSON.stringify({
@@ -787,7 +772,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         fromThreadId: THREAD_ID,
         action: "create",
         routine,
-        forBotId: forBotId || undefined,
       }),
     });
     return confirmationResult(r, `the new routine “${routine.name}”`);
@@ -798,13 +782,11 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (!routineId || !action) {
       return { text: "propose_routine_action needs a routine_id and supported action.", isError: true };
     }
-    const forBotId = String(args.for_bot_id ?? "").trim();
     const body: Json = {
       fromBotId: BOT_ID,
       fromThreadId: THREAD_ID,
       action,
       routineId,
-      ...(forBotId ? { forBotId } : {}),
     };
     if (action === "update") {
       if (!jsonRecord(args.changes)) {
@@ -844,7 +826,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (!Object.keys(changes).length && !args.avatar_prompt) {
       return { text: "propose_profile needs at least one of name, title, description, soul, cwd, notifications, speakReplies, or avatar_prompt.", isError: true };
     }
-    const forBotId = String(args.for_bot_id ?? "").trim();
     const r = await api("/api/internal/profile-requests", {
       method: "POST",
       body: JSON.stringify({
@@ -853,7 +834,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         changes,
         avatarPrompt: typeof args.avatar_prompt === "string" ? args.avatar_prompt.trim() : undefined,
         reason: args.reason,
-        forBotId: forBotId || undefined,
       }),
     });
     return confirmationResult(r, "the profile change", "profile");
@@ -871,7 +851,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const selection: Json = { instanceId: fields.instanceId.trim(), model: fields.model.trim() };
     if (typeof fields.effort === "string" && fields.effort.trim()) selection.effort = fields.effort.trim();
     if (typeof fields.variant === "string" && fields.variant.trim()) selection.variant = fields.variant.trim();
-    const forBotId = String(args.for_bot_id ?? "").trim();
     const r = await api("/api/internal/model-requests", {
       method: "POST",
       body: JSON.stringify({
@@ -879,7 +858,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         fromThreadId: THREAD_ID,
         modelSelection: selection,
         reason: args.reason,
-        forBotId: forBotId || undefined,
       }),
     });
     return confirmationResult(r, "the default model change", "model");
@@ -913,18 +891,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       ? `\nTo stay within what loads each session, moved ${moved.length === 1 ? "1 older entry" : `${moved.length} older entries`} to memory/archive.md (session_search finds them):\n${shown.join("\n")}${more}`
       : "";
     return { text: `Memory updated.${entry}${full}${movedNote}` };
-  }
-  if (name === "retry_thread") {
-    const botId = String(args.bot_id ?? "").trim();
-    const threadId = String(args.thread_id ?? "").trim();
-    const note = typeof args.note === "string" ? args.note.trim() : "";
-    if (!botId || !threadId) return { text: "retry_thread needs bot_id and thread_id — both are in the incident report.", isError: true };
-    const r = await api("/api/internal/retry-thread", {
-      method: "POST",
-      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, toBotId: botId, toThreadId: threadId, ...(note ? { note } : {}) }),
-    });
-    if (r.error) return { text: `Couldn't retry that thread: ${String(r.error)}`, isError: true };
-    return { text: typeof r.message === "string" ? r.message : "The thread is running again. Its result stays in that thread; you are not woken for it — check it later with session_search if you need to." };
   }
   if (name === "memory_log") {
     if (typeof args.text !== "string" || !args.text.trim()) {

@@ -1303,7 +1303,7 @@ describe("browser profile announcements", () => {
   });
 });
 
-describe("section Chiefs", () => {
+describe("sections and the main dog", () => {
   const bot = (id: string, section: string, chiefOfStaff = false) => ({
     id,
     threadId: `thread-${id}`,
@@ -1347,7 +1347,19 @@ describe("section Chiefs", () => {
     expect(reducer(state, { type: "groupPatched", group: announcement }).groups[0].section).toBeUndefined();
   });
 
-  it("hands off only within the patched bot's section", () => {
+  it("falls back to the main dog when the last selection is gone", () => {
+    const newest = { ...bot("newest", "Work"), messages: [] };
+    const main = { ...bot("main", "Personal", true), hidden: true, messages: [] };
+    const room = { id: "room", threadId: "room-thread", name: "Room", memberIds: [], defaultResponder: { kind: "mentions" }, createdAt: 1, bulletin: "", messages: [], unread: false } satisfies Group;
+    const hydrated = reducer({ ...initialState, selectedId: "gone" }, { type: "hydrate", bots: [newest, main], groups: [room], computerControl: {} });
+    expect(hydrated.selectedId).toBe("main");
+    const kept = reducer({ ...initialState, selectedId: "newest" }, { type: "hydrate", bots: [newest, main], groups: [room], computerControl: {} });
+    expect(kept.selectedId).toBe("newest");
+    expect(reducer({ ...kept, selectedId: "room" }, { type: "groupDeleted", groupId: "room" }).selectedId).toBe("main");
+    expect(reducer(kept, { type: "deleteBot", botId: "newest" }).selectedId).toBe("main");
+  });
+
+  it("moves the one main dog across sections when a new one is announced", () => {
     const workChief = bot("work-a", "Work", true);
     const workCandidate = bot("work-b", "Work");
     const personalChief = bot("personal", "Personal", true);
@@ -1361,12 +1373,11 @@ describe("section Chiefs", () => {
       bot: { ...workCandidate, chiefOfStaff: true },
     });
 
-    expect(next.bots.find((candidate) => candidate.id === workChief.id)?.chiefOfStaff).toBe(false);
-    expect(next.bots.find((candidate) => candidate.id === workCandidate.id)?.chiefOfStaff).toBe(true);
-    expect(next.bots.find((candidate) => candidate.id === personalChief.id)?.chiefOfStaff).toBe(true);
+    expect(next.bots.filter((candidate) => candidate.chiefOfStaff).map((candidate) => candidate.id)).toEqual([workCandidate.id]);
+    expect(next.bots.find((candidate) => candidate.id === personalChief.id)?.chiefOfStaff).toBe(false);
   });
 
-  it("keeps other section Chiefs during an optimistic settings update", () => {
+  it("keeps a single main dog during an optimistic settings update", () => {
     const workChief = bot("work-a", "Work", true);
     const workCandidate = bot("work-b", "Work");
     const personalChief = bot("personal", "Personal", true);
@@ -1381,9 +1392,8 @@ describe("section Chiefs", () => {
       patch: { chiefOfStaff: true },
     });
 
+    expect(next.bots.filter((candidate) => candidate.chiefOfStaff).map((candidate) => candidate.id)).toEqual([workCandidate.id]);
     expect(next.bots.find((candidate) => candidate.id === workChief.id)?.chiefOfStaff).toBe(false);
-    expect(next.bots.find((candidate) => candidate.id === workCandidate.id)?.chiefOfStaff).toBe(true);
-    expect(next.bots.find((candidate) => candidate.id === personalChief.id)?.chiefOfStaff).toBe(true);
   });
 
   it("optimistically clears an explicit computer when Auto is selected", () => {

@@ -9,7 +9,6 @@ import {
   approvalModeForOrigin,
   autoVerdict,
   deliverFullAccessApproval,
-  delegatedApprovalMode,
 } from "./auto-approve.ts";
 
 describe("Full access delivery", () => {
@@ -158,38 +157,5 @@ describe("tools that ask a person", () => {
 
   it("still answers an ordinary tool under Full access", () => {
     expect(autoVerdict("full", "Read").approve).toBeTruthy();
-  });
-});
-
-describe("delegatedApprovalMode", () => {
-  const base = { senderIsChief: true, senderMode: "full" as const, sameBot: false, recipientMode: "ask" as const, recipientDriverKind: "claudeAgent" };
-  it("passes a Full-access Chief's access to the teammate it delegates to", () => {
-    expect(delegatedApprovalMode(base)).toBe("full");
-    for (const recipientDriverKind of ["codex", "claudeAgent", "antigravityAgent", "cursorAgent", "grokAgent", "opencodeGo"]) {
-      expect(delegatedApprovalMode({ ...base, recipientDriverKind })).toBe("full");
-    }
-  });
-  it("passes an Approve-for-me or Auto-accept-edits Chief's level on too", () => {
-    expect(delegatedApprovalMode({ ...base, senderMode: "auto" })).toBe("auto");
-    expect(delegatedApprovalMode({ ...base, senderMode: "edits" })).toBe("edits");
-    expect(delegatedApprovalMode({ ...base, senderMode: "custom", recipientDriverKind: "codex" })).toBe("auto");
-  });
-  it("passes nothing on from an ordinary bot, a Chief on Ask, or a bot to itself", () => {
-    expect(delegatedApprovalMode({ ...base, senderIsChief: false })).toBeNull();
-    expect(delegatedApprovalMode({ ...base, senderMode: "ask" })).toBeNull();
-    expect(delegatedApprovalMode({ ...base, sameBot: true })).toBeNull();
-  });
-  it("never lowers a teammate, and leaves one on Custom with its own config", () => {
-    expect(delegatedApprovalMode({ ...base, senderMode: "auto", recipientMode: "full" })).toBeNull();
-    expect(delegatedApprovalMode({ ...base, senderMode: "auto", recipientMode: "auto" })).toBeNull();
-    expect(delegatedApprovalMode({ ...base, senderMode: "full", recipientMode: "auto" })).toBe("full");
-    expect(delegatedApprovalMode({ ...base, senderMode: "edits", recipientMode: "auto" })).toBeNull();
-    expect(delegatedApprovalMode({ ...base, recipientMode: "custom", recipientDriverKind: "codex" })).toBeNull();
-  });
-  it("steps down to the next level the teammate's engine has", () => {
-    expect(delegatedApprovalMode({ ...base, recipientDriverKind: "hermes" })).toBe("auto");
-    expect(delegatedApprovalMode({ ...base, recipientDriverKind: undefined })).toBe("auto");
-    expect(delegatedApprovalMode({ ...base, senderMode: "edits", recipientDriverKind: "codex" })).toBeNull();
-    expect(delegatedApprovalMode({ ...base, senderMode: "auto", recipientDriverKind: "codex" })).toBe("auto");
   });
 });

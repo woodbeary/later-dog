@@ -11,6 +11,7 @@ import {
 import { flushSync } from "react-dom";
 import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
+import { mainDogId } from "../../shared/main-dog";
 import type { ToolScope } from "../../shared/tool-scope";
 import type { ModelVariantOption, RuntimeEvent } from "../../shared/runtime-events";
 import type { DogColor, DogMotion } from "@/lib/mascot";
@@ -104,7 +105,6 @@ export interface OptionCardData {
   teamMemoryRequest?: { section: string; entryId: string; kind: string };
   profileRequest?: ProfileRequestCardData;
   modelRequest?: ModelRequestCardData;
-  teamSetupRequest?: import("../../shared/team-setup").TeamSetupRequest;
   questionRequest?: QuestionRequestCardData;
   takeoverRequest?: import("../../shared/takeover").TakeoverRequestCardData;
 }
@@ -318,7 +318,6 @@ export interface Bot {
   section?: string;
   pinnedMessageId?: string;
   chiefOfStaff?: boolean;
-  managedSections?: string[];
   approvePeerComms?: boolean;
   peers?: string[];
   composio?: boolean;
@@ -1084,7 +1083,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "hydrate": {
       const known = (id: string) => action.bots.some((b) => b.id === id) || action.groups.some((g) => g.id === id);
       const selectedId =
-        state.selectedId && known(state.selectedId) ? state.selectedId : (action.bots[0]?.id ?? "");
+        state.selectedId && known(state.selectedId) ? state.selectedId : (mainDogId(action.bots) ?? "");
       const hydrated = {
         ...state,
         hydrated: true,
@@ -1198,7 +1197,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "groupDeleted": {
       const groups = state.groups.filter((g) => g.id !== action.groupId);
-      const selectedId = state.selectedId === action.groupId ? (state.bots[0]?.id ?? "") : state.selectedId;
+      const selectedId = state.selectedId === action.groupId ? (mainDogId(state.bots) ?? "") : state.selectedId;
       return { ...state, groups, selectedId };
     }
     case "instances":
@@ -1270,7 +1269,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "deleteBot": {
       const bots = state.bots.filter((b) => b.id !== action.botId);
       const selectedId =
-        state.selectedId === action.botId ? (bots.find((b) => !b.hidden)?.id ?? bots[0]?.id ?? "") : state.selectedId;
+        state.selectedId === action.botId ? (mainDogId(bots) ?? "") : state.selectedId;
       const { [action.botId]: _deleted, ...deletingBots } = state.deletingBots;
       return reconcileModelVariantSessions({ ...state, bots, selectedId, deletingBots });
     }
@@ -1308,11 +1307,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const next = action.bot.chiefOfStaff
         ? {
             ...animated,
-            bots: animated.bots.map((b) =>
-              b.id === action.bot.id || (b.section?.trim() || "") !== (action.bot.section?.trim() || "")
-                ? b
-                : { ...b, chiefOfStaff: false },
-            ),
+            bots: animated.bots.map((b) => b.id === action.bot.id ? b : { ...b, chiefOfStaff: false }),
           }
         : animated;
       const switchedThread =
@@ -1639,16 +1634,10 @@ export function reducer(state: AppState, action: Action): AppState {
       const animated = mascotChanged
         ? withMascotMotion(state, action.botId, "customize")
         : state;
-      const target = animated.bots.find((bot) => bot.id === action.botId);
-      const chiefSection = (action.patch.section ?? target?.section)?.trim() || "";
       const next = action.patch.chiefOfStaff
         ? {
             ...animated,
-            bots: animated.bots.map((b) =>
-              b.id === action.botId || (b.section?.trim() || "") !== chiefSection
-                ? b
-                : { ...b, chiefOfStaff: false },
-            ),
+            bots: animated.bots.map((b) => b.id === action.botId ? b : { ...b, chiefOfStaff: false }),
           }
         : animated;
       const {

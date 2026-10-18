@@ -210,7 +210,6 @@
   "sidebar.bot.pin": "Épingler",
   "sidebar.bot.unpin": "Détacher",
   "sidebar.bot.makeChief": "Nommer chef de cabinet",
-  "sidebar.bot.removeChief": "Retirer le rôle de chef de cabinet",
   "sidebar.bot.chiefNeedsEngine": "Choisissez d'abord Claude ou un fournisseur de modèles ACP",
   "sidebar.bot.chiefOfStaff": "Chef de cabinet",
   "sidebar.bot.markUnread": "Marquer comme non lu",

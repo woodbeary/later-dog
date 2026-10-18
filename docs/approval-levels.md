@@ -51,27 +51,10 @@ A turn a webhook, a routine, or another bot started runs in the bot's level
 like any other turn. The decision log records that nobody was at the keyboard
 when such a turn asked.
 
-### A Chief of Staff's level covers the work it delegates
+### Delegated work keeps the teammate's own level
 
-Approvals were where a team's owner spent their day: every teammate a Chief
-brought in started at "Ask for approval", so the owner either answered a card
-every few minutes or switched each new thread by hand. So **a Chief of Staff's
-level flows down**. Work it delegates — `coordinate_bots` into a teammate's
-thread, and `delegate_bot` — starts at the level of the Chief conversation it
-came from: Auto-accept edits, Approve for me, or Full access. The delegated
-thread is switched to that level, keeps it, and opens with a line saying so
-("Approve for me — delegated by Clive, a Chief of Staff on Approve for me");
-you can still change it in that thread. Work a Chief hands out inside a room
-runs at the Chief's level for that turn.
-
-It only ever raises: a teammate already on a higher level keeps it, a teammate
-on Custom keeps its own configuration, and a Chief delegating from an Ask
-conversation passes nothing on. A teammate's engine caps the level: one without
-Full access gets Approve for me, and one without Auto-accept edits (Codex,
-whose Ask already writes the workspace) stays on its own level. The teammate's
-own default and its other conversations do not change, and an ordinary bot's
-delegation still uses the recipient's setting. Questions and missing
-credentials still reach you.
+Work one dog hands to another runs at the teammate's own level. The main dog
+has no extra authority: its level never flows down to the dogs it asks.
 
 ### Your own Off-leash dogs work without you
 
@@ -172,8 +155,8 @@ Choose Auto explicitly in the local packaged desktop app. Old Antigravity
 `auto` / `autoApprove` settings still behave as Ask and are displayed as Ask;
 they never become unrestricted access on upgrade. Switching back to Ask
 restores prompts on the next turn. Questions and missing-credential forms
-still require an answer. A Chief or
-teammate can delegate work to this bot without downgrading its explicit Auto
+still require an answer. Another dog
+can delegate work to this bot without downgrading its explicit Auto
 (full access) grant. It does not enable Auto on any other bot.
 
 ## Asking you questions

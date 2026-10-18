@@ -22,7 +22,7 @@ import { AVATAR_FOCUS_CENTER, AVATAR_ZOOM_MIN, botAvatarProfile, clampAvatarFocu
 import { approvalModeFor, isApprovalMode, modelSwitchNeedsAsk } from "../shared/approval-mode.ts";
 import { REMOVED_COMPUTER_DRIVER, type ComputerEngineMove } from "./computer-engine-removal.ts";
 import type { ProfileRequestChanges } from "../shared/profile-request.ts";
-import type { TeamSetupRequest, TeamSetupResult } from "../shared/team-setup.ts";
+import { mainDogId } from "../shared/main-dog.ts";
 import type { GroupGoalRunCardData } from "../shared/group-goal-run.ts";
 import { isMentionBoundary, isMentionNameContinuation } from "../shared/mention-boundary.ts";
 import type { HandedState } from "./delta-context.ts";
@@ -304,12 +304,11 @@ export interface BotRecord extends Omit<WireBot, "avatarUrl" | "tasks"> {
     allThreads?: true;
   };
   lastProfileRequestId?: string;
-  lastTeamSetupReceipt?: { requestId: string; result: TeamSetupResult };
   packageBase?: Partial<Record<AgentPart, PartPair>>;
   assignedSkills?: string[];
 }
 
-export type BotWirePrivateKeys = "resumeCursors" | "tasks" | "avatarUrl" | "approvalGrant" | "lastProfileRequestId" | "lastTeamSetupReceipt" | "packageBase" | "assignedSkills";
+export type BotWirePrivateKeys = "resumeCursors" | "tasks" | "avatarUrl" | "approvalGrant" | "lastProfileRequestId" | "packageBase" | "assignedSkills";
 export type BotWireProjection = Pick<BotRecord, Exclude<keyof BotRecord, BotWirePrivateKeys>>;
 export type BotWireProjectionIsExact = AssertExact<Omit<WireBot, "avatarUrl" | "tasks">, BotWireProjection> & AssertSameKeys<Omit<WireBot, "avatarUrl" | "tasks">, BotWireProjection>;
 export const botWireProjectionIsExact: BotWireProjectionIsExact = true;
@@ -487,6 +486,7 @@ export class Store {
   private listeners = new Set<(change: StoreChange) => void>();
   private registeringInitialSections = true;
   private legacyActivities = new Map<string, BotActivity>();
+  private mainId: string | null = null;
 
   constructor(
     defaultSelection: () => ModelSelection,
@@ -515,7 +515,6 @@ export class Store {
     this.rememberSections([...this.bots, ...this.groups].map((record) => record.section));
     let botsMigrated = false;
     const browserProfileAliases = loadBrowserProfileIdAliases();
-    const chiefSectionsSeen = new Set<string>();
     let groupsMigrated = false;
     for (const b of this.bots) {
       if (b.busy || (b.activity !== undefined && b.activity !== "idle")) botsMigrated = true;
@@ -548,11 +547,6 @@ export class Store {
       if (retirePlaces(b)) botsMigrated = true;
       if (b.autoStartVps !== undefined && b.autoStartVps !== true && b.autoStartVps !== false) {
         delete b.autoStartVps;
-        botsMigrated = true;
-      }
-      if (b.managedSections !== undefined && (!b.chiefOfStaff || !Array.isArray(b.managedSections) ||
-          b.managedSections.length > 100 || b.managedSections.some(section => typeof section !== "string" || section.length > 60))) {
-        delete b.managedSections;
         botsMigrated = true;
       }
       if (b.approvalMode !== undefined && !isApprovalMode(b.approvalMode)) {
@@ -609,21 +603,7 @@ export class Store {
         }
       }
     }
-    for (const b of this.bots) {
-      if (!b.chiefOfStaff) continue;
-      const key = sectionKey(b.section);
-      if (!chiefSectionsSeen.has(key)) {
-        chiefSectionsSeen.add(key);
-        if (b.hidden) {
-          b.hidden = false;
-          botsMigrated = true;
-        }
-        continue;
-      }
-      b.chiefOfStaff = false;
-      delete b.managedSections;
-      botsMigrated = true;
-    }
+    if (this.settleMainDog().length) botsMigrated = true;
     for (const b of this.bots) {
       if (!b.alwaysAllow?.length) continue;
       let changed = false;
@@ -884,15 +864,12 @@ export class Store {
     if (this.sections.includes(nextName) || computers?.forSection(nextName)) return "A pack with that name already exists";
     const members = this.bots.filter(bot => sectionKey(bot.section) === name);
     const rooms = this.groups.filter(group => sectionKey(group.section) === name);
-    const affected = this.bots.filter(bot => members.includes(bot) || bot.managedSections?.some(section => sectionKey(section) === name));
+    const affected = members;
     if (affected.some(bot => bot.busy || bot.tasks?.some(task => task.busy)) || rooms.some(group => group.busyBotId)) {
       return "Stop this pack's active work before renaming the pack";
     }
     if (!members.length && !rooms.length && !computers?.forSection(name)) return this.changeEmptySection(name, nextName);
-    const nextBots = this.bots.map(bot => ({ ...bot,
-      ...(members.includes(bot) ? { section: nextName } : {}),
-      ...(bot.managedSections ? { managedSections: [...new Set(bot.managedSections.map(section => sectionKey(section) === name ? nextName : section))] } : {}),
-    }));
+    const nextBots = this.bots.map(bot => members.includes(bot) ? { ...bot, section: nextName } : bot);
     const nextGroups = this.groups.map(group => rooms.includes(group) ? { ...group, section: nextName } : group);
     let computerChanged = false;
     try {
@@ -923,13 +900,6 @@ export class Store {
       return "A pack with that name already exists";
     }
     if (nextName === name) return undefined;
-    const revoked = this.bots.filter((bot) => bot.managedSections?.some((section) => sectionKey(section) === name));
-    if (revoked.length) {
-      const grants = new Map(revoked.map((bot) => [bot.id, bot.managedSections!.filter((section) => sectionKey(section) !== name)]));
-      this.saveBots(this.bots.map((bot) => grants.has(bot.id) ? { ...bot, managedSections: grants.get(bot.id)! } : bot));
-      for (const bot of revoked) bot.managedSections = grants.get(bot.id)!;
-      for (const bot of revoked) this.emit({ type: "bot", botId: bot.id });
-    }
     changeEmptySection(name, nextName);
     this.emit({ type: "sections" });
     return undefined;
@@ -942,13 +912,7 @@ export class Store {
     if (members.some(bot => bot.busy || bot.tasks?.some(task => task.busy)) || rooms.some(group => group.busyBotId)) {
       return "Stop this pack's active work before deleting the pack";
     }
-    if (this.bots.filter(bot => bot.chiefOfStaff && (!sectionKey(bot.section) || sectionKey(bot.section) === name)).length > 1) {
-      return "General already has a Chief of Staff. Move or change this pack's Chief before deleting the pack";
-    }
-    const nextBots = this.bots.map(bot => ({ ...bot,
-      ...(sectionKey(bot.section) === name ? { section: undefined } : {}),
-      ...(bot.managedSections ? { managedSections: bot.managedSections.filter(section => sectionKey(section) !== name) } : {}),
-    }));
+    const nextBots = this.bots.map(bot => sectionKey(bot.section) === name ? { ...bot, section: undefined } : bot);
     const nextGroups = this.groups.map(group => sectionKey(group.section) === name ? { ...group, section: undefined } : group);
     try {
       this.saveBots(nextBots);
@@ -1516,6 +1480,7 @@ export class Store {
     }];
     this.saveBots([bot, ...this.bots]);
     this.bots.unshift(bot);
+    this.saveSettledMainDog(bot.id);
     try {
       writeSoulMirror(bot.id, bot.soul ?? "");
     } catch (e) {
@@ -1530,67 +1495,6 @@ export class Store {
       });
     }
     return bot;
-  }
-
-  applyTeamSetup(request: TeamSetupRequest): TeamSetupResult {
-    const chief = this.bot(request.botId);
-    if (!chief) throw new Error("The requesting Chief no longer exists");
-    if (chief.lastTeamSetupReceipt?.requestId === request.requestId) return chief.lastTeamSetupReceipt.result;
-    const managedSections = [...new Set([...(chief.managedSections ?? []), ...request.newTeams])];
-    if (managedSections.length > 100 || managedSections.some((name) => name.trim() !== name || name.length > 60) ||
-        request.newTeams.some((name) => !name) || (request.newTeams.length && !chief.chiefOfStaff)) throw new Error("Invalid reviewed Chief team scope");
-    const nextBots = [...this.bots];
-    const changed: BotRecord[] = [];
-    for (const operation of request.operations) {
-      const at = nextBots.findIndex((bot) => bot.id === operation.botId);
-      let next: BotRecord;
-      if (operation.action === "create") {
-        if (at >= 0 || !operation.threadId || !operation.fields.name || !operation.fields.modelSelection) throw new Error("Invalid new bot in team setup");
-        const createdAt = Date.now();
-        const modelSelection = this.newBotSelection(operation.fields.modelSelection);
-        next = { id: operation.botId, threadId: operation.threadId, name: operation.fields.name,
-          title: "", description: "", soul: "", notifications: true, color: COLORS[nextBots.length % COLORS.length], unread: false,
-          resumeCursors: {}, createdAt, ...operation.fields, modelSelection,
-          approvalMode: "ask", autoApprove: false, composio: false, approvePeerComms: false,
-          ...(chief.visibility && chief.visibility !== "everyone" ? { visibility: structuredClone(chief.visibility) } : {}),
-          tasks: [{ threadId: operation.threadId, title: UNTITLED_THREAD, createdAt, updatedAt: createdAt, resumeCursors: {},
-            approvalMode: "ask", autoApprove: false,
-            unread: false, activity: "idle", busy: false }],
-        };
-        if (!next.cwd) delete next.cwd;
-        nextBots.unshift(next);
-      } else {
-        if (at < 0) throw new Error("A setup target no longer exists");
-        const previous = nextBots[at];
-        next = { ...previous, ...operation.fields };
-        if (operation.fields.modelSelection) next.tasks = this.withDefaultModel(previous, operation.fields.modelSelection);
-        nextBots[at] = next;
-      }
-      if (operation.fields.chiefOfStaff === false) delete next.managedSections;
-      next.section = sectionKey(next.section) || undefined;
-      if (operation.fields.soul !== undefined) { next.soulHash = soulHash(operation.fields.soul); next.soulDrift = false; }
-      changed.push(next);
-    }
-    const result: TeamSetupResult = { state: "applied", newTeams: request.newTeams, bots: changed.map((bot, index) => ({
-      id: bot.id, name: bot.name, section: bot.section, modelSelection: structuredClone(bot.modelSelection), chiefOfStaff: Boolean(bot.chiefOfStaff),
-      action: request.operations[index].action === "create" ? "created" : "updated",
-    })) };
-    const chiefAt = nextBots.findIndex((bot) => bot.id === chief.id);
-    const nextChief = { ...nextBots[chiefAt], lastTeamSetupReceipt: { requestId: request.requestId, result } };
-    if (request.newTeams.length && nextChief.chiefOfStaff) {
-      nextChief.managedSections = managedSections;
-    }
-    nextBots[chiefAt] = nextChief;
-    this.saveBots(nextBots);
-    this.bots = nextBots;
-    for (const bot of changed) {
-      try { writeSoulMirror(bot.id, bot.soul ?? ""); } catch (error) {
-        console.warn(`[bot-folder] could not refresh reviewed setup mirror for ${bot.id}: ${(error as Error).message}`);
-      }
-      this.emit({ type: "bot", botId: bot.id });
-    }
-    this.emit({ type: "bot", botId: chief.id });
-    return result;
   }
 
   private switchNeedsAsk(botId: string, threadId: string, from: ModelSelection, to: ModelSelection): boolean {
@@ -1619,20 +1523,13 @@ export class Store {
     return next;
   }
 
-  deleteBot(id: string, setupRequest?: TeamSetupRequest): boolean {
+  deleteBot(id: string): boolean {
     const bot = this.bot(id);
     if (!bot) return false;
-    let nextBots = this.bots.filter((b) => b.id !== id);
-    if (setupRequest) {
-      const chief = this.bot(setupRequest.botId);
-      if (!chief || chief.id === id || setupRequest.deletion?.botId !== id) throw new Error("The reviewed deletion no longer has a valid owner");
-      const lastTeamSetupReceipt: NonNullable<BotRecord["lastTeamSetupReceipt"]> = { requestId: setupRequest.requestId, result: { state: "applied", newTeams: [], bots: [
-        { id: bot.id, name: bot.name, action: "deleted" },
-      ] } };
-      nextBots = nextBots.map((candidate) => candidate.id === chief.id ? { ...candidate, lastTeamSetupReceipt } : candidate);
-    }
+    const nextBots = this.bots.filter((b) => b.id !== id);
     this.saveBots(nextBots);
     this.bots = nextBots;
+    this.saveSettledMainDog();
     this.legacyActivities.delete(id);
     const rooms = this.groups.filter((g) => !g.dm && g.memberIds.includes(id));
     for (const g of rooms) {
@@ -1661,6 +1558,10 @@ export class Store {
   patchBot(id: string, patch: Partial<BotRecord>): BotRecord | null {
     const bot = this.bot(id);
     if (!bot) return null;
+    if (Object.hasOwn(patch, "chiefOfStaff")) {
+      patch = { ...patch };
+      delete patch.chiefOfStaff;
+    }
     if (patch.connectorTools !== undefined) {
       const parsed = parseConnectorTools(patch.connectorTools);
       if (!parsed.ok) throw new Error(parsed.error);
@@ -1767,20 +1668,13 @@ export class Store {
   setBotsSection(
     botIds: string[],
     section: string,
-  ): { ok: true; bots: BotRecord[] } | { ok: false; reason: "unavailable" | "chief-conflict" } {
+  ): { ok: true; bots: BotRecord[] } | { ok: false; reason: "unavailable" } {
     const ids = [...new Set(botIds)];
     const targets = ids.map((id) => this.bot(id));
     if (targets.some((bot) => !bot || bot.hidden)) return { ok: false, reason: "unavailable" };
 
     const targetSection = sectionKey(section);
     const selected = targets as BotRecord[];
-    const destinationChiefIds = new Set([
-      ...selected.filter((bot) => bot.chiefOfStaff).map((bot) => bot.id),
-      ...this.bots
-        .filter((bot) => bot.chiefOfStaff && sectionKey(bot.section) === targetSection)
-        .map((bot) => bot.id),
-    ]);
-    if (destinationChiefIds.size > 1) return { ok: false, reason: "chief-conflict" };
 
     const patches = new Map<string, Partial<BotRecord>>();
     for (const bot of selected) {
@@ -1808,7 +1702,7 @@ export class Store {
   }
 
   updateTeamMembers(section: string, addIds: string[], removeIds: string[]):
-    { ok: true; bots: BotRecord[] } | { ok: false; reason: "unavailable" | "chief-conflict" | "membership-changed" } {
+    { ok: true; bots: BotRecord[] } | { ok: false; reason: "unavailable" | "membership-changed" } {
     const key = sectionKey(section);
     if (!key || !this.sections.includes(key)) return { ok: false, reason: "unavailable" };
     const adds = new Set(addIds), removes = new Set(removeIds);
@@ -1821,11 +1715,6 @@ export class Store {
     }
     const next = this.bots.map(bot => ids.has(bot.id)
       ? { ...bot, section: adds.has(bot.id) ? key : undefined } : bot);
-    for (const destination of [key, ""]) {
-      if (next.filter(bot => bot.chiefOfStaff && sectionKey(bot.section) === destination).length > 1) {
-        return { ok: false, reason: "chief-conflict" };
-      }
-    }
     if (ids.size) {
       this.saveBots(next);
       for (let i = 0; i < next.length; i++) if (ids.has(next[i].id)) Object.assign(this.bots[i], next[i]);
@@ -1874,26 +1763,36 @@ export class Store {
     bot.busy = ACTIVITY_BUSY.has(bot.activity);
   }
 
-  setChiefOfStaff(id: string | null, section?: string | null): BotRecord[] | null {
-    const selected = id ? this.bot(id) : null;
-    if (id && !selected) return null;
-    const targetSection = sectionKey(selected?.section ?? section);
+  mainBotId(): string | null {
+    if (this.mainId && this.bot(this.mainId)) return this.mainId;
+    return mainDogId(this.bots, this.mainId, this.sections);
+  }
+
+  setMainBot(id: string): BotRecord[] | null {
+    if (!this.bot(id)) return null;
+    this.mainId = id;
+    return this.saveSettledMainDog();
+  }
+
+  private settleMainDog(): BotRecord[] {
+    this.mainId = mainDogId(this.bots, this.mainId, this.sections);
     const changed: BotRecord[] = [];
     for (const bot of this.bots) {
-      if (sectionKey(bot.section) !== targetSection) continue;
-      const next = bot.id === id;
-      if (Boolean(bot.chiefOfStaff) === next && !(next && bot.hidden)) continue;
-      if (next) {
-        bot.chiefOfStaff = true;
-        bot.hidden = false;
-      } else {
-        bot.chiefOfStaff = false;
-        delete bot.managedSections;
-      }
+      const main = bot.id === this.mainId;
+      const legacy = bot as BotRecord & { managedSections?: unknown };
+      if (Boolean(bot.chiefOfStaff) === main && legacy.managedSections === undefined) continue;
+      bot.chiefOfStaff = main;
+      delete legacy.managedSections;
       changed.push(bot);
     }
-    if (changed.length) this.saveBots();
-    for (const bot of changed) this.emit({ type: "bot", botId: bot.id });
+    return changed;
+  }
+
+  private saveSettledMainDog(announcedLater?: string): BotRecord[] {
+    const changed = this.settleMainDog();
+    if (!changed.length) return changed;
+    this.saveBots();
+    for (const bot of changed) if (bot.id !== announcedLater) this.emit({ type: "bot", botId: bot.id });
     return changed;
   }
 

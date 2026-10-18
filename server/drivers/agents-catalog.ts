@@ -13,7 +13,6 @@ export interface CatalogProfile {
   cloudHome: boolean;
   emailMe?: boolean;
   memoryEnabled?: boolean;
-  chief: boolean;
   botId: string;
 }
 
@@ -28,7 +27,6 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
     cloudHome: env.LATERDOG_CLOUD_HOME === "1",
     emailMe: env.LATERDOG_EMAIL_ME === "1",
     memoryEnabled: env.LATERDOG_MEMORY_ENABLED !== "0",
-    chief: env.LATERDOG_CHIEF_OF_STAFF === "1",
     botId: env.LATERDOG_BOT_ID ?? "",
   };
 }
@@ -157,8 +155,6 @@ const ROUTINE_FIELDS_SCHEMA = {
   },
 } as const;
 
-const PROFILE_TARGET = " To rename a reachable teammate, pass for_bot_id from list_bots. Non-Chiefs may submit only name and reason; wait for confirmation in the app. Chiefs retain existing rules for other fields.";
-const PROPOSAL_OUTCOME = " Read the result: granted Full Access may apply the change immediately. If applied, continue the requested work without another confirmation. Only a pending result requires ending the turn and waiting for the in-app decision. Never claim success from the permission mode alone; report failed or cancelled results honestly. This does not elevate another bot's execution permissions.";
 const SELF_CHANGE_OUTCOME = " Read the result: a change to your own routines, skills, profile or model applies immediately, and the person sees it with an Undo; a change for another bot may wait for the person's confirmation. If applied, continue the requested work without another confirmation. Only a pending result requires ending the turn and waiting for the in-app decision. Never claim success without an applied result; report failed or cancelled results honestly. This does not elevate another bot's execution permissions.";
 
 const toolDefinitions = (externalRuntime: boolean) => [
@@ -359,7 +355,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "create_bot",
     description:
-      "Create a new bot when the person asks for another bot, agent or teammate. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It joins your section with the same access you have (never more) and greets the person in its own chat; then tell them it is in their sidebar. Omit modelSelection for the workspace default (a Chief may choose exact IDs from list_team_setup). If they gave it a job, hand the job over right away so it starts working without them repeating it. Maximum four new bots per turn.",
+      "Create a new bot when the person asks for another bot, agent or teammate. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It joins your section with the same access you have (never more) and greets the person in its own chat; then tell them it is in their sidebar. Omit modelSelection for the workspace default. If they gave it a job, hand the job over right away so it starts working without them repeating it. Maximum four new bots per turn.",
     inputSchema: {
       type: "object",
       properties: {
@@ -378,47 +374,6 @@ const toolDefinitions = (externalRuntime: boolean) => [
       },
       required: ["name", "role", "instructions"],
     },
-  },
-  {
-    name: "list_team_setup",
-    description: "Chief of Staff only: list authorized teams, teammate IDs, and exact engine/model choices for team setup. Call before proposing configuration; never invent model IDs. Existing thread models are independent of bot defaults.",
-    inputSchema: { type: "object", additionalProperties: false, properties: {} },
-  },
-  {
-    name: "propose_team_setup",
-    description: "Chief of Staff only: submit all requested specialist creation, profile/model configuration, Chief assignments, and authorized team moves in ONE combined plan. Use exact catalog engine/model IDs from list_team_setup. Combine all fields for each bot; use the same create key or botId to coalesce repeated entries. New teams must be named explicitly in newTeams and have a specialist in this plan; access is granted only to those new teams. Existing unauthorized teams cannot be included. Models change bot defaults for groups/new threads; existing threads and execution permissions stay unchanged. If review is pending, the decision and structured result automatically resume you once; do not ask again, poll, or repeat the proposal." + PROPOSAL_OUTCOME,
-    inputSchema: {
-      type: "object", additionalProperties: false,
-      properties: {
-        reason: { type: "string", minLength: 1, maxLength: 500 },
-        newTeams: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 60 } },
-        operations: { type: "array", minItems: 1, maxItems: 24, items: {
-          type: "object", additionalProperties: false,
-          properties: {
-            action: { type: "string", enum: ["create", "update"] },
-            key: { type: "string", description: "For create: your stable short name for this new bot in this plan." },
-            botId: { type: "string", description: "For update: exact existing bot ID from list_team_setup." },
-            fields: { type: "object", additionalProperties: false, properties: {
-              name: { type: "string", maxLength: 100 }, title: { type: "string", maxLength: 200 },
-              chiefOfStaff: { type: "boolean", description: "Appoint or remove this team's Chief. At most one Chief per team: explicitly demote the current Chief in the same plan when replacing them. Does not grant access to other teams or change execution permissions." },
-              description: { type: "string", maxLength: 4000 }, soul: { type: "string", description: "Standing instructions; required with name/title/modelSelection for every new bot." },
-              cwd: { type: "string", maxLength: 1024, description: "Create only: absolute path of the folder the new bot's tools read and write in. It must already exist. Leave it out for a private workspace." },
-              section: { type: "string", maxLength: 60, description: "Exact authorized existing team, or a team explicitly named in newTeams. Empty string means General." },
-              modelSelection: { type: "object", additionalProperties: false, properties: {
-                instanceId: { type: "string" }, model: { type: "string" }, effort: { type: "string" }, variant: { type: "string" },
-              }, required: ["instanceId", "model"] },
-            } },
-          }, required: ["action", "fields"],
-        } },
-      }, required: ["reason", "operations"],
-    },
-  },
-  {
-    name: "propose_bot_deletion",
-    description: "Chief of Staff only: when the user explicitly asks to delete a named teammate, submit a separate deletion request for that exact bot. Deletion removes its conversations, memory, instructions, skills, and any computer owned only by it; generated project files and shared team computers remain. Running work or an unavailable computer provider can block deletion safely. Never delete yourself, substitute an archive, or put deletion into a setup batch. If review is pending, the decision and result resume you once." + PROPOSAL_OUTCOME,
-    inputSchema: { type: "object", additionalProperties: false, properties: {
-      bot_id: { type: "string", minLength: 1 }, reason: { type: "string", minLength: 1, maxLength: 500 },
-    }, required: ["bot_id", "reason"] },
   },
   {
     name: "create_room",
@@ -539,21 +494,6 @@ const toolDefinitions = (externalRuntime: boolean) => [
     },
   },
   {
-    name: "retry_thread",
-    description:
-      "Chief of Staff only. Resume a teammate's thread whose last run failed, stalled or could not start — the one an incident report named — exactly where it stopped, keeping its conversation and files. The teammate gets a line saying you asked for the retry and why. Use it when the cause looks transient (a crash, a timeout, a busy service). Use delegate_bot with a corrected brief instead when the request itself needs to change, and tell the person instead when only they can fix the cause (a sign-in, a missing credential, an unanswered question). Never retry the same thread more than twice.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        bot_id: { type: "string", description: "The teammate's id, from the incident report or list_bots." },
-        thread_id: { type: "string", description: "The failed thread's id, from the incident report." },
-        note: { type: "string", description: "Optional: one sentence for the teammate about what to watch for this time." },
-      },
-      required: ["bot_id", "thread_id"],
-    },
-  },
-  {
     name: "memory_log",
     description:
       "Write one line to today's log file, memory/log/YYYY-MM-DD.md, stamped with the time and this conversation: what happened, not what is true. Use it for events worth a trace — a deploy went out, a person decided something, a check failed — that should not shape future sessions. Logs are never loaded into your prompt; the person can read them, and session_search finds them later. A fact that should hold in every session goes to memory_update instead.",
@@ -615,17 +555,12 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "propose_routine",
     description:
-      "Prepare a new routine after the user explicitly asks to schedule recurring or future work. Call list_routines first for relative dates or times so you use its authoritative current time and timezone. Convert calendar requests (monthly dates, last days, nth weekdays) into a validated five-field cron schedule with an explicit IANA timeZone; keep elapsed every-N-minutes work as interval. Never approximate unsupported requests with a different weekly schedule or an AI date-check routine; explain the limitation instead. Resolve ambiguous dates, times, timezone, destination, or instructions with the user first, and always give one-time schedules an explicit RFC3339 offset. If the user asks for the routine to run as ANOTHER bot in your section, call list_bots and pass that bot's id as for_bot_id; each run retains that bot's own permissions." + SELF_CHANGE_OUTCOME,
+      "Prepare a new routine after the user explicitly asks to schedule recurring or future work. Call list_routines first for relative dates or times so you use its authoritative current time and timezone. Convert calendar requests (monthly dates, last days, nth weekdays) into a validated five-field cron schedule with an explicit IANA timeZone; keep elapsed every-N-minutes work as interval. Never approximate unsupported requests with a different weekly schedule or an AI date-check routine; explain the limitation instead. Resolve ambiguous dates, times, timezone, destination, or instructions with the user first, and always give one-time schedules an explicit RFC3339 offset." + SELF_CHANGE_OUTCOME,
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
         ...ROUTINE_FIELDS_SCHEMA,
-        for_bot_id: {
-          type: "string",
-          description:
-            "Only when the user asks to schedule this routine for ANOTHER bot in your section: that bot's id from list_bots. Omit to schedule it for yourself. The routine then belongs to that bot and each run uses its engine and permissions.",
-        },
       },
       required: ["name", "instructions", "schedule"],
     },
@@ -633,17 +568,12 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "propose_routine_action",
     description:
-      "Prepare a user-requested change to one of this bot's existing routines. Use list_routines first to get the routine id. If the user asks to change ANOTHER bot's routine and that bot is in your section, call list_bots and pass that bot's id as for_bot_id; the routine keeps its owner and every run keeps that bot's engine and permissions." + SELF_CHANGE_OUTCOME,
+      "Prepare a user-requested change to one of this bot's existing routines. Use list_routines first to get the routine id." + SELF_CHANGE_OUTCOME,
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
         routine_id: { type: "string", minLength: 1, description: "Routine id from list_routines." },
-        for_bot_id: {
-          type: "string",
-          description:
-            "Only when the requested change targets ANOTHER bot's routine and that bot is in your section: that bot's id from list_bots. Learn the routine id from that bot's own routines (it can run list_routines). Omit to change one of your own routines.",
-        },
         action: {
           type: "string",
           enum: ["update", "pause", "resume", "run_now", "delete"],
@@ -662,7 +592,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "propose_profile",
     description:
-      "Submit user-requested changes to your own picture (avatar_prompt), name, title, description, standing instructions (SOUL.md), working folder (cwd), or your alert and voice toggles (notifications, speakReplies). Keep SOUL.md short — who you are and the rules you never break; put step-by-step procedure into a skill instead." + PROFILE_TARGET + SELF_CHANGE_OUTCOME,
+      "Submit user-requested changes to your own picture (avatar_prompt), name, title, description, standing instructions (SOUL.md), working folder (cwd), or your alert and voice toggles (notifications, speakReplies). Keep SOUL.md short — who you are and the rules you never break; put step-by-step procedure into a skill instead." + SELF_CHANGE_OUTCOME,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -686,10 +616,6 @@ const toolDefinitions = (externalRuntime: boolean) => [
           description: "Speak this bot's replies aloud as they settle, without being asked.",
         },
         reason: { type: "string", minLength: 1, maxLength: 500, description: "One sentence the user will see explaining why." },
-        for_bot_id: {
-          type: "string",
-          description: "Reachable teammate id from list_bots. Non-Chiefs may change only name, with human confirmation. Omit to change your own profile.",
-        },
       },
       required: ["reason"],
     },
@@ -697,7 +623,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "propose_model",
     description:
-      "Submit a user-requested switch of this bot's default engine and model. Use the exact instance and model ids the person named, or for a Chief the ids from the team-setup catalog. The result warns about capabilities the switch gains or loses; existing threads keep their current models." + SELF_CHANGE_OUTCOME,
+      "Submit a user-requested switch of this bot's default engine and model. Use the exact instance and model ids the person named. The result warns about capabilities the switch gains or loses; existing threads keep their current models." + SELF_CHANGE_OUTCOME,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -715,10 +641,6 @@ const toolDefinitions = (externalRuntime: boolean) => [
           description: "The new default selection.",
         },
         reason: { type: "string", minLength: 1, maxLength: 500, description: "One sentence the user will see explaining why." },
-        for_bot_id: {
-          type: "string",
-          description: "Chief of Staff only: the id of another bot in your section whose default model this changes. Omit to change your own.",
-        },
       },
       required: ["model_selection", "reason"],
     },
@@ -855,10 +777,6 @@ const SKILL_TOOL_NAMES = new Set(["skills_list", "skill_manage"]);
 export const SHARED_COMPUTER_TOOL_NAMES = new Set(["list_shared_computers", "shared_computer"]);
 const EMAIL_TOOL_NAMES = new Set(["email_me"]);
 const VOICE_TOOL_NAMES = new Set(["send_voice_note"]);
-const CHIEF_ONLY_TOOL_NAMES = new Set([
-  "list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread",
-]);
-const CHIEF_TARGET_TOOL_NAMES = new Set(["propose_model"]);
 const ROOM_ONLY_TOOLS = new Set(["list_room_targets", "coordinate_bots", "send_to_bot"]);
 const ROOM_REPLACED_TOOLS = new Set(["ask_bot", "delegate_bot", "check_delegation", "wait_delegation"]);
 const EXTERNAL_TOOL_NAMES = new Set(["list_bots", "ask_bot", "delegate_bot", "check_delegation", "wait_delegation"]);
@@ -899,16 +817,9 @@ function catalogTools(profile: CatalogProfile) {
   const VOICE_READY_TOOLS = profile.voiceNotes
     ? EMAIL_READY_TOOLS
     : EMAIL_READY_TOOLS.filter((tool) => !VOICE_TOOL_NAMES.has(tool.name));
-  const ROLE_TOOLS = profile.chief
-    ? VOICE_READY_TOOLS
-    : VOICE_READY_TOOLS.filter((tool) => !CHIEF_ONLY_TOOL_NAMES.has(tool.name)).map((tool) => {
-      if (!CHIEF_TARGET_TOOL_NAMES.has(tool.name)) return tool;
-      const properties = Object.fromEntries(Object.entries(tool.inputSchema.properties).filter(([key]) => key !== "for_bot_id"));
-      return { ...tool, inputSchema: { ...tool.inputSchema, properties } };
-    });
   return profile.externalRuntime
     ? BOT_SCOPED_TOOLS.filter(tool => EXTERNAL_TOOL_NAMES.has(tool.name))
     : profile.coordinating
-    ? ROLE_TOOLS.filter(tool => !ROOM_REPLACED_TOOLS.has(tool.name))
-    : ROLE_TOOLS.filter(tool => !ROOM_ONLY_TOOLS.has(tool.name));
+    ? VOICE_READY_TOOLS.filter(tool => !ROOM_REPLACED_TOOLS.has(tool.name))
+    : VOICE_READY_TOOLS.filter(tool => !ROOM_ONLY_TOOLS.has(tool.name));
 }

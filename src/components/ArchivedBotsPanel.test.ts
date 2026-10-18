@@ -41,6 +41,19 @@ describe("ArchivedBotRow", () => {
     expect(markup).toContain("text-danger");
   });
 
+  it("offers only Restore for a hidden main dog", () => {
+    const markup = renderToStaticMarkup(createElement(ArchivedBotRow, {
+      bot: { ...waffle(), chiefOfStaff: true },
+      restoring: false,
+      deleting: false,
+      disabled: false,
+      onRestore: vi.fn(),
+    }));
+
+    expect(markup).toContain(">Restore</button>");
+    expect(markup).not.toContain(">Delete</button>");
+  });
+
   it("spells out that Delete all permanently removes every archived bot", () => {
     const copy = archivedDeleteAllCopy();
     expect(copy.title).toBe("Delete all archived dogs?");

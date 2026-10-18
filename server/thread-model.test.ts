@@ -6,7 +6,6 @@ import { DATA_DIR } from "./config.ts";
 import type { ModelSelection, ProviderSnapshot } from "./contracts.ts";
 import { Store, toWireTask, type BotRecord, type TaskRecord } from "./store.ts";
 import { threadModelFallback, type ThreadEngine } from "./thread-model.ts";
-import type { TeamSetupRequest } from "../shared/team-setup.ts";
 
 const sonnet: ModelSelection = { instanceId: "claude", model: "claude-sonnet-5" };
 const opus: ModelSelection = { instanceId: "claude", model: "claude-opus-5" };
@@ -80,8 +79,7 @@ describe("threads follow their bot's model", () => {
     store.patchBot(bot.id, { modelSelection: opus });
     store.applyModelDefault(bot.id, { ...opus, effort: "high" });
     store.switchTaskModel(bot.id, follower.threadId, sonnet, true, false);
-    store.applyTeamSetup({ version: 1, requestId: "setup", botId: bot.id, threadId: bot.threadId, reason: "Requested", createdAt: 1,
-      requesterRevision: "fixture", newTeams: [], operations: [{ action: "update", botId: bot.id, fields: { modelSelection: opus } }] } as TeamSetupRequest);
+    store.applyModelDefault(bot.id, opus);
     expect(runsOn(store, bot.id, picked.threadId)).toEqual(codex);
     expect(runsOn(store, bot.id, follower.threadId)).toEqual(opus);
     expect(ownModel(open(), bot.id, picked.threadId)).toEqual(codex);

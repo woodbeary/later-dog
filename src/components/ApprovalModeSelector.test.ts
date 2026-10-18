@@ -19,7 +19,7 @@ describe("approval mode selector", () => {
       open: true, onCancel: () => {}, onConfirm: () => {},
     }));
     vi.unstubAllGlobals();
-    expect(html).toContain("tasks delegated by your Chief or other dogs");
+    expect(html).toContain("tasks delegated by other dogs");
     expect(html).toContain("does not enable Full access on other dogs");
     expect(html).not.toContain("Requests that come from another bot still get the usual checks");
   });

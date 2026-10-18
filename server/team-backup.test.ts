@@ -25,9 +25,9 @@ function fixture() {
   const otherChief = store.createBot({ name: "Ava", section: "Operations" }, { seedMessages: false });
   const archived = store.createBot({ name: "Archived" }, { seedMessages: false });
   store.patchBot(archived.id, { hidden: true });
-  store.patchBot(chief.id, { chiefOfStaff: true, autoApprove: true, approvalMode: "full", alwaysAllow: ["Bash"], cwd: "/private/old-workspace", composio: true,
+  store.patchBot(chief.id, { autoApprove: true, approvalMode: "full", alwaysAllow: ["Bash"], cwd: "/private/old-workspace", composio: true,
     playbooks: [{ key: "research", name: "Research", summary: "Find evidence", triggers: ["research"], instructions: "Cite sources" }] });
-  store.setChiefOfStaff(otherChief.id);
+  store.setMainBot(otherChief.id);
   const root = store.appendMessage(chief.threadId, { role: "user", kind: "text", text: "Original question", at: 100 });
   const answer = store.appendMessage(chief.threadId, { role: "bot", kind: "text", text: "Original answer", at: 101 });
   store.branchMessage(chief.threadId, root.id, "Edited question");
@@ -128,8 +128,10 @@ describe("additive portable team backups", () => {
     expect(importedChief.soul).toBe(chief.soul);
     expect(importedChief.soulHash).toBe(soulHash(chief.soul!));
     expect(readFileSync(soulFile(importedChief.id), "utf8")).toBe(chief.soul);
-    expect(importedChief).toMatchObject({ section: "Engineering 2", chiefOfStaff: true, description: chief.description, computer: "off", composio: false, browser: false, approvalMode: "ask", autoApprove: false, resumeCursors: {}, playbooks: chief.playbooks });
-    expect(result.bots.find((bot) => bot.name === "Ava 2")).toMatchObject({ section: "Operations 2", chiefOfStaff: true });
+    expect(importedChief).toMatchObject({ section: "Engineering 2", description: chief.description, computer: "off", composio: false, browser: false, approvalMode: "ask", autoApprove: false, resumeCursors: {}, playbooks: chief.playbooks });
+    expect(importedChief.chiefOfStaff).toBeUndefined();
+    expect(result.bots.find((bot) => bot.name === "Ava 2")).toMatchObject({ section: "Operations 2" });
+    expect(result.bots.find((bot) => bot.name === "Ava 2")?.chiefOfStaff).toBeUndefined();
     expect(result.bots.find((bot) => bot.name === "Archived 2")).toMatchObject({ hidden: true });
     expect(importedChief).not.toHaveProperty("cwd");
     expect(importedChief).not.toHaveProperty("alwaysAllow");
@@ -167,7 +169,7 @@ describe("additive portable team backups", () => {
     expect(reloaded.bot(importedChief.id)?.tasks).toEqual(importedChief.tasks);
     expect(reloaded.messagesFor(chief.threadId)).toEqual(store.messagesFor(chief.threadId));
     const second = importTeamBackup(store, routines, backup, selection());
-    expect(second.bots.find((bot) => bot.name === "Mira 3")).toMatchObject({ section: "Engineering 3", chiefOfStaff: true });
+    expect(second.bots.find((bot) => bot.name === "Mira 3")).toMatchObject({ section: "Engineering 3" });
     expect(store.bot(importedChief.id)).toEqual(importedChief);
   });
 
@@ -232,7 +234,7 @@ describe("additive portable team backups", () => {
     expect(restoredDm.dm).toBe(true);
   });
 
-  it.each(["unknown-version", "duplicate-bot", "cycle", "dangling-room", "dangling-task", "duplicate-chief", "oversized-soul"])("rejects %s before any writes", (corruption) => {
+  it.each(["unknown-version", "duplicate-bot", "cycle", "dangling-room", "dangling-task", "oversized-soul"])("rejects %s before any writes", (corruption) => {
     const { store, routines } = fixture();
     const backup = createTeamBackup(store, routines.listRoutines(), "My team");
     const before = readFileSync(join(DATA_DIR, "bots.json"), "utf8");
@@ -243,7 +245,6 @@ describe("additive portable team backups", () => {
     if (corruption === "cycle") source.tasks[0].messages[0].parentId = source.tasks[0].messages[0].id;
     if (corruption === "dangling-room") backup.groups[0].memberIds.push("missing");
     if (corruption === "dangling-task") source.activeTask = "missing";
-    if (corruption === "duplicate-chief") backup.bots.find((bot) => bot.name === "Scout")!.chiefOfStaff = true;
     if (corruption === "oversized-soul") source.soul = "🐭".repeat(6_001);
     expect(() => importTeamBackup(store, routines, backup, selection())).toThrow("Invalid backup");
     expect(readFileSync(join(DATA_DIR, "bots.json"), "utf8")).toBe(before);
@@ -311,19 +312,18 @@ describe("additive portable team backups", () => {
     expect(new Store(selection).sections).toEqual(beforeSections);
   });
 
-  it("keeps case-distinct sections and their Chiefs separate", () => {
-    const { store, routines } = fixture();
-    const second = store.createBot({ name: "Another chief", section: "engineering" }, { seedMessages: false });
-    store.setChiefOfStaff(second.id);
+  it("keeps case-distinct sections separate and never moves the main dog", () => {
+    const { store, routines, otherChief } = fixture();
+    const second = store.createBot({ name: "Another", section: "engineering" }, { seedMessages: false });
     const imported = importTeamBackup(store, routines, createTeamBackup(store, routines.listRoutines(), "My team"), selection());
-    const chief = imported.bots.find((bot) => bot.name === "Mira 2")!;
-    const other = imported.bots.find((bot) => bot.name === "Another chief 2")!;
-    expect(chief.chiefOfStaff).toBe(true);
-    expect(other.chiefOfStaff).toBe(true);
-    expect(chief.section?.toLowerCase()).not.toBe(other.section?.toLowerCase());
+    const mira = imported.bots.find((bot) => bot.name === "Mira 2")!;
+    const other = imported.bots.find((bot) => bot.name === "Another 2")!;
+    expect(mira.section?.toLowerCase()).not.toBe(other.section?.toLowerCase());
+    expect(store.mainBotId()).toBe(otherChief.id);
+    expect(store.bots.filter((bot) => bot.chiefOfStaff).map((bot) => bot.id)).toEqual([otherChief.id]);
     const reloaded = new Store(selection);
-    expect(reloaded.bot(chief.id)?.chiefOfStaff).toBe(true);
-    expect(reloaded.bot(other.id)?.chiefOfStaff).toBe(true);
+    expect(reloaded.mainBotId()).toBe(otherChief.id);
+    expect(reloaded.bot(second.id)?.chiefOfStaff).toBeUndefined();
   });
 
   it("backs up room history even when old deletions left dangling memberships and routines", () => {

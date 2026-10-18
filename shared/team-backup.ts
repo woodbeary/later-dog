@@ -134,13 +134,6 @@ export function parseTeamBackup(input: unknown): TeamBackup {
   };
   const bots = unique(backup.bots.map((bot) => bot.key), "bot key");
   const groups = unique(backup.groups.map((group) => group.key), "room key");
-  const chiefs = new Set<string>();
-  for (const bot of backup.bots) {
-    if (!bot.chiefOfStaff) continue;
-    const section = bot.section?.trim() ?? "";
-    if (chiefs.has(section) || bot.hidden) throw new Error("Invalid backup: a section must have at most one visible Chief of Staff");
-    chiefs.add(section);
-  }
   for (const group of backup.groups) {
     if (group.memberIds.some((id) => !bots.has(id))) throw new Error("Invalid backup: unknown room member");
     unique(group.memberIds, "room member");

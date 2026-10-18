@@ -5,7 +5,6 @@ import type { TurnDigest } from "./digest.ts";
 import type { BotAvatarCrop } from "./bot-avatar.ts";
 import type { MascotBodyId } from "./mascot-bodies.ts";
 import type { CredentialTargetId } from "./credential-request.ts";
-import type { TeamSetupRequest } from "./team-setup.ts";
 import type { RoutineRequestCardData } from "./routine-request.ts";
 import type { ProfileRequestCardData } from "./profile-request.ts";
 import type { PlaceRow } from "./place-view.ts";
@@ -189,7 +188,6 @@ export interface WireBot {
   section?: string;
   pinnedMessageId?: string;
   chiefOfStaff?: boolean;
-  managedSections?: string[];
   approvePeerComms?: boolean;
   peers?: string[];
   composio?: boolean;
@@ -320,7 +318,6 @@ export interface OptionCardData {
   routineRequest?: RoutineRequestCardData;
   profileRequest?: ProfileRequestCardData;
   modelRequest?: ModelRequestCardData;
-  teamSetupRequest?: TeamSetupRequest;
   skillRequest?: SkillRequestCardData;
   questionRequest?: QuestionRequestCardData;
   takeoverRequest?: TakeoverRequestCardData;
